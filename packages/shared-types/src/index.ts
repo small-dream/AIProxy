@@ -24,6 +24,29 @@ export type ProxyStatus = {
   startedAt?: string;
 };
 
+export type StartProxyInput = {
+  workspaceId: string;
+  port?: number;
+  enableSsl?: boolean;
+};
+
+export type StopProxyInput = {
+  workspaceId: string;
+};
+
+export const DEFAULT_WORKSPACE_ID = "default";
+export const DEFAULT_PROXY_PORT = 8888;
+
+export function createDefaultProxyStatus(): ProxyStatus {
+  return {
+    activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+    port: DEFAULT_PROXY_PORT,
+    running: false,
+    sslEnabled: false,
+    systemProxyEnabled: false,
+  };
+}
+
 const UNKNOWN_ERROR_CODE = "UNKNOWN_ERROR";
 const UNKNOWN_ERROR_MESSAGE = "An unexpected error occurred.";
 
@@ -58,3 +81,56 @@ export function isAppError(value: unknown): value is AppError {
   return typeof candidate.code === "string" && typeof candidate.message === "string";
 }
 
+export function isProxyStatus(value: unknown): value is ProxyStatus {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<ProxyStatus>;
+
+  if (typeof candidate.running !== "boolean") {
+    return false;
+  }
+
+  if (typeof candidate.port !== "number" || !Number.isInteger(candidate.port) || candidate.port <= 0) {
+    return false;
+  }
+
+  if (typeof candidate.sslEnabled !== "boolean" || typeof candidate.systemProxyEnabled !== "boolean") {
+    return false;
+  }
+
+  if (candidate.activeWorkspaceId !== undefined && typeof candidate.activeWorkspaceId !== "string") {
+    return false;
+  }
+
+  if (candidate.startedAt !== undefined && typeof candidate.startedAt !== "string") {
+    return false;
+  }
+
+  return true;
+}
+
+export function parseProxyStatus(value: unknown): ProxyStatus {
+  if (isProxyStatus(value)) {
+    return value;
+  }
+
+  throw {
+    code: "INVALID_PROXY_STATUS",
+    message: "The proxy status payload does not match the shared contract.",
+    details: {
+      payload: value,
+    },
+  } satisfies AppError;
+}
+
+export function normalizeStartProxyInput(input: StartProxyInput): StartProxyInput {
+  const normalizedPort = input.port ?? DEFAULT_PROXY_PORT;
+
+  return {
+    enableSsl: input.enableSsl ?? false,
+    port: normalizedPort,
+    workspaceId: input.workspaceId.trim(),
+  };
+}

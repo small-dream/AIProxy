@@ -22,3 +22,53 @@ impl Default for BootstrapStatus {
     }
 }
 
+#[derive(Debug)]
+pub struct AppState {
+    status: std::sync::Mutex<BootstrapStatus>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            status: std::sync::Mutex::new(BootstrapStatus::default()),
+        }
+    }
+
+    pub fn read_status(&self) -> BootstrapStatus {
+        self.status
+            .lock()
+            .expect("bootstrap status mutex should not be poisoned")
+            .clone()
+    }
+
+    pub fn start_proxy(
+        &self,
+        port: u16,
+        enable_ssl: bool,
+        workspace_id: String,
+    ) -> BootstrapStatus {
+        let mut status = self
+            .status
+            .lock()
+            .expect("bootstrap status mutex should not be poisoned");
+
+        status.port = port;
+        status.running = true;
+        status.ssl_enabled = enable_ssl;
+        status.active_workspace_id = Some(workspace_id);
+
+        status.clone()
+    }
+
+    pub fn stop_proxy(&self, workspace_id: String) -> BootstrapStatus {
+        let mut status = self
+            .status
+            .lock()
+            .expect("bootstrap status mutex should not be poisoned");
+
+        status.running = false;
+        status.active_workspace_id = Some(workspace_id);
+
+        status.clone()
+    }
+}

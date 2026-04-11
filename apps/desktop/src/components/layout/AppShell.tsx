@@ -1,7 +1,7 @@
 import MenuIcon from "@mui/icons-material/Menu";
-import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
+import { DEFAULT_PROXY_PORT } from "@pharles/shared-types";
 import {
   AppBar,
   Box,
@@ -20,8 +20,10 @@ import {
 } from "@mui/material";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
-import { navigationItems } from "@/features/navigation/navigation-items";
 import { useAppShellStore } from "@/app/store/app-shell.store";
+import { navigationItems } from "@/features/navigation/navigation-items";
+import { getProxyStatusPresentation } from "@/features/proxy-status/proxy-status.helpers";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 
 const NAVIGATION_WIDTH = 264;
 
@@ -29,6 +31,8 @@ export function AppShell() {
   const location = useLocation();
   const navigationExpanded = useAppShellStore((state) => state.navigationExpanded);
   const toggleNavigation = useAppShellStore((state) => state.toggleNavigation);
+  const { data: proxyStatus } = useProxyStatus();
+  const proxyPresentation = getProxyStatusPresentation(proxyStatus);
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
@@ -54,7 +58,7 @@ export function AppShell() {
             </Typography>
           </Stack>
 
-          <Chip color="success" icon={<PlayArrowRoundedIcon />} label="Proxy Idle" />
+          <Chip color={proxyPresentation.chipColor} label={proxyPresentation.label} />
 
           <OutlinedInput
             placeholder="Search sessions, domains, or rules"
@@ -123,14 +127,14 @@ export function AppShell() {
           }}
         >
           <Typography color="text.secondary" variant="body2">
-            Workspace: Default
+            Workspace: {proxyStatus?.activeWorkspaceId ?? "default"}
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            Certificates, rules, and proxy services will be connected in the next implementation phase.
+            Port {proxyStatus?.port ?? DEFAULT_PROXY_PORT} | SSL {proxyStatus?.sslEnabled ? "enabled" : "disabled"} |
+            {" "}System proxy {proxyStatus?.systemProxyEnabled ? "on" : "off"}
           </Typography>
         </Stack>
       </Box>
     </Box>
   );
 }
-

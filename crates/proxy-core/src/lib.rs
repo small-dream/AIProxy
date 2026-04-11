@@ -42,4 +42,3 @@ mod tests {
         assert_eq!(actual, Err("proxy port must be greater than zero"));
     }
 }
-

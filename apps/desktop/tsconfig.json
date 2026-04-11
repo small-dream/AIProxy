@@ -4,8 +4,8 @@
     "baseUrl": "./src",
     "paths": {
       "@/*": ["./*"]
-    }
+    },
+    "types": ["vite/client", "node"]
   },
   "include": ["src", "vite.config.ts"]
 }
-

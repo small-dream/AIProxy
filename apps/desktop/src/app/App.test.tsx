@@ -9,4 +9,11 @@ describe("App", () => {
 
     expect(screen.getByText("Pharles")).toBeInTheDocument();
   });
+
+  it("renders the bootstrap sessions workspace", () => {
+    render(<App />);
+
+    expect(screen.getByRole("heading", { level: 4, name: "Sessions" })).toBeInTheDocument();
+    expect(screen.getByText("Proxy Runtime")).toBeInTheDocument();
+  });
 });

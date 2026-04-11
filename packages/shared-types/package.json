@@ -7,7 +7,7 @@
   "types": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --pool=threads",
     "lint": "eslint src --ext .ts"
   },
   "devDependencies": {

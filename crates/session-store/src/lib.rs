@@ -31,4 +31,3 @@ mod tests {
         assert_eq!(actual, 500);
     }
 }
-
