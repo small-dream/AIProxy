@@ -420,7 +420,7 @@ erDiagram
 
 ### 页面结构映射
 
-- `SessionsPage`：`Capture Control Strip` + `Session Explorer Pane` + `Session Inspector Workspace`
+- `SessionsPage`：`Session Filter Bar` + `Session Explorer Pane` + `Session Inspector Workspace`，全局抓包控制固定在 `AppShell` 顶部工具栏，底部仅保留状态栏
 - `ComposePage`：`Preset Pane` + `Request Editor Pane` + `Response Result Pane`
 - `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`

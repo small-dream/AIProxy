@@ -152,6 +152,22 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   }
 }
 
+export async function clearSessions(): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "clear_sessions_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "clear_sessions_requested");
+    await invoke("clear_sessions");
+    logDevInfo("ui.commands", "clear_sessions_succeeded");
+  } catch (error) {
+    reportCommandFailure("clear_sessions", error);
+    throw coerceAppError(error);
+  }
+}
+
 export async function enableSystemProxy(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "enable_system_proxy_bypassed_non_tauri_runtime");

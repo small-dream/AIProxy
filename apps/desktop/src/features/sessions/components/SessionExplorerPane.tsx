@@ -14,23 +14,19 @@ import {
   ListItemText,
   Paper,
   Stack,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import type { SessionSummary } from "@pharles/shared-types";
 
-import type { SessionExplorerScope, SessionHostGroup } from "../session-explorer.helpers";
+import type { SessionHostGroup } from "../session-explorer.helpers";
 
 type SessionExplorerPaneProps = {
   errorMessage: string | undefined;
   expandedHosts: string[];
   groups: SessionHostGroup[];
   isLoading: boolean;
-  onScopeChange: (scope: SessionExplorerScope) => void;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (host: string) => void;
-  scope: SessionExplorerScope;
   selectedSessionId: string | undefined;
 };
 
@@ -39,10 +35,8 @@ export function SessionExplorerPane({
   expandedHosts,
   groups,
   isLoading,
-  onScopeChange,
   onSelectSession,
   onToggleHost,
-  scope,
   selectedSessionId,
 }: SessionExplorerPaneProps) {
   return (
@@ -63,29 +57,10 @@ export function SessionExplorerPane({
         direction="row"
         justifyContent="space-between"
         spacing={2}
-        sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1.25 }}
+        sx={{ bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
       >
-        <Stack spacing={0.25}>
-          <Typography variant="subtitle2">Session Explorer</Typography>
-          <Typography color="text.secondary" variant="caption">
-            Grouped by host for rapid traffic drilling.
-          </Typography>
-        </Stack>
-
-        <ToggleButtonGroup
-          exclusive
-          onChange={(_event, nextScope: SessionExplorerScope | null) => {
-            if (nextScope) {
-              onScopeChange(nextScope);
-            }
-          }}
-          size="small"
-          value={scope}
-        >
-          <ToggleButton value="all">All</ToggleButton>
-          <ToggleButton value="http">HTTP</ToggleButton>
-          <ToggleButton value="errors">Errors</ToggleButton>
-        </ToggleButtonGroup>
+        <Typography variant="subtitle2">Session Explorer</Typography>
+        <Chip label={`${groups.reduce((count, group) => count + group.totalCount, 0)} requests`} size="small" variant="outlined" />
       </Stack>
 
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>

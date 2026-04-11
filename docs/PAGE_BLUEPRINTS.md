@@ -68,12 +68,11 @@
 ```text
 [Sessions Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [Recording] Workspace: Default  Port: 8888  [SSL Off] [System Proxy On/Off] │
-│ (Start/Stop Proxy) (Enable/Disable System Proxy) [Search sessions...]       │
+│ [Filter hosts, paths, methods, or status........] <All> <HTTP> <Errors>    │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Session Explorer]                                [Inspector Workspace]      │
 │ ┌───────────────────────────────────────────────┐  ┌──────────────────────┐ │
-│ │ <Group by Host> <All> <HTTP> <Errors>         │  │ GET /online/ → 200   │ │
+│ │ Requests: 23                                  │  │ GET /online/ → 200   │ │
 │ ├───────────────────────────────────────────────┤  │ Host: example.com    │ │
 │ │ ▾ example.com (3)                             │  │ Duration: 23 ms      │ │
 │ │   ▸ GET /index                                │  ├──────────────────────┤ │
@@ -82,29 +81,33 @@
 │ │ ▸ assets.example.com (8)                      │  ├──────────────────────┤ │
 │ │ ▸ api.example.net (12)                        │  │ <Headers> <Text>     │ │
 │ │ ...                                           │  │ <Hex> <Raw>          │ │
-│ │ [Filter hosts and paths...]                   │  │ [Inspector content]  │ │
-│ └───────────────────────────────────────────────┘  └──────────────────────┘ │
+│ └───────────────────────────────────────────────┘  │ [Inspector content]  │ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Recording] Workspace: Default Port: 8888 [SSL Off] [System Proxy On/Off]  │
+│ [Status only]                                                               │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 4.3 React 组件树
 
 ```text
-SessionsPage
-├─ CaptureControlStrip
-├─ CaptureWorkbench
-│  ├─ SessionExplorerPane
-│  │  ├─ ExplorerToolbar
-│  │  ├─ SessionHostTree
-│  │  │  ├─ HostGroupNode
-│  │  │  └─ SessionLeafNode
-│  │  └─ ExplorerFilterField
+AppShell
+├─ TopAppBar
+├─ LeftNavigation
+├─ SessionsPage
+│  ├─ SessionFilterBar
+│  ├─ CaptureWorkbench
+│  │  ├─ SessionExplorerPane
+│  │  │  ├─ ExplorerSummary
+│  │  │  ├─ SessionHostTree
+│  │  │  │  ├─ HostGroupNode
+│  │  │  │  └─ SessionLeafNode
 │  └─ SessionInspectorWorkspace
 │     ├─ RequestHeadline
 │     ├─ InspectorPrimaryTabs
 │     ├─ InspectorSecondaryTabs
 │     └─ SessionInspectorState
-└─ BottomStatusStrip
+└─ BottomControlStrip
 ```
 
 ### 4.4 页面状态模型
@@ -156,6 +159,7 @@ User clicks Start Proxy
 ### 4.6 后续扩展位
 
 - `SessionExplorerPane` 增加树形虚拟滚动与分组模式切换
+- `Content Split Pane` 支持左右分栏拖拽宽度记忆
 - `SessionInspectorWorkspace` 追加完整 request / response / timing 数据
 - `list_sessions` 改为实时事件推送 + 增量合并
 - `get_session_detail` 按需加载 Inspector 真正内容，列表与详情解耦
@@ -478,7 +482,7 @@ WorkspacesPage
 ## 10. 页面与模块映射
 
 | 页面 | 主 Feature 模块 | 主要命令/接口 |
-|---|---|---|
+| --- | --- | --- |
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request`, `repeat_session` |
 | Rules | `breakpoints`, `rewrite-rules`, `map-rules` | `save_*_rule`, `list_*_rules` |

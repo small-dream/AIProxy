@@ -70,6 +70,13 @@ Pharles 的界面目标不是“炫”，而是“高效、稳定、可读、专
 - `Text Primary`: `#17202A`
 - `Text Secondary`: `#556070`
 
+建议语义分工：
+
+- `Background`：应用壳层与页面大底
+- `Surface`：主要工作面板与卡片容器
+- `Surface Variant`：次级工具条、代码区、hover 背景
+- `Outline`：分隔线、面板边框、拖拽分栏线
+
 ### Dark
 
 - `Background`: `#121212`
@@ -156,21 +163,21 @@ App Shell
 
 ## 8.2 顶部栏规范
 
-顶部栏承载全局状态与高优先级操作：
+顶部栏承载全局状态与高频操作入口：
 
 - 应用标识
-- 当前工作区
-- 代理运行状态
-- 代理端口
-- HTTPS 证书状态
-- 系统代理开关
-- 全局搜索
+- 当前页面上下文
+- Start / Stop Proxy
+- Enable / Disable System Proxy
+- Clear Sessions
+- 代理运行状态摘要
 - 设置入口
 
 设计要求：
 
 - 高度建议 `56`
-- 左侧展示上下文，右侧展示全局操作
+- 保持轻量，不承载会话级筛选输入
+- 左侧展示上下文，右侧展示全局入口
 - 代理运行状态必须持续可见
 
 ## 8.3 左侧导航规范
@@ -195,29 +202,25 @@ App Shell
 
 ## 8.4 主工作台规范
 
-抓包中心采用桌面优先的“顶部捕获控制条 + 左侧树形会话浏览区 + 右侧详情工作区 + 底部状态栏”结构。
+抓包中心采用桌面优先的“页面轻量过滤栏 + 左侧树形会话浏览区 + 右侧详情工作区 + 底部固定状态栏”结构。
 
 ### 推荐布局比例
 
-- 顶部捕获控制条高度：`48 - 56`
-- 左侧会话浏览区宽度：`28% - 38%`
-- 右侧详情工作区宽度：`62% - 72%`
-- 底部状态栏高度：`32 - 36`
+- 页面过滤栏高度：`40 - 48`
+- 左侧会话浏览区宽度：`28% - 36%`
+- 右侧详情工作区宽度：`64% - 72%`
+- 底部固定控制栏高度：`44 - 56`
 
 ### 主工作台结构树
 
 ```text
 Capture Workspace
-├─ Capture Control Strip
-│  ├─ Recording State
-│  ├─ Start / Stop Proxy
-│  ├─ Enable / Disable System Proxy
-│  ├─ Port Indicator
-│  ├─ SSL Indicator
-│  └─ Quick Search
+├─ Session Filter Bar
+│  ├─ Quick Search
+│  └─ Scope Filters
 ├─ Content Split Pane
 │  ├─ Session Explorer Pane
-│  │  ├─ Explorer Toolbar
+│  │  ├─ Explorer Summary
 │  │  ├─ Domain / Host Tree
 │  │  ├─ Request Nodes
 │  │  └─ Empty / Loading / Error State
@@ -226,28 +229,31 @@ Capture Workspace
 │     ├─ Primary Inspector Tabs
 │     ├─ Secondary Content Tabs
 │     └─ Tab Content Area
-└─ Bottom Status Strip
+└─ Bottom Control Strip
    ├─ Proxy State
+   ├─ Start / Stop Proxy
    ├─ System Proxy State
+   ├─ Enable / Disable System Proxy
    ├─ Active Workspace
-   ├─ Captured Session Count
-   └─ Background Task / Error Hint
+   └─ Port / SSL Summary
 ```
 
 ### 布局目标
 
 - 用户选中一条请求后无需跳页即可查看详情
 - 左侧树必须支持快速定位 `host -> request`
-- 搜索、过滤、清空、导出必须保持在同一视图
+- 搜索和过滤必须贴近会话列表，而不是放到全局壳层中
 - 会话浏览区支持高密度树形浏览，详情区支持深入分析
 - 详情区宽度不能小到影响 Header / Raw / JSON 阅读
+- 全局抓包控制必须固定可见，不随页面内容滚动
 
 ### 行为约束
 
 - 分栏拖拽宽度必须可记忆
 - 左侧树滚动与详情区滚动互不影响
+- 左右分栏支持拖拽调整宽度，并记忆用户上次设置
 - 切换选中会话时，详情区只更新内容，不整体闪烁重绘
-- 工具条操作不能遮挡会话表头
+- 过滤栏必须保持轻量，不能重新膨胀为大卡片工具区
 - 分组节点展开 / 收起不应打断当前选中请求
 
 ## 8.5 底部状态栏规范
@@ -256,8 +262,9 @@ Capture Workspace
 
 - 代理状态
 - 当前工作区
-- 实时会话数量
-- 当前网络模拟状态
+- 代理端口
+- SSL 状态
+- 系统代理状态
 - 错误提示或后台任务提示
 
 ## 9. 页面规范
@@ -288,17 +295,12 @@ Sessions Page 是产品的主工作台，承担“抓包、筛选、定位、查
 
 ```text
 Sessions Page
-├─ Capture Control Strip
-│  ├─ Recording Indicator
-│  ├─ Workspace Indicator
-│  ├─ Port Indicator
-│  ├─ SSL Indicator
-│  ├─ Start / Stop Proxy
-│  ├─ Enable / Disable System Proxy
-│  └─ Session Search
+├─ Session Filter Bar
+│  ├─ Session Search
+│  └─ Scope Filter Group
 ├─ Capture Workspace
 │  ├─ Session Explorer Pane
-│  │  ├─ Explorer Toolbar
+│  │  ├─ Explorer Summary
 │  │  ├─ Host Group Tree
 │  │  ├─ Request Rows
 │  │  └─ Empty / Loading / Error State
@@ -307,16 +309,17 @@ Sessions Page
 │     ├─ Primary Tab Navigation
 │     ├─ Secondary Content Tabs
 │     └─ Details Content
-└─ Bottom Status Strip
+└─ Bottom Control Strip
 ```
 
 ### 页面区域定义
 
-#### `Capture Control Strip`
+#### `Session Filter Bar`
 
 - 位于主内容区最上方
-- 只保留捕获控制、运行状态与快速搜索
-- 必须是高密度、低视觉噪音的桌面工具条，而不是大卡片堆叠
+- 只保留会话搜索与范围过滤
+- 必须是高密度、低视觉噪音的桌面工具条
+- 不承载 Start / Stop Proxy 等全局操作
 
 #### `Session Explorer Pane`
 

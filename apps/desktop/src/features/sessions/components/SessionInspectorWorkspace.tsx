@@ -4,6 +4,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Divider,
   List,
   ListItem,
@@ -83,36 +84,35 @@ export function SessionInspectorWorkspace({
       }}
       variant="outlined"
     >
-      <Stack spacing={1.5} sx={{ px: 2, py: 1.5 }}>
+      <Stack spacing={0.75} sx={{ px: 1.5, py: 1 }}>
         <Stack
           alignItems="center"
           direction="row"
           justifyContent="space-between"
-          spacing={2}
+          spacing={1.5}
         >
-          <Box sx={{ minWidth: 0 }}>
-            <Typography noWrap variant="subtitle1">
-              {selectedSession.method} {selectedSession.path || "/"} -{" "}
-              {selectedSession.statusCode}
+          <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
+            <Chip color={getStatusColor(selectedSession.statusCode)} label={selectedSession.method} size="small" variant="outlined" />
+            <Typography noWrap variant="subtitle2">
+              {selectedSession.path || "/"}
             </Typography>
-            <Typography color="text.secondary" noWrap variant="body2">
-              {selectedSession.host} - {selectedSession.protocol} -{" "}
-              {selectedSession.durationMs} ms
+            <Typography color="text.secondary" noWrap variant="caption">
+              {selectedSession.statusCode} • {selectedSession.durationMs} ms • {selectedSession.sizeBytes} bytes
             </Typography>
-          </Box>
+          </Stack>
 
-          <Stack direction="row" spacing={1}>
-            <Button size="small" startIcon={<ReplayRoundedIcon />} variant="outlined">
+          <Stack direction="row" spacing={0.75}>
+            <Button size="small" startIcon={<ReplayRoundedIcon />} sx={{ minWidth: 0, px: 1.25 }} variant="text">
               Repeat
             </Button>
-            <Button size="small" startIcon={<ContentCopyRoundedIcon />} variant="outlined">
+            <Button size="small" startIcon={<ContentCopyRoundedIcon />} sx={{ minWidth: 0, px: 1.25 }} variant="text">
               Copy URL
             </Button>
           </Stack>
         </Stack>
 
-        <Typography color="text.secondary" sx={{ wordBreak: "break-all" }} variant="caption">
-          {selectedSession.url}
+        <Typography color="text.secondary" noWrap sx={{ fontSize: 11.5, lineHeight: 1.3 }}>
+          {selectedSession.host} • {selectedSession.protocol} • {selectedSession.url}
         </Typography>
       </Stack>
 
@@ -123,6 +123,7 @@ export function SessionInspectorWorkspace({
           onPrimaryTabChange(nextTab)
         }
         scrollButtons="auto"
+        sx={{ bgcolor: "background.paper", minHeight: 32, px: 0.5 }}
         value={primaryTab}
         variant="scrollable"
       >
@@ -141,6 +142,7 @@ export function SessionInspectorWorkspace({
             onChange={(_event, nextTab: InspectorSecondaryTab) =>
               onSecondaryTabChange(nextTab)
             }
+            sx={{ bgcolor: "action.hover", minHeight: 30, px: 0.5 }}
             value={secondaryTab}
           >
             <Tab label="Headers" value="headers" />
@@ -406,7 +408,7 @@ function InspectorDefinitionList({
   return (
     <List disablePadding>
       {items.map(([label, value]) => (
-        <ListItem disableGutters divider key={`${label}:${value}`} sx={{ alignItems: "flex-start", py: 1 }}>
+        <ListItem disableGutters divider key={`${label}:${value}`} sx={{ alignItems: "flex-start", py: 0.75 }}>
           <ListItemText
             primary={label}
             primaryTypographyProps={{ color: "text.secondary", variant: "caption" }}
@@ -427,14 +429,15 @@ function InspectorCodeBlock({ code }: { code: string }) {
     <Box
       component="pre"
       sx={{
-        bgcolor: "background.default",
+        bgcolor: "action.hover",
         border: 1,
         borderColor: "divider",
         fontFamily: "JetBrains Mono, Consolas, monospace",
-        fontSize: 13,
+        fontSize: 12.5,
+        lineHeight: 1.5,
         m: 0,
         overflowX: "auto",
-        p: 2,
+        p: 1.5,
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       }}
@@ -457,6 +460,26 @@ function describeBody(body: BodyReference | undefined) {
 
 function formatTiming(value: number | undefined) {
   return value === undefined ? "Not captured" : `${value} ms`;
+}
+
+function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
+  if (statusCode >= 500) {
+    return "error";
+  }
+
+  if (statusCode >= 400) {
+    return "warning";
+  }
+
+  if (statusCode >= 300) {
+    return "info";
+  }
+
+  if (statusCode >= 200) {
+    return "success";
+  }
+
+  return "default";
 }
 
 function formatHexPreview(base64Text: string | undefined) {

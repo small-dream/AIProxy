@@ -13,9 +13,10 @@ describe("App", () => {
   it("renders the bootstrap sessions workspace", async () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { level: 5, name: "Sessions" })).toBeInTheDocument();
     expect(screen.getByText("Session Explorer")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Filter hosts, paths, methods, or status")).toBeInTheDocument();
     expect(await screen.findByText(/No captured sessions yet/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start Proxy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear Sessions" })).toBeInTheDocument();
   });
 });

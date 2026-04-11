@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ProxyStatus, StartProxyInput } from "@pharles/shared-types";
 
 import {
+  clearSessions,
   disableSystemProxy,
   enableSystemProxy,
   getBootstrapStatus,
@@ -12,6 +13,7 @@ import { logDevError, logDevInfo } from "@/services/logger/dev-logger";
 
 const PROXY_STATUS_QUERY_KEY = ["proxy-status"] as const;
 const SESSIONS_QUERY_KEY = ["sessions"] as const;
+const SESSION_DETAIL_QUERY_KEY = ["session-detail"] as const;
 
 export function useProxyStatus() {
   return useQuery({
@@ -88,6 +90,25 @@ export function useDisableSystemProxy() {
     onSuccess: (status: ProxyStatus) => {
       logDevInfo("ui.proxy_status", "disable_system_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
+    },
+  });
+}
+
+export function useClearSessions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: clearSessions,
+    onError: (error) => {
+      logDevError("ui.sessions", "clear_sessions_mutation_failed", {
+        error,
+      });
+    },
+    onSuccess: () => {
+      logDevInfo("ui.sessions", "clear_sessions_mutation_succeeded");
+      queryClient.setQueryData(SESSIONS_QUERY_KEY, []);
+      queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
   });
 }

@@ -1,23 +1,12 @@
 import {
   coerceAppError,
-  DEFAULT_PROXY_PORT,
-  DEFAULT_WORKSPACE_ID,
   isAppError,
 } from "@pharles/shared-types";
-import { Alert, Box, Stack, Typography } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import { Alert, Box, OutlinedInput, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  useDisableSystemProxy,
-  useEnableSystemProxy,
-  useProxyStatus,
-  useStartProxy,
-  useStopProxy,
-} from "@/features/proxy-status/use-proxy-status";
-import {
-  CaptureControlStrip,
-  type SystemProxyActionState,
-} from "@/features/sessions/components/CaptureControlStrip";
+import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import {
   type InspectorPrimaryTab,
@@ -31,37 +20,24 @@ import {
 } from "@/features/sessions/session-explorer.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
-import { logDevInfo, logDevWarn } from "@/services/logger/dev-logger";
 
 export function SessionsPage() {
   const { data: proxyStatus, error, isLoading } = useProxyStatus();
-  const startProxyMutation = useStartProxy();
-  const stopProxyMutation = useStopProxy();
-  const enableSystemProxyMutation = useEnableSystemProxy();
-  const disableSystemProxyMutation = useDisableSystemProxy();
   const {
     data: sessions = [],
     error: sessionsError,
     isLoading: areSessionsLoading,
   } = useSessions(proxyStatus?.running ?? false);
+  const clearSessionsMutation = useClearSessions();
+  const dragFrameRef = useRef<number | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [searchValue, setSearchValue] = useState("");
   const [scope, setScope] = useState<SessionExplorerScope>("all");
   const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
   const [primaryInspectorTab, setPrimaryInspectorTab] = useState<InspectorPrimaryTab>("overview");
   const [secondaryInspectorTab, setSecondaryInspectorTab] = useState<InspectorSecondaryTab>("headers");
-  const [systemProxyActionState, setSystemProxyActionState] = useState<SystemProxyActionState>("idle");
-  const [systemProxyActionMessage, setSystemProxyActionMessage] = useState(
-    "System proxy has not been requested in this session yet.",
-  );
+  const [explorerWidth, setExplorerWidth] = useState(360);
 
-  const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
-  const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
-  const isBusy =
-    startProxyMutation.isPending ||
-    stopProxyMutation.isPending ||
-    enableSystemProxyMutation.isPending ||
-    disableSystemProxyMutation.isPending;
   const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue, scope), [scope, searchValue, sessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
@@ -78,18 +54,40 @@ export function SessionsPage() {
     sessionsError,
     "Unable to load captured sessions from the proxy runtime.",
   );
-  const mutationError = startProxyMutation.error ??
-    stopProxyMutation.error ??
-    enableSystemProxyMutation.error ??
-    disableSystemProxyMutation.error;
-  const mutationErrorMessage = getOperationErrorMessage(
-    mutationError,
-    "The requested proxy operation failed before the UI could update its runtime state.",
-  );
 
   useEffect(() => {
     setExpandedHosts((currentHosts) => reconcileExpandedHosts(currentHosts, hostGroups));
   }, [hostGroups]);
+
+  useEffect(() => {
+    const savedWidth = window.localStorage.getItem("pharles.sessions.explorerWidth");
+    const parsedWidth = Number(savedWidth);
+
+    if (Number.isFinite(parsedWidth)) {
+      setExplorerWidth(clampExplorerWidth(parsedWidth));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("pharles.sessions.explorerWidth", String(explorerWidth));
+  }, [explorerWidth]);
+
+  useEffect(() => {
+    if (!clearSessionsMutation.isSuccess) {
+      return;
+    }
+
+    setSelectedSessionId(undefined);
+    setExpandedHosts([]);
+  }, [clearSessionsMutation.isSuccess]);
+
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+    };
+  }, []);
 
   function toggleHost(host: string) {
     setExpandedHosts((currentHosts) =>
@@ -97,112 +95,79 @@ export function SessionsPage() {
     );
   }
 
-  function handleEnableSystemProxy() {
-    logDevInfo("ui.sessions", "enable_system_proxy_click", {
-      port,
-      proxyRunning: proxyStatus?.running ?? false,
-      workspaceId,
-    });
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const container = event.currentTarget.parentElement;
 
-    setSystemProxyActionState("requesting");
-    setSystemProxyActionMessage("Requesting Windows system proxy takeover...");
+    if (!container) {
+      return;
+    }
 
-    enableSystemProxyMutation.mutate(undefined, {
-      onError: (mutationError) => {
-        const message = getOperationErrorMessage(
-          mutationError,
-          "Enable System Proxy failed before runtime state changed.",
-        );
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
 
-        logDevWarn("ui.sessions", "enable_system_proxy_click_failed", {
-          message,
-          workspaceId,
-        });
-        setSystemProxyActionState("failed");
-        setSystemProxyActionMessage(message);
-      },
-      onSuccess: (status) => {
-        const message = status.systemProxyEnabled
-          ? `Windows system proxy now points to 127.0.0.1:${status.port}.`
-          : "System proxy action completed, but enabled state stayed off.";
+    const updateWidth = (clientX: number) => {
+      const bounds = container.getBoundingClientRect();
+      const nextWidth = clampExplorerWidth(clientX - bounds.left);
 
-        logDevInfo("ui.sessions", "enable_system_proxy_click_succeeded", {
-          port: status.port,
-          systemProxyEnabled: status.systemProxyEnabled,
-          workspaceId: status.activeWorkspaceId,
-        });
-        setSystemProxyActionState(status.systemProxyEnabled ? "succeeded" : "failed");
-        setSystemProxyActionMessage(message);
-      },
-    });
-  }
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
 
-  function handleDisableSystemProxy() {
-    logDevInfo("ui.sessions", "disable_system_proxy_click", {
-      workspaceId,
-    });
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        setExplorerWidth(nextWidth);
+      });
+    };
 
-    setSystemProxyActionState("requesting");
-    setSystemProxyActionMessage("Restoring previous Windows system proxy settings...");
+    updateWidth(event.clientX);
 
-    disableSystemProxyMutation.mutate(undefined, {
-      onError: (mutationError) => {
-        const message = getOperationErrorMessage(
-          mutationError,
-          "Disable System Proxy failed before runtime state changed.",
-        );
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateWidth(moveEvent.clientX);
+    };
 
-        logDevWarn("ui.sessions", "disable_system_proxy_click_failed", {
-          message,
-          workspaceId,
-        });
-        setSystemProxyActionState("failed");
-        setSystemProxyActionMessage(message);
-      },
-      onSuccess: (status) => {
-        logDevInfo("ui.sessions", "disable_system_proxy_click_succeeded", {
-          port: status.port,
-          systemProxyEnabled: status.systemProxyEnabled,
-          workspaceId: status.activeWorkspaceId,
-        });
-        setSystemProxyActionState("succeeded");
-        setSystemProxyActionMessage("Previous Windows system proxy settings restored.");
-      },
-    });
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
   }
 
   return (
-    <Stack spacing={2.5}>
-      <Stack spacing={0.5}>
-        <Typography variant="h5">Sessions</Typography>
-        <Typography color="text.secondary" variant="body2">
-          Charles-style traffic workbench with a host-grouped explorer and a detail-focused inspector.
-        </Typography>
-      </Stack>
+    <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
+      <Stack
+        alignItems={{ lg: "center", xs: "stretch" }}
+        direction={{ lg: "row", xs: "column" }}
+        justifyContent="space-between"
+        spacing={1.25}
+      >
+        <OutlinedInput
+          onChange={(event) => setSearchValue(event.target.value)}
+          placeholder="Filter hosts, paths, methods, or status"
+          size="small"
+          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
+          sx={{ minWidth: { lg: 360, xs: "100%" } }}
+          value={searchValue}
+        />
 
-      <CaptureControlStrip
-        busy={isBusy}
-        isRunning={proxyStatus?.running ?? false}
-        onDisableSystemProxy={handleDisableSystemProxy}
-        onEnableSystemProxy={handleEnableSystemProxy}
-        onSearchChange={setSearchValue}
-        onStart={() =>
-          startProxyMutation.mutate({
-            enableSsl: false,
-            port,
-            workspaceId,
-          })
-        }
-        onStop={() => stopProxyMutation.mutate(workspaceId)}
-        port={port}
-        searchValue={searchValue}
-        sessionCount={sessions.length}
-        sslEnabled={proxyStatus?.sslEnabled ?? false}
-        systemProxyActionMessage={systemProxyActionMessage}
-        systemProxyActionState={systemProxyActionState}
-        systemProxyEnabled={proxyStatus?.systemProxyEnabled ?? false}
-        workspaceId={workspaceId}
-      />
+        <ToggleButtonGroup
+          exclusive
+          onChange={(_event, nextScope: SessionExplorerScope | null) => {
+            if (nextScope) {
+              setScope(nextScope);
+            }
+          }}
+          size="small"
+          value={scope}
+        >
+          <ToggleButton value="all">All</ToggleButton>
+          <ToggleButton value="http">HTTP</ToggleButton>
+          <ToggleButton value="errors">Errors</ToggleButton>
+        </ToggleButtonGroup>
+      </Stack>
 
       {error ? (
         <Alert severity="error">
@@ -210,24 +175,16 @@ export function SessionsPage() {
         </Alert>
       ) : null}
 
-      {mutationError ? (
-        <Alert severity="error">
-          {mutationErrorMessage}
-        </Alert>
-      ) : null}
-
       <Box
         sx={{
           display: "grid",
-          gap: 2,
+          flex: 1,
+          gap: { lg: 1, xs: 1.5 },
           gridTemplateColumns: {
-            lg: "minmax(320px, 380px) minmax(0, 1fr)",
+            lg: `${explorerWidth}px 8px minmax(0, 1fr)`,
             xs: "1fr",
           },
-          minHeight: {
-            lg: "calc(100vh - 260px)",
-            xs: 640,
-          },
+          minHeight: 0,
         }}
       >
         <SessionExplorerPane
@@ -235,11 +192,36 @@ export function SessionsPage() {
           expandedHosts={expandedHosts}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
-          onScopeChange={setScope}
           onSelectSession={setSelectedSessionId}
           onToggleHost={toggleHost}
-          scope={scope}
           selectedSessionId={selectedSessionIdValue}
+        />
+
+        <Box
+          aria-hidden
+          onPointerDown={startResize}
+          sx={{
+            cursor: "col-resize",
+            display: { lg: "flex", xs: "none" },
+            justifyContent: "center",
+            minHeight: 0,
+            position: "relative",
+            touchAction: "none",
+            userSelect: "none",
+            "&::before": {
+              bgcolor: "divider",
+              borderRadius: 999,
+              content: '""',
+              height: "100%",
+              opacity: 0.7,
+              transition: "background-color 120ms ease, opacity 120ms ease",
+              width: 2,
+            },
+            "&:hover::before": {
+              bgcolor: "primary.main",
+              opacity: 1,
+            },
+          }}
         />
 
         <SessionInspectorWorkspace
@@ -280,4 +262,8 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
   const coercedError = coerceAppError(error);
 
   return coercedError.message || fallbackMessage;
+}
+
+function clampExplorerWidth(width: number) {
+  return Math.min(520, Math.max(280, Math.round(width)));
 }

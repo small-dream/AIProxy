@@ -27,6 +27,7 @@ pub fn run() {
             commands::get_bootstrap_status,
             commands::list_sessions,
             commands::get_session_detail,
+            commands::clear_sessions,
             commands::start_proxy,
             commands::stop_proxy,
             commands::enable_system_proxy,

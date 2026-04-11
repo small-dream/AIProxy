@@ -54,6 +54,11 @@ pub fn get_session_detail(
 }
 
 #[tauri::command]
+pub fn clear_sessions(state: State<'_, Arc<AppState>>) {
+    state.clear_sessions();
+}
+
+#[tauri::command]
 pub async fn start_proxy(
     input: StartProxyInput,
     state: State<'_, Arc<AppState>>,
