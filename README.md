@@ -15,6 +15,7 @@ Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/ARCHITECTURE.md`
 - `docs/API_SPEC.md`
 - `docs/UI_GUIDELINES.md`
+- `docs/PAGE_BLUEPRINTS.md`
 - `docs/ENGINEERING_GUIDELINES.md`
 - `docs/SYSTEM_PROXY.md`
 
@@ -34,6 +35,7 @@ scripts/        开发、构建、发布脚本
 - 任何需求变更先更新 `docs/PRD.md` 与 `docs/ARCHITECTURE.md`
 - 所有接口变更同步更新 `docs/API_SPEC.md`
 - 所有 UI 规范变更同步更新 `docs/UI_GUIDELINES.md`
+- 所有页面结构调整同步更新 `docs/PAGE_BLUEPRINTS.md`
 - 所有工程实现遵循 `docs/ENGINEERING_GUIDELINES.md`
 
 ## 下一步建议

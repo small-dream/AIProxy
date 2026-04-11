@@ -9,6 +9,7 @@
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
+  - `docs/PAGE_BLUEPRINTS.md`
 
 ## 2. 设计目标
 
@@ -257,6 +258,22 @@ Capture Workspace
 - 错误提示或后台任务提示
 
 ## 9. 页面规范
+
+页面规范分两层维护：
+
+- `docs/UI_GUIDELINES.md`：定义视觉、布局、组件和交互规范
+- `docs/PAGE_BLUEPRINTS.md`：定义页面级低保真线框、组件树、状态模型与事件流
+
+当核心页面结构发生变化时，必须同步更新这两个文档，避免“视觉规范”和“实现蓝图”脱节。
+
+### 页面蓝图索引
+
+- `Sessions Page`：抓包主工作台、会话列表、详情检查器
+- `Compose Page`：请求构造、模板面板、响应预览
+- `Rules Page`：规则类型切换、规则列表、规则编辑器
+- `Certificates Page`：证书状态、安装引导、风险说明
+- `Settings Page`：设置导航、设置内容区、导入导出入口
+- `Workspaces Page`：工作区列表、元信息、切换与创建流程
 
 ## 9.1 Sessions Page
 

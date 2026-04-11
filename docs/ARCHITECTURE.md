@@ -10,6 +10,7 @@
 - 配套接口文档：`docs/API_SPEC.md`
 - 配套设计文档：`docs/UI_GUIDELINES.md`
 - 配套工程规范：`docs/ENGINEERING_GUIDELINES.md`
+- 配套页面蓝图：`docs/PAGE_BLUEPRINTS.md`
 
 ## 2. 架构目标
 
@@ -408,6 +409,13 @@ erDiagram
 - `RulesPage`
 - `CertificatesPage`
 - `SettingsPage`
+
+### 页面蓝图协同规则
+
+- `docs/UI_GUIDELINES.md` 负责定义设计系统、布局规范、组件约束
+- `docs/PAGE_BLUEPRINTS.md` 负责定义页面线框、组件树、状态模型、事件流
+- `features/*` 下的页面实现必须同时对齐这两份文档
+- 若页面结构调整影响前后端契约，需继续同步 `docs/API_SPEC.md`
 
 ### 页面结构映射
 
