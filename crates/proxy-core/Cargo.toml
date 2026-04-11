@@ -7,3 +7,10 @@ version.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+chrono = { version = "0.4", default-features = true, features = ["clock"] }
+httparse = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync"] }
+uuid = { version = "1", features = ["v4"] }

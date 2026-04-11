@@ -1,5 +1,6 @@
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
+import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import { Button, Chip, Stack, Typography } from "@mui/material";
 
 import { SectionCard } from "./SectionCard";
@@ -7,9 +8,12 @@ import { SectionCard } from "./SectionCard";
 type ProxyStatusCardProps = {
   busy?: boolean;
   isRunning: boolean;
+  onDisableSystemProxy: () => void;
+  onEnableSystemProxy: () => void;
   onStart: () => void;
   onStop: () => void;
   port: number;
+  systemProxyEnabled: boolean;
   sslEnabled: boolean;
   workspaceId: string;
 };
@@ -17,9 +21,12 @@ type ProxyStatusCardProps = {
 export function ProxyStatusCard({
   busy = false,
   isRunning,
+  onDisableSystemProxy,
+  onEnableSystemProxy,
   onStart,
   onStop,
   port,
+  systemProxyEnabled,
   sslEnabled,
   workspaceId,
 }: ProxyStatusCardProps) {
@@ -28,21 +35,44 @@ export function ProxyStatusCard({
       description="This card is backed by the shared bootstrap command contract and will later reflect live runtime data."
       title="Proxy Runtime"
       toolbar={
-        isRunning ? (
-          <Button
-            color="error"
-            disabled={busy}
-            onClick={onStop}
-            startIcon={<StopRoundedIcon />}
-            variant="outlined"
-          >
-            Stop Proxy
-          </Button>
-        ) : (
-          <Button disabled={busy} onClick={onStart} startIcon={<PlayArrowRoundedIcon />} variant="contained">
-            Start Proxy
-          </Button>
-        )
+        <Stack direction="row" spacing={1}>
+          {systemProxyEnabled ? (
+            <Button
+              color="warning"
+              disabled={busy}
+              onClick={onDisableSystemProxy}
+              startIcon={<LanguageRoundedIcon />}
+              variant="outlined"
+            >
+              Disable System Proxy
+            </Button>
+          ) : (
+            <Button
+              disabled={busy || !isRunning}
+              onClick={onEnableSystemProxy}
+              startIcon={<LanguageRoundedIcon />}
+              variant="outlined"
+            >
+              Enable System Proxy
+            </Button>
+          )}
+
+          {isRunning ? (
+            <Button
+              color="error"
+              disabled={busy}
+              onClick={onStop}
+              startIcon={<StopRoundedIcon />}
+              variant="outlined"
+            >
+              Stop Proxy
+            </Button>
+          ) : (
+            <Button disabled={busy} onClick={onStart} startIcon={<PlayArrowRoundedIcon />} variant="contained">
+              Start Proxy
+            </Button>
+          )}
+        </Stack>
       }
     >
       <Stack spacing={1.25}>
@@ -50,10 +80,14 @@ export function ProxyStatusCard({
         <Typography variant="body2">Port: {port}</Typography>
         <Stack direction="row" spacing={1}>
           <Chip color={isRunning ? "success" : "default"} label={isRunning ? "Running" : "Idle"} size="small" />
+          <Chip
+            color={systemProxyEnabled ? "primary" : "default"}
+            label={systemProxyEnabled ? "System Proxy On" : "System Proxy Off"}
+            size="small"
+          />
           <Chip color={sslEnabled ? "warning" : "default"} label={sslEnabled ? "SSL On" : "SSL Off"} size="small" />
         </Stack>
       </Stack>
     </SectionCard>
   );
 }
-

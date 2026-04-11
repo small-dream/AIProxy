@@ -16,6 +16,7 @@ Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/API_SPEC.md`
 - `docs/UI_GUIDELINES.md`
 - `docs/ENGINEERING_GUIDELINES.md`
+- `docs/SYSTEM_PROXY.md`
 
 ## 仓库结构
 
@@ -47,3 +48,17 @@ scripts/        开发、构建、发布脚本
 - 前端主工作台已接入 bootstrap 查询
 - 首页支持基于共享契约展示代理状态
 - Tauri 侧已提供最小状态命令用于后续接入真实代理运行时
+- P0-1 已支持本地明文 HTTP 代理捕获与会话列表展示
+
+## 当前可手动验证的 HTTP 抓包闭环
+
+1. 启动桌面应用
+2. 点击 `Start Proxy`
+3. 将浏览器或系统 HTTP 代理指向 `127.0.0.1:8888`
+4. 访问一个明文 `http://` 站点
+5. 在 `Sessions` 页面查看捕获到的会话列表
+
+当前限制：
+
+- 仅支持明文 HTTP 代理请求
+- HTTPS `CONNECT` 隧道与证书解密尚未接入

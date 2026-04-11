@@ -10,10 +10,11 @@ describe("App", () => {
     expect(screen.getByText("Pharles")).toBeInTheDocument();
   });
 
-  it("renders the bootstrap sessions workspace", () => {
+  it("renders the bootstrap sessions workspace", async () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { level: 4, name: "Sessions" })).toBeInTheDocument();
     expect(screen.getByText("Proxy Runtime")).toBeInTheDocument();
+    expect(await screen.findByText(/Configure your browser or system HTTP proxy/)).toBeInTheDocument();
   });
 });

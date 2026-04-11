@@ -1,5 +1,6 @@
 mod bootstrap;
 mod commands;
+mod system_proxy;
 
 use bootstrap::AppState;
 use tauri::Manager;
@@ -11,8 +12,11 @@ pub fn run() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_status,
+            commands::list_sessions,
             commands::start_proxy,
-            commands::stop_proxy
+            commands::stop_proxy,
+            commands::enable_system_proxy,
+            commands::disable_system_proxy
         ])
         .setup(|app| {
             let window = app

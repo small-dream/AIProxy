@@ -305,22 +305,50 @@ type GetProxyStatusInput = {
 type GetProxyStatusOutput = ProxyStatus;
 ```
 
-### `enable_system_proxy`
+### `list_sessions`
+
+用途：
+
+- 返回当前应用内存中的已捕获会话列表
 
 请求：
 
 ```ts
-type EnableSystemProxyInput = {
-  port: number;
-};
+type ListSessionsInput = Record<string, never>;
 ```
 
 响应：
 
 ```ts
-type EnableSystemProxyOutput = {
-  success: boolean;
+type SessionSummary = {
+  id: string;
+  method: string;
+  host: string;
+  path: string;
+  protocol: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  sizeBytes: number;
+  statusCode: number;
+  url: string;
 };
+
+type ListSessionsOutput = SessionSummary[];
+```
+
+### `enable_system_proxy`
+
+请求：
+
+```ts
+type EnableSystemProxyInput = Record<string, never>;
+```
+
+响应：
+
+```ts
+type EnableSystemProxyOutput = ProxyStatus;
 ```
 
 ### `disable_system_proxy`
@@ -328,17 +356,13 @@ type EnableSystemProxyOutput = {
 请求：
 
 ```ts
-type DisableSystemProxyInput = {
-  workspaceId?: string;
-};
+type DisableSystemProxyInput = Record<string, never>;
 ```
 
 响应：
 
 ```ts
-type DisableSystemProxyOutput = {
-  success: boolean;
-};
+type DisableSystemProxyOutput = ProxyStatus;
 ```
 
 ## 6.2 Workspace Commands

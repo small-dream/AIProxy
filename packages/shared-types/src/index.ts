@@ -24,6 +24,20 @@ export type ProxyStatus = {
   startedAt?: string;
 };
 
+export type SessionSummary = {
+  id: string;
+  method: string;
+  host: string;
+  path: string;
+  protocol: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  sizeBytes: number;
+  statusCode: number;
+  url: string;
+};
+
 export type StartProxyInput = {
   workspaceId: string;
   port?: number;
@@ -133,4 +147,50 @@ export function normalizeStartProxyInput(input: StartProxyInput): StartProxyInpu
     port: normalizedPort,
     workspaceId: input.workspaceId.trim(),
   };
+}
+
+export function isSessionSummary(value: unknown): value is SessionSummary {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<SessionSummary>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.method === "string" &&
+    typeof candidate.host === "string" &&
+    typeof candidate.path === "string" &&
+    typeof candidate.protocol === "string" &&
+    typeof candidate.startedAt === "string" &&
+    typeof candidate.finishedAt === "string" &&
+    typeof candidate.durationMs === "number" &&
+    typeof candidate.sizeBytes === "number" &&
+    typeof candidate.statusCode === "number" &&
+    typeof candidate.url === "string"
+  );
+}
+
+export function parseSessionSummaries(value: unknown): SessionSummary[] {
+  if (!Array.isArray(value)) {
+    throw {
+      code: "INVALID_SESSION_SUMMARIES",
+      message: "The session list payload must be an array.",
+      details: {
+        payload: value,
+      },
+    } satisfies AppError;
+  }
+
+  if (value.every(isSessionSummary)) {
+    return value;
+  }
+
+  throw {
+    code: "INVALID_SESSION_SUMMARIES",
+    message: "One or more captured sessions do not match the shared contract.",
+    details: {
+      payload: value,
+    },
+  } satisfies AppError;
 }

@@ -409,6 +409,14 @@ erDiagram
 - `CertificatesPage`
 - `SettingsPage`
 
+### 页面结构映射
+
+- `SessionsPage`：`Runtime Status Panel` + `Capture Toolbar` + `Session List Pane` + `Session Inspector Pane`
+- `ComposePage`：`Preset Pane` + `Request Editor Pane` + `Response Result Pane`
+- `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
+- `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
+- `SettingsPage`：`Settings Navigation` + `Settings Content Pane`
+
 ## 11.2 功能模块拆分
 
 - `session-list`

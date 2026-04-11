@@ -1,4 +1,9 @@
+use pharles_proxy_core::{ProxyServerHandle, ProxySessionSummary};
 use serde::Serialize;
+use std::sync::{Arc, Mutex};
+use tauri::async_runtime::JoinHandle;
+
+use crate::system_proxy::SystemProxySnapshot;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,6 +13,7 @@ pub struct BootstrapStatus {
     pub running: bool,
     pub ssl_enabled: bool,
     pub system_proxy_enabled: bool,
+    pub started_at: Option<String>,
 }
 
 impl Default for BootstrapStatus {
@@ -18,19 +24,32 @@ impl Default for BootstrapStatus {
             running: false,
             ssl_enabled: false,
             system_proxy_enabled: false,
+            started_at: None,
         }
     }
 }
 
 #[derive(Debug)]
+pub struct RuntimeHandles {
+    pub collector_handle: JoinHandle<()>,
+    pub proxy_server_handle: ProxyServerHandle,
+}
+
+#[derive(Debug)]
 pub struct AppState {
-    status: std::sync::Mutex<BootstrapStatus>,
+    runtime: Mutex<Option<RuntimeHandles>>,
+    sessions: Arc<Mutex<Vec<ProxySessionSummary>>>,
+    status: Mutex<BootstrapStatus>,
+    system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            status: std::sync::Mutex::new(BootstrapStatus::default()),
+            runtime: Mutex::new(None),
+            sessions: Arc::new(Mutex::new(Vec::new())),
+            status: Mutex::new(BootstrapStatus::default()),
+            system_proxy_snapshot: Mutex::new(None),
         }
     }
 
@@ -39,6 +58,65 @@ impl AppState {
             .lock()
             .expect("bootstrap status mutex should not be poisoned")
             .clone()
+    }
+
+    pub fn read_sessions(&self) -> Vec<ProxySessionSummary> {
+        self.sessions
+            .lock()
+            .expect("session list mutex should not be poisoned")
+            .clone()
+    }
+
+    pub fn clear_sessions(&self) {
+        self.sessions
+            .lock()
+            .expect("session list mutex should not be poisoned")
+            .clear();
+    }
+
+    pub fn session_store(&self) -> Arc<Mutex<Vec<ProxySessionSummary>>> {
+        Arc::clone(&self.sessions)
+    }
+
+    pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {
+        let mut runtime = self
+            .runtime
+            .lock()
+            .expect("runtime mutex should not be poisoned");
+
+        *runtime = Some(runtime_handles);
+    }
+
+    pub fn take_runtime(&self) -> Option<RuntimeHandles> {
+        self.runtime
+            .lock()
+            .expect("runtime mutex should not be poisoned")
+            .take()
+    }
+
+    pub fn has_system_proxy_snapshot(&self) -> bool {
+        self.system_proxy_snapshot
+            .lock()
+            .expect("system proxy snapshot mutex should not be poisoned")
+            .is_some()
+    }
+
+    pub fn store_system_proxy_snapshot(&self, snapshot: SystemProxySnapshot) {
+        let mut system_proxy_snapshot = self
+            .system_proxy_snapshot
+            .lock()
+            .expect("system proxy snapshot mutex should not be poisoned");
+
+        if system_proxy_snapshot.is_none() {
+            *system_proxy_snapshot = Some(snapshot);
+        }
+    }
+
+    pub fn take_system_proxy_snapshot(&self) -> Option<SystemProxySnapshot> {
+        self.system_proxy_snapshot
+            .lock()
+            .expect("system proxy snapshot mutex should not be poisoned")
+            .take()
     }
 
     pub fn start_proxy(
@@ -56,6 +134,7 @@ impl AppState {
         status.running = true;
         status.ssl_enabled = enable_ssl;
         status.active_workspace_id = Some(workspace_id);
+        status.started_at = Some(chrono::Utc::now().to_rfc3339());
 
         status.clone()
     }
@@ -68,6 +147,18 @@ impl AppState {
 
         status.running = false;
         status.active_workspace_id = Some(workspace_id);
+        status.started_at = None;
+
+        status.clone()
+    }
+
+    pub fn set_system_proxy_enabled(&self, enabled: bool) -> BootstrapStatus {
+        let mut status = self
+            .status
+            .lock()
+            .expect("bootstrap status mutex should not be poisoned");
+
+        status.system_proxy_enabled = enabled;
 
         status.clone()
     }

@@ -3,8 +3,10 @@ import {
   coerceAppError,
   createDefaultProxyStatus,
   normalizeStartProxyInput,
+  parseSessionSummaries,
   parseProxyStatus,
   type ProxyStatus,
+  type SessionSummary,
   type StartProxyInput,
   type StopProxyInput,
 } from "@pharles/shared-types";
@@ -61,6 +63,54 @@ export async function stopProxy(input: StopProxyInput): Promise<ProxyStatus> {
     return parseProxyStatus(payload);
   } catch (error) {
     reportCommandFailure("stop_proxy", error, input.workspaceId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("list_sessions");
+
+    return parseSessionSummaries(payload);
+  } catch (error) {
+    reportCommandFailure("list_sessions", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function enableSystemProxy(): Promise<ProxyStatus> {
+  if (!isTauriRuntime()) {
+    return {
+      ...createDefaultProxyStatus(),
+      systemProxyEnabled: true,
+    };
+  }
+
+  try {
+    const payload = await invoke<unknown>("enable_system_proxy");
+
+    return parseProxyStatus(payload);
+  } catch (error) {
+    reportCommandFailure("enable_system_proxy", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function disableSystemProxy(): Promise<ProxyStatus> {
+  if (!isTauriRuntime()) {
+    return createDefaultProxyStatus();
+  }
+
+  try {
+    const payload = await invoke<unknown>("disable_system_proxy");
+
+    return parseProxyStatus(payload);
+  } catch (error) {
+    reportCommandFailure("disable_system_proxy", error);
     throw coerceAppError(error);
   }
 }

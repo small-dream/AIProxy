@@ -194,16 +194,57 @@ App Shell
 
 ## 8.4 主工作台规范
 
-抓包中心采用双栏或三栏布局：
+抓包中心采用桌面优先的“双主栏 + 顶部工具带 + 底部状态栏”结构。
 
-- 左/中：会话列表
-- 右：详情检查器
-- 顶部：过滤与工具条
+### 推荐布局比例
 
-优先保证：
+- 顶部工具带高度：`48 - 56`
+- 左侧会话区宽度：`55% - 70%`
+- 右侧详情区宽度：`30% - 45%`
+- 底部状态栏高度：`32 - 36`
+
+### 主工作台结构树
+
+```text
+Capture Workspace
+├─ Capture Toolbar
+│  ├─ Search Input
+│  ├─ Filter Chips
+│  ├─ Method Filter
+│  ├─ Status Filter
+│  ├─ Clear Sessions
+│  ├─ Save / Export
+│  └─ View Density Toggle
+├─ Content Split Pane
+│  ├─ Session List Pane
+│  │  ├─ Table Header
+│  │  ├─ Virtualized Rows
+│  │  └─ Empty / Loading / Error State
+│  └─ Session Inspector Pane
+│     ├─ Summary Header
+│     ├─ Inspector Tabs
+│     └─ Tab Content Area
+└─ Bottom Status Strip
+   ├─ Proxy State
+   ├─ System Proxy State
+   ├─ Active Workspace
+   ├─ Captured Session Count
+   └─ Background Task / Error Hint
+```
+
+### 布局目标
 
 - 用户选中一条请求后无需跳页即可查看详情
-- 过滤、搜索、清空、导出操作均在同一视图完成
+- 搜索、过滤、清空、导出必须保持在同一视图
+- 会话区支持高密度浏览，详情区支持深入分析
+- 详情区宽度不能小到影响 Header / Raw / JSON 阅读
+
+### 行为约束
+
+- 分栏拖拽宽度必须可记忆
+- 会话列表滚动与详情区滚动互不影响
+- 切换选中会话时，详情区只更新内容，不整体闪烁重绘
+- 工具条操作不能遮挡会话表头
 
 ## 8.5 底部状态栏规范
 
@@ -219,13 +260,87 @@ App Shell
 
 ## 9.1 Sessions Page
 
-### 布局
+### 页面定位
 
-- 顶部：过滤工具栏
-- 主体左侧：会话表格
-- 主体右侧：详情面板
+Sessions Page 是产品的主工作台，承担“抓包、筛选、定位、查看、重放”的主路径。
 
-### 表格列建议
+### 页面结构树
+
+```text
+Sessions Page
+├─ Page Header
+│  ├─ Title
+│  └─ Secondary Hint
+├─ Runtime Status Panel
+│  ├─ Proxy Runtime Card
+│  ├─ Start / Stop Proxy
+│  ├─ Enable / Disable System Proxy
+│  ├─ Port Indicator
+│  ├─ SSL Indicator
+│  └─ Workspace Indicator
+├─ Capture Workspace
+│  ├─ Capture Toolbar
+│  │  ├─ Keyword Search
+│  │  ├─ Method Filter
+│  │  ├─ Status Filter
+│  │  ├─ Protocol Filter
+│  │  ├─ Clear
+│  │  ├─ Save
+│  │  └─ Export
+│  ├─ Session List Pane
+│  │  ├─ Session Table Header
+│  │  ├─ Session Rows
+│  │  └─ Empty / Loading / Error State
+│  └─ Session Inspector Pane
+│     ├─ Summary Header
+│     ├─ Tab Navigation
+│     └─ Details Content
+└─ Bottom Status Strip
+```
+
+### 页面区域定义
+
+#### `Page Header`
+
+- 放页面标题与当前阶段说明
+- 不放高频操作
+- 只承担页面语义与上下文说明
+
+#### `Runtime Status Panel`
+
+- 位于主内容区最上方
+- 用于放置启动代理、停止代理、系统代理开关等高优先级动作
+- 这是用户进入应用后第一眼可见的控制区
+
+#### `Capture Toolbar`
+
+- 位于会话列表上方
+- 承担所有“列表级”操作
+- 不承担详情级操作
+
+建议包含：
+
+- 搜索框
+- 常用过滤器
+- 清空按钮
+- 导出按钮
+- 会话视图密度切换
+
+#### `Session List Pane`
+
+- 左主栏
+- 默认显示最近请求在上
+- 支持虚拟滚动
+- 支持键盘上下切换选中项
+
+#### `Session Inspector Pane`
+
+- 右详情栏
+- 与列表选中项强绑定
+- 默认显示 Summary / Overview
+- 后续扩展 Request / Response / Timing / Cookies / Raw / WebSocket
+
+### 会话表格列建议
 
 - Method
 - Host
@@ -235,6 +350,17 @@ App Shell
 - Time
 - Duration
 - Protocol
+
+### 会话表格列宽建议
+
+- `Method`：固定窄列
+- `Status`：固定窄列
+- `Duration`：固定窄列
+- `Host`：中宽列
+- `Path`：弹性主列
+- `Time`：固定中列
+- `Size`：固定中列
+- `Protocol`：固定窄列
 
 ### 详情面板标签
 
@@ -246,13 +372,62 @@ App Shell
 - Raw
 - WebSocket
 
+### 详情面板内容层级
+
+```text
+Inspector Pane
+├─ Selected Session Summary
+│  ├─ Method / URL
+│  ├─ Status / Duration / Size
+│  └─ Pin / Repeat / Copy Actions
+├─ Inspector Tabs
+└─ Active Tab Panel
+   ├─ Request Headers / Body
+   ├─ Response Headers / Body
+   ├─ Timing Breakdown
+   ├─ Cookie Summary
+   └─ Raw Payload
+```
+
 ## 9.2 Compose Page
 
-### 布局
+### 页面定位
 
-- 左侧：历史模板 / 最近请求
-- 中间：请求编辑器
-- 右侧：响应结果区
+Compose Page 用于手工构造请求、快速重放请求与查看结果，是“主动发请求”的工作台。
+
+### 页面结构树
+
+```text
+Compose Page
+├─ Page Header
+├─ Compose Toolbar
+│  ├─ Send
+│  ├─ Save Template
+│  ├─ Duplicate
+│  └─ Export cURL
+├─ Main Three Pane Layout
+│  ├─ Request Presets Pane
+│  │  ├─ Recent Requests
+│  │  └─ Saved Templates
+│  ├─ Request Editor Pane
+│  │  ├─ Method Selector
+│  │  ├─ URL Input
+│  │  ├─ Header Tabs
+│  │  ├─ Headers Editor
+│  │  ├─ Query Editor
+│  │  └─ Body Editor
+│  └─ Response Result Pane
+│     ├─ Response Summary
+│     ├─ Response Tabs
+│     └─ Timing / Raw / Body Preview
+└─ Bottom Status Strip
+```
+
+### 区域职责
+
+- 左侧只负责模板与历史，不放复杂编辑逻辑
+- 中间是唯一的请求编辑主区域
+- 右侧只展示发送结果和回执，不承担规则配置
 
 ### 必须元素
 
@@ -266,11 +441,37 @@ App Shell
 
 ## 9.3 Rules Page
 
-### 布局
+### 页面定位
 
-- 顶部：规则类型切换
-- 左侧：规则列表
-- 右侧：规则编辑器
+Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote。
+
+### 页面结构树
+
+```text
+Rules Page
+├─ Page Header
+├─ Rule Type Switcher
+├─ Main Split Layout
+│  ├─ Rule List Pane
+│  │  ├─ Create Rule
+│  │  ├─ Search Rule
+│  │  ├─ Rule Groups
+│  │  └─ Sort / Priority Controls
+│  └─ Rule Editor Pane
+│     ├─ Basic Information
+│     ├─ Match Conditions
+│     ├─ Action Configuration
+│     ├─ Priority Settings
+│     ├─ Enable Toggle
+│     └─ Match Preview / Validation Result
+└─ Bottom Status Strip
+```
+
+### 布局要求
+
+- 左侧规则列表用于查找与切换
+- 右侧编辑区必须能完整容纳复杂表单
+- 顶部规则类型切换必须常驻可见
 
 ### 编辑区结构
 
@@ -283,6 +484,30 @@ App Shell
 
 ## 9.4 Certificates Page
 
+### 页面定位
+
+Certificates Page 是 HTTPS 解密前的准备中心，承担“状态确认 + 安装引导 + 风险告知”三项职责。
+
+### 页面结构树
+
+```text
+Certificates Page
+├─ Page Header
+├─ Certificate Status Card
+│  ├─ Root Certificate Presence
+│  ├─ Trust Status
+│  ├─ Fingerprint
+│  └─ Generate / Refresh Actions
+├─ Installation Guide Section
+│  ├─ Windows Steps
+│  ├─ macOS Steps
+│  └─ Linux Steps
+├─ Device Access Section
+│  ├─ Mobile Proxy Instructions
+│  └─ Network Notes
+└─ Risk / FAQ Section
+```
+
 ### 内容结构
 
 - 当前证书状态
@@ -292,6 +517,30 @@ App Shell
 - 风险提示
 
 ## 9.5 Settings Page
+
+### 页面定位
+
+Settings Page 负责应用级默认配置，不承载项目工作区专属配置。
+
+### 页面结构树
+
+```text
+Settings Page
+├─ Page Header
+├─ Settings Navigation
+│  ├─ General
+│  ├─ Proxy
+│  ├─ Certificates
+│  ├─ Session Storage
+│  ├─ Appearance
+│  ├─ Shortcuts
+│  └─ Advanced
+└─ Settings Content Pane
+   ├─ Section Header
+   ├─ Setting Rows
+   ├─ Inline Validation
+   └─ Save / Reset Actions
+```
 
 ### 分组建议
 
