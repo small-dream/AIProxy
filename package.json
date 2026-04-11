@@ -1,0 +1,14 @@
+{
+  "name": "pharles",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "pnpm --filter @pharles/desktop dev",
+    "build": "pnpm --filter @pharles/desktop build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  }
+}
+

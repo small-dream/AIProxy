@@ -1,0 +1,477 @@
+# Pharles UI Guidelines
+
+## 1. 文档信息
+
+- 产品代号：`Pharles`
+- 文档类型：UI / UX 设计规范
+- 当前阶段：`Phase 1 / 初始化设计`
+- 文档状态：`Draft v1.0`
+- 关联文档：
+  - `docs/PRD.md`
+  - `docs/ARCHITECTURE.md`
+
+## 2. 设计目标
+
+Pharles 的界面目标不是“炫”，而是“高效、稳定、可读、专业”。作为开发者工具，其设计优先级如下：
+
+1. 信息密度足够高
+2. 高频操作路径足够短
+3. 状态反馈足够明确
+4. 长时间使用不疲劳
+5. 跨平台视觉一致
+
+## 3. 设计原则
+
+- **Material Design 3**：采用现代 Material 体系，但避免移动端化过强
+- **桌面优先**：交互以鼠标、键盘、分栏布局和右键菜单为中心
+- **效率优先**：保证抓包主流程尽量不跳页
+- **一致性优先**：同类对象使用同一种视觉与交互模型
+- **渐进暴露**：高级功能不干扰基础功能
+- **可预测性**：所有状态变化都应被用户感知
+
+## 4. 品牌与视觉基调
+
+## 4.1 品牌关键词
+
+- Precision
+- Observability
+- Professional
+- Efficient
+
+## 4.2 UI 风格
+
+- 基于 Material Design 3 的专业桌面风格
+- 扁平化为主，轻量层级阴影
+- 避免拟物和过度玻璃态效果
+- 保持代码工具类产品的“克制感”
+
+## 5. 主题系统
+
+## 5.1 主色板
+
+- `Primary`: `#2962FF`
+- `Primary Container`: `#D6E4FF`
+- `Secondary`: `#00BFA5`
+- `Secondary Container`: `#B9F5EE`
+- `Error`: `#D32F2F`
+- `Warning`: `#ED6C02`
+- `Info`: `#0288D1`
+- `Success`: `#2E7D32`
+
+## 5.2 中性色
+
+### Light
+
+- `Background`: `#F7F9FC`
+- `Surface`: `#FFFFFF`
+- `Surface Variant`: `#EEF2F7`
+- `Outline`: `#C4CAD4`
+- `Text Primary`: `#17202A`
+- `Text Secondary`: `#556070`
+
+### Dark
+
+- `Background`: `#121212`
+- `Surface`: `#1B1F24`
+- `Surface Variant`: `#232A33`
+- `Outline`: `#4A5563`
+- `Text Primary`: `#F5F7FA`
+- `Text Secondary`: `#AAB4C0`
+
+## 5.3 状态色映射
+
+- `2xx`: 绿色
+- `3xx`: 蓝色
+- `4xx`: 橙色
+- `5xx`: 红色
+- `Pending`: 紫色
+- `WebSocket`: 青色
+
+## 6. 字体与排版
+
+## 6.1 字体体系
+
+- 正文字体：`Inter`, `Segoe UI`, `SF Pro`, 系统无衬线回退
+- 等宽字体：`JetBrains Mono`, `Consolas`, `Menlo`
+
+## 6.2 字号规范
+
+- 页面主标题：`24 / 32`
+- 区块标题：`18 / 26`
+- 卡片标题：`16 / 24`
+- 正文：`14 / 22`
+- 表格内容：`13 / 20`
+- 辅助信息：`12 / 18`
+- 代码区：`12` 或 `13`
+
+## 6.3 字重规范
+
+- 页面标题：`600`
+- 区块标题：`600`
+- 常规正文：`400`
+- 数据强调：`500`
+- 表头：`600`
+
+## 7. 栅格与间距
+
+## 7.1 间距体系
+
+采用 4pt 基线：
+
+- `4`：极小间距
+- `8`：紧凑间距
+- `12`：组件内常规间距
+- `16`：区块内间距
+- `24`：模块间距
+- `32`：页面级间距
+
+## 7.2 圆角规范
+
+- 输入框、按钮、Chip：`8`
+- 卡片：`12`
+- 对话框：`16`
+- 顶层大型容器：`16`
+
+## 7.3 阴影规范
+
+- 默认卡片：低层级阴影
+- 弹出层：中层级阴影
+- 禁止大面积重阴影
+
+## 8. 布局规范
+
+## 8.1 应用主框架
+
+```text
+App Shell
+├─ Top App Bar
+├─ Left Navigation Rail
+├─ Main Workspace
+│  ├─ Toolbar
+│  ├─ Primary Pane
+│  └─ Secondary Pane
+└─ Bottom Status Bar
+```
+
+## 8.2 顶部栏规范
+
+顶部栏承载全局状态与高优先级操作：
+
+- 应用标识
+- 当前工作区
+- 代理运行状态
+- 代理端口
+- HTTPS 证书状态
+- 系统代理开关
+- 全局搜索
+- 设置入口
+
+设计要求：
+
+- 高度建议 `56`
+- 左侧展示上下文，右侧展示全局操作
+- 代理运行状态必须持续可见
+
+## 8.3 左侧导航规范
+
+- 使用 `Navigation Rail` 或桌面增强版侧边栏
+- 一级导航保持 8~10 个以内
+- 当前激活项突出显示
+- 支持图标 + 文本组合
+
+导航项建议：
+
+- Sessions
+- Compose
+- Breakpoints
+- Rewrite Rules
+- Map Local
+- Map Remote
+- Throttling
+- Certificates
+- Workspaces
+- Settings
+
+## 8.4 主工作台规范
+
+抓包中心采用双栏或三栏布局：
+
+- 左/中：会话列表
+- 右：详情检查器
+- 顶部：过滤与工具条
+
+优先保证：
+
+- 用户选中一条请求后无需跳页即可查看详情
+- 过滤、搜索、清空、导出操作均在同一视图完成
+
+## 8.5 底部状态栏规范
+
+展示：
+
+- 代理状态
+- 当前工作区
+- 实时会话数量
+- 当前网络模拟状态
+- 错误提示或后台任务提示
+
+## 9. 页面规范
+
+## 9.1 Sessions Page
+
+### 布局
+
+- 顶部：过滤工具栏
+- 主体左侧：会话表格
+- 主体右侧：详情面板
+
+### 表格列建议
+
+- Method
+- Host
+- Path
+- Status
+- Size
+- Time
+- Duration
+- Protocol
+
+### 详情面板标签
+
+- Overview
+- Request
+- Response
+- Timing
+- Cookies
+- Raw
+- WebSocket
+
+## 9.2 Compose Page
+
+### 布局
+
+- 左侧：历史模板 / 最近请求
+- 中间：请求编辑器
+- 右侧：响应结果区
+
+### 必须元素
+
+- Method Selector
+- URL Input
+- Headers Editor
+- Body Editor
+- Send Button
+- Save Template
+- Export cURL
+
+## 9.3 Rules Page
+
+### 布局
+
+- 顶部：规则类型切换
+- 左侧：规则列表
+- 右侧：规则编辑器
+
+### 编辑区结构
+
+- 基本信息
+- 匹配条件
+- 动作配置
+- 优先级
+- 启用状态
+- 命中预览
+
+## 9.4 Certificates Page
+
+### 内容结构
+
+- 当前证书状态
+- 安装指引
+- 平台差异说明
+- 常见问题
+- 风险提示
+
+## 9.5 Settings Page
+
+### 分组建议
+
+- General
+- Proxy
+- Certificates
+- Session Storage
+- Appearance
+- Shortcuts
+- Advanced
+
+## 10. 组件规范
+
+## 10.1 原子组件
+
+- `Button`
+- `IconButton`
+- `TextField`
+- `SearchField`
+- `Select`
+- `Switch`
+- `Checkbox`
+- `Radio`
+- `Tabs`
+- `Chip`
+- `Tooltip`
+- `Badge`
+- `Dialog`
+- `Snackbar`
+- `Menu`
+- `Divider`
+- `Progress`
+- `StatusDot`
+
+## 10.2 复合组件
+
+- `ProxyStatusCard`
+- `SessionFilterBar`
+- `SessionTable`
+- `SessionInspector`
+- `HeaderEditor`
+- `KeyValueEditor`
+- `BodyEditor`
+- `TimingPanel`
+- `CookiePanel`
+- `RawPanel`
+- `RuleList`
+- `RuleEditor`
+- `CertificateWizard`
+- `ThrottlePresetPanel`
+- `WorkspaceSwitcher`
+
+## 10.3 业务组件
+
+- `CaptureWorkbench`
+- `ComposeWorkbench`
+- `BreakpointWorkbench`
+- `RewriteWorkbench`
+- `MapWorkbench`
+- `CertificateCenter`
+
+## 11. 交互规范
+
+## 11.1 按钮优先级
+
+- 主按钮：单页唯一主任务
+- 次按钮：辅助任务
+- 文本按钮：低风险轻操作
+- 危险按钮：删除、清空、覆盖
+
+## 11.2 表格交互
+
+- 单击：选中会话
+- 双击：展开或进入专注视图
+- 右键：上下文菜单
+- 支持列排序
+- 支持键盘上下移动
+
+## 11.3 编辑器交互
+
+- Header / Query / Cookie 统一使用键值对编辑器
+- Body 支持纯文本、JSON、美化视图切换
+- 对 JSON 错误提供即时提示
+
+## 11.4 反馈机制
+
+- 成功：`Snackbar`
+- 错误：`Snackbar + 详细错误入口`
+- 长任务：状态栏 + 进度提示
+- 危险操作：`Dialog Confirm`
+
+## 12. 状态设计
+
+## 12.1 空状态
+
+适用场景：
+
+- 尚未启动代理
+- 暂无会话
+- 当前筛选无结果
+- 未创建规则
+
+原则：
+
+- 说明当前状态
+- 提供下一步动作
+- 避免仅展示空白
+
+## 12.2 加载状态
+
+- 表格区域使用 skeleton 或行级占位
+- 详情区使用局部加载
+- 禁止全屏阻塞式加载，除首次启动外
+
+## 12.3 错误状态
+
+- 明确说明错误原因
+- 显示可执行操作：重试、查看帮助、打开证书页、修改端口
+
+## 13. 快捷键建议
+
+- `Ctrl/Cmd + K`：全局搜索
+- `Ctrl/Cmd + R`：Repeat 当前请求
+- `Ctrl/Cmd + Enter`：发送 Compose 请求
+- `Ctrl/Cmd + E`：导出
+- `Ctrl/Cmd + L`：清空会话列表
+- `Ctrl/Cmd + ,`：打开设置
+- `Space`：快速预览当前会话详情
+
+## 14. 可访问性规范
+
+- 文本对比度满足可读性要求
+- 所有图标按钮必须提供 Tooltip 与可访问名称
+- 焦点态必须明确可见
+- 支持键盘完整操作主流程
+- 状态颜色不能作为唯一信息表达方式
+
+## 15. 响应式策略
+
+虽然是桌面优先，但仍需支持窗口缩放：
+
+- `>= 1440`：三栏最佳体验
+- `1024 - 1439`：双栏布局
+- `< 1024`：详情区切换为抽屉或标签式展示
+
+## 16. 图标与插画规范
+
+- 图标建议使用 Material Symbols 或一致风格线性图标
+- 状态图标应语义明确
+- 空状态插画轻量即可，不应喧宾夺主
+
+## 17. 内容文案规范
+
+- 优先使用工程语义明确的词汇
+- 避免营销化语言
+- 错误提示要求包含原因与建议动作
+- 同一概念命名在全应用保持一致
+
+示例：
+
+- 用 `Start Proxy`，不要用 `Launch Magic`
+- 用 `Certificate Not Trusted`，不要用 `Security Issue`
+
+## 18. 暗色模式规范
+
+- 默认跟随系统
+- 深色模式下优先保证表格、代码区、状态色可读
+- 亮色与暗色主题应共享同一套间距与组件结构
+
+## 19. 实现建议
+
+- 在 `packages/ui-tokens/` 管理颜色、字号、圆角、阴影令牌
+- 统一封装 `components/ui`，不要直接在业务层散用 MUI 原生样式
+- 会话表格采用虚拟滚动，保证大数据量流畅性
+- 详情区编辑器支持只读/可编辑两种模式复用
+
+## 20. 验收标准
+
+- 主工作台支持高密度会话浏览且不混乱
+- 亮/暗色主题下状态色与文本均清晰可读
+- 核心操作均能在 3 步内完成
+- 页面之间的布局、间距、标题和按钮层级一致
+- 基础组件可复用，不出现业务页面各自造样式的情况

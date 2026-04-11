@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/exporter",
+  "crates/proxy-core",
+  "crates/rule-engine",
+  "crates/session-store",
+  "crates/throttle-engine",
+  "crates/tls-manager",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+version = "0.1.0"
+

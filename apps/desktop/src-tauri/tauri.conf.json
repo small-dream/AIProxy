@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pharles",
+  "version": "0.1.0",
+  "identifier": "com.pharles.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../.. --filter @pharles/desktop dev",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @pharles/desktop build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pharles",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1024,
+        "minHeight": 720
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
+
