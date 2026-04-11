@@ -419,7 +419,7 @@ erDiagram
 
 ### 页面结构映射
 
-- `SessionsPage`：`Runtime Status Panel` + `Capture Toolbar` + `Session List Pane` + `Session Inspector Pane`
+- `SessionsPage`：`Capture Control Strip` + `Session Explorer Pane` + `Session Inspector Workspace`
 - `ComposePage`：`Preset Pane` + `Request Editor Pane` + `Response Result Pane`
 - `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
@@ -428,6 +428,7 @@ erDiagram
 ## 11.2 功能模块拆分
 
 - `session-list`
+- `session-explorer`
 - `session-detail`
 - `compose-request`
 - `breakpoints`
@@ -546,6 +547,34 @@ project-root/
 - UI 层记录错误边界和关键行为埋点
 - 调试模式下开放详细日志视图
 - 预留匿名崩溃采集能力开关
+
+### 15.1 开发期日志落点
+
+- 优先写入仓库内：`logs/dev/pharles-desktop-dev.log`
+- 若无法识别仓库根目录，则回退到：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+- 前端额外保留控制台结构化日志，方便 UI 行为排查
+
+### 15.2 日志覆盖范围
+
+- `desktop.app`：应用启动、日志初始化、panic
+- `desktop.commands`：`start_proxy`、`stop_proxy`、`enable_system_proxy`、`disable_system_proxy`
+- `desktop.system_proxy.windows`：快照捕获、注册表写入、WinINet 刷新、恢复
+- `proxy-core`：监听启动、监听停止、请求解析失败、请求转发成功、上游失败、CONNECT 拒绝
+- `ui.commands`：前端命令发起、成功、失败
+
+### 15.3 结构化字段要求
+
+- 必须包含：`timestamp`、`level`、`component`、`event`
+- 关键动作必须补充：`workspace_id / port / endpoint / client_addr / url / error`
+- 请求体与响应体默认不完整落日志；若后续需要记录，必须脱敏和截断
+
+### 15.4 开发期诊断流程
+
+1. 确认 `start_proxy_requested` 和 `listener_started`
+2. 确认 `enable_system_proxy_succeeded` 与系统代理写入日志
+3. 访问 `http://neverssl.com`
+4. 检查是否出现 `request_forwarded`
+5. 若没有流量记录，优先排查系统代理是否真正接管；若有请求失败，优先看 `upstream_request_failed`
 
 ## 16. 风险与演进建议
 

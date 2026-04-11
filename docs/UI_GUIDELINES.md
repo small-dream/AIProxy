@@ -195,35 +195,36 @@ App Shell
 
 ## 8.4 主工作台规范
 
-抓包中心采用桌面优先的“双主栏 + 顶部工具带 + 底部状态栏”结构。
+抓包中心采用桌面优先的“顶部捕获控制条 + 左侧树形会话浏览区 + 右侧详情工作区 + 底部状态栏”结构。
 
 ### 推荐布局比例
 
-- 顶部工具带高度：`48 - 56`
-- 左侧会话区宽度：`55% - 70%`
-- 右侧详情区宽度：`30% - 45%`
+- 顶部捕获控制条高度：`48 - 56`
+- 左侧会话浏览区宽度：`28% - 38%`
+- 右侧详情工作区宽度：`62% - 72%`
 - 底部状态栏高度：`32 - 36`
 
 ### 主工作台结构树
 
 ```text
 Capture Workspace
-├─ Capture Toolbar
-│  ├─ Search Input
-│  ├─ Filter Chips
-│  ├─ Method Filter
-│  ├─ Status Filter
-│  ├─ Clear Sessions
-│  ├─ Save / Export
-│  └─ View Density Toggle
+├─ Capture Control Strip
+│  ├─ Recording State
+│  ├─ Start / Stop Proxy
+│  ├─ Enable / Disable System Proxy
+│  ├─ Port Indicator
+│  ├─ SSL Indicator
+│  └─ Quick Search
 ├─ Content Split Pane
-│  ├─ Session List Pane
-│  │  ├─ Table Header
-│  │  ├─ Virtualized Rows
+│  ├─ Session Explorer Pane
+│  │  ├─ Explorer Toolbar
+│  │  ├─ Domain / Host Tree
+│  │  ├─ Request Nodes
 │  │  └─ Empty / Loading / Error State
-│  └─ Session Inspector Pane
-│     ├─ Summary Header
-│     ├─ Inspector Tabs
+│  └─ Session Inspector Workspace
+│     ├─ Request Headline
+│     ├─ Primary Inspector Tabs
+│     ├─ Secondary Content Tabs
 │     └─ Tab Content Area
 └─ Bottom Status Strip
    ├─ Proxy State
@@ -236,16 +237,18 @@ Capture Workspace
 ### 布局目标
 
 - 用户选中一条请求后无需跳页即可查看详情
+- 左侧树必须支持快速定位 `host -> request`
 - 搜索、过滤、清空、导出必须保持在同一视图
-- 会话区支持高密度浏览，详情区支持深入分析
+- 会话浏览区支持高密度树形浏览，详情区支持深入分析
 - 详情区宽度不能小到影响 Header / Raw / JSON 阅读
 
 ### 行为约束
 
 - 分栏拖拽宽度必须可记忆
-- 会话列表滚动与详情区滚动互不影响
+- 左侧树滚动与详情区滚动互不影响
 - 切换选中会话时，详情区只更新内容，不整体闪烁重绘
 - 工具条操作不能遮挡会话表头
+- 分组节点展开 / 收起不应打断当前选中请求
 
 ## 8.5 底部状态栏规范
 
@@ -285,103 +288,63 @@ Sessions Page 是产品的主工作台，承担“抓包、筛选、定位、查
 
 ```text
 Sessions Page
-├─ Page Header
-│  ├─ Title
-│  └─ Secondary Hint
-├─ Runtime Status Panel
-│  ├─ Proxy Runtime Card
-│  ├─ Start / Stop Proxy
-│  ├─ Enable / Disable System Proxy
+├─ Capture Control Strip
+│  ├─ Recording Indicator
+│  ├─ Workspace Indicator
 │  ├─ Port Indicator
 │  ├─ SSL Indicator
-│  └─ Workspace Indicator
+│  ├─ Start / Stop Proxy
+│  ├─ Enable / Disable System Proxy
+│  └─ Session Search
 ├─ Capture Workspace
-│  ├─ Capture Toolbar
-│  │  ├─ Keyword Search
-│  │  ├─ Method Filter
-│  │  ├─ Status Filter
-│  │  ├─ Protocol Filter
-│  │  ├─ Clear
-│  │  ├─ Save
-│  │  └─ Export
-│  ├─ Session List Pane
-│  │  ├─ Session Table Header
-│  │  ├─ Session Rows
+│  ├─ Session Explorer Pane
+│  │  ├─ Explorer Toolbar
+│  │  ├─ Host Group Tree
+│  │  ├─ Request Rows
 │  │  └─ Empty / Loading / Error State
-│  └─ Session Inspector Pane
-│     ├─ Summary Header
-│     ├─ Tab Navigation
+│  └─ Session Inspector Workspace
+│     ├─ Request Headline
+│     ├─ Primary Tab Navigation
+│     ├─ Secondary Content Tabs
 │     └─ Details Content
 └─ Bottom Status Strip
 ```
 
 ### 页面区域定义
 
-#### `Page Header`
-
-- 放页面标题与当前阶段说明
-- 不放高频操作
-- 只承担页面语义与上下文说明
-
-#### `Runtime Status Panel`
+#### `Capture Control Strip`
 
 - 位于主内容区最上方
-- 用于放置启动代理、停止代理、系统代理开关等高优先级动作
-- 这是用户进入应用后第一眼可见的控制区
+- 只保留捕获控制、运行状态与快速搜索
+- 必须是高密度、低视觉噪音的桌面工具条，而不是大卡片堆叠
 
-#### `Capture Toolbar`
-
-- 位于会话列表上方
-- 承担所有“列表级”操作
-- 不承担详情级操作
-
-建议包含：
-
-- 搜索框
-- 常用过滤器
-- 清空按钮
-- 导出按钮
-- 会话视图密度切换
-
-#### `Session List Pane`
+#### `Session Explorer Pane`
 
 - 左主栏
-- 默认显示最近请求在上
-- 支持虚拟滚动
+- 默认按 `domain / host` 分组
+- 组节点展开后展示请求项
+- 每条请求项需能直接看到 `method / path / status / duration`
 - 支持键盘上下切换选中项
 
-#### `Session Inspector Pane`
+#### `Session Inspector Workspace`
 
 - 右详情栏
-- 与列表选中项强绑定
-- 默认显示 Summary / Overview
-- 后续扩展 Request / Response / Timing / Cookies / Raw / WebSocket
+- 与树形浏览区选中项强绑定
+- 顶部显示请求标题行与基础摘要
+- 中部使用一级 tabs 切换 `Overview / Contents / Summary / Timing / Raw`
+- `Contents` 内再使用二级 tabs 承载 `Headers / Text / Hex / Raw`
 
-### 会话表格列建议
+### 会话树节点建议
 
-- Method
-- Host
-- Path
-- Status
-- Size
-- Time
-- Duration
-- Protocol
-
-### 会话表格列宽建议
-
-- `Method`：固定窄列
-- `Status`：固定窄列
-- `Duration`：固定窄列
-- `Host`：中宽列
-- `Path`：弹性主列
-- `Time`：固定中列
-- `Size`：固定中列
-- `Protocol`：固定窄列
+- 分组节点：Host、请求数量、展开状态
+- 请求节点：Method、Path、Status、Duration
+- 失败或异常请求：高优先级状态色提示
+- 当前选中节点：明显高亮，但不应破坏整行可读性
 
 ### 详情面板标签
 
 - Overview
+- Contents
 - Request
 - Response
 - Timing
@@ -397,7 +360,8 @@ Inspector Pane
 │  ├─ Method / URL
 │  ├─ Status / Duration / Size
 │  └─ Pin / Repeat / Copy Actions
-├─ Inspector Tabs
+├─ Primary Inspector Tabs
+├─ Secondary Content Tabs
 └─ Active Tab Panel
    ├─ Request Headers / Body
    ├─ Response Headers / Body

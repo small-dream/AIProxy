@@ -38,6 +38,28 @@ scripts/        开发、构建、发布脚本
 - 所有页面结构调整同步更新 `docs/PAGE_BLUEPRINTS.md`
 - 所有工程实现遵循 `docs/ENGINEERING_GUIDELINES.md`
 
+## 开发期日志
+
+桌面端开发构建会把结构化调试日志写入以下位置之一：
+
+- 优先：`logs/dev/pharles-desktop-dev.log`
+- 回退：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+
+当前日志覆盖：
+
+- Tauri 命令调用开始 / 成功 / 失败
+- Windows 系统代理快照、接管、恢复、WinINet 刷新
+- Rust 代理核心监听、请求进入、转发成功、转发失败、CONNECT 拒绝
+- 前端命令层控制台结构化日志
+
+抓包链路排障建议：
+
+1. 点击 `Start Proxy`
+2. 点击 `Enable System Proxy`
+3. 打开 `http://neverssl.com`
+4. 查看 `logs/dev/pharles-desktop-dev.log`
+5. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`request_forwarded`
+
 ## 下一步建议
 
 1. 安装 Node.js、pnpm、Rust 与 Tauri 所需系统依赖

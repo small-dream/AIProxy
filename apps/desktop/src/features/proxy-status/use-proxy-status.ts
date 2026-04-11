@@ -8,6 +8,7 @@ import {
   startProxy,
   stopProxy,
 } from "@/services/commands";
+import { logDevError, logDevInfo } from "@/services/logger/dev-logger";
 
 const PROXY_STATUS_QUERY_KEY = ["proxy-status"] as const;
 const SESSIONS_QUERY_KEY = ["sessions"] as const;
@@ -24,7 +25,14 @@ export function useStartProxy() {
 
   return useMutation({
     mutationFn: (input: StartProxyInput) => startProxy(input),
+    onError: (error, input) => {
+      logDevError("ui.proxy_status", "start_proxy_mutation_failed", {
+        error,
+        input,
+      });
+    },
     onSuccess: (status: ProxyStatus) => {
+      logDevInfo("ui.proxy_status", "start_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
       queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
@@ -36,7 +44,14 @@ export function useStopProxy() {
 
   return useMutation({
     mutationFn: (workspaceId: string) => stopProxy({ workspaceId }),
+    onError: (error, workspaceId) => {
+      logDevError("ui.proxy_status", "stop_proxy_mutation_failed", {
+        error,
+        workspaceId,
+      });
+    },
     onSuccess: (status: ProxyStatus) => {
+      logDevInfo("ui.proxy_status", "stop_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
       queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
@@ -48,7 +63,13 @@ export function useEnableSystemProxy() {
 
   return useMutation({
     mutationFn: enableSystemProxy,
+    onError: (error) => {
+      logDevError("ui.proxy_status", "enable_system_proxy_mutation_failed", {
+        error,
+      });
+    },
     onSuccess: (status: ProxyStatus) => {
+      logDevInfo("ui.proxy_status", "enable_system_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
     },
   });
@@ -59,7 +80,13 @@ export function useDisableSystemProxy() {
 
   return useMutation({
     mutationFn: disableSystemProxy,
+    onError: (error) => {
+      logDevError("ui.proxy_status", "disable_system_proxy_mutation_failed", {
+        error,
+      });
+    },
     onSuccess: (status: ProxyStatus) => {
+      logDevInfo("ui.proxy_status", "disable_system_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
     },
   });

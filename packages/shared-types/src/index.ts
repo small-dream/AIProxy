@@ -100,7 +100,10 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
     return false;
   }
 
-  const candidate = value as Partial<ProxyStatus>;
+  const candidate = value as Partial<ProxyStatus> & {
+    activeWorkspaceId?: string | null;
+    startedAt?: string | null;
+  };
 
   if (typeof candidate.running !== "boolean") {
     return false;
@@ -114,11 +117,11 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
     return false;
   }
 
-  if (candidate.activeWorkspaceId !== undefined && typeof candidate.activeWorkspaceId !== "string") {
+  if (candidate.activeWorkspaceId !== undefined && candidate.activeWorkspaceId !== null && typeof candidate.activeWorkspaceId !== "string") {
     return false;
   }
 
-  if (candidate.startedAt !== undefined && typeof candidate.startedAt !== "string") {
+  if (candidate.startedAt !== undefined && candidate.startedAt !== null && typeof candidate.startedAt !== "string") {
     return false;
   }
 
@@ -127,7 +130,23 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
 
 export function parseProxyStatus(value: unknown): ProxyStatus {
   if (isProxyStatus(value)) {
-    return value;
+    const candidate = value as ProxyStatus & {
+      activeWorkspaceId?: string | null;
+      startedAt?: string | null;
+    };
+
+    return {
+      port: candidate.port,
+      running: candidate.running,
+      sslEnabled: candidate.sslEnabled,
+      systemProxyEnabled: candidate.systemProxyEnabled,
+      ...(candidate.activeWorkspaceId !== null && candidate.activeWorkspaceId !== undefined
+        ? { activeWorkspaceId: candidate.activeWorkspaceId }
+        : {}),
+      ...(candidate.startedAt !== null && candidate.startedAt !== undefined
+        ? { startedAt: candidate.startedAt }
+        : {}),
+    };
   }
 
   throw {

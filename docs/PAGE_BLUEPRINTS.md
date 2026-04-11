@@ -68,22 +68,21 @@
 ```text
 [Sessions Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Sessions                                                             │
-│ Subtitle: Main capture workspace for traffic inspection                     │
+│ [Recording] Workspace: Default  Port: 8888  [SSL Off] [System Proxy On/Off] │
+│ (Start/Stop Proxy) (Enable/Disable System Proxy) [Search sessions...]       │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Proxy Runtime Card]                                                        │
-│ Workspace: Default    Port: 8888    [Running/Idle] [System Proxy On/Off]    │
-│ (Enable System Proxy) (Start Proxy / Stop Proxy)                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Capture Stream]                                   [Inspector]              │
+│ [Session Explorer]                                [Inspector Workspace]      │
 │ ┌───────────────────────────────────────────────┐  ┌──────────────────────┐ │
-│ │ Search                                       │  │ Summary              │ │
-│ │ <Method> <Status> <Protocol> (Clear) (Export)│  │ Method               │ │
-│ ├───────────────────────────────────────────────┤  │ Host                 │ │
-│ │ Method | Host | Path | Status | Time | Size │  │ Path                 │ │
-│ │ GET    | a.com| /api | 200    | 23ms | 1.2KB│  │ Status               │ │
-│ │ POST   | b.com| /log | 204    | 14ms | 0.3KB│  │ Duration             │ │
-│ │ ...                                           │  │ URL                  │ │
+│ │ <Group by Host> <All> <HTTP> <Errors>         │  │ GET /online/ → 200   │ │
+│ ├───────────────────────────────────────────────┤  │ Host: example.com    │ │
+│ │ ▾ example.com (3)                             │  │ Duration: 23 ms      │ │
+│ │   ▸ GET /index                                │  ├──────────────────────┤ │
+│ │   ▸ GET /api/list                             │  │ <Overview> <Contents>│ │
+│ │   ▸ POST /report                              │  │ <Summary> <Timing>   │ │
+│ │ ▸ assets.example.com (8)                      │  ├──────────────────────┤ │
+│ │ ▸ api.example.net (12)                        │  │ <Headers> <Text>     │ │
+│ │ ...                                           │  │ <Hex> <Raw>          │ │
+│ │ [Filter hosts and paths...]                   │  │ [Inspector content]  │ │
 │ └───────────────────────────────────────────────┘  └──────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -92,24 +91,18 @@
 
 ```text
 SessionsPage
-├─ PageHeader
-├─ ProxyStatusCard
+├─ CaptureControlStrip
 ├─ CaptureWorkbench
-│  ├─ SessionFilterBar
-│  │  ├─ SearchField
-│  │  ├─ MethodFilter
-│  │  ├─ StatusFilter
-│  │  ├─ ProtocolFilter
-│  │  ├─ ClearSessionsButton
-│  │  └─ ExportSessionsButton
-│  ├─ SessionListPane
-│  │  ├─ SessionTableHeader
-│  │  ├─ SessionList
-│  │  │  └─ SessionRow
-│  │  └─ SessionListState
-│  └─ SessionInspectorPane
-│     ├─ SessionSummaryPanel
-│     ├─ InspectorTabs
+│  ├─ SessionExplorerPane
+│  │  ├─ ExplorerToolbar
+│  │  ├─ SessionHostTree
+│  │  │  ├─ HostGroupNode
+│  │  │  └─ SessionLeafNode
+│  │  └─ ExplorerFilterField
+│  └─ SessionInspectorWorkspace
+│     ├─ RequestHeadline
+│     ├─ InspectorPrimaryTabs
+│     ├─ InspectorSecondaryTabs
 │     └─ SessionInspectorState
 └─ BottomStatusStrip
 ```
@@ -124,12 +117,13 @@ type SessionsPageState = {
   };
   query: {
     keyword: string;
-    method?: string;
-    statusCode?: number;
-    protocol?: string;
+    scope: "all" | "http" | "errors";
   };
   selection: {
     selectedSessionId?: string;
+  };
+  tree: {
+    expandedHosts: string[];
   };
   mutation: {
     startingProxy: boolean;
@@ -138,7 +132,8 @@ type SessionsPageState = {
     disablingSystemProxy: boolean;
   };
   ui: {
-    inspectorTab: "overview" | "request" | "response" | "timing" | "cookies" | "raw";
+    primaryInspectorTab: "overview" | "contents" | "summary" | "timing" | "raw";
+    secondaryContentTab: "headers" | "text" | "hex" | "raw";
   };
 };
 ```
@@ -153,15 +148,16 @@ User clicks Start Proxy
 -> User enables system proxy
 -> local HTTP traffic enters proxy
 -> list_sessions returns captured sessions
--> user selects one session
--> inspector renders selected summary
+-> SessionHostTree groups sessions by host
+-> user expands host group and selects one session
+-> inspector workspace renders selected summary and tabs
 ```
 
 ### 4.6 后续扩展位
 
-- `SessionInspectorPane` 追加完整 tabs
+- `SessionExplorerPane` 增加树形虚拟滚动与分组模式切换
+- `SessionInspectorWorkspace` 追加完整 request / response / timing 数据
 - `list_sessions` 改为实时事件推送 + 增量合并
-- `SessionFilterBar` 接分页与持久化过滤条件
 
 ## 5. Compose Page
 

@@ -129,7 +129,31 @@ Windows 当前实现基于：
 - 仅适配 HTTP 代理闭环，HTTPS 解密尚未接入
 - 若应用异常崩溃，系统代理恢复仍需补充更强的兜底策略
 
-## 9. 下一步建议
+## 9. 开发期排障日志
+
+开发阶段排查系统代理切换失败或“已接管但未见请求”时，优先查看：
+
+- `logs/dev/pharles-desktop-dev.log`
+- 若仓库日志目录未生成，则查看：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+
+重点事件：
+
+- `desktop.commands event=start_proxy_requested`
+- `desktop.commands event=start_proxy_succeeded`
+- `desktop.commands event=enable_system_proxy_succeeded`
+- `desktop.system_proxy.windows event=snapshot_captured`
+- `desktop.system_proxy.windows event=proxy_settings_applied`
+- `proxy-core event=listener_started`
+- `proxy-core event=request_forwarded`
+
+若点击 `Enable System Proxy` 后仍无请求，按以下顺序判断：
+
+1. 若没有 `listener_started`，说明代理未真正绑定监听端口
+2. 若有 `listener_started` 但没有 `proxy_settings_applied`，说明系统代理接管失败
+3. 若两者都有，但没有 `request_forwarded`，优先检查访问站点是否为 `HTTP` 明文站点
+4. 若出现 `upstream_request_failed`，说明请求已进入代理但转发到目标站点失败
+
+## 10. 下一步建议
 
 1. 在应用退出事件中强制恢复系统代理
 2. 增加“恢复系统代理失败”的用户提示和手动恢复说明

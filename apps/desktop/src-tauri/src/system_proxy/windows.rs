@@ -1,4 +1,5 @@
 use super::SystemProxySettings;
+use crate::dev_logger::{log_debug, log_error, log_info};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Networking::WinInet::{
     InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
@@ -22,22 +23,46 @@ pub struct WindowsSystemProxySnapshot {
 
 pub fn capture_system_proxy_snapshot() -> Result<WindowsSystemProxySnapshot, String> {
     let key = open_settings_key()?;
-
-    Ok(WindowsSystemProxySnapshot {
+    let snapshot = WindowsSystemProxySnapshot {
         auto_config_url: read_optional_string(&key, "AutoConfigURL")?,
         auto_detect: read_optional_dword(&key, "AutoDetect")?,
         proxy_enable: key.get_value("ProxyEnable").unwrap_or(0),
         proxy_override: read_optional_string(&key, "ProxyOverride")?,
         proxy_server: read_optional_string(&key, "ProxyServer")?,
-    })
+    };
+
+    log_debug(
+        "desktop.system_proxy.windows",
+        "snapshot_captured",
+        &[
+            ("proxy_enable", snapshot.proxy_enable.to_string()),
+            (
+                "proxy_server",
+                snapshot
+                    .proxy_server
+                    .clone()
+                    .unwrap_or_else(|| "<missing>".to_string()),
+            ),
+            (
+                "proxy_override",
+                snapshot
+                    .proxy_override
+                    .clone()
+                    .unwrap_or_else(|| "<missing>".to_string()),
+            ),
+        ],
+    );
+
+    Ok(snapshot)
 }
 
 pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(), String> {
     let key = open_settings_key()?;
+    let endpoint = settings.endpoint();
 
     key.set_value("ProxyEnable", &1_u32)
         .map_err(|error| format!("failed to enable Windows system proxy: {error}"))?;
-    key.set_value("ProxyServer", &settings.endpoint())
+    key.set_value("ProxyServer", &endpoint)
         .map_err(|error| format!("failed to write Windows proxy server: {error}"))?;
     key.set_value("ProxyOverride", &PROXY_OVERRIDE_BYPASS_LOCAL)
         .map_err(|error| format!("failed to write Windows proxy bypass list: {error}"))?;
@@ -45,7 +70,15 @@ pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(),
     key.set_value("AutoDetect", &0_u32)
         .map_err(|error| format!("failed to disable Windows proxy auto-detect: {error}"))?;
 
-    refresh_system_proxy()
+    refresh_system_proxy()?;
+
+    log_info(
+        "desktop.system_proxy.windows",
+        "proxy_settings_applied",
+        &[("endpoint", endpoint)],
+    );
+
+    Ok(())
 }
 
 pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(), String> {
@@ -64,7 +97,18 @@ pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(),
         None => remove_value_if_present(&key, "AutoDetect")?,
     }
 
-    refresh_system_proxy()
+    refresh_system_proxy()?;
+
+    log_info(
+        "desktop.system_proxy.windows",
+        "proxy_settings_restored",
+        &[(
+            "proxy_enable",
+            snapshot.proxy_enable.to_string(),
+        )],
+    );
+
+    Ok(())
 }
 
 fn open_settings_key() -> Result<RegKey, String> {
@@ -116,18 +160,30 @@ fn refresh_system_proxy() -> Result<(), String> {
     let settings_changed =
         unsafe { InternetSetOptionW(null(), INTERNET_OPTION_SETTINGS_CHANGED, null_mut(), 0) };
     if settings_changed == 0 {
-        return Err(format!(
+        let error = format!(
             "failed to notify WinINet about proxy setting changes: {}",
             std::io::Error::last_os_error()
-        ));
+        );
+        log_error(
+            "desktop.system_proxy.windows",
+            "wininet_settings_changed_failed",
+            &[("error", error.clone())],
+        );
+        return Err(error);
     }
 
     let refreshed = unsafe { InternetSetOptionW(null(), INTERNET_OPTION_REFRESH, null_mut(), 0) };
     if refreshed == 0 {
-        return Err(format!(
+        let error = format!(
             "failed to refresh WinINet proxy settings: {}",
             std::io::Error::last_os_error()
-        ));
+        );
+        log_error(
+            "desktop.system_proxy.windows",
+            "wininet_refresh_failed",
+            &[("error", error.clone())],
+        );
+        return Err(error);
     }
 
     Ok(())

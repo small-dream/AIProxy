@@ -8,7 +8,16 @@ use reqwest::{
     Client, Method, StatusCode, Url,
 };
 use serde::Serialize;
-use std::{io, net::SocketAddr, sync::Arc, time::Instant};
+use std::{
+    env,
+    ffi::OsStr,
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock},
+    time::Instant,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -19,6 +28,10 @@ use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
+const DEV_LOG_ENV_VAR: &str = "PHARLES_DEV_LOG_FILE";
+const DEV_LOG_FILE_NAME: &str = "pharles-desktop-dev.log";
+
+static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProxyRuntimeConfig {
@@ -106,15 +119,25 @@ pub async fn start_proxy_server(config: ProxyRuntimeConfig) -> Result<StartedPro
     let (shutdown_sender, mut shutdown_receiver) = oneshot::channel::<()>();
     let (session_sender, session_receiver) = mpsc::unbounded_channel();
 
-    eprintln!(
-        "level=INFO component=proxy-core event=listener_started host=127.0.0.1 port={bound_port}"
+    emit_log(
+        "INFO",
+        "listener_started",
+        &[
+            ("host", "127.0.0.1".to_string()),
+            ("port", bound_port.to_string()),
+            ("ssl_enabled", config.ssl_enabled.to_string()),
+        ],
     );
 
     let join_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_receiver => {
-                    eprintln!("level=INFO component=proxy-core event=listener_stopped reason=shutdown_requested");
+                    emit_log(
+                        "INFO",
+                        "listener_stopped",
+                        &[("reason", "shutdown_requested".to_string())],
+                    );
                     break;
                 }
                 accept_result = listener.accept() => {
@@ -125,12 +148,23 @@ pub async fn start_proxy_server(config: ProxyRuntimeConfig) -> Result<StartedPro
 
                             tokio::spawn(async move {
                                 if let Err(error) = handle_connection(stream, client_addr, client, session_sender).await {
-                                    eprintln!("level=ERROR component=proxy-core event=connection_failed client_addr={client_addr} error=\"{error}\"");
+                                    emit_log(
+                                        "ERROR",
+                                        "connection_failed",
+                                        &[
+                                            ("client_addr", client_addr.to_string()),
+                                            ("error", error),
+                                        ],
+                                    );
                                 }
                             });
                         }
                         Err(error) => {
-                            eprintln!("level=ERROR component=proxy-core event=listener_accept_failed error=\"{error}\"");
+                            emit_log(
+                                "ERROR",
+                                "listener_accept_failed",
+                                &[("error", error.to_string())],
+                            );
                             break;
                         }
                     }
@@ -168,8 +202,13 @@ async fn handle_connection(
             )
             .await?;
 
-            eprintln!(
-                "level=WARN component=proxy-core event=request_parse_failed client_addr={client_addr} error=\"{error}\""
+            emit_log(
+                "WARN",
+                "request_parse_failed",
+                &[
+                    ("client_addr", client_addr.to_string()),
+                    ("error", error),
+                ],
             );
 
             return Ok(());
@@ -196,6 +235,14 @@ async fn handle_connection(
             started_at_instant,
         );
         let _ = session_sender.send(summary);
+        emit_log(
+            "WARN",
+            "connect_request_rejected",
+            &[
+                ("client_addr", client_addr.to_string()),
+                ("url", request.url.to_string()),
+            ],
+        );
 
         return Ok(());
     }
@@ -219,11 +266,15 @@ async fn handle_connection(
 
             let _ = session_sender.send(summary);
 
-            eprintln!(
-                "level=INFO component=proxy-core event=request_forwarded client_addr={client_addr} method={} status_code={} url=\"{}\"",
-                request.method,
-                status_code.as_u16(),
-                request.url
+            emit_log(
+                "INFO",
+                "request_forwarded",
+                &[
+                    ("client_addr", client_addr.to_string()),
+                    ("method", request.method.to_string()),
+                    ("status_code", status_code.as_u16().to_string()),
+                    ("url", request.url.to_string()),
+                ],
             );
 
             Ok(())
@@ -248,10 +299,85 @@ async fn handle_connection(
                 started_at_instant,
             );
             let _ = session_sender.send(summary);
+            emit_log(
+                "ERROR",
+                "upstream_request_failed",
+                &[
+                    ("client_addr", client_addr.to_string()),
+                    ("method", request.method.to_string()),
+                    ("url", request.url.to_string()),
+                    ("error", error.clone()),
+                ],
+            );
 
             Err(format!("upstream request failed: {error}"))
         }
     }
+}
+
+fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
+    let timestamp = Utc::now().to_rfc3339();
+    let mut line = format!("timestamp={timestamp} level={level} component=proxy-core event={event}");
+
+    for (name, value) in fields {
+        line.push(' ');
+        line.push_str(name);
+        line.push('=');
+        line.push_str(&quote_value(value));
+    }
+
+    eprintln!("{line}");
+    append_to_log_file(&line);
+}
+
+fn append_to_log_file(line: &str) {
+    let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
+    let _write_guard = write_lock.lock().expect("proxy-core log mutex should not be poisoned");
+    let log_file_path = resolve_log_file_path();
+
+    if let Some(parent) = log_file_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn resolve_log_file_path() -> PathBuf {
+    if let Ok(log_file) = env::var(DEV_LOG_ENV_VAR) {
+        if !log_file.trim().is_empty() {
+            return PathBuf::from(log_file);
+        }
+    }
+
+    discover_workspace_root_from_current_exe()
+        .unwrap_or_else(|| env::temp_dir().join("pharles-dev"))
+        .join("logs")
+        .join("dev")
+        .join(DEV_LOG_FILE_NAME)
+}
+
+fn discover_workspace_root_from_current_exe() -> Option<PathBuf> {
+    let current_exe = env::current_exe().ok()?;
+
+    for ancestor in current_exe.ancestors() {
+        if ancestor.file_name() == Some(OsStr::new("target")) {
+            return ancestor.parent().map(Path::to_path_buf);
+        }
+    }
+
+    None
+}
+
+fn quote_value(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+
+    format!("\"{escaped}\"")
 }
 
 async fn forward_request(

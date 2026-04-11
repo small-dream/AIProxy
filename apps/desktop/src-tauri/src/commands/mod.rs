@@ -1,10 +1,12 @@
 use crate::bootstrap::{AppState, BootstrapStatus, RuntimeHandles};
+use crate::dev_logger::{log_debug, log_error, log_info, log_warn};
 use crate::system_proxy::{
     apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
     SystemProxySettings,
 };
 use pharles_proxy_core::{start_proxy_server, ProxyRuntimeConfig, ProxySessionSummary};
 use serde::Deserialize;
+use std::sync::Arc;
 use tauri::State;
 
 const DEFAULT_PROXY_PORT: u16 = 8888;
@@ -24,41 +26,48 @@ pub struct StopProxyInput {
 }
 
 #[tauri::command]
-pub fn get_bootstrap_status(state: State<'_, AppState>) -> BootstrapStatus {
+pub fn get_bootstrap_status(state: State<'_, Arc<AppState>>) -> BootstrapStatus {
     state.read_status()
 }
 
 #[tauri::command]
-pub fn list_sessions(state: State<'_, AppState>) -> Vec<ProxySessionSummary> {
+pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<ProxySessionSummary> {
     state.read_sessions()
 }
 
 #[tauri::command]
-pub fn start_proxy(
+pub async fn start_proxy(
     input: StartProxyInput,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
 ) -> Result<BootstrapStatus, String> {
-    tauri::async_runtime::block_on(start_proxy_impl(input, state))
+    start_proxy_impl(input, Arc::clone(state.inner())).await
 }
 
 #[tauri::command]
-pub fn stop_proxy(input: StopProxyInput, state: State<'_, AppState>) -> BootstrapStatus {
-    tauri::async_runtime::block_on(stop_proxy_impl(input, state))
+pub async fn stop_proxy(
+    input: StopProxyInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<BootstrapStatus, String> {
+    stop_proxy_impl(input, Arc::clone(state.inner())).await
 }
 
 #[tauri::command]
-pub fn enable_system_proxy(state: State<'_, AppState>) -> Result<BootstrapStatus, String> {
-    tauri::async_runtime::block_on(enable_system_proxy_impl(&state))
+pub async fn enable_system_proxy(
+    state: State<'_, Arc<AppState>>,
+) -> Result<BootstrapStatus, String> {
+    enable_system_proxy_impl(Arc::clone(state.inner())).await
 }
 
 #[tauri::command]
-pub fn disable_system_proxy(state: State<'_, AppState>) -> Result<BootstrapStatus, String> {
-    tauri::async_runtime::block_on(disable_system_proxy_impl(&state))
+pub async fn disable_system_proxy(
+    state: State<'_, Arc<AppState>>,
+) -> Result<BootstrapStatus, String> {
+    disable_system_proxy_impl(Arc::clone(state.inner())).await
 }
 
 async fn start_proxy_impl(
     input: StartProxyInput,
-    state: State<'_, AppState>,
+    state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
     let should_reapply_system_proxy = state.read_status().system_proxy_enabled;
     let port = input.port.unwrap_or(DEFAULT_PROXY_PORT);
@@ -71,12 +80,26 @@ async fn start_proxy_impl(
     .validate()
     .map_err(|message| message.to_string())?;
 
-    eprintln!(
-        "level=INFO command=start_proxy workspace_id={} port={} ssl_enabled={}",
-        input.workspace_id, port, enable_ssl
+    log_info(
+        "desktop.commands",
+        "start_proxy_requested",
+        &[
+            ("workspace_id", input.workspace_id.clone()),
+            ("port", port.to_string()),
+            ("ssl_enabled", enable_ssl.to_string()),
+            (
+                "system_proxy_enabled",
+                should_reapply_system_proxy.to_string(),
+            ),
+        ],
     );
 
     if let Some(runtime_handles) = state.take_runtime() {
+        log_debug(
+            "desktop.commands",
+            "previous_proxy_runtime_found",
+            &[("workspace_id", input.workspace_id.clone())],
+        );
         runtime_handles.proxy_server_handle.shutdown().await;
         let _ = runtime_handles.collector_handle.await;
     }
@@ -120,13 +143,30 @@ async fn start_proxy_impl(
         apply_system_proxy_settings(&SystemProxySettings::localhost(status.port))?;
     }
 
+    log_info(
+        "desktop.commands",
+        "start_proxy_succeeded",
+        &[
+            ("workspace_id", status.active_workspace_id.clone().unwrap_or_default()),
+            ("bound_port", status.port.to_string()),
+            ("ssl_enabled", status.ssl_enabled.to_string()),
+        ],
+    );
+
     Ok(status)
 }
 
-async fn stop_proxy_impl(input: StopProxyInput, state: State<'_, AppState>) -> BootstrapStatus {
-    eprintln!(
-        "level=INFO command=stop_proxy workspace_id={} reason=user_request",
-        input.workspace_id
+async fn stop_proxy_impl(
+    input: StopProxyInput,
+    state: Arc<AppState>,
+) -> Result<BootstrapStatus, String> {
+    log_info(
+        "desktop.commands",
+        "stop_proxy_requested",
+        &[
+            ("workspace_id", input.workspace_id.clone()),
+            ("reason", "user_request".to_string()),
+        ],
     );
 
     if let Some(runtime_handles) = state.take_runtime() {
@@ -135,21 +175,47 @@ async fn stop_proxy_impl(input: StopProxyInput, state: State<'_, AppState>) -> B
     }
 
     if state.read_status().system_proxy_enabled {
-        if let Err(error) = disable_system_proxy_impl(&state).await {
-            eprintln!(
-                "level=WARN command=stop_proxy event=system_proxy_restore_failed workspace_id={} error=\"{}\"",
-                input.workspace_id, error
+        if let Err(error) = disable_system_proxy_impl(Arc::clone(&state)).await {
+            log_warn(
+                "desktop.commands",
+                "stop_proxy_system_proxy_restore_failed",
+                &[
+                    ("workspace_id", input.workspace_id.clone()),
+                    ("error", error),
+                ],
             );
         }
     }
 
-    state.stop_proxy(input.workspace_id)
+    let status = state.stop_proxy(input.workspace_id);
+
+    log_info(
+        "desktop.commands",
+        "stop_proxy_succeeded",
+        &[
+            (
+                "workspace_id",
+                status.active_workspace_id.clone().unwrap_or_default(),
+            ),
+            ("running", status.running.to_string()),
+        ],
+    );
+
+    Ok(status)
 }
 
-async fn enable_system_proxy_impl(state: &AppState) -> Result<BootstrapStatus, String> {
+async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
     let status = state.read_status();
 
     if !status.running {
+        log_warn(
+            "desktop.commands",
+            "enable_system_proxy_rejected",
+            &[(
+                "reason",
+                "proxy_must_be_running_before_enabling_system_proxy".to_string(),
+            )],
+        );
         return Err("proxy must be running before enabling the system proxy".to_string());
     }
 
@@ -166,25 +232,38 @@ async fn enable_system_proxy_impl(state: &AppState) -> Result<BootstrapStatus, S
         state.store_system_proxy_snapshot(snapshot);
     }
 
-    eprintln!(
-        "level=INFO command=enable_system_proxy port={} endpoint={}",
-        status.port,
-        settings.endpoint()
+    log_info(
+        "desktop.commands",
+        "enable_system_proxy_succeeded",
+        &[
+            ("port", status.port.to_string()),
+            ("endpoint", settings.endpoint()),
+        ],
     );
 
     Ok(state.set_system_proxy_enabled(true))
 }
 
-async fn disable_system_proxy_impl(state: &AppState) -> Result<BootstrapStatus, String> {
+async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
     if let Some(snapshot) = state.take_system_proxy_snapshot() {
         if let Err(error) = restore_system_proxy(&snapshot) {
             state.store_system_proxy_snapshot(snapshot);
+
+            log_error(
+                "desktop.commands",
+                "disable_system_proxy_restore_failed",
+                &[("error", error.clone())],
+            );
 
             return Err(error);
         }
     }
 
-    eprintln!("level=INFO command=disable_system_proxy reason=user_request");
+    log_info(
+        "desktop.commands",
+        "disable_system_proxy_succeeded",
+        &[("reason", "user_request".to_string())],
+    );
 
     Ok(state.set_system_proxy_enabled(false))
 }

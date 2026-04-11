@@ -54,7 +54,7 @@ export function AppShell() {
           <Stack spacing={0.25}>
             <Typography variant="h6">Pharles</Typography>
             <Typography color="text.secondary" variant="caption">
-              Proxy workspace bootstrap
+              Developer proxy workbench
             </Typography>
           </Stack>
 

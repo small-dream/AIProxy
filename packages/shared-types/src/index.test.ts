@@ -94,6 +94,24 @@ describe("parseProxyStatus", () => {
     expect(actual).toEqual(payload);
   });
 
+  it("normalizes nullable optional fields from the Tauri command layer", () => {
+    const actual = parseProxyStatus({
+      activeWorkspaceId: null,
+      port: DEFAULT_PROXY_PORT,
+      running: false,
+      sslEnabled: false,
+      startedAt: null,
+      systemProxyEnabled: false,
+    });
+
+    expect(actual).toEqual({
+      port: DEFAULT_PROXY_PORT,
+      running: false,
+      sslEnabled: false,
+      systemProxyEnabled: false,
+    });
+  });
+
   it("throws an app error when the payload is invalid", () => {
     expect(() =>
       parseProxyStatus({

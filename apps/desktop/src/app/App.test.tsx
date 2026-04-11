@@ -13,8 +13,9 @@ describe("App", () => {
   it("renders the bootstrap sessions workspace", async () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { level: 4, name: "Sessions" })).toBeInTheDocument();
-    expect(screen.getByText("Proxy Runtime")).toBeInTheDocument();
-    expect(await screen.findByText(/Configure your browser or system HTTP proxy/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 5, name: "Sessions" })).toBeInTheDocument();
+    expect(screen.getByText("Session Explorer")).toBeInTheDocument();
+    expect(await screen.findByText(/No captured sessions yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Proxy" })).toBeInTheDocument();
   });
 });

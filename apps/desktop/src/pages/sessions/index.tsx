@@ -1,18 +1,12 @@
-import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@pharles/shared-types";
 import {
-  Alert,
-  Box,
-  CircularProgress,
-  List,
-  ListItemButton,
-  ListItemText,
-  Stack,
-  Typography,
-} from "@mui/material";
-import { useMemo, useState } from "react";
+  coerceAppError,
+  DEFAULT_PROXY_PORT,
+  DEFAULT_WORKSPACE_ID,
+  isAppError,
+} from "@pharles/shared-types";
+import { Alert, Box, Stack, Typography } from "@mui/material";
+import { useEffect, useMemo, useState } from "react";
 
-import { ProxyStatusCard } from "@/components/shared/ProxyStatusCard";
-import { SectionCard } from "@/components/shared/SectionCard";
 import {
   useDisableSystemProxy,
   useEnableSystemProxy,
@@ -20,7 +14,22 @@ import {
   useStartProxy,
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
+import {
+  CaptureControlStrip,
+  type SystemProxyActionState,
+} from "@/features/sessions/components/CaptureControlStrip";
+import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
+import {
+  type InspectorPrimaryTab,
+  type InspectorSecondaryTab,
+  SessionInspectorWorkspace,
+} from "@/features/sessions/components/SessionInspectorWorkspace";
+import {
+  buildSessionHostGroups,
+  type SessionExplorerScope,
+} from "@/features/sessions/session-explorer.helpers";
 import { useSessions } from "@/features/sessions/use-sessions";
+import { logDevInfo, logDevWarn } from "@/services/logger/dev-logger";
 
 export function SessionsPage() {
   const { data: proxyStatus, error, isLoading } = useProxyStatus();
@@ -28,8 +37,21 @@ export function SessionsPage() {
   const stopProxyMutation = useStopProxy();
   const enableSystemProxyMutation = useEnableSystemProxy();
   const disableSystemProxyMutation = useDisableSystemProxy();
-  const { data: sessions = [], isLoading: areSessionsLoading } = useSessions(proxyStatus?.running ?? false);
+  const {
+    data: sessions = [],
+    error: sessionsError,
+    isLoading: areSessionsLoading,
+  } = useSessions(proxyStatus?.running ?? false);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
+  const [searchValue, setSearchValue] = useState("");
+  const [scope, setScope] = useState<SessionExplorerScope>("all");
+  const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
+  const [primaryInspectorTab, setPrimaryInspectorTab] = useState<InspectorPrimaryTab>("overview");
+  const [secondaryInspectorTab, setSecondaryInspectorTab] = useState<InspectorSecondaryTab>("headers");
+  const [systemProxyActionState, setSystemProxyActionState] = useState<SystemProxyActionState>("idle");
+  const [systemProxyActionMessage, setSystemProxyActionMessage] = useState(
+    "System proxy has not been requested in this session yet.",
+  );
 
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
@@ -38,124 +60,219 @@ export function SessionsPage() {
     stopProxyMutation.isPending ||
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
+  const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue, scope), [scope, searchValue, sessions]);
+  const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
-    () => sessions.find((session) => session.id === selectedSessionId) ?? sessions[0],
-    [selectedSessionId, sessions],
+    () => visibleSessions.find((session) => session.id === selectedSessionId) ?? visibleSessions[0],
+    [selectedSessionId, visibleSessions],
+  );
+  const selectedSessionIdValue = selectedSession?.id;
+  const sessionsErrorMessage = getOperationErrorMessage(
+    sessionsError,
+    "Unable to load captured sessions from the proxy runtime.",
+  );
+  const mutationError = startProxyMutation.error ??
+    stopProxyMutation.error ??
+    enableSystemProxyMutation.error ??
+    disableSystemProxyMutation.error;
+  const mutationErrorMessage = getOperationErrorMessage(
+    mutationError,
+    "The requested proxy operation failed before the UI could update its runtime state.",
   );
 
+  useEffect(() => {
+    if (hostGroups.length === 0) {
+      return;
+    }
+
+    setExpandedHosts((currentHosts) => {
+      const nextHosts = new Set(currentHosts);
+
+      for (const group of hostGroups) {
+        nextHosts.add(group.host);
+      }
+
+      return Array.from(nextHosts);
+    });
+  }, [hostGroups]);
+
+  function toggleHost(host: string) {
+    setExpandedHosts((currentHosts) =>
+      currentHosts.includes(host) ? currentHosts.filter((currentHost) => currentHost !== host) : [...currentHosts, host],
+    );
+  }
+
+  function handleEnableSystemProxy() {
+    logDevInfo("ui.sessions", "enable_system_proxy_click", {
+      port,
+      proxyRunning: proxyStatus?.running ?? false,
+      workspaceId,
+    });
+
+    setSystemProxyActionState("requesting");
+    setSystemProxyActionMessage("Requesting Windows system proxy takeover...");
+
+    enableSystemProxyMutation.mutate(undefined, {
+      onError: (mutationError) => {
+        const message = getOperationErrorMessage(
+          mutationError,
+          "Enable System Proxy failed before runtime state changed.",
+        );
+
+        logDevWarn("ui.sessions", "enable_system_proxy_click_failed", {
+          message,
+          workspaceId,
+        });
+        setSystemProxyActionState("failed");
+        setSystemProxyActionMessage(message);
+      },
+      onSuccess: (status) => {
+        const message = status.systemProxyEnabled
+          ? `Windows system proxy now points to 127.0.0.1:${status.port}.`
+          : "System proxy action completed, but enabled state stayed off.";
+
+        logDevInfo("ui.sessions", "enable_system_proxy_click_succeeded", {
+          port: status.port,
+          systemProxyEnabled: status.systemProxyEnabled,
+          workspaceId: status.activeWorkspaceId,
+        });
+        setSystemProxyActionState(status.systemProxyEnabled ? "succeeded" : "failed");
+        setSystemProxyActionMessage(message);
+      },
+    });
+  }
+
+  function handleDisableSystemProxy() {
+    logDevInfo("ui.sessions", "disable_system_proxy_click", {
+      workspaceId,
+    });
+
+    setSystemProxyActionState("requesting");
+    setSystemProxyActionMessage("Restoring previous Windows system proxy settings...");
+
+    disableSystemProxyMutation.mutate(undefined, {
+      onError: (mutationError) => {
+        const message = getOperationErrorMessage(
+          mutationError,
+          "Disable System Proxy failed before runtime state changed.",
+        );
+
+        logDevWarn("ui.sessions", "disable_system_proxy_click_failed", {
+          message,
+          workspaceId,
+        });
+        setSystemProxyActionState("failed");
+        setSystemProxyActionMessage(message);
+      },
+      onSuccess: (status) => {
+        logDevInfo("ui.sessions", "disable_system_proxy_click_succeeded", {
+          port: status.port,
+          systemProxyEnabled: status.systemProxyEnabled,
+          workspaceId: status.activeWorkspaceId,
+        });
+        setSystemProxyActionState("succeeded");
+        setSystemProxyActionMessage("Previous Windows system proxy settings restored.");
+      },
+    });
+  }
+
   return (
-    <Stack spacing={3}>
-      <Stack spacing={0.75}>
-        <Typography variant="h4">Sessions</Typography>
-        <Typography color="text.secondary" variant="body1">
-          Main capture workspace for real-time proxy traffic and detailed inspection.
+    <Stack spacing={2.5}>
+      <Stack spacing={0.5}>
+        <Typography variant="h5">Sessions</Typography>
+        <Typography color="text.secondary" variant="body2">
+          Charles-style traffic workbench with a host-grouped explorer and a detail-focused inspector.
         </Typography>
       </Stack>
+
+      <CaptureControlStrip
+        busy={isBusy}
+        isRunning={proxyStatus?.running ?? false}
+        onDisableSystemProxy={handleDisableSystemProxy}
+        onEnableSystemProxy={handleEnableSystemProxy}
+        onSearchChange={setSearchValue}
+        onStart={() =>
+          startProxyMutation.mutate({
+            enableSsl: false,
+            port,
+            workspaceId,
+          })
+        }
+        onStop={() => stopProxyMutation.mutate(workspaceId)}
+        port={port}
+        searchValue={searchValue}
+        sessionCount={sessions.length}
+        sslEnabled={proxyStatus?.sslEnabled ?? false}
+        systemProxyActionMessage={systemProxyActionMessage}
+        systemProxyActionState={systemProxyActionState}
+        systemProxyEnabled={proxyStatus?.systemProxyEnabled ?? false}
+        workspaceId={workspaceId}
+      />
+
+      {error ? (
+        <Alert severity="error">
+          Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.
+        </Alert>
+      ) : null}
+
+      {mutationError ? (
+        <Alert severity="error">
+          {mutationErrorMessage}
+        </Alert>
+      ) : null}
 
       <Box
         sx={{
           display: "grid",
-          gap: 3,
+          gap: 2,
           gridTemplateColumns: {
-            md: "minmax(0, 7fr) minmax(0, 5fr)",
+            lg: "minmax(320px, 380px) minmax(0, 1fr)",
             xs: "1fr",
+          },
+          minHeight: {
+            lg: "calc(100vh - 260px)",
+            xs: 640,
           },
         }}
       >
-        <Box>
-          <Stack spacing={3}>
-            <ProxyStatusCard
-              busy={isBusy}
-              isRunning={proxyStatus?.running ?? false}
-              onDisableSystemProxy={() => disableSystemProxyMutation.mutate()}
-              onEnableSystemProxy={() => enableSystemProxyMutation.mutate()}
-              onStart={() =>
-                startProxyMutation.mutate({
-                  enableSsl: false,
-                  port,
-                  workspaceId,
-                })
-              }
-              onStop={() => stopProxyMutation.mutate(workspaceId)}
-              port={port}
-              systemProxyEnabled={proxyStatus?.systemProxyEnabled ?? false}
-              sslEnabled={false}
-              workspaceId={workspaceId}
-            />
+        <SessionExplorerPane
+          errorMessage={sessionsError ? sessionsErrorMessage : undefined}
+          expandedHosts={expandedHosts}
+          groups={hostGroups}
+          isLoading={isLoading || areSessionsLoading}
+          onScopeChange={setScope}
+          onSelectSession={setSelectedSessionId}
+          onToggleHost={toggleHost}
+          scope={scope}
+          selectedSessionId={selectedSessionIdValue}
+        />
 
-            <SectionCard
-              description="Configure your browser or system HTTP proxy to 127.0.0.1 and the active port to capture plain HTTP traffic."
-              title="Capture Stream"
-            >
-              {isLoading || areSessionsLoading ? (
-                <Stack alignItems="center" direction="row" spacing={1.5}>
-                  <CircularProgress size={18} />
-                  <Typography color="text.secondary" variant="body2">
-                    Loading proxy state and captured sessions...
-                  </Typography>
-                </Stack>
-              ) : sessions.length > 0 ? (
-                <List disablePadding>
-                  {sessions.map((session) => (
-                    <ListItemButton
-                      key={session.id}
-                      onClick={() => setSelectedSessionId(session.id)}
-                      selected={selectedSession?.id === session.id}
-                    >
-                      <ListItemText
-                        primary={`${session.method} ${session.host}${session.path}`}
-                        secondary={`${session.statusCode} • ${session.durationMs} ms • ${session.sizeBytes} bytes`}
-                      />
-                    </ListItemButton>
-                  ))}
-                </List>
-              ) : (
-                <Stack spacing={1}>
-                  <Typography color="text.secondary" variant="body2">
-                    No sessions yet. Start the proxy, then point your browser to `127.0.0.1:{port}` as an HTTP proxy.
-                  </Typography>
-                  <Typography color="text.secondary" variant="body2">
-                    HTTPS CONNECT interception will come in the next phase. This milestone captures plain HTTP requests.
-                  </Typography>
-                </Stack>
-              )}
-            </SectionCard>
-          </Stack>
-        </Box>
-
-        <Box>
-          <SectionCard
-            description="This panel shows the selected session summary while the detailed inspector is still being built."
-            title="Inspector"
-          >
-            <Stack spacing={2}>
-              {error ? (
-                <Alert severity="error">
-                  Unable to load proxy bootstrap status. The UI is showing fallback placeholders until the command layer
-                  is available.
-                </Alert>
-              ) : null}
-              {selectedSession ? (
-                <Stack spacing={1}>
-                  <Typography variant="body2">Method: {selectedSession.method}</Typography>
-                  <Typography variant="body2">Host: {selectedSession.host}</Typography>
-                  <Typography variant="body2">Path: {selectedSession.path}</Typography>
-                  <Typography variant="body2">Status: {selectedSession.statusCode}</Typography>
-                  <Typography variant="body2">Duration: {selectedSession.durationMs} ms</Typography>
-                  <Typography variant="body2">Size: {selectedSession.sizeBytes} bytes</Typography>
-                  <Typography sx={{ wordBreak: "break-all" }} variant="body2">
-                    URL: {selectedSession.url}
-                  </Typography>
-                </Stack>
-              ) : (
-                <Typography color="text.secondary" variant="body2">
-                  Select a captured HTTP session to inspect its summary details.
-                </Typography>
-              )}
-            </Stack>
-          </SectionCard>
-        </Box>
+        <SessionInspectorWorkspace
+          onPrimaryTabChange={setPrimaryInspectorTab}
+          onSecondaryTabChange={setSecondaryInspectorTab}
+          primaryTab={primaryInspectorTab}
+          secondaryTab={secondaryInspectorTab}
+          selectedSession={selectedSession}
+        />
       </Box>
     </Stack>
   );
+}
+
+function getOperationErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (!error) {
+    return fallbackMessage;
+  }
+
+  if (isAppError(error)) {
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  const coercedError = coerceAppError(error);
+
+  return coercedError.message || fallbackMessage;
 }
