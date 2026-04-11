@@ -186,6 +186,7 @@ flowchart LR
 - 将会话元数据写入 SQLite
 - 将大体积请求/响应内容按策略落盘
 - 提供搜索、过滤、排序、分页查询接口
+- 在当前 MVP 阶段，桌面运行时内存中保留最近会话的 `summary + detail`，供 `Inspector` 快速读取
 
 ## 6.4 `rule-engine`
 
@@ -576,6 +577,12 @@ project-root/
 4. 检查是否出现 `request_forwarded`
 5. 若没有流量记录，优先排查系统代理是否真正接管；若有请求失败，优先看 `upstream_request_failed`
 
+### 15.5 Inspector 详情链路
+
+- `proxy-core` 负责采集请求头、响应头、请求体、响应体和基础 timing
+- `desktop.commands` 通过 `get_session_detail` 暴露单条会话详情
+- 前端 `Session Inspector Workspace` 按需查询详情，避免列表轮询时携带大体积 payload
+
 ## 16. 风险与演进建议
 
 ### 16.1 技术风险
@@ -599,3 +606,9 @@ project-root/
 - `docs/DECISIONS/ADR-001-tauri-rust.md`
 - `docs/DECISIONS/ADR-002-session-storage.md`
 - `docs/DECISIONS/ADR-003-rule-engine.md`
+
+## Runtime Safety Constraints
+
+- Desktop shutdown must restore the previously captured system proxy snapshot before process exit.
+- Proxy runtime shutdown and system proxy restoration must run even when the user closes the window directly instead of clicking in-app stop controls.
+- Exit cleanup failures must be written to the structured desktop log for diagnosis.

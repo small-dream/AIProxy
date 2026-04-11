@@ -50,6 +50,15 @@ export function buildSessionHostGroups(
     });
 }
 
+export function reconcileExpandedHosts(
+  expandedHosts: string[],
+  groups: SessionHostGroup[],
+): string[] {
+  const availableHosts = new Set(groups.map((group) => group.host));
+
+  return expandedHosts.filter((host) => availableHosts.has(host));
+}
+
 function matchesScope(session: SessionSummary, scope: SessionExplorerScope): boolean {
   if (scope === "errors") {
     return session.statusCode >= 400;

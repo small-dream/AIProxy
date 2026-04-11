@@ -1,7 +1,10 @@
 import type { SessionSummary } from "@pharles/shared-types";
 import { describe, expect, it } from "vitest";
 
-import { buildSessionHostGroups } from "./session-explorer.helpers";
+import {
+  buildSessionHostGroups,
+  reconcileExpandedHosts,
+} from "./session-explorer.helpers";
 
 function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
   return {
@@ -83,5 +86,24 @@ describe("buildSessionHostGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.host).toBe("api.example.com");
     expect(groups[0]?.sessions.map((session) => session.id)).toEqual(["session-6"]);
+  });
+
+  it("keeps the host tree collapsed by default and drops stale expansions", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-8",
+          url: "http://api.example.com/users",
+        }),
+      ],
+      "",
+      "all",
+    );
+
+    expect(reconcileExpandedHosts([], groups)).toEqual([]);
+    expect(reconcileExpandedHosts(["missing.example.com", "api.example.com"], groups)).toEqual([
+      "api.example.com",
+    ]);
   });
 });

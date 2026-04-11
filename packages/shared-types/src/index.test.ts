@@ -5,9 +5,11 @@ import {
   createDefaultProxyStatus,
   DEFAULT_PROXY_PORT,
   isAppError,
+  isSessionDetail,
   isProxyStatus,
   isSessionSummary,
   normalizeStartProxyInput,
+  parseSessionDetail,
   parseSessionSummaries,
   parseProxyStatus,
 } from "./index";
@@ -180,5 +182,156 @@ describe("parseSessionSummaries", () => {
 
   it("throws when the payload is not an array", () => {
     expect(() => parseSessionSummaries({})).toThrow();
+  });
+});
+
+describe("isSessionDetail", () => {
+  it("returns true for a valid session detail payload", () => {
+    const actual = isSessionDetail({
+      cookies: [],
+      id: "session-1",
+      queryParams: [{ name: "lang", value: "en" }],
+      rawRequest: "GET /hello HTTP/1.1",
+      requestBody: {
+        inlineText: "{\"hello\":\"world\"}",
+        mimeType: "application/json",
+        sizeBytes: 17,
+      },
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseBody: {
+        inlineText: "Hello",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+      },
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+      timing: {
+        requestSendMs: 1,
+        responseReadMs: 2,
+        totalMs: 3,
+        waitingMs: 0,
+      },
+    });
+
+    expect(actual).toBe(true);
+  });
+});
+
+describe("parseSessionDetail", () => {
+  it("returns a valid session detail payload unchanged", () => {
+    const payload = {
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+    };
+
+    const actual = parseSessionDetail(payload);
+
+    expect(actual).toEqual(payload);
+  });
+
+  it("normalizes nullable optional fields from the Tauri command layer", () => {
+    const actual = parseSessionDetail({
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      rawRequest: null,
+      rawResponse: null,
+      requestBody: {
+        base64Text: null,
+        encoding: null,
+        inlineText: "Hello",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+        truncated: null,
+      },
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseBody: null,
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      serverIp: null,
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+      timing: {
+        connectMs: null,
+        requestSendMs: 1,
+        responseReadMs: 2,
+        tlsMs: null,
+        totalMs: 3,
+        waitingMs: null,
+      },
+    });
+
+    expect(actual).toEqual({
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      requestBody: {
+        inlineText: "Hello",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+      },
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+      timing: {
+        requestSendMs: 1,
+        responseReadMs: 2,
+        totalMs: 3,
+      },
+    });
+  });
+
+  it("throws when the payload is invalid", () => {
+    expect(() => parseSessionDetail({ id: "session-1" })).toThrow();
   });
 });

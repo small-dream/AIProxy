@@ -38,6 +38,45 @@ export type SessionSummary = {
   url: string;
 };
 
+export type HeaderEntry = {
+  name: string;
+  value: string;
+};
+
+export type BodyReference = {
+  base64Text?: string;
+  encoding?: string;
+  inlineText?: string;
+  mimeType?: string;
+  sizeBytes: number;
+  truncated?: boolean;
+};
+
+export type TimingBreakdown = {
+  connectMs?: number;
+  dnsMs?: number;
+  requestSendMs?: number;
+  responseReadMs?: number;
+  tlsMs?: number;
+  totalMs?: number;
+  waitingMs?: number;
+};
+
+export type SessionDetail = {
+  cookies: HeaderEntry[];
+  id: string;
+  queryParams: HeaderEntry[];
+  rawRequest?: string;
+  rawResponse?: string;
+  requestBody?: BodyReference;
+  requestHeaders: HeaderEntry[];
+  responseBody?: BodyReference;
+  responseHeaders: HeaderEntry[];
+  serverIp?: string;
+  summary: SessionSummary;
+  timing?: TimingBreakdown;
+};
+
 export type StartProxyInput = {
   workspaceId: string;
   port?: number;
@@ -63,6 +102,18 @@ export function createDefaultProxyStatus(): ProxyStatus {
 
 const UNKNOWN_ERROR_CODE = "UNKNOWN_ERROR";
 const UNKNOWN_ERROR_MESSAGE = "An unexpected error occurred.";
+
+function isNullableString(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function isNullableNumber(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null || typeof value === "number";
+}
+
+function isNullableBoolean(value: unknown): value is boolean | null | undefined {
+  return value === undefined || value === null || typeof value === "boolean";
+}
 
 export function coerceAppError(error: unknown): AppError {
   if (isAppError(error)) {
@@ -212,4 +263,189 @@ export function parseSessionSummaries(value: unknown): SessionSummary[] {
       payload: value,
     },
   } satisfies AppError;
+}
+
+export function isHeaderEntry(value: unknown): value is HeaderEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<HeaderEntry>;
+
+  return typeof candidate.name === "string" && typeof candidate.value === "string";
+}
+
+export function isBodyReference(value: unknown): value is BodyReference {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<BodyReference> & {
+    base64Text?: string | null;
+    encoding?: string | null;
+    inlineText?: string | null;
+    mimeType?: string | null;
+    truncated?: boolean | null;
+  };
+
+  return (
+    typeof candidate.sizeBytes === "number" &&
+    isNullableString(candidate.inlineText) &&
+    isNullableString(candidate.base64Text) &&
+    isNullableString(candidate.mimeType) &&
+    isNullableString(candidate.encoding) &&
+    isNullableBoolean(candidate.truncated)
+  );
+}
+
+export function isTimingBreakdown(value: unknown): value is TimingBreakdown {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<TimingBreakdown>;
+  const timingFields = [
+    candidate.connectMs,
+    candidate.dnsMs,
+    candidate.requestSendMs,
+    candidate.responseReadMs,
+    candidate.tlsMs,
+    candidate.totalMs,
+    candidate.waitingMs,
+  ];
+
+  return timingFields.every(isNullableNumber);
+}
+
+export function isSessionDetail(value: unknown): value is SessionDetail {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<SessionDetail> & {
+    rawRequest?: string | null;
+    rawResponse?: string | null;
+    requestBody?: BodyReference | null;
+    responseBody?: BodyReference | null;
+    serverIp?: string | null;
+    timing?: TimingBreakdown | null;
+  };
+
+  return (
+    typeof candidate.id === "string" &&
+    isSessionSummary(candidate.summary) &&
+    Array.isArray(candidate.requestHeaders) &&
+    candidate.requestHeaders.every(isHeaderEntry) &&
+    Array.isArray(candidate.responseHeaders) &&
+    candidate.responseHeaders.every(isHeaderEntry) &&
+    Array.isArray(candidate.queryParams) &&
+    candidate.queryParams.every(isHeaderEntry) &&
+    Array.isArray(candidate.cookies) &&
+    candidate.cookies.every(isHeaderEntry) &&
+    (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
+    (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
+    (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
+    isNullableString(candidate.rawRequest) &&
+    isNullableString(candidate.rawResponse) &&
+    isNullableString(candidate.serverIp)
+  );
+}
+
+export function parseSessionDetail(value: unknown): SessionDetail {
+  if (isSessionDetail(value)) {
+    const candidate = value as SessionDetail & {
+      rawRequest?: string | null;
+      rawResponse?: string | null;
+      requestBody?: BodyReference | null;
+      responseBody?: BodyReference | null;
+      serverIp?: string | null;
+      timing?: TimingBreakdown | null;
+    };
+
+    return {
+      cookies: candidate.cookies,
+      id: candidate.id,
+      queryParams: candidate.queryParams,
+      requestHeaders: candidate.requestHeaders,
+      responseHeaders: candidate.responseHeaders,
+      summary: candidate.summary,
+      ...(candidate.rawRequest !== null && candidate.rawRequest !== undefined
+        ? { rawRequest: candidate.rawRequest }
+        : {}),
+      ...(candidate.rawResponse !== null && candidate.rawResponse !== undefined
+        ? { rawResponse: candidate.rawResponse }
+        : {}),
+      ...(candidate.requestBody !== null && candidate.requestBody !== undefined
+        ? { requestBody: normalizeBodyReference(candidate.requestBody) }
+        : {}),
+      ...(candidate.responseBody !== null && candidate.responseBody !== undefined
+        ? { responseBody: normalizeBodyReference(candidate.responseBody) }
+        : {}),
+      ...(candidate.serverIp !== null && candidate.serverIp !== undefined
+        ? { serverIp: candidate.serverIp }
+        : {}),
+      ...(candidate.timing !== null && candidate.timing !== undefined
+        ? { timing: normalizeTimingBreakdown(candidate.timing) }
+        : {}),
+    };
+  }
+
+  throw {
+    code: "INVALID_SESSION_DETAIL",
+    message: "The session detail payload does not match the shared contract.",
+    details: {
+      payload: value,
+    },
+  } satisfies AppError;
+}
+
+function normalizeBodyReference(bodyReference: BodyReference & {
+  base64Text?: string | null;
+  encoding?: string | null;
+  inlineText?: string | null;
+  mimeType?: string | null;
+  truncated?: boolean | null;
+}): BodyReference {
+  return {
+    sizeBytes: bodyReference.sizeBytes,
+    ...(bodyReference.base64Text !== null && bodyReference.base64Text !== undefined
+      ? { base64Text: bodyReference.base64Text }
+      : {}),
+    ...(bodyReference.encoding !== null && bodyReference.encoding !== undefined
+      ? { encoding: bodyReference.encoding }
+      : {}),
+    ...(bodyReference.inlineText !== null && bodyReference.inlineText !== undefined
+      ? { inlineText: bodyReference.inlineText }
+      : {}),
+    ...(bodyReference.mimeType !== null && bodyReference.mimeType !== undefined
+      ? { mimeType: bodyReference.mimeType }
+      : {}),
+    ...(bodyReference.truncated !== null && bodyReference.truncated !== undefined
+      ? { truncated: bodyReference.truncated }
+      : {}),
+  };
+}
+
+function normalizeTimingBreakdown(timing: TimingBreakdown & {
+  connectMs?: number | null;
+  dnsMs?: number | null;
+  requestSendMs?: number | null;
+  responseReadMs?: number | null;
+  tlsMs?: number | null;
+  totalMs?: number | null;
+  waitingMs?: number | null;
+}): TimingBreakdown {
+  return {
+    ...(timing.connectMs !== null && timing.connectMs !== undefined ? { connectMs: timing.connectMs } : {}),
+    ...(timing.dnsMs !== null && timing.dnsMs !== undefined ? { dnsMs: timing.dnsMs } : {}),
+    ...(timing.requestSendMs !== null && timing.requestSendMs !== undefined
+      ? { requestSendMs: timing.requestSendMs }
+      : {}),
+    ...(timing.responseReadMs !== null && timing.responseReadMs !== undefined
+      ? { responseReadMs: timing.responseReadMs }
+      : {}),
+    ...(timing.tlsMs !== null && timing.tlsMs !== undefined ? { tlsMs: timing.tlsMs } : {}),
+    ...(timing.totalMs !== null && timing.totalMs !== undefined ? { totalMs: timing.totalMs } : {}),
+    ...(timing.waitingMs !== null && timing.waitingMs !== undefined ? { waitingMs: timing.waitingMs } : {}),
+  };
 }

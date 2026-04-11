@@ -1,6 +1,9 @@
-use pharles_proxy_core::{ProxyServerHandle, ProxySessionSummary};
+use pharles_proxy_core::{ProxyServerHandle, ProxySessionDetail, ProxySessionSummary};
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tauri::async_runtime::JoinHandle;
 
 use crate::system_proxy::SystemProxySnapshot;
@@ -38,6 +41,7 @@ pub struct RuntimeHandles {
 #[derive(Debug)]
 pub struct AppState {
     runtime: Mutex<Option<RuntimeHandles>>,
+    session_details: Arc<Mutex<HashMap<String, ProxySessionDetail>>>,
     sessions: Arc<Mutex<Vec<ProxySessionSummary>>>,
     status: Mutex<BootstrapStatus>,
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
@@ -47,6 +51,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             runtime: Mutex::new(None),
+            session_details: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(Vec::new())),
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
@@ -67,15 +72,50 @@ impl AppState {
             .clone()
     }
 
+    pub fn read_session_detail(&self, session_id: &str) -> Option<ProxySessionDetail> {
+        self.session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .get(session_id)
+            .cloned()
+    }
+
     pub fn clear_sessions(&self) {
+        self.session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .clear();
+
         self.sessions
             .lock()
             .expect("session list mutex should not be poisoned")
             .clear();
     }
 
-    pub fn session_store(&self) -> Arc<Mutex<Vec<ProxySessionSummary>>> {
-        Arc::clone(&self.sessions)
+    pub fn insert_session(&self, session_detail: ProxySessionDetail) {
+        let session_id = session_detail.id.clone();
+        let session_summary = session_detail.summary.clone();
+
+        self.session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .insert(session_id, session_detail);
+
+        let mut sessions = self
+            .sessions
+            .lock()
+            .expect("session list mutex should not be poisoned");
+
+        sessions.insert(0, session_summary);
+
+        while sessions.len() > 500 {
+            if let Some(removed_session) = sessions.pop() {
+                self.session_details
+                    .lock()
+                    .expect("session detail mutex should not be poisoned")
+                    .remove(&removed_session.id);
+            }
+        }
     }
 
     pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {

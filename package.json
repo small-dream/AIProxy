@@ -6,9 +6,20 @@
   "scripts": {
     "dev": "pnpm --filter @pharles/desktop dev",
     "build": "pnpm --filter @pharles/desktop build",
+    "desktop:run": "node ./scripts/desktop.mjs run",
+    "desktop:build": "node ./scripts/desktop.mjs build",
+    "desktop:bundle": "node ./scripts/desktop.mjs bundle",
+    "desktop:run:windows": "node ./scripts/desktop.mjs run --platform windows",
+    "desktop:run:macos": "node ./scripts/desktop.mjs run --platform macos",
+    "desktop:run:linux": "node ./scripts/desktop.mjs run --platform linux",
+    "desktop:build:windows": "node ./scripts/desktop.mjs build --platform windows",
+    "desktop:build:macos": "node ./scripts/desktop.mjs build --platform macos",
+    "desktop:build:linux": "node ./scripts/desktop.mjs build --platform linux",
+    "desktop:bundle:windows": "node ./scripts/desktop.mjs bundle --platform windows",
+    "desktop:bundle:macos": "node ./scripts/desktop.mjs bundle --platform macos",
+    "desktop:bundle:linux": "node ./scripts/desktop.mjs bundle --platform linux",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint"
   }
 }
-

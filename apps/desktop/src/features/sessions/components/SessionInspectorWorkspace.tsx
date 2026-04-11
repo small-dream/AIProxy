@@ -1,6 +1,7 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import {
+  Alert,
   Box,
   Button,
   Divider,
@@ -13,25 +14,36 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
-import type { SessionSummary } from "@pharles/shared-types";
+import type {
+  BodyReference,
+  HeaderEntry,
+  SessionDetail,
+  SessionSummary,
+} from "@pharles/shared-types";
 
 export type InspectorPrimaryTab = "overview" | "contents" | "summary" | "timing" | "raw";
 export type InspectorSecondaryTab = "headers" | "text" | "hex" | "raw";
 
 type SessionInspectorWorkspaceProps = {
+  detailErrorMessage: string | undefined;
+  isDetailLoading: boolean;
   onPrimaryTabChange: (tab: InspectorPrimaryTab) => void;
   onSecondaryTabChange: (tab: InspectorSecondaryTab) => void;
   primaryTab: InspectorPrimaryTab;
   secondaryTab: InspectorSecondaryTab;
   selectedSession: SessionSummary | undefined;
+  selectedSessionDetail: SessionDetail | undefined;
 };
 
 export function SessionInspectorWorkspace({
+  detailErrorMessage,
+  isDetailLoading,
   onPrimaryTabChange,
   onSecondaryTabChange,
   primaryTab,
   secondaryTab,
   selectedSession,
+  selectedSessionDetail,
 }: SessionInspectorWorkspaceProps) {
   if (!selectedSession) {
     return (
@@ -48,12 +60,15 @@ export function SessionInspectorWorkspace({
         <Stack justifyContent="center" spacing={1} sx={{ p: 3 }}>
           <Typography variant="h6">Inspector Workspace</Typography>
           <Typography color="text.secondary" variant="body2">
-            Select a request from the host tree to inspect its overview, contents, timing, and raw preview.
+            Select a captured request to inspect headers, body, timing, and raw HTTP messages.
           </Typography>
         </Stack>
       </Paper>
     );
   }
+
+  const detail =
+    selectedSessionDetail?.id === selectedSession.id ? selectedSessionDetail : undefined;
 
   return (
     <Paper
@@ -69,13 +84,20 @@ export function SessionInspectorWorkspace({
       variant="outlined"
     >
       <Stack spacing={1.5} sx={{ px: 2, py: 1.5 }}>
-        <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={2}>
+        <Stack
+          alignItems="center"
+          direction="row"
+          justifyContent="space-between"
+          spacing={2}
+        >
           <Box sx={{ minWidth: 0 }}>
             <Typography noWrap variant="subtitle1">
-              {selectedSession.method} {selectedSession.path || "/"} - {selectedSession.statusCode}
+              {selectedSession.method} {selectedSession.path || "/"} -{" "}
+              {selectedSession.statusCode}
             </Typography>
             <Typography color="text.secondary" noWrap variant="body2">
-              {selectedSession.host} • {selectedSession.protocol} • {selectedSession.durationMs} ms
+              {selectedSession.host} - {selectedSession.protocol} -{" "}
+              {selectedSession.durationMs} ms
             </Typography>
           </Box>
 
@@ -97,7 +119,9 @@ export function SessionInspectorWorkspace({
       <Divider />
 
       <Tabs
-        onChange={(_event, nextTab: InspectorPrimaryTab) => onPrimaryTabChange(nextTab)}
+        onChange={(_event, nextTab: InspectorPrimaryTab) =>
+          onPrimaryTabChange(nextTab)
+        }
         scrollButtons="auto"
         value={primaryTab}
         variant="scrollable"
@@ -113,7 +137,12 @@ export function SessionInspectorWorkspace({
 
       {primaryTab === "contents" ? (
         <>
-          <Tabs onChange={(_event, nextTab: InspectorSecondaryTab) => onSecondaryTabChange(nextTab)} value={secondaryTab}>
+          <Tabs
+            onChange={(_event, nextTab: InspectorSecondaryTab) =>
+              onSecondaryTabChange(nextTab)
+            }
+            value={secondaryTab}
+          >
             <Tab label="Headers" value="headers" />
             <Tab label="Text" value="text" />
             <Tab label="Hex" value="hex" />
@@ -124,7 +153,19 @@ export function SessionInspectorWorkspace({
       ) : null}
 
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
-        {renderInspectorContent(primaryTab, secondaryTab, selectedSession)}
+        {detailErrorMessage ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {detailErrorMessage}
+          </Alert>
+        ) : null}
+
+        {isDetailLoading && !detail ? (
+          <Typography color="text.secondary" variant="body2">
+            Loading selected session detail...
+          </Typography>
+        ) : (
+          renderInspectorContent(primaryTab, secondaryTab, selectedSession, detail)
+        )}
       </Box>
     </Paper>
   );
@@ -134,20 +175,42 @@ function renderInspectorContent(
   primaryTab: InspectorPrimaryTab,
   secondaryTab: InspectorSecondaryTab,
   session: SessionSummary,
+  detail: SessionDetail | undefined,
 ) {
   if (primaryTab === "overview") {
     return (
-      <InspectorDefinitionList
-        items={[
-          ["Method", session.method],
-          ["Host", session.host],
-          ["Path", session.path || "/"],
-          ["Status", String(session.statusCode)],
-          ["Protocol", session.protocol],
-          ["Duration", `${session.durationMs} ms`],
-          ["Size", `${session.sizeBytes} bytes`],
-        ]}
-      />
+      <Stack spacing={2}>
+        <InspectorDefinitionList
+          items={[
+            ["Method", session.method],
+            ["Host", session.host],
+            ["Path", session.path || "/"],
+            ["Status", String(session.statusCode)],
+            ["Protocol", session.protocol],
+            ["Duration", `${session.durationMs} ms`],
+            ["Size", `${session.sizeBytes} bytes`],
+            ["Started", session.startedAt],
+            ["Finished", session.finishedAt],
+            ["Server IP", detail?.serverIp ?? "Unavailable in current HTTP phase"],
+          ]}
+        />
+        <Stack spacing={1}>
+          <Typography variant="subtitle2">Query Parameters</Typography>
+          <InspectorDefinitionList
+            emptyMessage="No query parameters."
+            items={
+              detail?.queryParams.map((entry) => [entry.name, entry.value]) ?? []
+            }
+          />
+        </Stack>
+        <Stack spacing={1}>
+          <Typography variant="subtitle2">Cookies</Typography>
+          <InspectorDefinitionList
+            emptyMessage="No cookie headers captured."
+            items={detail?.cookies.map((entry) => [entry.name, entry.value]) ?? []}
+          />
+        </Stack>
+      </Stack>
     );
   }
 
@@ -156,77 +219,202 @@ function renderInspectorContent(
       <InspectorDefinitionList
         items={[
           ["URL", session.url],
-          ["Started", session.startedAt],
-          ["Finished", session.finishedAt],
-          ["Workspace Flow", "Host-grouped capture workspace"],
-          ["Inspector Mode", "Summary projection from session list payload"],
+          ["Request Headers", String(detail?.requestHeaders.length ?? 0)],
+          ["Response Headers", String(detail?.responseHeaders.length ?? 0)],
+          [
+            "Request Body",
+            describeBody(detail?.requestBody) ?? "No request body captured",
+          ],
+          [
+            "Response Body",
+            describeBody(detail?.responseBody) ?? "No response body captured",
+          ],
+          ["Inspector Source", detail ? "Desktop session detail API" : "Session summary only"],
         ]}
       />
     );
   }
 
   if (primaryTab === "timing") {
-    return (
-      <Stack spacing={2}>
-        <Typography variant="body2">Total duration: {session.durationMs} ms</Typography>
+    if (!detail?.timing) {
+      return (
         <Typography color="text.secondary" variant="body2">
-          Detailed DNS, connect, TLS, request upload, and first-byte timing will appear once the session detail API is
-          connected.
+          Timing detail is not available for this session.
         </Typography>
-      </Stack>
-    );
-  }
+      );
+    }
 
-  if (primaryTab === "raw") {
-    return (
-      <InspectorCodeBlock
-        code={`${session.method} ${session.path || "/"} ${session.protocol}\nHost: ${session.host}\nStatus: ${session.statusCode}\nURL: ${session.url}`}
-      />
-    );
-  }
-
-  if (secondaryTab === "headers") {
     return (
       <InspectorDefinitionList
         items={[
-          ["Host", session.host],
-          ["Method", session.method],
-          ["Protocol", session.protocol],
-          ["URL", session.url],
+          ["DNS", formatTiming(detail.timing.dnsMs)],
+          ["Connect", formatTiming(detail.timing.connectMs)],
+          ["TLS", formatTiming(detail.timing.tlsMs)],
+          ["Request Send", formatTiming(detail.timing.requestSendMs)],
+          ["Waiting", formatTiming(detail.timing.waitingMs)],
+          ["Response Read", formatTiming(detail.timing.responseReadMs)],
+          ["Total", formatTiming(detail.timing.totalMs)],
         ]}
       />
     );
   }
 
+  if (primaryTab === "raw") {
+    return (
+      <Stack spacing={2}>
+        <RawMessageSection
+          label="Raw Request"
+          value={detail?.rawRequest ?? "Raw request is not available."}
+        />
+        <RawMessageSection
+          label="Raw Response"
+          value={detail?.rawResponse ?? "Raw response is not available."}
+        />
+      </Stack>
+    );
+  }
+
+  if (secondaryTab === "headers") {
+    return (
+      <Stack spacing={2}>
+        <HeaderSection
+          entries={detail?.requestHeaders ?? []}
+          label="Request Headers"
+        />
+        <HeaderSection
+          entries={detail?.responseHeaders ?? []}
+          label="Response Headers"
+        />
+      </Stack>
+    );
+  }
+
   if (secondaryTab === "text") {
     return (
-      <InspectorCodeBlock
-        code={`Request target: ${session.url}\nStatus: ${session.statusCode}\nThe text body preview will render here once the session detail endpoint is connected.`}
-      />
+      <Stack spacing={2}>
+        <BodySection body={detail?.requestBody} label="Request Body" mode="text" />
+        <BodySection
+          body={detail?.responseBody}
+          label="Response Body"
+          mode="text"
+        />
+      </Stack>
     );
   }
 
   if (secondaryTab === "hex") {
-    return <InspectorCodeBlock code="48 54 54 50 ...\nHex preview placeholder for captured payload bytes." />;
+    return (
+      <Stack spacing={2}>
+        <BodySection body={detail?.requestBody} label="Request Body" mode="hex" />
+        <BodySection
+          body={detail?.responseBody}
+          label="Response Body"
+          mode="hex"
+        />
+      </Stack>
+    );
   }
 
   return (
-    <InspectorCodeBlock
-      code={`${session.method} ${session.path || "/"} ${session.protocol}\nHost: ${session.host}\n\n<Response payload preview pending detail API>`}
-    />
+    <Stack spacing={2}>
+      <RawMessageSection
+        label="Raw Request"
+        value={detail?.rawRequest ?? "Raw request is not available."}
+      />
+      <RawMessageSection
+        label="Raw Response"
+        value={detail?.rawResponse ?? "Raw response is not available."}
+      />
+    </Stack>
   );
 }
 
-function InspectorDefinitionList({ items }: { items: Array<[string, string]> }) {
+function HeaderSection({
+  entries,
+  label,
+}: {
+  entries: HeaderEntry[];
+  label: string;
+}) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle2">{label}</Typography>
+      <InspectorDefinitionList
+        emptyMessage={`No ${label.toLowerCase()} captured.`}
+        items={entries.map((entry) => [entry.name, entry.value])}
+      />
+    </Stack>
+  );
+}
+
+function BodySection({
+  body,
+  label,
+  mode,
+}: {
+  body: BodyReference | undefined;
+  label: string;
+  mode: "hex" | "text";
+}) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle2">{label}</Typography>
+      <Typography color="text.secondary" variant="caption">
+        {describeBody(body) ?? "No body captured."}
+      </Typography>
+      <InspectorCodeBlock
+        code={
+          mode === "text"
+            ? body?.inlineText ?? "No text body available for this payload."
+            : formatHexPreview(body?.base64Text)
+        }
+      />
+    </Stack>
+  );
+}
+
+function RawMessageSection({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="subtitle2">{label}</Typography>
+      <InspectorCodeBlock code={value} />
+    </Stack>
+  );
+}
+
+function InspectorDefinitionList({
+  emptyMessage,
+  items,
+}: {
+  emptyMessage?: string;
+  items: Array<[string, string]>;
+}) {
+  if (items.length === 0) {
+    return (
+      <Typography color="text.secondary" variant="body2">
+        {emptyMessage ?? "No data available."}
+      </Typography>
+    );
+  }
+
   return (
     <List disablePadding>
       {items.map(([label, value]) => (
-        <ListItem disableGutters divider key={label} sx={{ alignItems: "flex-start", py: 1 }}>
+        <ListItem disableGutters divider key={`${label}:${value}`} sx={{ alignItems: "flex-start", py: 1 }}>
           <ListItemText
             primary={label}
             primaryTypographyProps={{ color: "text.secondary", variant: "caption" }}
             secondary={value}
-            secondaryTypographyProps={{ sx: { mt: 0.5, wordBreak: "break-all" }, variant: "body2" }}
+            secondaryTypographyProps={{
+              sx: { mt: 0.5, wordBreak: "break-all" },
+              variant: "body2",
+            }}
           />
         </ListItem>
       ))}
@@ -254,4 +442,41 @@ function InspectorCodeBlock({ code }: { code: string }) {
       {code}
     </Box>
   );
+}
+
+function describeBody(body: BodyReference | undefined) {
+  if (!body) {
+    return undefined;
+  }
+
+  const mimeType = body.mimeType ?? "unknown";
+  const truncationSuffix = body.truncated ? " (truncated preview)" : "";
+
+  return `${mimeType} - ${body.sizeBytes} bytes${truncationSuffix}`;
+}
+
+function formatTiming(value: number | undefined) {
+  return value === undefined ? "Not captured" : `${value} ms`;
+}
+
+function formatHexPreview(base64Text: string | undefined) {
+  if (!base64Text) {
+    return "No binary payload available.";
+  }
+
+  try {
+    const decoded = atob(base64Text);
+    const bytes = Array.from(decoded, (character) =>
+      character.charCodeAt(0).toString(16).padStart(2, "0"),
+    );
+    const rows: string[] = [];
+
+    for (let index = 0; index < bytes.length; index += 16) {
+      rows.push(bytes.slice(index, index + 16).join(" "));
+    }
+
+    return rows.join("\n");
+  } catch {
+    return "Unable to decode payload into hexadecimal preview.";
+  }
 }

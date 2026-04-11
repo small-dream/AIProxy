@@ -148,10 +148,12 @@ type HeaderEntry = {
 
 type BodyReference = {
   inlineText?: string;
+  base64Text?: string;
   fileRef?: string;
   mimeType?: string;
   encoding?: string;
   truncated?: boolean;
+  sizeBytes: number;
 };
 
 type TimingBreakdown = {
@@ -174,6 +176,8 @@ type SessionDetail = {
   queryParams: HeaderEntry[];
   cookies: HeaderEntry[];
   timing?: TimingBreakdown;
+  rawRequest?: string;
+  rawResponse?: string;
   clientIp?: string;
   serverIp?: string;
   notes?: string;
@@ -476,6 +480,18 @@ type GetSessionDetailInput = {
 ```ts
 type GetSessionDetailOutput = SessionDetail;
 ```
+
+当前阶段约束：
+
+- 仅对已捕获的明文 `HTTP` 会话返回完整详情
+- `requestHeaders` 与 `responseHeaders` 返回真实抓包头信息
+- `requestBody` 与 `responseBody` 优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
+- `timing` 当前优先提供：
+  - `requestSendMs`
+  - `waitingMs`
+  - `responseReadMs`
+  - `totalMs`
+- `dnsMs / connectMs / tlsMs` 预留，待更细粒度链路采样后补齐
 
 ### `clear_sessions`
 

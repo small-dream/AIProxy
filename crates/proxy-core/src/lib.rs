@@ -1,8 +1,10 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use httparse::{Request, Status, EMPTY_HEADER};
 use reqwest::{
     header::{
-        HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, HOST, TRANSFER_ENCODING,
+        HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST,
+        TRANSFER_ENCODING,
     },
     redirect::Policy,
     Client, Method, StatusCode, Url,
@@ -28,6 +30,7 @@ use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
+const INLINE_BODY_CAPTURE_BYTES: usize = 64 * 1024;
 const DEV_LOG_ENV_VAR: &str = "PHARLES_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "pharles-desktop-dev.log";
 
@@ -65,6 +68,53 @@ pub struct ProxySessionSummary {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyHeaderEntry {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyBodyReference {
+    pub base64_text: Option<String>,
+    pub encoding: Option<String>,
+    pub inline_text: Option<String>,
+    pub mime_type: Option<String>,
+    pub size_bytes: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyTimingBreakdown {
+    pub connect_ms: Option<u128>,
+    pub dns_ms: Option<u128>,
+    pub request_send_ms: Option<u128>,
+    pub response_read_ms: Option<u128>,
+    pub tls_ms: Option<u128>,
+    pub total_ms: Option<u128>,
+    pub waiting_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySessionDetail {
+    pub cookies: Vec<ProxyHeaderEntry>,
+    pub id: String,
+    pub query_params: Vec<ProxyHeaderEntry>,
+    pub raw_request: Option<String>,
+    pub raw_response: Option<String>,
+    pub request_body: Option<ProxyBodyReference>,
+    pub request_headers: Vec<ProxyHeaderEntry>,
+    pub response_body: Option<ProxyBodyReference>,
+    pub response_headers: Vec<ProxyHeaderEntry>,
+    pub server_ip: Option<String>,
+    pub summary: ProxySessionSummary,
+    pub timing: Option<ProxyTimingBreakdown>,
+}
+
 #[derive(Debug)]
 pub struct ProxyServerHandle {
     shutdown_sender: Option<oneshot::Sender<()>>,
@@ -85,7 +135,7 @@ impl ProxyServerHandle {
 pub struct StartedProxyServer {
     pub bound_port: u16,
     pub server_handle: ProxyServerHandle,
-    pub session_receiver: mpsc::UnboundedReceiver<ProxySessionSummary>,
+    pub session_receiver: mpsc::UnboundedReceiver<ProxySessionDetail>,
 }
 
 #[derive(Debug)]
@@ -96,7 +146,19 @@ struct ParsedProxyRequest {
     method: Method,
     path: String,
     protocol: String,
+    query_params: Vec<ProxyHeaderEntry>,
+    raw_request: String,
+    request_headers: Vec<ProxyHeaderEntry>,
     url: Url,
+}
+
+#[derive(Debug)]
+struct UpstreamResponse {
+    response_body: Vec<u8>,
+    response_headers: HeaderMap,
+    response_read_ms: u128,
+    status_code: StatusCode,
+    waiting_ms: u128,
 }
 
 pub async fn start_proxy_server(config: ProxyRuntimeConfig) -> Result<StartedProxyServer, String> {
@@ -187,7 +249,7 @@ async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
     client: Arc<Client>,
-    session_sender: mpsc::UnboundedSender<ProxySessionSummary>,
+    session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
 ) -> Result<(), String> {
     let started_at = Utc::now();
     let started_at_instant = Instant::now();
@@ -216,25 +278,33 @@ async fn handle_connection(
     };
 
     if request.method == Method::CONNECT {
+        let response_message = "HTTPS CONNECT tunneling is not available in P0-1.";
+
         write_plain_text_response(
             &mut stream,
             StatusCode::NOT_IMPLEMENTED,
-            "HTTPS CONNECT tunneling is not available in P0-1.",
+            response_message,
         )
         .await?;
 
-        let summary = build_session_summary(
-            request.method.as_str().to_string(),
-            request.host,
-            request.path,
-            request.protocol,
-            request.url.to_string(),
+        let detail = build_session_detail(
+            &request,
             StatusCode::NOT_IMPLEMENTED.as_u16(),
-            0,
+            &HeaderMap::new(),
+            response_message.as_bytes(),
             started_at,
             started_at_instant,
+            ProxyTimingBreakdown {
+                connect_ms: None,
+                dns_ms: None,
+                request_send_ms: Some(0),
+                response_read_ms: Some(0),
+                tls_ms: None,
+                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                waiting_ms: Some(0),
+            },
         );
-        let _ = session_sender.send(summary);
+        let _ = session_sender.send(detail);
         emit_log(
             "WARN",
             "connect_request_rejected",
@@ -248,23 +318,34 @@ async fn handle_connection(
     }
 
     match forward_request(&client, &request).await {
-        Ok((status_code, response_headers, response_body)) => {
-            write_upstream_response(&mut stream, status_code, &response_headers, &response_body)
+        Ok(upstream_response) => {
+            write_upstream_response(
+                &mut stream,
+                upstream_response.status_code,
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
                 .await?;
 
-            let summary = build_session_summary(
-                request.method.as_str().to_string(),
-                request.host,
-                request.path,
-                request.protocol,
-                request.url.to_string(),
-                status_code.as_u16(),
-                response_body.len(),
+            let detail = build_session_detail(
+                &request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
                 started_at,
                 started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: Some(0),
+                    response_read_ms: Some(upstream_response.response_read_ms),
+                    tls_ms: None,
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(upstream_response.waiting_ms),
+                },
             );
 
-            let _ = session_sender.send(summary);
+            let _ = session_sender.send(detail);
 
             emit_log(
                 "INFO",
@@ -272,7 +353,7 @@ async fn handle_connection(
                 &[
                     ("client_addr", client_addr.to_string()),
                     ("method", request.method.to_string()),
-                    ("status_code", status_code.as_u16().to_string()),
+                    ("status_code", upstream_response.status_code.as_u16().to_string()),
                     ("url", request.url.to_string()),
                 ],
             );
@@ -280,25 +361,33 @@ async fn handle_connection(
             Ok(())
         }
         Err(error) => {
+            let response_message = "The proxy could not reach the upstream server.";
+
             write_plain_text_response(
                 &mut stream,
                 StatusCode::BAD_GATEWAY,
-                "The proxy could not reach the upstream server.",
+                response_message,
             )
             .await?;
 
-            let summary = build_session_summary(
-                request.method.as_str().to_string(),
-                request.host,
-                request.path,
-                request.protocol,
-                request.url.to_string(),
+            let detail = build_session_detail(
+                &request,
                 StatusCode::BAD_GATEWAY.as_u16(),
-                0,
+                &HeaderMap::new(),
+                response_message.as_bytes(),
                 started_at,
                 started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: Some(0),
+                    response_read_ms: Some(0),
+                    tls_ms: None,
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                },
             );
-            let _ = session_sender.send(summary);
+            let _ = session_sender.send(detail);
             emit_log(
                 "ERROR",
                 "upstream_request_failed",
@@ -383,7 +472,7 @@ fn quote_value(value: &str) -> String {
 async fn forward_request(
     client: &Client,
     request: &ParsedProxyRequest,
-) -> Result<(StatusCode, HeaderMap, Vec<u8>), String> {
+) -> Result<UpstreamResponse, String> {
     let mut request_builder = client.request(request.method.clone(), request.url.clone());
     request_builder = request_builder.headers(request.headers.clone());
 
@@ -391,19 +480,29 @@ async fn forward_request(
         request_builder = request_builder.body(request.body.clone());
     }
 
+    let waiting_started_at = Instant::now();
     let response = request_builder
         .send()
         .await
         .map_err(|error| format!("failed to send upstream request: {error}"))?;
+    let waiting_ms = waiting_started_at.elapsed().as_millis();
     let status_code = response.status();
     let response_headers = response.headers().clone();
+    let response_read_started_at = Instant::now();
     let response_body = response
         .bytes()
         .await
         .map_err(|error| format!("failed to read upstream response body: {error}"))?
         .to_vec();
+    let response_read_ms = response_read_started_at.elapsed().as_millis();
 
-    Ok((status_code, response_headers, response_body))
+    Ok(UpstreamResponse {
+        response_body,
+        response_headers,
+        response_read_ms,
+        status_code,
+        waiting_ms,
+    })
 }
 
 async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest, String> {
@@ -460,6 +559,7 @@ async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest
         Url::parse(&target_url).map_err(|error| format!("invalid proxy target URL: {error}"))?;
     let body_length = read_content_length(request.headers)?;
     let headers = build_upstream_headers(request.headers)?;
+    let request_headers = build_header_entries_from_httparse_headers(request.headers);
     let host = url
         .host_str()
         .ok_or_else(|| "target URL does not contain a host".to_string())?
@@ -474,6 +574,8 @@ async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest
     } else {
         url.scheme().to_string()
     };
+    let query_params = build_query_params(&url);
+    let request_version = request.version.unwrap_or(1);
 
     drop(request);
 
@@ -490,6 +592,16 @@ async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest
         buffer.extend_from_slice(&chunk[..bytes_read]);
     }
     let body = buffer[header_end..header_end + body_length].to_vec();
+    let raw_request = build_raw_http_message(
+        &format!(
+            "{} {} HTTP/1.{}",
+            method.as_str(),
+            raw_path,
+            request_version,
+        ),
+        &request_headers,
+        &body,
+    );
 
     Ok(ParsedProxyRequest {
         body,
@@ -498,6 +610,9 @@ async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest
         method,
         path,
         protocol,
+        query_params,
+        raw_request,
+        request_headers,
         url,
     })
 }
@@ -574,7 +689,189 @@ fn build_request_path(url: &Url) -> String {
     }
 }
 
+fn build_session_detail(
+    request: &ParsedProxyRequest,
+    status_code: u16,
+    response_headers: &HeaderMap,
+    response_body: &[u8],
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+    timing: ProxyTimingBreakdown,
+) -> ProxySessionDetail {
+    let id = Uuid::new_v4().to_string();
+    let response_header_entries = build_header_entries_from_map(response_headers);
+    let summary = build_session_summary(
+        id.clone(),
+        request.method.to_string(),
+        request.host.clone(),
+        request.path.clone(),
+        request.protocol.clone(),
+        request.url.to_string(),
+        status_code,
+        response_body.len(),
+        started_at,
+        started_at_instant,
+    );
+
+    ProxySessionDetail {
+        cookies: build_cookie_entries(&request.request_headers, &response_header_entries),
+        id,
+        query_params: request.query_params.clone(),
+        raw_request: Some(request.raw_request.clone()),
+        raw_response: Some(build_raw_http_message(
+            &format!(
+                "HTTP/1.1 {} {}",
+                status_code,
+                StatusCode::from_u16(status_code)
+                    .ok()
+                    .and_then(|code| code.canonical_reason().map(str::to_string))
+                    .unwrap_or_else(|| "Unknown".to_string()),
+            ),
+            &response_header_entries,
+            response_body,
+        )),
+        request_body: build_body_reference(
+            &request.body,
+            request.headers.get(CONTENT_TYPE),
+        ),
+        request_headers: request.request_headers.clone(),
+        response_body: build_body_reference(response_body, response_headers.get(CONTENT_TYPE)),
+        response_headers: response_header_entries,
+        server_ip: None,
+        summary,
+        timing: Some(timing),
+    }
+}
+
+fn build_header_entries_from_httparse_headers(
+    headers: &[httparse::Header<'_>],
+) -> Vec<ProxyHeaderEntry> {
+    headers
+        .iter()
+        .map(|header| ProxyHeaderEntry {
+            name: header.name.to_string(),
+            value: String::from_utf8_lossy(header.value).trim().to_string(),
+        })
+        .collect()
+}
+
+fn build_header_entries_from_map(headers: &HeaderMap) -> Vec<ProxyHeaderEntry> {
+    headers
+        .iter()
+        .map(|(name, value)| ProxyHeaderEntry {
+            name: name.as_str().to_string(),
+            value: value
+                .to_str()
+                .map(str::to_string)
+                .unwrap_or_else(|_| String::from_utf8_lossy(value.as_bytes()).to_string()),
+        })
+        .collect()
+}
+
+fn build_query_params(url: &Url) -> Vec<ProxyHeaderEntry> {
+    url.query_pairs()
+        .map(|(name, value)| ProxyHeaderEntry {
+            name: name.into_owned(),
+            value: value.into_owned(),
+        })
+        .collect()
+}
+
+fn build_cookie_entries(
+    request_headers: &[ProxyHeaderEntry],
+    response_headers: &[ProxyHeaderEntry],
+) -> Vec<ProxyHeaderEntry> {
+    request_headers
+        .iter()
+        .chain(response_headers.iter())
+        .filter(|header| {
+            header.name.eq_ignore_ascii_case("cookie")
+                || header.name.eq_ignore_ascii_case("set-cookie")
+        })
+        .cloned()
+        .collect()
+}
+
+fn build_body_reference(
+    body: &[u8],
+    content_type_header: Option<&HeaderValue>,
+) -> Option<ProxyBodyReference> {
+    if body.is_empty() {
+        return None;
+    }
+
+    let truncated = body.len() > INLINE_BODY_CAPTURE_BYTES;
+    let captured_body = &body[..body.len().min(INLINE_BODY_CAPTURE_BYTES)];
+    let mime_type = content_type_header
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
+        .filter(|value| !value.is_empty());
+    let inline_text = if should_render_body_as_text(mime_type.as_deref(), captured_body) {
+        Some(String::from_utf8_lossy(captured_body).to_string())
+    } else {
+        None
+    };
+
+    Some(ProxyBodyReference {
+        base64_text: Some(BASE64_STANDARD.encode(captured_body)),
+        encoding: inline_text.as_ref().map(|_| "utf-8".to_string()),
+        inline_text,
+        mime_type,
+        size_bytes: body.len(),
+        truncated,
+    })
+}
+
+fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
+    if let Some(mime_type) = mime_type {
+        let lowered = mime_type.to_ascii_lowercase();
+        if lowered.starts_with("text/")
+            || lowered.contains("json")
+            || lowered.contains("xml")
+            || lowered.contains("javascript")
+            || lowered.contains("yaml")
+            || lowered.contains("x-www-form-urlencoded")
+        {
+            return true;
+        }
+    }
+
+    std::str::from_utf8(body).is_ok()
+}
+
+fn build_raw_http_message(
+    start_line: &str,
+    headers: &[ProxyHeaderEntry],
+    body: &[u8],
+) -> String {
+    let mut raw_message = String::new();
+    raw_message.push_str(start_line);
+    raw_message.push_str("\r\n");
+
+    for header in headers {
+        raw_message.push_str(&header.name);
+        raw_message.push_str(": ");
+        raw_message.push_str(&header.value);
+        raw_message.push_str("\r\n");
+    }
+
+    raw_message.push_str("\r\n");
+
+    if !body.is_empty() {
+        raw_message.push_str(&String::from_utf8_lossy(
+            &body[..body.len().min(INLINE_BODY_CAPTURE_BYTES)],
+        ));
+
+        if body.len() > INLINE_BODY_CAPTURE_BYTES {
+            raw_message.push_str("\r\n<TRUNCATED>");
+        }
+    }
+
+    raw_message
+}
+
 fn build_session_summary(
+    id: String,
     method: String,
     host: String,
     path: String,
@@ -586,7 +883,7 @@ fn build_session_summary(
     started_at_instant: Instant,
 ) -> ProxySessionSummary {
     ProxySessionSummary {
-        id: Uuid::new_v4().to_string(),
+        id,
         method,
         host,
         path,
@@ -744,7 +1041,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forwards_plain_http_requests_and_emits_a_session_summary() {
+    async fn forwards_plain_http_requests_and_emits_a_session_detail() {
         let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let upstream_port = upstream_listener.local_addr().unwrap().port();
         let upstream_task = tokio::spawn(async move {
@@ -780,10 +1077,21 @@ mod tests {
 
         assert!(response.contains("HTTP/1.1 200 OK"));
         assert!(response.contains("Hello"));
-        assert_eq!(session.method, "GET");
-        assert_eq!(session.host, "127.0.0.1");
-        assert_eq!(session.path, "/hello");
-        assert_eq!(session.status_code, 200);
+        assert_eq!(session.summary.method, "GET");
+        assert_eq!(session.summary.host, "127.0.0.1");
+        assert_eq!(session.summary.path, "/hello");
+        assert_eq!(session.summary.status_code, 200);
+        assert_eq!(
+            session.request_headers[0].name.to_ascii_lowercase(),
+            "host".to_string()
+        );
+        assert_eq!(
+            session
+                .response_body
+                .as_ref()
+                .and_then(|body| body.inline_text.clone()),
+            Some("Hello".to_string())
+        );
 
         started_proxy.server_handle.shutdown().await;
         upstream_task.await.unwrap();

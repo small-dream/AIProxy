@@ -1,4 +1,9 @@
 # Dev Scripts
 
-本目录用于存放本地开发辅助脚本。
+This directory contains one-click desktop run scripts.
 
+- `run-windows.ps1`
+- `run-macos.sh`
+- `run-linux.sh`
+
+All wrappers call `scripts/desktop.mjs run`.

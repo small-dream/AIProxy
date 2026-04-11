@@ -26,8 +26,10 @@ import {
 } from "@/features/sessions/components/SessionInspectorWorkspace";
 import {
   buildSessionHostGroups,
+  reconcileExpandedHosts,
   type SessionExplorerScope,
 } from "@/features/sessions/session-explorer.helpers";
+import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { logDevInfo, logDevWarn } from "@/services/logger/dev-logger";
 
@@ -63,10 +65,15 @@ export function SessionsPage() {
   const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue, scope), [scope, searchValue, sessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
-    () => visibleSessions.find((session) => session.id === selectedSessionId) ?? visibleSessions[0],
+    () => visibleSessions.find((session) => session.id === selectedSessionId),
     [selectedSessionId, visibleSessions],
   );
   const selectedSessionIdValue = selectedSession?.id;
+  const {
+    data: selectedSessionDetail,
+    error: sessionDetailError,
+    isLoading: isSessionDetailLoading,
+  } = useSessionDetail(selectedSessionIdValue);
   const sessionsErrorMessage = getOperationErrorMessage(
     sessionsError,
     "Unable to load captured sessions from the proxy runtime.",
@@ -81,19 +88,7 @@ export function SessionsPage() {
   );
 
   useEffect(() => {
-    if (hostGroups.length === 0) {
-      return;
-    }
-
-    setExpandedHosts((currentHosts) => {
-      const nextHosts = new Set(currentHosts);
-
-      for (const group of hostGroups) {
-        nextHosts.add(group.host);
-      }
-
-      return Array.from(nextHosts);
-    });
+    setExpandedHosts((currentHosts) => reconcileExpandedHosts(currentHosts, hostGroups));
   }, [hostGroups]);
 
   function toggleHost(host: string) {
@@ -248,10 +243,20 @@ export function SessionsPage() {
         />
 
         <SessionInspectorWorkspace
+          detailErrorMessage={
+            sessionDetailError
+              ? getOperationErrorMessage(
+                  sessionDetailError,
+                  "Unable to load the selected session detail from the desktop runtime.",
+                )
+              : undefined
+          }
+          isDetailLoading={isSessionDetailLoading}
           onPrimaryTabChange={setPrimaryInspectorTab}
           onSecondaryTabChange={setSecondaryInspectorTab}
           primaryTab={primaryInspectorTab}
           secondaryTab={secondaryInspectorTab}
+          selectedSessionDetail={selectedSessionDetail}
           selectedSession={selectedSession}
         />
       </Box>

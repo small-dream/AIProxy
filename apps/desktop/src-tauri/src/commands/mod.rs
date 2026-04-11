@@ -4,7 +4,9 @@ use crate::system_proxy::{
     apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
     SystemProxySettings,
 };
-use pharles_proxy_core::{start_proxy_server, ProxyRuntimeConfig, ProxySessionSummary};
+use pharles_proxy_core::{
+    start_proxy_server, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 use tauri::State;
@@ -25,6 +27,12 @@ pub struct StopProxyInput {
     pub workspace_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSessionDetailInput {
+    pub session_id: String,
+}
+
 #[tauri::command]
 pub fn get_bootstrap_status(state: State<'_, Arc<AppState>>) -> BootstrapStatus {
     state.read_status()
@@ -33,6 +41,16 @@ pub fn get_bootstrap_status(state: State<'_, Arc<AppState>>) -> BootstrapStatus 
 #[tauri::command]
 pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<ProxySessionSummary> {
     state.read_sessions()
+}
+
+#[tauri::command]
+pub fn get_session_detail(
+    input: GetSessionDetailInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ProxySessionDetail, String> {
+    state
+        .read_session_detail(&input.session_id)
+        .ok_or_else(|| format!("captured session {} was not found", input.session_id))
 }
 
 #[tauri::command]
@@ -112,19 +130,11 @@ async fn start_proxy_impl(
     })
     .await?;
 
-    let session_store = state.session_store();
     let mut session_receiver = started_proxy_server.session_receiver;
+    let state_for_collector = Arc::clone(&state);
     let collector_handle = tauri::async_runtime::spawn(async move {
         while let Some(session) = session_receiver.recv().await {
-            let mut sessions = session_store
-                .lock()
-                .expect("session list mutex should not be poisoned");
-
-            sessions.insert(0, session);
-
-            if sessions.len() > 500 {
-                sessions.truncate(500);
-            }
+            state_for_collector.insert_session(session);
         }
     });
 

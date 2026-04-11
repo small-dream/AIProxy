@@ -158,6 +158,7 @@ User clicks Start Proxy
 - `SessionExplorerPane` 增加树形虚拟滚动与分组模式切换
 - `SessionInspectorWorkspace` 追加完整 request / response / timing 数据
 - `list_sessions` 改为实时事件推送 + 增量合并
+- `get_session_detail` 按需加载 Inspector 真正内容，列表与详情解耦
 
 ## 5. Compose Page
 
@@ -491,3 +492,9 @@ WorkspacesPage
 - 页面级状态与服务调用放入 `features/*`
 - 页面容器只负责拼装，不承载复杂业务逻辑
 - 所有分栏页优先实现拖拽宽度记忆和空状态统一策略
+
+## Sessions UX Constraints
+
+- The host tree in `Session Explorer` must stay collapsed by default.
+- A host group expands only after explicit user interaction on that host row.
+- The Inspector must not auto-select and render an arbitrary request while every host group is collapsed.

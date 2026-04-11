@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .turbo/
+.claude/
 .DS_Store
 
 target/
