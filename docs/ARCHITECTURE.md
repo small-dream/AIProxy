@@ -161,6 +161,15 @@ flowchart LR
 - 对接断点、规则引擎、节流与会话记录
 - 提供根 CA 证书下载端点 `GET /pharles-ca.crt`，供手机端扫码下载
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
+- 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
+
+断点实现机制：
+
+- `BreakpointManager` 管理运行时断点规则列表和暂停中的请求映射
+- 代理管道在每个连接的 tokio task 中，于 `forward_request` 前和 `write_upstream_response` 前各插入拦截检查
+- 匹配规则时创建 `oneshot` 通道，代理 task await 接收端；前端通过 `resolve_breakpoint` 命令发送决策到发送端
+- 支持三种决策：Forward（放行，可选修改 headers/body）、Drop（丢弃连接）、Mock（在请求阶段直接返回用户构造的响应）
+- 事件推送通过框架无关的 `BreakpointEventEmitter` 回调实现，Tauri 层封装 `app_handle.emit()`
 
 输入：
 
@@ -235,6 +244,9 @@ flowchart LR
 - `get_session_detail`
 - `repeat_session`（暂未实现，前端 Repeat 按钮替代）
 - `send_composed_request` — `已实现`，Rust 端 `proxy-core::send_direct_request()` 发送请求，返回完整 `ProxySessionDetail`
+- `list_breakpoint_rules` — `已实现`，返回当前断点规则列表
+- `set_breakpoint_rules` — `已实现`，整体替换断点规则列表
+- `resolve_breakpoint` — `已实现`，发送断点决策（forward/drop/mock）到暂停中的代理 task
 - `save_breakpoint_rule`
 - `save_rewrite_rule`
 - `save_map_rule`
@@ -250,7 +262,7 @@ flowchart LR
 - `session/created`
 - `session/updated`
 - `session/removed`
-- `breakpoint/paused`
+- `breakpoint-hit` — `已实现`，代理管道在断点命中时向前端推送 `BreakpointHit` 载荷，包含 session ID、阶段、请求/响应详情
 - `rule/matched`
 - `certificate/status_changed`
 
@@ -437,7 +449,7 @@ erDiagram
 - `session-explorer`
 - `session-detail`
 - `compose-request` — `已实现`：ComposePage 页面 + use-compose-request hook + compose-editor.store + curl-export + EditableKeyValueTable
-- `breakpoints`
+- `breakpoints` — `已实现`：BreakpointManager (Rust) + breakpoint.store + use-breakpoint-events hook + use-breakpoint-rules hook + BreakpointInterceptPanel + Rules 页面断点规则管理
 - `rewrite-rules`
 - `map-rules`
 - `throttling`
@@ -565,7 +577,7 @@ project-root/
 - `desktop.app`：应用启动、日志初始化、panic
 - `desktop.commands`：`start_proxy`、`stop_proxy`、`enable_system_proxy`、`disable_system_proxy`
 - `desktop.system_proxy.windows`：快照捕获、注册表写入、WinINet 刷新、恢复
-- `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败、证书下载请求
+- `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败、证书下载请求、断点请求阶段命中、断点响应阶段命中、断点取消
 - `ui.commands`：前端命令发起、成功、失败
 
 ### 15.3 结构化字段要求

@@ -1,4 +1,4 @@
-use pharles_proxy_core::{ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, TlsManager};
+use pharles_proxy_core::{BreakpointManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, TlsManager};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -57,6 +57,8 @@ pub struct AppState {
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
     tls_manager: Mutex<Option<Arc<TlsManager>>>,
     cert_status_cache: Mutex<Option<CertificateStateSnapshot>>,
+    breakpoint_manager: Arc<BreakpointManager>,
+    app_handle: Mutex<Option<tauri::AppHandle>>,
 }
 
 impl AppState {
@@ -69,6 +71,8 @@ impl AppState {
             system_proxy_snapshot: Mutex::new(None),
             tls_manager: Mutex::new(None),
             cert_status_cache: Mutex::new(None),
+            breakpoint_manager: Arc::new(BreakpointManager::new()),
+            app_handle: Mutex::new(None),
         }
     }
 
@@ -238,5 +242,24 @@ impl AppState {
             .lock()
             .expect("cert_status mutex should not be poisoned");
         *cache = Some(status);
+    }
+
+    pub fn read_breakpoint_manager(&self) -> Arc<BreakpointManager> {
+        Arc::clone(&self.breakpoint_manager)
+    }
+
+    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
+        let mut guard = self
+            .app_handle
+            .lock()
+            .expect("app_handle mutex should not be poisoned");
+        *guard = Some(handle);
+    }
+
+    pub fn read_app_handle(&self) -> Option<tauri::AppHandle> {
+        self.app_handle
+            .lock()
+            .expect("app_handle mutex should not be poisoned")
+            .clone()
     }
 }

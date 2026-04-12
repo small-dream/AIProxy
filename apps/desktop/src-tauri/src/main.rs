@@ -37,9 +37,15 @@ pub fn run() {
             commands::open_certificate_install_guide,
             commands::launch_certificate_installer,
             commands::get_local_ip,
-            commands::send_composed_request
+            commands::send_composed_request,
+            commands::list_breakpoint_rules,
+            commands::set_breakpoint_rules,
+            commands::resolve_breakpoint
         ])
         .setup(|app| {
+            let state = app.state::<Arc<AppState>>();
+            state.set_app_handle(app.handle().clone());
+
             let window = app
                 .get_webview_window("main")
                 .expect("main window should exist");

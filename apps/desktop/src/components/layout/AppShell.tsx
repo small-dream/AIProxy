@@ -3,6 +3,7 @@ import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
 import MenuIcon from "@mui/icons-material/Menu";
 import MoreVertRoundedIcon from "@mui/icons-material/MoreVertRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
@@ -39,6 +40,9 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
+import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
+import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
+import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
 import { navigationItems } from "@/features/navigation/navigation-items";
 import {
   useClearSessions,
@@ -170,6 +174,8 @@ export function AppShell() {
   const navigate = useNavigate();
   const navigationExpanded = useAppShellStore((state) => state.navigationExpanded);
   const toggleNavigation = useAppShellStore((state) => state.toggleNavigation);
+  useBreakpointEvents();
+  const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();
   const { data: certificateStatus } = useCertificateStatus();
   const startProxyMutation = useStartProxy();
@@ -616,6 +622,8 @@ export function AppShell() {
           <Outlet />
         </Box>
 
+        {pendingBreakpointCount > 0 && <BreakpointInterceptPanel />}
+
         <Divider />
 
         <Stack
@@ -684,6 +692,19 @@ export function AppShell() {
             onClick={() => navigate("/certificates")}
             title="Open the Certificates page"
           />
+
+          {pendingBreakpointCount > 0 && (
+            <>
+              <StatusSeparator />
+              <StatusItem
+                active
+                icon={<PauseCircleRoundedIcon />}
+                label={`${pendingBreakpointCount} breakpoint${pendingBreakpointCount > 1 ? "s" : ""}`}
+                onClick={() => navigate("/rules")}
+                title="Breakpoints pending — click to open Rules"
+              />
+            </>
+          )}
         </Stack>
       </Box>
 

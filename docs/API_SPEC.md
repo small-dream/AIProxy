@@ -184,26 +184,59 @@ type SessionDetail = {
 };
 ```
 
-## 5.5 Rule Models
+## 5.5 Rule Models — `BreakpointRule 已实现`
 
 ```ts
+// BreakpointRule — 已实现的运行时模型
+type BreakpointStage = "request" | "response";
+
+type BreakpointActionKind = "forward" | "drop" | "mock";
+
+type BreakpointRule = {
+  id: string;
+  enabled: boolean;
+  urlPattern: string;       // 子串匹配，空或 "*" 匹配所有
+  methods: string[];         // 空 = 所有方法
+  stage: BreakpointStage;
+};
+
+type MockResponse = {
+  statusCode: number;
+  headers: HeaderEntry[];
+  bodyBase64?: string;
+};
+
+type BreakpointHit = {
+  sessionId: string;
+  stage: BreakpointStage;
+  method: string;
+  url: string;
+  host: string;
+  path: string;
+  requestHeaders: HeaderEntry[];
+  requestBody?: BodyReference;
+  responseStatusCode?: number;
+  responseHeaders?: HeaderEntry[];
+  responseBody?: BodyReference;
+};
+
+type BreakpointResolution = {
+  sessionId: string;
+  action: BreakpointActionKind;
+  mock?: MockResponse;
+  modifiedRequestHeaders?: HeaderEntry[];
+  modifiedRequestBodyBase64?: string;
+  modifiedResponseHeaders?: HeaderEntry[];
+  modifiedResponseBodyBase64?: string;
+};
+
+// 以下为未来规划模型，尚未实现
 type MatchExpression = {
   hostContains?: string;
   pathContains?: string;
   methodIn?: string[];
   statusCodeIn?: number[];
   urlRegex?: string;
-};
-
-type BreakpointRule = {
-  id: string;
-  workspaceId: string;
-  name: string;
-  enabled: boolean;
-  matchExpression: MatchExpression;
-  breakStage: "request" | "response";
-  actionPolicy: "inspect" | "edit" | "drop" | "mock";
-  priority: number;
 };
 
 type RewriteRule = {
@@ -588,23 +621,29 @@ type RepeatSessionOutput = {
 };
 ```
 
-## 6.5 Rule Commands
+## 6.5 Rule Commands — `Breakpoint 部分已实现`
 
-### `list_breakpoint_rules`
+### `list_breakpoint_rules` — `已实现`
 
-请求：
-
-```ts
-type ListBreakpointRulesInput = {
-  workspaceId: string;
-};
-```
+请求：无参数。
 
 响应：
 
 ```ts
 type ListBreakpointRulesOutput = BreakpointRule[];
 ```
+
+### `set_breakpoint_rules` — `已实现`
+
+请求：
+
+```ts
+type SetBreakpointRulesInput = BreakpointRule[];
+```
+
+响应：`void`
+
+说明：整体替换断点规则列表。前端通过 "Add Rule" 和 "Delete" 操作构造新数组后一次性提交。
 
 ### `save_breakpoint_rule`
 
@@ -724,9 +763,34 @@ type DeleteRuleOutput = {
 };
 ```
 
-## 6.6 Breakpoint Runtime Commands
+## 6.6 Breakpoint Runtime Commands — `已实现`
 
-### `resume_breakpoint`
+### `resolve_breakpoint` — `已实现`
+
+请求：
+
+```ts
+type ResolveBreakpointInput = BreakpointResolution;
+// {
+//   sessionId: string;
+//   action: "forward" | "drop" | "mock";
+//   mock?: MockResponse;
+//   modifiedRequestHeaders?: HeaderEntry[];
+//   modifiedRequestBodyBase64?: string;
+//   modifiedResponseHeaders?: HeaderEntry[];
+//   modifiedResponseBodyBase64?: string;
+// }
+```
+
+响应：`void`
+
+说明：
+- 代理管道通过 `oneshot` 通道暂停在断点命中处，前端调用此命令发送决策以解除暂停
+- `forward`：放行请求/响应，可选附带修改的 headers 或 body（base64 编码）
+- `drop`：直接关闭客户端连接，不返回任何响应
+- `mock`：仅在请求阶段有效，跳过上游请求，直接返回用户构造的 MockResponse
+
+### `resume_breakpoint`（已由 `resolve_breakpoint` 替代）
 
 请求：
 
@@ -967,21 +1031,37 @@ type SessionRemovedEvent = {
 };
 ```
 
-## 7.3 断点事件
+## 7.3 断点事件 — `已实现`
 
-### `breakpoint/paused`
+### `breakpoint-hit` — `已实现`
 
 ```ts
-type BreakpointPausedEvent = {
-  pauseId: string;
-  sessionId: string;
-  stage: "request" | "response";
-  requestHeaders: HeaderEntry[];
-  responseHeaders?: HeaderEntry[];
-  requestBody?: string;
-  responseBody?: string;
-};
+type BreakpointHitEvent = BreakpointHit;
+// {
+//   sessionId: string;
+//   stage: "request" | "response";
+//   method: string;
+//   url: string;
+//   host: string;
+//   path: string;
+//   requestHeaders: HeaderEntry[];
+//   requestBody?: BodyReference;
+//   responseStatusCode?: number;
+//   responseHeaders?: HeaderEntry[];
+//   responseBody?: BodyReference;
+// }
 ```
+
+触发时机：
+
+- 请求阶段断点命中：在 `forward_request` 之前
+- 响应阶段断点命中：在 `write_upstream_response` 之前
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onBreakpointHit()` 订阅此事件
+- 事件载荷经过 `parseBreakpointHit()` 校验后写入 Zustand store
+- `BreakpointInterceptPanel` 组件监听 store 并渲染拦截面板
 
 ## 7.4 规则事件
 

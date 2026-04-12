@@ -114,6 +114,52 @@ export type ComposedRequestInput = {
   body?: string;
 };
 
+// ---------------------------------------------------------------------------
+// Breakpoint types
+// ---------------------------------------------------------------------------
+
+export type BreakpointStage = "request" | "response";
+
+export type BreakpointActionKind = "forward" | "drop" | "mock";
+
+export type MockResponse = {
+  statusCode: number;
+  headers: HeaderEntry[];
+  bodyBase64?: string;
+};
+
+export type BreakpointRule = {
+  id: string;
+  enabled: boolean;
+  urlPattern: string;
+  methods: string[];
+  stage: BreakpointStage;
+};
+
+export type BreakpointHit = {
+  sessionId: string;
+  stage: BreakpointStage;
+  method: string;
+  url: string;
+  host: string;
+  path: string;
+  requestHeaders: HeaderEntry[];
+  requestBody?: BodyReference;
+  responseStatusCode?: number;
+  responseHeaders?: HeaderEntry[];
+  responseBody?: BodyReference;
+};
+
+export type BreakpointResolution = {
+  sessionId: string;
+  action: BreakpointActionKind;
+  mock?: MockResponse;
+  modifiedRequestHeaders?: HeaderEntry[];
+  modifiedRequestBodyBase64?: string;
+  modifiedResponseHeaders?: HeaderEntry[];
+  modifiedResponseBodyBase64?: string;
+};
+
 export function isComposedRequestInput(value: unknown): value is ComposedRequestInput {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ComposedRequestInput>;
@@ -577,4 +623,78 @@ export function normalizeGenerateRootCertificateInput(
   return {
     forceRegenerate: input?.forceRegenerate ?? false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Breakpoint type guards
+// ---------------------------------------------------------------------------
+
+export function isBreakpointHit(value: unknown): value is BreakpointHit {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<BreakpointHit>;
+  return (
+    typeof candidate.sessionId === "string" &&
+    (candidate.stage === "request" || candidate.stage === "response") &&
+    typeof candidate.method === "string" &&
+    typeof candidate.url === "string" &&
+    typeof candidate.host === "string" &&
+    typeof candidate.path === "string" &&
+    Array.isArray(candidate.requestHeaders) &&
+    candidate.requestHeaders.every(isHeaderEntry)
+  );
+}
+
+export function parseBreakpointHit(value: unknown): BreakpointHit {
+  if (!isBreakpointHit(value)) {
+    throw coerceAppError(value);
+  }
+  const candidate = value as BreakpointHit & {
+    requestBody?: BodyReference | null;
+    responseStatusCode?: number | null;
+    responseHeaders?: HeaderEntry[] | null;
+    responseBody?: BodyReference | null;
+  };
+  return {
+    sessionId: candidate.sessionId,
+    stage: candidate.stage,
+    method: candidate.method,
+    url: candidate.url,
+    host: candidate.host,
+    path: candidate.path,
+    requestHeaders: candidate.requestHeaders,
+    ...(candidate.requestBody !== null && candidate.requestBody !== undefined
+      ? { requestBody: normalizeBodyReference(candidate.requestBody as BodyReference & Record<string, unknown>) }
+      : {}),
+    ...(candidate.responseStatusCode !== null && candidate.responseStatusCode !== undefined
+      ? { responseStatusCode: candidate.responseStatusCode }
+      : {}),
+    ...(candidate.responseHeaders !== null && candidate.responseHeaders !== undefined
+      ? { responseHeaders: candidate.responseHeaders }
+      : {}),
+    ...(candidate.responseBody !== null && candidate.responseBody !== undefined
+      ? { responseBody: normalizeBodyReference(candidate.responseBody as BodyReference & Record<string, unknown>) }
+      : {}),
+  };
+}
+
+export function isBreakpointRule(value: unknown): value is BreakpointRule {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<BreakpointRule>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.urlPattern === "string" &&
+    Array.isArray(candidate.methods) &&
+    (candidate.stage === "request" || candidate.stage === "response")
+  );
+}
+
+export function parseBreakpointRules(value: unknown): BreakpointRule[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+  if (value.every(isBreakpointRule)) {
+    return value;
+  }
+  throw coerceAppError(value);
 }

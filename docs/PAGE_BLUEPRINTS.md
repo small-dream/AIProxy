@@ -256,7 +256,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 → 用户可编辑后发送
 ```
 
-## 6. Rules Page
+## 6. Rules Page — `断点规则管理已实现`
 
 ### 6.1 页面目标
 
@@ -281,12 +281,22 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 └───────────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-### 6.3 React 组件树
+### 6.3 React 组件树 — `断点规则部分已实现`
 
 ```text
-RulesPage
+RulesPage (断点规则管理已实现)
 ├─ PageHeader
-├─ RuleTypeSwitcher
+├─ SectionCard "Quick Breakpoint" (一键全局断点按钮)
+├─ SectionCard "Breakpoint Rules" (规则表格)
+│  ├─ Table (规则列表: 启用/URL Pattern/Methods/Stage/删除)
+│  └─ Button "Add Rule"
+├─ Dialog "Add Breakpoint Rule" (新增规则表单)
+│  ├─ OutlinedInput (URL pattern)
+│  ├─ Select (HTTP Methods, 多选)
+│  └─ Select (Stage: request/response)
+│
+│ 以下为规划中结构，尚未实现
+├─ RuleTypeSwitcher (Breakpoint / Rewrite / Map Local / Map Remote)
 ├─ RulesWorkbench
 │  ├─ RuleListPane
 │  │  ├─ RuleSearchField
@@ -300,6 +310,30 @@ RulesPage
 │     └─ RulePreviewPanel
 └─ BottomStatusStrip
 ```
+
+断点拦截面板（独立组件，在 AppShell 中渲染）：
+
+```text
+BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
+├─ TopBar (Method Chip + Stage Badge + URL + 导航 1/N)
+├─ Tabs (Request / Response)
+│  ├─ Request Tab: HeaderEditor + BodyEditor
+│  └─ Response Tab: Status + HeaderEditor + BodyEditor (或 Mock 编辑器)
+└─ Action Buttons (Mock Response / Drop / Forward)
+```
+
+### 6.3.1 断点功能实现文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `features/breakpoints/breakpoint.store.ts` | Zustand store，管理 pendingHits / activeHitId / rules |
+| `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` Tauri 事件的 React hook |
+| `features/breakpoints/use-breakpoint-rules.ts` | React Query hooks，调用 `listBreakpointRules` / `setBreakpointRules` |
+| `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器 |
+| `pages/rules/index.tsx` | Rules 页面，断点规则管理（表格 + 快捷按钮 + 新增对话框） |
+| `components/layout/AppShell.tsx` | 集成 BreakpointInterceptPanel 和状态栏断点计数指示器 |
+| `services/events/index.ts` | `onBreakpointHit()` Tauri 事件订阅 |
+| `services/commands/index.ts` | `listBreakpointRules` / `setBreakpointRules` / `resolveBreakpoint` 命令 |
 
 ### 6.4 页面状态模型
 
@@ -324,9 +358,28 @@ type RulesPageState = {
 };
 ```
 
-### 6.5 页面事件流
+### 6.5 页面事件流 — `断点部分已实现`
 
 ```text
+Rules 页面事件流：
+User clicks "Break on All Requests"
+-> setBreakpointRules([...existingRules, catchAllRule])
+-> rule list refreshes
+-> proxy pipeline now intercepts requests matching the rule
+
+断点拦截事件流：
+Proxy receives request
+-> BreakpointManager.should_break() matches a rule
+-> oneshot channel created, proxy task awaits
+-> "breakpoint-hit" event emitted to frontend
+-> Zustand store adds pending hit
+-> BreakpointInterceptPanel renders with request details
+-> User edits headers/body and clicks "Forward"
+-> resolveBreakpoint({ action: "forward", modifiedRequestHeaders: [...] })
+-> Rust resolves oneshot channel, proxy task resumes with modifications
+-> pending hit removed from store
+
+规划中的完整规则事件流：
 User switches rule type
 -> list of rules changes
 -> user selects or creates rule
@@ -514,7 +567,7 @@ WorkspacesPage
 | --- | --- | --- |
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
-| Rules | `breakpoints`, `rewrite-rules`, `map-rules` | `save_*_rule`, `list_*_rules` |
+| Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules` | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings` | settings service / local config |
 | Workspaces | `workspace-manager` | `list_workspaces`, `create_workspace`, `load_workspace` |

@@ -5,13 +5,14 @@ use crate::system_proxy::{
     SystemProxySettings,
 };
 use pharles_proxy_core::{
-    get_local_ip_addresses, send_direct_request, start_proxy_server, ProxyRuntimeConfig,
+    get_local_ip_addresses, send_direct_request, start_proxy_server,
+    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, ProxyRuntimeConfig,
     ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary, TlsManager,
 };
 use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::Deserialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 
 const DEFAULT_PROXY_PORT: u16 = 8888;
 
@@ -44,6 +45,7 @@ pub struct GenerateRootCertificateInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendComposedRequestInput {
+    #[allow(dead_code)]
     pub workspace_id: String,
     pub method: String,
     pub url: String,
@@ -229,12 +231,22 @@ async fn start_proxy_impl(
         None
     };
 
+    let breakpoint_manager = state.read_breakpoint_manager();
+
+    let event_emitter: Option<BreakpointEventEmitter> = state.read_app_handle().map(|handle| {
+        Arc::new(move |event: &str, payload: serde_json::Value| {
+            let _ = handle.emit(event, payload);
+        }) as BreakpointEventEmitter
+    });
+
     let started_proxy_server = start_proxy_server(
         ProxyRuntimeConfig {
             port,
             ssl_enabled: enable_ssl,
         },
         tls_manager,
+        Some(breakpoint_manager),
+        event_emitter,
     )
     .await?;
 
@@ -548,4 +560,27 @@ fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
         storage: Arc::new(storage),
         server_config,
     }))
+}
+
+// --- Breakpoint commands ---
+
+#[tauri::command]
+pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointRule> {
+    state.read_breakpoint_manager().list_rules()
+}
+
+#[tauri::command]
+pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<AppState>>) {
+    state.read_breakpoint_manager().set_rules(rules);
+}
+
+#[tauri::command]
+pub fn resolve_breakpoint(
+    resolution: BreakpointResolution,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let session_id = resolution.session_id.clone();
+    state
+        .read_breakpoint_manager()
+        .resolve(&session_id, resolution)
 }

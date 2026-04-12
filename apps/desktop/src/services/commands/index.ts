@@ -3,12 +3,17 @@ import {
   coerceAppError,
   createDefaultProxyStatus,
   createMockComposeSessionDetail,
+  parseBreakpointHit,
+  parseBreakpointRules,
   parseCertificateStatus,
   parseCertificateInstallGuide,
   parseSessionDetail,
   normalizeStartProxyInput,
   parseSessionSummaries,
   parseProxyStatus,
+  type BreakpointHit,
+  type BreakpointResolution,
+  type BreakpointRule,
   type CertificateInstallGuide,
   type CertificateStatus,
   type ComposedRequestInput,
@@ -379,4 +384,58 @@ function reportCommandFailure(commandName: string, error: unknown, workspaceId?:
     occurredAt: new Date().toISOString(),
     workspaceId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Breakpoint commands
+// ---------------------------------------------------------------------------
+
+export async function listBreakpointRules(): Promise<BreakpointRule[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "list_breakpoint_rules_bypassed_non_tauri_runtime");
+    return [];
+  }
+
+  try {
+    logDevDebug("ui.commands", "list_breakpoint_rules_requested");
+    const payload = await invoke<unknown>("list_breakpoint_rules");
+    const rules = parseBreakpointRules(payload);
+    logDevDebug("ui.commands", "list_breakpoint_rules_succeeded", { count: rules.length });
+    return rules;
+  } catch (error) {
+    reportCommandFailure("list_breakpoint_rules", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function setBreakpointRules(rules: BreakpointRule[]): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "set_breakpoint_rules_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "set_breakpoint_rules_requested", { count: rules.length });
+    await invoke("set_breakpoint_rules", { rules });
+    logDevInfo("ui.commands", "set_breakpoint_rules_succeeded");
+  } catch (error) {
+    reportCommandFailure("set_breakpoint_rules", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function resolveBreakpoint(resolution: BreakpointResolution): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "resolve_breakpoint_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "resolve_breakpoint_requested", { sessionId: resolution.sessionId, action: resolution.action });
+    await invoke("resolve_breakpoint", { resolution });
+    logDevInfo("ui.commands", "resolve_breakpoint_succeeded");
+  } catch (error) {
+    reportCommandFailure("resolve_breakpoint", error);
+    throw coerceAppError(error);
+  }
 }

@@ -13,6 +13,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     env,
     ffi::OsStr,
     fs::{self, OpenOptions},
@@ -199,9 +200,428 @@ struct UpstreamResponse {
     waiting_ms: u128,
 }
 
+// ---------------------------------------------------------------------------
+// Breakpoint types
+// ---------------------------------------------------------------------------
+
+/// The stage at which a breakpoint can trigger.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BreakpointStage {
+    Request,
+    Response,
+}
+
+/// What the user chooses to do with an intercepted request/response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BreakpointActionKind {
+    Forward,
+    Drop,
+    Mock,
+}
+
+/// A user-crafted response used when the action is Mock.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MockResponse {
+    pub status_code: u16,
+    pub headers: Vec<ProxyHeaderEntry>,
+    pub body_base64: Option<String>,
+}
+
+/// The resolution the frontend sends back to unblock the proxy task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakpointResolution {
+    pub session_id: String,
+    pub action: BreakpointActionKind,
+    pub mock: Option<MockResponse>,
+    pub modified_request_headers: Option<Vec<ProxyHeaderEntry>>,
+    pub modified_request_body_base64: Option<String>,
+    pub modified_response_headers: Option<Vec<ProxyHeaderEntry>>,
+    pub modified_response_body_base64: Option<String>,
+}
+
+/// A rule that determines which requests should trigger a breakpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakpointRule {
+    pub id: String,
+    pub enabled: bool,
+    pub url_pattern: String,
+    pub methods: Vec<String>,
+    pub stage: BreakpointStage,
+}
+
+/// Payload pushed to the frontend when a breakpoint is hit.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakpointHit {
+    pub session_id: String,
+    pub stage: BreakpointStage,
+    pub method: String,
+    pub url: String,
+    pub host: String,
+    pub path: String,
+    pub request_headers: Vec<ProxyHeaderEntry>,
+    pub request_body: Option<ProxyBodyReference>,
+    pub response_status_code: Option<u16>,
+    pub response_headers: Option<Vec<ProxyHeaderEntry>>,
+    pub response_body: Option<ProxyBodyReference>,
+}
+
+/// Callback for emitting events from the proxy core to the frontend.
+/// Keeps proxy-core framework-agnostic (no direct tauri dependency).
+pub type BreakpointEventEmitter =
+    Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+// ---------------------------------------------------------------------------
+// BreakpointManager
+// ---------------------------------------------------------------------------
+
+/// Manages active breakpoint rules and pending interceptions.
+pub struct BreakpointManager {
+    rules: std::sync::Mutex<Vec<BreakpointRule>>,
+    pending: std::sync::Mutex<HashMap<String, oneshot::Sender<BreakpointResolution>>>,
+}
+
+impl std::fmt::Debug for BreakpointManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BreakpointManager")
+            .field("rules", &self.list_rules())
+            .field("pending_count", &self.pending.lock().map(|p| p.len()).unwrap_or(0))
+            .finish()
+    }
+}
+
+impl BreakpointManager {
+    pub fn new() -> Self {
+        Self {
+            rules: std::sync::Mutex::new(Vec::new()),
+            pending: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn list_rules(&self) -> Vec<BreakpointRule> {
+        self.rules
+            .lock()
+            .expect("breakpoint rules mutex should not be poisoned")
+            .clone()
+    }
+
+    pub fn set_rules(&self, rules: Vec<BreakpointRule>) {
+        let mut guard = self
+            .rules
+            .lock()
+            .expect("breakpoint rules mutex should not be poisoned");
+        *guard = rules;
+    }
+
+    /// Check whether any enabled rule matches the given stage/method/url.
+    pub fn should_break(&self, stage: &BreakpointStage, method: &str, url: &str) -> bool {
+        let rules = self
+            .rules
+            .lock()
+            .expect("breakpoint rules mutex should not be poisoned");
+        rules.iter().any(|rule| {
+            if !rule.enabled {
+                return false;
+            }
+            if rule.stage != *stage {
+                return false;
+            }
+            if !rule.methods.is_empty()
+                && !rule
+                    .methods
+                    .iter()
+                    .any(|m| m.eq_ignore_ascii_case(method))
+            {
+                return false;
+            }
+            // URL pattern: empty or "*" matches everything; otherwise substring match
+            if rule.url_pattern.is_empty() || rule.url_pattern == "*" {
+                return true;
+            }
+            url.contains(&rule.url_pattern)
+        })
+    }
+
+    /// Register a pending breakpoint. Returns the receiver end that the proxy task will await.
+    pub fn register_pending(
+        &self,
+        session_id: String,
+    ) -> oneshot::Receiver<BreakpointResolution> {
+        let (tx, rx) = oneshot::channel();
+        self.pending
+            .lock()
+            .expect("breakpoint pending mutex should not be poisoned")
+            .insert(session_id, tx);
+        rx
+    }
+
+    /// Resolve a pending breakpoint by sending the user's decision.
+    pub fn resolve(&self, session_id: &str, resolution: BreakpointResolution) -> Result<(), String> {
+        let mut pending = self
+            .pending
+            .lock()
+            .expect("breakpoint pending mutex should not be poisoned");
+        if let Some(sender) = pending.remove(session_id) {
+            sender
+                .send(resolution)
+                .map_err(|_| "failed to send breakpoint resolution — receiver already dropped".to_string())
+        } else {
+            Err(format!("no pending breakpoint found for session {session_id}"))
+        }
+    }
+
+    /// Cancel all pending breakpoints (e.g. when the proxy stops).
+    pub fn cancel_all(&self) {
+        let mut pending = self
+            .pending
+            .lock()
+            .expect("breakpoint pending mutex should not be poisoned");
+        pending.clear();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Breakpoint interception helpers
+// ---------------------------------------------------------------------------
+
+/// Build a BreakpointHit for the request stage from a parsed request.
+fn build_request_stage_hit(request: &ParsedProxyRequest) -> BreakpointHit {
+    let content_type = request.headers.get(CONTENT_TYPE);
+    let content_encoding = request.headers.get("content-encoding");
+    BreakpointHit {
+        session_id: request.request_id.clone(),
+        stage: BreakpointStage::Request,
+        method: request.method.to_string(),
+        url: request.url.to_string(),
+        host: request.host.clone(),
+        path: request.path.clone(),
+        request_headers: request.request_headers.clone(),
+        request_body: build_body_reference(&request.body, content_type, content_encoding),
+        response_status_code: None,
+        response_headers: None,
+        response_body: None,
+    }
+}
+
+/// Build a BreakpointHit for the response stage.
+fn build_response_stage_hit(
+    request: &ParsedProxyRequest,
+    status_code: u16,
+    response_headers: &HeaderMap,
+    response_body: &[u8],
+) -> BreakpointHit {
+    let req_content_type = request.headers.get(CONTENT_TYPE);
+    let req_content_encoding = request.headers.get("content-encoding");
+    let resp_content_type = response_headers.get(CONTENT_TYPE);
+    let resp_content_encoding = response_headers.get("content-encoding");
+    BreakpointHit {
+        session_id: request.request_id.clone(),
+        stage: BreakpointStage::Response,
+        method: request.method.to_string(),
+        url: request.url.to_string(),
+        host: request.host.clone(),
+        path: request.path.clone(),
+        request_headers: request.request_headers.clone(),
+        request_body: build_body_reference(&request.body, req_content_type, req_content_encoding),
+        response_status_code: Some(status_code),
+        response_headers: Some(
+            response_headers
+                .iter()
+                .map(|(k, v)| ProxyHeaderEntry {
+                    name: k.to_string(),
+                    value: v.to_str().unwrap_or("").to_string(),
+                })
+                .collect(),
+        ),
+        response_body: build_body_reference(response_body, resp_content_type, resp_content_encoding),
+    }
+}
+
+/// Emit a breakpoint-hit event through the event emitter callback.
+fn emit_breakpoint_event(emitter: &Option<BreakpointEventEmitter>, hit: &BreakpointHit) {
+    if let Some(ref emit) = emitter {
+        let payload = serde_json::to_value(hit).unwrap_or_else(|e| {
+            emit_log("ERROR", "breakpoint_hit_serialize_failed", &[("error", e.to_string())]);
+            serde_json::Value::Null
+        });
+        emit("breakpoint-hit", payload);
+    }
+}
+
+/// Check for a request-stage breakpoint. If matched, emits the event, waits for resolution,
+/// and returns the resolution. Returns `None` if no breakpoint rule matched.
+async fn intercept_request_stage(
+    breakpoint_manager: &Option<Arc<BreakpointManager>>,
+    event_emitter: &Option<BreakpointEventEmitter>,
+    request: &mut ParsedProxyRequest,
+) -> Result<Option<BreakpointResolution>, String> {
+    let bp = match breakpoint_manager {
+        Some(bp) => bp,
+        None => return Ok(None),
+    };
+
+    if !bp.should_break(&BreakpointStage::Request, request.method.as_str(), request.url.as_str()) {
+        return Ok(None);
+    }
+
+    let session_id = request.request_id.clone();
+    let receiver = bp.register_pending(session_id.clone());
+
+    let hit = build_request_stage_hit(request);
+    emit_log(
+        "INFO",
+        "breakpoint_request_stage_hit",
+        &[
+            ("session_id", session_id.clone()),
+            ("method", request.method.to_string()),
+            ("url", request.url.to_string()),
+        ],
+    );
+    emit_breakpoint_event(event_emitter, &hit);
+
+    match receiver.await {
+        Ok(resolution) => {
+            // Apply modifications to the request
+            if let Some(ref headers) = resolution.modified_request_headers {
+                request.request_headers = headers.clone();
+                let mut new_headers = HeaderMap::new();
+                for entry in headers {
+                    if let (Ok(name), Ok(value)) = (
+                        HeaderName::from_bytes(entry.name.as_bytes()),
+                        HeaderValue::from_str(&entry.value),
+                    ) {
+                        new_headers.insert(name, value);
+                    }
+                }
+                request.headers = new_headers;
+            }
+            if let Some(ref body_b64) = resolution.modified_request_body_base64 {
+                request.body = BASE64_STANDARD
+                    .decode(body_b64)
+                    .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
+            }
+            Ok(Some(resolution))
+        }
+        Err(_) => {
+            emit_log(
+                "WARN",
+                "breakpoint_request_cancelled",
+                &[("session_id", session_id)],
+            );
+            Err("breakpoint cancelled (proxy may have stopped)".to_string())
+        }
+    }
+}
+
+/// Check for a response-stage breakpoint. If matched, emits the event, waits for resolution,
+/// and returns the resolution. Returns `None` if no breakpoint rule matched.
+async fn intercept_response_stage(
+    breakpoint_manager: &Option<Arc<BreakpointManager>>,
+    event_emitter: &Option<BreakpointEventEmitter>,
+    request: &ParsedProxyRequest,
+    status_code: u16,
+    response_headers: &HeaderMap,
+    response_body: &[u8],
+) -> Result<Option<BreakpointResolution>, String> {
+    let bp = match breakpoint_manager {
+        Some(bp) => bp,
+        None => return Ok(None),
+    };
+
+    if !bp.should_break(&BreakpointStage::Response, request.method.as_str(), request.url.as_str()) {
+        return Ok(None);
+    }
+
+    let session_id = request.request_id.clone();
+    let receiver = bp.register_pending(session_id.clone());
+
+    let hit = build_response_stage_hit(request, status_code, response_headers, response_body);
+    emit_log(
+        "INFO",
+        "breakpoint_response_stage_hit",
+        &[
+            ("session_id", session_id.clone()),
+            ("method", request.method.to_string()),
+            ("url", request.url.to_string()),
+            ("status_code", status_code.to_string()),
+        ],
+    );
+    emit_breakpoint_event(event_emitter, &hit);
+
+    match receiver.await {
+        Ok(resolution) => Ok(Some(resolution)),
+        Err(_) => {
+            emit_log(
+                "WARN",
+                "breakpoint_response_cancelled",
+                &[("session_id", session_id)],
+            );
+            Err("breakpoint cancelled (proxy may have stopped)".to_string())
+        }
+    }
+}
+
+/// Apply a response-stage resolution to modify the upstream response.
+fn apply_response_resolution(
+    resolution: &BreakpointResolution,
+    upstream_response: &mut UpstreamResponse,
+) {
+    if let Some(ref headers) = resolution.modified_response_headers {
+        let mut new_headers = HeaderMap::new();
+        for entry in headers {
+            if let (Ok(name), Ok(value)) = (
+                HeaderName::from_bytes(entry.name.as_bytes()),
+                HeaderValue::from_str(&entry.value),
+            ) {
+                new_headers.insert(name, value);
+            }
+        }
+        upstream_response.response_headers = new_headers;
+    }
+    if let Some(ref body_b64) = resolution.modified_response_body_base64 {
+        upstream_response.response_body = BASE64_STANDARD
+            .decode(body_b64)
+            .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
+    }
+}
+
+/// Build a mock UpstreamResponse from user-provided mock data.
+fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamResponse {
+    let body = mock
+        .body_base64
+        .as_deref()
+        .map(|b| BASE64_STANDARD.decode(b).unwrap_or_else(|_| b.as_bytes().to_vec()))
+        .unwrap_or_default();
+    let mut headers = HeaderMap::new();
+    for entry in &mock.headers {
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(entry.name.as_bytes()),
+            HeaderValue::from_str(&entry.value),
+        ) {
+            headers.insert(name, value);
+        }
+    }
+    // Ensure content-length matches body
+    headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&body.len().to_string()).unwrap_or_else(|_| HeaderValue::from_static("0")));
+    UpstreamResponse {
+        response_body: body,
+        response_headers: headers,
+        response_read_ms: 0,
+        status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
+        waiting_ms: 0,
+    }
+}
+
 pub async fn start_proxy_server(
     config: ProxyRuntimeConfig,
     tls_manager: Option<Arc<TlsManager>>,
+    breakpoint_manager: Option<Arc<BreakpointManager>>,
+    event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<StartedProxyServer, String> {
     config.validate().map_err(str::to_string)?;
 
@@ -251,9 +671,11 @@ pub async fn start_proxy_server(
                             let client = Arc::clone(&client);
                             let session_sender = session_sender.clone();
                             let tls_manager = tls_manager.clone();
+                            let breakpoint_manager = breakpoint_manager.clone();
+                            let event_emitter = event_emitter.clone();
 
                             tokio::spawn(async move {
-                                if let Err(error) = handle_connection(stream, client_addr, client, session_sender, tls_manager).await {
+                                if let Err(error) = handle_connection(stream, client_addr, client, session_sender, tls_manager, breakpoint_manager, event_emitter).await {
                                     emit_log(
                                         "ERROR",
                                         "connection_failed",
@@ -295,11 +717,13 @@ async fn handle_connection(
     client: Arc<Client>,
     session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
     tls_manager: Option<Arc<TlsManager>>,
+    breakpoint_manager: Option<Arc<BreakpointManager>>,
+    event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<(), String> {
     let started_at = Utc::now();
     let started_at_instant = Instant::now();
 
-    let request = match read_proxy_request(&mut stream).await {
+    let mut request = match read_proxy_request(&mut stream).await {
         Ok(request) => request,
         Err(error) => {
             write_plain_text_response(
@@ -411,14 +835,88 @@ async fn handle_connection(
                     session_sender,
                     started_at,
                     started_at_instant,
+                    breakpoint_manager,
+                    event_emitter,
                 )
                 .await;
             }
         }
     }
 
+    // --- Request-stage breakpoint ---
+    if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut request).await? {
+        match resolution.action {
+            BreakpointActionKind::Drop => {
+                let _ = stream.shutdown().await;
+                return Ok(());
+            }
+            BreakpointActionKind::Mock => {
+                if let Some(ref mock) = resolution.mock {
+                    let mock_response = build_mock_upstream_response(mock);
+                    write_upstream_response(
+                        &mut stream,
+                        mock_response.status_code,
+                        &mock_response.response_headers,
+                        &mock_response.response_body,
+                    )
+                    .await?;
+
+                    let detail = build_session_detail(
+                        &request,
+                        mock_response.status_code.as_u16(),
+                        &mock_response.response_headers,
+                        &mock_response.response_body,
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: Some(0),
+                            response_read_ms: Some(0),
+                            tls_ms: None,
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(0),
+                        },
+                    );
+                    let _ = session_sender.send(detail);
+                    return Ok(());
+                }
+            }
+            BreakpointActionKind::Forward => {
+                // Modifications already applied inside intercept_request_stage
+            }
+        }
+    }
+
     match forward_request(&client, &request).await {
-        Ok(upstream_response) => {
+        Ok(mut upstream_response) => {
+            // --- Response-stage breakpoint ---
+            if let Some(resolution) = intercept_response_stage(
+                &breakpoint_manager,
+                &event_emitter,
+                &request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await?
+            {
+                match resolution.action {
+                    BreakpointActionKind::Drop => {
+                        let _ = stream.shutdown().await;
+                        return Ok(());
+                    }
+                    BreakpointActionKind::Mock => {
+                        if let Some(ref mock) = resolution.mock {
+                            upstream_response = build_mock_upstream_response(mock);
+                        }
+                    }
+                    BreakpointActionKind::Forward => {
+                        apply_response_resolution(&resolution, &mut upstream_response);
+                    }
+                }
+            }
+
             write_upstream_response(
                 &mut stream,
                 upstream_response.status_code,
@@ -712,6 +1210,8 @@ async fn handle_connect_mitm(
     session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
+    breakpoint_manager: Option<Arc<BreakpointManager>>,
+    event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<(), String> {
     // Send 200 Connection Established
     stream
@@ -781,16 +1281,86 @@ async fn handle_connect_mitm(
     };
 
     // Build a modified request for HTTPS upstream
-    let https_request = ParsedProxyRequest {
+    let mut https_request = ParsedProxyRequest {
         protocol: "https".to_string(),
         url: Url::parse(&https_url)
             .map_err(|e| format!("invalid https URL {https_url}: {e}"))?,
         ..request
     };
 
+    // --- Request-stage breakpoint (HTTPS) ---
+    if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut https_request).await? {
+        match resolution.action {
+            BreakpointActionKind::Drop => {
+                let _ = tls_stream.shutdown().await;
+                return Ok(());
+            }
+            BreakpointActionKind::Mock => {
+                if let Some(ref mock) = resolution.mock {
+                    let mock_response = build_mock_upstream_response(mock);
+                    write_upstream_response(
+                        &mut tls_stream,
+                        mock_response.status_code,
+                        &mock_response.response_headers,
+                        &mock_response.response_body,
+                    )
+                    .await?;
+
+                    let detail = build_session_detail(
+                        &https_request,
+                        mock_response.status_code.as_u16(),
+                        &mock_response.response_headers,
+                        &mock_response.response_body,
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: Some(0),
+                            response_read_ms: Some(0),
+                            tls_ms: Some(tls_ms),
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(0),
+                        },
+                    );
+                    let _ = session_sender.send(detail);
+                    return Ok(());
+                }
+            }
+            BreakpointActionKind::Forward => {}
+        }
+    }
+
     // Forward upstream
     match forward_request(&client, &https_request).await {
-        Ok(upstream_response) => {
+        Ok(mut upstream_response) => {
+            // --- Response-stage breakpoint (HTTPS) ---
+            if let Some(resolution) = intercept_response_stage(
+                &breakpoint_manager,
+                &event_emitter,
+                &https_request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await?
+            {
+                match resolution.action {
+                    BreakpointActionKind::Drop => {
+                        let _ = tls_stream.shutdown().await;
+                        return Ok(());
+                    }
+                    BreakpointActionKind::Mock => {
+                        if let Some(ref mock) = resolution.mock {
+                            upstream_response = build_mock_upstream_response(mock);
+                        }
+                    }
+                    BreakpointActionKind::Forward => {
+                        apply_response_resolution(&resolution, &mut upstream_response);
+                    }
+                }
+            }
+
             write_upstream_response(
                 &mut tls_stream,
                 upstream_response.status_code,

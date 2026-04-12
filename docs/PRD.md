@@ -261,12 +261,23 @@ flowchart LR
 - 查看发送结果与 Timing — `已实现`：响应预览复用 Inspector 组件（Overview/Headers/Body/Timing 标签页）
 - 导出为 `cURL` — `已实现`：前端纯函数 `generateCurlCommand()` 生成 cURL 命令并复制到剪贴板
 
-### 9.5 Breakpoints
+### 9.5 Breakpoints — `已实现`
 
 - 支持请求阶段断点
 - 支持响应阶段断点
 - 支持查看与修改内容后放行
 - 支持跳过、丢弃、Mock
+
+实现说明：
+
+- Rust 侧 `proxy-core` 提供 `BreakpointManager`，管理断点规则和暂停中的请求
+- 代理管道在请求转发前和响应返回前各插入一个拦截点，使用 `tokio::sync::oneshot` 通道暂停 tokio 任务等待前端决策
+- 前端通过 Tauri 事件 `breakpoint-hit` 接收拦截通知，通过 `resolve_breakpoint` 命令发送决策（forward/drop/mock）
+- `BreakpointInterceptPanel` 组件以底部抽屉形式展示被拦截的请求/响应详情，支持编辑 headers 和 body
+- Rules 页面提供断点规则管理：URL 子串匹配、方法过滤、阶段选择、启用/禁用
+- 提供 "Break on All Requests" / "Break on All Responses" 快捷按钮一键开启全局断点
+- HTTP 和 HTTPS (MITM) 路径均支持断点拦截
+- 状态栏显示待处理断点计数指示器
 
 ### 9.6 Rewrite / Map
 
