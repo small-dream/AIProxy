@@ -8,11 +8,12 @@ import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, use
 
 import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
+import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
 import {
-  type InspectorPrimaryTab,
-  type InspectorSecondaryTab,
-  SessionInspectorWorkspace,
-} from "@/features/sessions/components/SessionInspectorWorkspace";
+  DEFAULT_REQUEST_SPLIT_RATIO,
+  type RequestInspectorTab,
+  type ResponseInspectorTab,
+} from "@/features/sessions/components/session-inspector.helpers";
 import {
   buildSessionHostGroups,
   reconcileExpandedHosts,
@@ -34,8 +35,9 @@ export function SessionsPage() {
   const [searchValue, setSearchValue] = useState("");
   const [scope, setScope] = useState<SessionExplorerScope>("all");
   const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
-  const [primaryInspectorTab, setPrimaryInspectorTab] = useState<InspectorPrimaryTab>("overview");
-  const [secondaryInspectorTab, setSecondaryInspectorTab] = useState<InspectorSecondaryTab>("headers");
+  const [requestInspectorTab, setRequestInspectorTab] = useState<RequestInspectorTab>("overview");
+  const [responseInspectorTab, setResponseInspectorTab] = useState<ResponseInspectorTab>("overview");
+  const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [explorerWidth, setExplorerWidth] = useState(360);
 
   const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue, scope), [scope, searchValue, sessions]);
@@ -62,15 +64,26 @@ export function SessionsPage() {
   useEffect(() => {
     const savedWidth = window.localStorage.getItem("pharles.sessions.explorerWidth");
     const parsedWidth = Number(savedWidth);
+    const savedRequestCollapsed =
+      window.localStorage.getItem("pharles.sessions.requestCollapsed") === "true";
 
     if (Number.isFinite(parsedWidth)) {
       setExplorerWidth(clampExplorerWidth(parsedWidth));
     }
+
+    setRequestCollapsed(savedRequestCollapsed);
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem("pharles.sessions.explorerWidth", String(explorerWidth));
   }, [explorerWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "pharles.sessions.requestCollapsed",
+      String(requestCollapsed),
+    );
+  }, [requestCollapsed]);
 
   useEffect(() => {
     if (!clearSessionsMutation.isSuccess) {
@@ -233,11 +246,14 @@ export function SessionsPage() {
                 )
               : undefined
           }
+          inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
           isDetailLoading={isSessionDetailLoading}
-          onPrimaryTabChange={setPrimaryInspectorTab}
-          onSecondaryTabChange={setSecondaryInspectorTab}
-          primaryTab={primaryInspectorTab}
-          secondaryTab={secondaryInspectorTab}
+          onRequestCollapsedChange={setRequestCollapsed}
+          onRequestTabChange={setRequestInspectorTab}
+          onResponseTabChange={setResponseInspectorTab}
+          requestCollapsed={requestCollapsed}
+          requestTab={requestInspectorTab}
+          responseTab={responseInspectorTab}
           selectedSessionDetail={selectedSessionDetail}
           selectedSession={selectedSession}
         />
@@ -267,3 +283,4 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
 function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
 }
+

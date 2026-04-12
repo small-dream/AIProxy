@@ -1,5 +1,7 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use brotli::Decompressor;
 use chrono::{DateTime, Utc};
+use flate2::read::{GzDecoder, ZlibDecoder};
 use httparse::{Request, Status, EMPTY_HEADER};
 use reqwest::{
     header::{
@@ -14,7 +16,7 @@ use std::{
     env,
     ffi::OsStr,
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Cursor, Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
@@ -1053,9 +1055,14 @@ fn build_session_detail(
         request_body: build_body_reference(
             &request.body,
             request.headers.get(CONTENT_TYPE),
+            request.headers.get(reqwest::header::CONTENT_ENCODING),
         ),
         request_headers: request.request_headers.clone(),
-        response_body: build_body_reference(response_body, response_headers.get(CONTENT_TYPE)),
+        response_body: build_body_reference(
+            response_body,
+            response_headers.get(CONTENT_TYPE),
+            response_headers.get(reqwest::header::CONTENT_ENCODING),
+        ),
         response_headers: response_header_entries,
         server_ip: None,
         summary,
@@ -1115,6 +1122,7 @@ fn build_cookie_entries(
 fn build_body_reference(
     body: &[u8],
     content_type_header: Option<&HeaderValue>,
+    content_encoding_header: Option<&HeaderValue>,
 ) -> Option<ProxyBodyReference> {
     if body.is_empty() {
         return None;
@@ -1126,8 +1134,13 @@ fn build_body_reference(
         .and_then(|value| value.to_str().ok())
         .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
         .filter(|value| !value.is_empty());
-    let inline_text = if should_render_body_as_text(mime_type.as_deref(), captured_body) {
-        Some(String::from_utf8_lossy(captured_body).to_string())
+    let content_encoding = content_encoding_header
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+    let decoded_body = decode_body_bytes(captured_body, content_encoding.as_deref()).unwrap_or_else(|| captured_body.to_vec());
+    let inline_text = if should_render_body_as_text(mime_type.as_deref(), &decoded_body) {
+        Some(String::from_utf8_lossy(&decoded_body).to_string())
     } else {
         None
     };
@@ -1157,6 +1170,33 @@ fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
     }
 
     std::str::from_utf8(body).is_ok()
+}
+
+fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> Option<Vec<u8>> {
+    let encoding = content_encoding?;
+
+    if encoding.contains("gzip") {
+        let mut decoder = GzDecoder::new(Cursor::new(body));
+        let mut decoded = Vec::new();
+        decoder.read_to_end(&mut decoded).ok()?;
+        return Some(decoded);
+    }
+
+    if encoding.contains("deflate") {
+        let mut decoder = ZlibDecoder::new(Cursor::new(body));
+        let mut decoded = Vec::new();
+        decoder.read_to_end(&mut decoded).ok()?;
+        return Some(decoded);
+    }
+
+    if encoding.contains("br") {
+        let mut decoder = Decompressor::new(Cursor::new(body), 4096);
+        let mut decoded = Vec::new();
+        decoder.read_to_end(&mut decoded).ok()?;
+        return Some(decoded);
+    }
+
+    None
 }
 
 fn build_raw_http_message(
