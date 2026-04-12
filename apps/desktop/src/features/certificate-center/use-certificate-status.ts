@@ -8,6 +8,7 @@ import {
   getCertificateStatus,
   generateRootCertificate,
   openCertificateInstallGuide,
+  launchCertificateInstaller,
 } from "@/services/commands";
 
 const CERTIFICATE_STATUS_QUERY_KEY = ["certificate-status"] as const;
@@ -34,5 +35,11 @@ export function useGenerateRootCertificate() {
 export function useOpenCertificateInstallGuide() {
   return useMutation<CertificateInstallGuide, Error, void>({
     mutationFn: () => openCertificateInstallGuide(),
+  });
+}
+
+export function useLaunchCertificateInstaller() {
+  return useMutation<void, Error, void>({
+    mutationFn: () => launchCertificateInstaller(),
   });
 }

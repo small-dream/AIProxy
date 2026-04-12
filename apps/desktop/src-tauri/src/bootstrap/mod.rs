@@ -225,24 +225,10 @@ impl AppState {
         *tls = Some(manager);
     }
 
-    pub fn take_tls_manager(&self) -> Option<Arc<TlsManager>> {
-        self.tls_manager
-            .lock()
-            .expect("tls_manager mutex should not be poisoned")
-            .take()
-    }
-
     pub fn read_tls_manager(&self) -> Option<Arc<TlsManager>> {
         self.tls_manager
             .lock()
             .expect("tls_manager mutex should not be poisoned")
-            .clone()
-    }
-
-    pub fn read_cert_status(&self) -> Option<CertificateStateSnapshot> {
-        self.cert_status_cache
-            .lock()
-            .expect("cert_status mutex should not be poisoned")
             .clone()
     }
 

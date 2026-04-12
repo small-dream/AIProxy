@@ -277,6 +277,22 @@ export async function generateRootCertificate(
   }
 }
 
+export async function launchCertificateInstaller(): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "launch_certificate_installer_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "launch_certificate_installer_requested");
+    await invoke("launch_certificate_installer");
+    logDevInfo("ui.commands", "launch_certificate_installer_succeeded");
+  } catch (error) {
+    reportCommandFailure("launch_certificate_installer", error);
+    throw coerceAppError(error);
+  }
+}
+
 export async function openCertificateInstallGuide(): Promise<CertificateInstallGuide> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "open_certificate_install_guide_bypassed_non_tauri_runtime");

@@ -63,39 +63,34 @@ fn is_trusted_windows(cert_path: &Path) -> bool {
         Err(_) => return false,
     };
 
-    // Compute SHA-1 thumbprint
+    // Compute SHA-1 thumbprint (no spaces — PowerShell Thumbprint property format)
     let mut hasher = Sha1::new();
     hasher.update(&der);
-    let result = hasher.finalize();
-    let thumbprint = result
+    let thumbprint: String = hasher
+        .finalize()
         .iter()
         .map(|byte| format!("{byte:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ");
+        .collect();
 
-    // Use certutil to check if the certificate is in the Root store
-    let output = match Command::new("certutil")
-        .args(["-store", "-user", "Root"])
+    // Query both Current User and Local Machine Root stores via PowerShell.
+    // This uses native Windows certificate store APIs and is locale-independent.
+    let script = format!(
+        "$t = '{thumbprint}'; \
+         ($null -ne (Get-ChildItem Cert:\\CurrentUser\\Root | \
+           Where-Object {{ $_.Thumbprint -eq $t }})) -or \
+         ($null -ne (Get-ChildItem Cert:\\LocalMachine\\Root | \
+           Where-Object {{ $_.Thumbprint -eq $t }}))"
+    );
+
+    let output = match Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
     {
         Ok(o) => o,
         Err(_) => return false,
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Also check machine store
-    let machine_output = match Command::new("certutil")
-        .args(["-store", "Root"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return false,
-    };
-
-    let machine_stdout = String::from_utf8_lossy(&machine_output.stdout);
-
-    stdout.contains(&thumbprint) || machine_stdout.contains(&thumbprint)
+    String::from_utf8_lossy(&output.stdout).trim() == "True"
 }
 
 #[cfg(not(target_os = "windows"))]

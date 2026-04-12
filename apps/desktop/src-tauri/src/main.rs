@@ -34,7 +34,8 @@ pub fn run() {
             commands::disable_system_proxy,
             commands::get_certificate_status,
             commands::generate_root_certificate,
-            commands::open_certificate_install_guide
+            commands::open_certificate_install_guide,
+            commands::launch_certificate_installer
         ])
         .setup(|app| {
             let window = app

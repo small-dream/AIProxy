@@ -4,6 +4,7 @@ import {
   useCertificateStatus,
   useGenerateRootCertificate,
   useOpenCertificateInstallGuide,
+  useLaunchCertificateInstaller,
 } from "@/features/certificate-center/use-certificate-status";
 
 import { CertificateStatusCard } from "./CertificateStatusCard";
@@ -15,6 +16,7 @@ export function CertificatesPage() {
   const { data: status, isLoading, refetch } = useCertificateStatus();
   const generateMutation = useGenerateRootCertificate();
   const guideMutation = useOpenCertificateInstallGuide();
+  const installMutation = useLaunchCertificateInstaller();
 
   const handleGenerate = () => {
     generateMutation.mutate(undefined, {
@@ -22,6 +24,10 @@ export function CertificatesPage() {
         refetch();
       },
     });
+  };
+
+  const handleInstall = () => {
+    installMutation.mutate();
   };
 
   const handleRefresh = () => {
@@ -42,8 +48,10 @@ export function CertificatesPage() {
       <CertificateActions
         status={status}
         generating={generateMutation.isPending}
+        installing={installMutation.isPending}
         loading={isLoading}
         onGenerate={handleGenerate}
+        onInstall={handleInstall}
         onRefresh={handleRefresh}
       />
 

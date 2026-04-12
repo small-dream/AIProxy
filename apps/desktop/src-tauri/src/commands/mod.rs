@@ -88,6 +88,13 @@ pub fn open_certificate_install_guide(
 }
 
 #[tauri::command]
+pub fn launch_certificate_installer(
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    launch_certificate_installer_impl(Arc::clone(state.inner()))
+}
+
+#[tauri::command]
 pub async fn start_proxy(
     input: StartProxyInput,
     state: State<'_, Arc<AppState>>,
@@ -424,14 +431,12 @@ fn open_certificate_install_guide_impl(
 
     let steps = match platform {
         pharles_tls_manager::Platform::Windows => vec![
-            serde_json::json!({"order": 1, "description": "Press Win+R, type certlm.msc, and press Enter to open the Local Machine Certificate Manager."}),
-            serde_json::json!({"order": 2, "description": "Navigate to Trusted Root Certification Authorities > Certificates in the left panel."}),
-            serde_json::json!({"order": 3, "description": "Right-click on Certificates folder, select All Tasks > Import."}),
-            serde_json::json!({"order": 4, "description": "Click Next, then browse to the certificate file and select it."}),
-            serde_json::json!({"order": 5, "description": format!("Certificate path: {}", cert_path)}),
-            serde_json::json!({"order": 6, "description": "Ensure 'Place all certificates in the following store' shows 'Trusted Root Certification Authorities' and click Next."}),
-            serde_json::json!({"order": 7, "description": "Click Finish. Accept the security warning about installing a root certificate."}),
-            serde_json::json!({"order": 8, "description": "Restart your browser for the change to take effect."}),
+            serde_json::json!({"order": 1, "description": "Generate a root certificate, then click Install Certificate... to open the Windows certificate installer."}),
+            serde_json::json!({"order": 2, "description": "In the dialog, click Install Certificate..."}),
+            serde_json::json!({"order": 3, "description": "Select Current User or Local Machine (Local Machine requires administrator), then click Next."}),
+            serde_json::json!({"order": 4, "description": "Select 'Place all certificates in the following store', click Browse, and choose Trusted Root Certification Authorities. Click Next."}),
+            serde_json::json!({"order": 5, "description": "Click Finish. Accept the security warning to confirm trust."}),
+            serde_json::json!({"order": 6, "description": "Click Refresh Status to verify the certificate is now trusted."}),
         ],
         pharles_tls_manager::Platform::Macos => vec![
             serde_json::json!({"order": 1, "description": format!("Double-click the certificate file at: {}", cert_path)}),
@@ -454,6 +459,28 @@ fn open_certificate_install_guide_impl(
         "platform": platform.to_string(),
         "steps": steps,
     }))
+}
+
+fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String> {
+    let cert_status = get_certificate_status_impl(state)?;
+    let cert_path = cert_status
+        .cert_path
+        .ok_or_else(|| "No certificate found. Generate one first.".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32.exe")
+            .args(["cryptext.dll,CryptExtOpenCER", &cert_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open certificate installer: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = cert_path;
+        Err("Certificate launcher is only supported on Windows.".to_string())
+    }
 }
 
 /// Try to load a TlsManager from an existing root CA on disk.
