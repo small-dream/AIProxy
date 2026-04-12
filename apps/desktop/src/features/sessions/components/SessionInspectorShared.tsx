@@ -5,7 +5,7 @@ import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip,
 import { Fragment, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
-import { getStatusColor, normalizeSearch } from "./session-inspector.helpers";
+import { getMethodColor, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 export function InspectorSummaryBar({
   detail,
@@ -21,16 +21,22 @@ export function InspectorSummaryBar({
       <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
         <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
           <Chip
-            color={getStatusColor(session.statusCode)}
+            color={getMethodColor(session.method)}
             label={session.method}
             size="small"
-            variant="outlined"
+            variant="filled"
           />
           <Typography noWrap variant="subtitle2">
             {session.path || "/"}
           </Typography>
+          <Chip
+            color={getStatusColor(session.statusCode)}
+            label={String(session.statusCode)}
+            size="small"
+            variant="outlined"
+          />
           <Typography color="text.secondary" noWrap variant="caption">
-            {session.statusCode} • {session.durationMs} ms • {session.sizeBytes} bytes
+            {session.durationMs} ms • {session.sizeBytes} bytes
           </Typography>
         </Stack>
 

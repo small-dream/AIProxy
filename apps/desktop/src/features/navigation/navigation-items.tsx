@@ -7,6 +7,7 @@ import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import type { ReactNode } from "react";
 
 type NavigationItem = {
+  group: "manage" | "workspace";
   icon: ReactNode;
   label: string;
   to: string;
@@ -14,31 +15,37 @@ type NavigationItem = {
 
 export const navigationItems: NavigationItem[] = [
   {
+    group: "workspace",
     icon: <DatasetLinkedRoundedIcon />,
     label: "Sessions",
     to: "/",
   },
   {
+    group: "workspace",
     icon: <EditRoadRoundedIcon />,
     label: "Compose",
     to: "/compose",
   },
   {
+    group: "workspace",
     icon: <RuleRoundedIcon />,
     label: "Rules",
     to: "/rules",
   },
   {
+    group: "manage",
     icon: <DescriptionRoundedIcon />,
     label: "Certificates",
     to: "/certificates",
   },
   {
+    group: "manage",
     icon: <FolderRoundedIcon />,
     label: "Workspaces",
     to: "/workspaces",
   },
   {
+    group: "manage",
     icon: <SettingsRoundedIcon />,
     label: "Settings",
     to: "/settings",

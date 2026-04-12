@@ -160,6 +160,36 @@ export function getStatusColor(statusCode: number): "default" | "error" | "info"
   return "default";
 }
 
+export function getMethodColor(method: string): "default" | "error" | "info" | "primary" | "secondary" | "success" | "warning" {
+  const normalizedMethod = method.toUpperCase();
+
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD") {
+    return "success";
+  }
+
+  if (normalizedMethod === "POST") {
+    return "primary";
+  }
+
+  if (normalizedMethod === "PUT") {
+    return "warning";
+  }
+
+  if (normalizedMethod === "PATCH") {
+    return "secondary";
+  }
+
+  if (normalizedMethod === "DELETE") {
+    return "error";
+  }
+
+  if (normalizedMethod === "OPTIONS") {
+    return "info";
+  }
+
+  return "default";
+}
+
 export function isJsonObject(value: JsonValue): value is { [key: string]: JsonValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

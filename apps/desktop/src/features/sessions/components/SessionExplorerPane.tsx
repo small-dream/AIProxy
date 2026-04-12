@@ -11,6 +11,7 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
   Box,
+  Chip,
   CircularProgress,
   Divider,
   List,
@@ -22,6 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import { radiusTokens } from "@pharles/ui-tokens";
 import type { SessionSummary } from "@pharles/shared-types";
 import { useEffect, useRef, useState } from "react";
 
@@ -33,6 +35,7 @@ import {
   type SessionHostGroup,
   type SessionPathNode,
 } from "../session-explorer.helpers";
+import { getMethodColor, getStatusColor } from "./session-inspector.helpers";
 
 type SessionExplorerPaneProps = {
   errorMessage: string | undefined;
@@ -63,6 +66,8 @@ export function SessionExplorerPane({
       sx={{
         border: 1,
         borderColor: "divider",
+        borderRadius: `${radiusTokens.card}px`,
+        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
@@ -96,10 +101,31 @@ export function SessionExplorerPane({
             <Alert severity="error">{errorMessage}</Alert>
           </Box>
         ) : groups.length === 0 ? (
-          <Stack spacing={0.75} sx={{ p: 2 }}>
-            <Typography variant="body2">No captured sessions yet.</Typography>
-            <Typography color="text.secondary" variant="body2">
-              Start the proxy and open a plain HTTP page to populate the list.
+          <Stack alignItems="center" spacing={1.25} sx={{ px: 2.5, py: 6, textAlign: "center" }}>
+            <Box
+              sx={{
+                alignItems: "center",
+                bgcolor: alpha("#2962FF", 0.08),
+                border: "1px solid",
+                borderColor: alpha("#2962FF", 0.14),
+                borderRadius: "50%",
+                color: "primary.main",
+                display: "flex",
+                height: 56,
+                justifyContent: "center",
+                width: 56,
+              }}
+            >
+              <LanguageRoundedIcon sx={{ fontSize: 28 }} />
+            </Box>
+            <Stack spacing={0.5}>
+              <Typography sx={{ fontSize: 17, fontWeight: 700 }}>No captured sessions yet.</Typography>
+              <Typography color="text.secondary" sx={{ maxWidth: 320 }} variant="body2">
+                Start the proxy, then open a page or app request. Captured traffic will appear here in real time.
+              </Typography>
+            </Stack>
+            <Typography color="text.secondary" sx={{ fontSize: 12.5 }}>
+              Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.
             </Typography>
           </Stack>
         ) : (
@@ -184,11 +210,15 @@ function HostRow({ expanded, group, onToggle }: HostRowProps) {
       dense
       onClick={onToggle}
       sx={(theme) => ({
+        borderRadius: 1.5,
         backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
         minHeight: 28,
         px: 1.25,
         py: 0.375,
-        transition: "background-color 1800ms ease",
+        transition: "background-color 1800ms ease, box-shadow 140ms ease",
+        "&:hover": {
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        },
       })}
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
@@ -238,10 +268,15 @@ function SessionTreeNode({
         dense
         onClick={() => onToggleHost(expandedKey)}
         sx={{
+          borderRadius: 1.5,
           minHeight: 26,
           pl: 2 + depth * 1.5,
           pr: 1,
           py: 0.25,
+          transition: "background-color 140ms ease, box-shadow 140ms ease",
+          "&:hover": {
+            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          },
         }}
       >
         {expanded ? (
@@ -289,21 +324,43 @@ function SessionLeafNode({ depth, onClick, selected, session }: SessionLeafNodeP
       onClick={onClick}
       selected={selected}
       sx={{
-        minHeight: 26,
+        borderRadius: 1.5,
+        minHeight: 30,
         pl: 2 + depth * 1.5 + 2,
         pr: 1,
-        py: 0.25,
+        py: 0.375,
+        transition: "background-color 140ms ease, box-shadow 140ms ease",
+        "&:hover": {
+          boxShadow: selected ? "0 1px 3px rgba(0,0,0,0.08)" : "0 1px 2px rgba(15, 23, 42, 0.05)",
+        },
         "&.Mui-selected": {
           bgcolor: "action.selected",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         },
       }}
     >
+      <Chip
+        color={getMethodColor(session.method)}
+        label={session.method}
+        size="small"
+        sx={{
+          flex: "0 0 auto",
+          fontSize: 10,
+          fontWeight: 700,
+          height: 18,
+          mr: 0.75,
+          minWidth: 46,
+          "& .MuiChip-label": {
+            px: 0.75,
+          },
+        }}
+      />
       <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind)}>
         <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.75 }}>
           {renderResourceIcon(resourceKind)}
         </Box>
       </Tooltip>
-      <Typography noWrap sx={{ minWidth: 0 }} variant="body2">
+      <Typography noWrap sx={{ flex: 1, minWidth: 0 }} variant="body2">
         {getSessionLeafLabel(session)}
       </Typography>
       {querySuffix ? (
@@ -311,6 +368,23 @@ function SessionLeafNode({ depth, onClick, selected, session }: SessionLeafNodeP
           {querySuffix}
         </Typography>
       ) : null}
+      <Chip
+        color={getStatusColor(session.statusCode)}
+        label={session.statusCode > 0 ? String(session.statusCode) : "--"}
+        size="small"
+        sx={{
+          flex: "0 0 auto",
+          fontSize: 10,
+          fontWeight: 700,
+          height: 18,
+          ml: 0.75,
+          minWidth: 42,
+          "& .MuiChip-label": {
+            px: 0.75,
+          },
+        }}
+        variant="outlined"
+      />
     </ListItemButton>
   );
 }

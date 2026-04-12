@@ -58,8 +58,20 @@ export const appTheme = createTheme({
     },
     MuiPaper: {
       styleOverrides: {
+        root: {
+          borderRadius: radiusTokens.card,
+        },
         outlined: {
           backgroundColor: colorTokens.light.surface,
+          borderRadius: radiusTokens.card,
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: radiusTokens.card,
         },
       },
     },

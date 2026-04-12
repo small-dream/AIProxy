@@ -1,4 +1,5 @@
 import { Alert, Box, Divider, Paper, Typography } from "@mui/material";
+import { radiusTokens } from "@pharles/ui-tokens";
 import { useMemo } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
@@ -84,6 +85,8 @@ export function SessionInspectorWorkspace({
         sx={{
           border: 1,
           borderColor: "divider",
+          borderRadius: `${radiusTokens.card}px`,
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           display: "flex",
           minHeight: 0,
         }}
@@ -105,6 +108,8 @@ export function SessionInspectorWorkspace({
       sx={{
         border: 1,
         borderColor: "divider",
+        borderRadius: `${radiusTokens.card}px`,
+        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,

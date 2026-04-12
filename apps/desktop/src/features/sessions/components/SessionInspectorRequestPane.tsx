@@ -1,12 +1,13 @@
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, Button, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Chip, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
+  getMethodColor,
   type RequestInspectorTab,
 } from "./session-inspector.helpers";
 
@@ -98,9 +99,11 @@ function RequestTabContent({
   if (requestTab === "overview") {
     return (
       <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+          <Chip color={getMethodColor(session.method)} label={session.method} size="small" />
+        </Stack>
         <InspectorDefinitionList
           items={[
-            ["Method", session.method],
             ["Host", session.host],
             ["Path", session.path || "/"],
             ["Protocol", session.protocol],

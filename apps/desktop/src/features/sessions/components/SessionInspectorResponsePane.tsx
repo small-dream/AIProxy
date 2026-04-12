@@ -1,5 +1,5 @@
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
@@ -10,6 +10,7 @@ import {
   describeBody,
   formatTiming,
   getBodyText,
+  getStatusColor,
   type JsonParseResult,
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
@@ -109,16 +110,20 @@ function ResponseTabContent({
 }) {
   if (responseTab === "overview") {
     return (
-      <InspectorDefinitionList
-        items={[
-          ["Status", String(session.statusCode)],
-          ["Duration", `${session.durationMs} ms`],
-          ["Size", `${session.sizeBytes} bytes`],
-          ["Server IP", detail?.serverIp ?? "Unavailable in current HTTP phase"],
-          ["Response Body", describeBody(detail?.responseBody) ?? "No response body captured"],
-          ["Timing Total", formatTiming(detail?.timing?.totalMs)],
-        ]}
-      />
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+          <Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />
+        </Stack>
+        <InspectorDefinitionList
+          items={[
+            ["Duration", `${session.durationMs} ms`],
+            ["Size", `${session.sizeBytes} bytes`],
+            ["Server IP", detail?.serverIp ?? "Unavailable in current HTTP phase"],
+            ["Response Body", describeBody(detail?.responseBody) ?? "No response body captured"],
+            ["Timing Total", formatTiming(detail?.timing?.totalMs)],
+          ]}
+        />
+      </Stack>
     );
   }
 
