@@ -193,7 +193,7 @@ export function AppShell() {
           overflow: "hidden",
         }}
       >
-        <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 2 }}>
           <Outlet />
         </Box>
 

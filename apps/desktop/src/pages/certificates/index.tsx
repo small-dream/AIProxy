@@ -6,17 +6,20 @@ import {
   useOpenCertificateInstallGuide,
   useLaunchCertificateInstaller,
 } from "@/features/certificate-center/use-certificate-status";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 
 import { CertificateStatusCard } from "./CertificateStatusCard";
 import { CertificateActions } from "./CertificateActions";
 import { PlatformGuideTabs } from "./PlatformGuideTabs";
 import { CertificateRiskNotes } from "./CertificateRiskNotes";
+import { MobileSetupCard } from "./MobileSetupCard";
 
 export function CertificatesPage() {
   const { data: status, isLoading, refetch } = useCertificateStatus();
   const generateMutation = useGenerateRootCertificate();
   const guideMutation = useOpenCertificateInstallGuide();
   const installMutation = useLaunchCertificateInstaller();
+  const { data: proxyStatus } = useProxyStatus();
 
   const handleGenerate = () => {
     generateMutation.mutate(undefined, {
@@ -56,6 +59,13 @@ export function CertificatesPage() {
       />
 
       <PlatformGuideTabs currentPlatform={status?.platform ?? "windows"} />
+
+      <MobileSetupCard
+        proxyPort={proxyStatus?.port ?? 8888}
+        proxyRunning={proxyStatus?.running ?? false}
+        sslEnabled={proxyStatus?.sslEnabled ?? false}
+        hasCert={!!status?.certPath}
+      />
 
       <CertificateRiskNotes />
     </Stack>

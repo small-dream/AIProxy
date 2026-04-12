@@ -79,6 +79,8 @@ scripts/        开发、构建、发布脚本
 - 首页支持基于共享契约展示代理状态
 - Tauri 侧已提供最小状态命令用于后续接入真实代理运行时
 - P0-1 已支持本地明文 HTTP 代理捕获与会话列表展示
+- P0-2 已支持 HTTPS 证书生成、MITM 解密、系统代理接管
+- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书和 iOS/Android 配置指引
 
 ## 当前可手动验证的 HTTP 抓包闭环
 
@@ -88,7 +90,25 @@ scripts/        开发、构建、发布脚本
 4. 访问一个明文 `http://` 站点
 5. 在 `Sessions` 页面查看捕获到的会话列表
 
+## 当前可手动验证的 HTTPS 抓包闭环
+
+1. 在 Certificates 页面生成根证书
+2. 安装并信任根证书（Windows: 点击 Install Certificate）
+3. 点击 `Start HTTPS Proxy`
+4. 点击 `Enable System Proxy`
+5. 访问一个 `https://` 站点
+6. 在 `Sessions` 页面查看捕获到的 HTTPS 会话详情
+
+## 当前可手动验证的手机端抓包闭环
+
+1. 确保手机与电脑在同一 Wi-Fi 网络
+2. 启动 HTTPS 代理
+3. 在 Certificates 页面查看 Mobile Setup Card 中的二维码和 IP 信息
+4. 手机扫描二维码下载并安装根证书（iOS 需额外启用证书信任）
+5. 手机 Wi-Fi 代理设置为手动，填入电脑 IP 和代理端口
+6. 在 `Sessions` 页面查看来自手机的 HTTP/HTTPS 会话
+
 当前限制：
 
-- 仅支持明文 HTTP 代理请求
-- HTTPS `CONNECT` 隧道与证书解密尚未接入
+- HTTPS 证书信任流程跨平台复杂度高
+- Android 7+ 默认不信任用户证书，需要额外配置

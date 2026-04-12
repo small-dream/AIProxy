@@ -348,6 +348,14 @@ User switches rule type
 │ [Installation Guide]                                                        │
 │ Windows Steps | macOS Steps | Linux Steps                                   │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│ [Mobile Setup Card]                                                         │
+│ Local IP: 192.168.x.x        Proxy Port: 8888                              │
+│ Wi-Fi Proxy: 192.168.x.x:8888                                              │
+│ ┌──────────────────┐  Cert URL: http://192.168.x.x:8888/pharles-ca.crt     │
+│ │   [QR Code]      │  (Copy Proxy Address)                                 │
+│ └──────────────────┘                                                        │
+│ iOS Guide | Android Guide                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
 │ [FAQ / Risk Notes]                                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -361,6 +369,10 @@ CertificatesPage
 │  ├─ CertificateStatusCard
 │  ├─ CertificateActions
 │  ├─ PlatformGuideTabs
+│  ├─ MobileSetupCard
+│  │  ├─ QRCodeSVG
+│  │  ├─ Network Information Display
+│  │  └─ MobilePlatformGuide (iOS / Android Tabs)
 │  └─ CertificateRiskNotes
 └─ BottomStatusStrip
 ```
@@ -371,13 +383,21 @@ CertificatesPage
 type CertificatesPageState = {
   query: {
     loadingStatus: boolean;
+    loadingLocalIp: boolean;
+    loadingProxyStatus: boolean;
   };
   ui: {
     activePlatformTab: "windows" | "macos" | "linux";
+    activeMobileGuideTab: "ios" | "android";
   };
   mutation: {
     generatingCertificate: boolean;
     refreshingStatus: boolean;
+  };
+  data: {
+    localIp?: string;
+    proxyPort?: number;
+    certDownloadUrl?: string;
   };
 };
 ```
@@ -486,7 +506,7 @@ WorkspacesPage
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request`, `repeat_session` |
 | Rules | `breakpoints`, `rewrite-rules`, `map-rules` | `save_*_rule`, `list_*_rules` |
-| Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate` |
+| Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings` | settings service / local config |
 | Workspaces | `workspace-manager` | `list_workspaces`, `create_workspace`, `load_workspace` |
 

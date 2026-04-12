@@ -486,9 +486,12 @@ Certificates Page
 │  ├─ Windows Steps
 │  ├─ macOS Steps
 │  └─ Linux Steps
-├─ Device Access Section
-│  ├─ Mobile Proxy Instructions
-│  └─ Network Notes
+├─ Mobile Setup Card
+│  ├─ Network Information (Local IP / Proxy Port / Wi-Fi Proxy Address)
+│  ├─ QR Code (编码证书下载 URL)
+│  ├─ Certificate Download URL (可复制)
+│  ├─ iOS Setup Guide
+│  └─ Android Setup Guide
 └─ Risk / FAQ Section
 ```
 
@@ -498,6 +501,7 @@ Certificates Page
 - 生成 / 安装 / 刷新操作
 - 安装指引
 - 平台差异说明
+- 手机端抓包配置（网络信息、二维码、iOS/Android 指引）
 - 常见问题
 - 风险提示
 
@@ -575,6 +579,7 @@ Settings Page
 - `RuleList`
 - `RuleEditor`
 - `CertificateWizard`
+- `MobileSetupCard`
 - `ThrottlePresetPanel`
 - `WorkspaceSwitcher`
 

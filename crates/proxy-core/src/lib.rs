@@ -54,6 +54,27 @@ impl ProxyRuntimeConfig {
     }
 }
 
+/// Returns the local network IP addresses of this machine.
+/// Used to tell mobile devices what IP to configure as their proxy.
+pub fn get_local_ip_addresses() -> Vec<String> {
+    let mut ips = Vec::new();
+
+    // Use a UDP socket trick to find the preferred outbound local IP.
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        // connect() doesn't actually send data, it just selects the route
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(local_addr) = socket.local_addr() {
+                let ip = local_addr.ip().to_string();
+                if ip != "0.0.0.0" {
+                    ips.push(ip);
+                }
+            }
+        }
+    }
+
+    ips
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxySessionSummary {
@@ -184,9 +205,10 @@ pub async fn start_proxy_server(
 ) -> Result<StartedProxyServer, String> {
     config.validate().map_err(str::to_string)?;
 
-    let listener = TcpListener::bind(("127.0.0.1", config.port))
+    let bind_addr : &str = "0.0.0.0";
+    let listener = TcpListener::bind((bind_addr, config.port))
         .await
-        .map_err(|error| format!("failed to bind proxy listener: {error}"))?;
+        .map_err(|error| format!("failed to bind proxy listener on {bind_addr}:{}: {error}", config.port))?;
     let bound_port = listener
         .local_addr()
         .map_err(|error| format!("failed to read proxy listener address: {error}"))?
@@ -206,7 +228,7 @@ pub async fn start_proxy_server(
         "INFO",
         "listener_started",
         &[
-            ("host", "127.0.0.1".to_string()),
+            ("host", bind_addr.to_string()),
             ("port", bound_port.to_string()),
             ("ssl_enabled", config.ssl_enabled.to_string()),
         ],
@@ -299,6 +321,41 @@ async fn handle_connection(
             return Ok(());
         }
     };
+
+    // Serve root CA certificate for mobile device download.
+    // Mobile browsers hit http://<local-ip>:<port>/pharles-ca.crt directly (no proxy config yet).
+    if request.method == Method::GET
+        && (request.path == "/pharles-ca.crt" || request.path == "/pharles-ca.pem")
+    {
+        if let Some(ref mgr) = tls_manager {
+            let cert_pem = mgr.root_ca.cert_pem();
+            emit_log(
+                "INFO",
+                "cert_served",
+                &[
+                    ("client_addr", client_addr.to_string()),
+                    ("path", request.path.clone()),
+                ],
+            );
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/x-x509-ca-cert\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                cert_pem.len(),
+                cert_pem
+            );
+            stream.write_all(response.as_bytes()).await.map_err(|e| format!("cert write: {e}"))?;
+            let _ = stream.shutdown().await;
+            return Ok(());
+        } else {
+            write_plain_text_response(
+                &mut stream,
+                StatusCode::NOT_FOUND,
+                "No root certificate available. Enable SSL and generate a certificate first.",
+            )
+            .await?;
+            return Ok(());
+        }
+    }
 
     if request.method == Method::CONNECT {
         let host = request.host.clone();

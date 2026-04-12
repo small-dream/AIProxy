@@ -91,7 +91,8 @@ flowchart LR
     G --> J[本地证书存储]
     H --> K[HAR / cURL / JSON 文件]
     L[浏览器 / App / 系统流量] --> D
-    D --> M[目标服务器]
+    M[手机 / iOS / Android] --> D
+    D --> N[目标服务器]
 ```
 
 ## 5. 分层架构
@@ -158,10 +159,12 @@ flowchart LR
 - 实现 HTTP / HTTPS / WebSocket 代理主流程
 - 接管请求转发、响应返回与中间事件
 - 对接断点、规则引擎、节流与会话记录
+- 提供根 CA 证书下载端点 `GET /pharles-ca.crt`，供手机端扫码下载
+- 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 
 输入：
 
-- 来自客户端的网络请求
+- 来自客户端的网络请求（本机或局域网设备）
 - 来自工作区的代理配置
 
 输出：
@@ -169,6 +172,7 @@ flowchart LR
 - 实时会话事件
 - 请求/响应对象
 - 错误与状态事件
+- 根证书 PEM 文件（通过内建 HTTP 端点）
 
 ## 6.2 `tls-manager`
 
@@ -238,6 +242,7 @@ flowchart LR
 - `export_sessions`
 - `get_certificate_status`
 - `install_certificate_guide`
+- `get_local_ip`
 
 ## 7.3 关键事件示例
 
@@ -560,7 +565,7 @@ project-root/
 - `desktop.app`：应用启动、日志初始化、panic
 - `desktop.commands`：`start_proxy`、`stop_proxy`、`enable_system_proxy`、`disable_system_proxy`
 - `desktop.system_proxy.windows`：快照捕获、注册表写入、WinINet 刷新、恢复
-- `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败
+- `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败、证书下载请求
 - `ui.commands`：前端命令发起、成功、失败
 
 ### 15.3 结构化字段要求
@@ -593,6 +598,7 @@ project-root/
 - 系统代理切换受平台权限与系统策略影响
 - HTTPS 证书信任流程跨平台复杂度高
 - 不同客户端的证书锁定与协议实现会影响抓包能力
+- 代理绑定 `0.0.0.0` 会将代理和证书下载端点暴露给局域网内所有设备，需注意网络安全隔离
 
 ### 16.2 演进顺序
 

@@ -324,6 +324,25 @@ export async function openCertificateInstallGuide(): Promise<CertificateInstallG
   }
 }
 
+export async function getLocalIp(): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "get_local_ip_bypassed_non_tauri_runtime");
+    return ["192.168.1.100"];
+  }
+
+  try {
+    logDevInfo("ui.commands", "get_local_ip_requested");
+    const ips = await invoke<string[]>("get_local_ip");
+
+    logDevInfo("ui.commands", "get_local_ip_succeeded", { ips });
+
+    return ips;
+  } catch (error) {
+    reportCommandFailure("get_local_ip", error);
+    throw coerceAppError(error);
+  }
+}
+
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }

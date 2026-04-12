@@ -5,7 +5,8 @@ use crate::system_proxy::{
     SystemProxySettings,
 };
 use pharles_proxy_core::{
-    start_proxy_server, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, TlsManager,
+    get_local_ip_addresses, start_proxy_server, ProxyRuntimeConfig, ProxySessionDetail,
+    ProxySessionSummary, TlsManager,
 };
 use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::Deserialize;
@@ -122,6 +123,11 @@ pub async fn disable_system_proxy(
     state: State<'_, Arc<AppState>>,
 ) -> Result<BootstrapStatus, String> {
     disable_system_proxy_impl(Arc::clone(state.inner())).await
+}
+
+#[tauri::command]
+pub fn get_local_ip() -> Vec<String> {
+    get_local_ip_addresses()
 }
 
 async fn start_proxy_impl(

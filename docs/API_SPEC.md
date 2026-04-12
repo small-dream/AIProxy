@@ -252,6 +252,8 @@ type ThrottleProfile = {
 用途：
 
 - 启动本地代理服务
+- 代理默认绑定到 `0.0.0.0`（所有网络接口），支持局域网内手机等设备连接
+- 当 `enableSsl` 为 `true` 时，代理同时提供根证书下载端点 `GET /pharles-ca.crt`
 
 请求：
 
@@ -853,7 +855,45 @@ type OpenCertificateInstallGuideOutput = {
 };
 ```
 
-## 6.9 Export Commands
+### `get_local_ip`
+
+获取本机局域网 IP 地址，用于手机端代理配置和证书下载 URL 生成。
+
+请求：无参数。
+
+响应：
+
+```ts
+type GetLocalIpOutput = string[];
+```
+
+返回字符串数组，每个元素为一个局域网 IP 地址（如 `["192.168.1.100"]`）。内部通过 UDP socket 绑定到 `0.0.0.0` 并连接外部地址来探测首选出口 IP，不发送实际流量。
+
+### `launch_certificate_installer`
+
+启动系统证书安装器（仅 Windows）。
+
+请求：无参数。
+
+响应：`void`
+
+## 6.9 代理内建 HTTP 端点
+
+代理核心在启动时同时监听来自局域网的直连请求，提供以下内建 HTTP 端点：
+
+### `GET /pharles-ca.crt`
+
+下载根 CA 证书（PEM 格式）。手机端可直接通过浏览器访问 `http://<local-ip>:<proxy-port>/pharles-ca.crt` 下载证书。
+
+- Content-Type: `application/x-x509-ca-cert`
+- 需要已生成根证书且代理已启动
+- 仅响应非代理风格的直连请求（origin-form），不会拦截代理转发的请求
+
+### `GET /pharles-ca.pem`
+
+同 `/pharles-ca.crt`，为 PEM 格式证书提供备用路径。
+
+## 6.10 Export Commands
 
 ### `export_sessions`
 
