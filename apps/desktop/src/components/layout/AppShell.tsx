@@ -35,6 +35,7 @@ import {
   useStartProxy,
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
+import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 
 const NAVIGATION_WIDTH = 264;
 
@@ -43,6 +44,7 @@ export function AppShell() {
   const navigationExpanded = useAppShellStore((state) => state.navigationExpanded);
   const toggleNavigation = useAppShellStore((state) => state.toggleNavigation);
   const { data: proxyStatus } = useProxyStatus();
+  const { data: certificateStatus } = useCertificateStatus();
   const startProxyMutation = useStartProxy();
   const stopProxyMutation = useStopProxy();
   const enableSystemProxyMutation = useEnableSystemProxy();
@@ -98,7 +100,7 @@ export function AppShell() {
               disabled={isBusy}
               onClick={() =>
                 startProxyMutation.mutate({
-                  enableSsl: false,
+                  enableSsl: certificateStatus?.trusted ?? false,
                   port,
                   workspaceId,
                 })
@@ -107,7 +109,7 @@ export function AppShell() {
               startIcon={<PlayArrowRoundedIcon />}
               variant="contained"
             >
-              Start Proxy
+              {certificateStatus?.trusted ? "Start HTTPS Proxy" : "Start Proxy"}
             </Button>
           )}
 

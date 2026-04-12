@@ -162,6 +162,7 @@ struct ParsedProxyRequest {
     query_params: Vec<ProxyHeaderEntry>,
     raw_request: String,
     request_headers: Vec<ProxyHeaderEntry>,
+    request_id: String,
     url: Url,
 }
 
@@ -190,6 +191,7 @@ pub async fn start_proxy_server(
 
     let client = Client::builder()
         .redirect(Policy::none())
+        .no_proxy()
         .build()
         .map_err(|error| format!("failed to create upstream HTTP client: {error}"))?;
     let client = Arc::new(client);
@@ -299,12 +301,46 @@ async fn handle_connection(
         let host = request.host.clone();
         let port: u16 = request.path.parse().unwrap_or(443);
 
+        emit_log(
+            "INFO",
+            "connect_received",
+            &[
+                ("request_id", request.request_id.clone()),
+                ("client_addr", client_addr.to_string()),
+                ("host", host.clone()),
+                ("port", port.to_string()),
+                ("ssl_interception_enabled", tls_manager.is_some().to_string()),
+            ],
+        );
+
         match tls_manager {
             None => {
+                emit_log(
+                    "WARN",
+                    "connect_tunneling_without_mitm",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("client_addr", client_addr.to_string()),
+                        ("host", host.clone()),
+                        ("port", port.to_string()),
+                    ],
+                );
+
                 // No TLS manager — blind tunnel (no decryption)
                 return tunnel_blind_relay(stream, &host, port).await;
             }
             Some(mgr) => {
+                emit_log(
+                    "INFO",
+                    "connect_mitm_started",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("client_addr", client_addr.to_string()),
+                        ("host", host.clone()),
+                        ("port", port.to_string()),
+                    ],
+                );
+
                 // MITM: TLS terminate, capture, forward
                 return handle_connect_mitm(
                     stream,
@@ -355,6 +391,7 @@ async fn handle_connection(
                 "INFO",
                 "request_forwarded",
                 &[
+                    ("request_id", request.request_id.clone()),
                     ("client_addr", client_addr.to_string()),
                     ("method", request.method.to_string()),
                     ("status_code", upstream_response.status_code.as_u16().to_string()),
@@ -396,6 +433,7 @@ async fn handle_connection(
                 "ERROR",
                 "upstream_request_failed",
                 &[
+                    ("request_id", request.request_id.clone()),
                     ("client_addr", client_addr.to_string()),
                     ("method", request.method.to_string()),
                     ("url", request.url.to_string()),
@@ -477,6 +515,18 @@ async fn forward_request(
     client: &Client,
     request: &ParsedProxyRequest,
 ) -> Result<UpstreamResponse, String> {
+    emit_log(
+        "INFO",
+        "upstream_request_started",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("method", request.method.to_string()),
+            ("scheme", request.url.scheme().to_string()),
+            ("host", request.host.clone()),
+            ("url", request.url.to_string()),
+        ],
+    );
+
     let mut request_builder = client.request(request.method.clone(), request.url.clone());
     request_builder = request_builder.headers(request.headers.clone());
 
@@ -488,7 +538,21 @@ async fn forward_request(
     let response = request_builder
         .send()
         .await
-        .map_err(|error| format!("failed to send upstream request: {error}"))?;
+        .map_err(|error| {
+            emit_log(
+                "ERROR",
+                "upstream_request_send_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("method", request.method.to_string()),
+                    ("scheme", request.url.scheme().to_string()),
+                    ("host", request.host.clone()),
+                    ("url", request.url.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+            format!("failed to send upstream request: {error}")
+        })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
     let status_code = response.status();
     let response_headers = response.headers().clone();
@@ -496,9 +560,39 @@ async fn forward_request(
     let response_body = response
         .bytes()
         .await
-        .map_err(|error| format!("failed to read upstream response body: {error}"))?
+        .map_err(|error| {
+            emit_log(
+                "ERROR",
+                "upstream_response_read_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("method", request.method.to_string()),
+                    ("scheme", request.url.scheme().to_string()),
+                    ("host", request.host.clone()),
+                    ("url", request.url.to_string()),
+                    ("status_code", status_code.as_u16().to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+            format!("failed to read upstream response body: {error}")
+        })?
         .to_vec();
     let response_read_ms = response_read_started_at.elapsed().as_millis();
+
+    emit_log(
+        "INFO",
+        "upstream_request_succeeded",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("method", request.method.to_string()),
+            ("scheme", request.url.scheme().to_string()),
+            ("host", request.host.clone()),
+            ("url", request.url.to_string()),
+            ("status_code", status_code.as_u16().to_string()),
+            ("waiting_ms", waiting_ms.to_string()),
+            ("response_read_ms", response_read_ms.to_string()),
+        ],
+    );
 
     Ok(UpstreamResponse {
         response_body,
@@ -567,10 +661,30 @@ async fn handle_connect_mitm(
 
     // TLS handshake
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
-    let tls_stream = tls_acceptor
-        .accept(stream)
-        .await
-        .map_err(|e| format!("TLS handshake failed for {host}:{port}: {e}"))?;
+    let tls_stream = match tls_acceptor.accept(stream).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            emit_log(
+                "ERROR",
+                "tls_handshake_failed",
+                &[
+                    ("host", host.clone()),
+                    ("port", port.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+            return Err(format!("TLS handshake failed for {host}:{port}: {error}"));
+        }
+    };
+
+    emit_log(
+        "INFO",
+        "tls_handshake_succeeded",
+        &[
+            ("host", host.clone()),
+            ("port", port.to_string()),
+        ],
+    );
 
     let tls_instant = Instant::now();
     let mut tls_stream = tls_stream;
@@ -649,6 +763,7 @@ async fn handle_connect_mitm(
                 "INFO",
                 "https_request_forwarded",
                 &[
+                    ("request_id", https_request.request_id.clone()),
                     ("host", host.clone()),
                     ("method", https_request.method.to_string()),
                     ("status_code", upstream_response.status_code.as_u16().to_string()),
@@ -691,6 +806,7 @@ async fn handle_connect_mitm(
                 "ERROR",
                 "https_upstream_request_failed",
                 &[
+                    ("request_id", https_request.request_id.clone()),
                     ("host", host.clone()),
                     ("url", https_url),
                     ("error", error.clone()),
@@ -816,6 +932,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         query_params,
         raw_request,
         request_headers,
+        request_id: Uuid::new_v4().to_string(),
         url,
     })
 }

@@ -24,7 +24,7 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
 }
 
 describe("buildSessionHostGroups", () => {
-  it("groups sessions by host and sorts groups by latest session time", () => {
+  it("groups sessions by host and keeps host groups in stable alphabetical order", () => {
     const sessions = [
       createSessionSummary({
         host: "assets.example.com",
@@ -44,7 +44,7 @@ describe("buildSessionHostGroups", () => {
         host: "assets.example.com",
         id: "session-4",
         path: "/fonts.woff2",
-        startedAt: "2026-04-11T10:00:04.000Z",
+        startedAt: "2026-04-11T10:00:06.000Z",
         url: "http://assets.example.com/fonts.woff2",
       }),
     ];

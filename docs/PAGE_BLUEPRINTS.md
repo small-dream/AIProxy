@@ -343,7 +343,7 @@ User switches rule type
 │ Root Certificate: Present / Missing                                         │
 │ Trusted: Yes / No                                                           │
 │ Fingerprint: ...                                                            │
-│ (Generate) (Refresh Status)                                                 │
+│ (Generate) (Install Certificate) (Refresh Status)                           │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Installation Guide]                                                        │
 │ Windows Steps | macOS Steps | Linux Steps                                   │

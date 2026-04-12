@@ -39,15 +39,7 @@ export function buildSessionHostGroups(
         totalCount: sortedSessions.length,
       };
     })
-    .sort((left, right) => {
-      const timeDelta = Date.parse(right.latestStartedAt) - Date.parse(left.latestStartedAt);
-
-      if (!Number.isNaN(timeDelta) && timeDelta !== 0) {
-        return timeDelta;
-      }
-
-      return left.host.localeCompare(right.host);
-    });
+    .sort((left, right) => left.host.localeCompare(right.host));
 }
 
 export function reconcileExpandedHosts(

@@ -28,11 +28,12 @@ pub fn initialize() -> Result<PathBuf, String> {
 
     OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
+        .truncate(true)
         .open(&log_file_path)
         .map_err(|error| {
             format!(
-                "failed to open Pharles development log file {}: {error}",
+                "failed to reset Pharles development log file {}: {error}",
                 log_file_path.display()
             )
         })?;

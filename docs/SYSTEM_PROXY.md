@@ -144,14 +144,27 @@ Windows 当前实现基于：
 - `desktop.system_proxy.windows event=snapshot_captured`
 - `desktop.system_proxy.windows event=proxy_settings_applied`
 - `proxy-core event=listener_started`
-- `proxy-core event=request_forwarded`
+- `proxy-core event=connect_received`
+- `proxy-core event=connect_mitm_started`
+- `proxy-core event=tls_handshake_succeeded`
+- `proxy-core event=upstream_request_started`
+- `proxy-core event=upstream_request_succeeded`
+- `proxy-core event=https_request_forwarded`
+
+说明：
+
+- `logs/dev/pharles-desktop-dev.log` 会在每次桌面端启动时自动清空，只保留当前运行日志
+- 若证书已信任，主界面会以 HTTPS 解密模式启动代理
 
 若点击 `Enable System Proxy` 后仍无请求，按以下顺序判断：
 
 1. 若没有 `listener_started`，说明代理未真正绑定监听端口
 2. 若有 `listener_started` 但没有 `proxy_settings_applied`，说明系统代理接管失败
-3. 若两者都有，但没有 `request_forwarded`，优先检查访问站点是否为 `HTTP` 明文站点
-4. 若出现 `upstream_request_failed`，说明请求已进入代理但转发到目标站点失败
+3. 若访问 `https://` 站点但没有 `connect_received`，说明流量尚未进入代理
+4. 若有 `connect_received` 但出现 `connect_tunneling_without_mitm`，说明当前不是 HTTPS 解密模式启动
+5. 若有 `connect_mitm_started` 但没有 `tls_handshake_succeeded`，优先查看 `tls_handshake_failed`
+6. 若 TLS 成功但没有 `upstream_request_started`，优先排查解密后的请求解析
+7. 若出现 `upstream_request_send_failed` 或 `https_upstream_request_failed`，说明请求已进入代理但访问目标站失败
 
 ## 10. 下一步建议
 

@@ -49,16 +49,22 @@ scripts/        开发、构建、发布脚本
 
 - Tauri 命令调用开始 / 成功 / 失败
 - Windows 系统代理快照、接管、恢复、WinINet 刷新
-- Rust 代理核心监听、请求进入、转发成功、转发失败、CONNECT 拒绝
+- Rust 代理核心监听、CONNECT 分流、TLS 握手、上游请求开始 / 成功 / 失败
 - 前端命令层控制台结构化日志
+
+说明：
+
+- 桌面端每次启动会自动清空旧的 `dev log`，只保留本次运行日志
+- 证书已信任时，主界面启动按钮会以 HTTPS 解密模式启动代理
 
 抓包链路排障建议：
 
-1. 点击 `Start Proxy`
-2. 点击 `Enable System Proxy`
-3. 打开 `http://neverssl.com`
-4. 查看 `logs/dev/pharles-desktop-dev.log`
-5. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`request_forwarded`
+1. 在 Certificates 页面生成并信任根证书
+2. 点击 `Start HTTPS Proxy`
+3. 点击 `Enable System Proxy`
+4. 打开一个 `https://` 站点
+5. 查看 `logs/dev/pharles-desktop-dev.log`
+6. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`connect_received`、`connect_mitm_started`、`tls_handshake_succeeded`、`upstream_request_started`、`https_request_forwarded`
 
 ## 下一步建议
 

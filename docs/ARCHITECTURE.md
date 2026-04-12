@@ -560,22 +560,25 @@ project-root/
 - `desktop.app`：应用启动、日志初始化、panic
 - `desktop.commands`：`start_proxy`、`stop_proxy`、`enable_system_proxy`、`disable_system_proxy`
 - `desktop.system_proxy.windows`：快照捕获、注册表写入、WinINet 刷新、恢复
-- `proxy-core`：监听启动、监听停止、请求解析失败、请求转发成功、上游失败、CONNECT 拒绝
+- `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败
 - `ui.commands`：前端命令发起、成功、失败
 
 ### 15.3 结构化字段要求
 
 - 必须包含：`timestamp`、`level`、`component`、`event`
-- 关键动作必须补充：`workspace_id / port / endpoint / client_addr / url / error`
+- 关键动作必须补充：`workspace_id / port / endpoint / client_addr / request_id / host / url / error`
 - 请求体与响应体默认不完整落日志；若后续需要记录，必须脱敏和截断
+- 开发日志按“单次运行”生命周期管理：应用启动时清空旧日志，仅保留当前会话
 
 ### 15.4 开发期诊断流程
 
-1. 确认 `start_proxy_requested` 和 `listener_started`
-2. 确认 `enable_system_proxy_succeeded` 与系统代理写入日志
-3. 访问 `http://neverssl.com`
-4. 检查是否出现 `request_forwarded`
-5. 若没有流量记录，优先排查系统代理是否真正接管；若有请求失败，优先看 `upstream_request_failed`
+1. 在 Certificates 页面完成根证书生成与信任
+2. 确认 `start_proxy_requested`、`start_proxy_succeeded` 和 `listener_started`
+3. 确认 `enable_system_proxy_succeeded` 与系统代理写入日志
+4. 访问一个 `https://` 站点
+5. 检查是否出现 `connect_received`、`connect_mitm_started`、`tls_handshake_succeeded`
+6. 检查是否继续出现 `upstream_request_started`、`upstream_request_succeeded`、`https_request_forwarded`
+7. 若没有流量记录，优先排查系统代理是否真正接管；若握手失败看 `tls_handshake_failed`；若上游失败看 `upstream_request_send_failed` / `https_upstream_request_failed`
 
 ### 15.5 Inspector 详情链路
 

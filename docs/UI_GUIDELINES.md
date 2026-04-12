@@ -481,7 +481,7 @@ Certificates Page
 │  ├─ Root Certificate Presence
 │  ├─ Trust Status
 │  ├─ Fingerprint
-│  └─ Generate / Refresh Actions
+│  └─ Generate / Install / Refresh Actions
 ├─ Installation Guide Section
 │  ├─ Windows Steps
 │  ├─ macOS Steps
@@ -495,6 +495,7 @@ Certificates Page
 ### 内容结构
 
 - 当前证书状态
+- 生成 / 安装 / 刷新操作
 - 安装指引
 - 平台差异说明
 - 常见问题
