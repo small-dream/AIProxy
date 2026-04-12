@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSessionHostGroups,
-  reconcileExpandedHosts,
+  getSessionResourceKind,
+  reconcileExpandedKeys,
 } from "./session-explorer.helpers";
 
 function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
@@ -88,21 +89,99 @@ describe("buildSessionHostGroups", () => {
     expect(groups[0]?.sessions.map((session) => session.id)).toEqual(["session-6"]);
   });
 
-  it("keeps the host tree collapsed by default and drops stale expansions", () => {
+  it("builds a Charles-like host path tree", () => {
     const groups = buildSessionHostGroups(
       [
         createSessionSummary({
           host: "api.example.com",
           id: "session-8",
-          url: "http://api.example.com/users",
+          path: "/api/users/list",
+          url: "http://api.example.com/api/users/list",
+        }),
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-9",
+          path: "/api/users/detail?id=1",
+          startedAt: "2026-04-11T10:00:08.000Z",
+          url: "http://api.example.com/api/users/detail?id=1",
+        }),
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-10",
+          path: "/health",
+          url: "http://api.example.com/health",
         }),
       ],
       "",
     );
 
-    expect(reconcileExpandedHosts([], groups)).toEqual([]);
-    expect(reconcileExpandedHosts(["missing.example.com", "api.example.com"], groups)).toEqual([
-      "api.example.com",
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.tree).toMatchObject([
+      {
+        kind: "branch",
+        pathKey: "api",
+        segmentLabel: "api",
+        children: [
+          {
+            kind: "branch",
+            pathKey: "api/users",
+            segmentLabel: "users",
+            children: [
+              { kind: "leaf", segmentLabel: "detail", session: { id: "session-9" } },
+              { kind: "leaf", segmentLabel: "list", session: { id: "session-8" } },
+            ],
+          },
+        ],
+      },
+      { kind: "leaf", segmentLabel: "health", session: { id: "session-10" } },
     ]);
+  });
+
+  it("drops stale expanded keys and keeps valid host or branch keys", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-11",
+          path: "/api/users",
+          url: "http://api.example.com/api/users",
+        }),
+      ],
+      "",
+    );
+
+    expect(reconcileExpandedKeys([], groups)).toEqual([]);
+    expect(
+      reconcileExpandedKeys(["missing.example.com", "api.example.com", "api.example.com::api"], groups),
+    ).toEqual(["api.example.com", "api.example.com::api"]);
+  });
+});
+
+describe("getSessionResourceKind", () => {
+  it("uses response mime type for successful requests", () => {
+    expect(
+      getSessionResourceKind(
+        createSessionSummary({
+          path: "/users",
+          responseMimeType: "application/json; charset=utf-8",
+          statusCode: 200,
+        }),
+      ),
+    ).toBe("api");
+
+    expect(
+      getSessionResourceKind(
+        createSessionSummary({
+          path: "/app.css",
+          responseMimeType: "text/css",
+          statusCode: 200,
+        }),
+      ),
+    ).toBe("css");
+  });
+
+  it("falls back to pending and warning states", () => {
+    expect(getSessionResourceKind(createSessionSummary({ statusCode: 0 }))).toBe("pending");
+    expect(getSessionResourceKind(createSessionSummary({ statusCode: 500 }))).toBe("warning");
   });
 });

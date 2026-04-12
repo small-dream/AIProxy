@@ -1,16 +1,16 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, IconButton, Typography } from "@mui/material";
-import { Fragment, useEffect, useState } from "react";
+import { Box, IconButton, Tooltip, Typography } from "@mui/material";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import {
   formatJsonPrimitive,
   getJsonValueType,
   isJsonObject,
-  jsonSubtreeMatches,
+  normalizeSearch,
   type JsonValue,
 } from "./session-inspector.helpers";
-import { InspectorFlatTable, InspectorFlatTableRow, renderHighlightedText } from "./SessionInspectorShared";
+import { EllipsizedCell, InspectorFlatTable, InspectorFlatTableRow, renderHighlightedText } from "./SessionInspectorShared";
 
 export function SessionInspectorJsonTree({
   searchQuery,
@@ -39,13 +39,26 @@ export function SessionInspectorJsonTree({
     });
   }
 
+  const autoExpandedPaths = useMemo(() => {
+    const normalizedQuery = normalizeSearch(searchQuery);
+
+    if (!normalizedQuery) {
+      return new Set<string>(["root"]);
+    }
+
+    const paths = new Set<string>(["root"]);
+    collectMatchingExpansionPaths(value, normalizedQuery, "root", undefined, paths);
+    return paths;
+  }, [searchQuery, value]);
+
   const columnTemplate = "minmax(210px, 1.7fr) minmax(88px, 0.62fr) minmax(140px, 1.18fr)";
 
   return (
-    <InspectorFlatTable columnTemplate={columnTemplate} headers={["Name", "Type", "Value"]}>
+    <InspectorFlatTable columnTemplate={columnTemplate}>
       <JsonTreeNode
         columnTemplate={columnTemplate}
         depth={0}
+        autoExpandedPaths={autoExpandedPaths}
         expandedPaths={expandedPaths}
         onTogglePath={togglePath}
         path="root"
@@ -56,7 +69,60 @@ export function SessionInspectorJsonTree({
   );
 }
 
+function collectMatchingExpansionPaths(
+  value: JsonValue,
+  searchQuery: string,
+  path: string,
+  name: string | undefined,
+  expandedPaths: Set<string>,
+): boolean {
+  const selfMatches =
+    (name?.includes(searchQuery) ?? false) ||
+    (typeof value === "string"
+      ? value.includes(searchQuery)
+      : typeof value === "number" || typeof value === "boolean" || value === null
+        ? String(value).includes(searchQuery)
+        : false);
+
+  if (Array.isArray(value)) {
+    let hasMatchingDescendant = false;
+
+    value.forEach((childValue, index) => {
+      const childPath = `${path}.${index}`;
+      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, String(index), expandedPaths)) {
+        hasMatchingDescendant = true;
+      }
+    });
+
+    if (hasMatchingDescendant) {
+      expandedPaths.add(path);
+    }
+
+    return selfMatches || hasMatchingDescendant;
+  }
+
+  if (isJsonObject(value)) {
+    let hasMatchingDescendant = false;
+
+    Object.entries(value).forEach(([childName, childValue]) => {
+      const childPath = `${path}.${childName}`;
+      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)) {
+        hasMatchingDescendant = true;
+      }
+    });
+
+    if (hasMatchingDescendant) {
+      expandedPaths.add(path);
+    }
+
+    return selfMatches || hasMatchingDescendant;
+  }
+
+  return selfMatches;
+}
+
 function JsonTreeNode({
+  autoExpandedPaths,
   columnTemplate,
   depth,
   expandedPaths,
@@ -66,6 +132,7 @@ function JsonTreeNode({
   searchQuery,
   value,
 }: {
+  autoExpandedPaths: Set<string>;
   columnTemplate: string;
   depth: number;
   expandedPaths: Set<string>;
@@ -81,14 +148,8 @@ function JsonTreeNode({
     : [];
   const children = isJsonObject(value) ? objectEntries : arrayEntries;
   const hasChildren = children.length > 0;
-  const subtreeMatches = !searchQuery || jsonSubtreeMatches(name, value, searchQuery);
 
-  if (!subtreeMatches) {
-    return null;
-  }
-
-  const autoExpanded = Boolean(searchQuery) && hasChildren;
-  const isExpanded = expandedPaths.has(path) || autoExpanded;
+  const isExpanded = expandedPaths.has(path) || autoExpandedPaths.has(path);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
   const rowType = getJsonValueType(value);
   const displayName = path === "root" ? "root" : name ?? "";
@@ -150,9 +211,9 @@ function JsonTreeNode({
           <Typography key="type" sx={{ color: typeColor, minWidth: 0 }} variant="caption">
             {renderHighlightedText(rowType, searchQuery)}
           </Typography>,
-          <Typography key="value" sx={{ color: valueColor, minWidth: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }} variant="body2">
-            {rowValue ? renderHighlightedText(rowValue, searchQuery) : ""}
-          </Typography>,
+          <Box key="value" sx={{ color: valueColor, minWidth: 0, width: "100%" }}>
+            {rowValue ? <EllipsizedCell text={rowValue} /> : ""}
+          </Box>,
         ]}
         columnTemplate={columnTemplate}
         dense
@@ -165,6 +226,7 @@ function JsonTreeNode({
 
             return (
               <JsonTreeNode
+                autoExpandedPaths={autoExpandedPaths}
                 columnTemplate={columnTemplate}
                 depth={depth + 1}
                 expandedPaths={expandedPaths}

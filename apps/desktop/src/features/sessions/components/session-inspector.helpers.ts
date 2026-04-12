@@ -122,7 +122,7 @@ export function parseJsonBody(
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {
-  return searchQuery?.trim().toLowerCase() ?? "";
+  return searchQuery?.trim() ?? "";
 }
 
 export function describeBody(body: BodyReference | undefined) {
@@ -171,20 +171,23 @@ export function jsonSubtreeMatches(name: string | undefined, value: JsonValue, s
     return true;
   }
 
-  if (name?.toLowerCase().includes(normalizedQuery)) {
+  if (name?.includes(normalizedQuery)) {
     return true;
   }
 
   if (typeof value === "string") {
-    return value.toLowerCase().includes(normalizedQuery);
+    return value.includes(normalizedQuery);
   }
 
   if (typeof value === "number" || typeof value === "boolean" || value === null) {
-    return String(value).toLowerCase().includes(normalizedQuery);
+    return String(value).includes(normalizedQuery);
   }
 
-  const children = Array.isArray(value) ? value : Object.values(value);
-  return children.some((child) => jsonSubtreeMatches(undefined, child, normalizedQuery));
+  if (Array.isArray(value)) {
+    return value.some((child, index) => jsonSubtreeMatches(String(index), child, normalizedQuery));
+  }
+
+  return Object.entries(value).some(([childName, childValue]) => jsonSubtreeMatches(childName, childValue, normalizedQuery));
 }
 
 export function formatJsonPrimitive(value: JsonValue): string {

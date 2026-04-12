@@ -36,6 +36,7 @@ export type SessionSummary = {
   sizeBytes: number;
   statusCode: number;
   url: string;
+  responseMimeType?: string;
 };
 
 export type HeaderEntry = {
@@ -255,7 +256,8 @@ export function isSessionSummary(value: unknown): value is SessionSummary {
     typeof candidate.durationMs === "number" &&
     typeof candidate.sizeBytes === "number" &&
     typeof candidate.statusCode === "number" &&
-    typeof candidate.url === "string"
+    typeof candidate.url === "string" &&
+    isNullableString(candidate.responseMimeType)
   );
 }
 

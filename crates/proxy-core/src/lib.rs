@@ -68,6 +68,7 @@ pub struct ProxySessionSummary {
     pub size_bytes: usize,
     pub status_code: u16,
     pub url: String,
+    pub response_mime_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1031,6 +1032,10 @@ fn build_session_detail(
         request.url.to_string(),
         status_code,
         response_body.len(),
+        response_headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
         started_at,
         started_at_instant,
     );
@@ -1239,6 +1244,7 @@ fn build_session_summary(
     url: String,
     status_code: u16,
     size_bytes: usize,
+    response_mime_type: Option<String>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
 ) -> ProxySessionSummary {
@@ -1254,6 +1260,7 @@ fn build_session_summary(
         size_bytes,
         status_code,
         url,
+        response_mime_type,
     }
 }
 

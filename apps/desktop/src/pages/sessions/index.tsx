@@ -13,7 +13,7 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import { buildSessionHostGroups, reconcileExpandedHosts } from "@/features/sessions/session-explorer.helpers";
+import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 
@@ -52,7 +52,7 @@ export function SessionsPage() {
   );
 
   useEffect(() => {
-    setExpandedHosts((currentHosts) => reconcileExpandedHosts(currentHosts, hostGroups));
+    setExpandedHosts((currentHosts) => reconcileExpandedKeys(currentHosts, hostGroups));
   }, [hostGroups]);
 
   useEffect(() => {

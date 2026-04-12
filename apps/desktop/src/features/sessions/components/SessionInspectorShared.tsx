@@ -1,6 +1,7 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
-import { Box, Button, Chip, List, ListItem, Stack, Typography } from "@mui/material";
-import { Fragment } from "react";
+import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
+import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
+import { Fragment, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { getStatusColor, normalizeSearch } from "./session-inspector.helpers";
@@ -98,7 +99,7 @@ export function InspectorFlatTable({
 }: {
   children: React.ReactNode;
   columnTemplate: string;
-  headers: [string, string] | [string, string, string];
+  headers?: [string, string] | [string, string, string];
 }) {
   return (
     <Box
@@ -107,31 +108,33 @@ export function InspectorFlatTable({
         overflow: "hidden",
       }}
     >
-      <Box
-        sx={{
-          bgcolor: "background.paper",
-          display: "grid",
-          gridTemplateColumns: columnTemplate,
-          minHeight: 20,
-        }}
-      >
-        {headers.map((header) => (
-          <Typography
-            color="text.secondary"
-            key={header}
-            sx={{
-              fontSize: 11,
-              fontWeight: 400,
-              lineHeight: 1.2,
-              px: 0.75,
-              py: 0.25,
-            }}
-            variant="caption"
-          >
-            {header}
-          </Typography>
-        ))}
-      </Box>
+      {headers ? (
+        <Box
+          sx={{
+            bgcolor: "background.paper",
+            display: "grid",
+            gridTemplateColumns: columnTemplate,
+            minHeight: 20,
+          }}
+        >
+          {headers.map((header) => (
+            <Typography
+              color="text.secondary"
+              key={header}
+              sx={{
+                fontSize: 11,
+                fontWeight: 400,
+                lineHeight: 1.2,
+                px: 0.75,
+                py: 0.25,
+              }}
+              variant="caption"
+            >
+              {header}
+            </Typography>
+          ))}
+        </Box>
+      ) : null}
       <Box>{children}</Box>
     </Box>
   );
@@ -183,16 +186,77 @@ export function InspectorFlatTableRow({
   );
 }
 
+export function EllipsizedCell({
+  text,
+}: {
+  text: string;
+}) {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchorEl);
+
+  return (
+    <>
+      <Stack alignItems="center" direction="row" spacing={0.25} sx={{ minWidth: 0, width: "100%" }}>
+        <Tooltip arrow enterDelay={350} placement="top-start" title={text}>
+          <Typography sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} variant="body2">
+            {text}
+          </Typography>
+        </Tooltip>
+        {text.length > 80 ? (
+          <Tooltip arrow title="查看完整内容">
+            <IconButton
+              onClick={(event) => setAnchorEl(event.currentTarget)}
+              size="small"
+              sx={{ color: "text.secondary", flex: "0 0 auto", p: 0.25 }}
+            >
+              <LaunchRoundedIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </Stack>
+
+      <Popover
+        anchorEl={anchorEl}
+        anchorOrigin={{ horizontal: "left", vertical: "bottom" }}
+        onClose={() => setAnchorEl(null)}
+        open={open}
+        slotProps={{
+          paper: {
+            sx: {
+              maxHeight: 420,
+              maxWidth: 720,
+              p: 1.25,
+            },
+          },
+        }}
+        transformOrigin={{ horizontal: "left", vertical: "top" }}
+      >
+        <Box
+          component="pre"
+          sx={{
+            color: "text.primary",
+            fontFamily: "JetBrains Mono, Consolas, monospace",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            m: 0,
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {text}
+        </Box>
+      </Popover>
+    </>
+  );
+}
+
 export function InspectorKeyValueTable({
   emptyMessage,
   items,
-  keyHeader = "Name",
-  valueHeader = "Value",
 }: {
   emptyMessage?: string;
   items: Array<[string, string]>;
-  keyHeader?: string;
-  valueHeader?: string;
 }) {
   if (items.length === 0) {
     return (
@@ -205,19 +269,18 @@ export function InspectorKeyValueTable({
   const columnTemplate = "minmax(156px, 0.84fr) minmax(0, 1.9fr)";
 
   return (
-    <InspectorFlatTable columnTemplate={columnTemplate} headers={[keyHeader, valueHeader]}>
+    <InspectorFlatTable columnTemplate={columnTemplate}>
       {items.map(([label, value], index) => (
         <InspectorFlatTableRow
           cells={[
             <Typography key="label" sx={{ minWidth: 0, wordBreak: "break-all" }} variant="body2">
               {label}
             </Typography>,
-            <Typography key="value" sx={{ minWidth: 0, wordBreak: "break-all" }} variant="body2">
-              {value}
-            </Typography>,
+            <EllipsizedCell key="value" text={value} />,
           ]}
           columnTemplate={columnTemplate}
           dense
+          hoverable
           key={`${label}:${value}:${index}`}
         />
       ))}
@@ -339,12 +402,11 @@ export function renderHighlightedText(text: string, searchQuery?: string) {
     return text;
   }
 
-  const source = text.toLowerCase();
   const segments: React.ReactNode[] = [];
   let cursor = 0;
 
   while (cursor < text.length) {
-    const matchIndex = source.indexOf(normalizedQuery, cursor);
+    const matchIndex = text.indexOf(normalizedQuery, cursor);
 
     if (matchIndex === -1) {
       segments.push(text.slice(cursor));
