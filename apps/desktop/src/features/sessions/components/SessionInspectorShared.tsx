@@ -1,13 +1,5 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
-import {
-  Box,
-  Button,
-  Chip,
-  List,
-  ListItem,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Box, Button, Chip, List, ListItem, Stack, Typography } from "@mui/material";
 import { Fragment } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
@@ -99,33 +91,245 @@ export function InspectorDefinitionList({
   );
 }
 
+export function InspectorFlatTable({
+  children,
+  columnTemplate,
+  headers,
+}: {
+  children: React.ReactNode;
+  columnTemplate: string;
+  headers: [string, string] | [string, string, string];
+}) {
+  return (
+    <Box
+      sx={{
+        bgcolor: "background.paper",
+        overflow: "hidden",
+      }}
+    >
+      <Box
+        sx={{
+          bgcolor: "background.paper",
+          display: "grid",
+          gridTemplateColumns: columnTemplate,
+          minHeight: 20,
+        }}
+      >
+        {headers.map((header) => (
+          <Typography
+            color="text.secondary"
+            key={header}
+            sx={{
+              fontSize: 11,
+              fontWeight: 400,
+              lineHeight: 1.2,
+              px: 0.75,
+              py: 0.25,
+            }}
+            variant="caption"
+          >
+            {header}
+          </Typography>
+        ))}
+      </Box>
+      <Box>{children}</Box>
+    </Box>
+  );
+}
+
+export function InspectorFlatTableRow({
+  cells,
+  columnTemplate,
+  dense = false,
+  hoverable = false,
+}: {
+  cells: React.ReactNode[];
+  columnTemplate: string;
+  dense?: boolean;
+  hoverable?: boolean;
+}) {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: columnTemplate,
+        minHeight: dense ? 22 : 24,
+        ...(hoverable
+          ? {
+              borderRadius: 0.5,
+              transition: "background-color 120ms ease",
+              "&:hover": {
+                bgcolor: "action.hover",
+              },
+            }
+          : undefined),
+      }}
+    >
+      {cells.map((cell, index) => (
+        <Box
+          key={index}
+          sx={{
+            alignItems: "center",
+            display: "flex",
+            minWidth: 0,
+            px: 0.75,
+            py: dense ? 0.25 : 0.375,
+          }}
+        >
+          {cell}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+export function InspectorKeyValueTable({
+  emptyMessage,
+  items,
+  keyHeader = "Name",
+  valueHeader = "Value",
+}: {
+  emptyMessage?: string;
+  items: Array<[string, string]>;
+  keyHeader?: string;
+  valueHeader?: string;
+}) {
+  if (items.length === 0) {
+    return (
+      <Typography color="text.secondary" variant="body2">
+        {emptyMessage ?? "No data available."}
+      </Typography>
+    );
+  }
+
+  const columnTemplate = "minmax(156px, 0.84fr) minmax(0, 1.9fr)";
+
+  return (
+    <InspectorFlatTable columnTemplate={columnTemplate} headers={[keyHeader, valueHeader]}>
+      {items.map(([label, value], index) => (
+        <InspectorFlatTableRow
+          cells={[
+            <Typography key="label" sx={{ minWidth: 0, wordBreak: "break-all" }} variant="body2">
+              {label}
+            </Typography>,
+            <Typography key="value" sx={{ minWidth: 0, wordBreak: "break-all" }} variant="body2">
+              {value}
+            </Typography>,
+          ]}
+          columnTemplate={columnTemplate}
+          dense
+          key={`${label}:${value}:${index}`}
+        />
+      ))}
+    </InspectorFlatTable>
+  );
+}
+
 export function SearchableCodeBlock({
   code,
+  language = "plain",
   searchQuery,
 }: {
   code: string;
+  language?: "json" | "plain";
   searchQuery: string;
 }) {
   return (
     <Box
       component="pre"
       sx={{
-        bgcolor: "action.hover",
-        border: 1,
-        borderColor: "divider",
+        bgcolor: "background.paper",
+        color: "text.primary",
         fontFamily: "JetBrains Mono, Consolas, monospace",
-        fontSize: 12.5,
-        lineHeight: 1.5,
+        fontSize: language === "json" ? 13.5 : 12.5,
+        lineHeight: language === "json" ? 1.6 : 1.5,
         m: 0,
         overflowX: "auto",
-        p: 1.5,
+        px: 0.5,
+        py: 0.25,
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       }}
     >
-      {renderHighlightedText(code, searchQuery)}
+      {language === "json" ? renderJsonSyntaxHighlightedText(code, searchQuery) : renderHighlightedText(code, searchQuery)}
     </Box>
   );
+}
+
+export function renderJsonSyntaxHighlightedText(text: string, searchQuery?: string) {
+  const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+  const segments: React.ReactNode[] = [];
+  let cursor = 0;
+  let tokenIndex = 0;
+
+  const tokenColors = {
+    boolean: "#0000ff",
+    key: "#a31515",
+    null: "#0000ff",
+    number: "#098658",
+    punctuation: "text.primary",
+    string: "#0451a5",
+  } as const;
+
+  for (const match of text.matchAll(tokenPattern)) {
+    const matchedText = match[0];
+    const matchIndex = match.index ?? 0;
+
+    if (matchIndex > cursor) {
+      segments.push(text.slice(cursor, matchIndex));
+    }
+
+    if (match[1]) {
+      const stringToken = match[1];
+      const hasColon = Boolean(match[2]);
+
+      segments.push(
+        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}>
+          {renderHighlightedText(stringToken, searchQuery)}
+        </Box>,
+      );
+
+      if (hasColon) {
+        segments.push(
+          <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.punctuation }}>
+            {match[2]}
+          </Box>,
+        );
+      }
+    } else if (matchedText === "true" || matchedText === "false") {
+      segments.push(
+        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.boolean }}>
+          {renderHighlightedText(matchedText, searchQuery)}
+        </Box>,
+      );
+    } else if (matchedText === "null") {
+      segments.push(
+        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.null }}>
+          {renderHighlightedText(matchedText, searchQuery)}
+        </Box>,
+      );
+    } else if (/^-?\d/.test(matchedText)) {
+      segments.push(
+        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.number }}>
+          {renderHighlightedText(matchedText, searchQuery)}
+        </Box>,
+      );
+    } else {
+      segments.push(
+        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.punctuation }}>
+          {matchedText}
+        </Box>,
+      );
+    }
+
+    cursor = matchIndex + matchedText.length;
+  }
+
+  if (cursor < text.length) {
+    segments.push(text.slice(cursor));
+  }
+
+  return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
 }
 
 export function renderHighlightedText(text: string, searchQuery?: string) {

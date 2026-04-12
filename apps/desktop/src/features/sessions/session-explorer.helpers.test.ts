@@ -49,13 +49,13 @@ describe("buildSessionHostGroups", () => {
       }),
     ];
 
-    const groups = buildSessionHostGroups(sessions, "", "all");
+    const groups = buildSessionHostGroups(sessions, "");
 
     expect(groups.map((group) => group.host)).toEqual(["api.example.com", "assets.example.com"]);
     expect(groups[1]?.sessions.map((session) => session.id)).toEqual(["session-4", "session-2"]);
   });
 
-  it("filters sessions by keyword and scope", () => {
+  it("filters sessions by keyword", () => {
     const sessions = [
       createSessionSummary({
         host: "api.example.com",
@@ -81,7 +81,7 @@ describe("buildSessionHostGroups", () => {
       }),
     ];
 
-    const groups = buildSessionHostGroups(sessions, "error", "errors");
+    const groups = buildSessionHostGroups(sessions, "error");
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.host).toBe("api.example.com");
@@ -98,7 +98,6 @@ describe("buildSessionHostGroups", () => {
         }),
       ],
       "",
-      "all",
     );
 
     expect(reconcileExpandedHosts([], groups)).toEqual([]);

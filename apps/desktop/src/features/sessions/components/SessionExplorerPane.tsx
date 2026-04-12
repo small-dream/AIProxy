@@ -1,17 +1,14 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
-import SubdirectoryArrowRightRoundedIcon from "@mui/icons-material/SubdirectoryArrowRightRounded";
-import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Alert,
   Box,
-  Chip,
   CircularProgress,
   Divider,
   List,
   ListItemButton,
-  ListItemText,
+  OutlinedInput,
   Paper,
   Stack,
   Typography,
@@ -25,8 +22,10 @@ type SessionExplorerPaneProps = {
   expandedHosts: string[];
   groups: SessionHostGroup[];
   isLoading: boolean;
+  onSearchChange: (value: string) => void;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (host: string) => void;
+  searchValue: string;
   selectedSessionId: string | undefined;
 };
 
@@ -35,8 +34,10 @@ export function SessionExplorerPane({
   expandedHosts,
   groups,
   isLoading,
+  onSearchChange,
   onSelectSession,
   onToggleHost,
+  searchValue,
   selectedSessionId,
 }: SessionExplorerPaneProps) {
   return (
@@ -52,34 +53,36 @@ export function SessionExplorerPane({
       }}
       variant="outlined"
     >
-      <Stack
-        alignItems="center"
-        direction="row"
-        justifyContent="space-between"
-        spacing={2}
-        sx={{ bgcolor: "background.paper", borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
-      >
-        <Typography variant="subtitle2">Session Explorer</Typography>
-        <Chip label={`${groups.reduce((count, group) => count + group.totalCount, 0)} requests`} size="small" variant="outlined" />
-      </Stack>
+      <Box sx={{ p: 1 }}>
+        <OutlinedInput
+          fullWidth
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Search domain or path"
+          size="small"
+          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
+          value={searchValue}
+        />
+      </Box>
+
+      <Divider />
 
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {isLoading ? (
-          <Stack alignItems="center" spacing={1.5} sx={{ px: 2, py: 6 }}>
-            <CircularProgress size={24} />
+          <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
+            <CircularProgress size={22} />
             <Typography color="text.secondary" variant="body2">
               Loading captured sessions...
             </Typography>
           </Stack>
         ) : errorMessage ? (
-          <Box sx={{ p: 2 }}>
+          <Box sx={{ p: 1.5 }}>
             <Alert severity="error">{errorMessage}</Alert>
           </Box>
         ) : groups.length === 0 ? (
-          <Stack spacing={1} sx={{ p: 2.5 }}>
+          <Stack spacing={0.75} sx={{ p: 2 }}>
             <Typography variant="body2">No captured sessions yet.</Typography>
             <Typography color="text.secondary" variant="body2">
-              Start the proxy, enable Windows system proxy, then open a plain HTTP page to populate the explorer tree.
+              Start the proxy and open a plain HTTP page to populate the list.
             </Typography>
           </Stack>
         ) : (
@@ -89,20 +92,15 @@ export function SessionExplorerPane({
 
               return (
                 <Box key={group.host}>
-                  <ListItemButton dense onClick={() => onToggleHost(group.host)}>
+                  <ListItemButton dense onClick={() => onToggleHost(group.host)} sx={{ px: 1.25, py: 0.5 }}>
                     {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
-                    <LanguageRoundedIcon color="primary" fontSize="small" sx={{ ml: 0.5, mr: 1 }} />
-                    <ListItemText
-                      primary={group.host}
-                      primaryTypographyProps={{ noWrap: true, variant: "body2" }}
-                      secondary={`${group.totalCount} requests`}
-                      secondaryTypographyProps={{ variant: "caption" }}
-                    />
-                    <Chip label={group.totalCount} size="small" variant="outlined" />
+                    <Typography noWrap sx={{ ml: 0.75 }} variant="body2">
+                      {group.host}
+                    </Typography>
                   </ListItemButton>
 
                   {expanded ? (
-                    <List disablePadding sx={{ pb: 0.5 }}>
+                    <List disablePadding sx={{ pb: 0.25 }}>
                       {group.sessions.map((session) => (
                         <SessionLeafNode
                           key={session.id}
@@ -132,45 +130,40 @@ type SessionLeafNodeProps = {
 };
 
 function SessionLeafNode({ onClick, selected, session }: SessionLeafNodeProps) {
-  const statusColor = getStatusColor(session.statusCode);
   const displayPath = session.path.trim().length > 0 ? session.path : "/";
 
   return (
-    <ListItemButton dense onClick={onClick} selected={selected} sx={{ pl: 4.5, pr: 1.5 }}>
-      <SubdirectoryArrowRightRoundedIcon color="disabled" fontSize="small" sx={{ mr: 0.5 }} />
-      <ListItemText
-        primary={
-          <Stack alignItems="center" direction="row" spacing={1}>
-            <Chip color={statusColor} label={session.method} size="small" sx={{ minWidth: 54 }} variant="outlined" />
-            <Typography noWrap variant="body2">
-              {displayPath}
-            </Typography>
-            {session.statusCode >= 400 ? <WarningAmberRoundedIcon color="warning" fontSize="small" /> : null}
-          </Stack>
-        }
-        secondary={`${session.statusCode} • ${session.durationMs} ms • ${session.protocol}`}
-        secondaryTypographyProps={{ noWrap: true, variant: "caption" }}
-      />
+    <ListItemButton dense onClick={onClick} selected={selected} sx={{ pl: 3.5, pr: 1.25, py: 0.375 }}>
+      <Typography color={getRequestStateColor(session.statusCode)} sx={{ flex: "0 0 auto", mr: 0.75 }} variant="caption">
+        {getRequestStateLabel(session.statusCode)}
+      </Typography>
+      <Typography noWrap variant="body2">
+        {displayPath}
+      </Typography>
     </ListItemButton>
   );
 }
 
-function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
-  if (statusCode >= 500) {
-    return "error";
+function getRequestStateLabel(statusCode: number): string {
+  if (statusCode <= 0) {
+    return "进行中";
   }
 
   if (statusCode >= 400) {
-    return "warning";
+    return "失败";
   }
 
-  if (statusCode >= 300) {
-    return "info";
+  return "成功";
+}
+
+function getRequestStateColor(statusCode: number): string {
+  if (statusCode <= 0) {
+    return "info.main";
   }
 
-  if (statusCode >= 200) {
-    return "success";
+  if (statusCode >= 400) {
+    return "error.main";
   }
 
-  return "default";
+  return "success.main";
 }

@@ -2,8 +2,7 @@ import {
   coerceAppError,
   isAppError,
 } from "@pharles/shared-types";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, OutlinedInput, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { Alert, Box, Stack } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
@@ -14,11 +13,7 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import {
-  buildSessionHostGroups,
-  reconcileExpandedHosts,
-  type SessionExplorerScope,
-} from "@/features/sessions/session-explorer.helpers";
+import { buildSessionHostGroups, reconcileExpandedHosts } from "@/features/sessions/session-explorer.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 
@@ -33,14 +28,13 @@ export function SessionsPage() {
   const dragFrameRef = useRef<number | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [searchValue, setSearchValue] = useState("");
-  const [scope, setScope] = useState<SessionExplorerScope>("all");
   const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
   const [requestInspectorTab, setRequestInspectorTab] = useState<RequestInspectorTab>("overview");
   const [responseInspectorTab, setResponseInspectorTab] = useState<ResponseInspectorTab>("overview");
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [explorerWidth, setExplorerWidth] = useState(360);
 
-  const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue, scope), [scope, searchValue, sessions]);
+  const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue), [searchValue, sessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === selectedSessionId),
@@ -150,38 +144,7 @@ export function SessionsPage() {
   }
 
   return (
-    <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
-      <Stack
-        alignItems={{ lg: "center", xs: "stretch" }}
-        direction={{ lg: "row", xs: "column" }}
-        justifyContent="space-between"
-        spacing={1.25}
-      >
-        <OutlinedInput
-          onChange={(event) => setSearchValue(event.target.value)}
-          placeholder="Filter hosts, paths, methods, or status"
-          size="small"
-          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-          sx={{ minWidth: { lg: 360, xs: "100%" } }}
-          value={searchValue}
-        />
-
-        <ToggleButtonGroup
-          exclusive
-          onChange={(_event, nextScope: SessionExplorerScope | null) => {
-            if (nextScope) {
-              setScope(nextScope);
-            }
-          }}
-          size="small"
-          value={scope}
-        >
-          <ToggleButton value="all">All</ToggleButton>
-          <ToggleButton value="http">HTTP</ToggleButton>
-          <ToggleButton value="errors">Errors</ToggleButton>
-        </ToggleButtonGroup>
-      </Stack>
-
+    <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
       {error ? (
         <Alert severity="error">
           Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.
@@ -205,8 +168,10 @@ export function SessionsPage() {
           expandedHosts={expandedHosts}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
+          onSearchChange={setSearchValue}
           onSelectSession={setSelectedSessionId}
           onToggleHost={toggleHost}
+          searchValue={searchValue}
           selectedSessionId={selectedSessionIdValue}
         />
 

@@ -195,6 +195,34 @@ export function formatJsonPrimitive(value: JsonValue): string {
   return String(value);
 }
 
+export function getJsonValueType(value: JsonValue): string {
+  if (Array.isArray(value)) {
+    return `Array[${value.length}]`;
+  }
+
+  if (isJsonObject(value)) {
+    return `Object[${Object.keys(value).length}]`;
+  }
+
+  if (value === null) {
+    return "Null";
+  }
+
+  if (typeof value === "string") {
+    return "String";
+  }
+
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? "Integer" : "Number";
+  }
+
+  if (typeof value === "boolean") {
+    return "Boolean";
+  }
+
+  return "Unknown";
+}
+
 function looksLikeJson(mimeType: string | undefined, bodyText: string) {
   const normalizedMimeType = mimeType?.toLowerCase() ?? "";
   const trimmedText = bodyText.trim();

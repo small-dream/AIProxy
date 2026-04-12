@@ -1,10 +1,16 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { IconButton, Stack, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { Box, IconButton, Typography } from "@mui/material";
+import { Fragment, useEffect, useState } from "react";
 
-import { formatJsonPrimitive, isJsonObject, jsonSubtreeMatches, type JsonValue } from "./session-inspector.helpers";
-import { renderHighlightedText } from "./SessionInspectorShared";
+import {
+  formatJsonPrimitive,
+  getJsonValueType,
+  isJsonObject,
+  jsonSubtreeMatches,
+  type JsonValue,
+} from "./session-inspector.helpers";
+import { InspectorFlatTable, InspectorFlatTableRow, renderHighlightedText } from "./SessionInspectorShared";
 
 export function SessionInspectorJsonTree({
   searchQuery,
@@ -33,20 +39,26 @@ export function SessionInspectorJsonTree({
     });
   }
 
+  const columnTemplate = "minmax(210px, 1.7fr) minmax(88px, 0.62fr) minmax(140px, 1.18fr)";
+
   return (
-    <Stack spacing={0.5}>
+    <InspectorFlatTable columnTemplate={columnTemplate} headers={["Name", "Type", "Value"]}>
       <JsonTreeNode
+        columnTemplate={columnTemplate}
+        depth={0}
         expandedPaths={expandedPaths}
         onTogglePath={togglePath}
         path="root"
         searchQuery={searchQuery}
         value={value}
       />
-    </Stack>
+    </InspectorFlatTable>
   );
 }
 
 function JsonTreeNode({
+  columnTemplate,
+  depth,
   expandedPaths,
   name,
   onTogglePath,
@@ -54,6 +66,8 @@ function JsonTreeNode({
   searchQuery,
   value,
 }: {
+  columnTemplate: string;
+  depth: number;
   expandedPaths: Set<string>;
   name?: string;
   onTogglePath: (path: string) => void;
@@ -75,54 +89,84 @@ function JsonTreeNode({
 
   const autoExpanded = Boolean(searchQuery) && hasChildren;
   const isExpanded = expandedPaths.has(path) || autoExpanded;
-
-  if (!hasChildren) {
-    return (
-      <Stack direction="row" spacing={1} sx={{ pl: path === "root" ? 0 : 3 }}>
-        {name ? (
-          <Typography sx={{ color: "info.main", whiteSpace: "pre-wrap", wordBreak: "break-word" }} variant="body2">
-            {renderHighlightedText(`"${name}"`, searchQuery)}:
-          </Typography>
-        ) : null}
-        <Typography sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }} variant="body2">
-          {renderHighlightedText(formatJsonPrimitive(value), searchQuery)}
-        </Typography>
-      </Stack>
-    );
-  }
+  const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
+  const rowType = getJsonValueType(value);
+  const displayName = path === "root" ? "root" : name ?? "";
+  const nameColor = path === "root" ? "text.primary" : hasChildren ? "#795e26" : "#001080";
+  const typeColor = hasChildren ? "text.secondary" : "#6f42c1";
+  const valueColor =
+    typeof value === "string"
+      ? "#a31515"
+      : typeof value === "number"
+        ? "#098658"
+        : typeof value === "boolean" || value === null
+          ? "#0000ff"
+          : "text.primary";
 
   return (
-    <Stack spacing={0.5} sx={{ pl: path === "root" ? 0 : 1.5 }}>
-      <Stack alignItems="center" direction="row" spacing={0.5}>
-        <IconButton onClick={() => onTogglePath(path)} size="small" sx={{ p: 0.25 }}>
-          {isExpanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
-        </IconButton>
-        {name ? (
-          <Typography sx={{ color: "info.main", whiteSpace: "pre-wrap", wordBreak: "break-word" }} variant="body2">
-            {renderHighlightedText(`"${name}"`, searchQuery)}:
-          </Typography>
-        ) : null}
-        <Typography color="text.secondary" variant="body2">
-          {Array.isArray(value) ? `[${children.length}]` : `{${children.length}}`}
-        </Typography>
-      </Stack>
+    <Fragment>
+      <InspectorFlatTableRow
+        cells={[
+          <Box
+            key="name"
+            sx={{
+              alignItems: "center",
+              display: "flex",
+              minWidth: 0,
+              pl: depth * 1.1,
+            }}
+          >
+            {hasChildren ? (
+              <IconButton
+                onClick={() => onTogglePath(path)}
+                size="small"
+                sx={{
+                  color: "text.secondary",
+                  mr: 0.25,
+                  p: 0,
+                  "& .MuiSvgIcon-root": {
+                    fontSize: 16,
+                  },
+                }}
+              >
+                {isExpanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+              </IconButton>
+            ) : (
+              <Box sx={{ flex: "0 0 16px", mr: 0.25 }} />
+            )}
+            <Typography
+              sx={{
+                color: nameColor,
+                fontWeight: hasChildren && isExpanded ? 500 : 400,
+                minWidth: 0,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+              variant="body2"
+            >
+              {renderHighlightedText(displayName, searchQuery)}
+            </Typography>
+          </Box>,
+          <Typography key="type" sx={{ color: typeColor, minWidth: 0 }} variant="caption">
+            {renderHighlightedText(rowType, searchQuery)}
+          </Typography>,
+          <Typography key="value" sx={{ color: valueColor, minWidth: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }} variant="body2">
+            {rowValue ? renderHighlightedText(rowValue, searchQuery) : ""}
+          </Typography>,
+        ]}
+        columnTemplate={columnTemplate}
+        dense
+        hoverable
+      />
 
-      {isExpanded ? (
-        <Stack spacing={0.5}>
-          {children.map(([childName, childValue]) => {
+      {hasChildren && isExpanded
+        ? children.map(([childName, childValue]) => {
             const childPath = `${path}.${childName}`;
 
-            return Array.isArray(value) ? (
+            return (
               <JsonTreeNode
-                expandedPaths={expandedPaths}
-                key={childPath}
-                onTogglePath={onTogglePath}
-                path={childPath}
-                searchQuery={searchQuery}
-                value={childValue}
-              />
-            ) : (
-              <JsonTreeNode
+                columnTemplate={columnTemplate}
+                depth={depth + 1}
                 expandedPaths={expandedPaths}
                 key={childPath}
                 name={childName}
@@ -132,9 +176,8 @@ function JsonTreeNode({
                 value={childValue}
               />
             );
-          })}
-        </Stack>
-      ) : null}
-    </Stack>
+          })
+        : null}
+    </Fragment>
   );
 }

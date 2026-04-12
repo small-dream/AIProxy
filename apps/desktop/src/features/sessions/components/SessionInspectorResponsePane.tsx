@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
-import { InspectorDefinitionList, SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
-  buildResponseSubtitle,
   describeBody,
   formatTiming,
   getBodyText,
@@ -45,9 +44,6 @@ export function SessionInspectorResponsePane({
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
         <Typography variant="subtitle2">Response</Typography>
-        <Typography color="text.secondary" noWrap variant="caption">
-          {buildResponseSubtitle(detail, session)}
-        </Typography>
       </Stack>
 
       <Divider />
@@ -128,7 +124,7 @@ function ResponseTabContent({
 
   if (responseTab === "headers") {
     return (
-      <InspectorDefinitionList
+      <InspectorKeyValueTable
         emptyMessage="No response headers captured."
         items={detail?.responseHeaders.map((entry) => [entry.name, entry.value]) ?? []}
       />
@@ -166,6 +162,7 @@ function ResponseTabContent({
           <Alert severity="info">{responseJsonResult.message}</Alert>
           <SearchableCodeBlock
             code={getBodyText(detail?.responseBody) ?? "No response body available."}
+            language="json"
             searchQuery={searchValue}
           />
         </Stack>
@@ -183,6 +180,7 @@ function ResponseTabContent({
             ? responseJsonResult.prettyText
             : "No JSON body available for this response."
         }
+        language="json"
         searchQuery={searchValue}
       />
     );

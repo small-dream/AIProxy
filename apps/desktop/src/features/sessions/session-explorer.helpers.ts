@@ -1,7 +1,5 @@
 import type { SessionSummary } from "@pharles/shared-types";
 
-export type SessionExplorerScope = "all" | "http" | "errors";
-
 export type SessionHostGroup = {
   host: string;
   latestStartedAt: string;
@@ -12,12 +10,11 @@ export type SessionHostGroup = {
 export function buildSessionHostGroups(
   sessions: SessionSummary[],
   keyword: string,
-  scope: SessionExplorerScope,
 ): SessionHostGroup[] {
   const groupsByHost = new Map<string, SessionSummary[]>();
 
   for (const session of sessions) {
-    if (!matchesScope(session, scope) || !matchesKeyword(session, keyword)) {
+    if (!matchesKeyword(session, keyword)) {
       continue;
     }
 
@@ -49,18 +46,6 @@ export function reconcileExpandedHosts(
   const availableHosts = new Set(groups.map((group) => group.host));
 
   return expandedHosts.filter((host) => availableHosts.has(host));
-}
-
-function matchesScope(session: SessionSummary, scope: SessionExplorerScope): boolean {
-  if (scope === "errors") {
-    return session.statusCode >= 400;
-  }
-
-  if (scope === "http") {
-    return session.protocol.toLowerCase().startsWith("http");
-  }
-
-  return true;
 }
 
 function matchesKeyword(session: SessionSummary, keyword: string): boolean {

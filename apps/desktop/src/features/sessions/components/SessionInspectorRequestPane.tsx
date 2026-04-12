@@ -3,10 +3,9 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, Button, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
-import { InspectorDefinitionList, SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
-  buildRequestSubtitle,
   describeBody,
   type RequestInspectorTab,
 } from "./session-inspector.helpers";
@@ -34,12 +33,7 @@ export function SessionInspectorRequestPane({
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
         <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1}>
-          <Stack minWidth={0} spacing={0.25}>
-            <Typography variant="subtitle2">Request</Typography>
-            <Typography color="text.secondary" noWrap variant="caption">
-              {buildRequestSubtitle(detail)}
-            </Typography>
-          </Stack>
+          <Typography variant="subtitle2">Request</Typography>
           <Button
             onClick={() => onRequestCollapsedChange(!requestCollapsed)}
             size="small"
@@ -129,7 +123,7 @@ function RequestTabContent({
 
   if (requestTab === "query") {
     return (
-      <InspectorDefinitionList
+      <InspectorKeyValueTable
         emptyMessage="No query parameters."
         items={detail?.queryParams.map((entry) => [entry.name, entry.value]) ?? []}
       />
@@ -138,7 +132,7 @@ function RequestTabContent({
 
   if (requestTab === "headers") {
     return (
-      <InspectorDefinitionList
+      <InspectorKeyValueTable
         emptyMessage="No request headers captured."
         items={detail?.requestHeaders.map((entry) => [entry.name, entry.value]) ?? []}
       />
