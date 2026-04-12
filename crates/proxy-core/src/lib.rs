@@ -11,7 +11,7 @@ use reqwest::{
     redirect::Policy,
     Client, Method, StatusCode, Url,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     ffi::OsStr,
@@ -92,7 +92,7 @@ pub struct ProxySessionSummary {
     pub response_mime_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyHeaderEntry {
     pub name: String,
@@ -1393,6 +1393,163 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
 
 fn map_io_error(error: io::Error) -> String {
     format!("stream IO failure: {error}")
+}
+
+/// Send a direct HTTP request (used by Compose / Repeat).
+/// Returns a full `ProxySessionDetail` so the frontend can reuse the
+/// same inspector components that render captured proxy sessions.
+pub async fn send_direct_request(
+    method: String,
+    url: String,
+    headers: Vec<ProxyHeaderEntry>,
+    body: Option<String>,
+) -> Result<ProxySessionDetail, String> {
+    let request_method = Method::from_bytes(method.as_bytes())
+        .map_err(|e| format!("invalid HTTP method '{method}': {e}"))?;
+    let request_url = Url::parse(&url)
+        .map_err(|e| format!("invalid URL '{url}': {e}"))?;
+
+    let host = request_url
+        .host_str()
+        .ok_or_else(|| format!("URL '{url}' does not contain a host"))?
+        .to_string();
+    let path = build_request_path(&request_url);
+    let protocol = request_url.scheme().to_string();
+    let query_params = build_query_params(&request_url);
+    let request_id = Uuid::new_v4().to_string();
+
+    // Build header map, skipping hop-by-hop headers
+    let mut header_map = HeaderMap::new();
+    for header in &headers {
+        if should_skip_request_header(&header.name) {
+            continue;
+        }
+        let header_name = HeaderName::from_bytes(header.name.as_bytes())
+            .map_err(|e| format!("invalid header name '{}': {e}", header.name))?;
+        let header_value = HeaderValue::from_str(&header.value)
+            .map_err(|e| format!("invalid header value for '{}': {e}", header.name))?;
+        header_map.append(header_name, header_value);
+    }
+
+    let body_bytes = body
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        .map(|b| b.as_bytes().to_vec())
+        .unwrap_or_default();
+
+    let raw_request = build_raw_http_message(
+        &format!("{method} {path} HTTP/1.1"),
+        &headers,
+        &body_bytes,
+    );
+
+    let client = Client::builder()
+        .redirect(Policy::none())
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("failed to create HTTP client: {e}"))?;
+
+    let mut request_builder = client.request(request_method.clone(), request_url.clone());
+    request_builder = request_builder.headers(header_map.clone());
+
+    if !body_bytes.is_empty() {
+        request_builder = request_builder.body(body_bytes.clone());
+    }
+
+    let started_at = Utc::now();
+    let started_at_instant = Instant::now();
+
+    let waiting_started_at = Instant::now();
+    let response = request_builder.send().await.map_err(|e| {
+        format!("failed to send request to '{url}': {e}")
+    })?;
+    let waiting_ms = waiting_started_at.elapsed().as_millis();
+
+    let status_code = response.status();
+    let response_headers = response.headers().clone();
+
+    let response_read_started_at = Instant::now();
+    let response_body = response
+        .bytes()
+        .await
+        .map_err(|e| format!("failed to read response body: {e}"))?
+        .to_vec();
+    let response_read_ms = response_read_started_at.elapsed().as_millis();
+
+    emit_log(
+        "INFO",
+        "direct_request_completed",
+        &[
+            ("request_id", request_id.clone()),
+            ("method", method.clone()),
+            ("url", url.clone()),
+            ("status_code", status_code.as_u16().to_string()),
+            ("waiting_ms", waiting_ms.to_string()),
+            ("response_read_ms", response_read_ms.to_string()),
+        ],
+    );
+
+    let timing = ProxyTimingBreakdown {
+        connect_ms: None,
+        dns_ms: None,
+        request_send_ms: None,
+        response_read_ms: Some(response_read_ms),
+        tls_ms: None,
+        total_ms: Some(started_at_instant.elapsed().as_millis()),
+        waiting_ms: Some(waiting_ms),
+    };
+
+    let id = Uuid::new_v4().to_string();
+    let response_header_entries = build_header_entries_from_map(&response_headers);
+    let response_mime_type = response_headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    let summary = build_session_summary(
+        id.clone(),
+        method,
+        host,
+        path,
+        protocol,
+        url,
+        status_code.as_u16(),
+        response_body.len(),
+        response_mime_type,
+        started_at,
+        started_at_instant,
+    );
+
+    Ok(ProxySessionDetail {
+        cookies: build_cookie_entries(&headers, &response_header_entries),
+        id,
+        query_params,
+        raw_request: Some(raw_request),
+        raw_response: Some(build_raw_http_message(
+            &format!(
+                "HTTP/1.1 {} {}",
+                status_code.as_u16(),
+                status_code.canonical_reason().unwrap_or("Unknown"),
+            ),
+            &response_header_entries,
+            &response_body,
+        )),
+        request_body: build_body_reference(
+            &body_bytes,
+            header_map.get(CONTENT_TYPE),
+            header_map.get(reqwest::header::CONTENT_ENCODING),
+        ),
+        request_headers: headers,
+        response_body: build_body_reference(
+            &response_body,
+            response_headers.get(CONTENT_TYPE),
+            response_headers.get(reqwest::header::CONTENT_ENCODING),
+        ),
+        response_headers: response_header_entries,
+        server_ip: None,
+        summary,
+        timing: Some(timing),
+    })
 }
 
 #[cfg(test)]

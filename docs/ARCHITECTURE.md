@@ -233,8 +233,8 @@ flowchart LR
 - `load_workspace`
 - `list_sessions`
 - `get_session_detail`
-- `repeat_session`
-- `send_composed_request`
+- `repeat_session`（暂未实现，前端 Repeat 按钮替代）
+- `send_composed_request` — `已实现`，Rust 端 `proxy-core::send_direct_request()` 发送请求，返回完整 `ProxySessionDetail`
 - `save_breakpoint_rule`
 - `save_rewrite_rule`
 - `save_map_rule`
@@ -426,7 +426,7 @@ erDiagram
 ### 页面结构映射
 
 - `SessionsPage`：`Session Filter Bar` + `Session Explorer Pane` + `Session Inspector Workspace`，全局抓包控制固定在 `AppShell` 顶部工具栏，底部仅保留状态栏
-- `ComposePage`：`Preset Pane` + `Request Editor Pane` + `Response Result Pane`
+- `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
 - `SettingsPage`：`Settings Navigation` + `Settings Content Pane`
@@ -436,7 +436,7 @@ erDiagram
 - `session-list`
 - `session-explorer`
 - `session-detail`
-- `compose-request`
+- `compose-request` — `已实现`：ComposePage 页面 + use-compose-request hook + compose-editor.store + curl-export + EditableKeyValueTable
 - `breakpoints`
 - `rewrite-rules`
 - `map-rules`

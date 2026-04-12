@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   coerceAppError,
   createDefaultProxyStatus,
+  createMockComposeSessionDetail,
   parseCertificateStatus,
   parseCertificateInstallGuide,
   parseSessionDetail,
@@ -10,6 +11,7 @@ import {
   parseProxyStatus,
   type CertificateInstallGuide,
   type CertificateStatus,
+  type ComposedRequestInput,
   type GenerateRootCertificateInput,
   type ProxyStatus,
   type SessionDetail,
@@ -320,6 +322,29 @@ export async function openCertificateInstallGuide(): Promise<CertificateInstallG
     return guide;
   } catch (error) {
     reportCommandFailure("open_certificate_install_guide", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function sendComposedRequest(input: ComposedRequestInput): Promise<SessionDetail> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "send_composed_request_bypassed_non_tauri_runtime");
+    return createMockComposeSessionDetail(input);
+  }
+
+  try {
+    logDevInfo("ui.commands", "send_composed_request_requested", { url: input.url, method: input.method });
+    const payload = await invoke<unknown>("send_composed_request", { input });
+    const detail = parseSessionDetail(payload);
+
+    logDevInfo("ui.commands", "send_composed_request_succeeded", {
+      sessionId: detail.id,
+      statusCode: detail.summary.statusCode,
+    });
+
+    return detail;
+  } catch (error) {
+    reportCommandFailure("send_composed_request", error);
     throw coerceAppError(error);
   }
 }

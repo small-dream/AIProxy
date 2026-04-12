@@ -36,7 +36,8 @@ pub fn run() {
             commands::generate_root_certificate,
             commands::open_certificate_install_guide,
             commands::launch_certificate_installer,
-            commands::get_local_ip
+            commands::get_local_ip,
+            commands::send_composed_request
         ])
         .setup(|app| {
             let window = app

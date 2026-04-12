@@ -1,5 +1,6 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
+import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { Fragment, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
@@ -8,9 +9,11 @@ import { getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 export function InspectorSummaryBar({
   detail,
+  onRepeat,
   session,
 }: {
   detail: SessionDetail | undefined;
+  onRepeat?: (() => void) | undefined;
   session: SessionSummary;
 }) {
   return (
@@ -31,17 +34,32 @@ export function InspectorSummaryBar({
           </Typography>
         </Stack>
 
-        <Button
-          onClick={() => {
-            void navigator.clipboard?.writeText(session.url);
-          }}
-          size="small"
-          startIcon={<ContentCopyRoundedIcon />}
-          sx={{ minWidth: 0, px: 1.25 }}
-          variant="text"
-        >
-          Copy URL
-        </Button>
+        <Stack alignItems="center" direction="row" spacing={0.5}>
+          {onRepeat ? (
+            <Tooltip arrow title="Repeat this request in Compose">
+              <Button
+                onClick={onRepeat}
+                size="small"
+                startIcon={<ReplayRoundedIcon />}
+                sx={{ minWidth: 0, px: 1.25 }}
+                variant="text"
+              >
+                Repeat
+              </Button>
+            </Tooltip>
+          ) : null}
+          <Button
+            onClick={() => {
+              void navigator.clipboard?.writeText(session.url);
+            }}
+            size="small"
+            startIcon={<ContentCopyRoundedIcon />}
+            sx={{ minWidth: 0, px: 1.25 }}
+            variant="text"
+          >
+            Copy URL
+          </Button>
+        </Stack>
       </Stack>
 
       <Typography color="text.secondary" noWrap sx={{ fontSize: 11.5, lineHeight: 1.3 }}>

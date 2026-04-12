@@ -18,6 +18,7 @@ type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
   inspectorSplitRatio: number;
   isDetailLoading: boolean;
+  onRepeat?: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
@@ -32,6 +33,7 @@ export function SessionInspectorWorkspace({
   detailErrorMessage,
   inspectorSplitRatio,
   isDetailLoading,
+  onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
   onResponseTabChange,
@@ -110,7 +112,7 @@ export function SessionInspectorWorkspace({
       }}
       variant="outlined"
     >
-      <InspectorSummaryBar detail={detail} session={selectedSession} />
+      <InspectorSummaryBar detail={detail} onRepeat={onRepeat} session={selectedSession} />
       <Divider />
 
       {detailErrorMessage ? (

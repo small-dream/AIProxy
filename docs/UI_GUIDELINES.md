@@ -279,7 +279,7 @@ Capture Workspace
 ### 页面蓝图索引
 
 - `Sessions Page`：抓包主工作台、会话列表、详情检查器
-- `Compose Page`：请求构造、模板面板、响应预览
+- `Compose Page`：请求构造、响应预览（已实现），模板面板（待实现）
 - `Rules Page`：规则类型切换、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
 - `Settings Page`：设置导航、设置内容区、导入导出入口
@@ -362,7 +362,7 @@ Inspector Pane
 ├─ Selected Session Summary
 │  ├─ Method / URL
 │  ├─ Status / Duration / Size
-│  └─ Pin / Repeat / Copy Actions
+│  └─ Repeat (已实现) / Copy URL Actions
 ├─ Primary Inspector Tabs
 ├─ Secondary Content Tabs
 └─ Active Tab Panel
@@ -373,55 +373,54 @@ Inspector Pane
    └─ Raw Payload
 ```
 
-## 9.2 Compose Page
+## 9.2 Compose Page — `已实现`
 
 ### 页面定位
 
-Compose Page 用于手工构造请求、快速重放请求与查看结果，是“主动发请求”的工作台。
+Compose Page 用于手工构造请求、快速重放请求与查看结果，是”主动发请求”的工作台。
 
-### 页面结构树
+### 实际页面结构
 
 ```text
 Compose Page
-├─ Page Header
-├─ Compose Toolbar
-│  ├─ Send
-│  ├─ Save Template
-│  ├─ Duplicate
-│  └─ Export cURL
-├─ Main Three Pane Layout
-│  ├─ Request Presets Pane
-│  │  ├─ Recent Requests
-│  │  └─ Saved Templates
-│  ├─ Request Editor Pane
-│  │  ├─ Method Selector
-│  │  ├─ URL Input
-│  │  ├─ Header Tabs
-│  │  ├─ Headers Editor
-│  │  ├─ Query Editor
-│  │  └─ Body Editor
-│  └─ Response Result Pane
-│     ├─ Response Summary
-│     ├─ Response Tabs
-│     └─ Timing / Raw / Body Preview
-└─ Bottom Status Strip
+├─ Page Header (标题 + 描述)
+├─ Toolbar
+│  ├─ Send Button (variant=”contained”, 含 loading spinner)
+│  └─ Export cURL Button (variant=”outlined”, 复制到剪贴板 + Snackbar 确认)
+├─ Two-Column Grid (8fr | 4fr)
+│  ├─ SectionCard “Request Builder”
+│  │  ├─ Method Selector (Select: GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
+│  │  ├─ URL Input (OutlinedInput, Enter 键触发发送)
+│  │  └─ Tabs: Headers | Body | Query
+│  │     ├─ Headers: EditableKeyValueTable
+│  │     ├─ Body: TextField multiline
+│  │     └─ Query: EditableKeyValueTable (自动从 URL 解析 query params)
+│  └─ SectionCard “Response Preview”
+│     ├─ InspectorSummaryBar (复用 Sessions Inspector 组件)
+│     └─ Tabs: Overview | Headers | Body | Timing
+│        ├─ Overview: InspectorDefinitionList
+│        ├─ Headers: InspectorKeyValueTable
+│        ├─ Body: SearchableCodeBlock
+│        └─ Timing: InspectorDefinitionList
+└─ Snackbar (cURL 复制确认)
 ```
 
-### 区域职责
-
-- 左侧只负责模板与历史，不放复杂编辑逻辑
-- 中间是唯一的请求编辑主区域
-- 右侧只展示发送结果和回执，不承担规则配置
-
-### 必须元素
+### 已实现元素
 
 - Method Selector
-- URL Input
-- Headers Editor
-- Body Editor
-- Send Button
-- Save Template
-- Export cURL
+- URL Input（支持 Enter 键发送）
+- Headers Editor（EditableKeyValueTable）
+- Body Editor（TextField multiline）
+- Query Editor（自动解析 URL query params）
+- Send Button（含 loading 状态）
+- Export cURL（前端纯函数生成，复制到剪贴板）
+- Response Preview（复用 Inspector 组件：Overview/Headers/Body/Timing）
+- Repeat 按钮（Sessions Inspector 摘要栏，预填数据后导航至 Compose）
+
+### 暂未实现
+
+- Request Presets Pane（模板/历史）
+- Save Template / Duplicate 按钮
 
 ## 9.3 Rules Page
 

@@ -5,8 +5,8 @@ use crate::system_proxy::{
     SystemProxySettings,
 };
 use pharles_proxy_core::{
-    get_local_ip_addresses, start_proxy_server, ProxyRuntimeConfig, ProxySessionDetail,
-    ProxySessionSummary, TlsManager,
+    get_local_ip_addresses, send_direct_request, start_proxy_server, ProxyRuntimeConfig,
+    ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary, TlsManager,
 };
 use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::Deserialize;
@@ -39,6 +39,16 @@ pub struct GetSessionDetailInput {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateRootCertificateInput {
     pub force_regenerate: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendComposedRequestInput {
+    pub workspace_id: String,
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<ProxyHeaderEntry>,
+    pub body: Option<String>,
 }
 
 #[tauri::command]
@@ -128,6 +138,30 @@ pub async fn disable_system_proxy(
 #[tauri::command]
 pub fn get_local_ip() -> Vec<String> {
     get_local_ip_addresses()
+}
+
+#[tauri::command]
+pub async fn send_composed_request(
+    input: SendComposedRequestInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ProxySessionDetail, String> {
+    let detail = send_direct_request(input.method, input.url, input.headers, input.body).await?;
+    let session_id = detail.id.clone();
+    state.insert_session(detail.clone());
+
+    log_info(
+        "desktop.commands",
+        "send_composed_request_succeeded",
+        &[
+            ("session_id", session_id),
+            (
+                "status_code",
+                detail.summary.status_code.to_string(),
+            ),
+        ],
+    );
+
+    Ok(detail)
 }
 
 async fn start_proxy_impl(

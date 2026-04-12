@@ -164,7 +164,7 @@ User clicks Start Proxy
 - `list_sessions` 改为实时事件推送 + 增量合并
 - `get_session_detail` 按需加载 Inspector 真正内容，列表与详情解耦
 
-## 5. Compose Page
+## 5. Compose Page — `已实现`
 
 ### 5.1 页面目标
 
@@ -175,76 +175,85 @@ User clicks Start Proxy
 ```text
 [Compose Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Compose                                                              │
+│ Title: Compose                                          (Send) (Export cURL) │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ (Send) (Save Template) (Duplicate) (Export cURL)                            │
-├───────────────┬───────────────────────────────────────┬──────────────────────┤
-│ [Templates]   │ [Request Editor]                      │ [Response Preview]   │
-│ Recent        │ <Method> [URL Input................]  │ Status               │
-│ Saved         │ [Headers Tab] [Query Tab] [Body Tab] │ Duration             │
-│ ...           │ [Editor Area.......................]  │ Response Body        │
-│               │                                       │ ...                  │
-└───────────────┴───────────────────────────────────────┴──────────────────────┘
+│ [Request Builder]                                  │ [Response Preview]       │
+│ <GET▼> [https://example.com/api..............]    │ Status • Duration • Size │
+│ [Headers] [Body] [Query]                          │ <Overview> <Headers>     │
+│ [EditableKeyValueTable / TextField]               │ <Body> <Timing>          │
+│                                                    │ [Inspector content]      │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.3 React 组件树
+### 5.3 实际 React 组件树
 
 ```text
 ComposePage
-├─ PageHeader
-├─ ComposeToolbar
-├─ ComposeWorkbench
-│  ├─ RequestTemplatePane
-│  ├─ RequestEditorPane
-│  │  ├─ MethodSelect
-│  │  ├─ UrlInput
-│  │  ├─ RequestEditorTabs
-│  │  ├─ HeadersEditor
-│  │  ├─ QueryEditor
-│  │  └─ BodyEditor
-│  └─ ResponsePreviewPane
-│     ├─ ResponseSummary
-│     ├─ ResponseTabs
-│     └─ ResponseBodyViewer
-└─ BottomStatusStrip
+├─ PageHeader (title + description)
+├─ Toolbar (Send button + Export cURL button)
+├─ Two-column grid (8fr | 4fr)
+│  ├─ SectionCard "Request Builder"
+│  │  ├─ MethodSelect (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
+│  │  ├─ UrlInput (OutlinedInput, Enter 键触发发送)
+│  │  ├─ Tabs: Headers | Body | Query
+│  │  │  ├─ Headers: EditableKeyValueTable
+│  │  │  ├─ Body: TextField multiline
+│  │  │  └─ Query: EditableKeyValueTable (自动从 URL 解析)
+│  └─ SectionCard "Response Preview"
+│     ├─ InspectorSummaryBar (复用 Sessions Inspector 组件)
+│     ├─ Tabs: Overview | Headers | Body | Timing
+│     │  ├─ Overview: InspectorDefinitionList
+│     │  ├─ Headers: InspectorKeyValueTable
+│     │  ├─ Body: SearchableCodeBlock
+│     │  └─ Timing: InspectorDefinitionList
 ```
 
-### 5.4 页面状态模型
+### 5.4 实现文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `pages/compose/index.tsx` | ComposePage 主页面 |
+| `features/compose/use-compose-request.ts` | React Query mutation，调用 `sendComposedRequest` |
+| `features/compose/compose-editor.store.ts` | Zustand store，管理 method/url/headers/body/activeTab |
+| `features/compose/curl-export.ts` | 纯函数 `generateCurlCommand()`，前端生成 cURL 命令 |
+| `features/compose/components/EditableKeyValueTable.tsx` | 可编辑键值对组件（Headers/Query 共用） |
+
+### 5.5 页面状态模型
 
 ```ts
-type ComposePageState = {
-  editor: {
-    method: string;
-    url: string;
-    headers: Array<{ name: string; value: string }>;
-    query: Array<{ name: string; value: string }>;
-    body: string;
-    activeTab: "headers" | "query" | "body";
-  };
-  response: {
-    sessionId?: string;
-    statusCode?: number;
-    body?: string;
-    durationMs?: number;
-  };
-  ui: {
-    selectedTemplateId?: string;
-  };
-  mutation: {
-    sending: boolean;
-    savingTemplate: boolean;
-  };
+// Zustand store: compose-editor.store.ts
+type ComposeEditorState = {
+  method: string;           // 默认 "GET"
+  url: string;
+  headers: HeaderEntry[];
+  body: string;
+  activeTab: "headers" | "body" | "query";
+  setMethod / setUrl / setHeaders / setBody / setActiveTab
+  loadFromSession(data)     // Repeat 按钮调用，预填数据
+  reset()                   // 重置为初始状态
 };
+
+// React Query mutation: use-compose-request.ts
+// mutation.data → SessionDetail（直接复用 Inspector 组件渲染）
+// mutation.isPending → 加载状态
+// mutation.isError → 错误提示
 ```
 
-### 5.5 页面事件流
+### 5.6 页面事件流
 
 ```text
-User edits request
--> send_composed_request
--> response session created
--> response preview updates
--> user may save as template or export cURL
+用户编辑请求 → 点击 Send
+→ sendComposedRequest(input)
+→ Rust: send_direct_request() 发送 HTTP 请求
+→ 返回 ProxySessionDetail → 存入 AppState → 前端 mutation.data 更新
+→ Response Preview 渲染结果（复用 Inspector 组件）
+→ Sessions 页面列表自动刷新（包含组合请求）
+
+Repeat 流程：
+Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
+→ loadFromSession() 预填 Zustand store
+→ navigate("/compose") → Compose 页面显示预填数据
+→ 用户可编辑后发送
 ```
 
 ## 6. Rules Page
@@ -504,7 +513,7 @@ WorkspacesPage
 | 页面 | 主 Feature 模块 | 主要命令/接口 |
 | --- | --- | --- |
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
-| Compose | `compose-request` | `send_composed_request`, `repeat_session` |
+| Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
 | Rules | `breakpoints`, `rewrite-rules`, `map-rules` | `save_*_rule`, `list_*_rules` |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings` | settings service / local config |

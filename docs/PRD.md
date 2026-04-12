@@ -253,13 +253,13 @@ flowchart LR
 - WebSocket 消息页签（P1 可先做只读）
 - 详情区默认与当前树形列表选中请求联动，不允许出现“选中态丢失”
 
-### 9.4 Compose / Repeat
+### 9.4 Compose / Repeat — `已实现`
 
-- 从空白构建请求
-- 从历史会话复制请求
-- 编辑 URL、Method、Headers、Body
-- 查看发送结果与 Timing
-- 导出为 `cURL`
+- 从空白构建请求 — `已实现`：Compose 页面提供 Method、URL、Headers、Body 编辑器
+- 从历史会话复制请求 — `已实现`：Sessions Inspector 摘要栏提供 "Repeat" 按钮，点击后预填数据并导航至 Compose 页面
+- 编辑 URL、Method、Headers、Body — `已实现`：Method 下拉选择、URL 输入框、Headers/Query 可编辑键值表、Body 文本编辑器
+- 查看发送结果与 Timing — `已实现`：响应预览复用 Inspector 组件（Overview/Headers/Body/Timing 标签页）
+- 导出为 `cURL` — `已实现`：前端纯函数 `generateCurlCommand()` 生成 cURL 命令并复制到剪贴板
 
 ### 9.5 Breakpoints
 

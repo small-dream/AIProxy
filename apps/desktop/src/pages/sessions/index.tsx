@@ -3,9 +3,11 @@ import {
   isAppError,
 } from "@pharles/shared-types";
 import { Alert, Box, Stack } from "@mui/material";
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
+import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
 import {
@@ -18,6 +20,8 @@ import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 
 export function SessionsPage() {
+  const navigate = useNavigate();
+  const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const { data: proxyStatus, error, isLoading } = useProxyStatus();
   const {
     data: sessions = [],
@@ -101,6 +105,18 @@ export function SessionsPage() {
       currentHosts.includes(host) ? currentHosts.filter((currentHost) => currentHost !== host) : [...currentHosts, host],
     );
   }
+
+  const handleRepeat = useCallback(() => {
+    if (!selectedSession) return;
+    const bodyText = selectedSessionDetail?.requestBody?.inlineText;
+    loadFromSession({
+      method: selectedSession.method,
+      url: selectedSession.url,
+      headers: selectedSessionDetail?.requestHeaders ?? [],
+      ...(bodyText ? { body: bodyText } : {}),
+    });
+    navigate("/compose");
+  }, [selectedSession, selectedSessionDetail, loadFromSession, navigate]);
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
@@ -213,6 +229,7 @@ export function SessionsPage() {
           }
           inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
           isDetailLoading={isSessionDetailLoading}
+          onRepeat={selectedSession ? handleRepeat : undefined}
           onRequestCollapsedChange={setRequestCollapsed}
           onRequestTabChange={setRequestInspectorTab}
           onResponseTabChange={setResponseInspectorTab}

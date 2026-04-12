@@ -532,9 +532,43 @@ type PinSessionOutput = {
 };
 ```
 
-## 6.4 Compose / Repeat Commands
+## 6.4 Compose / Repeat Commands — `已实现`
 
-### `repeat_session`
+### `send_composed_request` — `已实现`
+
+请求：
+
+```ts
+type SendComposedRequestInput = {
+  workspaceId: string;
+  method: string;
+  url: string;
+  headers: HeaderEntry[];
+  body?: string;
+};
+```
+
+响应（直接返回完整的 `ProxySessionDetail`，避免二次 IPC 调用）：
+
+```ts
+// 返回 ProxySessionDetail（即 SessionDetail 的 Rust 镜像）
+// 包含完整的 summary、requestHeaders、responseHeaders、requestBody、responseBody、timing 等字段
+// 同时该 session 会自动插入到 AppState 的 session 列表中，出现在 Sessions 页面
+type SendComposedRequestOutput = ProxySessionDetail;
+```
+
+实现说明：
+- Rust 端使用 `proxy-core::send_direct_request()` 发送请求，复用 `reqwest::Client`
+- 返回的 `ProxySessionDetail` 与代理捕获的会话结构完全一致，前端 Inspector 组件可零修改复用
+- 组合请求会自动出现在 Sessions 页面的会话列表中
+- Timing 仅包含 `totalMs`、`waitingMs`、`responseReadMs`，其余字段为 `None`（reqwest 不暴露 DNS/Connect/TLS 粒度）
+- 前端使用 Zustand store（`compose-editor.store.ts`）管理编辑器状态，支持从 Sessions 页面的 "Repeat" 按钮预填数据
+
+### `repeat_session` — `暂未实现，使用前端 Repeat 按钮替代`
+
+> 当前 Repeat 功能通过前端状态预填实现：点击 Inspector 摘要栏的 "Repeat" 按钮后，
+> 将选中会话的 method/url/headers/body 写入 Zustand store，然后导航至 `/compose` 页面。
+> 后端 `repeat_session` 命令保留在 API 规范中供未来实现。
 
 请求：
 
@@ -551,28 +585,6 @@ type RepeatSessionInput = {
 ```ts
 type RepeatSessionOutput = {
   newSessionId: string;
-};
-```
-
-### `send_composed_request`
-
-请求：
-
-```ts
-type SendComposedRequestInput = {
-  workspaceId: string;
-  method: string;
-  url: string;
-  headers: HeaderEntry[];
-  body?: string;
-};
-```
-
-响应：
-
-```ts
-type SendComposedRequestOutput = {
-  sessionId: string;
 };
 ```
 
