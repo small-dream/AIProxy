@@ -2,10 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   coerceAppError,
   createDefaultProxyStatus,
+  parseCertificateStatus,
+  parseCertificateInstallGuide,
   parseSessionDetail,
   normalizeStartProxyInput,
   parseSessionSummaries,
   parseProxyStatus,
+  type CertificateInstallGuide,
+  type CertificateStatus,
+  type GenerateRootCertificateInput,
   type ProxyStatus,
   type SessionDetail,
   type SessionSummary,
@@ -213,6 +218,92 @@ export async function disableSystemProxy(): Promise<ProxyStatus> {
     return status;
   } catch (error) {
     reportCommandFailure("disable_system_proxy", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function getCertificateStatus(): Promise<CertificateStatus> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "get_certificate_status_bypassed_non_tauri_runtime");
+    return { trusted: false, platform: "windows" };
+  }
+
+  try {
+    logDevInfo("ui.commands", "get_certificate_status_requested");
+    const payload = await invoke<unknown>("get_certificate_status");
+    const status = parseCertificateStatus(payload);
+
+    logDevDebug("ui.commands", "get_certificate_status_succeeded", {
+      trusted: status.trusted,
+      platform: status.platform,
+    });
+
+    return status;
+  } catch (error) {
+    reportCommandFailure("get_certificate_status", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function generateRootCertificate(
+  input?: GenerateRootCertificateInput,
+): Promise<CertificateStatus> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "generate_root_certificate_bypassed_non_tauri_runtime");
+    return {
+      trusted: false,
+      platform: "windows",
+      certPath: "/tmp/pharles-test-cert.pem",
+      fingerprint: "AA:BB:CC:DD",
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "generate_root_certificate_requested");
+    const payload = await invoke<unknown>("generate_root_certificate", {
+      input: { forceRegenerate: input?.forceRegenerate ?? false },
+    });
+    const status = parseCertificateStatus(payload);
+
+    logDevInfo("ui.commands", "generate_root_certificate_succeeded", {
+      trusted: status.trusted,
+      fingerprint: status.fingerprint,
+    });
+
+    return status;
+  } catch (error) {
+    reportCommandFailure("generate_root_certificate", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function openCertificateInstallGuide(): Promise<CertificateInstallGuide> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "open_certificate_install_guide_bypassed_non_tauri_runtime");
+    return {
+      success: true,
+      certPath: "/tmp/pharles-test-cert.pem",
+      platform: "windows",
+      steps: [
+        { order: 1, description: "Open Certificate Manager" },
+        { order: 2, description: "Import the certificate" },
+      ],
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "open_certificate_install_guide_requested");
+    const payload = await invoke<unknown>("open_certificate_install_guide");
+    const guide = parseCertificateInstallGuide(payload);
+
+    logDevInfo("ui.commands", "open_certificate_install_guide_succeeded", {
+      platform: guide.platform,
+      stepCount: guide.steps.length,
+    });
+
+    return guide;
+  } catch (error) {
+    reportCommandFailure("open_certificate_install_guide", error);
     throw coerceAppError(error);
   }
 }

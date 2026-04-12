@@ -138,6 +138,19 @@ pub struct StartedProxyServer {
     pub session_receiver: mpsc::UnboundedReceiver<ProxySessionDetail>,
 }
 
+/// TLS manager for HTTPS MITM interception.
+pub struct TlsManager {
+    pub root_ca: pharles_tls_manager::RootCaPair,
+    pub storage: Arc<pharles_tls_manager::CertStorage>,
+    pub server_config: Arc<tokio_rustls::rustls::ServerConfig>,
+}
+
+impl std::fmt::Debug for TlsManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsManager").finish()
+    }
+}
+
 #[derive(Debug)]
 struct ParsedProxyRequest {
     body: Vec<u8>,
@@ -161,7 +174,10 @@ struct UpstreamResponse {
     waiting_ms: u128,
 }
 
-pub async fn start_proxy_server(config: ProxyRuntimeConfig) -> Result<StartedProxyServer, String> {
+pub async fn start_proxy_server(
+    config: ProxyRuntimeConfig,
+    tls_manager: Option<Arc<TlsManager>>,
+) -> Result<StartedProxyServer, String> {
     config.validate().map_err(str::to_string)?;
 
     let listener = TcpListener::bind(("127.0.0.1", config.port))
@@ -207,9 +223,10 @@ pub async fn start_proxy_server(config: ProxyRuntimeConfig) -> Result<StartedPro
                         Ok((stream, client_addr)) => {
                             let client = Arc::clone(&client);
                             let session_sender = session_sender.clone();
+                            let tls_manager = tls_manager.clone();
 
                             tokio::spawn(async move {
-                                if let Err(error) = handle_connection(stream, client_addr, client, session_sender).await {
+                                if let Err(error) = handle_connection(stream, client_addr, client, session_sender, tls_manager).await {
                                     emit_log(
                                         "ERROR",
                                         "connection_failed",
@@ -250,6 +267,7 @@ async fn handle_connection(
     client_addr: SocketAddr,
     client: Arc<Client>,
     session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
+    tls_manager: Option<Arc<TlsManager>>,
 ) -> Result<(), String> {
     let started_at = Utc::now();
     let started_at_instant = Instant::now();
@@ -278,43 +296,29 @@ async fn handle_connection(
     };
 
     if request.method == Method::CONNECT {
-        let response_message = "HTTPS CONNECT tunneling is not available in P0-1.";
+        let host = request.host.clone();
+        let port: u16 = request.path.parse().unwrap_or(443);
 
-        write_plain_text_response(
-            &mut stream,
-            StatusCode::NOT_IMPLEMENTED,
-            response_message,
-        )
-        .await?;
-
-        let detail = build_session_detail(
-            &request,
-            StatusCode::NOT_IMPLEMENTED.as_u16(),
-            &HeaderMap::new(),
-            response_message.as_bytes(),
-            started_at,
-            started_at_instant,
-            ProxyTimingBreakdown {
-                connect_ms: None,
-                dns_ms: None,
-                request_send_ms: Some(0),
-                response_read_ms: Some(0),
-                tls_ms: None,
-                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                waiting_ms: Some(0),
-            },
-        );
-        let _ = session_sender.send(detail);
-        emit_log(
-            "WARN",
-            "connect_request_rejected",
-            &[
-                ("client_addr", client_addr.to_string()),
-                ("url", request.url.to_string()),
-            ],
-        );
-
-        return Ok(());
+        match tls_manager {
+            None => {
+                // No TLS manager — blind tunnel (no decryption)
+                return tunnel_blind_relay(stream, &host, port).await;
+            }
+            Some(mgr) => {
+                // MITM: TLS terminate, capture, forward
+                return handle_connect_mitm(
+                    stream,
+                    host,
+                    port,
+                    mgr,
+                    client,
+                    session_sender,
+                    started_at,
+                    started_at_instant,
+                )
+                .await;
+            }
+        }
     }
 
     match forward_request(&client, &request).await {
@@ -505,7 +509,206 @@ async fn forward_request(
     })
 }
 
+/// Blind TCP relay for CONNECT when SSL interception is disabled.
+async fn tunnel_blind_relay(
+    mut client_stream: TcpStream,
+    host: &str,
+    port: u16,
+) -> Result<(), String> {
+    // Send 200 Connection Established
+    client_stream
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        .await
+        .map_err(map_io_error)?;
+
+    let mut upstream = TcpStream::connect((host, port))
+        .await
+        .map_err(|e| format!("failed to connect to upstream {host}:{port}: {e}"))?;
+
+    // Bidirectional copy
+    let (mut cr, mut cw) = client_stream.split();
+    let (mut ur, mut uw) = upstream.split();
+
+    let client_to_upstream = tokio::io::copy(&mut cr, &mut uw);
+    let upstream_to_client = tokio::io::copy(&mut ur, &mut cw);
+
+    tokio::select! {
+        r = client_to_upstream => {
+            if let Err(e) = r {
+                emit_log("WARN", "tunnel_client_to_upstream_error", &[("error", e.to_string())]);
+            }
+        }
+        r = upstream_to_client => {
+            if let Err(e) = r {
+                emit_log("WARN", "tunnel_upstream_to_client_error", &[("error", e.to_string())]);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// HTTPS MITM: terminate TLS, capture decrypted traffic, forward upstream.
+async fn handle_connect_mitm(
+    mut stream: TcpStream,
+    host: String,
+    port: u16,
+    tls_manager: Arc<TlsManager>,
+    client: Arc<Client>,
+    session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<(), String> {
+    // Send 200 Connection Established
+    stream
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        .await
+        .map_err(map_io_error)?;
+
+    // TLS handshake
+    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
+    let tls_stream = tls_acceptor
+        .accept(stream)
+        .await
+        .map_err(|e| format!("TLS handshake failed for {host}:{port}: {e}"))?;
+
+    let tls_instant = Instant::now();
+    let mut tls_stream = tls_stream;
+
+    // Read the decrypted HTTP request from the TLS stream
+    let request = match read_proxy_request_from_stream(&mut tls_stream).await {
+        Ok(r) => r,
+        Err(error) => {
+            emit_log(
+                "WARN",
+                "tls_request_parse_failed",
+                &[
+                    ("host", host.clone()),
+                    ("error", error),
+                ],
+            );
+            return Ok(());
+        }
+    };
+
+    let tls_ms = tls_instant.elapsed().as_millis();
+
+    // Rewrite URL to https://
+    let https_url = if request.url.scheme() == "http" {
+        let mut https = format!("https://{host}:{port}");
+        if !request.path.is_empty() && request.path != "/" {
+            https.push_str(&request.path);
+        } else {
+            https.push('/');
+        }
+        https
+    } else {
+        request.url.to_string()
+    };
+
+    // Build a modified request for HTTPS upstream
+    let https_request = ParsedProxyRequest {
+        protocol: "https".to_string(),
+        url: Url::parse(&https_url)
+            .map_err(|e| format!("invalid https URL {https_url}: {e}"))?,
+        ..request
+    };
+
+    // Forward upstream
+    match forward_request(&client, &https_request).await {
+        Ok(upstream_response) => {
+            write_upstream_response(
+                &mut tls_stream,
+                upstream_response.status_code,
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+                .await?;
+
+            let detail = build_session_detail(
+                &https_request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+                started_at,
+                started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: Some(0),
+                    response_read_ms: Some(upstream_response.response_read_ms),
+                    tls_ms: Some(tls_ms),
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(upstream_response.waiting_ms),
+                },
+            );
+
+            let _ = session_sender.send(detail);
+
+            emit_log(
+                "INFO",
+                "https_request_forwarded",
+                &[
+                    ("host", host.clone()),
+                    ("method", https_request.method.to_string()),
+                    ("status_code", upstream_response.status_code.as_u16().to_string()),
+                    ("url", https_url),
+                ],
+            );
+
+            Ok(())
+        }
+        Err(error) => {
+            let response_message = "The proxy could not reach the upstream HTTPS server.";
+
+            write_plain_text_response(
+                &mut tls_stream,
+                StatusCode::BAD_GATEWAY,
+                response_message,
+            )
+            .await?;
+
+            let detail = build_session_detail(
+                &https_request,
+                StatusCode::BAD_GATEWAY.as_u16(),
+                &HeaderMap::new(),
+                response_message.as_bytes(),
+                started_at,
+                started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: Some(0),
+                    response_read_ms: Some(0),
+                    tls_ms: Some(tls_ms),
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                },
+            );
+            let _ = session_sender.send(detail);
+
+            emit_log(
+                "ERROR",
+                "https_upstream_request_failed",
+                &[
+                    ("host", host.clone()),
+                    ("url", https_url),
+                    ("error", error.clone()),
+                ],
+            );
+
+            Err(format!("upstream HTTPS request failed: {error}"))
+        }
+    }
+}
+
 async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest, String> {
+    read_proxy_request_from_stream(stream).await
+}
+
+async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    stream: &mut S,
+) -> Result<ParsedProxyRequest, String> {
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
@@ -897,8 +1100,8 @@ fn build_session_summary(
     }
 }
 
-async fn write_upstream_response(
-    stream: &mut TcpStream,
+async fn write_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    stream: &mut S,
     status_code: StatusCode,
     headers: &HeaderMap,
     body: &[u8],
@@ -938,8 +1141,8 @@ async fn write_upstream_response(
     Ok(())
 }
 
-async fn write_plain_text_response(
-    stream: &mut TcpStream,
+async fn write_plain_text_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    stream: &mut S,
     status_code: StatusCode,
     message: &str,
 ) -> Result<(), String> {
@@ -1060,7 +1263,7 @@ mod tests {
         let mut started_proxy = start_proxy_server(ProxyRuntimeConfig {
             port: proxy_port,
             ssl_enabled: false,
-        })
+        }, None)
         .await
         .unwrap();
 

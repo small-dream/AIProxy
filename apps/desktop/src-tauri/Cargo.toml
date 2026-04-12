@@ -16,6 +16,7 @@ pharles-session-store = { path = "../../../crates/session-store" }
 pharles-throttle-engine = { path = "../../../crates/throttle-engine" }
 pharles-tls-manager = { path = "../../../crates/tls-manager" }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tokio = { version = "1", features = ["sync"] }

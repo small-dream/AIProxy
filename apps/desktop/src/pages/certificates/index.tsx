@@ -1,8 +1,33 @@
 import { Stack, Typography } from "@mui/material";
 
-import { SectionCard } from "@/components/shared/SectionCard";
+import {
+  useCertificateStatus,
+  useGenerateRootCertificate,
+  useOpenCertificateInstallGuide,
+} from "@/features/certificate-center/use-certificate-status";
+
+import { CertificateStatusCard } from "./CertificateStatusCard";
+import { CertificateActions } from "./CertificateActions";
+import { PlatformGuideTabs } from "./PlatformGuideTabs";
+import { CertificateRiskNotes } from "./CertificateRiskNotes";
 
 export function CertificatesPage() {
+  const { data: status, isLoading, refetch } = useCertificateStatus();
+  const generateMutation = useGenerateRootCertificate();
+  const guideMutation = useOpenCertificateInstallGuide();
+
+  const handleGenerate = () => {
+    generateMutation.mutate(undefined, {
+      onSuccess: () => {
+        refetch();
+      },
+    });
+  };
+
+  const handleRefresh = () => {
+    refetch();
+  };
+
   return (
     <Stack spacing={3}>
       <Stack spacing={0.75}>
@@ -12,15 +37,19 @@ export function CertificatesPage() {
         </Typography>
       </Stack>
 
-      <SectionCard
-        description="Platform-specific trust guidance and root certificate state will be wired to the TLS manager."
-        title="Certificate Center"
-      >
-        <Typography color="text.secondary" variant="body2">
-          The next milestone will connect this page to root certificate generation, trust detection, and troubleshooting.
-        </Typography>
-      </SectionCard>
+      <CertificateStatusCard status={status} loading={isLoading} />
+
+      <CertificateActions
+        status={status}
+        generating={generateMutation.isPending}
+        loading={isLoading}
+        onGenerate={handleGenerate}
+        onRefresh={handleRefresh}
+      />
+
+      <PlatformGuideTabs currentPlatform={status?.platform ?? "windows"} />
+
+      <CertificateRiskNotes />
     </Stack>
   );
 }
-

@@ -7,3 +7,15 @@ version.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = true, features = ["clock"] }
+dirs = "6"
+rcgen = { version = "0.13", features = ["x509-parser"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1", features = ["derive"] }
+sha1 = "0.10"
+sha2 = "0.10"
+thiserror = "2"
+x509-parser = "0.16"
+

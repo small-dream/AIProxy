@@ -1,4 +1,4 @@
-use pharles_proxy_core::{ProxyServerHandle, ProxySessionDetail, ProxySessionSummary};
+use pharles_proxy_core::{ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, TlsManager};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -7,6 +7,16 @@ use std::{
 use tauri::async_runtime::JoinHandle;
 
 use crate::system_proxy::SystemProxySnapshot;
+
+/// Snapshot of the certificate state for the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateStateSnapshot {
+    pub cert_path: Option<String>,
+    pub fingerprint: Option<String>,
+    pub trusted: bool,
+    pub platform: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +55,8 @@ pub struct AppState {
     sessions: Arc<Mutex<Vec<ProxySessionSummary>>>,
     status: Mutex<BootstrapStatus>,
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
+    tls_manager: Mutex<Option<Arc<TlsManager>>>,
+    cert_status_cache: Mutex<Option<CertificateStateSnapshot>>,
 }
 
 impl AppState {
@@ -55,6 +67,8 @@ impl AppState {
             sessions: Arc::new(Mutex::new(Vec::new())),
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
+            tls_manager: Mutex::new(None),
+            cert_status_cache: Mutex::new(None),
         }
     }
 
@@ -201,5 +215,42 @@ impl AppState {
         status.system_proxy_enabled = enabled;
 
         status.clone()
+    }
+
+    pub fn set_tls_manager(&self, manager: Arc<TlsManager>) {
+        let mut tls = self
+            .tls_manager
+            .lock()
+            .expect("tls_manager mutex should not be poisoned");
+        *tls = Some(manager);
+    }
+
+    pub fn take_tls_manager(&self) -> Option<Arc<TlsManager>> {
+        self.tls_manager
+            .lock()
+            .expect("tls_manager mutex should not be poisoned")
+            .take()
+    }
+
+    pub fn read_tls_manager(&self) -> Option<Arc<TlsManager>> {
+        self.tls_manager
+            .lock()
+            .expect("tls_manager mutex should not be poisoned")
+            .clone()
+    }
+
+    pub fn read_cert_status(&self) -> Option<CertificateStateSnapshot> {
+        self.cert_status_cache
+            .lock()
+            .expect("cert_status mutex should not be poisoned")
+            .clone()
+    }
+
+    pub fn update_cert_status(&self, status: CertificateStateSnapshot) {
+        let mut cache = self
+            .cert_status_cache
+            .lock()
+            .expect("cert_status mutex should not be poisoned");
+        *cache = Some(status);
     }
 }

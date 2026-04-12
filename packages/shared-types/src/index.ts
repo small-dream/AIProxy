@@ -87,6 +87,24 @@ export type StopProxyInput = {
   workspaceId: string;
 };
 
+export type CertificateStatus = {
+  certPath?: string;
+  fingerprint?: string;
+  trusted: boolean;
+  platform: "windows" | "macos" | "linux";
+};
+
+export type GenerateRootCertificateInput = {
+  forceRegenerate?: boolean;
+};
+
+export type CertificateInstallGuide = {
+  success: boolean;
+  certPath: string;
+  platform: string;
+  steps: Array<{ order: number; description: string }>;
+};
+
 export const DEFAULT_WORKSPACE_ID = "default";
 export const DEFAULT_PROXY_PORT = 8888;
 
@@ -447,5 +465,58 @@ function normalizeTimingBreakdown(timing: TimingBreakdown & {
     ...(timing.tlsMs !== null && timing.tlsMs !== undefined ? { tlsMs: timing.tlsMs } : {}),
     ...(timing.totalMs !== null && timing.totalMs !== undefined ? { totalMs: timing.totalMs } : {}),
     ...(timing.waitingMs !== null && timing.waitingMs !== undefined ? { waitingMs: timing.waitingMs } : {}),
+  };
+}
+
+export function isCertificateStatus(value: unknown): value is CertificateStatus {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<CertificateStatus> & {
+    certPath?: string | null;
+    fingerprint?: string | null;
+  };
+  if (typeof candidate.trusted !== "boolean") return false;
+  if (typeof candidate.platform !== "string") return false;
+  if (!["windows", "macos", "linux"].includes(candidate.platform)) return false;
+  return true;
+}
+
+export function parseCertificateStatus(value: unknown): CertificateStatus {
+  if (!isCertificateStatus(value)) {
+    throw coerceAppError(value);
+  }
+  const candidate = value as CertificateStatus & {
+    certPath?: string | null;
+    fingerprint?: string | null;
+  };
+  return {
+    trusted: candidate.trusted,
+    platform: candidate.platform,
+    ...(candidate.certPath !== null && candidate.certPath !== undefined
+      ? { certPath: candidate.certPath }
+      : {}),
+    ...(candidate.fingerprint !== null && candidate.fingerprint !== undefined
+      ? { fingerprint: candidate.fingerprint }
+      : {}),
+  };
+}
+
+export function isCertificateInstallGuide(value: unknown): value is CertificateInstallGuide {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<CertificateInstallGuide>;
+  return typeof candidate.success === "boolean" && Array.isArray(candidate.steps);
+}
+
+export function parseCertificateInstallGuide(value: unknown): CertificateInstallGuide {
+  if (!isCertificateInstallGuide(value)) {
+    throw coerceAppError(value);
+  }
+  return value as CertificateInstallGuide;
+}
+
+export function normalizeGenerateRootCertificateInput(
+  input?: GenerateRootCertificateInput,
+): GenerateRootCertificateInput {
+  return {
+    forceRegenerate: input?.forceRegenerate ?? false,
   };
 }
