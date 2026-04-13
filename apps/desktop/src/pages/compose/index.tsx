@@ -74,6 +74,7 @@ export function ComposePage() {
   const responseDetail = sendMutation.data;
   const [responseTab, setResponseTab] = useState<"overview" | "headers" | "json" | "jsonText" | "raw" | "timing">("overview");
   const [searchValue, setSearchValue] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(COMPOSE_SPLIT_DEFAULT);
   const dragFrameRef = useRef<number | null>(null);
@@ -520,55 +521,54 @@ export function ComposePage() {
             </Box>
           ) : responseDetail ? (
             <>
-              <Tabs
-                onChange={(_, value) => setResponseTab(value)}
-                sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
-                TabIndicatorProps={{ sx: { height: 2 } }}
-                value={responseTab}
-                variant="scrollable"
-                scrollButtons="auto"
-              >
-                <Tab label={t("composePage.tabs.overview")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="overview" />
-                <Tab label={`${t("composePage.tabs.headers")} (${responseDetail.responseHeaders.length})`} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="headers" />
-                <Tab label="JSON" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="json" />
-                <Tab label="JSON Text" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="jsonText" />
-                <Tab label="Raw" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="raw" />
-                <Tab label={t("composePage.tabs.timing")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="timing" />
-              </Tabs>
-              {showSearch && (
+              <Box sx={{ display: "flex", alignItems: "center", borderBottom: 1, borderColor: "divider", flexShrink: 0 }}>
+                <Tabs
+                  onChange={(_, value) => setResponseTab(value)}
+                  sx={{ minHeight: 32, flex: 1 }}
+                  TabIndicatorProps={{ sx: { height: 2 } }}
+                  value={responseTab}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                >
+                  <Tab label={t("composePage.tabs.overview")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="overview" />
+                  <Tab label={`${t("composePage.tabs.headers")} (${responseDetail.responseHeaders.length})`} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="headers" />
+                  <Tab label="JSON" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="json" />
+                  <Tab label="JSON Text" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="jsonText" />
+                  <Tab label="Raw" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="raw" />
+                  <Tab label={t("composePage.tabs.timing")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="timing" />
+                </Tabs>
+                <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0, gap: 0.25, pr: 1 }}>
+                  {showSearch && (
+                    <>
+                      <IconButton
+                        size="small"
+                        disableRipple
+                        title={t("inspector.response.jsonSearchPlaceholder")}
+                        onClick={() => setSearchOpen((v) => !v)}
+                        color={searchOpen ? "primary" : "default"}
+                      >
+                        <SearchRoundedIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        disableRipple
+                        title={t("composePage.copyResponse")}
+                        onClick={() => { navigator.clipboard.writeText(responseBodyText ?? ""); setSnackbarOpen(true); }}
+                        disabled={!responseBodyText}
+                      >
+                        <ContentCopyRoundedIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </>
+                  )}
+                </Box>
+              </Box>
+              {showSearch && searchOpen && (
                 <Box sx={{ flexShrink: 0, px: 1, py: 0.5 }}>
                   <OutlinedInput
+                    autoFocus
                     fullWidth
                     placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
                     size="small"
-                    startAdornment={
-                      <InputAdornment position="start" sx={{ mr: 0 }}>
-                        <SearchRoundedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-                      </InputAdornment>
-                    }
-                    endAdornment={
-                      <InputAdornment position="end" sx={{ ml: 0, gap: 0 }}>
-                        <Box component="span" sx={{ visibility: searchValue ? "visible" : "hidden" }}>
-                          <IconButton size="small" sx={{ p: 0.25 }} tabIndex={-1} disableRipple disabled>
-                            <KeyboardArrowUpRoundedIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                          <IconButton size="small" sx={{ p: 0.25 }} tabIndex={-1} disableRipple disabled>
-                            <KeyboardArrowDownRoundedIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </Box>
-                        <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
-                        <IconButton
-                          size="small"
-                          sx={{ p: 0.25 }}
-                          disableRipple
-                          title={t("composePage.copyResponse")}
-                          onClick={() => { navigator.clipboard.writeText(responseBodyText ?? ""); setSnackbarOpen(true); }}
-                          disabled={!responseBodyText}
-                        >
-                          <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </InputAdornment>
-                    }
                     sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
