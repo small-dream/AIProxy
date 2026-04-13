@@ -29,6 +29,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
+import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
 import {
   getSessionLeafLabel,
   getSessionQuerySuffix,
@@ -71,7 +72,7 @@ export function SessionExplorerPane({
         border: 1,
         borderColor: "divider",
         borderRadius: `${radiusTokens.card}px`,
-        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
@@ -109,9 +110,9 @@ export function SessionExplorerPane({
             <Box
               sx={{
                 alignItems: "center",
-                bgcolor: alpha("#2962FF", 0.08),
+                bgcolor: "action.selected",
                 border: "1px solid",
-                borderColor: alpha("#2962FF", 0.14),
+                borderColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
                 borderRadius: "50%",
                 color: "primary.main",
                 display: "flex",
@@ -222,7 +223,7 @@ function HostRow({ expanded, group, onToggle }: HostRowProps) {
         py: 0.375,
         transition: "background-color 1800ms ease, box-shadow 140ms ease",
         "&:hover": {
-          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
       })}
     >
@@ -283,7 +284,7 @@ function SessionTreeNode({
           py: 0.25,
           transition: "background-color 140ms ease, box-shadow 140ms ease",
           "&:hover": {
-            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+            boxShadow: (theme) => getHoverShadow(theme.palette.mode),
           },
         }}
       >
@@ -342,11 +343,11 @@ function SessionLeafNode({ depth, getResourceTooltip, onClick, selected, session
         py: 0.375,
         transition: "background-color 140ms ease, box-shadow 140ms ease",
         "&:hover": {
-          boxShadow: selected ? "0 1px 3px rgba(0,0,0,0.08)" : "0 1px 2px rgba(15, 23, 42, 0.05)",
+          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
         "&.Mui-selected": {
           bgcolor: "action.selected",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
       }}
     >

@@ -134,7 +134,9 @@ export const zhCNMessages: Messages = {
   settingsPage: {
     description: "管理适用于所有工作区的全局应用偏好。",
     effectiveLanguage: "当前界面语言：{{language}}",
+    effectiveTheme: "当前界面主题：{{theme}}",
     followSystemHint: "跟随系统语言时，会根据当前桌面环境自动解析显示语言。",
+    followSystemThemeHint: "跟随系统外观时，会根据当前桌面设置自动切换浅色或暗黑主题。",
     languageDescription: "选择 Pharles 跟随系统语言，或者固定使用某一种界面语言。",
     languageLabel: "显示语言",
     languageSectionDescription: "语言偏好属于应用级设置，不跟随工作区数据变化。",
@@ -142,6 +144,13 @@ export const zhCNMessages: Messages = {
     languageOptionEn: "English",
     languageOptionSystem: "跟随系统",
     languageOptionZhCN: "简体中文",
+    themeDescription: "选择 Pharles 跟随系统外观，或者固定使用浅色或暗黑主题。",
+    themeLabel: "界面主题",
+    themeOptionDark: "暗黑",
+    themeOptionLight: "浅色",
+    themeOptionSystem: "跟随系统",
+    themeSectionDescription: "主题偏好会作用于整个桌面工作台，并统一更新应用框架、面板和数据视图。",
+    themeSectionTitle: "外观",
     title: "设置",
   },
   composePage: {

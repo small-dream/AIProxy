@@ -1,6 +1,6 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Alert, Box, Button, CircularProgress, Divider, MenuItem, OutlinedInput, Paper, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Divider, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
 import { useState } from "react";
 
 import { SectionCard } from "@/components/shared/SectionCard";

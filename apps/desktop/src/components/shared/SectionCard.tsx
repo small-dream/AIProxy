@@ -2,6 +2,8 @@ import type { PropsWithChildren, ReactNode } from "react";
 import { Card, CardContent, Stack, Typography } from "@mui/material";
 import { radiusTokens } from "@pharles/ui-tokens";
 
+import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
+
 type SectionCardProps = PropsWithChildren<{
   description?: string;
   title: string;
@@ -16,11 +18,11 @@ export function SectionCard({ children, description, title, toolbar }: SectionCa
         border: 1,
         borderColor: "divider",
         borderRadius: `${radiusTokens.card}px`,
-        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
         height: "100%",
         transition: "box-shadow 160ms ease, transform 160ms ease",
         "&:hover": {
-          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
           transform: "translateY(-1px)",
         },
       }}

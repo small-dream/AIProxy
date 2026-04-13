@@ -3,6 +3,8 @@ import { radiusTokens } from "@pharles/ui-tokens";
 import { useMemo } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
+import { useI18n } from "@/i18n";
+import { getSurfaceShadow } from "@/themes/app-theme";
 import { SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
 import { SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
@@ -14,7 +16,6 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
-import { useI18n } from "@/i18n";
 
 type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
@@ -93,7 +94,7 @@ export function SessionInspectorWorkspace({
           border: 1,
           borderColor: "divider",
           borderRadius: `${radiusTokens.card}px`,
-          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+          boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
           display: "flex",
           minHeight: 0,
         }}
@@ -116,7 +117,7 @@ export function SessionInspectorWorkspace({
         border: 1,
         borderColor: "divider",
         borderRadius: `${radiusTokens.card}px`,
-        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
         display: "flex",
         flexDirection: "column",
         minHeight: 0,

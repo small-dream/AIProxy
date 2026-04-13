@@ -1,9 +1,11 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, IconButton, Tooltip, Typography } from "@mui/material";
+import { Box, IconButton, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
+import { getSyntaxColors } from "@/themes/app-theme";
 import {
   formatJsonPrimitive,
   getJsonValueType,
@@ -174,20 +176,22 @@ function JsonTreeNode({
     : [];
   const children = isJsonObject(value) ? objectEntries : arrayEntries;
   const hasChildren = children.length > 0;
+  const theme = useTheme();
+  const syntaxColors = getSyntaxColors(theme.palette.mode);
 
   const isExpanded = expandedPaths.has(path) || autoExpandedPaths.has(path);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
   const rowType = getJsonValueType(value, typeLabels);
   const displayName = path === "root" ? rootLabel : name ?? "";
-  const nameColor = path === "root" ? "text.primary" : hasChildren ? "#795e26" : "#001080";
-  const typeColor = hasChildren ? "text.secondary" : "#6f42c1";
+  const nameColor = path === "root" ? "text.primary" : hasChildren ? syntaxColors.property : theme.palette.primary.main;
+  const typeColor = hasChildren ? "text.secondary" : syntaxColors.type;
   const valueColor =
     typeof value === "string"
-      ? "#a31515"
+      ? syntaxColors.value
       : typeof value === "number"
-        ? "#098658"
+        ? syntaxColors.number
         : typeof value === "boolean" || value === null
-          ? "#0000ff"
+          ? syntaxColors.boolean
           : "text.primary";
 
   return (

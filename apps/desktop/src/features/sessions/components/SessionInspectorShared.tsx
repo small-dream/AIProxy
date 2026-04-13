@@ -2,10 +2,12 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { Fragment, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
+import { getSyntaxColors } from "@/themes/app-theme";
 import { getMethodColor, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 export function InspectorSummaryBar({
@@ -329,6 +331,10 @@ export function SearchableCodeBlock({
   language?: "json" | "plain";
   searchQuery: string;
 }) {
+  const theme = useTheme();
+  const syntaxColors = getSyntaxColors(theme.palette.mode);
+  const jsonTokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
+
   return (
     <Box
       component="pre"
@@ -346,25 +352,22 @@ export function SearchableCodeBlock({
         wordBreak: "break-word",
       }}
     >
-      {language === "json" ? renderJsonSyntaxHighlightedText(code, searchQuery) : renderHighlightedText(code, searchQuery)}
+      {language === "json"
+        ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, searchQuery)
+        : renderHighlightedText(code, searchQuery)}
     </Box>
   );
 }
 
-export function renderJsonSyntaxHighlightedText(text: string, searchQuery?: string) {
-  const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+export function renderJsonSyntaxHighlightedText(
+  text: string,
+  tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string },
+  searchQuery?: string,
+) {
+  const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
   const segments: React.ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
-
-  const tokenColors = {
-    boolean: "#0000ff",
-    key: "#a31515",
-    null: "#0000ff",
-    number: "#098658",
-    punctuation: "text.primary",
-    string: "#0451a5",
-  } as const;
 
   for (const match of text.matchAll(tokenPattern)) {
     const matchedText = match[0];

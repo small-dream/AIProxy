@@ -132,7 +132,9 @@ export const enMessages = {
   settingsPage: {
     description: "Manage application-wide preferences that apply across all workspaces.",
     effectiveLanguage: "Current interface language: {{language}}",
+    effectiveTheme: "Current appearance theme: {{theme}}",
     followSystemHint: "Following system language will resolve automatically from the current desktop environment.",
+    followSystemThemeHint: "Following system appearance will switch automatically between light and dark based on your desktop setting.",
     languageDescription: "Choose whether Pharles follows the system language or uses a fixed interface language.",
     languageLabel: "Display Language",
     languageSectionDescription: "Language preference is stored at the application level and is independent from workspace data.",
@@ -140,6 +142,13 @@ export const enMessages = {
     languageOptionEn: "English",
     languageOptionSystem: "Follow System",
     languageOptionZhCN: "简体中文",
+    themeDescription: "Choose whether Pharles follows the system appearance or uses a fixed light or dark theme.",
+    themeLabel: "Appearance Theme",
+    themeOptionDark: "Dark",
+    themeOptionLight: "Light",
+    themeOptionSystem: "Follow System",
+    themeSectionDescription: "Theme preference applies across the desktop workspace and updates chrome, panels, and data views together.",
+    themeSectionTitle: "Appearance",
     title: "Settings",
   },
   composePage: {

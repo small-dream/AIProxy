@@ -2,15 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0"
     />
     <title>Pharles</title>
+    <script>
+      (() => {
+        const storageKey = "pharles.app-preferences";
+        const lightBackground = "#F7F9FC";
+        const darkBackground = "#121212";
+        let themePreference = "system";
+
+        try {
+          const raw = window.localStorage.getItem(storageKey);
+          const parsed = raw ? JSON.parse(raw) : null;
+          themePreference = parsed?.state?.themePreference ?? "system";
+        } catch {
+          themePreference = "system";
+        }
+
+        const systemPrefersDark =
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolvedTheme =
+          themePreference === "light" || themePreference === "dark"
+            ? themePreference
+            : systemPrefersDark
+              ? "dark"
+              : "light";
+        const backgroundColor = resolvedTheme === "dark" ? darkBackground : lightBackground;
+
+        document.documentElement.dataset.colorScheme = resolvedTheme;
+        document.documentElement.style.colorScheme = resolvedTheme;
+        document.documentElement.style.backgroundColor = backgroundColor;
+        document.documentElement.style.height = "100%";
+
+        const applyBodyStyles = () => {
+          if (!document.body) {
+            return;
+          }
+
+          document.body.style.backgroundColor = backgroundColor;
+          document.body.style.margin = "0";
+          document.body.style.minHeight = "100%";
+        };
+
+        if (document.body) {
+          applyBodyStyles();
+        } else {
+          document.addEventListener("DOMContentLoaded", applyBodyStyles, { once: true });
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
   </html>
-

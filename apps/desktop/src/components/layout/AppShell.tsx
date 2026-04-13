@@ -34,7 +34,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -54,6 +53,7 @@ import {
 } from "@/features/proxy-status/use-proxy-status";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
+import { getSurfaceShadow } from "@/themes/app-theme";
 
 const NAVIGATION_WIDTH = 228;
 
@@ -136,7 +136,7 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
         textAlign: "left",
         transition: "background-color 140ms ease, color 140ms ease",
         "&:hover": {
-          bgcolor: alpha("#2962FF", 0.08),
+          bgcolor: "action.selected",
         },
         "&:focus-visible": {
           outline: "2px solid",
@@ -471,14 +471,14 @@ export function AppShell() {
                       transition: "color 160ms ease",
                     },
                     "&.Mui-selected": {
-                      backgroundColor: alpha("#2962FF", 0.08),
+                      backgroundColor: "action.selected",
                     },
                     "&.Mui-selected:hover": {
-                      backgroundColor: alpha("#2962FF", 0.12),
+                      backgroundColor: "action.focus",
                     },
                     "&:hover": {
                       backgroundColor: "action.hover",
-                      boxShadow: "0 1px 2px rgba(23, 32, 42, 0.08)",
+                      boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
                       transform: "translateX(1px)",
                     },
                   }}
@@ -536,14 +536,14 @@ export function AppShell() {
                       transition: "color 160ms ease",
                     },
                     "&.Mui-selected": {
-                      backgroundColor: alpha("#2962FF", 0.08),
+                      backgroundColor: "action.selected",
                     },
                     "&.Mui-selected:hover": {
-                      backgroundColor: alpha("#2962FF", 0.12),
+                      backgroundColor: "action.focus",
                     },
                     "&:hover": {
                       backgroundColor: "action.hover",
-                      boxShadow: "0 1px 2px rgba(23, 32, 42, 0.08)",
+                      boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
                       transform: "translateX(1px)",
                     },
                   }}
@@ -592,14 +592,14 @@ export function AppShell() {
                     fontWeight: location.pathname.startsWith(settingsItem.to) ? 600 : 500,
                   },
                   "&.Mui-selected": {
-                    backgroundColor: alpha("#2962FF", 0.08),
+                    backgroundColor: "action.selected",
                   },
                   "&.Mui-selected:hover": {
-                    backgroundColor: alpha("#2962FF", 0.12),
+                    backgroundColor: "action.focus",
                   },
                   "&:hover": {
                     backgroundColor: "action.hover",
-                    boxShadow: "0 1px 2px rgba(23, 32, 42, 0.08)",
+                    boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
                     transform: "translateX(1px)",
                   },
                 }}

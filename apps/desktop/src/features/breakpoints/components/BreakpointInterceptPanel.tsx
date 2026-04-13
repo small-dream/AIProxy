@@ -5,7 +5,7 @@ import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import NavigateBeforeRoundedIcon from "@mui/icons-material/NavigateBeforeRounded";
 import NavigateNextRoundedIcon from "@mui/icons-material/NavigateNextRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
-import { Box, Button, Chip, Divider, IconButton, OutlinedInput, Paper, Stack, Tab, Tabs, Typography, alpha } from "@mui/material";
+import { Box, Button, Chip, Divider, IconButton, OutlinedInput, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import type { BreakpointHit, BreakpointResolution, HeaderEntry } from "@pharles/shared-types";
 import { useCallback, useMemo, useState } from "react";
 
@@ -353,7 +353,7 @@ export function BreakpointInterceptPanel() {
       <Stack
         direction="row"
         spacing={1}
-        sx={{ px: 2, py: 1, justifyContent: "flex-end", bgcolor: alpha("#000", 0.02) }}
+        sx={{ px: 2, py: 1, justifyContent: "flex-end", bgcolor: "action.hover" }}
       >
         {isRequestStage && !mockMode && (
           <Button

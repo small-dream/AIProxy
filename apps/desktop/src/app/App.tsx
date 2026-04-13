@@ -6,9 +6,8 @@ import { AppRouter } from "./router";
 export function App() {
   return (
     <AppProviders>
-      <CssBaseline />
+      <CssBaseline enableColorScheme />
       <AppRouter />
     </AppProviders>
   );
 }
-

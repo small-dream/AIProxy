@@ -10,9 +10,6 @@ export type TranslationParams = Record<string, number | string>;
 type TranslationValue = string | readonly string[];
 
 type MessageLeaf = TranslationValue;
-type MessageTree = {
-  [key: string]: MessageLeaf | MessageTree;
-};
 
 type DotPath<T> = T extends MessageLeaf
   ? never

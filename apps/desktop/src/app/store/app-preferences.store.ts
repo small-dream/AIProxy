@@ -2,10 +2,13 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export type LanguagePreference = "en" | "system" | "zh-CN";
+export type ThemePreference = "dark" | "light" | "system";
 
 type AppPreferencesState = {
   languagePreference: LanguagePreference;
+  themePreference: ThemePreference;
   setLanguagePreference: (preference: LanguagePreference) => void;
+  setThemePreference: (preference: ThemePreference) => void;
 };
 
 const fallbackStorage = {
@@ -36,7 +39,9 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
   persist(
     (set) => ({
       languagePreference: "system",
+      themePreference: "system",
       setLanguagePreference: (languagePreference) => set({ languagePreference }),
+      setThemePreference: (themePreference) => set({ themePreference }),
     }),
     {
       name: "pharles.app-preferences",
