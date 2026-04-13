@@ -256,7 +256,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 → 用户可编辑后发送
 ```
 
-## 6. Rules Page — `断点规则管理已实现`
+## 6. Rules Page — `规则中心首版已实现`
 
 ### 6.1 页面目标
 
@@ -281,34 +281,39 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 └───────────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-### 6.3 React 组件树 — `断点规则部分已实现`
+### 6.3 React 组件树 — `规则中心首版已实现`
 
 ```text
-RulesPage (断点规则管理已实现)
+RulesPage
 ├─ PageHeader
-├─ SectionCard "Quick Breakpoint" (一键全局断点按钮)
-├─ SectionCard "Breakpoint Rules" (规则表格)
-│  ├─ Table (规则列表: 启用/URL Pattern/Methods/Stage/删除)
-│  └─ Button "Add Rule"
-├─ Dialog "Add Breakpoint Rule" (新增规则表单)
-│  ├─ OutlinedInput (URL pattern)
-│  ├─ Select (HTTP Methods, 多选)
-│  └─ Select (Stage: request/response)
-│
-│ 以下为规划中结构，尚未实现
-├─ RuleTypeSwitcher (Breakpoint / Rewrite / Map Local / Map Remote)
-├─ RulesWorkbench
-│  ├─ RuleListPane
-│  │  ├─ RuleSearchField
-│  │  ├─ CreateRuleButton
-│  │  └─ RuleList
-│  └─ RuleEditorPane
-│     ├─ RuleBasicInfoForm
-│     ├─ MatchConditionForm
-│     ├─ ActionConfigurationForm
-│     ├─ PriorityControl
-│     └─ RulePreviewPanel
-└─ BottomStatusStrip
+├─ SectionCard "Rule Center"
+│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Map Local / Map Remote)
+│  └─ ActiveWorkbench
+│     ├─ BreakpointRulesPanel
+│     │  ├─ SectionCard "Quick Breakpoint"
+│     │  ├─ SectionCard "Breakpoint Rules"
+│     │  └─ Dialog "Add Breakpoint Rule"
+│     ├─ RewriteRulesPanel
+│     │  ├─ ManagedRulesWorkbench
+│     │  │  ├─ Left Pane
+│     │  │  │  ├─ Quick Create Buttons
+│     │  │  │  ├─ Rule Search Field
+│     │  │  │  └─ ManagedRuleList
+│     │  │  └─ Right Pane
+│     │  │     ├─ SectionCard "Basic Information"
+│     │  │     ├─ MatchConditionsCard
+│     │  │     ├─ RewriteActionEditor
+│     │  │     └─ RulePreviewCard
+│     └─ MapRulesPanel (local / remote)
+│        ├─ ManagedRulesWorkbench
+│        │  ├─ Left Pane
+│        │  │  ├─ Create Rule Button
+│        │  │  ├─ Rule Search Field
+│        │  │  └─ ManagedRuleList
+│        │  └─ Right Pane
+│        │     ├─ SectionCard "Basic Information"
+│        │     ├─ SectionCard "Source & Target"
+│        │     └─ RulePreviewCard
 ```
 
 断点拦截面板（独立组件，在 AppShell 中渲染）：
@@ -322,18 +327,19 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 └─ Action Buttons (Mock Response / Drop / Forward)
 ```
 
-### 6.3.1 断点功能实现文件映射
+### 6.3.1 实现文件映射
 
 | 文件 | 职责 |
 |------|------|
 | `features/breakpoints/breakpoint.store.ts` | Zustand store，管理 pendingHits / activeHitId / rules |
 | `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` Tauri 事件的 React hook |
 | `features/breakpoints/use-breakpoint-rules.ts` | React Query hooks，调用 `listBreakpointRules` / `setBreakpointRules` |
+| `features/rules/use-rule-center.ts` | React Query hooks，管理 Rewrite / Map Local / Map Remote 的读取、保存、删除 |
 | `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器 |
-| `pages/rules/index.tsx` | Rules 页面，断点规则管理（表格 + 快捷按钮 + 新增对话框） |
+| `pages/rules/index.tsx` | Rules 页面，规则中心工作台（Tabs + 列表 + 编辑器 + 预览） |
 | `components/layout/AppShell.tsx` | 集成 BreakpointInterceptPanel 和状态栏断点计数指示器 |
 | `services/events/index.ts` | `onBreakpointHit()` Tauri 事件订阅 |
-| `services/commands/index.ts` | `listBreakpointRules` / `setBreakpointRules` / `resolveBreakpoint` 命令 |
+| `services/commands/index.ts` | `listBreakpointRules` / `resolveBreakpoint` 以及 Rewrite / Map / Throttling 的命令与本地 fallback |
 
 ### 6.4 页面状态模型
 
@@ -358,7 +364,7 @@ type RulesPageState = {
 };
 ```
 
-### 6.5 页面事件流 — `断点部分已实现`
+### 6.5 页面事件流 — `断点与规则中心首版已实现`
 
 ```text
 Rules 页面事件流：
@@ -379,13 +385,116 @@ Proxy receives request
 -> Rust resolves oneshot channel, proxy task resumes with modifications
 -> pending hit removed from store
 
-规划中的完整规则事件流：
+规则中心事件流：
 User switches rule type
--> list of rules changes
--> user selects or creates rule
--> editor loads rule model
--> save command persists rule
--> list refreshes
+-> active workbench changes
+-> left rule list + right editor both switch to the selected domain
+-> user selects or creates a rule
+-> editor loads the draft model
+-> preview card updates immediately as the draft changes
+-> save command persists the rule
+-> list refreshes and keeps the saved rule selected
+
+## 6.6 Throttling Page — `已实现`
+
+### 6.6.1 页面目标
+
+让用户能够在“快速套预设”和“精确调参数”两条路径之间自由切换。
+
+### 6.6.2 低保真线框
+
+```text
+[Throttling Page]
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Title: Throttling                                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Global Control]                                     [Global On/Off Switch] │
+├───────────────────────┬──────────────────────────────────────────────────────┤
+│ [Preset Profiles]     │ [Profile Editor]                                    │
+│ Fast 4G               │ Name                                                 │
+│ Slow 3G               │ Latency / Packet Loss                                │
+│ Lossy Wi-Fi           │ Download / Upload                                    │
+│ [Custom Profiles]     │ Note                                                 │
+│ Team Profile A        │ Enable after save                                    │
+│ ...                   │ [Preview / Validation]                               │
+└───────────────────────┴──────────────────────────────────────────────────────┘
+```
+
+### 6.6.3 React 组件树
+
+```text
+ThrottlingPage
+├─ PageHeader
+├─ SectionCard "Global Control"
+├─ Main Split Layout
+│  ├─ Left Pane
+│  │  ├─ SectionCard "Preset Profiles"
+│  │  │  ├─ Preset Profile Cards
+│  │  │  └─ New Custom Button
+│  │  └─ Custom Profile List
+│  └─ Right Pane
+│     ├─ SectionCard "Profile Editor"
+│     ├─ SectionCard "Preview & Validation"
+│     └─ Save / Save & Apply Actions
+```
+
+### 6.6.4 页面事件流
+
+```text
+User clicks a preset
+-> preset becomes selected in the left pane
+-> editor loads the preset values on the right
+-> user can apply it directly, or branch into a custom profile
+
+User creates a custom profile
+-> empty draft is created
+-> user edits bandwidth / latency / loss
+-> validation and preview update immediately
+-> save persists the profile
+-> save & apply persists then toggles global throttling on with this profile
+```
+
+## 6.7 Sessions Export Dialog — `已实现`
+
+### 6.7.1 页面目标
+
+在不离开 Sessions 工作台的前提下，让用户快速导出“当前选中 / 当前筛选 / 全部会话”。
+
+### 6.7.2 低保真线框
+
+```text
+[Export Sessions Dialog]
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Export Sessions                                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Scope: [Selected Session] [Filtered Sessions] [All Sessions]                │
+│ Format: [Session Snapshot] [HAR] [cURL]                                     │
+│ Summary: Ready to export N sessions as ...                                  │
+│ Feedback / Error                                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ (Cancel)                                                     (Export / Copy)│
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.7.3 实现文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `pages/sessions/index.tsx` | 在 Sessions 页头部提供导出入口，并挂载导出对话框 |
+| `features/sessions/components/SessionExportDialog.tsx` | 范围选择、格式选择、导出反馈 |
+| `features/sessions/session-export.helpers.ts` | 生成会话快照 JSON、HAR、cURL bundle |
+
+### 6.7.4 页面事件流
+
+```text
+User clicks Export in Sessions header
+-> dialog opens
+-> user chooses scope: selected / filtered / all
+-> user chooses format: snapshot / HAR / cURL
+-> selected scope sessions are resolved into details
+-> snapshot or HAR downloads as a file
+-> cURL copies to clipboard as a bundle of commands
+```
 ```
 
 ## 7. Certificates Page

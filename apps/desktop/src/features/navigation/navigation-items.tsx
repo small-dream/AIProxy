@@ -4,6 +4,7 @@ import EditRoadRoundedIcon from "@mui/icons-material/EditRoadRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import type { ReactNode } from "react";
 
 import type { TranslationKey } from "@/i18n";
@@ -33,6 +34,12 @@ export const navigationItems: NavigationItem[] = [
     icon: <RuleRoundedIcon />,
     labelKey: "navigation.rules",
     to: "/rules",
+  },
+  {
+    group: "workspace",
+    icon: <SpeedRoundedIcon />,
+    labelKey: "navigation.throttling",
+    to: "/throttling",
   },
   {
     group: "manage",

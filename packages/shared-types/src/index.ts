@@ -160,6 +160,103 @@ export type BreakpointResolution = {
   modifiedResponseBodyBase64?: string;
 };
 
+export type RuleMatchStage = "request" | "response" | "either";
+
+export type RuleMatch = {
+  urlPattern: string;
+  methods: string[];
+  stage: RuleMatchStage;
+};
+
+export type RewriteRuleType = "header" | "query" | "body" | "redirect";
+
+export type RewriteTarget = "request" | "response";
+
+export type RewriteHeaderPayload = {
+  headerName: string;
+  operation: "set" | "remove";
+  target: RewriteTarget;
+  value?: string;
+};
+
+export type RewriteQueryPayload = {
+  operation: "set" | "remove";
+  paramName: string;
+  value?: string;
+};
+
+export type RewriteBodyPayload = {
+  contentType: string;
+  target: RewriteTarget;
+  text: string;
+};
+
+export type RewriteRedirectPayload = {
+  preservePath: boolean;
+  preserveQuery: boolean;
+  targetUrl: string;
+};
+
+type RewriteRuleBase = {
+  enabled: boolean;
+  id: string;
+  match: RuleMatch;
+  name: string;
+  note?: string;
+  priority: number;
+  workspaceId: string;
+};
+
+export type RewriteRule =
+  | (RewriteRuleBase & {
+      payload: RewriteHeaderPayload;
+      rewriteType: "header";
+    })
+  | (RewriteRuleBase & {
+      payload: RewriteQueryPayload;
+      rewriteType: "query";
+    })
+  | (RewriteRuleBase & {
+      payload: RewriteBodyPayload;
+      rewriteType: "body";
+    })
+  | (RewriteRuleBase & {
+      payload: RewriteRedirectPayload;
+      rewriteType: "redirect";
+    });
+
+export type MapRuleMode = "local" | "remote";
+
+export type MapRule = {
+  enabled: boolean;
+  id: string;
+  mode: MapRuleMode;
+  name: string;
+  note?: string;
+  preservePath: boolean;
+  preserveQuery: boolean;
+  priority: number;
+  sourcePattern: string;
+  targetValue: string;
+  workspaceId: string;
+};
+
+export type ThrottleProfile = {
+  downloadKbps: number;
+  enabled: boolean;
+  id: string;
+  latencyMs: number;
+  name: string;
+  note?: string;
+  packetLossRatio: number;
+  preset: boolean;
+  uploadKbps: number;
+  workspaceId: string;
+};
+
+export type ExportFormat = "har" | "curl" | "json";
+export type ExportScope = "selected" | "filtered" | "all";
+
 export function isComposedRequestInput(value: unknown): value is ComposedRequestInput {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ComposedRequestInput>;
@@ -696,5 +793,170 @@ export function parseBreakpointRules(value: unknown): BreakpointRule[] {
   if (value.every(isBreakpointRule)) {
     return value;
   }
+  throw coerceAppError(value);
+}
+
+export function isRuleMatch(value: unknown): value is RuleMatch {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<RuleMatch>;
+
+  return (
+    typeof candidate.urlPattern === "string" &&
+    Array.isArray(candidate.methods) &&
+    candidate.methods.every((method) => typeof method === "string") &&
+    (candidate.stage === "request" || candidate.stage === "response" || candidate.stage === "either")
+  );
+}
+
+function isRewriteHeaderPayload(value: unknown): value is RewriteHeaderPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteHeaderPayload>;
+  return (
+    typeof candidate.headerName === "string" &&
+    (candidate.operation === "set" || candidate.operation === "remove") &&
+    (candidate.target === "request" || candidate.target === "response") &&
+    isNullableString(candidate.value)
+  );
+}
+
+function isRewriteQueryPayload(value: unknown): value is RewriteQueryPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteQueryPayload>;
+  return (
+    typeof candidate.paramName === "string" &&
+    (candidate.operation === "set" || candidate.operation === "remove") &&
+    isNullableString(candidate.value)
+  );
+}
+
+function isRewriteBodyPayload(value: unknown): value is RewriteBodyPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteBodyPayload>;
+  return (
+    typeof candidate.contentType === "string" &&
+    typeof candidate.text === "string" &&
+    (candidate.target === "request" || candidate.target === "response")
+  );
+}
+
+function isRewriteRedirectPayload(value: unknown): value is RewriteRedirectPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteRedirectPayload>;
+  return (
+    typeof candidate.targetUrl === "string" &&
+    typeof candidate.preservePath === "boolean" &&
+    typeof candidate.preserveQuery === "boolean"
+  );
+}
+
+export function isRewriteRule(value: unknown): value is RewriteRule {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<RewriteRule>;
+
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.workspaceId !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.enabled !== "boolean" ||
+    typeof candidate.priority !== "number" ||
+    !isNullableString(candidate.note) ||
+    !isRuleMatch(candidate.match)
+  ) {
+    return false;
+  }
+
+  if (candidate.rewriteType === "header") {
+    return isRewriteHeaderPayload(candidate.payload);
+  }
+
+  if (candidate.rewriteType === "query") {
+    return isRewriteQueryPayload(candidate.payload);
+  }
+
+  if (candidate.rewriteType === "body") {
+    return isRewriteBodyPayload(candidate.payload);
+  }
+
+  if (candidate.rewriteType === "redirect") {
+    return isRewriteRedirectPayload(candidate.payload);
+  }
+
+  return false;
+}
+
+export function parseRewriteRules(value: unknown): RewriteRule[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+
+  if (value.every(isRewriteRule)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function isMapRule(value: unknown): value is MapRule {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<MapRule>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.name === "string" &&
+    (candidate.mode === "local" || candidate.mode === "remote") &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.priority === "number" &&
+    typeof candidate.sourcePattern === "string" &&
+    typeof candidate.targetValue === "string" &&
+    typeof candidate.preservePath === "boolean" &&
+    typeof candidate.preserveQuery === "boolean" &&
+    isNullableString(candidate.note)
+  );
+}
+
+export function parseMapRules(value: unknown): MapRule[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+
+  if (value.every(isMapRule)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function isThrottleProfile(value: unknown): value is ThrottleProfile {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<ThrottleProfile>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.latencyMs === "number" &&
+    typeof candidate.uploadKbps === "number" &&
+    typeof candidate.downloadKbps === "number" &&
+    typeof candidate.packetLossRatio === "number" &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.preset === "boolean" &&
+    isNullableString(candidate.note)
+  );
+}
+
+export function parseThrottleProfiles(value: unknown): ThrottleProfile[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+
+  if (value.every(isThrottleProfile)) {
+    return value;
+  }
+
   throw coerceAppError(value);
 }

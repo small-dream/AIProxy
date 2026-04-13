@@ -465,9 +465,10 @@ erDiagram
 
 ### 页面结构映射
 
-- `SessionsPage`：`Session Filter Bar` + `Session Explorer Pane` + `Session Inspector Workspace`，全局抓包控制固定在 `AppShell` 顶部工具栏，底部仅保留状态栏
+- `SessionsPage`：`Session Filter Bar` + `Session Explorer Pane` + `Session Inspector Workspace`，页头新增 `Export` 入口，弹出 `SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
-- `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
+- `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域；`Rewrite / Map` 采用 `Rule List Pane` + `Rule Editor Pane`
+- `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
 - `SettingsPage`：当前已实现 `Language & Region` + `Appearance` 两个应用级设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
 
@@ -478,9 +479,10 @@ erDiagram
 - `session-detail`
 - `compose-request` — `已实现`：ComposePage 页面 + use-compose-request hook + compose-editor.store + curl-export + EditableKeyValueTable
 - `breakpoints` — `已实现`：BreakpointManager (Rust) + breakpoint.store + use-breakpoint-events hook + use-breakpoint-rules hook + BreakpointInterceptPanel + Rules 页面断点规则管理
-- `rewrite-rules`
-- `map-rules`
-- `throttling`
+- `rewrite-rules` — `已实现首版`：Rules 页面 Rewrite 工作台 + use-rule-center hooks + shared rewrite rule types
+- `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
+- `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流
+- `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
 - `workspace-manager`
 
 ## 11.3 组件分层

@@ -458,6 +458,13 @@ Compose Page
 
 Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote。
 
+当前实现补充：
+
+- 顶部使用 `Tabs` 固定承载规则类型切换
+- Breakpoint 使用“快捷断点 + 规则列表 + 新增对话框”的轻量流
+- Rewrite / Map 使用“左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
+- 规则创建优先提供快捷模板，降低首次配置门槛
+
 ### 页面结构树
 
 ```text
@@ -495,7 +502,68 @@ Rules Page
 - 启用状态
 - 命中预览
 
-## 9.4 Certificates Page
+### 交互要点
+
+- 切换规则类型时，列表与编辑器必须同步切换，不让用户在旧上下文里误编辑
+- 左侧列表项必须始终暴露：名称、启停、优先级、核心作用摘要
+- 右侧编辑器应把“规则会命中谁”和“命中后会做什么”明确拆开
+- 预览卡应使用自然语言总结最终效果，避免用户只看表单字段猜结果
+
+## 9.4 Throttling Page
+
+### 页面定位
+
+Throttling Page 负责让用户在“快速套预设”与“精确调参数”之间高效切换。
+
+### 页面结构树
+
+```text
+Throttling Page
+├─ Page Header
+├─ Global Control Card
+├─ Main Split Layout
+│  ├─ Preset Profiles
+│  ├─ Custom Profile List
+│  └─ Profile Editor
+│     ├─ Basic Fields
+│     ├─ Enable After Save
+│     └─ Preview / Validation
+```
+
+### 交互要点
+
+- 预设配置必须支持一键启用
+- 自定义配置必须支持“保存”和“保存并启用”两条路径
+- 全局开关始终可见，避免用户误以为编辑即生效
+- 预览区应把延迟、上下行、丢包组合成一句话说明，方便测试同学复核
+
+## 9.5 Sessions Export
+
+### 页面定位
+
+会话导出是 Sessions Page 的高频辅助动作，不应拆成独立页面。
+
+### 结构建议
+
+```text
+Sessions Header
+└─ Export Button
+
+Export Dialog
+├─ Scope Cards (Selected / Filtered / All)
+├─ Format Cards (Snapshot / HAR / cURL)
+├─ Summary Alert
+└─ Feedback / Error
+```
+
+### 交互要点
+
+- 范围选择优先使用卡片式单选，让用户一眼看到“导出多少条”
+- `cURL` 属于复制动作，应在按钮文案上明确区别于文件导出
+- 如果当前没有选中会话，应禁用“Selected Session”并说明原因
+- 导出过程中只阻塞当前对话框，不阻塞 Sessions 主工作台
+
+## 9.6 Certificates Page
 
 ### 页面定位
 
@@ -534,7 +602,7 @@ Certificates Page
 - 常见问题
 - 风险提示
 
-## 9.5 Settings Page
+## 9.7 Settings Page
 
 ### 页面定位
 

@@ -3,24 +3,31 @@ import {
   coerceAppError,
   createDefaultProxyStatus,
   createMockComposeSessionDetail,
+  DEFAULT_WORKSPACE_ID,
+  parseMapRules,
   parseBreakpointRules,
   parseCertificateStatus,
   parseCertificateInstallGuide,
+  parseRewriteRules,
   parseSessionDetail,
   normalizeStartProxyInput,
   parseSessionSummaries,
   parseProxyStatus,
+  parseThrottleProfiles,
   type BreakpointResolution,
   type BreakpointRule,
   type CertificateInstallGuide,
   type CertificateStatus,
   type ComposedRequestInput,
   type GenerateRootCertificateInput,
+  type MapRule,
   type ProxyStatus,
+  type RewriteRule,
   type SessionDetail,
   type SessionSummary,
   type StartProxyInput,
   type StopProxyInput,
+  type ThrottleProfile,
 } from "@pharles/shared-types";
 
 import {
@@ -28,6 +35,10 @@ import {
   logDevError,
   logDevInfo,
 } from "@/services/logger/dev-logger";
+
+const REWRITE_RULES_STORAGE_KEY = "pharles.rules.rewrite";
+const MAP_RULES_STORAGE_KEY = "pharles.rules.map";
+const THROTTLE_PROFILES_STORAGE_KEY = "pharles.throttle.profiles";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -371,19 +382,6 @@ export async function getLocalIp(): Promise<string[]> {
   }
 }
 
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {
-  logDevError("ui.commands", "command_failed", {
-    commandName,
-    error,
-    occurredAt: new Date().toISOString(),
-    workspaceId,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Breakpoint commands
 // ---------------------------------------------------------------------------
@@ -436,4 +434,360 @@ export async function resolveBreakpoint(resolution: BreakpointResolution): Promi
     reportCommandFailure("resolve_breakpoint", error);
     throw coerceAppError(error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Rewrite / Map / Throttling commands
+// ---------------------------------------------------------------------------
+
+export async function listRewriteRules(workspaceId = DEFAULT_WORKSPACE_ID): Promise<RewriteRule[]> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("list_rewrite_rules", {
+        input: { workspaceId },
+      });
+
+      return parseRewriteRules(payload);
+    } catch (error) {
+      reportCommandFailure("list_rewrite_rules", error, workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  return readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter((rule) => rule.workspaceId === workspaceId);
+}
+
+export async function saveRewriteRule(
+  input: Omit<RewriteRule, "id"> & { id?: string },
+): Promise<RewriteRule> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("save_rewrite_rule", {
+        input,
+      });
+
+      const [savedRule] = parseRewriteRules([payload]);
+      return savedRule!;
+    } catch (error) {
+      reportCommandFailure("save_rewrite_rule", error, input.workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  const rules = readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules);
+  const nextRule = {
+    ...input,
+    id: input.id ?? crypto.randomUUID(),
+  } as RewriteRule;
+
+  writeStoredRules(REWRITE_RULES_STORAGE_KEY, upsertStoredEntity(rules, nextRule));
+
+  return nextRule;
+}
+
+export async function listMapRules(input?: {
+  mode?: MapRule["mode"];
+  workspaceId?: string;
+}): Promise<MapRule[]> {
+  const workspaceId = input?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("list_map_rules", {
+        input: {
+          workspaceId,
+          ...(input?.mode ? { mode: input.mode } : {}),
+        },
+      });
+
+      return parseMapRules(payload);
+    } catch (error) {
+      reportCommandFailure("list_map_rules", error, workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  return readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules).filter((rule) => {
+    if (rule.workspaceId !== workspaceId) {
+      return false;
+    }
+
+    return input?.mode ? rule.mode === input.mode : true;
+  });
+}
+
+export async function saveMapRule(input: Omit<MapRule, "id"> & { id?: string }): Promise<MapRule> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("save_map_rule", {
+        input,
+      });
+
+      const [savedRule] = parseMapRules([payload]);
+      return savedRule!;
+    } catch (error) {
+      reportCommandFailure("save_map_rule", error, input.workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  const rules = readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules);
+  const nextRule = {
+    ...input,
+    id: input.id ?? crypto.randomUUID(),
+  } as MapRule;
+
+  writeStoredRules(MAP_RULES_STORAGE_KEY, upsertStoredEntity(rules, nextRule));
+
+  return nextRule;
+}
+
+export async function deleteRule(input: {
+  ruleId: string;
+  ruleType: "rewrite" | "map";
+}): Promise<void> {
+  if (isTauriRuntime()) {
+    try {
+      await invoke("delete_rule", {
+        input,
+      });
+      return;
+    } catch (error) {
+      reportCommandFailure("delete_rule", error);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  if (input.ruleType === "rewrite") {
+    writeStoredRules(
+      REWRITE_RULES_STORAGE_KEY,
+      readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter((rule) => rule.id !== input.ruleId),
+    );
+    return;
+  }
+
+  writeStoredRules(
+    MAP_RULES_STORAGE_KEY,
+    readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules).filter((rule) => rule.id !== input.ruleId),
+  );
+}
+
+export async function listThrottleProfiles(workspaceId = DEFAULT_WORKSPACE_ID): Promise<ThrottleProfile[]> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("list_throttle_profiles", {
+        input: { workspaceId },
+      });
+
+      return parseThrottleProfiles(payload);
+    } catch (error) {
+      reportCommandFailure("list_throttle_profiles", error, workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  const storedProfiles = readStoredRules(THROTTLE_PROFILES_STORAGE_KEY, parseThrottleProfiles);
+
+  if (storedProfiles.length === 0) {
+    const defaults = createDefaultThrottleProfiles(workspaceId);
+    writeStoredRules(THROTTLE_PROFILES_STORAGE_KEY, defaults);
+    return defaults;
+  }
+
+  return storedProfiles.filter((profile) => profile.workspaceId === workspaceId);
+}
+
+export async function saveThrottleProfile(
+  input: Omit<ThrottleProfile, "id"> & { id?: string },
+): Promise<ThrottleProfile> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("save_throttle_profile", {
+        input,
+      });
+
+      const [savedProfile] = parseThrottleProfiles([payload]);
+      return savedProfile!;
+    } catch (error) {
+      reportCommandFailure("save_throttle_profile", error, input.workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  const profiles = readStoredRules(THROTTLE_PROFILES_STORAGE_KEY, parseThrottleProfiles);
+  const nextProfile: ThrottleProfile = {
+    ...input,
+    id: input.id ?? crypto.randomUUID(),
+  };
+  const nextProfiles = upsertStoredEntity(profiles, nextProfile).map((profile) => ({
+    ...profile,
+    enabled: nextProfile.enabled ? profile.id === nextProfile.id : profile.enabled,
+  }));
+
+  writeStoredRules(THROTTLE_PROFILES_STORAGE_KEY, nextProfiles);
+
+  return nextProfiles.find((profile) => profile.id === nextProfile.id) ?? nextProfile;
+}
+
+export async function setActiveThrottleProfile(input: {
+  profileId?: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+
+  if (isTauriRuntime()) {
+    try {
+      await invoke("set_active_throttle_profile", {
+        input: {
+          workspaceId,
+          ...(input.profileId ? { profileId: input.profileId } : {}),
+        },
+      });
+      return;
+    } catch (error) {
+      reportCommandFailure("set_active_throttle_profile", error, workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  writeStoredRules(
+    THROTTLE_PROFILES_STORAGE_KEY,
+    readStoredRules(THROTTLE_PROFILES_STORAGE_KEY, parseThrottleProfiles).map((profile) => {
+      if (profile.workspaceId !== workspaceId) {
+        return profile;
+      }
+
+      return {
+        ...profile,
+        enabled: profile.id === input.profileId,
+      };
+    }),
+  );
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {
+  logDevError("ui.commands", "command_failed", {
+    commandName,
+    error,
+    occurredAt: new Date().toISOString(),
+    workspaceId,
+  });
+}
+
+function shouldFallbackToLocalStore(error: unknown): boolean {
+  const normalized = coerceAppError(error);
+  const message = normalized.message.toLowerCase();
+
+  return (
+    message.includes("not found") ||
+    message.includes("unknown command") ||
+    message.includes("failed to invoke") ||
+    message.includes("command")
+  );
+}
+
+function readStoredRules<T>(storageKey: string, parser: (value: unknown) => T[]): T[] {
+  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
+    return [];
+  }
+
+  const rawValue = window.localStorage.getItem(storageKey);
+
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    return parser(JSON.parse(rawValue));
+  } catch (error) {
+    reportCommandFailure(`read_local_store:${storageKey}`, error);
+    return [];
+  }
+}
+
+function writeStoredRules(storageKey: string, value: unknown) {
+  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
+    return;
+  }
+
+  window.localStorage.setItem(storageKey, JSON.stringify(value));
+}
+
+function upsertStoredEntity<T extends { id: string }>(items: T[], nextItem: T): T[] {
+  const existingIndex = items.findIndex((item) => item.id === nextItem.id);
+
+  if (existingIndex === -1) {
+    return [...items, nextItem];
+  }
+
+  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
+}
+
+function createDefaultThrottleProfiles(workspaceId: string): ThrottleProfile[] {
+  return [
+    {
+      id: "preset-fast-4g",
+      workspaceId,
+      name: "Fast 4G",
+      latencyMs: 80,
+      uploadKbps: 1200,
+      downloadKbps: 9000,
+      packetLossRatio: 0.2,
+      enabled: false,
+      preset: true,
+      note: "Balanced mobile profile for everyday app verification.",
+    },
+    {
+      id: "preset-slow-3g",
+      workspaceId,
+      name: "Slow 3G",
+      latencyMs: 300,
+      uploadKbps: 320,
+      downloadKbps: 768,
+      packetLossRatio: 1.2,
+      enabled: false,
+      preset: true,
+      note: "Useful for sign-in, skeleton loading, and retry validation.",
+    },
+    {
+      id: "preset-lossy-wifi",
+      workspaceId,
+      name: "Lossy Wi-Fi",
+      latencyMs: 45,
+      uploadKbps: 6400,
+      downloadKbps: 24000,
+      packetLossRatio: 3.5,
+      enabled: false,
+      preset: true,
+      note: "Good for reconnect logic and flaky LAN simulations.",
+    },
+  ];
 }

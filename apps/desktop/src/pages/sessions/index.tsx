@@ -3,11 +3,14 @@ import {
   isAppError,
 } from "@pharles/shared-types";
 import { Alert, Box, Stack } from "@mui/material";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import { Button, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
 import {
@@ -42,6 +45,7 @@ export function SessionsPage() {
   const [responseInspectorTab, setResponseInspectorTab] = useState<ResponseInspectorTab>("overview");
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [explorerWidth, setExplorerWidth] = useState(360);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue), [searchValue, sessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
@@ -162,6 +166,26 @@ export function SessionsPage() {
 
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
+        <Stack spacing={0.5}>
+          <Typography variant="h4">{t("sessionsPage.title")}</Typography>
+          <Typography color="text.secondary" variant="body2">
+            {t("sessionsPage.description")}
+          </Typography>
+        </Stack>
+        <Stack direction="row" spacing={1} alignItems="flex-start">
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadRoundedIcon />}
+            onClick={() => setExportDialogOpen(true)}
+            disabled={sessions.length === 0}
+          >
+            {t("sessionsPage.export")}
+          </Button>
+        </Stack>
+      </Stack>
+
       {error ? (
         <Alert severity="error">
           {t("sessionsPage.runtimeError")}
@@ -241,6 +265,15 @@ export function SessionsPage() {
           selectedSession={selectedSession}
         />
       </Box>
+
+      <SessionExportDialog
+        allSessions={sessions}
+        filteredSessions={visibleSessions}
+        onClose={() => setExportDialogOpen(false)}
+        open={exportDialogOpen}
+        selectedSession={selectedSession}
+        selectedSessionDetail={selectedSessionDetail}
+      />
     </Stack>
   );
 }

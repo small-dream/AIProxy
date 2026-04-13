@@ -6,6 +6,7 @@ import { ComposePage } from "@/pages/compose";
 import { RulesPage } from "@/pages/rules";
 import { SessionsPage } from "@/pages/sessions";
 import { SettingsPage } from "@/pages/settings";
+import { ThrottlingPage } from "@/pages/throttling";
 import { WorkspacesPage } from "@/pages/workspaces";
 
 const router = createHashRouter([
@@ -26,6 +27,10 @@ const router = createHashRouter([
         element: <RulesPage />,
       },
       {
+        path: "throttling",
+        element: <ThrottlingPage />,
+      },
+      {
         path: "certificates",
         element: <CertificatesPage />,
       },
@@ -44,4 +49,3 @@ const router = createHashRouter([
 export function AppRouter() {
   return <RouterProvider router={router} />;
 }
-
