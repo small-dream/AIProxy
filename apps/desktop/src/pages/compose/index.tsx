@@ -9,10 +9,12 @@ import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { EditableKeyValueTable } from "@/features/compose/components/EditableKeyValueTable";
 import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock, InspectorSummaryBar } from "@/features/sessions/components/SessionInspectorShared";
+import { useI18n } from "@/i18n";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 export function ComposePage() {
+  const { t } = useI18n();
   const sendMutation = useSendComposedRequest();
 
   const method = useComposeEditorStore((s) => s.method);
@@ -54,41 +56,41 @@ export function ComposePage() {
         return (
           <InspectorDefinitionList
             items={[
-              ["Status", String(responseDetail.summary.statusCode)],
-              ["Duration", `${responseDetail.summary.durationMs} ms`],
-              ["Size", `${responseDetail.summary.sizeBytes} bytes`],
-              ["Response Body", responseDetail.responseBody ? `${responseDetail.responseBody.sizeBytes} bytes` : "No body"],
-              ["Timing Total", responseDetail.timing?.totalMs != null ? `${responseDetail.timing.totalMs} ms` : "Not captured"],
+              [t("common.labels.status"), String(responseDetail.summary.statusCode)],
+              [t("common.labels.duration"), t("common.tech.milliseconds", { value: responseDetail.summary.durationMs })],
+              [t("common.labels.size"), t("common.tech.bytes", { value: responseDetail.summary.sizeBytes })],
+              [t("composePage.responseBody"), responseDetail.responseBody ? t("common.tech.bytes", { value: responseDetail.responseBody.sizeBytes }) : t("common.tech.noBody")],
+              [t("composePage.timingTotal"), responseDetail.timing?.totalMs != null ? t("common.tech.milliseconds", { value: responseDetail.timing.totalMs }) : t("common.states.notCaptured")],
             ]}
           />
         );
       case "headers":
         return (
           <InspectorKeyValueTable
-            emptyMessage="No response headers."
+            emptyMessage={t("composePage.responseHeadersEmpty")}
             items={responseDetail.responseHeaders.map((h) => [h.name, h.value])}
           />
         );
       case "body":
         return (
           <SearchableCodeBlock
-            code={responseDetail.responseBody?.inlineText ?? responseDetail.rawResponse ?? "No response body."}
+            code={responseDetail.responseBody?.inlineText ?? responseDetail.rawResponse ?? t("composePage.responseNoBody")}
             language={responseDetail.responseBody?.mimeType?.includes("json") ? "json" : "plain"}
             searchQuery=""
           />
         );
       case "timing": {
-        const t = responseDetail.timing;
+        const timing = responseDetail.timing;
         return (
           <InspectorDefinitionList
             items={[
-              ["DNS", t?.dnsMs != null ? `${t.dnsMs} ms` : "Not captured"],
-              ["Connect", t?.connectMs != null ? `${t.connectMs} ms` : "Not captured"],
-              ["TLS", t?.tlsMs != null ? `${t.tlsMs} ms` : "Not captured"],
-              ["Request Send", t?.requestSendMs != null ? `${t.requestSendMs} ms` : "Not captured"],
-              ["Waiting", t?.waitingMs != null ? `${t.waitingMs} ms` : "Not captured"],
-              ["Response Read", t?.responseReadMs != null ? `${t.responseReadMs} ms` : "Not captured"],
-              ["Total", t?.totalMs != null ? `${t.totalMs} ms` : "Not captured"],
+              [t("composePage.dns"), timing?.dnsMs != null ? t("common.tech.milliseconds", { value: timing.dnsMs }) : t("common.states.notCaptured")],
+              [t("composePage.connect"), timing?.connectMs != null ? t("common.tech.milliseconds", { value: timing.connectMs }) : t("common.states.notCaptured")],
+              [t("composePage.tls"), timing?.tlsMs != null ? t("common.tech.milliseconds", { value: timing.tlsMs }) : t("common.states.notCaptured")],
+              [t("composePage.requestSend"), timing?.requestSendMs != null ? t("common.tech.milliseconds", { value: timing.requestSendMs }) : t("common.states.notCaptured")],
+              [t("composePage.waiting"), timing?.waitingMs != null ? t("common.tech.milliseconds", { value: timing.waitingMs }) : t("common.states.notCaptured")],
+              [t("composePage.responseRead"), timing?.responseReadMs != null ? t("common.tech.milliseconds", { value: timing.responseReadMs }) : t("common.states.notCaptured")],
+              [t("common.labels.total"), timing?.totalMs != null ? t("common.tech.milliseconds", { value: timing.totalMs }) : t("common.states.notCaptured")],
             ]}
           />
         );
@@ -98,11 +100,11 @@ export function ComposePage() {
 
   return (
     <Stack spacing={3}>
-      <Stack direction="row" justifyContent="space-between" spacing={2}>
-        <Stack spacing={0.75}>
-          <Typography variant="h4">Compose</Typography>
+        <Stack direction="row" justifyContent="space-between" spacing={2}>
+          <Stack spacing={0.75}>
+          <Typography variant="h4">{t("composePage.title")}</Typography>
           <Typography color="text.secondary" variant="body1">
-            Build and replay requests without leaving the desktop workspace.
+            {t("composePage.description")}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
@@ -113,9 +115,9 @@ export function ComposePage() {
             startIcon={sendMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <SendRoundedIcon />}
             variant="contained"
           >
-            Send
+            {t("common.actions.send")}
           </Button>
-          <Tooltip title="Copy as cURL command">
+          <Tooltip title={t("composePage.copyAsCurl")}>
             <span>
               <Button
                 disabled={!url.trim()}
@@ -124,7 +126,7 @@ export function ComposePage() {
                 startIcon={<ContentCopyRoundedIcon />}
                 variant="outlined"
               >
-                Export cURL
+                {t("common.actions.exportCurl")}
               </Button>
             </span>
           </Tooltip>
@@ -142,7 +144,7 @@ export function ComposePage() {
         }}
       >
         {/* Request Builder */}
-        <SectionCard description="Configure the HTTP request to send." title="Request Builder">
+        <SectionCard description={t("composePage.requestBuilderDescription")} title={t("composePage.requestBuilderTitle")}>
           <Stack spacing={2}>
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <Select
@@ -159,7 +161,7 @@ export function ComposePage() {
               </Select>
               <OutlinedInput
                 fullWidth
-                placeholder="https://example.com/api/resource"
+                placeholder={t("composePage.urlPlaceholder")}
                 size="small"
                 sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
                 value={url}
@@ -180,17 +182,17 @@ export function ComposePage() {
               variant="scrollable"
               scrollButtons="auto"
             >
-              <Tab label={`Headers${headers.length > 0 ? ` (${headers.length})` : ""}`} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="headers" />
-              <Tab label="Body" sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="body" />
-              <Tab label="Query" sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="query" />
+              <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="headers" />
+              <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="body" />
+              <Tab label={t("composePage.tabs.query")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="query" />
             </Tabs>
 
             {activeTab === "headers" && (
               <EditableKeyValueTable
                 items={headers}
-                namePlaceholder="Header name"
+                namePlaceholder={t("common.placeholders.headerName")}
                 onChange={setHeaders}
-                valuePlaceholder="Header value"
+                valuePlaceholder={t("common.placeholders.headerValue")}
               />
             )}
 
@@ -200,7 +202,7 @@ export function ComposePage() {
                 minRows={6}
                 maxRows={16}
                 multiline
-                placeholder="Request body (JSON, plain text, etc.)"
+                placeholder={t("composePage.bodyPlaceholder")}
                 size="small"
                 sx={{
                   fontFamily: "JetBrains Mono, Consolas, monospace",
@@ -216,24 +218,29 @@ export function ComposePage() {
             )}
 
             {activeTab === "query" && (
-              <QueryParamsEditor url={url} onUrlChange={setUrl} />
+              <QueryParamsEditor
+                namePlaceholder={t("common.placeholders.paramName")}
+                url={url}
+                onUrlChange={setUrl}
+                valuePlaceholder={t("common.placeholders.paramValue")}
+              />
             )}
           </Stack>
         </SectionCard>
 
         {/* Response Preview */}
-        <SectionCard description="Response will appear after sending a request." title="Response Preview">
+        <SectionCard description={t("composePage.responsePreviewDescription")} title={t("composePage.responsePreviewTitle")}>
           {sendMutation.isPending ? (
             <Stack alignItems="center" spacing={2} sx={{ py: 4 }}>
               <CircularProgress size={32} />
               <Typography color="text.secondary" variant="body2">
-                Sending request...
+                {t("composePage.sendingRequest")}
               </Typography>
             </Stack>
           ) : sendMutation.isError ? (
             <Alert severity="error" variant="outlined">
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Request failed</Typography>
-              <Typography variant="body2">{sendMutation.error.message || "An unexpected error occurred."}</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t("composePage.requestFailed")}</Typography>
+              <Typography variant="body2">{sendMutation.error.message || t("common.errors.unexpected")}</Typography>
             </Alert>
           ) : responseDetail ? (
             <Stack spacing={1.5}>
@@ -247,16 +254,16 @@ export function ComposePage() {
                 variant="scrollable"
                 scrollButtons="auto"
               >
-                <Tab label="Overview" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="overview" />
-                <Tab label={`Headers (${responseDetail.responseHeaders.length})`} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="headers" />
-                <Tab label="Body" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="body" />
-                <Tab label="Timing" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="timing" />
+                <Tab label={t("composePage.tabs.overview")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="overview" />
+                <Tab label={`${t("composePage.tabs.headers")} (${responseDetail.responseHeaders.length})`} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="headers" />
+                <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="body" />
+                <Tab label={t("composePage.tabs.timing")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="timing" />
               </Tabs>
               <Box sx={{ overflow: "auto" }}>{responseTabContent}</Box>
             </Stack>
           ) : (
             <Typography color="text.secondary" sx={{ py: 2 }} variant="body2">
-              Configure a request and click Send to see the response here.
+              {t("composePage.configureHint")}
             </Typography>
           )}
         </SectionCard>
@@ -265,7 +272,7 @@ export function ComposePage() {
       <Snackbar
         anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
         autoHideDuration={2000}
-        message="cURL command copied to clipboard"
+        message={t("composePage.copiedCurl")}
         onClose={() => setSnackbarOpen(false)}
         open={snackbarOpen}
       />
@@ -273,7 +280,17 @@ export function ComposePage() {
   );
 }
 
-function QueryParamsEditor({ url, onUrlChange }: { url: string; onUrlChange: (url: string) => void }) {
+function QueryParamsEditor({
+  namePlaceholder,
+  onUrlChange,
+  url,
+  valuePlaceholder,
+}: {
+  namePlaceholder: string;
+  onUrlChange: (url: string) => void;
+  url: string;
+  valuePlaceholder: string;
+}) {
   let params: Array<{ name: string; value: string }> = [];
   try {
     const parsed = new URL(url);
@@ -300,9 +317,9 @@ function QueryParamsEditor({ url, onUrlChange }: { url: string; onUrlChange: (ur
   return (
     <EditableKeyValueTable
       items={params}
-      namePlaceholder="Param name"
+      namePlaceholder={namePlaceholder}
       onChange={(items) => handleParamsChange(items)}
-      valuePlaceholder="Param value"
+      valuePlaceholder={valuePlaceholder}
     />
   );
 }

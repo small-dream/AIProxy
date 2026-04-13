@@ -18,8 +18,13 @@ import {
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
+import { useI18n } from "@/i18n";
+
+const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
+const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
 
 export function SessionsPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const { data: proxyStatus, error, isLoading } = useProxyStatus();
@@ -52,7 +57,7 @@ export function SessionsPage() {
   } = useSessionDetail(selectedSessionIdValue);
   const sessionsErrorMessage = getOperationErrorMessage(
     sessionsError,
-    "Unable to load captured sessions from the proxy runtime.",
+    t("sessionsPage.sessionsLoadError"),
   );
 
   useEffect(() => {
@@ -60,10 +65,9 @@ export function SessionsPage() {
   }, [hostGroups]);
 
   useEffect(() => {
-    const savedWidth = window.localStorage.getItem("pharles.sessions.explorerWidth");
+    const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
     const parsedWidth = Number(savedWidth);
-    const savedRequestCollapsed =
-      window.localStorage.getItem("pharles.sessions.requestCollapsed") === "true";
+    const savedRequestCollapsed = readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true";
 
     if (Number.isFinite(parsedWidth)) {
       setExplorerWidth(clampExplorerWidth(parsedWidth));
@@ -73,14 +77,11 @@ export function SessionsPage() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("pharles.sessions.explorerWidth", String(explorerWidth));
+    writeStorageValue(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));
   }, [explorerWidth]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      "pharles.sessions.requestCollapsed",
-      String(requestCollapsed),
-    );
+    writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(requestCollapsed));
   }, [requestCollapsed]);
 
   useEffect(() => {
@@ -163,7 +164,7 @@ export function SessionsPage() {
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
       {error ? (
         <Alert severity="error">
-          Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.
+          {t("sessionsPage.runtimeError")}
         </Alert>
       ) : null}
 
@@ -223,7 +224,7 @@ export function SessionsPage() {
             sessionDetailError
               ? getOperationErrorMessage(
                   sessionDetailError,
-                  "Unable to load the selected session detail from the desktop runtime.",
+                  t("sessionsPage.detailLoadError"),
                 )
               : undefined
           }
@@ -262,7 +263,22 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
   return coercedError.message || fallbackMessage;
 }
 
+function readStorageValue(key: string): string | null {
+  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
+    return null;
+  }
+
+  return window.localStorage.getItem(key);
+}
+
+function writeStorageValue(key: string, value: string) {
+  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
+    return;
+  }
+
+  window.localStorage.setItem(key, value);
+}
+
 function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
 }
-

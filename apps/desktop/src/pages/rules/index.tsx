@@ -29,6 +29,7 @@ import { useState } from "react";
 
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
+import { useI18n } from "@/i18n";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
@@ -43,6 +44,7 @@ function createEmptyRule(): BreakpointRule {
 }
 
 export function RulesPage() {
+  const { t } = useI18n();
   const { data: rules = [] } = useBreakpointRules();
   const setRulesMutation = useSetBreakpointRules();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -79,14 +81,14 @@ export function RulesPage() {
   return (
     <Stack spacing={3}>
       <Stack spacing={0.75}>
-        <Typography variant="h4">Rules</Typography>
+        <Typography variant="h4">{t("rulesPage.title")}</Typography>
         <Typography color="text.secondary" variant="body1">
-          Manage breakpoints and request/response interception rules.
+          {t("rulesPage.description")}
         </Typography>
       </Stack>
 
       {/* Quick actions */}
-      <SectionCard title="Quick Breakpoint" description="Enable catch-all breakpoints to intercept every request or response.">
+      <SectionCard title={t("rulesPage.quickBreakpointTitle")} description={t("rulesPage.quickBreakpointDescription")}>
         <Stack direction="row" spacing={1.5}>
           <Button
             variant="outlined"
@@ -94,7 +96,7 @@ export function RulesPage() {
             disabled={hasRequestCatchAll}
             onClick={() => handleAddCatchAll("request")}
           >
-            Break on All Requests
+            {t("rulesPage.breakOnAllRequests")}
           </Button>
           <Button
             variant="outlined"
@@ -102,25 +104,25 @@ export function RulesPage() {
             disabled={hasResponseCatchAll}
             onClick={() => handleAddCatchAll("response")}
           >
-            Break on All Responses
+            {t("rulesPage.breakOnAllResponses")}
           </Button>
         </Stack>
       </SectionCard>
 
       {/* Rule list */}
-      <SectionCard title="Breakpoint Rules" description="Rules are evaluated in order. The first matching rule triggers the breakpoint.">
+      <SectionCard title={t("rulesPage.breakpointRulesTitle")} description={t("rulesPage.breakpointRulesDescription")}>
         {rules.length === 0 ? (
           <Typography color="text.secondary" variant="body2" sx={{ py: 1 }}>
-            No rules defined. Add a rule or use the quick actions above.
+            {t("rulesPage.empty")}
           </Typography>
         ) : (
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 56 }}>On</TableCell>
-                <TableCell>URL Pattern</TableCell>
-                <TableCell sx={{ width: 180 }}>Methods</TableCell>
-                <TableCell sx={{ width: 100 }}>Stage</TableCell>
+                <TableCell sx={{ width: 56 }}>{t("rulesPage.table.on")}</TableCell>
+                <TableCell>{t("rulesPage.table.urlPattern")}</TableCell>
+                <TableCell sx={{ width: 180 }}>{t("rulesPage.table.methods")}</TableCell>
+                <TableCell sx={{ width: 100 }}>{t("rulesPage.table.stage")}</TableCell>
                 <TableCell sx={{ width: 48 }} />
               </TableRow>
             </TableHead>
@@ -137,7 +139,7 @@ export function RulesPage() {
                   </TableCell>
                   <TableCell>
                     {rule.methods.length === 0 ? (
-                      <Chip label="ALL" size="small" variant="outlined" sx={{ fontSize: 11 }} />
+                      <Chip label={t("rulesPage.labels.all")} size="small" variant="outlined" sx={{ fontSize: 11 }} />
                     ) : (
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                         {rule.methods.map((m) => (
@@ -148,7 +150,7 @@ export function RulesPage() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={rule.stage}
+                      label={rule.stage === "request" ? t("rulesPage.stages.request") : t("rulesPage.stages.response")}
                       size="small"
                       color={rule.stage === "request" ? "info" : "secondary"}
                       variant="outlined"
@@ -177,30 +179,30 @@ export function RulesPage() {
             setDialogOpen(true);
           }}
         >
-          Add Rule
+          {t("rulesPage.addRule")}
         </Button>
       </Box>
 
       {/* Add rule dialog */}
       <Dialog fullWidth maxWidth="sm" onClose={() => setDialogOpen(false)} open={dialogOpen}>
-        <DialogTitle>Add Breakpoint Rule</DialogTitle>
+        <DialogTitle>{t("rulesPage.addDialogTitle")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 0.5 }}>
             <OutlinedInput
-              placeholder="URL pattern (substring match, e.g. api.example.com or *)"
+              placeholder={t("rulesPage.urlPatternPlaceholder")}
               value={draft.urlPattern}
               onChange={(e) => setDraft({ ...draft, urlPattern: e.target.value })}
               fullWidth
               sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
             />
             <FormControl size="small" fullWidth>
-              <InputLabel>HTTP Methods</InputLabel>
+              <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>
               <Select
                 multiple
                 value={draft.methods}
                 onChange={(e) => setDraft({ ...draft, methods: e.target.value as string[] })}
-                input={<OutlinedInput label="HTTP Methods" />}
-                renderValue={(selected) => (selected.length === 0 ? "All methods" : selected.join(", "))}
+                input={<OutlinedInput label={t("rulesPage.labels.httpMethods")} />}
+                renderValue={(selected) => (selected.length === 0 ? t("rulesPage.allMethods") : selected.join(", "))}
               >
                 {HTTP_METHODS.map((m) => (
                   <MenuItem key={m} value={m}>
@@ -210,27 +212,27 @@ export function RulesPage() {
               </Select>
             </FormControl>
             <FormControl size="small" fullWidth>
-              <InputLabel>Stage</InputLabel>
+              <InputLabel>{t("rulesPage.labels.stage")}</InputLabel>
               <Select
                 value={draft.stage}
-                label="Stage"
+                label={t("rulesPage.labels.stage")}
                 onChange={(e) => setDraft({ ...draft, stage: e.target.value as BreakpointStage })}
               >
-                <MenuItem value="request">Request (before forwarding)</MenuItem>
-                <MenuItem value="response">Response (before returning to client)</MenuItem>
+                <MenuItem value="request">{t("rulesPage.requestStageOption")}</MenuItem>
+                <MenuItem value="response">{t("rulesPage.responseStageOption")}</MenuItem>
               </Select>
             </FormControl>
           </Stack>
         </DialogContent>
         <Divider />
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setDialogOpen(false)}>{t("common.actions.cancel")}</Button>
           <Button
             variant="contained"
             onClick={handleSave}
             disabled={setRulesMutation.isPending}
           >
-            Add Rule
+            {t("rulesPage.addRule")}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,22 +1,35 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { App } from "./App";
+import { SettingsPage } from "@/pages/settings";
 
-describe("App", () => {
-  it("renders the application shell heading", () => {
-    render(<App />);
+import { AppProviders } from "./providers/AppProviders";
 
-    expect(screen.getByText("Pharles")).toBeInTheDocument();
+describe("AppProviders", () => {
+  it("renders the settings page with English copy by default", () => {
+    render(
+      <AppProviders>
+        <SettingsPage />
+      </AppProviders>,
+    );
+
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Language & Region")).toBeInTheDocument();
+    expect(screen.getAllByText("Display Language")).toHaveLength(2);
+    expect(screen.getByText("Follow System")).toBeInTheDocument();
   });
 
-  it("renders the bootstrap sessions workspace", async () => {
-    render(<App />);
+  it("shows the follow-system language hint", () => {
+    render(
+      <AppProviders>
+        <SettingsPage />
+      </AppProviders>,
+    );
 
-    expect(screen.getByText("Session Explorer")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Filter hosts, paths, methods, or status")).toBeInTheDocument();
-    expect(await screen.findByText(/No captured sessions yet/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start Proxy" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear Sessions" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Following system language will resolve automatically from the current desktop environment.",
+      ),
+    ).toBeInTheDocument();
   });
 });

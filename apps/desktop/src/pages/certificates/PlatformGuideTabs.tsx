@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Box, Tab, Tabs, Typography } from "@mui/material";
 import { SectionCard } from "@/components/shared/SectionCard";
-import { windowsSteps, macosSteps, linuxSteps } from "./certificate-guides";
+import { useI18n } from "@/i18n";
 
 type Step = { order: number; description: string };
 
@@ -20,30 +20,30 @@ function StepList({ steps }: { steps: Step[] }) {
 const PLATFORMS = ["windows", "macos", "linux"] as const;
 type PlatformKey = typeof PLATFORMS[number];
 
-const platformSteps: Record<PlatformKey, Step[]> = {
-  windows: windowsSteps,
-  macos: macosSteps,
-  linux: linuxSteps,
-};
-
-const platformLabels: Record<PlatformKey, string> = {
-  windows: "Windows",
-  macos: "macOS",
-  linux: "Linux",
-};
-
 type Props = {
   currentPlatform: string;
 };
 
 export function PlatformGuideTabs({ currentPlatform }: Props) {
+  const { t, tList } = useI18n();
   const initialTab = PLATFORMS.includes(currentPlatform as PlatformKey)
     ? currentPlatform as PlatformKey
     : "windows";
   const [activeTab, setActiveTab] = useState<PlatformKey>(initialTab);
+  const platformSteps: Record<PlatformKey, Step[]> = {
+    windows: tList("certificatesPage.platformSteps.windows").map((description, index) => ({ order: index + 1, description })),
+    macos: tList("certificatesPage.platformSteps.macos").map((description, index) => ({ order: index + 1, description })),
+    linux: tList("certificatesPage.platformSteps.linux").map((description, index) => ({ order: index + 1, description })),
+  };
+
+  const platformLabels: Record<PlatformKey, string> = {
+    windows: t("certificatesPage.platformLabels.windows"),
+    macos: t("certificatesPage.platformLabels.macos"),
+    linux: t("certificatesPage.platformLabels.linux"),
+  };
 
   return (
-    <SectionCard title="Installation Guide" description="Steps to trust the root CA certificate on your platform.">
+    <SectionCard title={t("certificatesPage.guideTitle")} description={t("certificatesPage.guideDescription")}>
       <Tabs
         value={activeTab}
         onChange={(_, v: PlatformKey) => setActiveTab(v)}

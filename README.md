@@ -18,6 +18,7 @@ Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/PAGE_BLUEPRINTS.md`
 - `docs/ENGINEERING_GUIDELINES.md`
 - `docs/SYSTEM_PROXY.md`
+- `docs/DECISIONS/ADR-001-frontend-i18n.md`
 
 ## 仓库结构
 
@@ -37,6 +38,7 @@ scripts/        开发、构建、发布脚本
 - 所有 UI 规范变更同步更新 `docs/UI_GUIDELINES.md`
 - 所有页面结构调整同步更新 `docs/PAGE_BLUEPRINTS.md`
 - 所有工程实现遵循 `docs/ENGINEERING_GUIDELINES.md`
+- 多语言能力遵循 `docs/DECISIONS/ADR-001-frontend-i18n.md`
 
 ## 开发期日志
 
@@ -83,6 +85,7 @@ scripts/        开发、构建、发布脚本
 - 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书和 iOS/Android 配置指引
 - P0-4 已支持 Compose / Repeat（构造请求与重发）
 - P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
+- 桌面端已规划双语国际化方案：支持 `中文 / English`，默认跟随系统语言
 
 ## 当前可手动验证的 HTTP 抓包闭环
 

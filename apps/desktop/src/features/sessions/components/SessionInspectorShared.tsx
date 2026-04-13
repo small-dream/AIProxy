@@ -5,6 +5,7 @@ import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip,
 import { Fragment, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
+import { useI18n } from "@/i18n";
 import { getMethodColor, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 export function InspectorSummaryBar({
@@ -16,6 +17,8 @@ export function InspectorSummaryBar({
   onRepeat?: (() => void) | undefined;
   session: SessionSummary;
 }) {
+  const { t } = useI18n();
+
   return (
     <Stack spacing={0.75} sx={{ px: 1.5, py: 1 }}>
       <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
@@ -36,13 +39,13 @@ export function InspectorSummaryBar({
             variant="outlined"
           />
           <Typography color="text.secondary" noWrap variant="caption">
-            {session.durationMs} ms • {session.sizeBytes} bytes
+            {t("common.tech.milliseconds", { value: session.durationMs })} • {t("common.tech.bytes", { value: session.sizeBytes })}
           </Typography>
         </Stack>
 
         <Stack alignItems="center" direction="row" spacing={0.5}>
           {onRepeat ? (
-            <Tooltip arrow title="Repeat this request in Compose">
+            <Tooltip arrow title={t("inspector.summary.repeatInCompose")}>
               <Button
                 onClick={onRepeat}
                 size="small"
@@ -50,7 +53,7 @@ export function InspectorSummaryBar({
                 sx={{ minWidth: 0, px: 1.25 }}
                 variant="text"
               >
-                Repeat
+                {t("common.actions.repeat")}
               </Button>
             </Tooltip>
           ) : null}
@@ -63,7 +66,7 @@ export function InspectorSummaryBar({
             sx={{ minWidth: 0, px: 1.25 }}
             variant="text"
           >
-            Copy URL
+            {t("common.actions.copyUrl")}
           </Button>
         </Stack>
       </Stack>
@@ -83,10 +86,12 @@ export function InspectorDefinitionList({
   emptyMessage?: string;
   items: Array<[string, string]>;
 }) {
+  const { t } = useI18n();
+
   if (items.length === 0) {
     return (
       <Typography color="text.secondary" variant="body2">
-        {emptyMessage ?? "No data available."}
+        {emptyMessage ?? t("common.empty.noData")}
       </Typography>
     );
   }
@@ -215,6 +220,7 @@ export function EllipsizedCell({
 }: {
   text: string;
 }) {
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
 
@@ -227,7 +233,7 @@ export function EllipsizedCell({
           </Typography>
         </Tooltip>
         {text.length > 80 ? (
-          <Tooltip arrow title="查看完整内容">
+          <Tooltip arrow title={t("inspector.copyFullValue")}>
             <IconButton
               onClick={(event) => setAnchorEl(event.currentTarget)}
               size="small"
@@ -282,10 +288,12 @@ export function InspectorKeyValueTable({
   emptyMessage?: string;
   items: Array<[string, string]>;
 }) {
+  const { t } = useI18n();
+
   if (items.length === 0) {
     return (
       <Typography color="text.secondary" variant="body2">
-        {emptyMessage ?? "No data available."}
+        {emptyMessage ?? t("common.empty.noData")}
       </Typography>
     );
   }

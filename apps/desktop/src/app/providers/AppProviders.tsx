@@ -2,6 +2,7 @@ import { type PropsWithChildren, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@mui/material/styles";
 
+import { I18nProvider } from "@/i18n";
 import { appTheme } from "@/themes/app-theme";
 
 export function AppProviders({ children }: PropsWithChildren) {
@@ -19,8 +20,9 @@ export function AppProviders({ children }: PropsWithChildren) {
 
   return (
     <ThemeProvider theme={appTheme}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider>{children}</I18nProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }
-

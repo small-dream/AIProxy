@@ -3,6 +3,7 @@ import { Alert, Box, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography 
 import { useEffect, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
+import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
 import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
@@ -28,6 +29,7 @@ export function SessionInspectorResponsePane({
   responseTab: ResponseInspectorTab;
   session: SessionSummary;
 }) {
+  const { t } = useI18n();
   const [searchValue, setSearchValue] = useState("");
   const showSearch = responseTab === "json" || responseTab === "jsonText";
 
@@ -44,7 +46,7 @@ export function SessionInspectorResponsePane({
   return (
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
-        <Typography variant="subtitle2">Response</Typography>
+        <Typography variant="subtitle2">{t("inspector.response.sectionTitle")}</Typography>
       </Stack>
 
       <Divider />
@@ -56,12 +58,12 @@ export function SessionInspectorResponsePane({
         value={responseTab}
         variant="scrollable"
       >
-        <Tab label="Overview" value="overview" />
-        <Tab label={buildCountTabLabel("Headers", detail?.responseHeaders.length ?? 0)} value="headers" />
-        <Tab label="Text" value="text" />
-        <Tab label="JSON" value="json" />
-        <Tab label="JSON Text" value="jsonText" />
-        <Tab label="Raw" value="raw" />
+        <Tab label={t("inspector.response.tabs.overview")} value="overview" />
+        <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
+        <Tab label={t("inspector.response.tabs.text")} value="text" />
+        <Tab label={t("inspector.response.tabs.json")} value="json" />
+        <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
+        <Tab label={t("inspector.response.tabs.raw")} value="raw" />
       </Tabs>
 
       <Divider />
@@ -83,7 +85,7 @@ export function SessionInspectorResponsePane({
             <OutlinedInput
               fullWidth
               onChange={(event) => setSearchValue(event.target.value)}
-              placeholder={responseTab === "json" ? "Search JSON tree" : "Search JSON text"}
+              placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
               size="small"
               startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
               value={searchValue}
@@ -108,6 +110,13 @@ function ResponseTabContent({
   searchValue: string;
   session: SessionSummary;
 }) {
+  const { t } = useI18n();
+  const bodyDescription = describeBody(detail?.responseBody, {
+    formatBytes: (value) => t("common.tech.bytes", { value }),
+    truncatedPreviewLabel: t("common.tech.truncatedPreview"),
+    unknownMimeTypeLabel: t("common.tech.unknownMimeType"),
+  });
+
   if (responseTab === "overview") {
     return (
       <Stack spacing={2}>
@@ -116,11 +125,11 @@ function ResponseTabContent({
         </Stack>
         <InspectorDefinitionList
           items={[
-            ["Duration", `${session.durationMs} ms`],
-            ["Size", `${session.sizeBytes} bytes`],
-            ["Server IP", detail?.serverIp ?? "Unavailable in current HTTP phase"],
-            ["Response Body", describeBody(detail?.responseBody) ?? "No response body captured"],
-            ["Timing Total", formatTiming(detail?.timing?.totalMs)],
+            [t("common.labels.duration"), t("common.tech.milliseconds", { value: session.durationMs })],
+            [t("common.labels.size"), t("common.tech.bytes", { value: session.sizeBytes })],
+            [t("inspector.response.serverIp"), detail?.serverIp ?? t("common.states.unavailable")],
+            [t("inspector.response.responseBody"), bodyDescription ?? t("inspector.response.noResponseBodyCaptured")],
+            [t("inspector.response.timingTotal"), formatTiming(detail?.timing?.totalMs, t("common.states.notCaptured"))],
           ]}
         />
       </Stack>
@@ -130,14 +139,14 @@ function ResponseTabContent({
   if (responseTab === "headers") {
     return (
       <InspectorKeyValueTable
-        emptyMessage="No response headers captured."
+        emptyMessage={t("inspector.response.emptyHeaders")}
         items={detail?.responseHeaders.map((entry) => [entry.name, entry.value]) ?? []}
       />
     );
   }
 
   if (responseTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawResponse ?? "Raw response is not available."} searchQuery="" />;
+    return <SearchableCodeBlock code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")} searchQuery="" />;
   }
 
   if (responseTab === "json") {
@@ -152,7 +161,7 @@ function ResponseTabContent({
     if (responseJsonResult.status !== "success") {
       return (
         <Typography color="text.secondary" variant="body2">
-          No JSON body available for this response.
+          {t("inspector.response.noJsonBody")}
         </Typography>
       );
     }
@@ -166,7 +175,7 @@ function ResponseTabContent({
         <Stack spacing={1.5}>
           <Alert severity="info">{responseJsonResult.message}</Alert>
           <SearchableCodeBlock
-            code={getBodyText(detail?.responseBody) ?? "No response body available."}
+            code={getBodyText(detail?.responseBody) ?? t("composePage.responseNoBody")}
             language="json"
             searchQuery={searchValue}
           />
@@ -183,7 +192,7 @@ function ResponseTabContent({
         code={
           responseJsonResult.status === "success"
             ? responseJsonResult.prettyText
-            : "No JSON body available for this response."
+            : t("inspector.response.noJsonBody")
         }
         language="json"
         searchQuery={searchValue}
@@ -194,9 +203,9 @@ function ResponseTabContent({
   return (
     <Stack spacing={1}>
       <Typography color="text.secondary" variant="caption">
-        {describeBody(detail?.responseBody) ?? "No body captured."}
+        {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock code={getBodyText(detail?.responseBody) ?? "No text response body available."} searchQuery="" />
+      <SearchableCodeBlock code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")} searchQuery="" />
     </Stack>
   );
 }

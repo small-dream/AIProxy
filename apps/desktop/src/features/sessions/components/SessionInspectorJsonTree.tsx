@@ -3,6 +3,7 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, IconButton, Tooltip, Typography } from "@mui/material";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
+import { useI18n } from "@/i18n";
 import {
   formatJsonPrimitive,
   getJsonValueType,
@@ -19,6 +20,7 @@ export function SessionInspectorJsonTree({
   searchQuery: string;
   value: JsonValue;
 }) {
+  const { t } = useI18n();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(["root"]));
 
   useEffect(() => {
@@ -63,6 +65,17 @@ export function SessionInspectorJsonTree({
         onTogglePath={togglePath}
         path="root"
         searchQuery={searchQuery}
+        rootLabel={t("inspector.json.root")}
+        typeLabels={{
+          array: (count) => t("inspector.json.array", { count }),
+          boolean: t("inspector.json.boolean"),
+          integer: t("inspector.json.integer"),
+          null: t("inspector.json.null"),
+          number: t("inspector.json.number"),
+          object: (count) => t("inspector.json.object", { count }),
+          string: t("inspector.json.string"),
+          unknown: t("inspector.json.unknown"),
+        }}
         value={value}
       />
     </InspectorFlatTable>
@@ -129,7 +142,9 @@ function JsonTreeNode({
   name,
   onTogglePath,
   path,
+  rootLabel,
   searchQuery,
+  typeLabels,
   value,
 }: {
   autoExpandedPaths: Set<string>;
@@ -139,7 +154,18 @@ function JsonTreeNode({
   name?: string;
   onTogglePath: (path: string) => void;
   path: string;
+  rootLabel: string;
   searchQuery: string;
+  typeLabels: {
+    array: (count: number) => string;
+    boolean: string;
+    integer: string;
+    null: string;
+    number: string;
+    object: (count: number) => string;
+    string: string;
+    unknown: string;
+  };
   value: JsonValue;
 }) {
   const objectEntries = isJsonObject(value) ? Object.entries(value) : [];
@@ -151,8 +177,8 @@ function JsonTreeNode({
 
   const isExpanded = expandedPaths.has(path) || autoExpandedPaths.has(path);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
-  const rowType = getJsonValueType(value);
-  const displayName = path === "root" ? "root" : name ?? "";
+  const rowType = getJsonValueType(value, typeLabels);
+  const displayName = path === "root" ? rootLabel : name ?? "";
   const nameColor = path === "root" ? "text.primary" : hasChildren ? "#795e26" : "#001080";
   const typeColor = hasChildren ? "text.secondary" : "#6f42c1";
   const valueColor =
@@ -234,7 +260,9 @@ function JsonTreeNode({
                 name={childName}
                 onTogglePath={onTogglePath}
                 path={childPath}
+                rootLabel={rootLabel}
                 searchQuery={searchQuery}
+                typeLabels={typeLabels}
                 value={childValue}
               />
             );

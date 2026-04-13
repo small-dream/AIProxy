@@ -76,6 +76,9 @@ export function parseJsonBody(
   options?: {
     allowLargeTextFallback?: boolean;
     preferSoftWarning?: boolean;
+    requestFallbackMessage?: string;
+    responseErrorMessage?: string;
+    tooLargeMessage?: string;
   },
 ): JsonParseResult {
   if (!body || !bodyText || !looksLikeJson(body.mimeType, bodyText)) {
@@ -86,6 +89,7 @@ export function parseJsonBody(
     return {
       status: "tooLarge",
       message:
+        options?.tooLargeMessage ??
         "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
     };
   }
@@ -110,13 +114,13 @@ export function parseJsonBody(
     if (options?.allowLargeTextFallback) {
       return {
         status: "error",
-        message: "Unable to parse this body as JSON. Showing the original text instead.",
+        message: options.requestFallbackMessage ?? "Unable to parse this body as JSON. Showing the original text instead.",
       };
     }
 
     return {
       status: "error",
-      message: "Unable to parse the response body as JSON.",
+      message: options?.responseErrorMessage ?? "Unable to parse the response body as JSON.",
     };
   }
 }
@@ -125,19 +129,27 @@ export function normalizeSearch(searchQuery: string | undefined) {
   return searchQuery?.trim() ?? "";
 }
 
-export function describeBody(body: BodyReference | undefined) {
+export function describeBody(
+  body: BodyReference | undefined,
+  options?: {
+    formatBytes?: (value: number) => string;
+    truncatedPreviewLabel?: string;
+    unknownMimeTypeLabel?: string;
+  },
+) {
   if (!body) {
     return undefined;
   }
 
-  const mimeType = body.mimeType ?? "unknown";
-  const truncationSuffix = body.truncated ? " (truncated preview)" : "";
+  const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? "unknown";
+  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? "truncated preview"})` : "";
+  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : `${body.sizeBytes} bytes`;
 
-  return `${mimeType} - ${body.sizeBytes} bytes${truncationSuffix}`;
+  return `${mimeType} - ${sizeLabel}${truncationSuffix}`;
 }
 
-export function formatTiming(value: number | undefined) {
-  return value === undefined ? "Not captured" : `${value} ms`;
+export function formatTiming(value: number | undefined, fallbackLabel = "Not captured") {
+  return value === undefined ? fallbackLabel : `${value} ms`;
 }
 
 export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
@@ -228,32 +240,44 @@ export function formatJsonPrimitive(value: JsonValue): string {
   return String(value);
 }
 
-export function getJsonValueType(value: JsonValue): string {
+export function getJsonValueType(
+  value: JsonValue,
+  labels?: {
+    array: (count: number) => string;
+    boolean: string;
+    integer: string;
+    null: string;
+    number: string;
+    object: (count: number) => string;
+    string: string;
+    unknown: string;
+  },
+): string {
   if (Array.isArray(value)) {
-    return `Array[${value.length}]`;
+    return labels?.array ? labels.array(value.length) : `Array[${value.length}]`;
   }
 
   if (isJsonObject(value)) {
-    return `Object[${Object.keys(value).length}]`;
+    return labels?.object ? labels.object(Object.keys(value).length) : `Object[${Object.keys(value).length}]`;
   }
 
   if (value === null) {
-    return "Null";
+    return labels?.null ?? "Null";
   }
 
   if (typeof value === "string") {
-    return "String";
+    return labels?.string ?? "String";
   }
 
   if (typeof value === "number") {
-    return Number.isInteger(value) ? "Integer" : "Number";
+    return Number.isInteger(value) ? (labels?.integer ?? "Integer") : (labels?.number ?? "Number");
   }
 
   if (typeof value === "boolean") {
-    return "Boolean";
+    return labels?.boolean ?? "Boolean";
   }
 
-  return "Unknown";
+  return labels?.unknown ?? "Unknown";
 }
 
 function looksLikeJson(mimeType: string | undefined, bodyText: string) {

@@ -105,6 +105,7 @@ flowchart LR
 - 会话列表与详情展示
 - 规则配置交互
 - 用户输入校验与反馈
+- 国际化文案解析、语言偏好存储与系统语言跟随
 
 技术：
 
@@ -112,6 +113,29 @@ flowchart LR
 - MUI
 - Zustand
 - TanStack Query
+
+国际化约束：
+
+- 前端通过 `I18nProvider` 统一提供文案解析能力
+- `Settings` 页面管理应用级语言偏好：`system | zh-CN | en`
+- 翻译资源由前端静态消息表提供，不依赖远程拉取
+- `system` 偏好通过 `navigator.languages / navigator.language` 解析生效语言
+- 未命中支持语言时统一回退到 `en`
+
+### 5.1.1 前端国际化子层
+
+职责：
+
+- 维护受支持语言列表与回退策略
+- 管理翻译资源、插值与 key 类型约束
+- 同步 `document.documentElement.lang`
+- 为组件树提供 `t()`、当前语言和偏好设置能力
+
+设计要求：
+
+- 用户可见文案禁止直接硬编码在页面组件中
+- 消息资源按领域分组，避免单一超大字典文件
+- 动态文案优先使用插值参数，避免业务组件内自行拼接多语言字符串
 
 ### 5.2 桌面接入层（Desktop Integration Layer）
 

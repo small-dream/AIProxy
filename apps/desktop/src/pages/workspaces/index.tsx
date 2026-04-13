@@ -1,26 +1,28 @@
 import { Stack, Typography } from "@mui/material";
 
 import { SectionCard } from "@/components/shared/SectionCard";
+import { useI18n } from "@/i18n";
 
 export function WorkspacesPage() {
+  const { t } = useI18n();
+
   return (
     <Stack spacing={3}>
       <Stack spacing={0.75}>
-        <Typography variant="h4">Workspaces</Typography>
+        <Typography variant="h4">{t("workspacesPage.title")}</Typography>
         <Typography color="text.secondary" variant="body1">
-          Project-scoped storage, proxy settings, and reusable rule presets will be organized here.
+          {t("workspacesPage.description")}
         </Typography>
       </Stack>
 
       <SectionCard
-        description="Workspace selection will become the main unit for local state, session storage, and environment presets."
-        title="Workspace Manager"
+        description={t("workspacesPage.managerDescription")}
+        title={t("workspacesPage.managerTitle")}
       >
         <Typography color="text.secondary" variant="body2">
-          Create, load, and switch isolated debugging contexts without mixing sessions or rules between projects.
+          {t("workspacesPage.managerHint")}
         </Typography>
       </SectionCard>
     </Stack>
   );
 }
-

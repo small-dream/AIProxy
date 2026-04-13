@@ -1,5 +1,6 @@
 import { Button, CircularProgress, Stack } from "@mui/material";
 import { type CertificateStatus } from "@pharles/shared-types";
+import { useI18n } from "@/i18n";
 
 type Props = {
   status: CertificateStatus | undefined;
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function CertificateActions({ status, generating, installing, onGenerate, onInstall, onRefresh, loading }: Props) {
+  const { t } = useI18n();
   const hasCert = !!status?.certPath;
   const isTrusted = status?.trusted ?? false;
   const isWindows = status?.platform === "windows";
@@ -25,7 +27,7 @@ export function CertificateActions({ status, generating, installing, onGenerate,
         disabled={loading || generating || installing || (hasCert && isTrusted)}
         startIcon={generating ? <CircularProgress size={16} /> : undefined}
       >
-        {generating ? "Generating..." : hasCert ? "Regenerate Root Certificate" : "Generate Root Certificate"}
+        {generating ? t("certificatesPage.actions.generating") : hasCert ? t("certificatesPage.actions.regenerate") : t("certificatesPage.actions.generate")}
       </Button>
 
       {showInstallButton && (
@@ -36,7 +38,7 @@ export function CertificateActions({ status, generating, installing, onGenerate,
           disabled={loading || installing || generating}
           startIcon={installing ? <CircularProgress size={16} /> : undefined}
         >
-          {installing ? "Opening..." : "Install Certificate..."}
+          {installing ? t("certificatesPage.actions.opening") : t("certificatesPage.actions.install")}
         </Button>
       )}
 
@@ -46,7 +48,7 @@ export function CertificateActions({ status, generating, installing, onGenerate,
         disabled={loading}
         startIcon={loading ? <CircularProgress size={16} /> : undefined}
       >
-        Refresh Status
+        {t("common.actions.refreshStatus")}
       </Button>
     </Stack>
   );

@@ -9,6 +9,7 @@ import { Box, Button, Chip, Divider, IconButton, OutlinedInput, Paper, Stack, Ta
 import type { BreakpointHit, BreakpointResolution, HeaderEntry } from "@pharles/shared-types";
 import { useCallback, useMemo, useState } from "react";
 
+import { useI18n } from "@/i18n";
 import { resolveBreakpoint } from "@/services/commands";
 
 import { useBreakpointStore } from "../breakpoint.store";
@@ -18,11 +19,17 @@ import { useBreakpointStore } from "../breakpoint.store";
 // ---------------------------------------------------------------------------
 
 function HeaderEditor({
+  addLabel,
   headers,
+  namePlaceholder,
   onChange,
+  valuePlaceholder,
 }: {
+  addLabel: string;
   headers: HeaderEntry[];
+  namePlaceholder: string;
   onChange: (headers: HeaderEntry[]) => void;
+  valuePlaceholder: string;
 }) {
   const add = () => onChange([...headers, { name: "", value: "" }]);
   const remove = (idx: number) => onChange(headers.filter((_, i) => i !== idx));
@@ -35,14 +42,14 @@ function HeaderEditor({
         <Stack key={idx} direction="row" spacing={0.5}>
           <OutlinedInput
             size="small"
-            placeholder="Name"
+            placeholder={namePlaceholder}
             value={h.name}
             onChange={(e) => update(idx, "name", e.target.value)}
             sx={{ flex: 1, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
           />
           <OutlinedInput
             size="small"
-            placeholder="Value"
+            placeholder={valuePlaceholder}
             value={h.value}
             onChange={(e) => update(idx, "value", e.target.value)}
             sx={{ flex: 1.5, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
@@ -53,7 +60,7 @@ function HeaderEditor({
         </Stack>
       ))}
       <Button size="small" onClick={add} sx={{ alignSelf: "flex-start", fontSize: 12 }}>
-        + Add Header
+        + {addLabel}
       </Button>
     </Stack>
   );
@@ -113,6 +120,7 @@ function methodColor(method: string): "default" | "primary" | "success" | "warni
 // ---------------------------------------------------------------------------
 
 export function BreakpointInterceptPanel() {
+  const { t } = useI18n();
   const pendingHits = useBreakpointStore((s) => s.pendingHits);
   const activeHitId = useBreakpointStore((s) => s.activeHitId);
   const setActiveHitId = useBreakpointStore((s) => s.setActiveHitId);
@@ -224,7 +232,7 @@ export function BreakpointInterceptPanel() {
           sx={{ fontWeight: 700, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11 }}
         />
         <Chip
-          label={isRequestStage ? "Request" : "Response"}
+          label={isRequestStage ? t("breakpointPanel.requestTab") : t("breakpointPanel.responseTab")}
           size="small"
           variant="outlined"
           color={isRequestStage ? "info" : "secondary"}
@@ -264,9 +272,9 @@ export function BreakpointInterceptPanel() {
         scrollButtons="auto"
         sx={{ minHeight: 36, borderBottom: 1, borderColor: "divider", px: 1 }}
       >
-        <Tab label="Request" icon={<CodeRoundedIcon />} iconPosition="start" sx={{ minHeight: 36, fontSize: 12 }} />
+        <Tab label={t("breakpointPanel.requestTab")} icon={<CodeRoundedIcon />} iconPosition="start" sx={{ minHeight: 36, fontSize: 12 }} />
         <Tab
-          label="Response"
+          label={t("breakpointPanel.responseTab")}
           icon={<RuleRoundedIcon />}
           iconPosition="start"
           sx={{ minHeight: 36, fontSize: 12 }}
@@ -278,11 +286,14 @@ export function BreakpointInterceptPanel() {
         {tab === 0 && (
           <Stack spacing={1.5}>
             <HeaderEditor
+              addLabel={t("common.actions.addHeader")}
               headers={reqHeaders}
+              namePlaceholder={t("common.placeholders.name")}
               onChange={(h) => setEditedReqHeaders(h)}
+              valuePlaceholder={t("common.placeholders.value")}
             />
             <BodyEditor
-              label="Request Body"
+              label={t("breakpointPanel.requestBody")}
               text={reqBody}
               onChange={(t) => setEditedReqBody(t)}
             />
@@ -292,13 +303,13 @@ export function BreakpointInterceptPanel() {
           <Stack spacing={1.5}>
             {!isRequestStage && activeHit.responseStatusCode != null && (
               <Typography variant="caption" color="text.secondary">
-                Status: {activeHit.responseStatusCode}
+                {t("breakpointPanel.status")} {activeHit.responseStatusCode}
               </Typography>
             )}
             {mockMode ? (
               <>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption" color="text.secondary">Status:</Typography>
+                  <Typography variant="caption" color="text.secondary">{t("breakpointPanel.status")}</Typography>
                   <OutlinedInput
                     size="small"
                     type="number"
@@ -307,17 +318,26 @@ export function BreakpointInterceptPanel() {
                     sx={{ width: 80, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
                   />
                 </Stack>
-                <HeaderEditor headers={mockHeaders} onChange={setMockHeaders} />
-                <BodyEditor label="Response Body" text={mockBody} onChange={setMockBody} />
+                <HeaderEditor
+                  addLabel={t("common.actions.addHeader")}
+                  headers={mockHeaders}
+                  namePlaceholder={t("common.placeholders.name")}
+                  onChange={setMockHeaders}
+                  valuePlaceholder={t("common.placeholders.value")}
+                />
+                <BodyEditor label={t("breakpointPanel.responseBody")} text={mockBody} onChange={setMockBody} />
               </>
             ) : (
               <>
                 <HeaderEditor
+                  addLabel={t("common.actions.addHeader")}
                   headers={respHeaders}
+                  namePlaceholder={t("common.placeholders.name")}
                   onChange={(h) => setEditedRespHeaders(h)}
+                  valuePlaceholder={t("common.placeholders.value")}
                 />
                 <BodyEditor
-                  label="Response Body"
+                  label={t("breakpointPanel.responseBody")}
                   text={respBody}
                   onChange={(t) => setEditedRespBody(t)}
                 />
@@ -346,7 +366,7 @@ export function BreakpointInterceptPanel() {
             }}
             sx={{ fontSize: 12 }}
           >
-            Mock Response
+            {t("common.actions.mockResponse")}
           </Button>
         )}
         {mockMode && (
@@ -357,7 +377,7 @@ export function BreakpointInterceptPanel() {
             onClick={() => setMockMode(false)}
             sx={{ fontSize: 12 }}
           >
-            Cancel Mock
+            {t("breakpointPanel.cancelMock")}
           </Button>
         )}
         <Button
@@ -368,7 +388,7 @@ export function BreakpointInterceptPanel() {
           onClick={() => handleResolve("drop")}
           sx={{ fontSize: 12 }}
         >
-          Drop
+          {t("breakpointPanel.drop")}
         </Button>
         <Button
           size="small"
@@ -378,7 +398,7 @@ export function BreakpointInterceptPanel() {
           onClick={() => handleResolve(mockMode ? "mock" : "forward")}
           sx={{ fontSize: 12 }}
         >
-          {mockMode ? "Send Mock" : "Forward"}
+          {mockMode ? t("common.actions.sendMock") : t("common.actions.forward")}
         </Button>
       </Stack>
     </Paper>

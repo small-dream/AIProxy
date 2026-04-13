@@ -14,6 +14,7 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
+import { useI18n } from "@/i18n";
 
 type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
@@ -44,6 +45,7 @@ export function SessionInspectorWorkspace({
   selectedSession,
   selectedSessionDetail,
 }: SessionInspectorWorkspaceProps) {
+  const { t } = useI18n();
   const detail =
     selectedSessionDetail && selectedSession && selectedSessionDetail.id === selectedSession.id
       ? selectedSessionDetail
@@ -58,17 +60,22 @@ export function SessionInspectorWorkspace({
       return { status: "idle" };
     }
 
-    return parseJsonBody(detail?.responseBody, responseBodyText);
-  }, [detail?.responseBody, responseBodyText, responseTab]);
+    return parseJsonBody(detail?.responseBody, responseBodyText, {
+      responseErrorMessage: t("inspector.jsonParse.responseError"),
+      tooLargeMessage: t("inspector.jsonParse.tooLarge"),
+    });
+  }, [detail?.responseBody, responseBodyText, responseTab, t]);
 
   const requestBodyDisplayText = useMemo(() => {
     if (!requestBodyText) {
-      return "No request body available.";
+      return t("inspector.request.bodyUnavailable");
     }
 
     const parsedRequestJson = parseJsonBody(detail?.requestBody, requestBodyText, {
       allowLargeTextFallback: true,
       preferSoftWarning: false,
+      requestFallbackMessage: t("inspector.jsonParse.requestFallback"),
+      tooLargeMessage: t("inspector.jsonParse.tooLarge"),
     });
 
     if (parsedRequestJson.status === "success") {
@@ -76,7 +83,7 @@ export function SessionInspectorWorkspace({
     }
 
     return requestBodyText;
-  }, [detail?.requestBody, requestBodyText]);
+  }, [detail?.requestBody, requestBodyText, t]);
 
   if (!selectedSession) {
     return (
@@ -93,9 +100,9 @@ export function SessionInspectorWorkspace({
         variant="outlined"
       >
         <Box sx={{ p: 3 }}>
-          <Typography variant="h6">Inspector Workspace</Typography>
+          <Typography variant="h6">{t("inspector.workspace.emptyTitle")}</Typography>
           <Typography color="text.secondary" variant="body2">
-            Select a captured request to inspect headers, body, timing, and raw HTTP messages.
+            {t("inspector.workspace.emptyDescription")}
           </Typography>
         </Box>
       </Paper>
@@ -129,7 +136,7 @@ export function SessionInspectorWorkspace({
       {isDetailLoading && !detail ? (
         <Box sx={{ p: 2 }}>
           <Typography color="text.secondary" variant="body2">
-            Loading selected session detail...
+            {t("inspector.workspace.loading")}
           </Typography>
         </Box>
       ) : null}

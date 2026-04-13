@@ -3,6 +3,7 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, Button, Chip, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
+import { useI18n } from "@/i18n";
 import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
@@ -30,11 +31,13 @@ export function SessionInspectorRequestPane({
   requestTab: RequestInspectorTab;
   session: SessionSummary;
 }) {
+  const { t } = useI18n();
+
   return (
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
         <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1}>
-          <Typography variant="subtitle2">Request</Typography>
+          <Typography variant="subtitle2">{t("inspector.request.sectionTitle")}</Typography>
           <Button
             onClick={() => onRequestCollapsedChange(!requestCollapsed)}
             size="small"
@@ -42,7 +45,7 @@ export function SessionInspectorRequestPane({
             sx={{ minWidth: 0, px: 1.25 }}
             variant="text"
           >
-            {requestCollapsed ? "Expand" : "Collapse"}
+            {requestCollapsed ? t("common.actions.expand") : t("common.actions.collapse")}
           </Button>
         </Stack>
       </Stack>
@@ -57,12 +60,12 @@ export function SessionInspectorRequestPane({
             value={requestTab}
             variant="scrollable"
           >
-            <Tab label="Overview" value="overview" />
-            <Tab label={buildCountTabLabel("Query", detail?.queryParams.length ?? 0)} value="query" />
-            <Tab label={buildCountTabLabel("Headers", detail?.requestHeaders.length ?? 0)} value="headers" />
-            <Tab label="Body" value="body" />
-            <Tab label={buildCountTabLabel("Form", requestFormEntries.length)} value="form" />
-            <Tab label="Raw" value="raw" />
+            <Tab label={t("inspector.request.tabs.overview")} value="overview" />
+            <Tab label={buildCountTabLabel(t("inspector.request.tabs.query"), detail?.queryParams.length ?? 0)} value="query" />
+            <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
+            <Tab label={t("inspector.request.tabs.body")} value="body" />
+            <Tab label={buildCountTabLabel(t("inspector.request.tabs.form"), requestFormEntries.length)} value="form" />
+            <Tab label={t("inspector.request.tabs.raw")} value="raw" />
           </Tabs>
           <Divider />
         </>
@@ -96,6 +99,13 @@ function RequestTabContent({
   requestTab: RequestInspectorTab;
   session: SessionSummary;
 }) {
+  const { t } = useI18n();
+  const bodyDescription = describeBody(detail?.requestBody, {
+    formatBytes: (value) => t("common.tech.bytes", { value }),
+    truncatedPreviewLabel: t("common.tech.truncatedPreview"),
+    unknownMimeTypeLabel: t("common.tech.unknownMimeType"),
+  });
+
   if (requestTab === "overview") {
     return (
       <Stack spacing={2}>
@@ -104,19 +114,19 @@ function RequestTabContent({
         </Stack>
         <InspectorDefinitionList
           items={[
-            ["Host", session.host],
-            ["Path", session.path || "/"],
-            ["Protocol", session.protocol],
-            ["URL", session.url],
-            ["Started", session.startedAt],
-            ["Finished", session.finishedAt],
-            ["Body", describeBody(detail?.requestBody) ?? "No request body captured"],
+            [t("common.labels.host"), session.host],
+            [t("common.labels.path"), session.path || "/"],
+            [t("common.labels.protocol"), session.protocol],
+            [t("common.labels.url"), session.url],
+            [t("common.labels.started"), session.startedAt],
+            [t("common.labels.finished"), session.finishedAt],
+            [t("common.labels.body"), bodyDescription ?? t("inspector.request.noBodyCaptured")],
           ]}
         />
         <Stack spacing={1}>
-          <Typography variant="subtitle2">Cookies</Typography>
+          <Typography variant="subtitle2">{t("inspector.cookies")}</Typography>
           <InspectorDefinitionList
-            emptyMessage="No cookie headers captured."
+            emptyMessage={t("inspector.request.cookiesEmpty")}
             items={detail?.cookies.map((entry) => [entry.name, entry.value]) ?? []}
           />
         </Stack>
@@ -127,7 +137,7 @@ function RequestTabContent({
   if (requestTab === "query") {
     return (
       <InspectorKeyValueTable
-        emptyMessage="No query parameters."
+        emptyMessage={t("inspector.request.emptyQuery")}
         items={detail?.queryParams.map((entry) => [entry.name, entry.value]) ?? []}
       />
     );
@@ -136,7 +146,7 @@ function RequestTabContent({
   if (requestTab === "headers") {
     return (
       <InspectorKeyValueTable
-        emptyMessage="No request headers captured."
+        emptyMessage={t("inspector.request.emptyHeaders")}
         items={detail?.requestHeaders.map((entry) => [entry.name, entry.value]) ?? []}
       />
     );
@@ -146,10 +156,10 @@ function RequestTabContent({
     return (
       <Stack spacing={1}>
         <Typography color="text.secondary" variant="caption">
-          {describeBody(detail?.requestBody) ?? "No body captured."}
+          {bodyDescription ?? t("common.tech.noBodyCaptured")}
         </Typography>
         <InspectorDefinitionList
-          emptyMessage="No form fields detected in the request body."
+          emptyMessage={t("inspector.request.emptyForm")}
           items={requestFormEntries}
         />
       </Stack>
@@ -157,13 +167,13 @@ function RequestTabContent({
   }
 
   if (requestTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawRequest ?? "Raw request is not available."} searchQuery="" />;
+    return <SearchableCodeBlock code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")} searchQuery="" />;
   }
 
   return (
     <Stack spacing={1}>
       <Typography color="text.secondary" variant="caption">
-        {describeBody(detail?.requestBody) ?? "No body captured."}
+        {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
       <SearchableCodeBlock code={requestBodyDisplayText} searchQuery="" />
     </Stack>

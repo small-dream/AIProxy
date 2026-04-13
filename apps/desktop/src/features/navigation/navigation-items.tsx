@@ -6,10 +6,12 @@ import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import type { ReactNode } from "react";
 
+import type { TranslationKey } from "@/i18n";
+
 type NavigationItem = {
   group: "manage" | "workspace";
   icon: ReactNode;
-  label: string;
+  labelKey: TranslationKey;
   to: string;
 };
 
@@ -17,38 +19,37 @@ export const navigationItems: NavigationItem[] = [
   {
     group: "workspace",
     icon: <DatasetLinkedRoundedIcon />,
-    label: "Sessions",
+    labelKey: "navigation.sessions",
     to: "/",
   },
   {
     group: "workspace",
     icon: <EditRoadRoundedIcon />,
-    label: "Compose",
+    labelKey: "navigation.compose",
     to: "/compose",
   },
   {
     group: "workspace",
     icon: <RuleRoundedIcon />,
-    label: "Rules",
+    labelKey: "navigation.rules",
     to: "/rules",
   },
   {
     group: "manage",
     icon: <DescriptionRoundedIcon />,
-    label: "Certificates",
+    labelKey: "navigation.certificates",
     to: "/certificates",
   },
   {
     group: "manage",
     icon: <FolderRoundedIcon />,
-    label: "Workspaces",
+    labelKey: "navigation.workspaces",
     to: "/workspaces",
   },
   {
     group: "manage",
     icon: <SettingsRoundedIcon />,
-    label: "Settings",
+    labelKey: "navigation.settings",
     to: "/settings",
   },
 ];
-

@@ -27,6 +27,8 @@ import { radiusTokens } from "@pharles/ui-tokens";
 import type { SessionSummary } from "@pharles/shared-types";
 import { useEffect, useRef, useState } from "react";
 
+import type { TranslationKey } from "@/i18n";
+import { useI18n } from "@/i18n";
 import {
   getSessionLeafLabel,
   getSessionQuerySuffix,
@@ -60,6 +62,8 @@ export function SessionExplorerPane({
   searchValue,
   selectedSessionId,
 }: SessionExplorerPaneProps) {
+  const { t } = useI18n();
+
   return (
     <Paper
       elevation={0}
@@ -79,7 +83,7 @@ export function SessionExplorerPane({
         <OutlinedInput
           fullWidth
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search domain or path"
+          placeholder={t("sessionExplorer.searchPlaceholder")}
           size="small"
           startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
           value={searchValue}
@@ -93,7 +97,7 @@ export function SessionExplorerPane({
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
             <CircularProgress size={22} />
             <Typography color="text.secondary" variant="body2">
-              Loading captured sessions...
+              {t("sessionExplorer.loading")}
             </Typography>
           </Stack>
         ) : errorMessage ? (
@@ -119,13 +123,13 @@ export function SessionExplorerPane({
               <LanguageRoundedIcon sx={{ fontSize: 28 }} />
             </Box>
             <Stack spacing={0.5}>
-              <Typography sx={{ fontSize: 17, fontWeight: 700 }}>No captured sessions yet.</Typography>
+              <Typography sx={{ fontSize: 17, fontWeight: 700 }}>{t("sessionExplorer.emptyTitle")}</Typography>
               <Typography color="text.secondary" sx={{ maxWidth: 320 }} variant="body2">
-                Start the proxy, then open a page or app request. Captured traffic will appear here in real time.
+                {t("sessionExplorer.emptyDescription")}
               </Typography>
             </Stack>
             <Typography color="text.secondary" sx={{ fontSize: 12.5 }}>
-              Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.
+              {t("sessionExplorer.emptyTip")}
             </Typography>
           </Stack>
         ) : (
@@ -146,6 +150,7 @@ export function SessionExplorerPane({
                       {group.tree.map((node) => (
                         <SessionTreeNode
                           depth={0}
+                          getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
                           host={group.host}
                           key={node.kind === "branch" ? `branch:${node.pathKey}` : `leaf:${node.session.id}`}
                           node={node}
@@ -232,6 +237,7 @@ function HostRow({ expanded, group, onToggle }: HostRowProps) {
 type SessionTreeNodeProps = {
   depth: number;
   expandedHosts: string[];
+  getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   host: string;
   node: SessionPathNode;
   onSelectSession: (sessionId: string) => void;
@@ -242,6 +248,7 @@ type SessionTreeNodeProps = {
 function SessionTreeNode({
   depth,
   expandedHosts,
+  getResourceTooltip,
   host,
   node,
   onSelectSession,
@@ -252,6 +259,7 @@ function SessionTreeNode({
     return (
       <SessionLeafNode
         depth={depth}
+        getResourceTooltip={getResourceTooltip}
         onClick={() => onSelectSession(node.session.id)}
         selected={selectedSessionId === node.session.id}
         session={node.session}
@@ -294,6 +302,7 @@ function SessionTreeNode({
             <SessionTreeNode
               depth={depth + 1}
               expandedHosts={expandedHosts}
+              getResourceTooltip={getResourceTooltip}
               host={host}
               key={childNode.kind === "branch" ? `branch:${childNode.pathKey}` : `leaf:${childNode.session.id}`}
               node={childNode}
@@ -309,12 +318,14 @@ function SessionTreeNode({
 
 type SessionLeafNodeProps = {
   depth: number;
+  getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   onClick: () => void;
   selected: boolean;
   session: SessionSummary;
 };
 
-function SessionLeafNode({ depth, onClick, selected, session }: SessionLeafNodeProps) {
+function SessionLeafNode({ depth, getResourceTooltip, onClick, selected, session }: SessionLeafNodeProps) {
+  const { t } = useI18n();
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
 
@@ -355,7 +366,7 @@ function SessionLeafNode({ depth, onClick, selected, session }: SessionLeafNodeP
           },
         }}
       />
-      <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind)}>
+      <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}>
         <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.75 }}>
           {renderResourceIcon(resourceKind)}
         </Box>
@@ -389,54 +400,67 @@ function SessionLeafNode({ depth, onClick, selected, session }: SessionLeafNodeP
   );
 }
 
-function buildLeafTooltip(session: SessionSummary, resourceKind: SessionExplorerResourceKind): string {
-  const kindLabel = getResourceTooltipLabel(resourceKind);
+function buildLeafTooltip(
+  session: SessionSummary,
+  resourceKind: SessionExplorerResourceKind,
+  getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string,
+  t: (key: TranslationKey, params?: Record<string, number | string>) => string,
+): string {
+  const kindLabel = getResourceTooltip(resourceKind);
 
   if (session.statusCode <= 0) {
-    return `${session.method} ${session.url} · Pending`;
+    return t("sessionExplorer.tooltipPending", { method: session.method, url: session.url });
   }
 
-  return `${session.method} ${session.url} · ${session.statusCode} · ${kindLabel}`;
+  return t("sessionExplorer.tooltipResolved", {
+    kind: kindLabel,
+    method: session.method,
+    statusCode: session.statusCode,
+    url: session.url,
+  });
 }
 
-function getResourceTooltipLabel(resourceKind: SessionExplorerResourceKind): string {
+function getResourceTooltipLabel(
+  resourceKind: SessionExplorerResourceKind,
+  t: (key: TranslationKey) => string,
+): string {
   if (resourceKind === "api") {
-    return "JSON";
+    return t("sessionExplorer.resourceKinds.json");
   }
 
   if (resourceKind === "javascript") {
-    return "JavaScript";
+    return t("sessionExplorer.resourceKinds.javascript");
   }
 
   if (resourceKind === "css") {
-    return "CSS";
+    return t("sessionExplorer.resourceKinds.css");
   }
 
   if (resourceKind === "html") {
-    return "HTML";
+    return t("sessionExplorer.resourceKinds.html");
   }
 
   if (resourceKind === "image") {
-    return "Image";
+    return t("sessionExplorer.resourceKinds.image");
   }
 
   if (resourceKind === "text") {
-    return "Text";
+    return t("sessionExplorer.resourceKinds.text");
   }
 
   if (resourceKind === "warning") {
-    return "Failed";
+    return t("sessionExplorer.resourceKinds.failed");
   }
 
   if (resourceKind === "pending") {
-    return "Pending";
+    return t("sessionExplorer.resourceKinds.pending");
   }
 
   if (resourceKind === "request") {
-    return "Request";
+    return t("sessionExplorer.resourceKinds.request");
   }
 
-  return "File";
+  return t("sessionExplorer.resourceKinds.file");
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {

@@ -3,7 +3,7 @@ import { Alert, AlertTitle, Box, Button, Chip, Divider, Stack, Tab, Tabs, Typogr
 import { QRCodeSVG } from "qrcode.react";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
-import { iosSteps, androidSteps } from "./mobile-guides";
+import { useI18n } from "@/i18n";
 
 type Props = {
   proxyPort: number;
@@ -15,6 +15,7 @@ type Props = {
 type MobileTab = "ios" | "android";
 
 export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }: Props) {
+  const { t, tList } = useI18n();
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const [activeTab, setActiveTab] = useState<MobileTab>("ios");
 
@@ -22,54 +23,57 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
   const certDownloadUrl = localIp && proxyRunning ? `http://${localIp}:${proxyPort}/pharles-ca.crt` : null;
   const proxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
 
-  const guideSteps = activeTab === "ios" ? iosSteps : androidSteps;
+  const guideSteps =
+    activeTab === "ios"
+      ? tList("certificatesPage.mobile.iosSteps")
+      : tList("certificatesPage.mobile.androidSteps");
 
   return (
-    <SectionCard title="Mobile Capture Setup" description="Configure your phone to capture traffic through Pharles.">
+    <SectionCard title={t("certificatesPage.mobile.sectionTitle")} description={t("certificatesPage.mobile.sectionDescription")}>
       <Stack spacing={3}>
         {/* Prerequisites check */}
         {!proxyRunning && (
           <Alert severity="warning">
-            <AlertTitle>Proxy Not Running</AlertTitle>
-            Start the proxy first, then configure your phone to connect to it.
+            <AlertTitle>{t("certificatesPage.mobile.proxyNotRunningTitle")}</AlertTitle>
+            {t("certificatesPage.mobile.proxyNotRunningBody")}
           </Alert>
         )}
 
         {proxyRunning && !sslEnabled && (
           <Alert severity="info">
-            <AlertTitle>HTTP Only</AlertTitle>
-            SSL is disabled. Only plain HTTP traffic will be captured. Enable SSL to capture HTTPS traffic.
+            <AlertTitle>{t("certificatesPage.mobile.httpOnlyTitle")}</AlertTitle>
+            {t("certificatesPage.mobile.httpOnlyBody")}
           </Alert>
         )}
 
         {/* Network info */}
         <Stack spacing={1.5}>
-          <Typography variant="subtitle2">Network Information</Typography>
+          <Typography variant="subtitle2">{t("certificatesPage.mobile.networkInfo")}</Typography>
 
           <Stack direction="row" spacing={2} alignItems="center">
-            <Typography variant="body2" sx={{ minWidth: 120 }}>Local IP:</Typography>
+            <Typography variant="body2" sx={{ minWidth: 120 }}>{t("certificatesPage.mobile.localIp")}</Typography>
             {ipsLoading ? (
-              <Chip label="Detecting..." size="small" />
+              <Chip label={t("common.states.detecting")} size="small" />
             ) : localIp ? (
               <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{localIp}</Typography>
             ) : (
-              <Chip label="Not detected" color="error" size="small" />
+              <Chip label={t("common.states.notDetected")} color="error" size="small" />
             )}
           </Stack>
 
           <Stack direction="row" spacing={2} alignItems="center">
-            <Typography variant="body2" sx={{ minWidth: 120 }}>Proxy Port:</Typography>
+            <Typography variant="body2" sx={{ minWidth: 120 }}>{t("certificatesPage.mobile.proxyPort")}</Typography>
             <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{proxyPort}</Typography>
           </Stack>
 
           <Stack direction="row" spacing={2} alignItems="center">
-            <Typography variant="body2" sx={{ minWidth: 120 }}>Wi-Fi Proxy:</Typography>
+            <Typography variant="body2" sx={{ minWidth: 120 }}>{t("certificatesPage.mobile.wifiProxy")}</Typography>
             {proxyAddress ? (
               <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600, color: "primary.main" }}>
                 {proxyAddress}
               </Typography>
             ) : (
-              <Chip label="N/A" size="small" />
+              <Chip label={t("common.states.na")} size="small" />
             )}
           </Stack>
         </Stack>
@@ -79,9 +83,9 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
           <>
             <Divider />
             <Stack spacing={1.5}>
-              <Typography variant="subtitle2">Download Certificate</Typography>
+              <Typography variant="subtitle2">{t("certificatesPage.mobile.downloadCertificate")}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Scan the QR code on your phone to download the root CA certificate, then follow the guide below to install it.
+                {t("certificatesPage.mobile.certQrHint")}
               </Typography>
 
               <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
@@ -100,7 +104,7 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
         {/* QR Code for proxy info (when SSL is off) */}
         {sslEnabled && hasCert && !certDownloadUrl && (
           <Typography variant="body2" color="text.secondary">
-            Start the proxy to generate the certificate download QR code.
+            {t("certificatesPage.mobile.noCertQr")}
           </Typography>
         )}
 
@@ -108,7 +112,7 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
           <>
             <Divider />
             <Stack spacing={1.5}>
-              <Typography variant="subtitle2">Proxy Configuration</Typography>
+              <Typography variant="subtitle2">{t("certificatesPage.mobile.proxyConfiguration")}</Typography>
               <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
                 <Box sx={{ p: 2, bgcolor: "white", borderRadius: 1, display: "inline-block" }}>
                   <QRCodeSVG value={`proxy:${proxyAddress}`} size={180} />
@@ -121,21 +125,21 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
         {/* Setup guides */}
         <Divider />
         <Stack spacing={1.5}>
-          <Typography variant="subtitle2">Setup Guide</Typography>
+          <Typography variant="subtitle2">{t("certificatesPage.mobile.setupGuide")}</Typography>
 
           <Tabs
             value={activeTab}
             onChange={(_, v: MobileTab) => setActiveTab(v)}
             sx={{ borderBottom: 1, borderColor: "divider", mb: 1 }}
           >
-            <Tab label="iOS" value="ios" />
-            <Tab label="Android" value="android" />
+            <Tab label={t("certificatesPage.mobile.ios")} value="ios" />
+            <Tab label={t("certificatesPage.mobile.android")} value="android" />
           </Tabs>
 
           <Box component="ol" sx={{ pl: 2, m: 0 }}>
-            {guideSteps.map((step) => (
-              <li key={step.order}>
-                <Typography variant="body2" sx={{ mb: 1 }}>{step.description}</Typography>
+            {guideSteps.map((step, index) => (
+              <li key={`${activeTab}-${index}`}>
+                <Typography variant="body2" sx={{ mb: 1 }}>{step}</Typography>
               </li>
             ))}
           </Box>
@@ -150,7 +154,7 @@ export function MobileSetupCard({ proxyPort, proxyRunning, sslEnabled, hasCert }
               size="small"
               onClick={() => navigator.clipboard.writeText(proxyAddress)}
             >
-              Copy Proxy Address
+              {t("certificatesPage.mobile.copyProxyAddress")}
             </Button>
           </>
         )}

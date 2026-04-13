@@ -3,6 +3,8 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { Box, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
 import type { HeaderEntry } from "@pharles/shared-types";
 
+import { useI18n } from "@/i18n";
+
 export function EditableKeyValueTable({
   items,
   onChange,
@@ -14,6 +16,8 @@ export function EditableKeyValueTable({
   namePlaceholder?: string;
   valuePlaceholder?: string;
 }) {
+  const { t } = useI18n();
+
   function handleUpdate(index: number, field: "name" | "value", newValue: string) {
     const updated = [...items];
     const current = updated[index];
@@ -38,7 +42,7 @@ export function EditableKeyValueTable({
     <Box>
       {items.length === 0 ? (
         <Typography color="text.secondary" sx={{ py: 1 }} variant="body2">
-          No entries. Click the add button to create one.
+          {t("common.empty.noData")}
         </Typography>
       ) : (
         <Stack spacing={0.5}>
@@ -58,7 +62,7 @@ export function EditableKeyValueTable({
                 sx={{ flex: 1.8, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
                 value={item.value}
               />
-              <Tooltip title="Remove">
+              <Tooltip title={t("common.actions.remove")}>
                 <IconButton
                   onClick={() => handleRemove(index)}
                   size="small"
@@ -81,7 +85,7 @@ export function EditableKeyValueTable({
         >
           <AddRoundedIcon sx={{ fontSize: 18 }} />
           <Typography sx={{ fontSize: 12, ml: 0.25 }} variant="caption">
-            Add
+            {t("common.actions.add")}
           </Typography>
         </IconButton>
       </Box>

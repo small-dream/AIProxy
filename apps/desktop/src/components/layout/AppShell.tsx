@@ -52,6 +52,7 @@ import {
   useStartProxy,
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
+import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 
 const NAVIGATION_WIDTH = 228;
@@ -157,7 +158,7 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
   );
 }
 
-function getErrorMessage(error: unknown) {
+function getErrorMessage(error: unknown, fallbackMessage: string) {
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -166,10 +167,11 @@ function getErrorMessage(error: unknown) {
     return error;
   }
 
-  return "Something went wrong. Please try again.";
+  return fallbackMessage;
 }
 
 export function AppShell() {
+  const { locale, t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const navigationExpanded = useAppShellStore((state) => state.navigationExpanded);
@@ -197,7 +199,11 @@ export function AppShell() {
   const manageNavigationItems = navigationItems.filter((item) => item.group === "manage");
   const settingsItem = manageNavigationItems.find((item) => item.to === "/settings");
   const topManageItems = manageNavigationItems.filter((item) => item.to !== "/settings");
-  const sslLabel = proxyStatus?.sslEnabled ? "SSL On" : certificateStatus?.trusted ? "SSL Ready" : "SSL Setup";
+  const sslLabel = proxyStatus?.sslEnabled
+    ? t("appShell.sslOn")
+    : certificateStatus?.trusted
+      ? t("appShell.sslReady")
+      : t("appShell.sslSetup");
   const isBusy =
     startProxyMutation.isPending ||
     stopProxyMutation.isPending ||
@@ -222,7 +228,7 @@ export function AppShell() {
     const nextWorkspaceId = workspaceDraft.trim();
 
     if (!nextWorkspaceId) {
-      setWorkspaceDialogError("Workspace ID is required.");
+      setWorkspaceDialogError(t("appShell.workspaceRequired"));
       return;
     }
 
@@ -244,7 +250,7 @@ export function AppShell() {
 
       setWorkspaceDialogOpen(false);
     } catch (error) {
-      setWorkspaceDialogError(getErrorMessage(error));
+      setWorkspaceDialogError(getErrorMessage(error, t("common.errors.generic")));
     }
   }
 
@@ -252,7 +258,7 @@ export function AppShell() {
     const nextPort = Number.parseInt(portDraft.trim(), 10);
 
     if (!Number.isInteger(nextPort) || nextPort < 1 || nextPort > 65535) {
-      setPortDialogError("Enter a valid TCP port between 1 and 65535.");
+      setPortDialogError(t("appShell.proxyPortValidation"));
       return;
     }
 
@@ -270,7 +276,7 @@ export function AppShell() {
 
       setPortDialogOpen(false);
     } catch (error) {
-      setPortDialogError(getErrorMessage(error));
+      setPortDialogError(getErrorMessage(error, t("common.errors.generic")));
     }
   }
 
@@ -309,7 +315,7 @@ export function AppShell() {
               Pharles
             </Typography>
             <Typography color="text.secondary" noWrap variant="caption">
-              Desktop proxy workbench
+              {t("appShell.appSubtitle")}
             </Typography>
           </Stack>
 
@@ -325,7 +331,7 @@ export function AppShell() {
               sx={{ borderRadius: 999, px: 1.75 }}
               variant="contained"
             >
-              Stop Proxy
+              {t("common.actions.stopProxy")}
             </Button>
           ) : (
             <Button
@@ -342,11 +348,11 @@ export function AppShell() {
               sx={{ borderRadius: 999, px: 1.75 }}
               variant="contained"
             >
-              {certificateStatus?.trusted ? "Start HTTPS Proxy" : "Start Proxy"}
+              {certificateStatus?.trusted ? t("common.actions.startHttpsProxy") : t("common.actions.startProxy")}
             </Button>
           )}
 
-          <Tooltip arrow title="More actions">
+          <Tooltip arrow title={t("appShell.moreActions")}>
             <IconButton color="inherit" onClick={(event) => setMoreAnchorEl(event.currentTarget)}>
               <MoreVertRoundedIcon />
             </IconButton>
@@ -370,7 +376,7 @@ export function AppShell() {
                 <ListItemIcon>
                   <LanguageRoundedIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Disable System Proxy" />
+                <ListItemText primary={t("common.actions.disableSystemProxy")} />
               </MenuItem>
             ) : (
               <MenuItem
@@ -383,7 +389,7 @@ export function AppShell() {
                 <ListItemIcon>
                   <LanguageRoundedIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Enable System Proxy" />
+                <ListItemText primary={t("common.actions.enableSystemProxy")} />
               </MenuItem>
             )}
 
@@ -397,7 +403,7 @@ export function AppShell() {
               <ListItemIcon>
                 <DeleteSweepRoundedIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Clear Sessions" />
+              <ListItemText primary={t("common.actions.clearSessions")} />
             </MenuItem>
           </Menu>
         </Toolbar>
@@ -422,7 +428,7 @@ export function AppShell() {
       >
         <Stack sx={{ flex: 1, minHeight: 0 }}>
           <Typography color="text.secondary" sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, px: 1, pb: 0.625, textTransform: "uppercase" }}>
-            Workspace
+            {t("navigation.workspace")}
           </Typography>
           <List disablePadding sx={{ display: "grid", gap: 0.375 }}>
             {workspaceNavigationItems.map((item) => {
@@ -478,7 +484,7 @@ export function AppShell() {
                   }}
                 >
                   <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.label} />
+                  <ListItemText primary={t(item.labelKey)} />
                 </ListItemButton>
               );
             })}
@@ -487,7 +493,7 @@ export function AppShell() {
           <Divider sx={{ my: 1.25 }} />
 
           <Typography color="text.secondary" sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, px: 1, pb: 0.625, textTransform: "uppercase" }}>
-            Manage
+            {t("navigation.manage")}
           </Typography>
           <List disablePadding sx={{ display: "grid", gap: 0.375 }}>
             {topManageItems.map((item) => {
@@ -543,7 +549,7 @@ export function AppShell() {
                   }}
                 >
                   <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.label} />
+                  <ListItemText primary={t(item.labelKey)} />
                 </ListItemButton>
               );
             })}
@@ -599,7 +605,7 @@ export function AppShell() {
                 }}
               >
                 <ListItemIcon>{settingsItem.icon}</ListItemIcon>
-                <ListItemText primary={settingsItem.label} />
+                <ListItemText primary={t(settingsItem.labelKey)} />
               </ListItemButton>
             </List>
           ) : null}
@@ -643,26 +649,26 @@ export function AppShell() {
           <StatusItem
             active={proxyStatus?.running ?? false}
             icon={<FiberManualRecordRoundedIcon />}
-            label={proxyStatus?.running ? "Recording" : "Idle"}
+            label={proxyStatus?.running ? t("common.states.recording") : t("common.states.idle")}
           />
 
           <StatusSeparator />
 
           <StatusItem
             icon={<BoltRoundedIcon />}
-            label={`Workspace ${workspaceId}`}
+            label={t("appShell.workspaceStatus", { workspaceId })}
             onClick={openWorkspaceDialog}
-            title="Switch the active workspace"
+            title={t("appShell.switchActiveWorkspace")}
           />
 
           <StatusSeparator />
 
           <StatusItem
             icon={<SettingsEthernetRoundedIcon />}
-            label={`:${port}`}
+            label={t("appShell.portStatus", { port })}
             monospaced
             onClick={openPortDialog}
-            title="Change the listening port"
+            title={t("appShell.changePortTitle")}
           />
 
           <StatusSeparator />
@@ -670,16 +676,16 @@ export function AppShell() {
           <StatusItem
             active={proxyStatus?.systemProxyEnabled ?? false}
             icon={<LanguageRoundedIcon />}
-            label={proxyStatus?.systemProxyEnabled ? "System Proxy On" : "System Proxy Off"}
+            label={proxyStatus?.systemProxyEnabled ? t("appShell.systemProxyOn") : t("appShell.systemProxyOff")}
             onClick={() => {
               void handleSystemProxyToggle();
             }}
             title={
               proxyStatus?.systemProxyEnabled
-                ? "Disable the system proxy"
+                ? t("appShell.statusDisableSystemProxy")
                 : proxyStatus?.running
-                  ? "Enable the system proxy"
-                  : "Start the proxy before enabling the system proxy"
+                  ? t("appShell.statusEnableSystemProxy")
+                  : t("appShell.startProxyBeforeSystemProxy")
             }
           />
 
@@ -690,7 +696,7 @@ export function AppShell() {
             icon={<LockRoundedIcon />}
             label={sslLabel}
             onClick={() => navigate("/certificates")}
-            title="Open the Certificates page"
+            title={t("appShell.openCertificatesPage")}
           />
 
           {pendingBreakpointCount > 0 && (
@@ -699,9 +705,12 @@ export function AppShell() {
               <StatusItem
                 active
                 icon={<PauseCircleRoundedIcon />}
-                label={`${pendingBreakpointCount} breakpoint${pendingBreakpointCount > 1 ? "s" : ""}`}
+                label={t("appShell.breakpointsPending", {
+                  count: pendingBreakpointCount,
+                  suffix: locale === "en" && pendingBreakpointCount > 1 ? "s" : "",
+                })}
                 onClick={() => navigate("/rules")}
-                title="Breakpoints pending — click to open Rules"
+                title={t("appShell.breakpointsPendingTitle")}
               />
             </>
           )}
@@ -716,13 +725,13 @@ export function AppShell() {
             void handleWorkspaceSwitch();
           }}
         >
-          <DialogTitle>Switch Workspace</DialogTitle>
+          <DialogTitle>{t("appShell.switchWorkspaceTitle")}</DialogTitle>
           <DialogContent>
             <Stack spacing={1.5} sx={{ pt: 0.5 }}>
               <Typography color="text.secondary" variant="body2">
                 {proxyStatus?.running
-                  ? "Changing the workspace restarts the proxy and starts a fresh capture context."
-                  : "Set the active workspace ID for the next capture session."}
+                  ? t("appShell.switchWorkspaceRestartHint")
+                  : t("appShell.switchWorkspaceSetHint")}
               </Typography>
               <OutlinedInput
                 autoFocus
@@ -744,9 +753,9 @@ export function AppShell() {
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setWorkspaceDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => setWorkspaceDialogOpen(false)}>{t("common.actions.cancel")}</Button>
             <Button disabled={isBusy} type="submit" variant="contained">
-              {proxyStatus?.running ? "Apply & Restart" : "Switch Workspace"}
+              {proxyStatus?.running ? t("common.actions.applyAndRestart") : t("common.actions.switchWorkspace")}
             </Button>
           </DialogActions>
         </Box>
@@ -760,13 +769,13 @@ export function AppShell() {
             void handlePortApply();
           }}
         >
-          <DialogTitle>Change Proxy Port</DialogTitle>
+          <DialogTitle>{t("appShell.changePortTitle")}</DialogTitle>
           <DialogContent>
             <Stack spacing={1.5} sx={{ pt: 0.5 }}>
               <Typography color="text.secondary" variant="body2">
                 {proxyStatus?.running
-                  ? "Port changes restart the proxy and rebind the listener immediately."
-                  : "Port changes are applied by starting the proxy on the new port."}
+                  ? t("appShell.portChangesRestartImmediately")
+                  : t("appShell.portChangesStartOnNewPort")}
               </Typography>
               <OutlinedInput
                 autoFocus
@@ -789,9 +798,9 @@ export function AppShell() {
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setPortDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => setPortDialogOpen(false)}>{t("common.actions.cancel")}</Button>
             <Button disabled={isBusy} type="submit" variant="contained">
-              {proxyStatus?.running ? "Apply & Restart" : "Start on New Port"}
+              {proxyStatus?.running ? t("common.actions.applyAndRestart") : t("common.actions.startOnNewPort")}
             </Button>
           </DialogActions>
         </Box>

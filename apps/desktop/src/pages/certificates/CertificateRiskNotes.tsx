@@ -1,27 +1,26 @@
 import { Alert, AlertTitle, Stack } from "@mui/material";
 import { SectionCard } from "@/components/shared/SectionCard";
+import { useI18n } from "@/i18n";
 
 export function CertificateRiskNotes() {
+  const { t } = useI18n();
+
   return (
-    <SectionCard title="Risk Notes" description="Important information about HTTPS interception.">
+    <SectionCard title={t("certificatesPage.risks.sectionTitle")} description={t("certificatesPage.risks.sectionDescription")}>
       <Stack spacing={2}>
         <Alert severity="warning">
-          <AlertTitle>Man-in-the-Middle by Design</AlertTitle>
-          HTTPS decryption works by acting as a trusted middleman between your browser and the target server.
-          All HTTPS traffic sent through the proxy can be inspected in plaintext.
-          This is the intended behavior for debugging, but the root CA private key must be kept secure.
+          <AlertTitle>{t("certificatesPage.risks.mitmTitle")}</AlertTitle>
+          {t("certificatesPage.risks.mitmBody")}
         </Alert>
 
         <Alert severity="info">
-          <AlertTitle>How to Undo</AlertTitle>
-          Removing the Pharles root CA from your system trust store restores normal HTTPS behavior.
-          All traffic intercepted through this proxy stops the moment you stop the proxy or remove the certificate.
+          <AlertTitle>{t("certificatesPage.risks.undoTitle")}</AlertTitle>
+          {t("certificatesPage.risks.undoBody")}
         </Alert>
 
         <Alert severity="info">
-          <AlertTitle>Certificate Pinning</AlertTitle>
-          Some applications use certificate pinning and will refuse to connect through a proxy with a custom root CA.
-          This is a client-side security feature and cannot be bypassed by the proxy.
+          <AlertTitle>{t("certificatesPage.risks.pinningTitle")}</AlertTitle>
+          {t("certificatesPage.risks.pinningBody")}
         </Alert>
       </Stack>
     </SectionCard>
