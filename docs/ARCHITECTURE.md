@@ -106,6 +106,7 @@ flowchart LR
 - 规则配置交互
 - 用户输入校验与反馈
 - 国际化文案解析、语言偏好存储与系统语言跟随
+- 外观主题解析、主题偏好存储与系统主题跟随
 
 技术：
 
@@ -118,8 +119,10 @@ flowchart LR
 
 - 前端通过 `I18nProvider` 统一提供文案解析能力
 - `Settings` 页面管理应用级语言偏好：`system | zh-CN | en`
+- `Settings` 页面管理应用级主题偏好：`system | light | dark`
 - 翻译资源由前端静态消息表提供，不依赖远程拉取
 - `system` 偏好通过 `navigator.languages / navigator.language` 解析生效语言
+- `system` 主题偏好通过 `prefers-color-scheme` 解析最终主题
 - 未命中支持语言时统一回退到 `en`
 
 ### 5.1.1 前端国际化子层
@@ -130,6 +133,7 @@ flowchart LR
 - 管理翻译资源、插值与 key 类型约束
 - 同步 `document.documentElement.lang`
 - 为组件树提供 `t()`、当前语言和偏好设置能力
+- 为组件树提供当前主题与主题偏好设置能力
 
 设计要求：
 
@@ -465,7 +469,7 @@ erDiagram
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `RulesPage`：`Rule Type Switcher` + `Rule List Pane` + `Rule Editor Pane`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
-- `SettingsPage`：`Settings Navigation` + `Settings Content Pane`
+- `SettingsPage`：当前已实现 `Language & Region` + `Appearance` 两个应用级设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
 
 ## 11.2 功能模块拆分
 

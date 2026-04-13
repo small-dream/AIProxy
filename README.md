@@ -9,6 +9,20 @@ Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能
 - 桌面端应用入口与 Rust 核心模块占位结构
 - 最小 bootstrap 命令链路（查询代理状态、启动代理、停止代理）
 
+## 质量校验
+
+桌面端当前质量命令：
+
+- `pnpm --filter @pharles/desktop lint`
+- `pnpm --filter @pharles/desktop test`
+- `pnpm --filter @pharles/desktop typecheck`
+
+说明：
+
+- 桌面端 lint 采用 ESLint flat config，配置文件位于 `apps/desktop/eslint.config.mjs`
+- 当前版本组合为 `eslint@10.2.0` + `@eslint/js@10.0.1`
+- `eslint-plugin-react-hooks@7.0.1` 在安装时仍会对 ESLint 10 给出 peer warning，但当前仓库接受该 warning，且 lint 可正常执行
+
 ## 文档入口
 
 - `docs/PRD.md`
@@ -86,6 +100,8 @@ scripts/        开发、构建、发布脚本
 - P0-4 已支持 Compose / Repeat（构造请求与重发）
 - P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
 - 桌面端已规划双语国际化方案：支持 `中文 / English`，默认跟随系统语言
+- 桌面端设置页已支持应用级外观偏好：`system / light / dark`
+- 桌面端主题系统已支持浅色、暗黑与跟随系统，并覆盖应用壳层、卡片、导航、会话视图与 JSON 代码高亮
 
 ## 当前可手动验证的 HTTP 抓包闭环
 

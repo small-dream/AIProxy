@@ -133,6 +133,24 @@
 - 默认值应集中管理并命名
 - 环境相关配置、主题配置、端口配置、功能开关应独立定义
 
+### 7.3 前端静态质量基线
+
+- 桌面端前端静态校验默认执行：
+  - `pnpm --filter @pharles/desktop lint`
+  - `pnpm --filter @pharles/desktop typecheck`
+  - `pnpm --filter @pharles/desktop test`
+- ESLint 使用 flat config，配置文件位于 `apps/desktop/eslint.config.mjs`
+- 当前桌面端 lint 基线基于：
+  - `eslint@10.2.0`
+  - `@eslint/js@10.0.1`
+  - `typescript-eslint`
+  - `eslint-plugin-react-hooks`
+- 当前仓库接受 `eslint-plugin-react-hooks` 对 ESLint 10 的 peer warning，前提是：
+  - 安装成功
+  - `pnpm --filter @pharles/desktop lint` 可稳定通过
+  - 不因规避 warning 而回退已启用的 lint 基线
+- 若后续插件发布明确支持 ESLint 10 的正式版本，应优先升级并移除该说明
+
 ## 8. 测试要求
 
 ### 8.1 单元测试

@@ -464,11 +464,17 @@ type CertificatesPageState = {
 };
 ```
 
-## 8. Settings Page
+## 8. Settings Page — `基础设置已实现`
 
 ### 8.1 页面目标
 
 集中管理应用默认设置，而不是项目级调试数据。
+
+当前已实现目标：
+
+- 管理界面语言偏好
+- 管理界面外观偏好
+- 支持 `system` 级别的自动解析与持久化
 
 ### 8.2 低保真线框
 
@@ -476,16 +482,15 @@ type CertificatesPageState = {
 [Settings Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: Settings                                                             │
-├───────────────┬──────────────────────────────────────────────────────────────┤
-│ [Nav]         │ [Content]                                                    │
-│ General       │ Section Title                                                │
-│ Proxy         │ Setting Row                                                  │
-│ Certificates  │ Setting Row                                                  │
-│ Storage       │ Setting Row                                                  │
-│ Appearance    │ Setting Row                                                  │
-│ Shortcuts     │ (Save) (Reset)                                               │
-│ Advanced      │                                                              │
-└───────────────┴──────────────────────────────────────────────────────────────┘
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Language & Region]                                                         │
+│ Display Language: [Follow System v]                                         │
+│ Info Hint                                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Appearance]                                                                │
+│ Appearance Theme: [Follow System v]                                         │
+│ Info Hint                                                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 8.3 React 组件树
@@ -493,12 +498,14 @@ type CertificatesPageState = {
 ```text
 SettingsPage
 ├─ PageHeader
-├─ SettingsWorkbench
-│  ├─ SettingsNavigation
-│  └─ SettingsContentPane
-│     ├─ SettingsSectionHeader
-│     ├─ SettingsFieldRow
-│     └─ SettingsActions
+├─ SectionCard "Language & Region"
+│  ├─ Description
+│  ├─ LanguagePreferenceSelect
+│  └─ EffectiveLanguageAlert
+├─ SectionCard "Appearance"
+│  ├─ Description
+│  ├─ ThemePreferenceSelect
+│  └─ EffectiveThemeAlert
 └─ BottomStatusStrip
 ```
 
@@ -506,22 +513,13 @@ SettingsPage
 
 ```ts
 type SettingsPageState = {
-  ui: {
-    activeSection:
-      | "general"
-      | "proxy"
-      | "certificates"
-      | "storage"
-      | "appearance"
-      | "shortcuts"
-      | "advanced";
+  preferences: {
+    languagePreference: "system" | "zh-CN" | "en";
+    themePreference: "system" | "light" | "dark";
   };
-  editor: {
-    dirty: boolean;
-  };
-  mutation: {
-    saving: boolean;
-    resetting: boolean;
+  derived: {
+    resolvedLocale: "zh-CN" | "en";
+    resolvedTheme: "light" | "dark";
   };
 };
 ```
