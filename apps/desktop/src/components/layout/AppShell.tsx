@@ -416,6 +416,7 @@ export function AppShell() {
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
+            height: "calc(100vh - 64px)",
             mt: "64px",
             px: 1,
             py: 1.25,

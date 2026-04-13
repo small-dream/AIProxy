@@ -1,17 +1,41 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Alert, Box, Button, CircularProgress, Divider, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
-import { useState } from "react";
+import { Alert, Box, CircularProgress, Divider, IconButton, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { SectionCard } from "@/components/shared/SectionCard";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { EditableKeyValueTable } from "@/features/compose/components/EditableKeyValueTable";
-import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock, InspectorSummaryBar } from "@/features/sessions/components/SessionInspectorShared";
+import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "@/features/sessions/components/SessionInspectorShared";
+import { SessionInspectorJsonTree } from "@/features/sessions/components/SessionInspectorJsonTree";
+import { getBodyText, parseJsonBody, type JsonParseResult } from "@/features/sessions/components/session-inspector.helpers";
 import { useI18n } from "@/i18n";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+const COMPOSE_SPLIT_STORAGE_KEY = "pharles.compose.splitRatio";
+const COMPOSE_SPLIT_MIN = 0.15;
+const COMPOSE_SPLIT_MAX = 0.85;
+const COMPOSE_SPLIT_DEFAULT = 0.45;
+
+function clampSplitRatio(ratio: number): number {
+  return Math.min(COMPOSE_SPLIT_MAX, Math.max(COMPOSE_SPLIT_MIN, ratio));
+}
+
+function readStorageValue(key: string): string | null {
+  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
+    return null;
+  }
+  return window.localStorage.getItem(key);
+}
+
+function writeStorageValue(key: string, value: string) {
+  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
+    return;
+  }
+  window.localStorage.setItem(key, value);
+}
 
 export function ComposePage() {
   const { t } = useI18n();
@@ -29,10 +53,37 @@ export function ComposePage() {
   const setActiveTab = useComposeEditorStore((s) => s.setActiveTab);
 
   const responseDetail = sendMutation.data;
-  const [responseTab, setResponseTab] = useState<"overview" | "headers" | "body" | "timing">("overview");
+  const [responseTab, setResponseTab] = useState<"overview" | "headers" | "json" | "jsonText" | "raw" | "timing">("overview");
+  const [searchValue, setSearchValue] = useState("");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(COMPOSE_SPLIT_DEFAULT);
+  const dragFrameRef = useRef<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  function handleSend() {
+  // Load split ratio from localStorage
+  useEffect(() => {
+    const saved = readStorageValue(COMPOSE_SPLIT_STORAGE_KEY);
+    const parsed = Number(saved);
+    if (Number.isFinite(parsed)) {
+      setSplitRatio(clampSplitRatio(parsed));
+    }
+  }, []);
+
+  // Persist split ratio
+  useEffect(() => {
+    writeStorageValue(COMPOSE_SPLIT_STORAGE_KEY, String(splitRatio));
+  }, [splitRatio]);
+
+  // Cleanup animation frame
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+    };
+  }, []);
+
+  const handleSend = useCallback(() => {
     sendMutation.mutate({
       workspaceId: "default",
       method,
@@ -40,13 +91,65 @@ export function ComposePage() {
       headers,
       ...(body ? { body } : {}),
     });
-  }
+  }, [sendMutation, method, url, headers, body]);
 
-  function handleExportCurl() {
+  const handleExportCurl = useCallback(() => {
     const cmd = generateCurlCommand({ method, url, headers, ...(body ? { body } : {}) });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
+  }, [method, url, headers, body]);
+
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const container = gridRef.current;
+    if (!container) return;
+
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+
+    const updateRatio = (clientY: number) => {
+      const bounds = container.getBoundingClientRect();
+      const ratio = clampSplitRatio((clientY - bounds.top) / bounds.height);
+
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        setSplitRatio(ratio);
+      });
+    };
+
+    updateRatio(event.clientY);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateRatio(moveEvent.clientY);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
   }
+
+  const responseBodyText = getBodyText(responseDetail?.responseBody);
+
+  const responseJsonResult = useMemo<JsonParseResult>(() => {
+    if (responseTab !== "json" && responseTab !== "jsonText") {
+      return { status: "idle" };
+    }
+    return parseJsonBody(responseDetail?.responseBody, responseBodyText, {
+      responseErrorMessage: t("inspector.jsonParse.responseError"),
+      tooLargeMessage: t("inspector.jsonParse.tooLarge"),
+    });
+  }, [responseDetail?.responseBody, responseBodyText, responseTab, t]);
+
+  const showSearch = responseTab === "json" || responseTab === "jsonText";
 
   const responseTabContent = (() => {
     if (!responseDetail) return null;
@@ -71,11 +174,38 @@ export function ComposePage() {
             items={responseDetail.responseHeaders.map((h) => [h.name, h.value])}
           />
         );
-      case "body":
+      case "json":
+        if (responseJsonResult.status === "tooLarge") {
+          return <Alert severity="info">{responseJsonResult.message}</Alert>;
+        }
+        if (responseJsonResult.status === "error") {
+          return <Alert severity="warning">{responseJsonResult.message}</Alert>;
+        }
+        if (responseJsonResult.status === "idle") {
+          return <Typography color="text.secondary" sx={{ py: 2 }} variant="body2">{t("composePage.responseNoBody")}</Typography>;
+        }
+        return <SessionInspectorJsonTree searchQuery={searchValue} value={responseJsonResult.value} />;
+      case "jsonText":
+        if (responseJsonResult.status === "tooLarge") {
+          return (
+            <Stack spacing={1.5}>
+              <Alert severity="info">{responseJsonResult.message}</Alert>
+              <SearchableCodeBlock code={responseBodyText ?? ""} language="plain" searchQuery={searchValue} />
+            </Stack>
+          );
+        }
+        if (responseJsonResult.status === "error") {
+          return <Alert severity="warning">{responseJsonResult.message}</Alert>;
+        }
+        if (responseJsonResult.status === "success") {
+          return <SearchableCodeBlock code={responseJsonResult.prettyText} language="json" searchQuery={searchValue} />;
+        }
+        return <Typography color="text.secondary" sx={{ py: 2 }} variant="body2">{t("composePage.responseNoBody")}</Typography>;
+      case "raw":
         return (
           <SearchableCodeBlock
-            code={responseDetail.responseBody?.inlineText ?? responseDetail.rawResponse ?? t("composePage.responseNoBody")}
-            language={responseDetail.responseBody?.mimeType?.includes("json") ? "json" : "plain"}
+            code={responseDetail.rawResponse ?? t("composePage.responseNoBody")}
+            language="plain"
             searchQuery=""
           />
         );
@@ -99,94 +229,87 @@ export function ComposePage() {
   })();
 
   return (
-    <Stack spacing={3}>
-        <Stack direction="row" justifyContent="space-between" spacing={2}>
-          <Stack spacing={0.75}>
-          <Typography variant="h4">{t("composePage.title")}</Typography>
-          <Typography color="text.secondary" variant="body1">
-            {t("composePage.description")}
-          </Typography>
-        </Stack>
-        <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
-          <Button
-            disabled={!url.trim()}
-            onClick={handleSend}
-            size="small"
-            startIcon={sendMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <SendRoundedIcon />}
-            variant="contained"
-          >
-            {t("common.actions.send")}
-          </Button>
-          <Tooltip title={t("composePage.copyAsCurl")}>
-            <span>
-              <Button
-                disabled={!url.trim()}
-                onClick={handleExportCurl}
-                size="small"
-                startIcon={<ContentCopyRoundedIcon />}
-                variant="outlined"
-              >
-                {t("common.actions.exportCurl")}
-              </Button>
-            </span>
-          </Tooltip>
-        </Stack>
+    <Stack sx={{ height: "100%", minHeight: 0 }}>
+      {/* URL Bar Row */}
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", pb: 1.5 }}>
+        <Select
+          size="small"
+          sx={{ flex: "0 0 120px", fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13, fontWeight: 600 }}
+          value={method}
+          onChange={(e) => setMethod(e.target.value)}
+        >
+          {HTTP_METHODS.map((m) => (
+            <MenuItem key={m} sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }} value={m}>
+              {m}
+            </MenuItem>
+          ))}
+        </Select>
+        <OutlinedInput
+          fullWidth
+          placeholder={t("composePage.urlPlaceholder")}
+          size="small"
+          sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && url.trim()) handleSend();
+          }}
+        />
+        <Tooltip title={t("common.actions.send")}>
+          <span>
+            <IconButton
+              color="primary"
+              disabled={!url.trim() || sendMutation.isPending}
+              onClick={handleSend}
+              size="small"
+            >
+              {sendMutation.isPending ? <CircularProgress size={20} color="inherit" /> : <SendRoundedIcon />}
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title={t("composePage.copyAsCurl")}>
+          <span>
+            <IconButton
+              color="primary"
+              disabled={!url.trim()}
+              onClick={handleExportCurl}
+              size="small"
+            >
+              <ContentCopyRoundedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
 
+      <Divider />
+
+      {/* Main Split: Request / Response */}
       <Box
+        ref={gridRef}
         sx={{
           display: "grid",
-          gap: 3,
-          gridTemplateColumns: {
-            md: "minmax(0, 8fr) minmax(0, 4fr)",
-            xs: "1fr",
-          },
+          flex: 1,
+          gridTemplateRows: `${splitRatio}fr 8px ${1 - splitRatio}fr`,
+          minHeight: 0,
+          mt: 0.5,
         }}
       >
-        {/* Request Builder */}
-        <SectionCard description={t("composePage.requestBuilderDescription")} title={t("composePage.requestBuilderTitle")}>
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <Select
-                size="small"
-                sx={{ flex: "0 0 120px", fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13, fontWeight: 600 }}
-                value={method}
-                onChange={(e) => setMethod(e.target.value)}
-              >
-                {HTTP_METHODS.map((m) => (
-                  <MenuItem key={m} sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }} value={m}>
-                    {m}
-                  </MenuItem>
-                ))}
-              </Select>
-              <OutlinedInput
-                fullWidth
-                placeholder={t("composePage.urlPlaceholder")}
-                size="small"
-                sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && url.trim()) handleSend();
-                }}
-              />
-            </Stack>
+        {/* Request Section */}
+        <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          <Tabs
+            onChange={(_, value) => setActiveTab(value)}
+            sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
+            TabIndicatorProps={{ sx: { height: 2 } }}
+            value={activeTab}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="headers" />
+            <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="body" />
+            <Tab label={t("composePage.tabs.query")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="query" />
+          </Tabs>
 
-            <Divider />
-
-            <Tabs
-              onChange={(_, value) => setActiveTab(value)}
-              sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider" }}
-              TabIndicatorProps={{ sx: { height: 2 } }}
-              value={activeTab}
-              variant="scrollable"
-              scrollButtons="auto"
-            >
-              <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="headers" />
-              <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="body" />
-              <Tab label={t("composePage.tabs.query")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="query" />
-            </Tabs>
-
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pt: 1.5, px: 0.5 }}>
             {activeTab === "headers" && (
               <EditableKeyValueTable
                 items={headers}
@@ -200,7 +323,6 @@ export function ComposePage() {
               <TextField
                 fullWidth
                 minRows={6}
-                maxRows={16}
                 multiline
                 placeholder={t("composePage.bodyPlaceholder")}
                 size="small"
@@ -225,30 +347,59 @@ export function ComposePage() {
                 valuePlaceholder={t("common.placeholders.paramValue")}
               />
             )}
-          </Stack>
-        </SectionCard>
+          </Box>
+        </Box>
 
-        {/* Response Preview */}
-        <SectionCard description={t("composePage.responsePreviewDescription")} title={t("composePage.responsePreviewTitle")}>
+        {/* Draggable Divider */}
+        <Box
+          aria-hidden
+          onPointerDown={startResize}
+          sx={{
+            cursor: "row-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 0,
+            position: "relative",
+            touchAction: "none",
+            userSelect: "none",
+            "&::before": {
+              bgcolor: "divider",
+              borderRadius: 999,
+              content: '""',
+              height: 2,
+              width: "100%",
+              opacity: 0.7,
+              transition: "background-color 120ms ease, opacity 120ms ease",
+            },
+            "&:hover::before": {
+              bgcolor: "primary.main",
+              opacity: 1,
+            },
+          }}
+        />
+
+        {/* Response Section */}
+        <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
           {sendMutation.isPending ? (
-            <Stack alignItems="center" spacing={2} sx={{ py: 4 }}>
+            <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ flex: 1 }}>
               <CircularProgress size={32} />
               <Typography color="text.secondary" variant="body2">
                 {t("composePage.sendingRequest")}
               </Typography>
             </Stack>
           ) : sendMutation.isError ? (
-            <Alert severity="error" variant="outlined">
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t("composePage.requestFailed")}</Typography>
-              <Typography variant="body2">{sendMutation.error.message || t("common.errors.unexpected")}</Typography>
-            </Alert>
+            <Box sx={{ p: 2 }}>
+              <Alert severity="error" variant="outlined">
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t("composePage.requestFailed")}</Typography>
+                <Typography variant="body2">{sendMutation.error.message || t("common.errors.unexpected")}</Typography>
+              </Alert>
+            </Box>
           ) : responseDetail ? (
-            <Stack spacing={1.5}>
-              <InspectorSummaryBar detail={responseDetail} session={responseDetail.summary} />
-              <Divider />
+            <>
               <Tabs
                 onChange={(_, value) => setResponseTab(value)}
-                sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider" }}
+                sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
                 TabIndicatorProps={{ sx: { height: 2 } }}
                 value={responseTab}
                 variant="scrollable"
@@ -256,17 +407,35 @@ export function ComposePage() {
               >
                 <Tab label={t("composePage.tabs.overview")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="overview" />
                 <Tab label={`${t("composePage.tabs.headers")} (${responseDetail.responseHeaders.length})`} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="headers" />
-                <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="body" />
+                <Tab label="JSON" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="json" />
+                <Tab label="JSON Text" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="jsonText" />
+                <Tab label="Raw" sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="raw" />
                 <Tab label={t("composePage.tabs.timing")} sx={{ minHeight: 32, minWidth: 72, py: 0 }} value="timing" />
               </Tabs>
-              <Box sx={{ overflow: "auto" }}>{responseTabContent}</Box>
-            </Stack>
+              {showSearch && (
+                <Box sx={{ flexShrink: 0, px: 1, py: 0.5 }}>
+                  <OutlinedInput
+                    fullWidth
+                    placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
+                    size="small"
+                    sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
+                  />
+                </Box>
+              )}
+              <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pt: 1.5, px: 0.5 }}>
+                {responseTabContent}
+              </Box>
+            </>
           ) : (
-            <Typography color="text.secondary" sx={{ py: 2 }} variant="body2">
-              {t("composePage.configureHint")}
-            </Typography>
+            <Stack alignItems="center" justifyContent="center" sx={{ flex: 1 }}>
+              <Typography color="text.secondary" variant="body2">
+                {t("composePage.configureHint")}
+              </Typography>
+            </Stack>
           )}
-        </SectionCard>
+        </Box>
       </Box>
 
       <Snackbar
