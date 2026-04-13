@@ -157,6 +157,7 @@ export const enMessages = {
     configureHint: "Configure a request and click Send to see the response here.",
     copiedCurl: "cURL command copied to clipboard",
     copyAsCurl: "Copy as cURL command",
+    copyResponse: "Copy response",
     description: "Build and replay requests without leaving the desktop workspace.",
     dns: "DNS",
     requestBuilderDescription: "Configure the HTTP request to send.",

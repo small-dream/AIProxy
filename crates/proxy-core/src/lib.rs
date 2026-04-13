@@ -1667,6 +1667,11 @@ fn build_session_detail(
         started_at_instant,
     );
 
+    let response_body_decoded = decode_body_bytes(
+        response_body,
+        response_headers.get(reqwest::header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()),
+    ).unwrap_or_else(|| response_body.to_vec());
+
     ProxySessionDetail {
         cookies: build_cookie_entries(&request.request_headers, &response_header_entries),
         id,
@@ -1682,7 +1687,7 @@ fn build_session_detail(
                     .unwrap_or_else(|| "Unknown".to_string()),
             ),
             &response_header_entries,
-            response_body,
+            &response_body_decoded,
         )),
         request_body: build_body_reference(
             &request.body,
@@ -2090,6 +2095,11 @@ pub async fn send_direct_request(
         started_at_instant,
     );
 
+    let response_body_decoded = decode_body_bytes(
+        &response_body,
+        response_headers.get(reqwest::header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()),
+    ).unwrap_or_else(|| response_body.clone());
+
     Ok(ProxySessionDetail {
         cookies: build_cookie_entries(&headers, &response_header_entries),
         id,
@@ -2102,7 +2112,7 @@ pub async fn send_direct_request(
                 status_code.canonical_reason().unwrap_or("Unknown"),
             ),
             &response_header_entries,
-            &response_body,
+            &response_body_decoded,
         )),
         request_body: build_body_reference(
             &body_bytes,

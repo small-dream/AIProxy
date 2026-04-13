@@ -1,9 +1,13 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
+import KeyboardArrowUpRoundedIcon from "@mui/icons-material/KeyboardArrowUpRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Alert, Box, CircularProgress, Divider, IconButton, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress, Divider, FormControlLabel, IconButton, InputAdornment, MenuItem, OutlinedInput, Radio, RadioGroup, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HeaderEntry } from "@pharles/shared-types";
 
-import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import { type BodyType, buildMultipartBody, FORMDATA_CONTENT_TYPE, RAW_LANGUAGE_CONTENT_TYPE, RAW_LANGUAGES, type RawLanguage, URLENCODED_CONTENT_TYPE, useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { EditableKeyValueTable } from "@/features/compose/components/EditableKeyValueTable";
@@ -13,6 +17,13 @@ import { getBodyText, parseJsonBody, type JsonParseResult } from "@/features/ses
 import { useI18n } from "@/i18n";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+const BODY_TYPE_LABELS: Record<BodyType, string> = {
+  none: "none",
+  formdata: "form-data",
+  urlencoded: "x-www-form-urlencoded",
+  raw: "raw",
+};
 
 const COMPOSE_SPLIT_STORAGE_KEY = "pharles.compose.splitRatio";
 const COMPOSE_SPLIT_MIN = 0.15;
@@ -45,11 +56,19 @@ export function ComposePage() {
   const url = useComposeEditorStore((s) => s.url);
   const headers = useComposeEditorStore((s) => s.headers);
   const body = useComposeEditorStore((s) => s.body);
+  const bodyType = useComposeEditorStore((s) => s.bodyType);
+  const rawLanguage = useComposeEditorStore((s) => s.rawLanguage);
+  const urlEncodedEntries = useComposeEditorStore((s) => s.urlEncodedEntries);
+  const formDataEntries = useComposeEditorStore((s) => s.formDataEntries);
   const activeTab = useComposeEditorStore((s) => s.activeTab);
   const setMethod = useComposeEditorStore((s) => s.setMethod);
   const setUrl = useComposeEditorStore((s) => s.setUrl);
   const setHeaders = useComposeEditorStore((s) => s.setHeaders);
   const setBody = useComposeEditorStore((s) => s.setBody);
+  const setBodyType = useComposeEditorStore((s) => s.setBodyType);
+  const setRawLanguage = useComposeEditorStore((s) => s.setRawLanguage);
+  const setUrlEncodedEntries = useComposeEditorStore((s) => s.setUrlEncodedEntries);
+  const setFormDataEntries = useComposeEditorStore((s) => s.setFormDataEntries);
   const setActiveTab = useComposeEditorStore((s) => s.setActiveTab);
 
   const responseDetail = sendMutation.data;
@@ -83,21 +102,60 @@ export function ComposePage() {
     };
   }, []);
 
+  const encodeBody = useCallback((): { body: string | undefined; headers: HeaderEntry[] } => {
+    let encodedBody: string | undefined;
+    let finalHeaders = headers;
+
+    switch (bodyType) {
+      case "none":
+        break;
+      case "formdata": {
+        const activeEntries = formDataEntries.filter((e) => e.name.trim());
+        if (activeEntries.length > 0) {
+          const boundary = `----PharlesBoundary${Date.now().toString(16)}`;
+          encodedBody = buildMultipartBody(activeEntries, boundary);
+          finalHeaders = ensureContentType(finalHeaders, `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`);
+        }
+        break;
+      }
+      case "urlencoded": {
+        const activeEntries = urlEncodedEntries.filter((e) => e.name.trim());
+        if (activeEntries.length > 0) {
+          encodedBody = activeEntries
+            .map((e) => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
+            .join("&");
+          finalHeaders = ensureContentType(finalHeaders, URLENCODED_CONTENT_TYPE);
+        }
+        break;
+      }
+      case "raw": {
+        if (body.trim()) {
+          encodedBody = body;
+          finalHeaders = ensureContentType(finalHeaders, RAW_LANGUAGE_CONTENT_TYPE[rawLanguage]);
+        }
+        break;
+      }
+    }
+    return { body: encodedBody, headers: finalHeaders };
+  }, [headers, body, bodyType, rawLanguage, urlEncodedEntries, formDataEntries]);
+
   const handleSend = useCallback(() => {
+    const { body: encodedBody, headers: finalHeaders } = encodeBody();
     sendMutation.mutate({
       workspaceId: "default",
       method,
       url,
-      headers,
-      ...(body ? { body } : {}),
+      headers: finalHeaders,
+      ...(encodedBody ? { body: encodedBody } : {}),
     });
-  }, [sendMutation, method, url, headers, body]);
+  }, [sendMutation, method, url, encodeBody]);
 
   const handleExportCurl = useCallback(() => {
-    const cmd = generateCurlCommand({ method, url, headers, ...(body ? { body } : {}) });
+    const { body: encodedBody, headers: finalHeaders } = encodeBody();
+    const cmd = generateCurlCommand({ method, url, headers: finalHeaders, ...(encodedBody ? { body: encodedBody } : {}) });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
-  }, [method, url, headers, body]);
+  }, [method, url, encodeBody]);
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = gridRef.current;
@@ -320,23 +378,88 @@ export function ComposePage() {
             )}
 
             {activeTab === "body" && (
-              <TextField
-                fullWidth
-                minRows={6}
-                multiline
-                placeholder={t("composePage.bodyPlaceholder")}
-                size="small"
-                sx={{
-                  fontFamily: "JetBrains Mono, Consolas, monospace",
-                  "& .MuiInputBase-input": {
-                    fontFamily: "JetBrains Mono, Consolas, monospace",
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  },
-                }}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-              />
+              <Stack spacing={1}>
+                {/* Body Type Selector + Raw Language */}
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                  <RadioGroup
+                    row
+                    sx={{ gap: 1.5, flexWrap: "nowrap" }}
+                    value={bodyType}
+                    onChange={(e) => setBodyType(e.target.value as BodyType)}
+                  >
+                    {(["none", "formdata", "urlencoded", "raw"] as const).map((type) => (
+                      <FormControlLabel
+                        key={type}
+                        value={type}
+                        control={<Radio size="small" sx={{ py: 0, px: 0.5 }} />}
+                        label={<Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>{BODY_TYPE_LABELS[type]}</Typography>}
+                        sx={{ mr: 0, gap: 0.25, "& .MuiFormControlLabel-label": { fontSize: 12 } }}
+                      />
+                    ))}
+                  </RadioGroup>
+                  {bodyType === "raw" && (
+                    <Select
+                      size="small"
+                      sx={{ height: 26, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11, "& .MuiSelect-select": { py: 0.25, pr: 3 } }}
+                      value={rawLanguage}
+                      onChange={(e) => setRawLanguage(e.target.value as RawLanguage)}
+                    >
+                      {RAW_LANGUAGES.map((lang) => (
+                        <MenuItem key={lang.value} sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11 }} value={lang.value}>
+                          {lang.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  )}
+                </Stack>
+
+                <Divider sx={{ mt: 0 }} />
+
+                {/* Body Content */}
+                {bodyType === "none" && (
+                  <Typography color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: "center" }}>
+                    This request has no body.
+                  </Typography>
+                )}
+
+                {(bodyType === "formdata") && (
+                  <EditableKeyValueTable
+                    items={formDataEntries}
+                    namePlaceholder={t("common.placeholders.paramName")}
+                    onChange={setFormDataEntries}
+                    valuePlaceholder={t("common.placeholders.paramValue")}
+                  />
+                )}
+
+                {bodyType === "urlencoded" && (
+                  <EditableKeyValueTable
+                    items={urlEncodedEntries}
+                    namePlaceholder={t("common.placeholders.paramName")}
+                    onChange={setUrlEncodedEntries}
+                    valuePlaceholder={t("common.placeholders.paramValue")}
+                  />
+                )}
+
+                {bodyType === "raw" && (
+                  <TextField
+                    fullWidth
+                    minRows={6}
+                    multiline
+                    placeholder={t("composePage.bodyPlaceholder")}
+                    size="small"
+                    sx={{
+                      fontFamily: "JetBrains Mono, Consolas, monospace",
+                      "& .MuiInputBase-input": {
+                        fontFamily: "JetBrains Mono, Consolas, monospace",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                      },
+                    }}
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                  />
+                )}
+              </Stack>
             )}
 
             {activeTab === "query" && (
@@ -418,6 +541,34 @@ export function ComposePage() {
                     fullWidth
                     placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
                     size="small"
+                    startAdornment={
+                      <InputAdornment position="start" sx={{ mr: 0 }}>
+                        <SearchRoundedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                      </InputAdornment>
+                    }
+                    endAdornment={
+                      <InputAdornment position="end" sx={{ ml: 0, gap: 0 }}>
+                        <Box component="span" sx={{ visibility: searchValue ? "visible" : "hidden" }}>
+                          <IconButton size="small" sx={{ p: 0.25 }} tabIndex={-1} disableRipple disabled>
+                            <KeyboardArrowUpRoundedIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                          <IconButton size="small" sx={{ p: 0.25 }} tabIndex={-1} disableRipple disabled>
+                            <KeyboardArrowDownRoundedIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Box>
+                        <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
+                        <IconButton
+                          size="small"
+                          sx={{ p: 0.25 }}
+                          disableRipple
+                          title={t("composePage.copyResponse")}
+                          onClick={() => { navigator.clipboard.writeText(responseBodyText ?? ""); setSnackbarOpen(true); }}
+                          disabled={!responseBodyText}
+                        >
+                          <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </InputAdornment>
+                    }
                     sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
@@ -491,4 +642,15 @@ function QueryParamsEditor({
       valuePlaceholder={valuePlaceholder}
     />
   );
+}
+
+function ensureContentType(
+  headers: Array<{ name: string; value: string }>,
+  contentType: string,
+): Array<{ name: string; value: string }> {
+  const hasContentType = headers.some(
+    (h) => h.name.toLowerCase() === "content-type",
+  );
+  if (hasContentType) return headers;
+  return [...headers, { name: "Content-Type", value: contentType }];
 }

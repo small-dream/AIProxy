@@ -159,6 +159,7 @@ export const zhCNMessages: Messages = {
     configureHint: "配置请求后点击发送，即可在这里查看响应。",
     copiedCurl: "已复制 cURL 命令到剪贴板",
     copyAsCurl: "复制为 cURL 命令",
+    copyResponse: "复制响应内容",
     description: "无需离开桌面工作台即可构造并重放请求。",
     dns: "DNS",
     requestBuilderDescription: "配置要发送的 HTTP 请求。",
