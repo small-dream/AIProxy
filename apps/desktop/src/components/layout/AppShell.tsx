@@ -1,11 +1,9 @@
 import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
-import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
 import MenuIcon from "@mui/icons-material/Menu";
-import MoreVertRoundedIcon from "@mui/icons-material/MoreVertRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SettingsEthernetRoundedIcon from "@mui/icons-material/SettingsEthernetRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
@@ -26,8 +24,6 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Menu,
-  MenuItem,
   OutlinedInput,
   Stack,
   Toolbar,
@@ -44,7 +40,6 @@ import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
 import { navigationItems } from "@/features/navigation/navigation-items";
 import {
-  useClearSessions,
   useDisableSystemProxy,
   useEnableSystemProxy,
   useProxyStatus,
@@ -184,17 +179,14 @@ export function AppShell() {
   const stopProxyMutation = useStopProxy();
   const enableSystemProxyMutation = useEnableSystemProxy();
   const disableSystemProxyMutation = useDisableSystemProxy();
-  const clearSessionsMutation = useClearSessions();
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
-  const [moreAnchorEl, setMoreAnchorEl] = useState<null | HTMLElement>(null);
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
   const [workspaceDraft, setWorkspaceDraft] = useState(workspaceId);
   const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null);
   const [portDialogOpen, setPortDialogOpen] = useState(false);
   const [portDraft, setPortDraft] = useState(String(port));
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
-  const isMoreMenuOpen = Boolean(moreAnchorEl);
   const workspaceNavigationItems = navigationItems.filter((item) => item.group === "workspace");
   const manageNavigationItems = navigationItems.filter((item) => item.group === "manage");
   const settingsItem = manageNavigationItems.find((item) => item.to === "/settings");
@@ -208,8 +200,7 @@ export function AppShell() {
     startProxyMutation.isPending ||
     stopProxyMutation.isPending ||
     enableSystemProxyMutation.isPending ||
-    disableSystemProxyMutation.isPending ||
-    clearSessionsMutation.isPending;
+    disableSystemProxyMutation.isPending;
   const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
 
   function openWorkspaceDialog() {
@@ -352,60 +343,32 @@ export function AppShell() {
             </Button>
           )}
 
-          <Tooltip arrow title={t("appShell.moreActions")}>
-            <IconButton color="inherit" onClick={(event) => setMoreAnchorEl(event.currentTarget)}>
-              <MoreVertRoundedIcon />
-            </IconButton>
-          </Tooltip>
-
-          <Menu
-            anchorEl={moreAnchorEl}
-            onClose={() => setMoreAnchorEl(null)}
-            open={isMoreMenuOpen}
-            transformOrigin={{ horizontal: "right", vertical: "top" }}
-            anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+          <Button
+            aria-pressed={proxyStatus?.systemProxyEnabled ?? false}
+            color={proxyStatus?.systemProxyEnabled ? "success" : "inherit"}
+            disabled={systemProxyActionDisabled}
+            onClick={() => {
+              void handleSystemProxyToggle();
+            }}
+            size="small"
+            startIcon={<LanguageRoundedIcon />}
+            sx={{
+              borderRadius: 999,
+              fontWeight: 700,
+              px: 1.75,
+              ...(proxyStatus?.systemProxyEnabled
+                ? {}
+                : {
+                    borderColor: "divider",
+                    color: "text.secondary",
+                  }),
+            }}
+            variant={proxyStatus?.systemProxyEnabled ? "contained" : "outlined"}
           >
-            {proxyStatus?.systemProxyEnabled ? (
-              <MenuItem
-                disabled={isBusy}
-                onClick={() => {
-                  setMoreAnchorEl(null);
-                  disableSystemProxyMutation.mutate(undefined);
-                }}
-              >
-                <ListItemIcon>
-                  <LanguageRoundedIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary={t("common.actions.disableSystemProxy")} />
-              </MenuItem>
-            ) : (
-              <MenuItem
-                disabled={isBusy || !(proxyStatus?.running ?? false)}
-                onClick={() => {
-                  setMoreAnchorEl(null);
-                  enableSystemProxyMutation.mutate(undefined);
-                }}
-              >
-                <ListItemIcon>
-                  <LanguageRoundedIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary={t("common.actions.enableSystemProxy")} />
-              </MenuItem>
-            )}
-
-            <MenuItem
-              disabled={isBusy}
-              onClick={() => {
-                setMoreAnchorEl(null);
-                clearSessionsMutation.mutate();
-              }}
-            >
-              <ListItemIcon>
-                <DeleteSweepRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary={t("common.actions.clearSessions")} />
-            </MenuItem>
-          </Menu>
+            {proxyStatus?.systemProxyEnabled
+              ? t("appShell.systemProxyOn")
+              : t("appShell.systemProxyOff")}
+          </Button>
         </Toolbar>
       </AppBar>
 

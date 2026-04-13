@@ -4,7 +4,8 @@ import {
 } from "@pharles/shared-types";
 import { Alert, Box, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import { Button, Typography } from "@mui/material";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import { Button, OutlinedInput, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -167,13 +168,26 @@ export function SessionsPage() {
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
-        <Stack spacing={0.5}>
-          <Typography variant="h4">{t("sessionsPage.title")}</Typography>
-          <Typography color="text.secondary" variant="body2">
-            {t("sessionsPage.description")}
-          </Typography>
-        </Stack>
+        <OutlinedInput
+          fullWidth
+          onChange={(event) => setSearchValue(event.target.value)}
+          placeholder={t("sessionExplorer.searchPlaceholder")}
+          size="small"
+          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
+          sx={{
+            maxWidth: { md: `${explorerWidth}px` },
+          }}
+          value={searchValue}
+        />
         <Stack direction="row" spacing={1} alignItems="flex-start">
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => clearSessionsMutation.mutate()}
+            disabled={sessions.length === 0 || clearSessionsMutation.isPending}
+          >
+            {t("common.actions.clearSessions")}
+          </Button>
           <Button
             variant="outlined"
             size="small"
@@ -209,10 +223,8 @@ export function SessionsPage() {
           expandedHosts={expandedHosts}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
-          onSearchChange={setSearchValue}
           onSelectSession={setSelectedSessionId}
           onToggleHost={toggleHost}
-          searchValue={searchValue}
           selectedSessionId={selectedSessionIdValue}
         />
 

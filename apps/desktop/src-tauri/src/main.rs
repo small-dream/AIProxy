@@ -84,9 +84,9 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
     );
 
     if let Some(runtime_handles) = app_state.take_runtime() {
+        app_state.set_runtime(runtime_handles);
         tauri::async_runtime::block_on(async {
-            runtime_handles.proxy_server_handle.shutdown().await;
-            let _ = runtime_handles.collector_handle.await;
+            let _ = commands::shutdown_proxy_runtime(Arc::clone(&app_state)).await;
         });
 
         let _ = app_state.stop_proxy(workspace_id.clone());

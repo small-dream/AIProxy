@@ -1,22 +1,19 @@
-import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import HourglassEmptyRoundedIcon from "@mui/icons-material/HourglassEmptyRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
   Box,
-  Chip,
   CircularProgress,
-  Divider,
   List,
   ListItemButton,
-  OutlinedInput,
   Paper,
   Stack,
   Tooltip,
@@ -38,17 +35,14 @@ import {
   type SessionHostGroup,
   type SessionPathNode,
 } from "../session-explorer.helpers";
-import { getMethodColor, getStatusColor } from "./session-inspector.helpers";
 
 type SessionExplorerPaneProps = {
   errorMessage: string | undefined;
   expandedHosts: string[];
   groups: SessionHostGroup[];
   isLoading: boolean;
-  onSearchChange: (value: string) => void;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (host: string) => void;
-  searchValue: string;
   selectedSessionId: string | undefined;
 };
 
@@ -57,10 +51,8 @@ export function SessionExplorerPane({
   expandedHosts,
   groups,
   isLoading,
-  onSearchChange,
   onSelectSession,
   onToggleHost,
-  searchValue,
   selectedSessionId,
 }: SessionExplorerPaneProps) {
   const { t } = useI18n();
@@ -80,19 +72,6 @@ export function SessionExplorerPane({
       }}
       variant="outlined"
     >
-      <Box sx={{ p: 1 }}>
-        <OutlinedInput
-          fullWidth
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder={t("sessionExplorer.searchPlaceholder")}
-          size="small"
-          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-          value={searchValue}
-        />
-      </Box>
-
-      <Divider />
-
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {isLoading ? (
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
@@ -293,7 +272,27 @@ function SessionTreeNode({
         ) : (
           <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
         )}
-        <Typography noWrap sx={{ color: "text.secondary", fontSize: 12.5, ml: 0.25 }} variant="body2">
+        <Box
+          sx={{
+            alignItems: "center",
+            color: "info.main",
+            display: "flex",
+            flex: "0 0 auto",
+            ml: 0.125,
+            mr: 0.5,
+          }}
+        >
+          {expanded ? <FolderOpenRoundedIcon sx={{ fontSize: 16 }} /> : <FolderRoundedIcon sx={{ fontSize: 16 }} />}
+        </Box>
+        <Typography
+          noWrap
+          sx={{
+            color: "text.primary",
+            fontSize: 13,
+            lineHeight: 1.35,
+          }}
+          variant="body2"
+        >
           {node.segmentLabel}
         </Typography>
       </ListItemButton>
@@ -351,52 +350,48 @@ function SessionLeafNode({ depth, getResourceTooltip, onClick, selected, session
         },
       }}
     >
-      <Chip
-        color={getMethodColor(session.method)}
-        label={session.method}
-        size="small"
-        sx={{
-          flex: "0 0 auto",
-          fontSize: 10,
-          fontWeight: 700,
-          height: 18,
-          mr: 0.75,
-          minWidth: 46,
-          "& .MuiChip-label": {
-            px: 0.75,
-          },
-        }}
-      />
       <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}>
         <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.75 }}>
           {renderResourceIcon(resourceKind)}
         </Box>
       </Tooltip>
-      <Typography noWrap sx={{ flex: 1, minWidth: 0 }} variant="body2">
-        {getSessionLeafLabel(session)}
-      </Typography>
-      {querySuffix ? (
-        <Typography noWrap sx={{ color: "text.disabled", flex: "0 1 auto", ml: 0.5 }} variant="caption">
-          {querySuffix}
-        </Typography>
-      ) : null}
-      <Chip
-        color={getStatusColor(session.statusCode)}
-        label={session.statusCode > 0 ? String(session.statusCode) : "--"}
-        size="small"
+      <Box
         sx={{
-          flex: "0 0 auto",
-          fontSize: 10,
-          fontWeight: 700,
-          height: 18,
-          ml: 0.75,
-          minWidth: 42,
-          "& .MuiChip-label": {
-            px: 0.75,
-          },
+          alignItems: "baseline",
+          display: "flex",
+          flex: 1,
+          gap: 0.125,
+          minWidth: 0,
+          overflow: "hidden",
         }}
-        variant="outlined"
-      />
+      >
+        <Typography
+          noWrap
+          sx={{
+            flex: "0 1 auto",
+            fontSize: 13,
+            lineHeight: 1.35,
+            minWidth: 0,
+          }}
+          variant="body2"
+        >
+          {getSessionLeafLabel(session)}
+        </Typography>
+        {querySuffix ? (
+          <Typography
+            noWrap
+            sx={{
+              color: "text.secondary",
+              flex: "0 1 auto",
+              fontSize: 13,
+              lineHeight: 1.35,
+            }}
+            variant="body2"
+          >
+            {querySuffix}
+          </Typography>
+        ) : null}
+      </Box>
     </ListItemButton>
   );
 }
@@ -468,7 +463,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   const sx = { fontSize: 14 };
 
   if (resourceKind === "api") {
-    return <ApiRoundedIcon sx={sx} />;
+    return <InsertDriveFileOutlinedIcon sx={sx} />;
   }
 
   if (resourceKind === "javascript") {
@@ -500,7 +495,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   }
 
   if (resourceKind === "request") {
-    return <ChevronRightRoundedIcon sx={sx} />;
+    return <InsertDriveFileOutlinedIcon sx={sx} />;
   }
 
   return <InsertDriveFileOutlinedIcon sx={sx} />;
@@ -516,7 +511,7 @@ function getResourceColor(resourceKind: SessionExplorerResourceKind): string {
   }
 
   if (resourceKind === "api") {
-    return "success.main";
+    return "text.secondary";
   }
 
   if (resourceKind === "javascript") {

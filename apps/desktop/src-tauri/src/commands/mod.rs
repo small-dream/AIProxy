@@ -195,14 +195,12 @@ async fn start_proxy_impl(
         ],
     );
 
-    if let Some(runtime_handles) = state.take_runtime() {
+    if shutdown_proxy_runtime(Arc::clone(&state)).await {
         log_debug(
             "desktop.commands",
             "previous_proxy_runtime_found",
             &[("workspace_id", input.workspace_id.clone())],
         );
-        runtime_handles.proxy_server_handle.shutdown().await;
-        let _ = runtime_handles.collector_handle.await;
     }
 
     state.clear_sessions();
@@ -299,11 +297,6 @@ async fn stop_proxy_impl(
         ],
     );
 
-    if let Some(runtime_handles) = state.take_runtime() {
-        runtime_handles.proxy_server_handle.shutdown().await;
-        let _ = runtime_handles.collector_handle.await;
-    }
-
     if state.read_status().system_proxy_enabled {
         if let Err(error) = disable_system_proxy_impl(Arc::clone(&state)).await {
             log_warn(
@@ -316,6 +309,8 @@ async fn stop_proxy_impl(
             );
         }
     }
+
+    let _ = shutdown_proxy_runtime(Arc::clone(&state)).await;
 
     let status = state.stop_proxy(input.workspace_id);
 
@@ -332,6 +327,19 @@ async fn stop_proxy_impl(
     );
 
     Ok(status)
+}
+
+pub(crate) async fn shutdown_proxy_runtime(state: Arc<AppState>) -> bool {
+    let Some(runtime_handles) = state.take_runtime() else {
+        return false;
+    };
+
+    state.read_breakpoint_manager().cancel_all();
+    runtime_handles.proxy_server_handle.shutdown().await;
+    runtime_handles.collector_handle.abort();
+    let _ = runtime_handles.collector_handle.await;
+
+    true
 }
 
 async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
