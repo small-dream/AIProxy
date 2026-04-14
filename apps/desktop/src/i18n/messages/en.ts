@@ -448,6 +448,19 @@ export const enMessages = {
       trusted: "Trusted:",
       notGenerated: "Not Generated",
     },
+    tabs: {
+      desktop: "Desktop Certificate",
+      mobile: "Mobile Setup",
+      reference: "Reference",
+    },
+    workflow: {
+      generate: "Generate",
+      trust: "Trust",
+      ready: "Ready",
+      readyHint: "Your certificate is generated and trusted. You can now capture HTTPS traffic.",
+    },
+    showOtherPlatforms: "Show other platforms",
+    hideOtherPlatforms: "Hide other platforms",
     title: "Certificates",
   },
   workspacesPage: {

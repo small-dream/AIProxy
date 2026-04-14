@@ -183,6 +183,40 @@ describe("buildSessionHostGroups", () => {
     ]);
   });
 
+  it("groups single-segment directory requests with query strings under a folder branch", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-14",
+          path: "/api?_method=site.track_events&_app=Android",
+          url: "http://api.example.com/api?_method=site.track_events&_app=Android",
+        }),
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-15",
+          path: "/api?_method=app.launch&_app=Android",
+          startedAt: "2026-04-11T10:00:08.000Z",
+          url: "http://api.example.com/api?_method=app.launch&_app=Android",
+        }),
+      ],
+      "",
+    );
+
+    expect(groups[0]?.tree).toMatchObject([
+      {
+        branchType: "path",
+        kind: "branch",
+        pathKey: "api",
+        segmentLabel: "api",
+        children: [
+          { kind: "leaf", segmentLabel: "", session: { id: "session-15" } },
+          { kind: "leaf", segmentLabel: "", session: { id: "session-14" } },
+        ],
+      },
+    ]);
+  });
+
   it("drops stale expanded keys and keeps valid host or branch keys", () => {
     const groups = buildSessionHostGroups(
       [

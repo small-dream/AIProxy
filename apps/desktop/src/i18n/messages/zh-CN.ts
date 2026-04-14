@@ -450,6 +450,19 @@ export const zhCNMessages: Messages = {
       trusted: "是否信任：",
       notGenerated: "未生成",
     },
+    tabs: {
+      desktop: "桌面证书",
+      mobile: "移动端设置",
+      reference: "参考信息",
+    },
+    workflow: {
+      generate: "生成证书",
+      trust: "信任证书",
+      ready: "就绪",
+      readyHint: "证书已生成并被系统信任，你现在可以抓取 HTTPS 流量了。",
+    },
+    showOtherPlatforms: "显示其他平台",
+    hideOtherPlatforms: "隐藏其他平台",
     title: "证书",
   },
   workspacesPage: {

@@ -1,4 +1,5 @@
-import { Stack, Typography } from "@mui/material";
+import { useState } from "react";
+import { Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import {
   useCertificateStatus,
@@ -8,11 +9,12 @@ import {
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useI18n } from "@/i18n";
 
-import { CertificateStatusCard } from "./CertificateStatusCard";
-import { CertificateActions } from "./CertificateActions";
-import { PlatformGuideTabs } from "./PlatformGuideTabs";
-import { CertificateRiskNotes } from "./CertificateRiskNotes";
-import { MobileSetupCard } from "./MobileSetupCard";
+import { DesktopCertificateTab } from "./DesktopCertificateTab";
+import { PlatformTrustGuide } from "./PlatformTrustGuide";
+import { MobileSetupTab } from "./MobileSetupTab";
+import { ReferenceTab } from "./ReferenceTab";
+
+type CertTab = "desktop" | "mobile" | "reference";
 
 export function CertificatesPage() {
   const { t } = useI18n();
@@ -20,6 +22,7 @@ export function CertificatesPage() {
   const generateMutation = useGenerateRootCertificate();
   const installMutation = useLaunchCertificateInstaller();
   const { data: proxyStatus } = useProxyStatus();
+  const [tab, setTab] = useState<CertTab>("desktop");
 
   const handleGenerate = () => {
     generateMutation.mutate({ forceRegenerate: Boolean(status?.certPath) }, {
@@ -38,36 +41,55 @@ export function CertificatesPage() {
   };
 
   return (
-    <Stack spacing={3}>
-      <Stack spacing={0.75}>
+    <Stack spacing={2}>
+      <Stack spacing={0.5}>
         <Typography variant="h4">{t("certificatesPage.title")}</Typography>
-        <Typography color="text.secondary" variant="body1">
+        <Typography color="text.secondary" variant="body2">
           {t("certificatesPage.description")}
         </Typography>
       </Stack>
 
-      <CertificateStatusCard status={status} loading={isLoading} />
+      {/* Top-level Tabs */}
+      <Tabs
+        value={tab}
+        onChange={(_, v: CertTab) => setTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ borderBottom: 1, borderColor: "divider" }}
+      >
+        <Tab label={t("certificatesPage.tabs.desktop")} value="desktop" />
+        <Tab label={t("certificatesPage.tabs.mobile")} value="mobile" />
+        <Tab label={t("certificatesPage.tabs.reference")} value="reference" />
+      </Tabs>
 
-      <CertificateActions
-        status={status}
-        generating={generateMutation.isPending}
-        installing={installMutation.isPending}
-        loading={isLoading}
-        onGenerate={handleGenerate}
-        onInstall={handleInstall}
-        onRefresh={handleRefresh}
-      />
+      {/* Tab panels */}
+      {tab === "desktop" && (
+        <Stack spacing={2}>
+          <DesktopCertificateTab
+            status={status}
+            loading={isLoading}
+            generating={generateMutation.isPending}
+            installing={installMutation.isPending}
+            onGenerate={handleGenerate}
+            onInstall={handleInstall}
+            onRefresh={handleRefresh}
+          />
+          <PlatformTrustGuide currentPlatform={status?.platform ?? "windows"} />
+        </Stack>
+      )}
 
-      <PlatformGuideTabs currentPlatform={status?.platform ?? "windows"} />
+      {tab === "mobile" && (
+        <MobileSetupTab
+          proxyPort={proxyStatus?.port ?? 8888}
+          proxyRunning={proxyStatus?.running ?? false}
+          sslEnabled={proxyStatus?.sslEnabled ?? false}
+          hasCert={!!status?.certPath}
+        />
+      )}
 
-      <MobileSetupCard
-        proxyPort={proxyStatus?.port ?? 8888}
-        proxyRunning={proxyStatus?.running ?? false}
-        sslEnabled={proxyStatus?.sslEnabled ?? false}
-        hasCert={!!status?.certPath}
-      />
-
-      <CertificateRiskNotes />
+      {tab === "reference" && (
+        <ReferenceTab currentPlatform={status?.platform ?? "windows"} />
+      )}
     </Stack>
   );
 }

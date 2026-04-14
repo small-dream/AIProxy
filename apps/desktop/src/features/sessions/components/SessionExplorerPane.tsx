@@ -76,7 +76,7 @@ export function SessionExplorerPane({
       }}
       variant="outlined"
     >
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {isLoading ? (
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
             <CircularProgress size={22} />
@@ -117,7 +117,7 @@ export function SessionExplorerPane({
             </Typography>
           </Stack>
         ) : (
-          <List disablePadding>
+          <List disablePadding sx={{ minWidth: "100%", width: "max-content" }}>
             {groups.map((group) => {
               const expanded = expandedHosts.includes(group.key);
               const hostContextMenu = group.host
@@ -125,7 +125,7 @@ export function SessionExplorerPane({
                 : undefined;
 
               return (
-                <Box key={group.key}>
+                <Box key={group.key} sx={{ minWidth: "100%", width: "max-content" }}>
                   <HostRow
                     expanded={expanded}
                     group={group}
@@ -134,7 +134,7 @@ export function SessionExplorerPane({
                   />
 
                   {expanded ? (
-                    <List disablePadding sx={{ pb: 0.25 }}>
+                    <List disablePadding sx={{ minWidth: "100%", pb: 0.25, width: "max-content" }}>
                       {group.tree.map((node) => (
                         <SessionTreeNode
                           depth={0}
@@ -210,9 +210,11 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
         borderRadius: 1.5,
         backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
         minHeight: 28,
+        minWidth: "100%",
         px: 1.25,
         py: 0.375,
         transition: "background-color 1800ms ease, box-shadow 140ms ease",
+        width: "100%",
         "&:hover": {
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
@@ -256,6 +258,7 @@ function SessionTreeNode({
       <SessionLeafNode
         depth={depth}
         getResourceTooltip={getResourceTooltip}
+        leafLabel={node.segmentLabel}
         onClick={() => onSelectSession(node.session.id)}
         onContextMenu={onContextMenuSession ? (e) => { e.preventDefault(); onContextMenuSession(node.session, e); } : undefined}
         selected={selectedSessionId === node.session.id}
@@ -269,7 +272,7 @@ function SessionTreeNode({
   const branchHost = node.branchType === "host" ? node.host : undefined;
 
   return (
-    <>
+    <Box sx={{ minWidth: "100%", width: "max-content" }}>
       <ListItemButton
         dense
         onClick={() => onToggleHost(expandedKey)}
@@ -282,10 +285,12 @@ function SessionTreeNode({
         sx={{
           borderRadius: 1.5,
           minHeight: 26,
+          minWidth: "100%",
           pl: 2 + depth * 1.5,
           pr: 1,
           py: 0.25,
           transition: "background-color 140ms ease, box-shadow 140ms ease",
+          width: "100%",
           "&:hover": {
             boxShadow: (theme) => getHoverShadow(theme.palette.mode),
           },
@@ -321,8 +326,9 @@ function SessionTreeNode({
         </Typography>
       </ListItemButton>
 
-      {expanded
-        ? node.children.map((childNode) => (
+      {expanded ? (
+        <Box sx={{ minWidth: "100%", width: "max-content" }}>
+          {node.children.map((childNode) => (
             <SessionTreeNode
               depth={depth + 1}
               expandedHosts={expandedHosts}
@@ -336,25 +342,28 @@ function SessionTreeNode({
               onToggleHost={onToggleHost}
               selectedSessionId={selectedSessionId}
             />
-          ))
-        : null}
-    </>
+          ))}
+        </Box>
+      ) : null}
+    </Box>
   );
 }
 
 type SessionLeafNodeProps = {
   depth: number;
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
+  leafLabel: string;
   onClick: () => void;
   onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   selected: boolean;
   session: SessionSummary;
 };
 
-function SessionLeafNode({ depth, getResourceTooltip, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
+function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
   const { t } = useI18n();
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
+  const showLeafLabel = leafLabel.length > 0;
 
   return (
     <ListItemButton
@@ -365,10 +374,12 @@ function SessionLeafNode({ depth, getResourceTooltip, onClick, onContextMenu, se
       sx={{
         borderRadius: 1.5,
         minHeight: 30,
+        minWidth: "100%",
         pl: 2 + depth * 1.5 + 2,
         pr: 1,
         py: 0.375,
         transition: "background-color 140ms ease, box-shadow 140ms ease",
+        width: "max-content",
         "&:hover": {
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
@@ -385,40 +396,48 @@ function SessionLeafNode({ depth, getResourceTooltip, onClick, onContextMenu, se
       </Tooltip>
       <Box
         sx={{
-          alignItems: "baseline",
-          display: "flex",
           flex: 1,
-          gap: 0.125,
           minWidth: 0,
-          overflow: "hidden",
         }}
       >
-        <Typography
-          noWrap
+        <Box
           sx={{
-            flex: "0 1 auto",
-            fontSize: 13,
-            lineHeight: 1.35,
-            minWidth: 0,
+            alignItems: "baseline",
+            display: "flex",
+            gap: showLeafLabel && querySuffix ? 0.125 : 0,
+            width: "max-content",
           }}
-          variant="body2"
         >
-          {getSessionLeafLabel(session)}
-        </Typography>
-        {querySuffix ? (
-          <Typography
-            noWrap
-            sx={{
-              color: "text.secondary",
-              flex: "0 1 auto",
-              fontSize: 13,
-              lineHeight: 1.35,
-            }}
-            variant="body2"
-          >
-            {querySuffix}
-          </Typography>
-        ) : null}
+          {showLeafLabel ? (
+            <Typography
+              sx={{
+                flex: "0 0 auto",
+                fontSize: 13,
+                lineHeight: 1.35,
+                whiteSpace: "nowrap",
+              }}
+              variant="body2"
+            >
+              {leafLabel}
+            </Typography>
+          ) : null}
+          {querySuffix ? (
+            <Typography
+              sx={{
+                color: "text.primary",
+                flex: "0 0 auto",
+                fontSize: 13,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                opacity: 0.88,
+                whiteSpace: "nowrap",
+              }}
+              variant="body2"
+            >
+              {querySuffix}
+            </Typography>
+          ) : null}
+        </Box>
       </Box>
     </ListItemButton>
   );

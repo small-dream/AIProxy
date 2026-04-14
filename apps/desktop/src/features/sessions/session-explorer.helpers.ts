@@ -267,8 +267,26 @@ function buildPathTree(sessions: SessionSummary[]): SessionPathNode[] {
   };
 
   for (const session of sessions) {
-    const { pathname } = splitSessionPath(session.path);
+    const { pathname, search } = splitSessionPath(session.path);
     const segments = pathnameSegments(pathname);
+
+    if (shouldGroupDirectoryQueryAtPathLevel(segments, pathname, search)) {
+      const segment = segments[0]!;
+      const existingChild = root.children.get(segment);
+
+      if (existingChild) {
+        existingChild.leaves.push(session);
+        continue;
+      }
+
+      root.children.set(segment, {
+        children: new Map<string, MutablePathBranch>(),
+        leaves: [session],
+        pathKey: segment,
+        segmentLabel: segment,
+      });
+      continue;
+    }
 
     if (segments.length <= 1) {
       root.leaves.push(session);
@@ -323,7 +341,7 @@ function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
   const rootLeaves = sortSessionsByStartedAt(branch.leaves).map((session) => ({
     kind: "leaf" as const,
     searchText: buildSearchText(session.host, session.path, session.url, session.method, session.responseMimeType ?? ""),
-    segmentLabel: getSessionLeafLabel(session),
+    segmentLabel: getSessionTreeLeafLabel(session),
     session,
   }));
 
@@ -381,6 +399,25 @@ function splitSessionPath(path: string): { pathname: string; search: string } {
     pathname: normalizedPath.slice(0, questionMarkIndex) || "/",
     search: normalizedPath.slice(questionMarkIndex),
   };
+}
+
+function shouldGroupDirectoryQueryAtPathLevel(
+  segments: string[],
+  pathname: string,
+  search: string,
+): boolean {
+  return segments.length === 1 && search.length > 0 && pathnameLooksLikeDirectory(pathname);
+}
+
+function getSessionTreeLeafLabel(session: SessionSummary): string {
+  const { pathname, search } = splitSessionPath(session.path);
+  const segments = pathnameSegments(pathname);
+
+  if (shouldGroupDirectoryQueryAtPathLevel(segments, pathname, search)) {
+    return "";
+  }
+
+  return getSessionLeafLabel(session);
 }
 
 function pathnameSegments(pathname: string): string[] {
