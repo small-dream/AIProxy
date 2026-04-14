@@ -2,6 +2,7 @@ mod bootstrap;
 mod commands;
 mod dev_logger;
 mod system_proxy;
+mod workspace;
 
 use bootstrap::AppState;
 use dev_logger::{log_error, log_info, log_warn};
@@ -51,7 +52,11 @@ pub fn run() {
             commands::delete_rule,
             commands::list_throttle_profiles,
             commands::save_throttle_profile,
-            commands::set_active_throttle_profile
+            commands::set_active_throttle_profile,
+            commands::list_workspaces,
+            commands::create_workspace,
+            commands::load_workspace,
+            commands::update_workspace
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

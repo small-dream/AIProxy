@@ -7,7 +7,6 @@ import { RulesPage } from "@/pages/rules";
 import { SessionsPage } from "@/pages/sessions";
 import { SettingsPage } from "@/pages/settings";
 import { ThrottlingPage } from "@/pages/throttling";
-import { WorkspacesPage } from "@/pages/workspaces";
 
 const router = createHashRouter([
   {
@@ -33,10 +32,6 @@ const router = createHashRouter([
       {
         path: "certificates",
         element: <CertificatesPage />,
-      },
-      {
-        path: "workspaces",
-        element: <WorkspacesPage />,
       },
       {
         path: "settings",

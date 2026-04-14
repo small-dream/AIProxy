@@ -1,7 +1,6 @@
 import DatasetLinkedRoundedIcon from "@mui/icons-material/DatasetLinkedRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EditRoadRoundedIcon from "@mui/icons-material/EditRoadRounded";
-import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
@@ -46,12 +45,6 @@ export const navigationItems: NavigationItem[] = [
     icon: <DescriptionRoundedIcon />,
     labelKey: "navigation.certificates",
     to: "/certificates",
-  },
-  {
-    group: "manage",
-    icon: <FolderRoundedIcon />,
-    labelKey: "navigation.workspaces",
-    to: "/workspaces",
   },
   {
     group: "manage",

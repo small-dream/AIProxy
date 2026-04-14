@@ -7,6 +7,7 @@ use std::{
 use tauri::async_runtime::JoinHandle;
 
 use crate::system_proxy::SystemProxySnapshot;
+use crate::workspace::WorkspaceManager;
 
 /// Snapshot of the certificate state for the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -61,6 +62,7 @@ pub struct AppState {
     rewrite_manager: Arc<RewriteManager>,
     map_manager: Arc<MapManager>,
     throttle_manager: Arc<ThrottleManager>,
+    workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
 }
 
@@ -78,6 +80,7 @@ impl AppState {
             rewrite_manager: Arc::new(RewriteManager::new()),
             map_manager: Arc::new(MapManager::new()),
             throttle_manager: Arc::new(ThrottleManager::new()),
+            workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
         }
     }
@@ -292,6 +295,10 @@ impl AppState {
 
     pub fn read_throttle_manager(&self) -> Arc<ThrottleManager> {
         Arc::clone(&self.throttle_manager)
+    }
+
+    pub fn read_workspace_manager(&self) -> Arc<WorkspaceManager> {
+        Arc::clone(&self.workspace_manager)
     }
 
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {

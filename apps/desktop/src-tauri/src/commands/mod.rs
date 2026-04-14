@@ -4,6 +4,7 @@ use crate::system_proxy::{
     apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
     SystemProxySettings,
 };
+use crate::workspace::WorkspaceData;
 use pharles_proxy_core::{
     get_local_ip_addresses, send_direct_request, start_proxy_server,
     BreakpointEventEmitter, BreakpointResolution, BreakpointRule, MapRule,
@@ -1036,4 +1037,119 @@ pub fn set_active_throttle_profile(
         &input.workspace_id,
         input.profile_id.as_deref(),
     );
+}
+
+// --- Workspace commands ---
+
+#[tauri::command]
+pub fn list_workspaces(state: State<'_, Arc<AppState>>) -> Vec<WorkspaceData> {
+    state.read_workspace_manager().list()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceInput {
+    pub name: String,
+    pub proxy_port: u16,
+    pub ssl_enabled: Option<bool>,
+}
+
+#[tauri::command]
+pub fn create_workspace(
+    input: CreateWorkspaceInput,
+    state: State<'_, Arc<AppState>>,
+) -> WorkspaceData {
+    let ssl_enabled = input.ssl_enabled.unwrap_or(false);
+
+    log_info(
+        "desktop.commands",
+        "create_workspace_requested",
+        &[
+            ("name", input.name.clone()),
+            ("port", input.proxy_port.to_string()),
+            ("ssl_enabled", ssl_enabled.to_string()),
+        ],
+    );
+
+    let workspace = state
+        .read_workspace_manager()
+        .create(input.name, input.proxy_port, ssl_enabled);
+
+    log_info(
+        "desktop.commands",
+        "create_workspace_succeeded",
+        &[("workspace_id", workspace.id.clone())],
+    );
+
+    workspace
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadWorkspaceInput {
+    pub workspace_id: String,
+}
+
+#[tauri::command]
+pub fn load_workspace(
+    input: LoadWorkspaceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<WorkspaceData, String> {
+    log_info(
+        "desktop.commands",
+        "load_workspace_requested",
+        &[("workspace_id", input.workspace_id.clone())],
+    );
+
+    let workspace = state
+        .read_workspace_manager()
+        .load(&input.workspace_id)
+        .ok_or_else(|| format!("workspace {} not found", input.workspace_id))?;
+
+    log_info(
+        "desktop.commands",
+        "load_workspace_succeeded",
+        &[
+            ("workspace_id", workspace.id.clone()),
+            ("name", workspace.name.clone()),
+        ],
+    );
+
+    Ok(workspace)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorkspaceInput {
+    pub workspace_id: String,
+    pub name: Option<String>,
+    pub proxy_port: Option<u16>,
+    pub ssl_enabled: Option<bool>,
+}
+
+#[tauri::command]
+pub fn update_workspace(
+    input: UpdateWorkspaceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<WorkspaceData, String> {
+    log_info(
+        "desktop.commands",
+        "update_workspace_requested",
+        &[("workspace_id", input.workspace_id.clone())],
+    );
+
+    let workspace = state.read_workspace_manager().update(
+        &input.workspace_id,
+        input.name,
+        input.proxy_port,
+        input.ssl_enabled,
+    )?;
+
+    log_info(
+        "desktop.commands",
+        "update_workspace_succeeded",
+        &[("workspace_id", workspace.id.clone())],
+    );
+
+    Ok(workspace)
 }

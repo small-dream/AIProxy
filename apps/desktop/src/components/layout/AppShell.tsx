@@ -13,6 +13,7 @@ import {
   Box,
   Button,
   ButtonBase,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -46,6 +47,8 @@ import {
   useStartProxy,
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
+import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
+import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 import { getSurfaceShadow } from "@/themes/app-theme";
@@ -179,10 +182,12 @@ export function AppShell() {
   const stopProxyMutation = useStopProxy();
   const enableSystemProxyMutation = useEnableSystemProxy();
   const disableSystemProxyMutation = useDisableSystemProxy();
+  const { data: workspaces = [] } = useWorkspaces();
+  const loadWorkspaceMutation = useLoadWorkspace();
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
+  const activeWorkspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId;
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
-  const [workspaceDraft, setWorkspaceDraft] = useState(workspaceId);
   const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null);
   const [portDialogOpen, setPortDialogOpen] = useState(false);
   const [portDraft, setPortDraft] = useState(String(port));
@@ -204,7 +209,6 @@ export function AppShell() {
   const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
 
   function openWorkspaceDialog() {
-    setWorkspaceDraft(workspaceId);
     setWorkspaceDialogError(null);
     setWorkspaceDialogOpen(true);
   }
@@ -215,14 +219,7 @@ export function AppShell() {
     setPortDialogOpen(true);
   }
 
-  async function handleWorkspaceSwitch() {
-    const nextWorkspaceId = workspaceDraft.trim();
-
-    if (!nextWorkspaceId) {
-      setWorkspaceDialogError(t("appShell.workspaceRequired"));
-      return;
-    }
-
+  async function handleWorkspaceSwitch(nextWorkspaceId: string) {
     if (nextWorkspaceId === workspaceId) {
       setWorkspaceDialogOpen(false);
       return;
@@ -235,10 +232,9 @@ export function AppShell() {
           port,
           workspaceId: nextWorkspaceId,
         });
-      } else {
-        await stopProxyMutation.mutateAsync(nextWorkspaceId);
       }
 
+      await loadWorkspaceMutation.mutateAsync(nextWorkspaceId);
       setWorkspaceDialogOpen(false);
     } catch (error) {
       setWorkspaceDialogError(getErrorMessage(error, t("common.errors.generic")));
@@ -620,9 +616,9 @@ export function AppShell() {
 
           <StatusItem
             icon={<BoltRoundedIcon />}
-            label={t("appShell.workspaceStatus", { workspaceId })}
+            label={activeWorkspaceName}
             onClick={openWorkspaceDialog}
-            title={t("appShell.switchActiveWorkspace")}
+            title={t("appShell.switchProxyPreset")}
           />
 
           <StatusSeparator />
@@ -682,47 +678,47 @@ export function AppShell() {
       </Box>
 
       <Dialog fullWidth maxWidth="xs" onClose={() => setWorkspaceDialogOpen(false)} open={workspaceDialogOpen}>
-        <Box
-          component="form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleWorkspaceSwitch();
-          }}
-        >
-          <DialogTitle>{t("appShell.switchWorkspaceTitle")}</DialogTitle>
-          <DialogContent>
-            <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-              <Typography color="text.secondary" variant="body2">
-                {proxyStatus?.running
-                  ? t("appShell.switchWorkspaceRestartHint")
-                  : t("appShell.switchWorkspaceSetHint")}
+        <DialogTitle>{t("appShell.switchPresetTitle")}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            <Typography color="text.secondary" variant="body2">
+              {proxyStatus?.running
+                ? t("appShell.switchPresetRestartHint")
+                : t("appShell.switchPresetRestartHint")}
+            </Typography>
+            {workspaceDialogError ? (
+              <Typography color="error" variant="caption">
+                {workspaceDialogError}
               </Typography>
-              <OutlinedInput
-                autoFocus
-                error={Boolean(workspaceDialogError)}
-                onChange={(event) => {
-                  setWorkspaceDraft(event.target.value);
-                  if (workspaceDialogError) {
-                    setWorkspaceDialogError(null);
-                  }
-                }}
-                placeholder="default"
-                value={workspaceDraft}
-              />
-              {workspaceDialogError ? (
-                <Typography color="error" variant="caption">
-                  {workspaceDialogError}
-                </Typography>
-              ) : null}
-            </Stack>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={() => setWorkspaceDialogOpen(false)}>{t("common.actions.cancel")}</Button>
-            <Button disabled={isBusy} type="submit" variant="contained">
-              {proxyStatus?.running ? t("common.actions.applyAndRestart") : t("common.actions.switchWorkspace")}
-            </Button>
-          </DialogActions>
-        </Box>
+            ) : null}
+            <List disablePadding>
+              {workspaces.map((workspace) => {
+                const isActive = workspace.id === workspaceId;
+                return (
+                  <ListItemButton
+                    key={workspace.id}
+                    selected={isActive}
+                    disabled={isActive || loadWorkspaceMutation.isPending}
+                    onClick={() => void handleWorkspaceSwitch(workspace.id)}
+                    sx={{ borderRadius: 2, mb: 0.5 }}
+                  >
+                    <ListItemText
+                      primary={workspace.name}
+                      secondary={`:${workspace.proxyPort}`}
+                      primaryTypographyProps={{ fontWeight: isActive ? 600 : 400 }}
+                    />
+                    {isActive && (
+                      <Chip size="small" label={t("proxyPresets.active")} color="success" />
+                    )}
+                  </ListItemButton>
+                );
+              })}
+            </List>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setWorkspaceDialogOpen(false)}>{t("common.actions.cancel")}</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog fullWidth maxWidth="xs" onClose={() => setPortDialogOpen(false)} open={portDialogOpen}>

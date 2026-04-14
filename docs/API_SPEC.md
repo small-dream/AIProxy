@@ -32,7 +32,7 @@ Pharles 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 
 - 启动 / 停止代理
 - 查询状态
-- 管理工作区
+- 管理代理预设（接口兼容保留 workspace 命名）
 - 增删改查规则
 - 查询与导出会话
 - 构造并发送请求
@@ -89,7 +89,7 @@ type AppError = {
 
 ## 5. 共享数据模型
 
-## 5.1 Workspace
+## 5.1 Workspace（当前作为 Proxy Preset 模型）
 
 ```ts
 type Workspace = {
@@ -104,6 +104,11 @@ type Workspace = {
 };
 ```
 
+说明：
+
+- 用户可见概念已统一为 Settings 中的 `Proxy Preset`
+- 接口与存储层暂保留 `Workspace` / `workspaceId` 命名以兼容现有实现
+
 ## 5.2 ProxyStatus
 
 ```ts
@@ -112,7 +117,7 @@ type ProxyStatus = {
   port: number;
   sslEnabled: boolean;
   systemProxyEnabled: boolean;
-  activeWorkspaceId?: string;
+  activeWorkspaceId?: string; // 当前激活代理预设 ID，字段名保持兼容
   startedAt?: string;
 };
 ```
@@ -292,7 +297,7 @@ type ThrottleProfile = {
 
 ```ts
 type StartProxyInput = {
-  workspaceId: string;
+  workspaceId: string; // 当前激活代理预设 ID
   port?: number;
   enableSsl?: boolean;
 };
@@ -307,7 +312,7 @@ type StartProxyOutput = ProxyStatus;
 失败场景：
 
 - 端口被占用
-- 工作区不存在
+- 代理预设不存在（底层错误仍可能表现为 workspace 不存在）
 - 代理启动失败
 
 ### `stop_proxy`
@@ -404,9 +409,11 @@ type DisableSystemProxyInput = Record<string, never>;
 type DisableSystemProxyOutput = ProxyStatus;
 ```
 
-## 6.2 Workspace Commands
+## 6.2 Proxy Preset Commands（兼容 workspace 命名）— 已实现
 
-### `list_workspaces`
+这些命令当前由 `Settings` 页中的 `Proxy Presets` 区块调用。
+
+### `list_workspaces` — 已实现
 
 响应：
 
@@ -414,7 +421,7 @@ type DisableSystemProxyOutput = ProxyStatus;
 type ListWorkspacesOutput = Workspace[];
 ```
 
-### `create_workspace`
+### `create_workspace` — 已实现
 
 请求：
 
@@ -432,7 +439,7 @@ type CreateWorkspaceInput = {
 type CreateWorkspaceOutput = Workspace;
 ```
 
-### `load_workspace`
+### `load_workspace` — 已实现
 
 请求：
 
@@ -448,7 +455,7 @@ type LoadWorkspaceInput = {
 type LoadWorkspaceOutput = Workspace;
 ```
 
-### `update_workspace`
+### `update_workspace` — 已实现
 
 请求：
 

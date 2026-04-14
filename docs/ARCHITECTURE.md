@@ -71,7 +71,7 @@
 ### SQLite
 
 - 本地桌面应用零运维
-- 适合工作区、会话元数据、规则与配置存储
+- 适合代理预设（底层兼容 workspace 模型）、会话元数据、规则与配置存储
 - 对 AI 设计 schema 与迁移极其友好
 
 ## 4. 系统上下文
@@ -81,8 +81,9 @@ flowchart LR
     A[用户] --> B[Pharles Desktop UI]
     B --> C[Tauri Command Layer]
     C --> D[Proxy Core]
-    C --> E[Workspace Service]
+    C --> E[Proxy Preset Service]
     C --> F[Rule Engine]
+    Note: WorkspaceManager 当前为内存实现（Mutex<Vec>），SQLite 持久化计划后续引入
     C --> G[Certificate Service]
     C --> H[Export Service]
     D --> I[(SQLite)]
@@ -202,7 +203,7 @@ flowchart LR
 输入：
 
 - 来自客户端的网络请求（本机或局域网设备）
-- 来自工作区的代理配置
+- 来自当前激活代理预设的代理配置（底层仍沿用 workspace 标识）
 
 输出：
 
@@ -256,7 +257,7 @@ flowchart LR
 
 ## 7.1 通讯模式
 
-- **命令调用**：用于显式动作，例如启动代理、加载工作区、导出会话
+- **命令调用**：用于显式动作，例如启动代理、切换代理预设、导出会话
 - **事件推送**：用于实时流量与状态更新，例如新会话、会话更新、断点暂停、代理状态变化
 
 ## 7.2 关键命令示例
@@ -266,8 +267,10 @@ flowchart LR
 - `get_proxy_status`
 - `enable_system_proxy`
 - `disable_system_proxy`
-- `create_workspace`
-- `load_workspace`
+- `create_workspace` — `已实现`，作为代理预设兼容命令，由内存 WorkspaceManager 创建记录并返回完整数据
+- `load_workspace` — `已实现`，按 ID 加载当前激活代理预设
+- `list_workspaces` — `已实现`，返回所有代理预设列表（接口名保持兼容）
+- `update_workspace` — `已实现`，部分更新代理预设字段
 - `list_sessions`
 - `get_session_detail`
 - `repeat_session`（暂未实现，前端 Repeat 按钮替代）
@@ -337,14 +340,14 @@ erDiagram
 
 ## 9.2 核心实体
 
-### `workspace`
+### `workspace` — 已实现（当前作为 Proxy Preset 数据模型）
 
-- `id`
+- `id` — 默认预设为 `"default"`，新建预设为 `ws-{timestamp}-{random}`
 - `name`
 - `proxy_port`
 - `ssl_enabled`
-- `system_proxy_enabled`
-- `storage_path`
+- `system_proxy_enabled`（预留，当前不可通过 API 修改）
+- `storage_path`（预留，当前始终为空字符串）
 - `created_at`
 - `updated_at`
 
@@ -425,9 +428,11 @@ erDiagram
 
 ## 10. 存储策略
 
-### 10.1 SQLite 存储内容
+### 10.1 SQLite 存储内容（计划）
 
-- 工作区
+> **当前状态**：代理预设、规则、弱网配置均为内存实现（`Mutex<Vec>`），重启后不保留。SQLite 持久化将在后续版本引入。
+
+- 代理预设
 - 会话元数据
 - 规则配置
 - 弱网配置
@@ -438,7 +443,7 @@ erDiagram
 - 根证书与密钥
 - 会话大体积 Body
 - 导出文件
-- 工作区附属配置
+- 代理预设附属配置（预留）
 
 ### 10.3 存储设计原则
 
@@ -453,8 +458,9 @@ erDiagram
 - `SessionsPage`
 - `ComposePage`
 - `RulesPage`
+- `ThrottlingPage`
 - `CertificatesPage`
-- `SettingsPage`
+- `SettingsPage`（含 Proxy Presets section）
 
 ### 页面蓝图协同规则
 
@@ -470,7 +476,7 @@ erDiagram
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域；`Rewrite / Map` 采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
-- `SettingsPage`：当前已实现 `Language & Region` + `Appearance` 两个应用级设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
+- `SettingsPage`：当前已实现 `Proxy Presets` + `Language & Region` + `Appearance` 三个设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
 
 ## 11.2 功能模块拆分
 
@@ -484,7 +490,7 @@ erDiagram
 - `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
 - `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
-- `workspace-manager`
+- `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层
 
 ## 11.3 组件分层
 

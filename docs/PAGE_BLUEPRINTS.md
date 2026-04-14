@@ -630,14 +630,15 @@ type CertificatesPageState = {
 };
 ```
 
-## 8. Settings Page — `基础设置已实现`
+## 8. Settings Page — `基础设置与代理预设已实现`
 
 ### 8.1 页面目标
 
-集中管理应用默认设置，而不是项目级调试数据。
+集中管理应用默认设置与代理启动配置，不再提供独立 Workspaces Page。
 
 当前已实现目标：
 
+- 管理代理预设（端口、SSL）
 - 管理界面语言偏好
 - 管理界面外观偏好
 - 支持 `system` 级别的自动解析与持久化
@@ -648,6 +649,10 @@ type CertificatesPageState = {
 [Settings Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: Settings                                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Proxy Presets]                                                             │
+│ Preset List                  (New Preset) (Apply) (Save)                    │
+│ Name / Port / SSL Editor                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Language & Region]                                                         │
 │ Display Language: [Follow System v]                                         │
@@ -664,6 +669,11 @@ type CertificatesPageState = {
 ```text
 SettingsPage
 ├─ PageHeader
+├─ ProxyPresetsSection
+│  ├─ PresetList
+│  ├─ PresetActions
+│  ├─ PresetEditor
+│  └─ SuccessAlert
 ├─ SectionCard "Language & Region"
 │  ├─ Description
 │  ├─ LanguagePreferenceSelect
@@ -672,13 +682,17 @@ SettingsPage
 │  ├─ Description
 │  ├─ ThemePreferenceSelect
 │  └─ EffectiveThemeAlert
-└─ BottomStatusStrip
 ```
 
 ### 8.4 页面状态模型
 
 ```ts
 type SettingsPageState = {
+  presets: {
+    activePresetId?: string;
+    selectedPresetId?: string | null;
+    isCreatingPreset: boolean;
+  };
   preferences: {
     languagePreference: "system" | "zh-CN" | "en";
     themePreference: "system" | "light" | "dark";
@@ -690,40 +704,41 @@ type SettingsPageState = {
 };
 ```
 
-## 9. Workspaces Page
+## 9. Proxy Presets（代理预设）— 已实现
 
-### 9.1 页面目标
+> 原设计为独立 Workspaces Page，已降级为 Settings Page 内的 Proxy Presets section。
+> 后端 API 不变（`list_workspaces` 等命令），用户面向概念从"工作区"简化为"代理预设"。
 
-管理项目级工作区及其代理端口、会话隔离、规则隔离。
+### 9.1 功能目标
 
-### 9.2 低保真线框
+保存常用代理启动配置（端口、SSL），支持一键切换。每个预设只携带端口和 SSL 开关，不承诺会话或规则隔离。
 
-```text
-[Workspaces Page]
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Workspaces                                                           │
-├───────────────────────┬──────────────────────────────────────────────────────┤
-│ [Workspace List]      │ [Workspace Detail]                                  │
-│ (New Workspace)       │ Name                                                 │
-│ Default               │ Proxy Port                                           │
-│ Mobile App            │ SSL Enabled                                          │
-│ Web QA                │ Storage Path                                         │
-│ ...                   │ (Save) (Delete) (Load)                               │
-└───────────────────────┴──────────────────────────────────────────────────────┘
-```
+### 9.2 实现位置
 
-### 9.3 React 组件树
+Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件。
 
-```text
-WorkspacesPage
-├─ PageHeader
-├─ WorkspaceManager
-│  ├─ WorkspaceListPane
-│  └─ WorkspaceDetailPane
-│     ├─ WorkspaceForm
-│     └─ WorkspaceActions
-└─ BottomStatusStrip
-```
+### 9.3 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `ProxyPresetsSection` | 预设列表 + 新建/编辑表单 + Apply/Save 操作 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useWorkspaces`, `useCreateWorkspace`, `useLoadWorkspace`, `useUpdateWorkspace` |
+| 服务层 | `services/commands/index.ts` | `listWorkspaces`, `createWorkspace`, `loadWorkspace`, `updateWorkspace` |
+| 共享类型 | `packages/shared-types/src/index.ts` | `Workspace` 类型, `isWorkspace`, `parseWorkspaces` |
+| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_workspaces`, `create_workspace`, `load_workspace`, `update_workspace` |
+| Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
+
+### 9.4 页面事件流
+
+| 用户操作 | 触发 | 结果 |
+| --- | --- | --- |
+| 点击列表中的预设 | `handleSelect(preset)` | 选中该预设，展开编辑区 |
+| 点击 "New Preset" | `handleNew()` | 清空表单，进入新建模式 |
+| 点击 "Save" (新建) | `createWorkspaceMutation.mutate()` | 调用 Rust `create_workspace` |
+| 点击 "Save" (编辑) | `updateWorkspaceMutation.mutate()` | 调用 Rust `update_workspace` |
+| 点击 "Apply" | `loadWorkspaceMutation.mutate()` | 切换当前活跃预设 |
+| AppShell 底部状态栏预设切换 | `handleWorkspaceSwitch(id)` | 从底部状态栏打开预设列表；若代理运行中则以当前配置重启并切换到目标预设 |
 
 ## 10. 页面与模块映射
 
@@ -733,8 +748,7 @@ WorkspacesPage
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
 | Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules` | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
-| Settings | `settings` | settings service / local config |
-| Workspaces | `workspace-manager` | `list_workspaces`, `create_workspace`, `load_workspace` |
+| Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |
 
 ## 11. 实现建议
 

@@ -227,7 +227,6 @@ App Shell
 - Map Remote
 - Throttling
 - Certificates
-- Workspaces
 - Settings
 
 ## 8.4 主工作台规范
@@ -262,7 +261,7 @@ Capture Workspace
 │     └─ Response Pane
 ├─ Session Context Menu
 └─ Session Export Dialog / Snackbar Feedback
-   ├─ Active Workspace
+   ├─ Active Proxy Preset
    └─ Port / SSL Summary
 ```
 
@@ -289,7 +288,7 @@ Capture Workspace
 展示：
 
 - 代理状态
-- 当前工作区
+- 当前代理预设
 - 代理端口
 - SSL 状态
 - 系统代理状态
@@ -310,8 +309,7 @@ Capture Workspace
 - `Compose Page`：请求构造、响应预览（已实现），模板面板（待实现）
 - `Rules Page`：规则类型切换、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
-- `Settings Page`：设置导航、设置内容区、导入导出入口
-- `Workspaces Page`：工作区列表、元信息、切换与创建流程
+- `Settings Page`：代理预设、设置导航与设置内容区
 
 ## 9.1 Sessions Page
 
@@ -627,13 +625,14 @@ Certificates Page
 
 ### 页面定位
 
-Settings Page 负责应用级默认配置，不承载项目工作区专属配置。
+Settings Page 负责应用级默认配置与代理预设管理，不再提供独立 Workspaces Page。
 
 当前已实现范围：
 
 - 语言偏好：`Follow System / 简体中文 / English`
 - 外观偏好：`Follow System / Light / Dark`
-- 两类偏好均为应用级持久化设置
+- 代理预设：列表选择、创建、编辑、应用
+- 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
 
@@ -667,8 +666,10 @@ Settings Page
 
 当前实现说明：
 
-- 当前桌面端先落地 `Language & Region` 与 `Appearance` 两个设置区块
+- 当前桌面端先落地 `Proxy Presets`、`Language & Region` 与 `Appearance` 三个设置区块
 - 后续如扩展左侧设置导航，需保持当前字段归属不变
+
+- `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
 
 ## 10. 组件规范
 
@@ -712,7 +713,7 @@ Settings Page
 - `CertificateWizard`
 - `MobileSetupCard`
 - `ThrottlePresetPanel`
-- `WorkspaceSwitcher`
+- `ProxyPresetSwitcher` — 内嵌于 AppShell 状态栏，点击打开代理预设切换对话框（列表选择）
 
 ## 10.3 业务组件
 
