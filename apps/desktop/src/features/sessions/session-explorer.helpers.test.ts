@@ -117,11 +117,11 @@ describe("buildSessionHostGroups", () => {
       "",
       {
         focusedHost: "api.example.com",
-        unfocusedLabel: "Unfocused",
+        unfocusedLabel: "UnFocus",
       },
     );
 
-    expect(groups.map((group) => group.label)).toEqual(["api.example.com", "Unfocused"]);
+    expect(groups.map((group) => group.label)).toEqual(["api.example.com", "UnFocus"]);
     expect(groups[1]).toMatchObject({
       host: null,
       key: "__unfocused__",

@@ -33,7 +33,6 @@ use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
-const INLINE_BODY_CAPTURE_BYTES: usize = 64 * 1024;
 const DEV_LOG_ENV_VAR: &str = "PHARLES_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "pharles-desktop-dev.log";
 
@@ -1951,8 +1950,6 @@ fn build_body_reference(
         return None;
     }
 
-    let truncated = body.len() > INLINE_BODY_CAPTURE_BYTES;
-    let captured_body = &body[..body.len().min(INLINE_BODY_CAPTURE_BYTES)];
     let mime_type = content_type_header
         .and_then(|value| value.to_str().ok())
         .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
@@ -1961,7 +1958,10 @@ fn build_body_reference(
         .and_then(|value| value.to_str().ok())
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty());
-    let decoded_body = decode_body_bytes(captured_body, content_encoding.as_deref()).unwrap_or_else(|| captured_body.to_vec());
+
+    // Decode the full body before generating text so compressed streams are never broken.
+    let decoded_body = decode_body_bytes(body, content_encoding.as_deref()).unwrap_or_else(|| body.to_vec());
+
     let inline_text = if should_render_body_as_text(mime_type.as_deref(), &decoded_body) {
         Some(String::from_utf8_lossy(&decoded_body).to_string())
     } else {
@@ -1969,12 +1969,12 @@ fn build_body_reference(
     };
 
     Some(ProxyBodyReference {
-        base64_text: Some(BASE64_STANDARD.encode(captured_body)),
+        base64_text: Some(BASE64_STANDARD.encode(&decoded_body)),
         encoding: inline_text.as_ref().map(|_| "utf-8".to_string()),
         inline_text,
         mime_type,
         size_bytes: body.len(),
-        truncated,
+        truncated: false,
     })
 }
 
@@ -2041,13 +2041,7 @@ fn build_raw_http_message(
     raw_message.push_str("\r\n");
 
     if !body.is_empty() {
-        raw_message.push_str(&String::from_utf8_lossy(
-            &body[..body.len().min(INLINE_BODY_CAPTURE_BYTES)],
-        ));
-
-        if body.len() > INLINE_BODY_CAPTURE_BYTES {
-            raw_message.push_str("\r\n<TRUNCATED>");
-        }
+        raw_message.push_str(&String::from_utf8_lossy(body));
     }
 
     raw_message

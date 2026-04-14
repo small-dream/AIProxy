@@ -74,6 +74,7 @@ function SessionInspectorWorkspace({
     return parseJsonBody(detail?.responseBody, responseBodyText, {
       responseErrorMessage: t("inspector.jsonParse.responseError"),
       tooLargeMessage: t("inspector.jsonParse.tooLarge"),
+      truncatedMessage: t("inspector.jsonParse.truncated"),
     });
   }, [detail?.responseBody, responseBodyText, responseTab, t]);
 
@@ -95,6 +96,7 @@ function SessionInspectorWorkspace({
       preferSoftWarning: false,
       requestFallbackMessage: t("inspector.jsonParse.requestFallback"),
       tooLargeMessage: t("inspector.jsonParse.tooLarge"),
+      truncatedMessage: t("inspector.jsonParse.truncated"),
     });
 
     if (parsedRequestJson.status === "success") {

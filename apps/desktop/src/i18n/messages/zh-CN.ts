@@ -568,7 +568,7 @@ export const zhCNMessages: Messages = {
     searchPlaceholder: "搜索域名或路径",
     tooltipPending: "{{method}} {{url}} · 等待中",
     tooltipResolved: "{{method}} {{url}} · {{statusCode}} · {{kind}}",
-    unfocusedGroup: "Unfocused",
+    unfocusedGroup: "UnFocus",
   },
   inspector: {
     cookies: "Cookies",

@@ -566,7 +566,7 @@ export const enMessages = {
     searchPlaceholder: "Search domain or path",
     tooltipPending: "{{method}} {{url}} · Pending",
     tooltipResolved: "{{method}} {{url}} · {{statusCode}} · {{kind}}",
-    unfocusedGroup: "Unfocused",
+    unfocusedGroup: "UnFocus",
   },
   inspector: {
     cookies: "Cookies",

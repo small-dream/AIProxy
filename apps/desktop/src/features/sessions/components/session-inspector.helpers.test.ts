@@ -34,6 +34,31 @@ describe("parseJsonBody", () => {
     });
   });
 
+  it("returns truncated error when the body was truncated during capture", () => {
+    const result = parseJsonBody(
+      createBodyReference({ truncated: true, sizeBytes: 200 * 1024 }),
+      "{\"ok\":true,\"items\":[1,2,3",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toContain("truncated");
+    }
+  });
+
+  it("returns truncated error with custom truncatedMessage", () => {
+    const result = parseJsonBody(
+      createBodyReference({ truncated: true, sizeBytes: 200 * 1024 }),
+      "{\"ok\":true,\"items\":[1,2,3",
+      { truncatedMessage: "custom truncated" },
+    );
+
+    expect(result).toEqual({
+      message: "custom truncated",
+      status: "error",
+    });
+  });
+
   it("returns the request fallback message when parsing fails and raw text fallback is allowed", () => {
     const result = parseJsonBody(
       createBodyReference({ inlineText: "{invalid", sizeBytes: 8 }),

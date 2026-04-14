@@ -79,6 +79,7 @@ export function parseJsonBody(
     requestFallbackMessage?: string;
     responseErrorMessage?: string;
     tooLargeMessage?: string;
+    truncatedMessage?: string;
   },
 ): JsonParseResult {
   if (!body || !bodyText || !looksLikeJson(body.mimeType, bodyText)) {
@@ -91,6 +92,15 @@ export function parseJsonBody(
       message:
         options?.tooLargeMessage ??
         "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
+    };
+  }
+
+  if (body.truncated) {
+    return {
+      status: "error",
+      message:
+        options?.truncatedMessage ??
+        "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
     };
   }
 

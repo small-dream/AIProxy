@@ -33,6 +33,8 @@ import { getSessionDetail, sendComposedRequest } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
 const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
+const FOCUSED_HOST_STORAGE_KEY = "pharles.sessions.focusedHost";
+const IGNORED_HOSTS_STORAGE_KEY = "pharles.sessions.ignoredHosts";
 
 export function SessionsPage() {
   const { t } = useI18n();
@@ -64,8 +66,8 @@ export function SessionsPage() {
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   // Focus / Ignore state
-  const [focusedHost, setFocusedHost] = useState<string | null>(null);
-  const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(() => new Set());
+  const [focusedHost, setFocusedHost] = useState<string | null>(() => normalizeStoredHost(readStorageValue(FOCUSED_HOST_STORAGE_KEY)));
+  const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(() => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)));
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
@@ -122,6 +124,24 @@ export function SessionsPage() {
   useEffect(() => {
     writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(requestCollapsed));
   }, [requestCollapsed]);
+
+  useEffect(() => {
+    if (focusedHost) {
+      writeStorageValue(FOCUSED_HOST_STORAGE_KEY, focusedHost);
+      return;
+    }
+
+    removeStorageValue(FOCUSED_HOST_STORAGE_KEY);
+  }, [focusedHost]);
+
+  useEffect(() => {
+    if (ignoredHosts.size === 0) {
+      removeStorageValue(IGNORED_HOSTS_STORAGE_KEY);
+      return;
+    }
+
+    writeStorageValue(IGNORED_HOSTS_STORAGE_KEY, JSON.stringify(Array.from(ignoredHosts)));
+  }, [ignoredHosts]);
 
   useEffect(() => {
     if (!clearSessionsMutation.isSuccess) {
@@ -574,6 +594,51 @@ function writeStorageValue(key: string, value: string) {
   }
 
   window.localStorage.setItem(key, value);
+}
+
+function removeStorageValue(key: string) {
+  if (typeof window === "undefined" || typeof window.localStorage?.removeItem !== "function") {
+    return;
+  }
+
+  window.localStorage.removeItem(key);
+}
+
+function normalizeStoredHost(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+
+  return normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+function readStoredHosts(key: string): string[] {
+  const rawValue = readStorageValue(key);
+
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue);
+
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        parsedValue
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0),
+      ),
+    );
+  } catch {
+    return [];
+  }
 }
 
 function clampExplorerWidth(width: number) {
