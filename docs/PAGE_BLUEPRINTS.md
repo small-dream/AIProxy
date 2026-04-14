@@ -53,114 +53,171 @@
 
 ## 4. Sessions Page
 
-### 4.1 页面目标
+### 4.1 页面目标 — `已实现首版`
 
 完成抓包主路径：
 
-- 启动代理
-- 开关系统代理
-- 实时查看请求
-- 筛选会话
-- 查看请求详情
+- 搜索与浏览会话树
+- 查看请求 / 响应详情
+- 从会话快速导出、复制、重放
+- 针对单个 Host 做临时聚焦 / 忽略
+- 从会话直接跳转到 Compose / Rules 工作台
 
 ### 4.2 低保真线框
 
 ```text
 [Sessions Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [Filter hosts, paths, methods, or status........] <All> <HTTP> <Errors>    │
+│ [Search sessions by host, path, or query.............] (Clear) (Export)    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Session Explorer]                                [Inspector Workspace]      │
-│ ┌───────────────────────────────────────────────┐  ┌──────────────────────┐ │
-│ │ Requests: 23                                  │  │ GET /online/ → 200   │ │
-│ ├───────────────────────────────────────────────┤  │ Host: example.com    │ │
-│ │ ▾ example.com (3)                             │  │ Duration: 23 ms      │ │
-│ │   ▸ GET /index                                │  ├──────────────────────┤ │
-│ │   ▸ GET /api/list                             │  │ <Overview> <Contents>│ │
-│ │   ▸ POST /report                              │  │ <Summary> <Timing>   │ │
-│ │ ▸ assets.example.com (8)                      │  ├──────────────────────┤ │
-│ │ ▸ api.example.net (12)                        │  │ <Headers> <Text>     │ │
-│ │ ...                                           │  │ <Hex> <Raw>          │ │
-│ └───────────────────────────────────────────────┘  │ [Inspector content]  │ │
+│ [Session Explorer]      [Drag Handle] [Inspector Workspace]                 │
+│ ┌─────────────────────┐  ││  ┌───────────────────────────────────────────┐ │
+│ │ ▾ example.com       │      │ GET /online/ → 200                        │ │
+│ │   ▸ /index          │      │ Host: example.com  Duration: 23 ms        │ │
+│ │   ▸ /api/list?a=1   │      ├───────────────────────────────────────────┤ │
+│ │ ▸ assets.example.com│      │ Request: <Overview> <Query> <Headers>     │ │
+│ │ ...                 │      │          <Body> <Form> <Raw>              │ │
+│ └─────────────────────┘      │ Response: <Overview> <Headers> <Text>     │ │
+│                               │           <JSON> <JSON Text> <Raw>        │ │
+│                               │ [Inspector content / search / repeat]     │ │
+│                               └───────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Recording] Workspace: Default Port: 8888 [SSL Off] [System Proxy On/Off]  │
-│ [Status only]                                                               │
+│ Right click on a session row                                                 │
+│ ┌──────────────────────────────┐                                            │
+│ │ Copy URL                     │                                            │
+│ │ Copy Request / Response      │                                            │
+│ │ Save Response...             │                                            │
+│ │ Compose / Repeat             │                                            │
+│ │ Export Session...            │                                            │
+│ │ Clear Others                 │                                            │
+│ │ Focus / Ignore Host          │                                            │
+│ │ Breakpoints... / Map Rules...│                                            │
+│ └──────────────────────────────┘                                            │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 React 组件树
+### 4.3 实际 React 组件树
 
 ```text
-AppShell
-├─ TopAppBar
-├─ LeftNavigation
-├─ SessionsPage
-│  ├─ SessionFilterBar
-│  ├─ CaptureWorkbench
-│  │  ├─ SessionExplorerPane
-│  │  │  ├─ ExplorerSummary
-│  │  │  ├─ SessionHostTree
-│  │  │  │  ├─ HostGroupNode
-│  │  │  │  └─ SessionLeafNode
+SessionsPage
+├─ Header Toolbar
+│  ├─ Search Input
+│  ├─ Clear Sessions Button
+│  └─ Export Button
+├─ Main Split Workspace
+│  ├─ SessionExplorerPane
+│  │  ├─ HostRow
+│  │  ├─ SessionTreeNode
+│  │  └─ SessionLeafNode
+│  ├─ Split Resize Handle
 │  └─ SessionInspectorWorkspace
-│     ├─ RequestHeadline
-│     ├─ InspectorPrimaryTabs
-│     ├─ InspectorSecondaryTabs
-│     └─ SessionInspectorState
-└─ BottomControlStrip
+│     ├─ InspectorSummaryBar
+│     ├─ SessionInspectorRequestPane
+│     └─ SessionInspectorResponsePane
+├─ SessionExportDialog
+├─ SessionContextMenu
+└─ Snackbar
 ```
 
-### 4.4 页面状态模型
+### 4.4 实现文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `pages/sessions/index.tsx` | SessionsPage 主页面，组合搜索、导出、上下文菜单、详情与跳转动作 |
+| `features/sessions/components/SessionExplorerPane.tsx` | Host 树、请求节点、右键入口 |
+| `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
+| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作与页面跳转 |
+| `features/sessions/components/SessionExportDialog.tsx` | Selected / Filtered / All 导出范围与格式选择 |
+
+### 4.5 页面状态模型
 
 ```ts
 type SessionsPageState = {
   bootstrap: {
     proxyStatusLoading: boolean;
     sessionsLoading: boolean;
+    sessionDetailLoading: boolean;
   };
   query: {
     keyword: string;
-    scope: "all" | "http" | "errors";
   };
   selection: {
     selectedSessionId?: string;
+    contextMenuSessionId?: string;
   };
   tree: {
-    expandedHosts: string[];
+    expandedKeys: string[]; // host key + host::path branch key
   };
-  mutation: {
-    startingProxy: boolean;
-    stoppingProxy: boolean;
-    enablingSystemProxy: boolean;
-    disablingSystemProxy: boolean;
+  hostFilters: {
+    focusedHost: string | null;
+    ignoredHosts: string[];
+  };
+  persistence: {
+    explorerWidth: number; // localStorage: pharles.sessions.explorerWidth
+    requestCollapsed: boolean; // localStorage: pharles.sessions.requestCollapsed
   };
   ui: {
-    primaryInspectorTab: "overview" | "contents" | "summary" | "timing" | "raw";
-    secondaryContentTab: "headers" | "text" | "hex" | "raw";
+    requestTab: "overview" | "query" | "headers" | "body" | "form" | "raw";
+    responseTab: "overview" | "headers" | "text" | "json" | "jsonText" | "raw";
+    requestCollapsed: boolean;
+    explorerWidth: number;
+    exportDialogOpen: boolean;
+    contextMenuAnchor?: { left: number; top: number };
+    snackbarMessage: string | null;
   };
 };
 ```
 
-### 4.5 页面事件流
+### 4.6 页面事件流
 
 ```text
-User clicks Start Proxy
--> start_proxy
--> proxy status updates
--> sessions polling starts
--> User enables system proxy
--> local HTTP traffic enters proxy
--> list_sessions returns captured sessions
--> SessionHostTree groups sessions by host
--> user expands host group and selects one session
--> inspector workspace renders selected summary and tabs
+Sessions polling returns captured sessions
+-> SessionsPage filters ignored hosts
+-> SessionExplorerPane groups remaining sessions by host and path
+-> user searches / expands host / selects session
+-> SessionInspectorWorkspace renders selected summary and tabs
+-> user drags split handle
+-> explorer width updates and persists to localStorage
+-> user toggles request panel collapse
+-> requestCollapsed persists to localStorage
 ```
 
-### 4.6 后续扩展位
+### 4.7 上下文菜单事件流
+
+```text
+User right clicks a session leaf node
+-> SessionsPage stores pointer anchorPosition + target session
+-> SessionContextMenu opens at cursor position
+-> menu action executes one of:
+   copy URL / request / response
+   save response
+   compose from session
+   repeat request directly
+   export selected session
+   clear all other sessions
+   focus or unfocus host
+   ignore or stop ignoring host
+   go to Rules page
+-> actions that need body/raw payload fetch detail on demand
+-> copy actions show Snackbar feedback
+-> menu closes after action
+```
+
+### 4.8 当前实现说明
+
+- 右键菜单只挂在会话叶子节点，不作用于 Host 分组节点。
+- `Focus Host` 会把其他 Host 降低透明度；`Ignore Host` 会直接从当前列表中过滤对应 Host。
+- Host 聚焦 / 忽略仅保留在当前页面内存状态，刷新页面后不会持久化。
+- `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `/rules`，尚未做规则页 tab 深链。
+- 复制请求、复制响应、保存响应、Compose、Repeat 会在需要时按需调用 `get_session_detail`。
+- `Cmd+F / Ctrl+F` 会把搜索焦点交给当前激活的 Inspector 面板。
+
+### 4.9 后续扩展位
 
 - `SessionExplorerPane` 增加树形虚拟滚动与分组模式切换
-- `Content Split Pane` 支持左右分栏拖拽宽度记忆
-- `SessionInspectorWorkspace` 追加完整 request / response / timing 数据
+- `SessionContextMenu` 补充键盘触发入口与禁用态说明
+- `Focus / Ignore Host` 升级为可持久化筛选策略
+- `Rules` 跳转支持按动作类型直达对应 tab
 - `list_sessions` 改为实时事件推送 + 增量合并
 - `get_session_detail` 按需加载 Inspector 真正内容，列表与详情解耦
 

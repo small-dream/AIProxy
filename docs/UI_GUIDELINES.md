@@ -232,7 +232,7 @@ App Shell
 
 ## 8.4 主工作台规范
 
-抓包中心采用桌面优先的“页面轻量过滤栏 + 左侧树形会话浏览区 + 右侧详情工作区 + 底部固定状态栏”结构。
+抓包中心采用桌面优先的“页面轻量工具栏 + 左侧树形会话浏览区 + 中间可拖拽分隔条 + 右侧详情工作区”结构。
 
 ### 推荐布局比例
 
@@ -245,25 +245,23 @@ App Shell
 
 ```text
 Capture Workspace
-├─ Session Filter Bar
+├─ Sessions Header Toolbar
 │  ├─ Quick Search
-│  └─ Scope Filters
+│  ├─ Clear Sessions
+│  └─ Export
 ├─ Content Split Pane
 │  ├─ Session Explorer Pane
-│  │  ├─ Explorer Summary
 │  │  ├─ Domain / Host Tree
+│  │  ├─ Path Branch Nodes
 │  │  ├─ Request Nodes
 │  │  └─ Empty / Loading / Error State
+│  ├─ Split Resize Handle
 │  └─ Session Inspector Workspace
-│     ├─ Request Headline
-│     ├─ Primary Inspector Tabs
-│     ├─ Secondary Content Tabs
-│     └─ Tab Content Area
-└─ Bottom Control Strip
-   ├─ Proxy State
-   ├─ Start / Stop Proxy
-   ├─ System Proxy State
-   ├─ Enable / Disable System Proxy
+│     ├─ Inspector Summary Bar
+│     ├─ Request Pane
+│     └─ Response Pane
+├─ Session Context Menu
+└─ Session Export Dialog / Snackbar Feedback
    ├─ Active Workspace
    └─ Port / SSL Summary
 ```
@@ -325,31 +323,35 @@ Sessions Page 是产品的主工作台，承担“抓包、筛选、定位、查
 
 ```text
 Sessions Page
-├─ Session Filter Bar
+├─ Sessions Header Toolbar
 │  ├─ Session Search
-│  └─ Scope Filter Group
+│  ├─ Clear Sessions Button
+│  └─ Export Button
 ├─ Capture Workspace
 │  ├─ Session Explorer Pane
-│  │  ├─ Explorer Summary
 │  │  ├─ Host Group Tree
+│  │  ├─ Path Branch Nodes
 │  │  ├─ Request Rows
 │  │  └─ Empty / Loading / Error State
+│  ├─ Split Resize Handle
 │  └─ Session Inspector Workspace
-│     ├─ Request Headline
-│     ├─ Primary Tab Navigation
-│     ├─ Secondary Content Tabs
-│     └─ Details Content
-└─ Bottom Control Strip
+│     ├─ Inspector Summary Bar
+│     ├─ Request Pane
+│     └─ Response Pane
+├─ Session Context Menu
+├─ Session Export Dialog
+└─ Snackbar Feedback
 ```
 
 ### 页面区域定义
 
-#### `Session Filter Bar`
+#### `Sessions Header Toolbar`
 
 - 位于主内容区最上方
-- 只保留会话搜索与范围过滤
+- 只保留会话搜索与页面级辅助动作
 - 必须是高密度、低视觉噪音的桌面工具条
 - 不承载 Start / Stop Proxy 等全局操作
+- 当前实现包含：`Search`、`Clear Sessions`、`Export`
 
 #### `Session Explorer Pane`
 
@@ -358,14 +360,40 @@ Sessions Page
 - 组节点展开后展示请求项
 - 每条请求项需能直接看到 `method / path / status / duration`
 - 支持键盘上下切换选中项
+- 会话叶子节点支持右键打开 `SessionContextMenu`
+- Host 被聚焦时，其他 Host 以降透明度形式退场，而不是完全隐藏
+
+#### `Split Resize Handle`
+
+- 位于会话树与详情区之间
+- 仅在桌面宽度下展示
+- 支持拖拽调整 Explorer 宽度
+- 宽度变更应被记忆，避免用户每次打开都重新布局
 
 #### `Session Inspector Workspace`
 
 - 右详情栏
 - 与树形浏览区选中项强绑定
-- 顶部显示请求标题行与基础摘要
-- 中部使用一级 tabs 切换 `Overview / Contents / Summary / Timing / Raw`
-- `Contents` 内再使用二级 tabs 承载 `Headers / Text / Hex / Raw`
+- 顶部显示 `Inspector Summary Bar`，承载 Method / URL / Status / Duration / Repeat
+- 中部拆成上下两个面板：`Request Pane` 与 `Response Pane`
+- `Request Pane` 支持收起，并单独维护 tabs 与搜索
+- `Response Pane` 独立维护 tabs 与搜索
+
+#### `Session Context Menu`
+
+- 触发方式：右键会话叶子节点
+- 定位方式：以鼠标指针位置为锚点弹出
+- 菜单项应按动作组分块，并使用 `Divider` 分隔
+- 当前动作组：
+  - 复制：`Copy URL`、`Copy Request`、`Copy Response`
+  - 处理：`Save Response...`、`Compose`、`Repeat`
+  - 会话范围：`Export Session...`、`Clear Others`
+  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
+  - 跳转：`Breakpoints...`、`Map Rules...`
+- 菜单动作完成后应自动关闭
+- 复制类动作必须给出 `Snackbar` 成功反馈
+- `Focus` 与 `Ignore` 属于当前页面的临时视图状态，不应默认持久化
+- `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `Rules Page`，后续可升级为深链到具体 tab
 
 ### 会话树节点建议
 
@@ -376,31 +404,24 @@ Sessions Page
 
 ### 详情面板标签
 
-- Overview
-- Contents
-- Request
-- Response
-- Timing
-- Cookies
-- Raw
-- WebSocket
+- Request：`Overview / Query / Headers / Body / Form / Raw`
+- Response：`Overview / Headers / Text / JSON / JSON Text / Raw`
 
 ### 详情面板内容层级
 
 ```text
 Inspector Pane
-├─ Selected Session Summary
+├─ Inspector Summary Bar
 │  ├─ Method / URL
 │  ├─ Status / Duration / Size
-│  └─ Repeat (已实现) / Copy URL Actions
-├─ Primary Inspector Tabs
-├─ Secondary Content Tabs
-└─ Active Tab Panel
-   ├─ Request Headers / Body
-   ├─ Response Headers / Body
-   ├─ Timing Breakdown
-   ├─ Cookie Summary
-   └─ Raw Payload
+│  └─ Repeat Action
+├─ Request Pane
+│  ├─ Collapse Toggle
+│  ├─ Tabs: Overview / Query / Headers / Body / Form / Raw
+│  └─ Optional Search Field
+└─ Response Pane
+   ├─ Tabs: Overview / Headers / Text / JSON / JSON Text / Raw
+   └─ Optional Search Field
 ```
 
 ## 9.2 Compose Page — `已实现`
@@ -678,6 +699,8 @@ Settings Page
 - `SessionFilterBar`
 - `SessionTable`
 - `SessionInspector`
+- `SessionContextMenu`
+- `SessionExportDialog`
 - `HeaderEditor`
 - `KeyValueEditor`
 - `BodyEditor`
@@ -713,7 +736,7 @@ Settings Page
 
 - 单击：选中会话
 - 双击：展开或进入专注视图
-- 右键：上下文菜单
+- 右键：上下文菜单，仅作用于会话叶子节点
 - 支持列排序
 - 支持键盘上下移动
 

@@ -465,7 +465,7 @@ erDiagram
 
 ### 页面结构映射
 
-- `SessionsPage`：`Session Filter Bar` + `Session Explorer Pane` + `Session Inspector Workspace`，页头新增 `Export` 入口，弹出 `SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出
+- `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域；`Rewrite / Map` 采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
@@ -477,6 +477,7 @@ erDiagram
 - `session-list`
 - `session-explorer`
 - `session-detail`
+- `session-actions` — `已实现首版`：SessionContextMenu + 按需 detail 拉取 + copy / compose / repeat / focus-ignore host / snackbar 反馈
 - `compose-request` — `已实现`：ComposePage 页面 + use-compose-request hook + compose-editor.store + curl-export + EditableKeyValueTable
 - `breakpoints` — `已实现`：BreakpointManager (Rust) + breakpoint.store + use-breakpoint-events hook + use-breakpoint-rules hook + BreakpointInterceptPanel + Rules 页面断点规则管理
 - `rewrite-rules` — `已实现首版`：Rules 页面 Rewrite 工作台 + use-rule-center hooks + shared rewrite rule types
