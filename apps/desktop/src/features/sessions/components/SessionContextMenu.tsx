@@ -8,40 +8,56 @@ import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
+import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
+import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 
 import { useI18n } from "@/i18n";
 
 type SessionContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
+  focusedHost: string | null;
+  isHostFocused: boolean;
+  isHostIgnored: boolean;
   session: SessionSummary | null;
   onClose: () => void;
-  onCopyUrl: (session: SessionSummary) => void;
+  onClearOthers: (session: SessionSummary) => void;
+  onCompose: (session: SessionSummary) => void;
   onCopyRequest: (session: SessionSummary) => void;
   onCopyResponse: (session: SessionSummary) => void;
-  onSaveResponse: (session: SessionSummary) => void;
-  onCompose: (session: SessionSummary) => void;
-  onRepeat: (session: SessionSummary) => void;
+  onCopyUrl: (session: SessionSummary) => void;
   onExportSession: (session: SessionSummary) => void;
-  onClearOthers: (session: SessionSummary) => void;
+  onFocusHost: (session: SessionSummary) => void;
   onGoToBreakpoints: () => void;
   onGoToRules: () => void;
+  onIgnoreHost: (session: SessionSummary) => void;
+  onRepeat: (session: SessionSummary) => void;
+  onSaveResponse: (session: SessionSummary) => void;
+  onStopIgnoringHost: (session: SessionSummary) => void;
+  onUnfocusHost: () => void;
 };
 
 export function SessionContextMenu({
   anchorPosition,
+  focusedHost,
+  isHostFocused,
+  isHostIgnored,
   session,
   onClose,
-  onCopyUrl,
+  onClearOthers,
+  onCompose,
   onCopyRequest,
   onCopyResponse,
-  onSaveResponse,
-  onCompose,
-  onRepeat,
+  onCopyUrl,
   onExportSession,
-  onClearOthers,
+  onFocusHost,
   onGoToBreakpoints,
   onGoToRules,
+  onIgnoreHost,
+  onRepeat,
+  onSaveResponse,
+  onStopIgnoringHost,
+  onUnfocusHost,
 }: SessionContextMenuProps) {
   const { t } = useI18n();
 
@@ -127,6 +143,40 @@ export function SessionContextMenu({
         </ListItemIcon>
         <ListItemText>{t("contextMenu.clearOthers")}</ListItemText>
       </MenuItem>
+
+      <Divider />
+
+      {isHostFocused ? (
+        <MenuItem onClick={() => { onUnfocusHost(); onClose(); }}>
+          <ListItemIcon>
+            <VisibilityRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t("contextMenu.unfocusHost")}</ListItemText>
+        </MenuItem>
+      ) : (
+        <MenuItem onClick={handleClick(onFocusHost)}>
+          <ListItemIcon>
+            <VisibilityRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t("contextMenu.focusHost", { host: session.host })}</ListItemText>
+        </MenuItem>
+      )}
+
+      {isHostIgnored ? (
+        <MenuItem onClick={handleClick(onStopIgnoringHost)}>
+          <ListItemIcon>
+            <VisibilityOffRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t("contextMenu.stopIgnoringHost", { host: session.host })}</ListItemText>
+        </MenuItem>
+      ) : (
+        <MenuItem onClick={handleClick(onIgnoreHost)}>
+          <ListItemIcon>
+            <VisibilityOffRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t("contextMenu.ignoreHost", { host: session.host })}</ListItemText>
+        </MenuItem>
+      )}
 
       <Divider />
 

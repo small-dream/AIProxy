@@ -41,7 +41,15 @@ pub fn run() {
             commands::send_composed_request,
             commands::list_breakpoint_rules,
             commands::set_breakpoint_rules,
-            commands::resolve_breakpoint
+            commands::resolve_breakpoint,
+            commands::list_rewrite_rules,
+            commands::save_rewrite_rule,
+            commands::list_map_rules,
+            commands::save_map_rule,
+            commands::delete_rule,
+            commands::list_throttle_profiles,
+            commands::save_throttle_profile,
+            commands::set_active_throttle_profile
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

@@ -1,6 +1,8 @@
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, Button, Chip, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -12,16 +14,11 @@ import {
   type RequestInspectorTab,
 } from "./session-inspector.helpers";
 
-export function SessionInspectorRequestPane({
-  detail,
-  onRequestCollapsedChange,
-  onRequestTabChange,
-  requestBodyDisplayText,
-  requestCollapsed,
-  requestFormEntries,
-  requestTab,
-  session,
-}: {
+export type RequestPaneHandle = {
+  activateSearch: () => void;
+};
+
+export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   detail: SessionDetail | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
@@ -30,8 +27,43 @@ export function SessionInspectorRequestPane({
   requestFormEntries: Array<[string, string]>;
   requestTab: RequestInspectorTab;
   session: SessionSummary;
-}) {
+}>(function SessionInspectorRequestPane({
+  detail,
+  onRequestCollapsedChange,
+  onRequestTabChange,
+  requestBodyDisplayText,
+  requestCollapsed,
+  requestFormEntries,
+  requestTab,
+  session,
+}, ref) {
   const { t } = useI18n();
+  const [searchValue, setSearchValue] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const searchableTabs: ReadonlySet<RequestInspectorTab> = new Set(["body", "raw"]);
+  const isSearchable = searchableTabs.has(requestTab);
+
+  useEffect(() => {
+    setSearchValue("");
+    setShowSearch(false);
+  }, [session.id]);
+
+  useEffect(() => {
+    if (!isSearchable) {
+      setSearchValue("");
+      setShowSearch(false);
+    }
+  }, [isSearchable]);
+
+  const activateSearch = useCallback(() => {
+    if (!isSearchable) return;
+    setShowSearch(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, [isSearchable]);
+
+  useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
@@ -78,25 +110,45 @@ export function SessionInspectorRequestPane({
             requestBodyDisplayText={requestBodyDisplayText}
             requestFormEntries={requestFormEntries}
             requestTab={requestTab}
+            searchQuery={showSearch ? searchValue : ""}
             session={session}
           />
         </Box>
       )}
+
+      {showSearch && !requestCollapsed ? (
+        <>
+          <Divider />
+          <Box sx={{ p: 1.5 }}>
+            <OutlinedInput
+              fullWidth
+              inputRef={searchInputRef}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder={t("inspector.request.searchPlaceholder")}
+              size="small"
+              startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
+              value={searchValue}
+            />
+          </Box>
+        </>
+      ) : null}
     </Stack>
   );
-}
+});
 
 function RequestTabContent({
   detail,
   requestBodyDisplayText,
   requestFormEntries,
   requestTab,
+  searchQuery,
   session,
 }: {
   detail: SessionDetail | undefined;
   requestBodyDisplayText: string;
   requestFormEntries: Array<[string, string]>;
   requestTab: RequestInspectorTab;
+  searchQuery: string;
   session: SessionSummary;
 }) {
   const { t } = useI18n();
@@ -167,7 +219,7 @@ function RequestTabContent({
   }
 
   if (requestTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")} searchQuery="" />;
+    return <SearchableCodeBlock code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")} searchQuery={searchQuery} />;
   }
 
   return (
@@ -175,7 +227,7 @@ function RequestTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock code={requestBodyDisplayText} searchQuery="" />
+      <SearchableCodeBlock code={requestBodyDisplayText} searchQuery={searchQuery} />
     </Stack>
   );
 }

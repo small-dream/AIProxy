@@ -6,8 +6,9 @@ use crate::system_proxy::{
 };
 use pharles_proxy_core::{
     get_local_ip_addresses, send_direct_request, start_proxy_server,
-    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, ProxyRuntimeConfig,
-    ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary, TlsManager,
+    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, MapRule,
+    ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
+    RewriteRule, ThrottleProfileData, TlsManager,
 };
 use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::Deserialize;
@@ -605,4 +606,129 @@ pub fn resolve_breakpoint(
     state
         .read_breakpoint_manager()
         .resolve(&session_id, resolution)
+}
+
+// --- Rewrite commands ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListRewriteRulesInput {
+    pub workspace_id: String,
+}
+
+#[tauri::command]
+pub fn list_rewrite_rules(
+    input: ListRewriteRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<RewriteRule> {
+    state.read_rewrite_manager().list_rules()
+        .into_iter()
+        .filter(|r| r.workspace_id == input.workspace_id)
+        .collect()
+}
+
+#[tauri::command]
+pub fn save_rewrite_rule(
+    input: RewriteRule,
+    state: State<'_, Arc<AppState>>,
+) -> RewriteRule {
+    state.read_rewrite_manager().save_rule(input)
+}
+
+// --- Map commands ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListMapRulesInput {
+    pub workspace_id: String,
+    pub mode: Option<String>,
+}
+
+#[tauri::command]
+pub fn list_map_rules(
+    input: ListMapRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<MapRule> {
+    state.read_map_manager().list_rules()
+        .into_iter()
+        .filter(|r| r.workspace_id == input.workspace_id)
+        .filter(|r| match &input.mode {
+            Some(mode) => r.mode == *mode,
+            None => true,
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn save_map_rule(
+    input: MapRule,
+    state: State<'_, Arc<AppState>>,
+) -> MapRule {
+    state.read_map_manager().save_rule(input)
+}
+
+// --- Delete rule (shared for rewrite/map) ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRuleInput {
+    pub rule_id: String,
+    pub rule_type: String,
+}
+
+#[tauri::command]
+pub fn delete_rule(
+    input: DeleteRuleInput,
+    state: State<'_, Arc<AppState>>,
+) {
+    match input.rule_type.as_str() {
+        "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
+        "map" => state.read_map_manager().delete_rule(&input.rule_id),
+        _ => {}
+    }
+}
+
+// --- Throttle commands ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListThrottleProfilesInput {
+    pub workspace_id: String,
+}
+
+#[tauri::command]
+pub fn list_throttle_profiles(
+    input: ListThrottleProfilesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<ThrottleProfileData> {
+    state.read_throttle_manager().list_profiles()
+        .into_iter()
+        .filter(|p| p.workspace_id == input.workspace_id)
+        .collect()
+}
+
+#[tauri::command]
+pub fn save_throttle_profile(
+    input: ThrottleProfileData,
+    state: State<'_, Arc<AppState>>,
+) -> ThrottleProfileData {
+    state.read_throttle_manager().save_profile(input)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetActiveThrottleProfileInput {
+    pub workspace_id: String,
+    pub profile_id: Option<String>,
+}
+
+#[tauri::command]
+pub fn set_active_throttle_profile(
+    input: SetActiveThrottleProfileInput,
+    state: State<'_, Arc<AppState>>,
+) {
+    state.read_throttle_manager().set_active_profile(
+        &input.workspace_id,
+        input.profile_id.as_deref(),
+    );
 }

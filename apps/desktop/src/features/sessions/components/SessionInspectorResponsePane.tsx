@@ -1,6 +1,6 @@
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { Alert, Box, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -16,22 +16,29 @@ import {
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
 
-export function SessionInspectorResponsePane({
-  detail,
-  responseJsonResult,
-  responseTab,
-  session,
-  onResponseTabChange,
-}: {
+export type ResponsePaneHandle = {
+  activateSearch: () => void;
+};
+
+const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set(["json", "jsonText", "raw", "text"]);
+
+export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   detail: SessionDetail | undefined;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
   session: SessionSummary;
-}) {
+}>(function SessionInspectorResponsePane({
+  detail,
+  onResponseTabChange,
+  responseJsonResult,
+  responseTab,
+  session,
+}, ref) {
   const { t } = useI18n();
   const [searchValue, setSearchValue] = useState("");
-  const showSearch = responseTab === "json" || responseTab === "jsonText";
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const showSearch = SEARCHABLE_TABS.has(responseTab);
 
   useEffect(() => {
     setSearchValue("");
@@ -42,6 +49,19 @@ export function SessionInspectorResponsePane({
       setSearchValue("");
     }
   }, [showSearch]);
+
+  const activateSearch = useCallback(() => {
+    if (!SEARCHABLE_TABS.has(responseTab)) return;
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, [responseTab]);
+
+  useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
+
+  const searchPlaceholder =
+    responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") :
+    responseTab === "jsonText" ? t("inspector.response.jsonTextSearchPlaceholder") :
+    responseTab === "raw" ? t("inspector.response.rawSearchPlaceholder") :
+    t("inspector.response.rawSearchPlaceholder");
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
@@ -84,8 +104,9 @@ export function SessionInspectorResponsePane({
           <Box sx={{ p: 1.5 }}>
             <OutlinedInput
               fullWidth
+              inputRef={searchInputRef}
               onChange={(event) => setSearchValue(event.target.value)}
-              placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
+              placeholder={searchPlaceholder}
               size="small"
               startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
               value={searchValue}
@@ -95,7 +116,7 @@ export function SessionInspectorResponsePane({
       ) : null}
     </Stack>
   );
-}
+});
 
 function ResponseTabContent({
   detail,
@@ -146,7 +167,7 @@ function ResponseTabContent({
   }
 
   if (responseTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")} searchQuery="" />;
+    return <SearchableCodeBlock code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")} searchQuery={searchValue} />;
   }
 
   if (responseTab === "json") {
@@ -205,7 +226,7 @@ function ResponseTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")} searchQuery="" />
+      <SearchableCodeBlock code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")} searchQuery={searchValue} />
     </Stack>
   );
 }

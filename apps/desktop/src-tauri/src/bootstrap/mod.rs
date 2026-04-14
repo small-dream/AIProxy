@@ -1,4 +1,4 @@
-use pharles_proxy_core::{BreakpointManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, TlsManager};
+use pharles_proxy_core::{BreakpointManager, MapManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager, ThrottleManager, TlsManager};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -58,6 +58,9 @@ pub struct AppState {
     tls_manager: Mutex<Option<Arc<TlsManager>>>,
     cert_status_cache: Mutex<Option<CertificateStateSnapshot>>,
     breakpoint_manager: Arc<BreakpointManager>,
+    rewrite_manager: Arc<RewriteManager>,
+    map_manager: Arc<MapManager>,
+    throttle_manager: Arc<ThrottleManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
 }
 
@@ -72,6 +75,9 @@ impl AppState {
             tls_manager: Mutex::new(None),
             cert_status_cache: Mutex::new(None),
             breakpoint_manager: Arc::new(BreakpointManager::new()),
+            rewrite_manager: Arc::new(RewriteManager::new()),
+            map_manager: Arc::new(MapManager::new()),
+            throttle_manager: Arc::new(ThrottleManager::new()),
             app_handle: Mutex::new(None),
         }
     }
@@ -274,6 +280,18 @@ impl AppState {
 
     pub fn read_breakpoint_manager(&self) -> Arc<BreakpointManager> {
         Arc::clone(&self.breakpoint_manager)
+    }
+
+    pub fn read_rewrite_manager(&self) -> Arc<RewriteManager> {
+        Arc::clone(&self.rewrite_manager)
+    }
+
+    pub fn read_map_manager(&self) -> Arc<MapManager> {
+        Arc::clone(&self.map_manager)
+    }
+
+    pub fn read_throttle_manager(&self) -> Arc<ThrottleManager> {
+        Arc::clone(&self.throttle_manager)
     }
 
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {

@@ -386,6 +386,192 @@ impl BreakpointManager {
 }
 
 // ---------------------------------------------------------------------------
+// Rewrite / Map / Throttle types and managers
+// ---------------------------------------------------------------------------
+
+/// A generic rewrite rule matching on URL pattern, methods, and stage.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RewriteRule {
+    pub id: String,
+    pub enabled: bool,
+    pub name: String,
+    pub note: Option<String>,
+    pub priority: u32,
+    pub url_pattern: String,
+    pub methods: Vec<String>,
+    pub stage: String,
+    pub rewrite_type: String,
+    pub workspace_id: String,
+    pub payload: serde_json::Value,
+}
+
+/// A map rule (local or remote) matching on source URL pattern.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MapRule {
+    pub id: String,
+    pub enabled: bool,
+    pub mode: String,
+    pub name: String,
+    pub note: Option<String>,
+    pub preserve_path: bool,
+    pub preserve_query: bool,
+    pub priority: u32,
+    pub source_pattern: String,
+    pub target_value: String,
+    pub workspace_id: String,
+}
+
+/// A throttle profile for bandwidth/latency/packet-loss simulation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleProfileData {
+    pub id: String,
+    pub download_kbps: u32,
+    pub enabled: bool,
+    pub latency_ms: u32,
+    pub name: String,
+    pub note: Option<String>,
+    pub packet_loss_ratio: f32,
+    pub preset: bool,
+    pub upload_kbps: u32,
+    pub workspace_id: String,
+}
+
+/// Manages rewrite rules in memory.
+pub struct RewriteManager {
+    rules: Mutex<Vec<RewriteRule>>,
+}
+
+impl std::fmt::Debug for RewriteManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RewriteManager")
+            .field("rules_count", &self.list_rules().len())
+            .finish()
+    }
+}
+
+impl RewriteManager {
+    pub fn new() -> Self {
+        Self {
+            rules: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn list_rules(&self) -> Vec<RewriteRule> {
+        self.rules.lock().expect("rewrite rules mutex").clone()
+    }
+
+    pub fn save_rule(&self, rule: RewriteRule) -> RewriteRule {
+        let mut rules = self.rules.lock().expect("rewrite rules mutex");
+        if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
+            *existing = rule.clone();
+        } else {
+            rules.push(rule.clone());
+        }
+        rule
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) {
+        let mut rules = self.rules.lock().expect("rewrite rules mutex");
+        rules.retain(|r| r.id != rule_id);
+    }
+}
+
+/// Manages map rules (local + remote) in memory.
+pub struct MapManager {
+    rules: Mutex<Vec<MapRule>>,
+}
+
+impl std::fmt::Debug for MapManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MapManager")
+            .field("rules_count", &self.list_rules().len())
+            .finish()
+    }
+}
+
+impl MapManager {
+    pub fn new() -> Self {
+        Self {
+            rules: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn list_rules(&self) -> Vec<MapRule> {
+        self.rules.lock().expect("map rules mutex").clone()
+    }
+
+    pub fn save_rule(&self, rule: MapRule) -> MapRule {
+        let mut rules = self.rules.lock().expect("map rules mutex");
+        if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
+            *existing = rule.clone();
+        } else {
+            rules.push(rule.clone());
+        }
+        rule
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) {
+        let mut rules = self.rules.lock().expect("map rules mutex");
+        rules.retain(|r| r.id != rule_id);
+    }
+}
+
+/// Manages throttle profiles in memory.
+pub struct ThrottleManager {
+    profiles: Mutex<Vec<ThrottleProfileData>>,
+}
+
+impl std::fmt::Debug for ThrottleManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThrottleManager")
+            .field("profiles_count", &self.list_profiles().len())
+            .finish()
+    }
+}
+
+impl ThrottleManager {
+    pub fn new() -> Self {
+        Self {
+            profiles: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn list_profiles(&self) -> Vec<ThrottleProfileData> {
+        self.profiles.lock().expect("throttle profiles mutex").clone()
+    }
+
+    pub fn save_profile(&self, profile: ThrottleProfileData) -> ThrottleProfileData {
+        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        if let Some(existing) = profiles.iter_mut().find(|p| p.id == profile.id) {
+            *existing = profile.clone();
+        } else {
+            profiles.push(profile.clone());
+        }
+        profile
+    }
+
+    pub fn delete_profile(&self, profile_id: &str) {
+        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        profiles.retain(|p| p.id != profile_id);
+    }
+
+    pub fn set_active_profile(&self, workspace_id: &str, profile_id: Option<&str>) {
+        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        for profile in profiles.iter_mut() {
+            if profile.workspace_id == workspace_id {
+                profile.enabled = match profile_id {
+                    Some(id) => profile.id == id,
+                    None => false,
+                };
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Breakpoint interception helpers
 // ---------------------------------------------------------------------------
 

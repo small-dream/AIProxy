@@ -39,6 +39,7 @@ import {
 type SessionExplorerPaneProps = {
   errorMessage: string | undefined;
   expandedHosts: string[];
+  focusedHost?: string | null;
   groups: SessionHostGroup[];
   isLoading: boolean;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
@@ -50,6 +51,7 @@ type SessionExplorerPaneProps = {
 export function SessionExplorerPane({
   errorMessage,
   expandedHosts,
+  focusedHost,
   groups,
   isLoading,
   onContextMenuSession,
@@ -120,7 +122,13 @@ export function SessionExplorerPane({
               const expanded = expandedHosts.includes(group.host);
 
               return (
-                <Box key={group.host}>
+                <Box
+                  key={group.host}
+                  sx={{
+                    opacity: focusedHost && group.host !== focusedHost ? 0.35 : 1,
+                    transition: "opacity 200ms ease",
+                  }}
+                >
                   <HostRow
                     expanded={expanded}
                     group={group}

@@ -16,6 +16,7 @@ import { SessionContextMenu } from "@/features/sessions/components/SessionContex
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
+import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
 import {
   DEFAULT_REQUEST_SPLIT_RATIO,
   type RequestInspectorTab,
@@ -59,7 +60,20 @@ export function SessionsPage() {
   const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
-  const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue), [searchValue, sessions]);
+  // Focus / Ignore state
+  const [focusedHost, setFocusedHost] = useState<string | null>(null);
+  const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(() => new Set());
+
+  // Workspace ref for Cmd+F
+  const workspaceRef = useRef<WorkspaceHandle>(null);
+
+  // Filter out ignored hosts before grouping
+  const filteredByIgnoreSessions = useMemo(() => {
+    if (ignoredHosts.size === 0) return sessions;
+    return sessions.filter((s) => !ignoredHosts.has(s.host));
+  }, [sessions, ignoredHosts]);
+
+  const hostGroups = useMemo(() => buildSessionHostGroups(filteredByIgnoreSessions, searchValue), [searchValue, filteredByIgnoreSessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === selectedSessionId),
@@ -115,6 +129,18 @@ export function SessionsPage() {
         window.cancelAnimationFrame(dragFrameRef.current);
       }
     };
+  }, []);
+
+  // Cmd+F / Ctrl+F to activate inspector search
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+        event.preventDefault();
+        workspaceRef.current?.activateSearch();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   function toggleHost(host: string) {
@@ -242,6 +268,30 @@ export function SessionsPage() {
     navigate("/rules");
   }, [navigate]);
 
+  const handleFocusHost = useCallback((session: SessionSummary) => {
+    setFocusedHost((prev) => prev === session.host ? null : session.host);
+  }, []);
+
+  const handleUnfocusHost = useCallback(() => {
+    setFocusedHost(null);
+  }, []);
+
+  const handleIgnoreHost = useCallback((session: SessionSummary) => {
+    setIgnoredHosts((prev) => {
+      const next = new Set(prev);
+      next.add(session.host);
+      return next;
+    });
+  }, []);
+
+  const handleStopIgnoringHost = useCallback((session: SessionSummary) => {
+    setIgnoredHosts((prev) => {
+      const next = new Set(prev);
+      next.delete(session.host);
+      return next;
+    });
+  }, []);
+
   // --- End context menu handlers ---
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
@@ -341,6 +391,7 @@ export function SessionsPage() {
         <SessionExplorerPane
           errorMessage={sessionsError ? sessionsErrorMessage : undefined}
           expandedHosts={expandedHosts}
+          focusedHost={focusedHost}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
           onContextMenuSession={handleContextMenu}
@@ -377,6 +428,7 @@ export function SessionsPage() {
         />
 
         <SessionInspectorWorkspace
+          ref={workspaceRef}
           detailErrorMessage={
             sessionDetailError
               ? getOperationErrorMessage(
@@ -410,6 +462,9 @@ export function SessionsPage() {
 
       <SessionContextMenu
         anchorPosition={contextMenuAnchor}
+        focusedHost={focusedHost}
+        isHostFocused={contextMenuSession?.host === focusedHost}
+        isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
@@ -417,10 +472,14 @@ export function SessionsPage() {
         onCopyResponse={handleCopyResponse}
         onCopyUrl={handleCopyUrl}
         onExportSession={handleExportSession}
+        onFocusHost={handleFocusHost}
         onGoToBreakpoints={handleGoToBreakpoints}
         onGoToRules={handleGoToRules}
+        onIgnoreHost={handleIgnoreHost}
         onRepeat={handleRepeatDirect}
         onSaveResponse={handleSaveResponse}
+        onStopIgnoringHost={handleStopIgnoringHost}
+        onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
       />
 

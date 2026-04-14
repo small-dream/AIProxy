@@ -1,12 +1,12 @@
 import { Alert, Box, Divider, Paper, Typography } from "@mui/material";
 import { radiusTokens } from "@pharles/ui-tokens";
-import { useMemo } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSurfaceShadow } from "@/themes/app-theme";
-import { SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
-import { SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
+import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
+import { type ResponsePaneHandle, SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
 import {
   getBodyText,
@@ -16,6 +16,10 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
+
+export type WorkspaceHandle = {
+  activateSearch: () => void;
+};
 
 type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
@@ -32,7 +36,8 @@ type SessionInspectorWorkspaceProps = {
   selectedSessionDetail: SessionDetail | undefined;
 };
 
-export function SessionInspectorWorkspace({
+export const SessionInspectorWorkspace = forwardRef<WorkspaceHandle, SessionInspectorWorkspaceProps>(
+function SessionInspectorWorkspace({
   detailErrorMessage,
   inspectorSplitRatio,
   isDetailLoading,
@@ -45,8 +50,12 @@ export function SessionInspectorWorkspace({
   responseTab,
   selectedSession,
   selectedSessionDetail,
-}: SessionInspectorWorkspaceProps) {
+}, ref) {
   const { t } = useI18n();
+  const [activePane, setActivePane] = useState<"request" | "response">("response");
+  const requestPaneRef = useRef<RequestPaneHandle>(null);
+  const responsePaneRef = useRef<ResponsePaneHandle>(null);
+
   const detail =
     selectedSessionDetail && selectedSession && selectedSessionDetail.id === selectedSession.id
       ? selectedSessionDetail
@@ -85,6 +94,16 @@ export function SessionInspectorWorkspace({
 
     return requestBodyText;
   }, [detail?.requestBody, requestBodyText, t]);
+
+  const activateSearch = useCallback(() => {
+    if (activePane === "request") {
+      requestPaneRef.current?.activateSearch();
+    } else {
+      responsePaneRef.current?.activateSearch();
+    }
+  }, [activePane]);
+
+  useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
   if (!selectedSession) {
     return (
@@ -152,27 +171,33 @@ export function SessionInspectorWorkspace({
           minHeight: 0,
         }}
       >
-        <SessionInspectorRequestPane
-          detail={detail}
-          onRequestCollapsedChange={onRequestCollapsedChange}
-          onRequestTabChange={onRequestTabChange}
-          requestBodyDisplayText={requestBodyDisplayText}
-          requestCollapsed={requestCollapsed}
-          requestFormEntries={requestFormEntries}
-          requestTab={requestTab}
-          session={selectedSession}
-        />
+        <Box onClick={() => setActivePane("request")}>
+          <SessionInspectorRequestPane
+            detail={detail}
+            ref={requestPaneRef}
+            onRequestCollapsedChange={onRequestCollapsedChange}
+            onRequestTabChange={onRequestTabChange}
+            requestBodyDisplayText={requestBodyDisplayText}
+            requestCollapsed={requestCollapsed}
+            requestFormEntries={requestFormEntries}
+            requestTab={requestTab}
+            session={selectedSession}
+          />
+        </Box>
 
         <Divider />
 
-        <SessionInspectorResponsePane
-          detail={detail}
-          onResponseTabChange={onResponseTabChange}
-          responseJsonResult={responseJsonResult}
-          responseTab={responseTab}
-          session={selectedSession}
-        />
+        <Box onClick={() => setActivePane("response")}>
+          <SessionInspectorResponsePane
+            detail={detail}
+            ref={responsePaneRef}
+            onResponseTabChange={onResponseTabChange}
+            responseJsonResult={responseJsonResult}
+            responseTab={responseTab}
+            session={selectedSession}
+          />
+        </Box>
       </Box>
     </Paper>
   );
-}
+});
