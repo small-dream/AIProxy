@@ -645,18 +645,14 @@ fn install_android_certificate_via_adb_impl(
             "am",
             "start",
             "-a",
-            "android.intent.action.VIEW",
-            "-d",
-            &format!("file://{remote_path}"),
-            "-t",
-            "application/x-x509-ca-cert",
+            "android.credentials.INSTALL",
         ])
         .output()
         .map_err(adb_spawn_error)?;
 
     if !launch_output.status.success() {
         return Err(format!(
-            "Failed to open the Android certificate installer: {}",
+            "Failed to open the Android certificate installer entry: {}",
             format_command_output(&launch_output)
         ));
     }
@@ -664,7 +660,7 @@ fn install_android_certificate_via_adb_impl(
     let launch_text = format_command_output(&launch_output);
     if launch_text.contains("Error:") {
         return Err(format!(
-            "Android reported an error while opening the certificate installer: {}",
+            "Android reported an error while opening the certificate installer entry: {}",
             launch_text
         ));
     }
