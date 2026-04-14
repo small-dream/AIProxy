@@ -76,7 +76,7 @@ export function buildHarArchive(details: SessionDetail[]) {
   };
 }
 
-function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
+export function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
   if (!body) {
     return "";
   }

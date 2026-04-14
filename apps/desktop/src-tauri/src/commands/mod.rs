@@ -44,6 +44,20 @@ pub struct GenerateRootCertificateInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeleteSessionsExceptInput {
+    pub keep_session_id: String,
+}
+
+#[tauri::command]
+pub fn delete_sessions_except(
+    input: DeleteSessionsExceptInput,
+    state: State<'_, Arc<AppState>>,
+) {
+    state.delete_sessions_except(&input.keep_session_id);
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendComposedRequestInput {
     #[allow(dead_code)]
     pub workspace_id: String,

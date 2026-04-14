@@ -189,6 +189,24 @@ export async function clearSessions(): Promise<void> {
   }
 }
 
+export async function deleteSessionsExcept(keepSessionId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "delete_sessions_except_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "delete_sessions_except_requested", { keepSessionId });
+    await invoke("delete_sessions_except", {
+      input: { keepSessionId },
+    });
+    logDevInfo("ui.commands", "delete_sessions_except_succeeded");
+  } catch (error) {
+    reportCommandFailure("delete_sessions_except", error);
+    throw coerceAppError(error);
+  }
+}
+
 export async function enableSystemProxy(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "enable_system_proxy_bypassed_non_tauri_runtime");

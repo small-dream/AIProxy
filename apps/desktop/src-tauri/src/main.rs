@@ -28,6 +28,7 @@ pub fn run() {
             commands::list_sessions,
             commands::get_session_detail,
             commands::clear_sessions,
+            commands::delete_sessions_except,
             commands::start_proxy,
             commands::stop_proxy,
             commands::enable_system_proxy,

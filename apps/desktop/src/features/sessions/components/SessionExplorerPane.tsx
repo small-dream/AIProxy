@@ -41,6 +41,7 @@ type SessionExplorerPaneProps = {
   expandedHosts: string[];
   groups: SessionHostGroup[];
   isLoading: boolean;
+  onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (host: string) => void;
   selectedSessionId: string | undefined;
@@ -51,6 +52,7 @@ export function SessionExplorerPane({
   expandedHosts,
   groups,
   isLoading,
+  onContextMenuSession,
   onSelectSession,
   onToggleHost,
   selectedSessionId,
@@ -134,6 +136,7 @@ export function SessionExplorerPane({
                           host={group.host}
                           key={node.kind === "branch" ? `branch:${node.pathKey}` : `leaf:${node.session.id}`}
                           node={node}
+                          onContextMenuSession={onContextMenuSession}
                           onSelectSession={onSelectSession}
                           onToggleHost={onToggleHost}
                           selectedSessionId={selectedSessionId}
@@ -220,6 +223,7 @@ type SessionTreeNodeProps = {
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   host: string;
   node: SessionPathNode;
+  onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (key: string) => void;
   selectedSessionId: string | undefined;
@@ -231,6 +235,7 @@ function SessionTreeNode({
   getResourceTooltip,
   host,
   node,
+  onContextMenuSession,
   onSelectSession,
   onToggleHost,
   selectedSessionId,
@@ -241,6 +246,7 @@ function SessionTreeNode({
         depth={depth}
         getResourceTooltip={getResourceTooltip}
         onClick={() => onSelectSession(node.session.id)}
+        onContextMenu={onContextMenuSession ? (e) => { e.preventDefault(); onContextMenuSession(node.session, e); } : undefined}
         selected={selectedSessionId === node.session.id}
         session={node.session}
       />
@@ -306,6 +312,7 @@ function SessionTreeNode({
               host={host}
               key={childNode.kind === "branch" ? `branch:${childNode.pathKey}` : `leaf:${childNode.session.id}`}
               node={childNode}
+              onContextMenuSession={onContextMenuSession}
               onSelectSession={onSelectSession}
               onToggleHost={onToggleHost}
               selectedSessionId={selectedSessionId}
@@ -320,11 +327,12 @@ type SessionLeafNodeProps = {
   depth: number;
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   onClick: () => void;
+  onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   selected: boolean;
   session: SessionSummary;
 };
 
-function SessionLeafNode({ depth, getResourceTooltip, onClick, selected, session }: SessionLeafNodeProps) {
+function SessionLeafNode({ depth, getResourceTooltip, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
   const { t } = useI18n();
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
@@ -333,6 +341,7 @@ function SessionLeafNode({ depth, getResourceTooltip, onClick, selected, session
     <ListItemButton
       dense
       onClick={onClick}
+      onContextMenu={onContextMenu}
       selected={selected}
       sx={{
         borderRadius: 1.5,

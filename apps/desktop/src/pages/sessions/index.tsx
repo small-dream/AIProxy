@@ -2,15 +2,17 @@ import {
   coerceAppError,
   isAppError,
 } from "@pharles/shared-types";
-import { Alert, Box, Stack } from "@mui/material";
+import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+import { Alert, Box, Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { Button, OutlinedInput, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useClearSessions, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
+import { useClearSessions, useDeleteSessionsExcept, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
@@ -20,9 +22,12 @@ import {
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
+import { getBodyText } from "@/features/sessions/session-export.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
+import { downloadTextFile } from "@/lib/download";
+import { getSessionDetail, sendComposedRequest } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
 const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
@@ -38,6 +43,7 @@ export function SessionsPage() {
     isLoading: areSessionsLoading,
   } = useSessions(proxyStatus?.running ?? false);
   const clearSessionsMutation = useClearSessions();
+  const deleteSessionsExceptMutation = useDeleteSessionsExcept();
   const dragFrameRef = useRef<number | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [searchValue, setSearchValue] = useState("");
@@ -47,6 +53,11 @@ export function SessionsPage() {
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [explorerWidth, setExplorerWidth] = useState(360);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+
+  // Context menu state
+  const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
+  const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
+  const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   const hostGroups = useMemo(() => buildSessionHostGroups(sessions, searchValue), [searchValue, sessions]);
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
@@ -123,6 +134,115 @@ export function SessionsPage() {
     });
     navigate("/compose");
   }, [selectedSession, selectedSessionDetail, loadFromSession, navigate]);
+
+  // --- Context menu handlers ---
+
+  const handleContextMenu = useCallback((session: SessionSummary, event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
+    setContextMenuSession(session);
+  }, []);
+
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenuAnchor(undefined);
+    setContextMenuSession(null);
+  }, []);
+
+  const showSnackbar = useCallback((message: string) => {
+    setSnackbarMessage(message);
+  }, []);
+
+  const fetchDetailOnDemand = useCallback(async (session: SessionSummary): Promise<SessionDetail | undefined> => {
+    if (selectedSessionDetail?.id === session.id) {
+      return selectedSessionDetail;
+    }
+    try {
+      return await getSessionDetail(session.id);
+    } catch {
+      return undefined;
+    }
+  }, [selectedSessionDetail]);
+
+  const handleCopyUrl = useCallback((session: SessionSummary) => {
+    void navigator.clipboard?.writeText(session.url);
+    showSnackbar(t("contextMenu.copiedToClipboard"));
+  }, [showSnackbar, t]);
+
+  const handleCopyRequest = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    const rawRequest = detail?.rawRequest;
+    if (!rawRequest) return;
+    await navigator.clipboard?.writeText(rawRequest);
+    showSnackbar(t("contextMenu.copiedToClipboard"));
+  }, [fetchDetailOnDemand, showSnackbar, t]);
+
+  const handleCopyResponse = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    const rawResponse = detail?.rawResponse;
+    if (!rawResponse) return;
+    await navigator.clipboard?.writeText(rawResponse);
+    showSnackbar(t("contextMenu.copiedToClipboard"));
+  }, [fetchDetailOnDemand, showSnackbar, t]);
+
+  const handleSaveResponse = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    const bodyText = getBodyText(detail?.responseBody);
+    if (!bodyText) return;
+
+    const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
+    const extension = guessExtension(mimeType);
+    const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
+    downloadTextFile(filename, bodyText, mimeType);
+  }, [fetchDetailOnDemand]);
+
+  const handleCompose = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    const bodyText = detail?.requestBody?.inlineText;
+    loadFromSession({
+      method: session.method,
+      url: session.url,
+      headers: detail?.requestHeaders ?? [],
+      ...(bodyText ? { body: bodyText } : {}),
+    });
+    navigate("/compose");
+  }, [fetchDetailOnDemand, loadFromSession, navigate]);
+
+  const handleRepeatDirect = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    if (!detail) return;
+    const bodyText = detail.requestBody?.inlineText;
+    try {
+      await sendComposedRequest({
+        workspaceId: "default",
+        method: session.method,
+        url: session.url,
+        headers: detail.requestHeaders.map((h) => ({ name: h.name, value: h.value })),
+        ...(bodyText ? { body: bodyText } : {}),
+      });
+    } catch {
+      // Silent fail — the new session will appear via polling
+    }
+  }, [fetchDetailOnDemand]);
+
+  const handleExportSession = useCallback((session: SessionSummary) => {
+    setSelectedSessionId(session.id);
+    setExportDialogOpen(true);
+  }, []);
+
+  const handleClearOthers = useCallback((session: SessionSummary) => {
+    deleteSessionsExceptMutation.mutate(session.id);
+    setSelectedSessionId(session.id);
+  }, [deleteSessionsExceptMutation]);
+
+  const handleGoToBreakpoints = useCallback(() => {
+    navigate("/rules");
+  }, [navigate]);
+
+  const handleGoToRules = useCallback(() => {
+    navigate("/rules");
+  }, [navigate]);
+
+  // --- End context menu handlers ---
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
@@ -223,6 +343,7 @@ export function SessionsPage() {
           expandedHosts={expandedHosts}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
+          onContextMenuSession={handleContextMenu}
           onSelectSession={setSelectedSessionId}
           onToggleHost={toggleHost}
           selectedSessionId={selectedSessionIdValue}
@@ -286,6 +407,30 @@ export function SessionsPage() {
         selectedSession={selectedSession}
         selectedSessionDetail={selectedSessionDetail}
       />
+
+      <SessionContextMenu
+        anchorPosition={contextMenuAnchor}
+        onClose={handleContextMenuClose}
+        onClearOthers={handleClearOthers}
+        onCompose={handleCompose}
+        onCopyRequest={handleCopyRequest}
+        onCopyResponse={handleCopyResponse}
+        onCopyUrl={handleCopyUrl}
+        onExportSession={handleExportSession}
+        onGoToBreakpoints={handleGoToBreakpoints}
+        onGoToRules={handleGoToRules}
+        onRepeat={handleRepeatDirect}
+        onSaveResponse={handleSaveResponse}
+        session={contextMenuSession}
+      />
+
+      <Snackbar
+        anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
+        autoHideDuration={2000}
+        onClose={() => setSnackbarMessage(null)}
+        open={snackbarMessage !== null}
+        message={snackbarMessage}
+      />
     </Stack>
   );
 }
@@ -326,4 +471,19 @@ function writeStorageValue(key: string, value: string) {
 
 function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
+}
+
+function guessExtension(mimeType: string): string {
+  if (mimeType.includes("json")) return "json";
+  if (mimeType.includes("html")) return "html";
+  if (mimeType.includes("xml")) return "xml";
+  if (mimeType.includes("javascript")) return "js";
+  if (mimeType.includes("css")) return "css";
+  if (mimeType.includes("text")) return "txt";
+  if (mimeType.includes("image/png")) return "png";
+  if (mimeType.includes("image/jpeg") || mimeType.includes("image/jpg")) return "jpg";
+  if (mimeType.includes("image/svg")) return "svg";
+  if (mimeType.includes("image/gif")) return "gif";
+  if (mimeType.includes("image/")) return "bin";
+  return "txt";
 }

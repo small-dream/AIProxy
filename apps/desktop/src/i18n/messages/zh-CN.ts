@@ -630,4 +630,17 @@ export const zhCNMessages: Messages = {
     status: "状态：",
     drop: "丢弃",
   },
+  contextMenu: {
+    copyUrl: "复制 URL",
+    copyRequest: "复制请求",
+    copyResponse: "复制响应",
+    saveResponse: "保存响应...",
+    compose: "构造请求",
+    repeat: "重复请求",
+    exportSession: "导出会话...",
+    clearOthers: "清除其他会话",
+    goToBreakpoints: "断点...",
+    goToRules: "映射规则...",
+    copiedToClipboard: "已复制到剪贴板",
+  },
 };

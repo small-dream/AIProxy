@@ -628,6 +628,19 @@ export const enMessages = {
     status: "Status:",
     drop: "Drop",
   },
+  contextMenu: {
+    copyUrl: "Copy URL",
+    copyRequest: "Copy Request",
+    copyResponse: "Copy Response",
+    saveResponse: "Save Response...",
+    compose: "Compose",
+    repeat: "Repeat",
+    exportSession: "Export Session...",
+    clearOthers: "Clear Others",
+    goToBreakpoints: "Breakpoints...",
+    goToRules: "Map Rules...",
+    copiedToClipboard: "Copied to clipboard",
+  },
 } as const;
 
 type MessageCatalog<T> = T extends string

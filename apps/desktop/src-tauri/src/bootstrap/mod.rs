@@ -110,6 +110,34 @@ impl AppState {
             .clear();
     }
 
+    pub fn delete_sessions_except(&self, keep_session_id: &str) {
+        let ids_to_remove: Vec<String> = {
+            let sessions = self
+                .sessions
+                .lock()
+                .expect("session list mutex should not be poisoned");
+            sessions
+                .iter()
+                .filter(|s| s.id != keep_session_id)
+                .map(|s| s.id.clone())
+                .collect()
+        };
+
+        self.sessions
+            .lock()
+            .expect("session list mutex should not be poisoned")
+            .retain(|s| s.id == keep_session_id);
+
+        let mut details = self
+            .session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned");
+
+        for id in ids_to_remove {
+            details.remove(&id);
+        }
+    }
+
     pub fn insert_session(&self, session_detail: ProxySessionDetail) {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();

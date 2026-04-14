@@ -12,6 +12,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import { downloadTextFile } from "@/lib/download";
 import type {
   ExportFormat,
   ExportScope,
@@ -267,14 +268,4 @@ async function loadDetailsForScope(props: {
   const summaries = scope === "filtered" ? filteredSessions : allSessions;
 
   return Promise.all(summaries.map((session) => getSessionDetail(session.id)));
-}
-
-function downloadTextFile(filename: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(href);
 }
