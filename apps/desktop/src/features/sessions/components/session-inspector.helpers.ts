@@ -20,7 +20,7 @@ export type JsonParseResult =
   | { status: "idle" }
   | { status: "tooLarge"; message: string }
   | { status: "error"; message: string }
-  | { status: "success"; value: JsonValue; prettyText: string };
+  | { status: "success"; value: JsonValue };
 
 export const DEFAULT_REQUEST_SPLIT_RATIO = 0.38;
 
@@ -99,14 +99,12 @@ export function parseJsonBody(
 
     if (body.sizeBytes > LARGE_JSON_SOFT_LIMIT && options?.preferSoftWarning !== false) {
       return {
-        prettyText: JSON.stringify(parsed, null, 2),
         status: "success",
         value: parsed,
       };
     }
 
     return {
-      prettyText: JSON.stringify(parsed, null, 2),
       status: "success",
       value: parsed,
     };
@@ -123,6 +121,10 @@ export function parseJsonBody(
       message: options?.responseErrorMessage ?? "Unable to parse the response body as JSON.",
     };
   }
+}
+
+export function formatJsonText(value: JsonValue) {
+  return JSON.stringify(value, null, 2);
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {

@@ -16,7 +16,6 @@ import { useI18n } from "@/i18n";
 
 type SessionContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
-  focusedHost: string | null;
   isHostFocused: boolean;
   isHostIgnored: boolean;
   session: SessionSummary | null;
@@ -39,7 +38,6 @@ type SessionContextMenuProps = {
 
 export function SessionContextMenu({
   anchorPosition,
-  focusedHost,
   isHostFocused,
   isHostIgnored,
   session,

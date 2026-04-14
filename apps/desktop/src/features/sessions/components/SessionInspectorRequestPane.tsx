@@ -6,7 +6,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
-import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
@@ -104,7 +104,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       )}
 
       {requestCollapsed ? null : (
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
+        <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
           <RequestTabContent
             detail={detail}
             requestBodyDisplayText={requestBodyDisplayText}
@@ -160,61 +160,69 @@ function RequestTabContent({
 
   if (requestTab === "overview") {
     return (
-      <Stack spacing={2}>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-          <Chip color={getMethodColor(session.method)} label={session.method} size="small" />
-        </Stack>
-        <InspectorDefinitionList
-          items={[
-            [t("common.labels.host"), session.host],
-            [t("common.labels.path"), session.path || "/"],
-            [t("common.labels.protocol"), session.protocol],
-            [t("common.labels.url"), session.url],
-            [t("common.labels.started"), session.startedAt],
-            [t("common.labels.finished"), session.finishedAt],
-            [t("common.labels.body"), bodyDescription ?? t("inspector.request.noBodyCaptured")],
-          ]}
-        />
-        <Stack spacing={1}>
-          <Typography variant="subtitle2">{t("inspector.cookies")}</Typography>
+      <InspectorScrollArea>
+        <Stack spacing={2}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            <Chip color={getMethodColor(session.method)} label={session.method} size="small" />
+          </Stack>
           <InspectorDefinitionList
-            emptyMessage={t("inspector.request.cookiesEmpty")}
-            items={detail?.cookies.map((entry) => [entry.name, entry.value]) ?? []}
+            items={[
+              [t("common.labels.host"), session.host],
+              [t("common.labels.path"), session.path || "/"],
+              [t("common.labels.protocol"), session.protocol],
+              [t("common.labels.url"), session.url],
+              [t("common.labels.started"), session.startedAt],
+              [t("common.labels.finished"), session.finishedAt],
+              [t("common.labels.body"), bodyDescription ?? t("inspector.request.noBodyCaptured")],
+            ]}
           />
+          <Stack spacing={1}>
+            <Typography variant="subtitle2">{t("inspector.cookies")}</Typography>
+            <InspectorDefinitionList
+              emptyMessage={t("inspector.request.cookiesEmpty")}
+              items={detail?.cookies.map((entry) => [entry.name, entry.value]) ?? []}
+            />
+          </Stack>
         </Stack>
-      </Stack>
+      </InspectorScrollArea>
     );
   }
 
   if (requestTab === "query") {
     return (
-      <InspectorKeyValueTable
-        emptyMessage={t("inspector.request.emptyQuery")}
-        items={detail?.queryParams.map((entry) => [entry.name, entry.value]) ?? []}
-      />
+      <InspectorScrollArea>
+        <InspectorKeyValueTable
+          emptyMessage={t("inspector.request.emptyQuery")}
+          items={detail?.queryParams.map((entry) => [entry.name, entry.value]) ?? []}
+        />
+      </InspectorScrollArea>
     );
   }
 
   if (requestTab === "headers") {
     return (
-      <InspectorKeyValueTable
-        emptyMessage={t("inspector.request.emptyHeaders")}
-        items={detail?.requestHeaders.map((entry) => [entry.name, entry.value]) ?? []}
-      />
+      <InspectorScrollArea>
+        <InspectorKeyValueTable
+          emptyMessage={t("inspector.request.emptyHeaders")}
+          items={detail?.requestHeaders.map((entry) => [entry.name, entry.value]) ?? []}
+        />
+      </InspectorScrollArea>
     );
   }
 
   if (requestTab === "form") {
     return (
-      <Stack spacing={1}>
-        <Typography color="text.secondary" variant="caption">
-          {bodyDescription ?? t("common.tech.noBodyCaptured")}
-        </Typography>
-        <InspectorDefinitionList
-          emptyMessage={t("inspector.request.emptyForm")}
-          items={requestFormEntries}
-        />
-      </Stack>
+      <InspectorScrollArea>
+        <Stack spacing={1}>
+          <Typography color="text.secondary" variant="caption">
+            {bodyDescription ?? t("common.tech.noBodyCaptured")}
+          </Typography>
+          <InspectorDefinitionList
+            emptyMessage={t("inspector.request.emptyForm")}
+            items={requestFormEntries}
+          />
+        </Stack>
+      </InspectorScrollArea>
     );
   }
 
@@ -223,7 +231,7 @@ function RequestTabContent({
   }
 
   return (
-    <Stack spacing={1}>
+    <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>

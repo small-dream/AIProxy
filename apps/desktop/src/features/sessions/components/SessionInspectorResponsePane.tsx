@@ -5,7 +5,7 @@ import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
-import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
@@ -25,12 +25,14 @@ const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set(["json", "jso
 export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   detail: SessionDetail | undefined;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
+  responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
   session: SessionSummary;
 }>(function SessionInspectorResponsePane({
   detail,
   onResponseTabChange,
+  responseJsonDisplayText,
   responseJsonResult,
   responseTab,
   session,
@@ -88,9 +90,10 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
       <Divider />
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
+      <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
         <ResponseTabContent
           detail={detail}
+          responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={responseTab}
           searchValue={searchValue}
@@ -120,12 +123,14 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
 function ResponseTabContent({
   detail,
+  responseJsonDisplayText,
   responseJsonResult,
   responseTab,
   searchValue,
   session,
 }: {
   detail: SessionDetail | undefined;
+  responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
   searchValue: string;
@@ -140,29 +145,33 @@ function ResponseTabContent({
 
   if (responseTab === "overview") {
     return (
-      <Stack spacing={2}>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-          <Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />
+      <InspectorScrollArea>
+        <Stack spacing={2}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            <Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />
+          </Stack>
+          <InspectorDefinitionList
+            items={[
+              [t("common.labels.duration"), t("common.tech.milliseconds", { value: session.durationMs })],
+              [t("common.labels.size"), t("common.tech.bytes", { value: session.sizeBytes })],
+              [t("inspector.response.serverIp"), detail?.serverIp ?? t("common.states.unavailable")],
+              [t("inspector.response.responseBody"), bodyDescription ?? t("inspector.response.noResponseBodyCaptured")],
+              [t("inspector.response.timingTotal"), formatTiming(detail?.timing?.totalMs, t("common.states.notCaptured"))],
+            ]}
+          />
         </Stack>
-        <InspectorDefinitionList
-          items={[
-            [t("common.labels.duration"), t("common.tech.milliseconds", { value: session.durationMs })],
-            [t("common.labels.size"), t("common.tech.bytes", { value: session.sizeBytes })],
-            [t("inspector.response.serverIp"), detail?.serverIp ?? t("common.states.unavailable")],
-            [t("inspector.response.responseBody"), bodyDescription ?? t("inspector.response.noResponseBodyCaptured")],
-            [t("inspector.response.timingTotal"), formatTiming(detail?.timing?.totalMs, t("common.states.notCaptured"))],
-          ]}
-        />
-      </Stack>
+      </InspectorScrollArea>
     );
   }
 
   if (responseTab === "headers") {
     return (
-      <InspectorKeyValueTable
-        emptyMessage={t("inspector.response.emptyHeaders")}
-        items={detail?.responseHeaders.map((entry) => [entry.name, entry.value]) ?? []}
-      />
+      <InspectorScrollArea>
+        <InspectorKeyValueTable
+          emptyMessage={t("inspector.response.emptyHeaders")}
+          items={detail?.responseHeaders.map((entry) => [entry.name, entry.value]) ?? []}
+        />
+      </InspectorScrollArea>
     );
   }
 
@@ -181,9 +190,11 @@ function ResponseTabContent({
 
     if (responseJsonResult.status !== "success") {
       return (
-        <Typography color="text.secondary" variant="body2">
-          {t("inspector.response.noJsonBody")}
-        </Typography>
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.response.noJsonBody")}
+          </Typography>
+        </InspectorScrollArea>
       );
     }
 
@@ -210,11 +221,7 @@ function ResponseTabContent({
 
     return (
       <SearchableCodeBlock
-        code={
-          responseJsonResult.status === "success"
-            ? responseJsonResult.prettyText
-            : t("inspector.response.noJsonBody")
-        }
+        code={responseJsonResult.status === "success" ? (responseJsonDisplayText ?? t("inspector.response.noJsonBody")) : t("inspector.response.noJsonBody")}
         language="json"
         searchQuery={searchValue}
       />
@@ -222,7 +229,7 @@ function ResponseTabContent({
   }
 
   return (
-    <Stack spacing={1}>
+    <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>

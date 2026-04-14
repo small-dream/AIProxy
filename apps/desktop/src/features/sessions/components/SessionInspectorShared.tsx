@@ -3,12 +3,17 @@ import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { Fragment, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { getMethodColor, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
+
+const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
+const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
+const DEFAULT_VIRTUAL_VIEWPORT_HEIGHT = 420;
+const VIRTUAL_WINDOW_OVERSCAN = 12;
 
 export function InspectorSummaryBar({
   detail,
@@ -120,6 +125,18 @@ export function InspectorDefinitionList({
         </ListItem>
       ))}
     </List>
+  );
+}
+
+export function InspectorScrollArea({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+      {children}
+    </Box>
   );
 }
 
@@ -334,6 +351,22 @@ export function SearchableCodeBlock({
   const theme = useTheme();
   const syntaxColors = getSyntaxColors(theme.palette.mode);
   const jsonTokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const shouldVirtualize = useMemo(
+    () => shouldVirtualizeCodeBlock(code),
+    [code],
+  );
+
+  if (shouldVirtualize) {
+    return (
+      <VirtualizedSearchableCodeBlock
+        code={code}
+        language={language}
+        searchQuery={deferredSearchQuery}
+        tokenColors={jsonTokenColors}
+      />
+    );
+  }
 
   return (
     <Box
@@ -341,10 +374,13 @@ export function SearchableCodeBlock({
       sx={{
         bgcolor: "background.paper",
         color: "text.primary",
+        flex: 1,
         fontFamily: "JetBrains Mono, Consolas, monospace",
         fontSize: language === "json" ? 13.5 : 12.5,
         lineHeight: language === "json" ? 1.6 : 1.5,
         m: 0,
+        minHeight: 0,
+        overflow: "auto",
         overflowX: "auto",
         px: 0.5,
         py: 0.25,
@@ -353,10 +389,144 @@ export function SearchableCodeBlock({
       }}
     >
       {language === "json"
-        ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, searchQuery)
-        : renderHighlightedText(code, searchQuery)}
+        ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
+        : renderHighlightedText(code, deferredSearchQuery)}
     </Box>
   );
+}
+
+export function useVirtualWindow(itemCount: number, itemHeight: number, overscan = VIRTUAL_WINDOW_OVERSCAN) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIRTUAL_VIEWPORT_HEIGHT);
+
+  useEffect(() => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return undefined;
+    }
+
+    const updateMetrics = () => {
+      setScrollTop(container.scrollTop);
+      setViewportHeight(container.clientHeight || DEFAULT_VIRTUAL_VIEWPORT_HEIGHT);
+    };
+
+    updateMetrics();
+    container.addEventListener("scroll", updateMetrics, { passive: true });
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        container.removeEventListener("scroll", updateMetrics);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateMetrics();
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      container.removeEventListener("scroll", updateMetrics);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  const totalHeight = itemCount * itemHeight;
+  const visibleCount = Math.max(1, Math.ceil(viewportHeight / itemHeight));
+  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
+  const endIndex = Math.min(itemCount, startIndex + visibleCount + overscan * 2);
+
+  return {
+    containerRef,
+    endIndex,
+    offsetTop: startIndex * itemHeight,
+    startIndex,
+    totalHeight,
+  };
+}
+
+function VirtualizedSearchableCodeBlock({
+  code,
+  language,
+  searchQuery,
+  tokenColors,
+}: {
+  code: string;
+  language: "json" | "plain";
+  searchQuery: string;
+  tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
+}) {
+  const lines = useMemo(() => code.split(/\r?\n/), [code]);
+  const lineHeight = language === "json" ? 22 : 20;
+  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
+  const visibleLines = lines.slice(startIndex, endIndex);
+
+  return (
+    <Box
+      ref={containerRef}
+      sx={{
+        bgcolor: "background.paper",
+        color: "text.primary",
+        flex: 1,
+        fontFamily: "JetBrains Mono, Consolas, monospace",
+        fontSize: language === "json" ? 13.5 : 12.5,
+        lineHeight: language === "json" ? 1.6 : 1.5,
+        minHeight: 0,
+        overflow: "auto",
+        px: 0.5,
+        py: 0.25,
+        whiteSpace: "pre",
+      }}
+    >
+      <Box sx={{ height: totalHeight, minWidth: "100%", position: "relative", width: "max-content" }}>
+        <Box sx={{ left: 0, position: "absolute", right: 0, top: offsetTop }}>
+          {visibleLines.map((line, visibleIndex) => {
+            const lineContent =
+              line.length === 0
+                ? "\u00A0"
+                : language === "json"
+                  ? renderJsonSyntaxHighlightedText(line, tokenColors, searchQuery)
+                  : renderHighlightedText(line, searchQuery);
+
+            return (
+              <Box
+                component="div"
+                key={startIndex + visibleIndex}
+                sx={{
+                  height: lineHeight,
+                  minWidth: "100%",
+                  whiteSpace: "pre",
+                }}
+              >
+                {lineContent}
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+function shouldVirtualizeCodeBlock(code: string) {
+  if (code.length >= CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD) {
+    return true;
+  }
+
+  let lineCount = 1;
+
+  for (let index = 0; index < code.length; index += 1) {
+    if (code[index] === "\n") {
+      lineCount += 1;
+    }
+
+    if (lineCount >= CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function renderJsonSyntaxHighlightedText(

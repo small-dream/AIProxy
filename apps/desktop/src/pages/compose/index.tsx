@@ -1,9 +1,7 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
-import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
-import KeyboardArrowUpRoundedIcon from "@mui/icons-material/KeyboardArrowUpRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Alert, Box, CircularProgress, Divider, FormControlLabel, IconButton, InputAdornment, MenuItem, OutlinedInput, Radio, RadioGroup, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress, Divider, FormControlLabel, IconButton, MenuItem, OutlinedInput, Radio, RadioGroup, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HeaderEntry } from "@pharles/shared-types";
 
@@ -13,7 +11,7 @@ import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { EditableKeyValueTable } from "@/features/compose/components/EditableKeyValueTable";
 import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } from "@/features/sessions/components/SessionInspectorShared";
 import { SessionInspectorJsonTree } from "@/features/sessions/components/SessionInspectorJsonTree";
-import { getBodyText, parseJsonBody, type JsonParseResult } from "@/features/sessions/components/session-inspector.helpers";
+import { formatJsonText, getBodyText, parseJsonBody, type JsonParseResult } from "@/features/sessions/components/session-inspector.helpers";
 import { useI18n } from "@/i18n";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -208,6 +206,14 @@ export function ComposePage() {
     });
   }, [responseDetail?.responseBody, responseBodyText, responseTab, t]);
 
+  const responseJsonDisplayText = useMemo(() => {
+    if (responseTab !== "jsonText" || responseJsonResult.status !== "success") {
+      return undefined;
+    }
+
+    return formatJsonText(responseJsonResult.value);
+  }, [responseJsonResult, responseTab]);
+
   const showSearch = responseTab === "json" || responseTab === "jsonText";
 
   const responseTabContent = (() => {
@@ -257,7 +263,7 @@ export function ComposePage() {
           return <Alert severity="warning">{responseJsonResult.message}</Alert>;
         }
         if (responseJsonResult.status === "success") {
-          return <SearchableCodeBlock code={responseJsonResult.prettyText} language="json" searchQuery={searchValue} />;
+          return <SearchableCodeBlock code={responseJsonDisplayText ?? ""} language="json" searchQuery={searchValue} />;
         }
         return <Typography color="text.secondary" sx={{ py: 2 }} variant="body2">{t("composePage.responseNoBody")}</Typography>;
       case "raw":

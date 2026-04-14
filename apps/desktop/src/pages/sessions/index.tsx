@@ -6,7 +6,7 @@ import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 import { Alert, Box, Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Button, OutlinedInput, Typography } from "@mui/material";
+import { Button, OutlinedInput } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -462,7 +462,6 @@ export function SessionsPage() {
 
       <SessionContextMenu
         anchorPosition={contextMenuAnchor}
-        focusedHost={focusedHost}
         isHostFocused={contextMenuSession?.host === focusedHost}
         isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
         onClose={handleContextMenuClose}

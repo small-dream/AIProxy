@@ -9,6 +9,7 @@ import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionIn
 import { type ResponsePaneHandle, SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
 import {
+  formatJsonText,
   getBodyText,
   parseFormEntries,
   parseJsonBody,
@@ -76,6 +77,14 @@ function SessionInspectorWorkspace({
     });
   }, [detail?.responseBody, responseBodyText, responseTab, t]);
 
+  const responseJsonDisplayText = useMemo(() => {
+    if (responseTab !== "jsonText" || responseJsonResult.status !== "success") {
+      return undefined;
+    }
+
+    return formatJsonText(responseJsonResult.value);
+  }, [responseJsonResult, responseTab]);
+
   const requestBodyDisplayText = useMemo(() => {
     if (!requestBodyText) {
       return t("inspector.request.bodyUnavailable");
@@ -89,7 +98,7 @@ function SessionInspectorWorkspace({
     });
 
     if (parsedRequestJson.status === "success") {
-      return parsedRequestJson.prettyText;
+      return formatJsonText(parsedRequestJson.value);
     }
 
     return requestBodyText;
@@ -192,6 +201,7 @@ function SessionInspectorWorkspace({
             detail={detail}
             ref={responsePaneRef}
             onResponseTabChange={onResponseTabChange}
+            responseJsonDisplayText={responseJsonDisplayText}
             responseJsonResult={responseJsonResult}
             responseTab={responseTab}
             session={selectedSession}
