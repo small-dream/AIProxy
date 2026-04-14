@@ -66,7 +66,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
+    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
         <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1}>
           <Typography variant="subtitle2">{t("inspector.request.sectionTitle")}</Typography>
@@ -104,7 +104,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       )}
 
       {requestCollapsed ? null : (
-        <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
           <RequestTabContent
             detail={detail}
             requestBodyDisplayText={requestBodyDisplayText}

@@ -66,7 +66,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     t("inspector.response.rawSearchPlaceholder");
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ overflow: "hidden" }}>
+    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
       <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
         <Typography variant="subtitle2">{t("inspector.response.sectionTitle")}</Typography>
       </Stack>
@@ -90,7 +90,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
       <Divider />
 
-      <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
         <ResponseTabContent
           detail={detail}
           responseJsonDisplayText={responseJsonDisplayText}
