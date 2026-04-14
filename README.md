@@ -96,7 +96,7 @@ scripts/        开发、构建、发布脚本
 - Tauri 侧已提供最小状态命令用于后续接入真实代理运行时
 - P0-1 已支持本地明文 HTTP 代理捕获与会话列表展示
 - P0-2 已支持 HTTPS 证书生成、MITM 解密、系统代理接管
-- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书和 iOS/Android 配置指引
+- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书、iOS/Android 配置指引，以及 Android 开发者 ADB 辅助安装
 - P0-4 已支持 Compose / Repeat（构造请求与重发）
 - P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
 - 桌面端已规划双语国际化方案：支持 `中文 / English`，默认跟随系统语言
@@ -128,6 +128,8 @@ scripts/        开发、构建、发布脚本
 4. 手机扫描二维码下载并安装根证书（iOS 需额外启用证书信任）
 5. 手机 Wi-Fi 代理设置为手动，填入电脑 IP 和代理端口
 6. 在 `Sessions` 页面查看来自手机的 HTTP/HTTPS 会话
+
+Android 开发者也可以在 Certificates 页的 Android 标签中使用 `ADB Install`，在多台设备/模拟器同时连接时选择目标 serial，将证书推送到对应设备并直接拉起系统安装器。
 
 当前限制：
 

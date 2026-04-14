@@ -1,17 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type AndroidAdbCertificateInstallResult,
+  type AndroidAdbDevice,
   type CertificateInstallGuide,
   type CertificateStatus,
   type GenerateRootCertificateInput,
+  type InstallAndroidCertificateViaAdbInput,
 } from "@pharles/shared-types";
 import {
   getCertificateStatus,
   generateRootCertificate,
+  installAndroidCertificateViaAdb,
+  listAndroidAdbDevices,
   openCertificateInstallGuide,
   launchCertificateInstaller,
 } from "@/services/commands";
 
 const CERTIFICATE_STATUS_QUERY_KEY = ["certificate-status"] as const;
+const ANDROID_ADB_DEVICES_QUERY_KEY = ["android-adb-devices"] as const;
 
 export function useCertificateStatus() {
   return useQuery<CertificateStatus>({
@@ -41,5 +47,19 @@ export function useOpenCertificateInstallGuide() {
 export function useLaunchCertificateInstaller() {
   return useMutation<void, Error, void>({
     mutationFn: () => launchCertificateInstaller(),
+  });
+}
+
+export function useAndroidAdbDevices() {
+  return useQuery<AndroidAdbDevice[]>({
+    queryKey: ANDROID_ADB_DEVICES_QUERY_KEY,
+    queryFn: listAndroidAdbDevices,
+    staleTime: 5_000,
+  });
+}
+
+export function useInstallAndroidCertificateViaAdb() {
+  return useMutation<AndroidAdbCertificateInstallResult, Error, InstallAndroidCertificateViaAdbInput | undefined>({
+    mutationFn: (input) => installAndroidCertificateViaAdb(input),
   });
 }

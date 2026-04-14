@@ -4,6 +4,8 @@ import {
   createDefaultProxyStatus,
   createMockComposeSessionDetail,
   DEFAULT_WORKSPACE_ID,
+  parseAndroidAdbCertificateInstallResult,
+  parseAndroidAdbDevices,
   parseMapRules,
   parseBreakpointRules,
   parseCertificateStatus,
@@ -16,10 +18,13 @@ import {
   parseThrottleProfiles,
   type BreakpointResolution,
   type BreakpointRule,
+  type AndroidAdbDevice,
+  type AndroidAdbCertificateInstallResult,
   type CertificateInstallGuide,
   type CertificateStatus,
   type ComposedRequestInput,
   type GenerateRootCertificateInput,
+  type InstallAndroidCertificateViaAdbInput,
   type MapRule,
   type ProxyStatus,
   type RewriteRule,
@@ -354,6 +359,72 @@ export async function openCertificateInstallGuide(): Promise<CertificateInstallG
     return guide;
   } catch (error) {
     reportCommandFailure("open_certificate_install_guide", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listAndroidAdbDevices(): Promise<AndroidAdbDevice[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "list_android_adb_devices_bypassed_non_tauri_runtime");
+    return [
+      {
+        serial: "emulator-5554",
+        state: "device",
+        model: "Android Emulator",
+        transportId: "1",
+      },
+      {
+        serial: "R58N123456A",
+        state: "device",
+        model: "Pixel 8",
+        transportId: "2",
+      },
+    ];
+  }
+
+  try {
+    logDevInfo("ui.commands", "list_android_adb_devices_requested");
+    const payload = await invoke<unknown>("list_android_adb_devices");
+    const devices = parseAndroidAdbDevices(payload);
+
+    logDevInfo("ui.commands", "list_android_adb_devices_succeeded", {
+      deviceCount: devices.length,
+    });
+
+    return devices;
+  } catch (error) {
+    reportCommandFailure("list_android_adb_devices", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function installAndroidCertificateViaAdb(
+  input?: InstallAndroidCertificateViaAdbInput,
+): Promise<AndroidAdbCertificateInstallResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "install_android_certificate_via_adb_bypassed_non_tauri_runtime", input);
+    return {
+      success: true,
+      deviceSerial: input?.deviceSerial ?? "emulator-5554",
+      remotePath: "/sdcard/Download/pharles-root-ca.cer",
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "install_android_certificate_via_adb_requested", input);
+    const payload = await invoke<unknown>("install_android_certificate_via_adb", {
+      input: input ? { ...(input.deviceSerial ? { deviceSerial: input.deviceSerial } : {}) } : {},
+    });
+    const result = parseAndroidAdbCertificateInstallResult(payload);
+
+    logDevInfo("ui.commands", "install_android_certificate_via_adb_succeeded", {
+      deviceSerial: result.deviceSerial,
+      remotePath: result.remotePath,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("install_android_certificate_via_adb", error);
     throw coerceAppError(error);
   }
 }

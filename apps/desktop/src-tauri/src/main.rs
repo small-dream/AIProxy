@@ -37,6 +37,8 @@ pub fn run() {
             commands::generate_root_certificate,
             commands::open_certificate_install_guide,
             commands::launch_certificate_installer,
+            commands::list_android_adb_devices,
+            commands::install_android_certificate_via_adb,
             commands::get_local_ip,
             commands::send_composed_request,
             commands::list_breakpoint_rules,

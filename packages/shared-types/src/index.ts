@@ -106,6 +106,25 @@ export type CertificateInstallGuide = {
   steps: Array<{ order: number; description: string }>;
 };
 
+export type AndroidAdbCertificateInstallResult = {
+  success: boolean;
+  deviceSerial: string;
+  remotePath: string;
+};
+
+export type AndroidAdbDevice = {
+  serial: string;
+  state: string;
+  model?: string;
+  product?: string;
+  device?: string;
+  transportId?: string;
+};
+
+export type InstallAndroidCertificateViaAdbInput = {
+  deviceSerial?: string;
+};
+
 export type ComposedRequestInput = {
   workspaceId: string;
   method: string;
@@ -712,6 +731,57 @@ export function parseCertificateInstallGuide(value: unknown): CertificateInstall
     throw coerceAppError(value);
   }
   return value as CertificateInstallGuide;
+}
+
+export function isAndroidAdbCertificateInstallResult(
+  value: unknown,
+): value is AndroidAdbCertificateInstallResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<AndroidAdbCertificateInstallResult>;
+  return (
+    typeof candidate.success === "boolean" &&
+    typeof candidate.deviceSerial === "string" &&
+    typeof candidate.remotePath === "string"
+  );
+}
+
+export function parseAndroidAdbCertificateInstallResult(
+  value: unknown,
+): AndroidAdbCertificateInstallResult {
+  if (!isAndroidAdbCertificateInstallResult(value)) {
+    throw coerceAppError(value);
+  }
+  return value;
+}
+
+export function isAndroidAdbDevice(value: unknown): value is AndroidAdbDevice {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<AndroidAdbDevice>;
+  return (
+    typeof candidate.serial === "string" &&
+    typeof candidate.state === "string" &&
+    isNullableString(candidate.model) &&
+    isNullableString(candidate.product) &&
+    isNullableString(candidate.device) &&
+    isNullableString(candidate.transportId)
+  );
+}
+
+export function parseAndroidAdbDevices(value: unknown): AndroidAdbDevice[] {
+  if (!Array.isArray(value) || !value.every(isAndroidAdbDevice)) {
+    throw coerceAppError(value);
+  }
+
+  return value.map((device) => ({
+    serial: device.serial,
+    state: device.state,
+    ...(device.model !== null && device.model !== undefined ? { model: device.model } : {}),
+    ...(device.product !== null && device.product !== undefined ? { product: device.product } : {}),
+    ...(device.device !== null && device.device !== undefined ? { device: device.device } : {}),
+    ...(device.transportId !== null && device.transportId !== undefined
+      ? { transportId: device.transportId }
+      : {}),
+  }));
 }
 
 export function normalizeGenerateRootCertificateInput(

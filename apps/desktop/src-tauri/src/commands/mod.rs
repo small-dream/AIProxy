@@ -11,7 +11,7 @@ use pharles_proxy_core::{
     RewriteRule, ThrottleProfileData, TlsManager,
 };
 use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 
@@ -41,6 +41,31 @@ pub struct GetSessionDetailInput {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateRootCertificateInput {
     pub force_regenerate: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidAdbInstallResult {
+    pub success: bool,
+    pub device_serial: String,
+    pub remote_path: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidAdbDevice {
+    pub serial: String,
+    pub state: String,
+    pub model: Option<String>,
+    pub product: Option<String>,
+    pub device: Option<String>,
+    pub transport_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallAndroidCertificateViaAdbInput {
+    pub device_serial: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,6 +145,19 @@ pub fn launch_certificate_installer(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     launch_certificate_installer_impl(Arc::clone(state.inner()))
+}
+
+#[tauri::command]
+pub fn list_android_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
+    list_android_adb_devices_impl()
+}
+
+#[tauri::command]
+pub fn install_android_certificate_via_adb(
+    input: InstallAndroidCertificateViaAdbInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<AndroidAdbInstallResult, String> {
+    install_android_certificate_via_adb_impl(input, Arc::clone(state.inner()))
 }
 
 #[tauri::command]
@@ -563,6 +601,90 @@ fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String>
     open_certificate_file(&cert_path)
 }
 
+fn list_android_adb_devices_impl() -> Result<Vec<AndroidAdbDevice>, String> {
+    read_adb_devices()
+}
+
+fn install_android_certificate_via_adb_impl(
+    input: InstallAndroidCertificateViaAdbInput,
+    _state: Arc<AppState>,
+) -> Result<AndroidAdbInstallResult, String> {
+    let storage = CertStorage::resolve()
+        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+
+    if !storage.root_cert_exists() {
+        return Err("No certificate found. Generate one first.".to_string());
+    }
+
+    storage
+        .ensure_root_cert_install_copy()
+        .map_err(|e| format!("failed to prepare installable root cert: {e}"))?;
+
+    let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
+    let remote_path = "/sdcard/Download/pharles-root-ca.cer";
+
+    let push_output = std::process::Command::new("adb")
+        .args(["-s", &device_serial, "push"])
+        .arg(storage.root_cert_install_path())
+        .arg(remote_path)
+        .output()
+        .map_err(adb_spawn_error)?;
+
+    if !push_output.status.success() {
+        return Err(format!(
+            "Failed to push certificate to Android device: {}",
+            format_command_output(&push_output)
+        ));
+    }
+
+    let launch_output = std::process::Command::new("adb")
+        .args([
+            "-s",
+            &device_serial,
+            "shell",
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            &format!("file://{remote_path}"),
+            "-t",
+            "application/x-x509-ca-cert",
+        ])
+        .output()
+        .map_err(adb_spawn_error)?;
+
+    if !launch_output.status.success() {
+        return Err(format!(
+            "Failed to open the Android certificate installer: {}",
+            format_command_output(&launch_output)
+        ));
+    }
+
+    let launch_text = format_command_output(&launch_output);
+    if launch_text.contains("Error:") {
+        return Err(format!(
+            "Android reported an error while opening the certificate installer: {}",
+            launch_text
+        ));
+    }
+
+    log_info(
+        "desktop.commands",
+        "install_android_certificate_via_adb_succeeded",
+        &[
+            ("device_serial", device_serial.clone()),
+            ("remote_path", remote_path.to_string()),
+        ],
+    );
+
+    Ok(AndroidAdbInstallResult {
+        success: true,
+        device_serial,
+        remote_path: remote_path.to_string(),
+    })
+}
+
 fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -586,6 +708,152 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     {
         let _ = cert_path;
         Err("Certificate launcher is only supported on Windows and macOS.".to_string())
+    }
+}
+
+fn read_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
+    let output = std::process::Command::new("adb")
+        .args(["devices", "-l"])
+        .output()
+        .map_err(adb_spawn_error)?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to query adb devices: {}",
+            format_command_output(&output)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut devices = Vec::new();
+
+    for line in stdout.lines().skip(1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let serial = parts.next().unwrap_or_default();
+        let state = parts.next().unwrap_or_default();
+
+        if serial.is_empty() || state.is_empty() {
+            continue;
+        }
+
+        let mut model = None;
+        let mut product = None;
+        let mut device = None;
+        let mut transport_id = None;
+
+        for segment in parts {
+            if let Some(value) = segment.strip_prefix("model:") {
+                model = Some(value.replace('_', " "));
+                continue;
+            }
+
+            if let Some(value) = segment.strip_prefix("product:") {
+                product = Some(value.to_string());
+                continue;
+            }
+
+            if let Some(value) = segment.strip_prefix("device:") {
+                device = Some(value.to_string());
+                continue;
+            }
+
+            if let Some(value) = segment.strip_prefix("transport_id:") {
+                transport_id = Some(value.to_string());
+            }
+        }
+
+        devices.push(AndroidAdbDevice {
+            serial: serial.to_string(),
+            state: state.to_string(),
+            model,
+            product,
+            device,
+            transport_id,
+        });
+    }
+
+    Ok(devices)
+}
+
+fn resolve_adb_target_device(requested_serial: Option<&str>) -> Result<String, String> {
+    let devices = read_adb_devices()?;
+    let ready_devices = devices
+        .iter()
+        .filter(|device| device.state == "device")
+        .collect::<Vec<_>>();
+
+    if let Some(requested_serial) = requested_serial {
+        let Some(device) = devices.iter().find(|device| device.serial == requested_serial) else {
+            return Err(format!(
+                "Android device `{requested_serial}` was not found in adb devices. Refresh the device list and try again."
+            ));
+        };
+
+        if device.state != "device" {
+            return Err(format!(
+                "Android device `{requested_serial}` is in `{}` state. Unlock the phone, accept the USB debugging prompt if shown, then try again.",
+                device.state
+            ));
+        }
+
+        return Ok(device.serial.clone());
+    }
+
+    if ready_devices.is_empty() {
+        let unavailable_devices = devices
+            .iter()
+            .map(|device| format!("{} ({})", device.serial, device.state))
+            .collect::<Vec<_>>();
+
+        if unavailable_devices.is_empty() {
+            return Err(
+                "No Android device found via adb. Connect one device and enable USB debugging, then try again."
+                    .to_string(),
+            );
+        }
+
+        return Err(format!(
+            "No ready Android device found via adb. Current device states: {}. Unlock the phone, accept the USB debugging prompt if shown, then try again.",
+            unavailable_devices.join(", ")
+        ));
+    }
+
+    if ready_devices.len() > 1 {
+        return Err(format!(
+            "Multiple ready Android devices are connected via adb ({}). Choose one device in the Certificates page, then try again.",
+            ready_devices
+                .iter()
+                .map(|device| device.serial.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    Ok(ready_devices[0].serial.clone())
+}
+
+fn adb_spawn_error(error: std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return "adb was not found in PATH. Install Android Platform Tools and make sure the `adb` command is available.".to_string();
+    }
+
+    format!("failed to run adb: {error}")
+}
+
+fn format_command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (false, false) => format!("{stdout}; {stderr}"),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (true, true) => "no output".to_string(),
     }
 }
 

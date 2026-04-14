@@ -953,6 +953,53 @@ type GetLocalIpOutput = string[];
 
 响应：`void`
 
+### `install_android_certificate_via_adb`
+
+通过 `adb` 将根证书推送到已连接 Android 设备的 `Downloads` 目录，并尝试拉起系统证书安装界面。
+
+请求：
+
+```ts
+type InstallAndroidCertificateViaAdbInput = {
+  deviceSerial?: string;
+};
+```
+
+响应：
+
+```ts
+type InstallAndroidCertificateViaAdbOutput = {
+  success: boolean;
+  deviceSerial: string;
+  remotePath: string;
+};
+```
+
+说明：
+
+- 需要本机已安装 Android Platform Tools，且 `adb` 在 PATH 中可用
+- 若传入 `deviceSerial`，会安装到指定设备；若未传入，则仅在恰好 1 台设备处于 `device` 状态时自动选择
+- 该能力会辅助打开系统安装流程，但不会绕过 Android 的手动确认步骤
+
+### `list_android_adb_devices`
+
+列出当前 `adb devices -l` 可见的 Android 设备，用于在多个手机或模拟器并存时选择目标 `serial`。
+
+请求：无参数。
+
+响应：
+
+```ts
+type ListAndroidAdbDevicesOutput = Array<{
+  serial: string;
+  state: string;
+  model?: string;
+  product?: string;
+  device?: string;
+  transportId?: string;
+}>;
+```
+
 ## 6.9 代理内建 HTTP 端点
 
 代理核心在启动时同时监听来自局域网的直连请求，提供以下内建 HTTP 端点：
