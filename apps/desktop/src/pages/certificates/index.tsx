@@ -22,7 +22,7 @@ export function CertificatesPage() {
   const { data: proxyStatus } = useProxyStatus();
 
   const handleGenerate = () => {
-    generateMutation.mutate(undefined, {
+    generateMutation.mutate({ forceRegenerate: Boolean(status?.certPath) }, {
       onSuccess: () => {
         refetch();
       },

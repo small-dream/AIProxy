@@ -34,7 +34,7 @@ pub fn detect_platform() -> Platform {
 pub fn is_cert_trusted_on_platform(cert_path: &Path, platform: Platform) -> bool {
     match platform {
         Platform::Windows => is_trusted_windows(cert_path),
-        Platform::Macos => false, // TODO: implement for macOS
+        Platform::Macos => is_trusted_macos(cert_path),
         Platform::Linux => false, // TODO: implement for Linux
     }
 }
@@ -95,6 +95,27 @@ fn is_trusted_windows(cert_path: &Path) -> bool {
 
 #[cfg(not(target_os = "windows"))]
 fn is_trusted_windows(_cert_path: &Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn is_trusted_macos(cert_path: &Path) -> bool {
+    use std::process::Command;
+
+    let output = match Command::new("/usr/bin/security")
+        .args(["verify-cert", "-c"])
+        .arg(cert_path)
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+
+    output.status.success()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_trusted_macos(_cert_path: &Path) -> bool {
     false
 }
 

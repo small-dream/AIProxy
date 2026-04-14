@@ -16,8 +16,8 @@ export function CertificateActions({ status, generating, installing, onGenerate,
   const { t } = useI18n();
   const hasCert = !!status?.certPath;
   const isTrusted = status?.trusted ?? false;
-  const isWindows = status?.platform === "windows";
-  const showInstallButton = isWindows && hasCert && !isTrusted;
+  const supportsInstaller = status?.platform === "windows" || status?.platform === "macos";
+  const showInstallButton = supportsInstaller && hasCert && !isTrusted;
 
   return (
     <Stack direction="row" spacing={2}>

@@ -14,6 +14,7 @@ const cargoManifestPath = path.join(tauriDir, "Cargo.toml");
 
 const hostPlatform = normalizePlatform(process.platform);
 const cli = parseCommandLine(process.argv.slice(2));
+const frontendPackageManager = resolveFrontendPackageManager();
 
 if (cli.help || !cli.action) {
   printUsage();
@@ -52,8 +53,8 @@ function createSteps(action) {
   if (action === "run") {
     return [
       {
-        args: ["pnpm", "--dir", "apps/desktop", "build"],
-        command: resolveCommand("corepack"),
+        args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
+        command: frontendPackageManager.command,
         cwd: repoRoot,
         label: "Building desktop frontend bundle",
       },
@@ -69,8 +70,8 @@ function createSteps(action) {
   if (action === "build") {
     return [
       {
-        args: ["pnpm", "--dir", "apps/desktop", "build"],
-        command: resolveCommand("corepack"),
+        args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
+        command: frontendPackageManager.command,
         cwd: repoRoot,
         label: "Building desktop frontend bundle",
       },
@@ -85,8 +86,8 @@ function createSteps(action) {
 
   return [
     {
-      args: ["pnpm", "--dir", "apps/desktop", "build"],
-      command: resolveCommand("corepack"),
+      args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
+      command: frontendPackageManager.command,
       cwd: repoRoot,
       label: "Building desktop frontend bundle",
     },
@@ -131,9 +132,43 @@ function shouldUseShell(command) {
   return process.platform === "win32" && command.toLowerCase().endsWith(".cmd");
 }
 
+function resolveFrontendPackageManager() {
+  const corepackCommand = resolveCommand("corepack");
+  if (hasCommand(corepackCommand)) {
+    return {
+      args: ["pnpm"],
+      command: corepackCommand,
+    };
+  }
+
+  const pnpmCommand = resolveCommand("pnpm");
+  if (hasCommand(pnpmCommand)) {
+    return {
+      args: [],
+      command: pnpmCommand,
+    };
+  }
+
+  console.error(
+    "[pharles-scripts] Neither `corepack` nor `pnpm` is available on PATH. Install pnpm or enable corepack before running desktop commands.",
+  );
+  process.exit(1);
+}
+
+function hasCommand(command) {
+  const result = spawnSync(command, ["--version"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    shell: shouldUseShell(command),
+    stdio: "pipe",
+  });
+
+  return result.error === undefined && result.status === 0;
+}
+
 function resolveCommand(command) {
-  if (process.platform === "win32" && command === "corepack") {
-    return "corepack.cmd";
+  if (process.platform === "win32" && (command === "corepack" || command === "pnpm")) {
+    return `${command}.cmd`;
   }
 
   return command;

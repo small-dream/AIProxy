@@ -448,10 +448,16 @@ fn get_certificate_status_impl(state: Arc<AppState>) -> Result<CertificateStateS
     let root_ca = RootCaPair::load_from_pem(&cert_pem, &key_pem)
         .map_err(|e| format!("failed to load root CA: {e}"))?;
 
+    #[cfg(target_os = "macos")]
+    storage
+        .ensure_root_cert_install_copy()
+        .map_err(|e| format!("failed to prepare installable root cert: {e}"))?;
+
     let trusted = is_cert_trusted_on_platform(storage.root_cert_path(), platform);
+    let cert_path = certificate_display_path(&storage, platform);
 
     let status = CertificateStateSnapshot {
-        cert_path: Some(storage.root_cert_path().to_string_lossy().to_string()),
+        cert_path: Some(cert_path),
         fingerprint: Some(root_ca.fingerprint().to_string()),
         trusted,
         platform: platform.to_string(),
@@ -493,8 +499,20 @@ fn generate_root_certificate_impl(
     });
     state.set_tls_manager(tls_manager);
 
-    // Return updated status
-    get_certificate_status_impl(state)
+    let status = get_certificate_status_impl(state)?;
+
+    #[cfg(target_os = "macos")]
+    if let Some(cert_path) = status.cert_path.as_deref() {
+        if let Err(error) = open_certificate_file(cert_path) {
+            log_warn(
+                "desktop.commands",
+                "generate_root_certificate_auto_open_failed",
+                &[("error", error)],
+            );
+        }
+    }
+
+    Ok(status)
 }
 
 fn open_certificate_install_guide_impl(
@@ -542,6 +560,10 @@ fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String>
         .cert_path
         .ok_or_else(|| "No certificate found. Generate one first.".to_string())?;
 
+    open_certificate_file(&cert_path)
+}
+
+fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("rundll32.exe")
@@ -551,10 +573,29 @@ fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String>
         return Ok(());
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-a", "Keychain Access", cert_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open certificate in Keychain Access: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = cert_path;
-        Err("Certificate launcher is only supported on Windows.".to_string())
+        Err("Certificate launcher is only supported on Windows and macOS.".to_string())
+    }
+}
+
+fn certificate_display_path(storage: &CertStorage, platform: pharles_tls_manager::Platform) -> String {
+    match platform {
+        pharles_tls_manager::Platform::Macos => storage
+            .root_cert_install_path()
+            .to_string_lossy()
+            .to_string(),
+        _ => storage.root_cert_path().to_string_lossy().to_string(),
     }
 }
 

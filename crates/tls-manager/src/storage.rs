@@ -8,11 +8,13 @@ use crate::TlsManagerError;
 const CERT_DIR_NAME: &str = "pharles";
 const CERT_SUBDIR: &str = "certs";
 const ROOT_CERT_FILE: &str = "pharles-root-ca.pem";
+const ROOT_CERT_INSTALL_FILE: &str = "pharles-root-ca.cer";
 const ROOT_KEY_FILE: &str = "pharles-root-ca-key.pem";
 
 /// Manages on-disk root CA storage and in-memory host certificate cache.
 pub struct CertStorage {
     cert_dir: PathBuf,
+    root_cert_install_path: PathBuf,
     root_cert_path: PathBuf,
     root_key_path: PathBuf,
     /// In-memory cache: hostname → CertifiedKey (for dynamic host certs)
@@ -23,6 +25,7 @@ impl std::clone::Clone for CertStorage {
     fn clone(&self) -> Self {
         Self {
             cert_dir: self.cert_dir.clone(),
+            root_cert_install_path: self.root_cert_install_path.clone(),
             root_cert_path: self.root_cert_path.clone(),
             root_key_path: self.root_key_path.clone(),
             host_cache: Mutex::new(HashMap::new()), // fresh cache for clone
@@ -38,6 +41,7 @@ impl CertStorage {
         })?;
         let cert_dir = data_dir.join(CERT_DIR_NAME).join(CERT_SUBDIR);
         Ok(Self {
+            root_cert_install_path: cert_dir.join(ROOT_CERT_INSTALL_FILE),
             root_cert_path: cert_dir.join(ROOT_CERT_FILE),
             root_key_path: cert_dir.join(ROOT_KEY_FILE),
             cert_dir,
@@ -54,6 +58,7 @@ impl CertStorage {
             .join("pharles-test-certs")
             .join(format!("session-{id}"));
         Self {
+            root_cert_install_path: temp_dir.join(ROOT_CERT_INSTALL_FILE),
             root_cert_path: temp_dir.join(ROOT_CERT_FILE),
             root_key_path: temp_dir.join(ROOT_KEY_FILE),
             cert_dir: temp_dir,
@@ -67,6 +72,10 @@ impl CertStorage {
 
     pub fn root_cert_path(&self) -> &Path {
         &self.root_cert_path
+    }
+
+    pub fn root_cert_install_path(&self) -> &Path {
+        &self.root_cert_install_path
     }
 
     pub fn root_key_path(&self) -> &Path {
@@ -103,11 +112,26 @@ impl CertStorage {
             TlsManagerError::StorageError(format!("failed to write root cert: {e}"))
         })?;
 
+        std::fs::write(&self.root_cert_install_path, cert_pem).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to write installable root cert: {e}"))
+        })?;
+
         std::fs::write(&self.root_key_path, key_pem).map_err(|e| {
             TlsManagerError::StorageError(format!("failed to write root key: {e}"))
         })?;
 
         Ok(())
+    }
+
+    pub fn ensure_root_cert_install_copy(&self) -> Result<(), TlsManagerError> {
+        if self.root_cert_install_path.exists() {
+            return Ok(());
+        }
+
+        let cert_pem = self.load_root_cert_pem()?;
+        std::fs::write(&self.root_cert_install_path, cert_pem).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to backfill installable root cert: {e}"))
+        })
     }
 
     /// Get a cached host CertifiedKey, or generate and cache a new one.
