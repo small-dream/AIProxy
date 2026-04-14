@@ -89,25 +89,69 @@ describe("buildSessionHostGroups", () => {
     expect(groups[0]?.sessions.map((session) => session.id)).toEqual(["session-6"]);
   });
 
-  it("builds a Charles-like host path tree", () => {
+  it("moves non-focused hosts into a single unfocused group", () => {
     const groups = buildSessionHostGroups(
       [
         createSessionSummary({
           host: "api.example.com",
           id: "session-8",
+          path: "/users",
+          startedAt: "2026-04-11T10:00:08.000Z",
+          url: "http://api.example.com/users",
+        }),
+        createSessionSummary({
+          host: "assets.example.com",
+          id: "session-9",
+          path: "/logo.svg",
+          startedAt: "2026-04-11T10:00:09.000Z",
+          url: "http://assets.example.com/logo.svg",
+        }),
+        createSessionSummary({
+          host: "cdn.example.com",
+          id: "session-10",
+          path: "/app.js",
+          startedAt: "2026-04-11T10:00:10.000Z",
+          url: "http://cdn.example.com/app.js",
+        }),
+      ],
+      "",
+      {
+        focusedHost: "api.example.com",
+        unfocusedLabel: "Unfocused",
+      },
+    );
+
+    expect(groups.map((group) => group.label)).toEqual(["api.example.com", "Unfocused"]);
+    expect(groups[1]).toMatchObject({
+      host: null,
+      key: "__unfocused__",
+      kind: "aggregate",
+      tree: [
+        { branchType: "host", host: "assets.example.com", segmentLabel: "assets.example.com" },
+        { branchType: "host", host: "cdn.example.com", segmentLabel: "cdn.example.com" },
+      ],
+    });
+  });
+
+  it("builds a Charles-like host path tree", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-11",
           path: "/api/users/list",
           url: "http://api.example.com/api/users/list",
         }),
         createSessionSummary({
           host: "api.example.com",
-          id: "session-9",
+          id: "session-12",
           path: "/api/users/detail?id=1",
           startedAt: "2026-04-11T10:00:08.000Z",
           url: "http://api.example.com/api/users/detail?id=1",
         }),
         createSessionSummary({
           host: "api.example.com",
-          id: "session-10",
+          id: "session-13",
           path: "/health",
           url: "http://api.example.com/health",
         }),
@@ -118,22 +162,24 @@ describe("buildSessionHostGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.tree).toMatchObject([
       {
+        branchType: "path",
         kind: "branch",
         pathKey: "api",
         segmentLabel: "api",
         children: [
           {
+            branchType: "path",
             kind: "branch",
             pathKey: "api/users",
             segmentLabel: "users",
             children: [
-              { kind: "leaf", segmentLabel: "detail", session: { id: "session-9" } },
-              { kind: "leaf", segmentLabel: "list", session: { id: "session-8" } },
+              { kind: "leaf", segmentLabel: "detail", session: { id: "session-12" } },
+              { kind: "leaf", segmentLabel: "list", session: { id: "session-11" } },
             ],
           },
         ],
       },
-      { kind: "leaf", segmentLabel: "health", session: { id: "session-10" } },
+      { kind: "leaf", segmentLabel: "health", session: { id: "session-13" } },
     ]);
   });
 

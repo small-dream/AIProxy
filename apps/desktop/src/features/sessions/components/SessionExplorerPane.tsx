@@ -39,9 +39,9 @@ import {
 type SessionExplorerPaneProps = {
   errorMessage: string | undefined;
   expandedHosts: string[];
-  focusedHost?: string | null;
   groups: SessionHostGroup[];
   isLoading: boolean;
+  onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (host: string) => void;
@@ -51,9 +51,9 @@ type SessionExplorerPaneProps = {
 export function SessionExplorerPane({
   errorMessage,
   expandedHosts,
-  focusedHost,
   groups,
   isLoading,
+  onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
   onToggleHost,
@@ -119,20 +119,18 @@ export function SessionExplorerPane({
         ) : (
           <List disablePadding>
             {groups.map((group) => {
-              const expanded = expandedHosts.includes(group.host);
+              const expanded = expandedHosts.includes(group.key);
+              const hostContextMenu = group.host
+                ? (event: React.MouseEvent) => onContextMenuHost?.(group.host!, event)
+                : undefined;
 
               return (
-                <Box
-                  key={group.host}
-                  sx={{
-                    opacity: focusedHost && group.host !== focusedHost ? 0.35 : 1,
-                    transition: "opacity 200ms ease",
-                  }}
-                >
+                <Box key={group.key}>
                   <HostRow
                     expanded={expanded}
                     group={group}
-                    onToggle={() => onToggleHost(group.host)}
+                    onContextMenu={hostContextMenu}
+                    onToggle={() => onToggleHost(group.key)}
                   />
 
                   {expanded ? (
@@ -141,9 +139,10 @@ export function SessionExplorerPane({
                         <SessionTreeNode
                           depth={0}
                           getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
-                          host={group.host}
+                          groupKey={group.key}
                           key={node.kind === "branch" ? `branch:${node.pathKey}` : `leaf:${node.session.id}`}
                           node={node}
+                          onContextMenuHost={onContextMenuHost}
                           onContextMenuSession={onContextMenuSession}
                           onSelectSession={onSelectSession}
                           onToggleHost={onToggleHost}
@@ -167,10 +166,11 @@ export function SessionExplorerPane({
 type HostRowProps = {
   expanded: boolean;
   group: SessionHostGroup;
+  onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   onToggle: () => void;
 };
 
-function HostRow({ expanded, group, onToggle }: HostRowProps) {
+function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
   const [flashVisible, setFlashVisible] = useState(false);
   const previousLatestStartedAtRef = useRef(group.latestStartedAt);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -205,6 +205,7 @@ function HostRow({ expanded, group, onToggle }: HostRowProps) {
     <ListItemButton
       dense
       onClick={onToggle}
+      onContextMenu={onContextMenu}
       sx={(theme) => ({
         borderRadius: 1.5,
         backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
@@ -219,7 +220,7 @@ function HostRow({ expanded, group, onToggle }: HostRowProps) {
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
       <Typography noWrap sx={{ ml: 0.5 }} variant="body2">
-        {group.host}
+        {group.label}
       </Typography>
     </ListItemButton>
   );
@@ -229,8 +230,9 @@ type SessionTreeNodeProps = {
   depth: number;
   expandedHosts: string[];
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
-  host: string;
+  groupKey: string;
   node: SessionPathNode;
+  onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
   onToggleHost: (key: string) => void;
@@ -241,8 +243,9 @@ function SessionTreeNode({
   depth,
   expandedHosts,
   getResourceTooltip,
-  host,
+  groupKey,
   node,
+  onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
   onToggleHost,
@@ -261,14 +264,21 @@ function SessionTreeNode({
     );
   }
 
-  const expandedKey = `${host}::${node.pathKey}`;
+  const expandedKey = `${groupKey}::${node.pathKey}`;
   const expanded = expandedHosts.includes(expandedKey);
+  const branchHost = node.branchType === "host" ? node.host : undefined;
 
   return (
     <>
       <ListItemButton
         dense
         onClick={() => onToggleHost(expandedKey)}
+        onContextMenu={branchHost
+          ? (event) => {
+              event.preventDefault();
+              onContextMenuHost?.(branchHost, event);
+            }
+          : undefined}
         sx={{
           borderRadius: 1.5,
           minHeight: 26,
@@ -317,9 +327,10 @@ function SessionTreeNode({
               depth={depth + 1}
               expandedHosts={expandedHosts}
               getResourceTooltip={getResourceTooltip}
-              host={host}
+              groupKey={groupKey}
               key={childNode.kind === "branch" ? `branch:${childNode.pathKey}` : `leaf:${childNode.session.id}`}
               node={childNode}
+              onContextMenuHost={onContextMenuHost}
               onContextMenuSession={onContextMenuSession}
               onSelectSession={onSelectSession}
               onToggleHost={onToggleHost}

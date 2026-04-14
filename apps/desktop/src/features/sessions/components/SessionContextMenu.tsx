@@ -156,7 +156,7 @@ export function SessionContextMenu({
           <ListItemIcon>
             <VisibilityRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.focusHost", { host: session.host })}</ListItemText>
+          <ListItemText>{t("contextMenu.focusHost")}</ListItemText>
         </MenuItem>
       )}
 
@@ -165,14 +165,14 @@ export function SessionContextMenu({
           <ListItemIcon>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.stopIgnoringHost", { host: session.host })}</ListItemText>
+          <ListItemText>{t("contextMenu.stopIgnoringHost")}</ListItemText>
         </MenuItem>
       ) : (
         <MenuItem onClick={handleClick(onIgnoreHost)}>
           <ListItemIcon>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.ignoreHost", { host: session.host })}</ListItemText>
+          <ListItemText>{t("contextMenu.ignoreHost")}</ListItemText>
         </MenuItem>
       )}
 

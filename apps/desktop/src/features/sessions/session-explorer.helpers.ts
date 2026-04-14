@@ -20,7 +20,9 @@ export type SessionPathLeaf = {
 };
 
 export type SessionPathBranch = {
+  branchType: "host" | "path";
   children: SessionPathNode[];
+  host?: string;
   kind: "branch";
   pathKey: string;
   searchText: string;
@@ -30,12 +32,20 @@ export type SessionPathBranch = {
 export type SessionPathNode = SessionPathLeaf | SessionPathBranch;
 
 export type SessionHostGroup = {
-  host: string;
+  host: string | null;
+  key: string;
+  kind: "aggregate" | "host";
+  label: string;
   latestStartedAt: string;
   searchText: string;
   sessions: SessionSummary[];
   totalCount: number;
   tree: SessionPathNode[];
+};
+
+type BuildSessionHostGroupsOptions = {
+  focusedHost?: string | null;
+  unfocusedLabel?: string;
 };
 
 type MutablePathBranch = {
@@ -48,6 +58,7 @@ type MutablePathBranch = {
 export function buildSessionHostGroups(
   sessions: SessionSummary[],
   keyword: string,
+  options: BuildSessionHostGroupsOptions = {},
 ): SessionHostGroup[] {
   const groupsByHost = new Map<string, SessionSummary[]>();
 
@@ -63,20 +74,32 @@ export function buildSessionHostGroups(
     groupsByHost.set(host, existingGroup);
   }
 
-  return Array.from(groupsByHost.entries())
-    .map(([host, groupedSessions]) => {
-      const sortedSessions = sortSessionsByStartedAt(groupedSessions);
+  const hostGroups = Array.from(groupsByHost.entries())
+    .map(([host, groupedSessions]) => createHostGroup(host, groupedSessions))
+    .sort((left, right) => left.label.localeCompare(right.label));
 
-      return {
-        host,
-        latestStartedAt: sortedSessions[0]?.startedAt ?? "",
-        searchText: buildSearchText(host),
-        sessions: sortedSessions,
-        totalCount: sortedSessions.length,
-        tree: buildPathTree(sortedSessions),
-      };
-    })
-    .sort((left, right) => left.host.localeCompare(right.host));
+  const normalizedFocusedHost = normalizeOptionalHost(options.focusedHost);
+
+  if (!normalizedFocusedHost) {
+    return hostGroups;
+  }
+
+  const focusedGroup = hostGroups.find((group) => group.host === normalizedFocusedHost);
+
+  if (!focusedGroup) {
+    return hostGroups;
+  }
+
+  const unfocusedGroups = hostGroups.filter((group) => group.host !== normalizedFocusedHost);
+
+  if (unfocusedGroups.length === 0) {
+    return [focusedGroup];
+  }
+
+  return [
+    focusedGroup,
+    createAggregateGroup(unfocusedGroups, options.unfocusedLabel ?? "Unfocused"),
+  ];
 }
 
 export function reconcileExpandedKeys(
@@ -86,8 +109,8 @@ export function reconcileExpandedKeys(
   const availableKeys = new Set<string>();
 
   for (const group of groups) {
-    availableKeys.add(group.host);
-    collectBranchKeys(group.tree, group.host, availableKeys);
+    availableKeys.add(group.key);
+    collectBranchKeys(group.tree, group.key, availableKeys);
   }
 
   return expandedKeys.filter((key) => availableKeys.has(key));
@@ -189,8 +212,50 @@ function normalizeHost(host: string): string {
   return normalizedHost.length > 0 ? normalizedHost : "<unknown>";
 }
 
+function normalizeOptionalHost(host?: string | null): string | null {
+  if (!host) {
+    return null;
+  }
+
+  const normalizedHost = host.trim();
+
+  return normalizedHost.length > 0 ? normalizedHost : null;
+}
+
 function sortSessionsByStartedAt(sessions: SessionSummary[]): SessionSummary[] {
   return [...sessions].sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+}
+
+function createHostGroup(host: string, groupedSessions: SessionSummary[]): SessionHostGroup {
+  const sortedSessions = sortSessionsByStartedAt(groupedSessions);
+
+  return {
+    host,
+    key: host,
+    kind: "host",
+    label: host,
+    latestStartedAt: sortedSessions[0]?.startedAt ?? "",
+    searchText: buildSearchText(host),
+    sessions: sortedSessions,
+    totalCount: sortedSessions.length,
+    tree: buildPathTree(sortedSessions),
+  };
+}
+
+function createAggregateGroup(groups: SessionHostGroup[], label: string): SessionHostGroup {
+  const sessions = sortSessionsByStartedAt(groups.flatMap((group) => group.sessions));
+
+  return {
+    host: null,
+    key: "__unfocused__",
+    kind: "aggregate",
+    label,
+    latestStartedAt: sessions[0]?.startedAt ?? "",
+    searchText: buildSearchText(label, ...groups.map((group) => group.label)),
+    sessions,
+    totalCount: sessions.length,
+    tree: buildAggregateTree(groups),
+  };
 }
 
 function buildPathTree(sessions: SessionSummary[]): SessionPathNode[] {
@@ -246,6 +311,7 @@ function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
     const childNodes = materializePathNodes(childBranch);
 
     nodes.push({
+      branchType: "path",
       children: childNodes,
       kind: "branch",
       pathKey: childBranch.pathKey,
@@ -266,6 +332,36 @@ function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
 
 function buildSearchText(...parts: string[]): string {
   return parts.join(" ").trim().toLowerCase();
+}
+
+function buildAggregateTree(groups: SessionHostGroup[]): SessionPathNode[] {
+  return groups.map((group) => {
+    const branchPathKey = `host:${group.label}`;
+
+    return {
+      branchType: "host" as const,
+      children: prefixBranchPathKeys(group.tree, branchPathKey),
+      host: group.host ?? group.label,
+      kind: "branch" as const,
+      pathKey: branchPathKey,
+      searchText: buildSearchText(group.label),
+      segmentLabel: group.label,
+    };
+  });
+}
+
+function prefixBranchPathKeys(nodes: SessionPathNode[], prefix: string): SessionPathNode[] {
+  return nodes.map((node) => {
+    if (node.kind !== "branch") {
+      return node;
+    }
+
+    return {
+      ...node,
+      children: prefixBranchPathKeys(node.children, prefix),
+      pathKey: `${prefix}/${node.pathKey}`,
+    };
+  });
 }
 
 function splitSessionPath(path: string): { pathname: string; search: string } {

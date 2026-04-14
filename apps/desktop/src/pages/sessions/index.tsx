@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useClearSessions, useDeleteSessionsExcept, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
@@ -58,6 +59,8 @@ export function SessionsPage() {
   // Context menu state
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
   const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
+  const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{ left: number; top: number }>();
+  const [contextMenuHost, setContextMenuHost] = useState<string | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   // Focus / Ignore state
@@ -73,7 +76,13 @@ export function SessionsPage() {
     return sessions.filter((s) => !ignoredHosts.has(s.host));
   }, [sessions, ignoredHosts]);
 
-  const hostGroups = useMemo(() => buildSessionHostGroups(filteredByIgnoreSessions, searchValue), [searchValue, filteredByIgnoreSessions]);
+  const hostGroups = useMemo(
+    () => buildSessionHostGroups(filteredByIgnoreSessions, searchValue, {
+      focusedHost,
+      unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
+    }),
+    [filteredByIgnoreSessions, focusedHost, searchValue, t],
+  );
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === selectedSessionId),
@@ -165,6 +174,8 @@ export function SessionsPage() {
 
   const handleContextMenu = useCallback((session: SessionSummary, event: React.MouseEvent) => {
     event.preventDefault();
+    setDomainContextMenuAnchor(undefined);
+    setContextMenuHost(null);
     setContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
     setContextMenuSession(session);
   }, []);
@@ -172,6 +183,19 @@ export function SessionsPage() {
   const handleContextMenuClose = useCallback(() => {
     setContextMenuAnchor(undefined);
     setContextMenuSession(null);
+  }, []);
+
+  const handleHostContextMenu = useCallback((host: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenuAnchor(undefined);
+    setContextMenuSession(null);
+    setDomainContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
+    setContextMenuHost(host);
+  }, []);
+
+  const handleHostContextMenuClose = useCallback(() => {
+    setDomainContextMenuAnchor(undefined);
+    setContextMenuHost(null);
   }, []);
 
   const showSnackbar = useCallback((message: string) => {
@@ -268,29 +292,42 @@ export function SessionsPage() {
     navigate("/rules");
   }, [navigate]);
 
-  const handleFocusHost = useCallback((session: SessionSummary) => {
-    setFocusedHost((prev) => prev === session.host ? null : session.host);
+  const handleFocusDomain = useCallback((host: string) => {
+    setFocusedHost((prev) => prev === host ? null : host);
   }, []);
 
   const handleUnfocusHost = useCallback(() => {
     setFocusedHost(null);
   }, []);
 
-  const handleIgnoreHost = useCallback((session: SessionSummary) => {
+  const handleIgnoreDomain = useCallback((host: string) => {
+    setFocusedHost((prev) => prev === host ? null : prev);
     setIgnoredHosts((prev) => {
       const next = new Set(prev);
-      next.add(session.host);
+      next.add(host);
       return next;
     });
   }, []);
 
-  const handleStopIgnoringHost = useCallback((session: SessionSummary) => {
+  const handleStopIgnoringDomain = useCallback((host: string) => {
     setIgnoredHosts((prev) => {
       const next = new Set(prev);
-      next.delete(session.host);
+      next.delete(host);
       return next;
     });
   }, []);
+
+  const handleFocusHost = useCallback((session: SessionSummary) => {
+    handleFocusDomain(session.host);
+  }, [handleFocusDomain]);
+
+  const handleIgnoreHost = useCallback((session: SessionSummary) => {
+    handleIgnoreDomain(session.host);
+  }, [handleIgnoreDomain]);
+
+  const handleStopIgnoringHost = useCallback((session: SessionSummary) => {
+    handleStopIgnoringDomain(session.host);
+  }, [handleStopIgnoringDomain]);
 
   // --- End context menu handlers ---
 
@@ -391,9 +428,9 @@ export function SessionsPage() {
         <SessionExplorerPane
           errorMessage={sessionsError ? sessionsErrorMessage : undefined}
           expandedHosts={expandedHosts}
-          focusedHost={focusedHost}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
+          onContextMenuHost={handleHostContextMenu}
           onContextMenuSession={handleContextMenu}
           onSelectSession={setSelectedSessionId}
           onToggleHost={toggleHost}
@@ -480,6 +517,18 @@ export function SessionsPage() {
         onStopIgnoringHost={handleStopIgnoringHost}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
+      />
+
+      <DomainContextMenu
+        anchorPosition={domainContextMenuAnchor}
+        host={contextMenuHost}
+        isHostFocused={contextMenuHost === focusedHost}
+        isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
+        onClose={handleHostContextMenuClose}
+        onFocusHost={handleFocusDomain}
+        onIgnoreHost={handleIgnoreDomain}
+        onStopIgnoringHost={handleStopIgnoringDomain}
+        onUnfocusHost={handleUnfocusHost}
       />
 
       <Snackbar
