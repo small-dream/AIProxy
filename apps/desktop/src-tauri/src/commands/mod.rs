@@ -203,7 +203,7 @@ pub async fn send_composed_request(
 ) -> Result<ProxySessionDetail, String> {
     let detail = send_direct_request(input.method, input.url, input.headers, input.body).await?;
     let session_id = detail.id.clone();
-    state.insert_session(detail.clone());
+    state.upsert_session(detail.clone());
 
     log_info(
         "desktop.commands",
@@ -306,7 +306,7 @@ async fn start_proxy_impl(
     let state_for_collector = Arc::clone(&state);
     let collector_handle = tauri::async_runtime::spawn(async move {
         while let Some(session) = session_receiver.recv().await {
-            state_for_collector.insert_session(session);
+            state_for_collector.upsert_session(session);
         }
     });
 

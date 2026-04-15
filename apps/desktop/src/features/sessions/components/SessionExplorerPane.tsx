@@ -3,7 +3,6 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
-import HourglassEmptyRoundedIcon from "@mui/icons-material/HourglassEmptyRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
@@ -28,7 +27,6 @@ import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
 import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
 import {
-  getSessionLeafLabel,
   getSessionQuerySuffix,
   getSessionResourceKind,
   type SessionExplorerResourceKind,
@@ -213,7 +211,7 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
       dense
       onClick={onToggle}
       onContextMenu={onContextMenu}
-      sx={(theme) => ({
+      sx={{
         borderRadius: 1.5,
         minHeight: 28,
         minWidth: "100%",
@@ -224,7 +222,7 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
         "&:hover": {
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
-      })}
+      }}
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
       <Box
@@ -543,7 +541,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   }
 
   if (resourceKind === "pending") {
-    return <HourglassEmptyRoundedIcon sx={sx} />;
+    return <CircularProgress color="inherit" size={12} thickness={6} />;
   }
 
   if (resourceKind === "warning") {

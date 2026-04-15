@@ -74,9 +74,9 @@ export function buildSessionHostGroups(
     groupsByHost.set(host, existingGroup);
   }
 
-  const hostGroups = Array.from(groupsByHost.entries())
-    .map(([host, groupedSessions]) => createHostGroup(host, groupedSessions))
-    .sort((left, right) => left.label.localeCompare(right.label));
+  const hostGroups = Array.from(groupsByHost.entries()).map(([host, groupedSessions]) =>
+    createHostGroup(host, groupedSessions),
+  );
 
   const normalizedFocusedHost = normalizeOptionalHost(options.focusedHost);
 
@@ -222,35 +222,31 @@ function normalizeOptionalHost(host?: string | null): string | null {
   return normalizedHost.length > 0 ? normalizedHost : null;
 }
 
-function sortSessionsByStartedAt(sessions: SessionSummary[]): SessionSummary[] {
-  return [...sessions].sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
-}
-
 function createHostGroup(host: string, groupedSessions: SessionSummary[]): SessionHostGroup {
-  const sortedSessions = sortSessionsByStartedAt(groupedSessions);
+  const orderedSessions = [...groupedSessions];
 
   return {
     host,
     key: host,
     kind: "host",
     label: host,
-    latestStartedAt: sortedSessions[0]?.startedAt ?? "",
+    latestStartedAt: orderedSessions.at(-1)?.startedAt ?? "",
     searchText: buildSearchText(host),
-    sessions: sortedSessions,
-    totalCount: sortedSessions.length,
-    tree: buildPathTree(sortedSessions),
+    sessions: orderedSessions,
+    totalCount: orderedSessions.length,
+    tree: buildPathTree(orderedSessions),
   };
 }
 
 function createAggregateGroup(groups: SessionHostGroup[], label: string): SessionHostGroup {
-  const sessions = sortSessionsByStartedAt(groups.flatMap((group) => group.sessions));
+  const sessions = groups.flatMap((group) => group.sessions);
 
   return {
     host: null,
     key: "__unfocused__",
     kind: "aggregate",
     label,
-    latestStartedAt: sessions[0]?.startedAt ?? "",
+    latestStartedAt: sessions.at(-1)?.startedAt ?? "",
     searchText: buildSearchText(label, ...groups.map((group) => group.label)),
     sessions,
     totalCount: sessions.length,
@@ -323,9 +319,9 @@ function buildPathTree(sessions: SessionSummary[]): SessionPathNode[] {
 
 function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
   const nodes: SessionPathNode[] = [];
-  const sortedBranchEntries = Array.from(branch.children.entries()).sort(([left], [right]) => left.localeCompare(right));
+  const branchEntries = Array.from(branch.children.entries());
 
-  sortedBranchEntries.forEach(([, childBranch]) => {
+  branchEntries.forEach(([, childBranch]) => {
     const childNodes = materializePathNodes(childBranch);
 
     nodes.push({
@@ -338,7 +334,7 @@ function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
     });
   });
 
-  const rootLeaves = sortSessionsByStartedAt(branch.leaves).map((session) => ({
+  const rootLeaves = branch.leaves.map((session) => ({
     kind: "leaf" as const,
     searchText: buildSearchText(session.host, session.path, session.url, session.method, session.responseMimeType ?? ""),
     segmentLabel: getSessionTreeLeafLabel(session),

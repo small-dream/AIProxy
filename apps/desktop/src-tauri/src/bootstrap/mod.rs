@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use tauri::async_runtime::JoinHandle;
+use tauri::{async_runtime::JoinHandle, Emitter};
 
 use crate::system_proxy::SystemProxySnapshot;
 use crate::workspace::WorkspaceManager;
@@ -147,29 +147,36 @@ impl AppState {
         }
     }
 
-    pub fn insert_session(&self, session_detail: ProxySessionDetail) {
+    pub fn upsert_session(&self, session_detail: ProxySessionDetail) {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
 
         self.session_details
             .lock()
             .expect("session detail mutex should not be poisoned")
-            .insert(session_id, session_detail);
+            .insert(session_id.clone(), session_detail.clone());
 
         let mut sessions = self
             .sessions
             .lock()
             .expect("session list mutex should not be poisoned");
 
-        sessions.insert(0, session_summary);
+        if let Some(existing_index) = sessions.iter().position(|session| session.id == session_id) {
+            sessions[existing_index] = session_summary;
+        } else {
+            sessions.push(session_summary);
+        }
 
         while sessions.len() > 500 {
-            if let Some(removed_session) = sessions.pop() {
-                self.session_details
-                    .lock()
-                    .expect("session detail mutex should not be poisoned")
-                    .remove(&removed_session.id);
-            }
+            let removed_session = sessions.remove(0);
+            self.session_details
+                .lock()
+                .expect("session detail mutex should not be poisoned")
+                .remove(&removed_session.id);
+        }
+
+        if let Some(handle) = self.read_app_handle() {
+            let _ = handle.emit("session-upsert", session_detail);
         }
     }
 

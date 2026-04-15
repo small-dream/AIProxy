@@ -1073,6 +1073,9 @@ async fn handle_connection(
         }
     }
 
+    let pending_detail = build_pending_session_detail(&request, started_at);
+    let _ = session_sender.send(pending_detail);
+
     match forward_request(&client, &request).await {
         Ok(mut upstream_response) => {
             // --- Response-stage breakpoint ---
@@ -1516,6 +1519,9 @@ async fn handle_connect_mitm(
         }
     }
 
+    let pending_detail = build_pending_session_detail(&https_request, started_at);
+    let _ = session_sender.send(pending_detail);
+
     // Forward upstream
     match forward_request(&client, &https_request).await {
         Ok(mut upstream_response) => {
@@ -1833,7 +1839,7 @@ fn build_session_detail(
     started_at_instant: Instant,
     timing: ProxyTimingBreakdown,
 ) -> ProxySessionDetail {
-    let id = Uuid::new_v4().to_string();
+    let id = request.request_id.clone();
     let response_header_entries = build_header_entries_from_map(response_headers);
     let summary = build_session_summary(
         id.clone(),
@@ -1889,6 +1895,53 @@ fn build_session_detail(
         server_ip: None,
         summary,
         timing: Some(timing),
+    }
+}
+
+fn build_pending_session_detail(
+    request: &ParsedProxyRequest,
+    started_at: DateTime<Utc>,
+) -> ProxySessionDetail {
+    let started_at_text = started_at.to_rfc3339();
+
+    ProxySessionDetail {
+        cookies: Vec::new(),
+        id: request.request_id.clone(),
+        query_params: request.query_params.clone(),
+        raw_request: Some(request.raw_request.clone()),
+        raw_response: None,
+        request_body: build_body_reference(
+            &request.body,
+            request.headers.get(CONTENT_TYPE),
+            request.headers.get(reqwest::header::CONTENT_ENCODING),
+        ),
+        request_headers: request.request_headers.clone(),
+        response_body: None,
+        response_headers: Vec::new(),
+        server_ip: None,
+        summary: ProxySessionSummary {
+            id: request.request_id.clone(),
+            method: request.method.to_string(),
+            host: request.host.clone(),
+            path: request.path.clone(),
+            protocol: request.protocol.clone(),
+            started_at: started_at_text.clone(),
+            finished_at: started_at_text,
+            duration_ms: 0,
+            size_bytes: 0,
+            status_code: 0,
+            url: request.url.to_string(),
+            response_mime_type: None,
+        },
+        timing: Some(ProxyTimingBreakdown {
+            connect_ms: None,
+            dns_ms: None,
+            request_send_ms: None,
+            response_read_ms: None,
+            tls_ms: None,
+            total_ms: Some(0),
+            waiting_ms: None,
+        }),
     }
 }
 
@@ -2398,10 +2451,15 @@ mod tests {
         });
 
         let proxy_port = allocate_unused_port();
-        let mut started_proxy = start_proxy_server(ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-        }, None)
+        let mut started_proxy = start_proxy_server(
+            ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+            },
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
 

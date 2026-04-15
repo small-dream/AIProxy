@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Box, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import {
   useCertificateStatus,

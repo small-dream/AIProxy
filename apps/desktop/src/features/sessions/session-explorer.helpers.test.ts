@@ -25,7 +25,7 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
 }
 
 describe("buildSessionHostGroups", () => {
-  it("groups sessions by host and keeps host groups in stable alphabetical order", () => {
+  it("groups sessions by host and keeps host groups in first-seen order", () => {
     const sessions = [
       createSessionSummary({
         host: "assets.example.com",
@@ -52,8 +52,8 @@ describe("buildSessionHostGroups", () => {
 
     const groups = buildSessionHostGroups(sessions, "");
 
-    expect(groups.map((group) => group.host)).toEqual(["api.example.com", "assets.example.com"]);
-    expect(groups[1]?.sessions.map((session) => session.id)).toEqual(["session-4", "session-2"]);
+    expect(groups.map((group) => group.host)).toEqual(["assets.example.com", "api.example.com"]);
+    expect(groups[0]?.sessions.map((session) => session.id)).toEqual(["session-2", "session-4"]);
   });
 
   it("filters sessions by keyword", () => {
@@ -173,8 +173,8 @@ describe("buildSessionHostGroups", () => {
             pathKey: "api/users",
             segmentLabel: "users",
             children: [
-              { kind: "leaf", segmentLabel: "detail", session: { id: "session-12" } },
               { kind: "leaf", segmentLabel: "list", session: { id: "session-11" } },
+              { kind: "leaf", segmentLabel: "detail", session: { id: "session-12" } },
             ],
           },
         ],
@@ -210,8 +210,8 @@ describe("buildSessionHostGroups", () => {
         pathKey: "api",
         segmentLabel: "api",
         children: [
-          { kind: "leaf", segmentLabel: "", session: { id: "session-15" } },
           { kind: "leaf", segmentLabel: "", session: { id: "session-14" } },
+          { kind: "leaf", segmentLabel: "", session: { id: "session-15" } },
         ],
       },
     ]);

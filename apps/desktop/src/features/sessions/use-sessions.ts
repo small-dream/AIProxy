@@ -4,6 +4,8 @@ import { listSessions } from "@/services/commands";
 
 const SESSIONS_QUERY_KEY = ["sessions"] as const;
 
+export { SESSIONS_QUERY_KEY };
+
 export function useSessions(pollingEnabled: boolean) {
   return useQuery({
     queryFn: listSessions,

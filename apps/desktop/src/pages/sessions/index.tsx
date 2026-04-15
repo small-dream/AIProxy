@@ -10,6 +10,7 @@ import { Button, OutlinedInput } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useClearSessions, useDeleteSessionsExcept, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
@@ -26,10 +27,11 @@ import {
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
 import { getBodyText } from "@/features/sessions/session-export.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
+import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { getSessionDetail, sendComposedRequest } from "@/services/commands";
+import { getSessionDetail } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
 const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
@@ -40,6 +42,7 @@ export function SessionsPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
+  const sendComposedRequestMutation = useSendComposedRequest();
   const { data: proxyStatus, error, isLoading } = useProxyStatus();
   const {
     data: sessions = [],
@@ -71,6 +74,8 @@ export function SessionsPage() {
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
+
+  useSessionEvents();
 
   // Filter out ignored hosts before grouping
   const filteredByIgnoreSessions = useMemo(() => {
@@ -282,7 +287,7 @@ export function SessionsPage() {
     if (!detail) return;
     const bodyText = detail.requestBody?.inlineText;
     try {
-      await sendComposedRequest({
+      await sendComposedRequestMutation.mutateAsync({
         workspaceId: "default",
         method: session.method,
         url: session.url,
@@ -292,7 +297,7 @@ export function SessionsPage() {
     } catch {
       // Silent fail — the new session will appear via polling
     }
-  }, [fetchDetailOnDemand]);
+  }, [fetchDetailOnDemand, sendComposedRequestMutation]);
 
   const handleExportSession = useCallback((session: SessionSummary) => {
     setSelectedSessionId(session.id);

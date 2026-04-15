@@ -4,6 +4,8 @@ import { getSessionDetail } from "@/services/commands";
 
 const SESSION_DETAIL_QUERY_KEY = "session-detail";
 
+export { SESSION_DETAIL_QUERY_KEY };
+
 export function useSessionDetail(sessionId: string | undefined) {
   return useQuery({
     enabled: Boolean(sessionId),
