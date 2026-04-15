@@ -312,6 +312,8 @@ export const zhCNMessages: Messages = {
       previewLineOne: "本地映射：{{source}} -> {{target}}",
       searchPlaceholder: "搜索本地映射",
       targetPath: "本地文件或目录",
+      pickFile: "选择文件",
+      pickFolder: "选择目录",
       title: "Map Local",
     },
     mapRemote: {

@@ -20,6 +20,7 @@
     "@pharles/ui-tokens": "workspace:*",
     "@tanstack/react-query": "^5.71.10",
     "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

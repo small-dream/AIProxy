@@ -23,6 +23,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_status,

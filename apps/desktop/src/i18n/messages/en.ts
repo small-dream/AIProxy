@@ -310,6 +310,8 @@ export const enMessages = {
       previewLineOne: "Local mapping: {{source}} -> {{target}}",
       searchPlaceholder: "Search local mappings",
       targetPath: "Local File or Folder",
+      pickFile: "Choose File",
+      pickFolder: "Choose Folder",
       title: "Map Local",
     },
     mapRemote: {
