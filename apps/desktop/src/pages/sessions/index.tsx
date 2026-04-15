@@ -11,9 +11,10 @@ import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo
 import { useNavigate } from "react-router-dom";
 
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
-import { useClearSessions, useDeleteSessionsExcept, useProxyStatus } from "@/features/proxy-status/use-proxy-status";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
+import { SessionContainerTabs } from "@/features/sessions/components/SessionContainerTabs";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
@@ -24,6 +25,19 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
+import {
+  clearActiveSessionContainer,
+  clearOtherSessionsInActiveContainer,
+  closeSessionContainer,
+  createAdditionalSessionContainer,
+  createInitialSessionContainerState,
+  getSessionContainerById,
+  removeSessionContainerSummary,
+  seedSessionContainers,
+  setActiveSessionContainer,
+  updateActiveSessionContainer,
+  upsertSessionContainerSummary,
+} from "@/features/sessions/session-containers.helpers";
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
 import { getBodyText } from "@/features/sessions/session-export.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
@@ -31,6 +45,7 @@ import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
+import { onSessionRemove, onSessionUpsert } from "@/services/events";
 import { getSessionDetail, setFocusedHost as syncFocusedHost } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
@@ -45,20 +60,24 @@ export function SessionsPage() {
   const sendComposedRequestMutation = useSendComposedRequest();
   const { error, isLoading } = useProxyStatus();
   const {
-    data: sessions = [],
+    data: runtimeSessions = [],
     error: sessionsError,
     isLoading: areSessionsLoading,
   } = useSessions();
-  const clearSessionsMutation = useClearSessions();
-  const deleteSessionsExceptMutation = useDeleteSessionsExcept();
   const dragFrameRef = useRef<number | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>();
-  const [searchValue, setSearchValue] = useState("");
-  const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
-  const [requestInspectorTab, setRequestInspectorTab] = useState<RequestInspectorTab>("headers");
-  const [responseInspectorTab, setResponseInspectorTab] = useState<ResponseInspectorTab>("overview");
-  const [requestCollapsed, setRequestCollapsed] = useState(false);
-  const [explorerWidth, setExplorerWidth] = useState(360);
+  const [containerState, setContainerState] = useState(() =>
+    createInitialSessionContainerState({
+      requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+      requestTab: "headers",
+      responseTab: "overview",
+    }),
+  );
+  const [explorerWidth, setExplorerWidth] = useState(() => {
+    const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
+    const parsedWidth = Number(savedWidth);
+
+    return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 360;
+  });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   // Context menu state
@@ -77,23 +96,35 @@ export function SessionsPage() {
 
   useSessionEvents();
 
+  const activeContainer =
+    getSessionContainerById(containerState, containerState.activeContainerId) ??
+    containerState.containers[0];
+
+  const activeSessions = useMemo(
+    () =>
+      (activeContainer?.sessionIds ?? [])
+        .map((sessionId) => containerState.sessionSummaryById[sessionId])
+        .filter((session): session is SessionSummary => Boolean(session)),
+    [activeContainer?.sessionIds, containerState.sessionSummaryById],
+  );
+
   // Filter out ignored hosts before grouping
   const filteredByIgnoreSessions = useMemo(() => {
-    if (ignoredHosts.size === 0) return sessions;
-    return sessions.filter((s) => !ignoredHosts.has(s.host));
-  }, [sessions, ignoredHosts]);
+    if (ignoredHosts.size === 0) return activeSessions;
+    return activeSessions.filter((s) => !ignoredHosts.has(s.host));
+  }, [activeSessions, ignoredHosts]);
 
   const hostGroups = useMemo(
-    () => buildSessionHostGroups(filteredByIgnoreSessions, searchValue, {
+    () => buildSessionHostGroups(filteredByIgnoreSessions, activeContainer?.searchValue ?? "", {
       focusedHost,
       unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
     }),
-    [filteredByIgnoreSessions, focusedHost, searchValue, t],
+    [activeContainer?.searchValue, filteredByIgnoreSessions, focusedHost, t],
   );
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
-    () => visibleSessions.find((session) => session.id === selectedSessionId),
-    [selectedSessionId, visibleSessions],
+    () => visibleSessions.find((session) => session.id === activeContainer?.selectedSessionId),
+    [activeContainer?.selectedSessionId, visibleSessions],
   );
   const selectedSessionIdValue = selectedSession?.id;
   const {
@@ -107,19 +138,35 @@ export function SessionsPage() {
   );
 
   useEffect(() => {
-    setExpandedHosts((currentHosts) => reconcileExpandedKeys(currentHosts, hostGroups));
-  }, [hostGroups]);
-
-  useEffect(() => {
-    const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
-    const parsedWidth = Number(savedWidth);
-    const savedRequestCollapsed = readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true";
-
-    if (Number.isFinite(parsedWidth)) {
-      setExplorerWidth(clampExplorerWidth(parsedWidth));
+    if (areSessionsLoading) {
+      return;
     }
 
-    setRequestCollapsed(savedRequestCollapsed);
+    setContainerState((currentState) =>
+      currentState.hydrated ? currentState : seedSessionContainers(currentState, runtimeSessions),
+    );
+  }, [areSessionsLoading, runtimeSessions]);
+
+  useEffect(() => {
+    const unlistenFns: Array<() => void> = [];
+
+    onSessionUpsert((detail) => {
+      setContainerState((currentState) => upsertSessionContainerSummary(currentState, detail.summary));
+    }).then((fn) => {
+      unlistenFns.push(fn);
+    });
+
+    onSessionRemove((sessionId) => {
+      setContainerState((currentState) => removeSessionContainerSummary(currentState, sessionId));
+    }).then((fn) => {
+      unlistenFns.push(fn);
+    });
+
+    return () => {
+      for (const fn of unlistenFns) {
+        fn();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -127,8 +174,8 @@ export function SessionsPage() {
   }, [explorerWidth]);
 
   useEffect(() => {
-    writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(requestCollapsed));
-  }, [requestCollapsed]);
+    writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(activeContainer?.requestCollapsed ?? false));
+  }, [activeContainer?.requestCollapsed]);
 
   useEffect(() => {
     if (focusedHost) {
@@ -155,15 +202,6 @@ export function SessionsPage() {
   }, [ignoredHosts]);
 
   useEffect(() => {
-    if (!clearSessionsMutation.isSuccess) {
-      return;
-    }
-
-    setSelectedSessionId(undefined);
-    setExpandedHosts([]);
-  }, [clearSessionsMutation.isSuccess]);
-
-  useEffect(() => {
     return () => {
       if (dragFrameRef.current) {
         window.cancelAnimationFrame(dragFrameRef.current);
@@ -183,9 +221,35 @@ export function SessionsPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    setContainerState((currentState) => {
+      const currentContainer = getSessionContainerById(currentState, currentState.activeContainerId);
+
+      if (!currentContainer) {
+        return currentState;
+      }
+
+      const nextExpandedHosts = reconcileExpandedKeys(currentContainer.expandedHosts, hostGroups);
+
+      if (areStringArraysEqual(nextExpandedHosts, currentContainer.expandedHosts)) {
+        return currentState;
+      }
+
+      return updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        expandedHosts: nextExpandedHosts,
+      }));
+    });
+  }, [hostGroups]);
+
   function toggleHost(host: string) {
-    setExpandedHosts((currentHosts) =>
-      currentHosts.includes(host) ? currentHosts.filter((currentHost) => currentHost !== host) : [...currentHosts, host],
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        expandedHosts: container.expandedHosts.includes(host)
+          ? container.expandedHosts.filter((currentHost) => currentHost !== host)
+          : [...container.expandedHosts, host],
+      })),
     );
   }
 
@@ -306,14 +370,18 @@ export function SessionsPage() {
   }, [fetchDetailOnDemand, sendComposedRequestMutation]);
 
   const handleExportSession = useCallback((session: SessionSummary) => {
-    setSelectedSessionId(session.id);
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        selectedSessionId: session.id,
+      })),
+    );
     setExportDialogOpen(true);
   }, []);
 
   const handleClearOthers = useCallback((session: SessionSummary) => {
-    deleteSessionsExceptMutation.mutate(session.id);
-    setSelectedSessionId(session.id);
-  }, [deleteSessionsExceptMutation]);
+    setContainerState((currentState) => clearOtherSessionsInActiveContainer(currentState, session.id));
+  }, []);
 
   const handleGoToBreakpoints = useCallback(() => {
     navigate("/rules");
@@ -362,6 +430,67 @@ export function SessionsPage() {
 
   // --- End context menu handlers ---
 
+  const handleAddContainer = useCallback(() => {
+    setContainerState((currentState) => createAdditionalSessionContainer(currentState));
+  }, []);
+
+  const handleSelectContainer = useCallback((containerId: string) => {
+    setContainerState((currentState) => setActiveSessionContainer(currentState, containerId));
+  }, []);
+
+  const handleCloseContainer = useCallback((containerId: string) => {
+    setContainerState((currentState) => closeSessionContainer(currentState, containerId));
+  }, []);
+
+  const handleSearchValueChange = useCallback((nextValue: string) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        searchValue: nextValue,
+      })),
+    );
+  }, []);
+
+  const handleSelectedSessionChange = useCallback((sessionId: string) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        selectedSessionId: sessionId,
+      })),
+    );
+  }, []);
+
+  const handleRequestTabChange = useCallback((tab: RequestInspectorTab) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        requestTab: tab,
+      })),
+    );
+  }, []);
+
+  const handleResponseTabChange = useCallback((tab: ResponseInspectorTab) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        responseTab: tab,
+      })),
+    );
+  }, []);
+
+  const handleRequestCollapsedChange = useCallback((collapsed: boolean) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        requestCollapsed: collapsed,
+      })),
+    );
+  }, []);
+
+  const handleClearActiveContainer = useCallback(() => {
+    setContainerState((currentState) => clearActiveSessionContainer(currentState));
+  }, []);
+
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
 
@@ -405,33 +534,44 @@ export function SessionsPage() {
 
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
+      <SessionContainerTabs
+        containers={containerState.containers.map((container) => ({
+          id: container.id,
+          isActive: container.id === containerState.activeContainerId,
+          labelNumber: container.labelNumber,
+        }))}
+        onAddContainer={handleAddContainer}
+        onCloseContainer={handleCloseContainer}
+        onSelectContainer={handleSelectContainer}
+      />
+
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
         <OutlinedInput
           fullWidth
-          onChange={(event) => setSearchValue(event.target.value)}
+          onChange={(event) => handleSearchValueChange(event.target.value)}
           placeholder={t("sessionExplorer.searchPlaceholder")}
           size="small"
           startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
           sx={{
             maxWidth: { md: `${explorerWidth}px` },
           }}
-          value={searchValue}
+          value={activeContainer?.searchValue ?? ""}
         />
         <Stack direction="row" spacing={1} alignItems="flex-start">
           <Button
             variant="outlined"
             size="small"
-            onClick={() => clearSessionsMutation.mutate()}
-            disabled={sessions.length === 0 || clearSessionsMutation.isPending}
+            onClick={handleClearActiveContainer}
+            disabled={activeSessions.length === 0}
           >
-            {t("common.actions.clearSessions")}
+            {t("sessionsPage.containers.clearCurrent")}
           </Button>
           <Button
             variant="outlined"
             size="small"
             startIcon={<DownloadRoundedIcon />}
             onClick={() => setExportDialogOpen(true)}
-            disabled={sessions.length === 0}
+            disabled={activeSessions.length === 0}
           >
             {t("sessionsPage.export")}
           </Button>
@@ -458,12 +598,12 @@ export function SessionsPage() {
       >
         <SessionExplorerPane
           errorMessage={sessionsError ? sessionsErrorMessage : undefined}
-          expandedHosts={expandedHosts}
+          expandedHosts={activeContainer?.expandedHosts ?? []}
           groups={hostGroups}
           isLoading={isLoading || areSessionsLoading}
           onContextMenuHost={handleHostContextMenu}
           onContextMenuSession={handleContextMenu}
-          onSelectSession={setSelectedSessionId}
+          onSelectSession={handleSelectedSessionChange}
           onToggleHost={toggleHost}
           selectedSessionId={selectedSessionIdValue}
         />
@@ -508,19 +648,19 @@ export function SessionsPage() {
           inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
           isDetailLoading={isSessionDetailLoading}
           onRepeat={selectedSession ? handleRepeat : undefined}
-          onRequestCollapsedChange={setRequestCollapsed}
-          onRequestTabChange={setRequestInspectorTab}
-          onResponseTabChange={setResponseInspectorTab}
-          requestCollapsed={requestCollapsed}
-          requestTab={requestInspectorTab}
-          responseTab={responseInspectorTab}
+          onRequestCollapsedChange={handleRequestCollapsedChange}
+          onRequestTabChange={handleRequestTabChange}
+          onResponseTabChange={handleResponseTabChange}
+          requestCollapsed={activeContainer?.requestCollapsed ?? false}
+          requestTab={activeContainer?.requestTab ?? "headers"}
+          responseTab={activeContainer?.responseTab ?? "overview"}
           selectedSessionDetail={selectedSessionDetail}
           selectedSession={selectedSession}
         />
       </Box>
 
       <SessionExportDialog
-        allSessions={sessions}
+        allSessions={activeSessions}
         filteredSessions={visibleSessions}
         onClose={() => setExportDialogOpen(false)}
         open={exportDialogOpen}
@@ -571,6 +711,14 @@ export function SessionsPage() {
       />
     </Stack>
   );
+}
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
 }
 
 function getOperationErrorMessage(error: unknown, fallbackMessage: string): string {

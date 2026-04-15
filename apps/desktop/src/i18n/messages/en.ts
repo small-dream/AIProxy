@@ -479,6 +479,14 @@ export const enMessages = {
     title: "Certificates",
   },
   sessionsPage: {
+    containers: {
+      add: "New Session Container",
+      clearCurrent: "Clear Current Container",
+      close: "Close Session Container",
+      live: "Live",
+      sessionCount: "{{count}} captured requests",
+      sessionTitle: "Session {{index}}",
+    },
     description: "Inspect captured traffic, keep the current filter context, and export exactly the slice you need.",
     detailLoadError: "Unable to load the selected session detail from the desktop runtime.",
     export: "Export",

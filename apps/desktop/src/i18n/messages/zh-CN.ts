@@ -481,6 +481,14 @@ export const zhCNMessages: Messages = {
     title: "证书",
   },
   sessionsPage: {
+    containers: {
+      add: "新建会话容器",
+      clearCurrent: "清空当前容器",
+      close: "关闭会话容器",
+      live: "录制中",
+      sessionCount: "{{count}} 条已捕获请求",
+      sessionTitle: "会话 {{index}}",
+    },
     description: "查看抓到的流量，保留当前筛选上下文，并把需要的那一段会话直接导出去。",
     detailLoadError: "无法从桌面运行时加载当前选中会话的详情。",
     export: "导出",
