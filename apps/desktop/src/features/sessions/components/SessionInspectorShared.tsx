@@ -457,7 +457,21 @@ function VirtualizedSearchableCodeBlock({
   searchQuery: string;
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
 }) {
-  const lines = useMemo(() => code.split(/\r?\n/), [code]);
+  const MAX_LINE_CHARS = 500;
+  const lines = useMemo(() => {
+    const rawLines = code.split(/\r?\n/);
+    const result: string[] = [];
+    for (const line of rawLines) {
+      if (line.length <= MAX_LINE_CHARS) {
+        result.push(line);
+      } else {
+        for (let i = 0; i < line.length; i += MAX_LINE_CHARS) {
+          result.push(line.slice(i, i + MAX_LINE_CHARS));
+        }
+      }
+    }
+    return result;
+  }, [code]);
   const lineHeight = language === "json" ? 22 : 20;
   const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);

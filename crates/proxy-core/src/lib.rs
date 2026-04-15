@@ -1079,7 +1079,7 @@ async fn handle_connection(
     match forward_request(&client, &request).await {
         Ok(mut upstream_response) => {
             // --- Response-stage breakpoint ---
-            if let Some(resolution) = intercept_response_stage(
+            let breakpoint_resolution = match intercept_response_stage(
                 &breakpoint_manager,
                 &event_emitter,
                 &request,
@@ -1087,10 +1087,53 @@ async fn handle_connection(
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
             )
-            .await?
+            .await
             {
+                Ok(resolution) => resolution,
+                Err(error) => {
+                    let detail = build_session_detail(
+                        &request,
+                        upstream_response.status_code.as_u16(),
+                        &upstream_response.response_headers,
+                        &upstream_response.response_body,
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: Some(0),
+                            response_read_ms: Some(upstream_response.response_read_ms),
+                            tls_ms: None,
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(upstream_response.waiting_ms),
+                        },
+                    );
+                    let _ = session_sender.send(detail);
+                    return Err(error);
+                }
+            };
+
+            if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
+                        let detail = build_session_detail(
+                            &request,
+                            upstream_response.status_code.as_u16(),
+                            &upstream_response.response_headers,
+                            &upstream_response.response_body,
+                            started_at,
+                            started_at_instant,
+                            ProxyTimingBreakdown {
+                                connect_ms: None,
+                                dns_ms: None,
+                                request_send_ms: Some(0),
+                                response_read_ms: Some(upstream_response.response_read_ms),
+                                tls_ms: None,
+                                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(upstream_response.waiting_ms),
+                            },
+                        );
+                        let _ = session_sender.send(detail);
                         let _ = stream.shutdown().await;
                         return Ok(());
                     }
@@ -1105,13 +1148,34 @@ async fn handle_connection(
                 }
             }
 
-            write_upstream_response(
+            if let Err(error) = write_upstream_response(
                 &mut stream,
                 upstream_response.status_code,
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
             )
-                .await?;
+            .await
+            {
+                let detail = build_session_detail(
+                    &request,
+                    upstream_response.status_code.as_u16(),
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                    started_at,
+                    started_at_instant,
+                    ProxyTimingBreakdown {
+                        connect_ms: None,
+                        dns_ms: None,
+                        request_send_ms: Some(0),
+                        response_read_ms: Some(upstream_response.response_read_ms),
+                        tls_ms: None,
+                        total_ms: Some(started_at_instant.elapsed().as_millis()),
+                        waiting_ms: Some(upstream_response.waiting_ms),
+                    },
+                );
+                let _ = session_sender.send(detail);
+                return Err(error);
+            }
 
             let detail = build_session_detail(
                 &request,
@@ -1526,7 +1590,7 @@ async fn handle_connect_mitm(
     match forward_request(&client, &https_request).await {
         Ok(mut upstream_response) => {
             // --- Response-stage breakpoint (HTTPS) ---
-            if let Some(resolution) = intercept_response_stage(
+            let breakpoint_resolution = match intercept_response_stage(
                 &breakpoint_manager,
                 &event_emitter,
                 &https_request,
@@ -1534,10 +1598,53 @@ async fn handle_connect_mitm(
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
             )
-            .await?
+            .await
             {
+                Ok(resolution) => resolution,
+                Err(error) => {
+                    let detail = build_session_detail(
+                        &https_request,
+                        upstream_response.status_code.as_u16(),
+                        &upstream_response.response_headers,
+                        &upstream_response.response_body,
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: Some(0),
+                            response_read_ms: Some(upstream_response.response_read_ms),
+                            tls_ms: Some(tls_ms),
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(upstream_response.waiting_ms),
+                        },
+                    );
+                    let _ = session_sender.send(detail);
+                    return Err(error);
+                }
+            };
+
+            if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
+                        let detail = build_session_detail(
+                            &https_request,
+                            upstream_response.status_code.as_u16(),
+                            &upstream_response.response_headers,
+                            &upstream_response.response_body,
+                            started_at,
+                            started_at_instant,
+                            ProxyTimingBreakdown {
+                                connect_ms: None,
+                                dns_ms: None,
+                                request_send_ms: Some(0),
+                                response_read_ms: Some(upstream_response.response_read_ms),
+                                tls_ms: Some(tls_ms),
+                                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(upstream_response.waiting_ms),
+                            },
+                        );
+                        let _ = session_sender.send(detail);
                         let _ = tls_stream.shutdown().await;
                         return Ok(());
                     }
@@ -1552,13 +1659,34 @@ async fn handle_connect_mitm(
                 }
             }
 
-            write_upstream_response(
+            if let Err(error) = write_upstream_response(
                 &mut tls_stream,
                 upstream_response.status_code,
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
             )
-                .await?;
+            .await
+            {
+                let detail = build_session_detail(
+                    &https_request,
+                    upstream_response.status_code.as_u16(),
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                    started_at,
+                    started_at_instant,
+                    ProxyTimingBreakdown {
+                        connect_ms: None,
+                        dns_ms: None,
+                        request_send_ms: Some(0),
+                        response_read_ms: Some(upstream_response.response_read_ms),
+                        tls_ms: Some(tls_ms),
+                        total_ms: Some(started_at_instant.elapsed().as_millis()),
+                        waiting_ms: Some(upstream_response.waiting_ms),
+                    },
+                );
+                let _ = session_sender.send(detail);
+                return Err(error);
+            }
 
             let detail = build_session_detail(
                 &https_request,

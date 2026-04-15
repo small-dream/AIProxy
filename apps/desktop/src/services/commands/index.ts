@@ -215,6 +215,24 @@ export async function deleteSessionsExcept(keepSessionId: string): Promise<void>
   }
 }
 
+export async function setFocusedHost(host: string | null): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "set_focused_host_bypassed_non_tauri_runtime", { host });
+    return;
+  }
+
+  try {
+    logDevDebug("ui.commands", "set_focused_host_requested", { host });
+    await invoke("set_focused_host", {
+      input: { host },
+    });
+    logDevDebug("ui.commands", "set_focused_host_succeeded", { host });
+  } catch (error) {
+    reportCommandFailure("set_focused_host", error);
+    throw coerceAppError(error);
+  }
+}
+
 export async function enableSystemProxy(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "enable_system_proxy_bypassed_non_tauri_runtime");

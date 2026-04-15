@@ -674,6 +674,11 @@ export const enMessages = {
       },
     },
     response: {
+      actions: {
+        closeSearch: "Close search",
+        copyContent: "Copy content",
+        openSearch: "Search",
+      },
       emptyHeaders: "No response headers captured.",
       jsonSearchPlaceholder: "Search JSON tree",
       jsonTextSearchPlaceholder: "Search JSON text",

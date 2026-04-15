@@ -64,6 +64,7 @@ pub struct AppState {
     throttle_manager: Arc<ThrottleManager>,
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
+    focused_host: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -82,6 +83,7 @@ impl AppState {
             throttle_manager: Arc::new(ThrottleManager::new()),
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
+            focused_host: Mutex::new(None),
         }
     }
 
@@ -142,8 +144,14 @@ impl AppState {
             .lock()
             .expect("session detail mutex should not be poisoned");
 
-        for id in ids_to_remove {
-            details.remove(&id);
+        for id in &ids_to_remove {
+            details.remove(id);
+        }
+
+        if let Some(handle) = self.read_app_handle() {
+            for id in &ids_to_remove {
+                let _ = handle.emit("session-remove", id);
+            }
         }
     }
 
@@ -167,12 +175,21 @@ impl AppState {
             sessions.push(session_summary);
         }
 
-        while sessions.len() > 500 {
-            let removed_session = sessions.remove(0);
+        let focused_host = self.read_focused_host();
+
+        while sessions.len() > 15_000 {
+            let eviction_index = select_session_eviction_index(
+                &sessions,
+                focused_host.as_deref(),
+            );
+            let removed_session = sessions.remove(eviction_index);
             self.session_details
                 .lock()
                 .expect("session detail mutex should not be poisoned")
                 .remove(&removed_session.id);
+            if let Some(handle) = self.read_app_handle() {
+                let _ = handle.emit("session-remove", &removed_session.id);
+            }
         }
 
         if let Some(handle) = self.read_app_handle() {
@@ -321,5 +338,105 @@ impl AppState {
             .lock()
             .expect("app_handle mutex should not be poisoned")
             .clone()
+    }
+
+    pub fn set_focused_host(&self, host: Option<String>) {
+        let mut focused = self
+            .focused_host
+            .lock()
+            .expect("focused_host mutex should not be poisoned");
+        *focused = normalize_optional_host(host);
+    }
+
+    pub fn read_focused_host(&self) -> Option<String> {
+        self.focused_host
+            .lock()
+            .expect("focused_host mutex should not be poisoned")
+            .clone()
+    }
+}
+
+fn normalize_optional_host(host: Option<String>) -> Option<String> {
+    host.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn select_session_eviction_index(
+    sessions: &[ProxySessionSummary],
+    focused_host: Option<&str>,
+) -> usize {
+    let Some(focused_host) = focused_host else {
+        return 0;
+    };
+
+    sessions
+        .iter()
+        .position(|session| session.host != focused_host)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_session_eviction_index;
+    use pharles_proxy_core::ProxySessionSummary;
+
+    #[test]
+    fn evicts_oldest_unfocused_session_before_focused_one() {
+        let sessions = vec![
+            build_summary("1", "api.example.com"),
+            build_summary("2", "static.example.com"),
+            build_summary("3", "api.example.com"),
+        ];
+
+        assert_eq!(
+            select_session_eviction_index(&sessions, Some("api.example.com")),
+            1
+        );
+    }
+
+    #[test]
+    fn falls_back_to_oldest_session_when_all_hosts_are_focused() {
+        let sessions = vec![
+            build_summary("1", "api.example.com"),
+            build_summary("2", "api.example.com"),
+        ];
+
+        assert_eq!(
+            select_session_eviction_index(&sessions, Some("api.example.com")),
+            0
+        );
+    }
+
+    #[test]
+    fn falls_back_to_oldest_session_when_no_focus_exists() {
+        let sessions = vec![
+            build_summary("1", "api.example.com"),
+            build_summary("2", "static.example.com"),
+        ];
+
+        assert_eq!(select_session_eviction_index(&sessions, None), 0);
+    }
+
+    fn build_summary(id: &str, host: &str) -> ProxySessionSummary {
+        ProxySessionSummary {
+            id: id.to_string(),
+            method: "GET".to_string(),
+            host: host.to_string(),
+            path: "/".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            started_at: "2026-04-15T00:00:00Z".to_string(),
+            finished_at: "2026-04-15T00:00:01Z".to_string(),
+            duration_ms: 1,
+            size_bytes: 1,
+            status_code: 200,
+            url: format!("https://{host}/"),
+            response_mime_type: Some("application/json".to_string()),
+        }
     }
 }

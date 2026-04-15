@@ -676,6 +676,11 @@ export const zhCNMessages: Messages = {
       },
     },
     response: {
+      actions: {
+        closeSearch: "关闭搜索",
+        copyContent: "复制内容",
+        openSearch: "搜索",
+      },
       emptyHeaders: "没有捕获到响应头。",
       jsonSearchPlaceholder: "搜索 JSON 树",
       jsonTextSearchPlaceholder: "搜索 JSON 文本",

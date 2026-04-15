@@ -65,7 +65,6 @@ export function useSendComposedRequest() {
       }
 
       queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, detail.id], detail);
-      queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
   });
 }

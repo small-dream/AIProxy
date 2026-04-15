@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { SessionSummary } from "@pharles/shared-types";
 import { useEffect } from "react";
 
-import { onSessionUpsert } from "@/services/events";
-import { upsertSessionSummary } from "./session-cache.helpers";
+import { onSessionRemove, onSessionUpsert } from "@/services/events";
+import { removeSessionSummary, upsertSessionSummary } from "./session-cache.helpers";
 import { SESSION_DETAIL_QUERY_KEY } from "./use-session-detail";
 import { SESSIONS_QUERY_KEY } from "./use-sessions";
 
@@ -11,7 +11,7 @@ export function useSessionEvents() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlistenFns: (() => void)[] = [];
 
     onSessionUpsert((detail) => {
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
@@ -19,11 +19,22 @@ export function useSessionEvents() {
       );
       queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, detail.id], detail);
     }).then((fn) => {
-      unlisten = fn;
+      unlistenFns.push(fn);
+    });
+
+    onSessionRemove((sessionId) => {
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+        removeSessionSummary(currentSessions, sessionId),
+      );
+      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, sessionId] });
+    }).then((fn) => {
+      unlistenFns.push(fn);
     });
 
     return () => {
-      unlisten?.();
+      for (const fn of unlistenFns) {
+        fn();
+      }
     };
   }, [queryClient]);
 }

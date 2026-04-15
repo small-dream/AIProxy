@@ -41,3 +41,15 @@ export function onSessionUpsert(callback: (detail: SessionDetail) => void): Prom
     }
   });
 }
+
+export function onSessionRemove(callback: (sessionId: string) => void): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<string>("session-remove", (event) => {
+    if (typeof event.payload === "string" && event.payload.length > 0) {
+      callback(event.payload);
+    }
+  });
+}

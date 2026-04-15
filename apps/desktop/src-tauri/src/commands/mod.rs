@@ -75,12 +75,26 @@ pub struct DeleteSessionsExceptInput {
     pub keep_session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFocusedHostInput {
+    pub host: Option<String>,
+}
+
 #[tauri::command]
 pub fn delete_sessions_except(
     input: DeleteSessionsExceptInput,
     state: State<'_, Arc<AppState>>,
 ) {
     state.delete_sessions_except(&input.keep_session_id);
+}
+
+#[tauri::command]
+pub fn set_focused_host(
+    input: SetFocusedHostInput,
+    state: State<'_, Arc<AppState>>,
+) {
+    state.set_focused_host(input.host);
 }
 
 #[derive(Debug, Deserialize)]

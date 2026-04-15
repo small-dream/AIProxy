@@ -79,12 +79,12 @@ function SessionInspectorWorkspace({
   }, [detail?.responseBody, responseBodyText, responseTab, t]);
 
   const responseJsonDisplayText = useMemo(() => {
-    if (responseTab !== "jsonText" || responseJsonResult.status !== "success") {
+    if (responseJsonResult.status !== "success") {
       return undefined;
     }
 
     return formatJsonText(responseJsonResult.value);
-  }, [responseJsonResult, responseTab]);
+  }, [responseJsonResult]);
 
   const requestBodyDisplayText = useMemo(() => {
     if (!requestBodyText) {

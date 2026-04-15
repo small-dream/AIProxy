@@ -6,10 +6,9 @@ const SESSIONS_QUERY_KEY = ["sessions"] as const;
 
 export { SESSIONS_QUERY_KEY };
 
-export function useSessions(pollingEnabled: boolean) {
+export function useSessions() {
   return useQuery({
     queryFn: listSessions,
     queryKey: SESSIONS_QUERY_KEY,
-    refetchInterval: pollingEnabled ? 1_000 : false,
   });
 }

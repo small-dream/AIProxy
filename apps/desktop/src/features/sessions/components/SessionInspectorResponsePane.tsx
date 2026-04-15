@@ -1,6 +1,8 @@
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Alert, Box, Chip, Divider, IconButton, OutlinedInput, Popover, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -39,23 +41,41 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 }, ref) {
   const { t } = useI18n();
   const [searchValue, setSearchValue] = useState("");
+  const [searchAnchorEl, setSearchAnchorEl] = useState<HTMLElement | null>(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const showSearch = SEARCHABLE_TABS.has(responseTab);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const isSearchable = SEARCHABLE_TABS.has(responseTab);
+  const searchPopoverOpen = Boolean(searchAnchorEl);
 
   useEffect(() => {
     setSearchValue("");
+    setSearchAnchorEl(null);
+    setSnackbarOpen(false);
   }, [session.id]);
 
   useEffect(() => {
-    if (!showSearch) {
+    if (!isSearchable) {
       setSearchValue("");
+      setSearchAnchorEl(null);
     }
-  }, [showSearch]);
+  }, [isSearchable]);
+
+  const openSearchPopover = useCallback((anchor: HTMLElement | null) => {
+    if (!isSearchable || !anchor) return;
+    setSearchAnchorEl(anchor);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, [isSearchable]);
+
+  const closeSearchPopover = useCallback(() => {
+    setSearchAnchorEl(null);
+    setSearchValue("");
+  }, []);
 
   const activateSearch = useCallback(() => {
-    if (!SEARCHABLE_TABS.has(responseTab)) return;
-    setTimeout(() => searchInputRef.current?.focus(), 0);
-  }, [responseTab]);
+    if (!isSearchable) return;
+    openSearchPopover(searchButtonRef.current);
+  }, [isSearchable, openSearchPopover]);
 
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
@@ -64,6 +84,27 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     responseTab === "jsonText" ? t("inspector.response.jsonTextSearchPlaceholder") :
     responseTab === "raw" ? t("inspector.response.rawSearchPlaceholder") :
     t("inspector.response.rawSearchPlaceholder");
+  const copyValue = useMemo(() => {
+    if (responseTab === "json" || responseTab === "jsonText") {
+      return responseJsonDisplayText ?? getBodyText(detail?.responseBody) ?? "";
+    }
+
+    if (responseTab === "raw") {
+      return detail?.rawResponse ?? "";
+    }
+
+    if (responseTab === "text") {
+      return getBodyText(detail?.responseBody) ?? "";
+    }
+
+    return "";
+  }, [detail?.rawResponse, detail?.responseBody, responseJsonDisplayText, responseTab]);
+
+  const handleCopy = useCallback(async () => {
+    if (!copyValue) return;
+    await navigator.clipboard?.writeText(copyValue);
+    setSnackbarOpen(true);
+  }, [copyValue]);
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
@@ -73,20 +114,59 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
       <Divider />
 
-      <Tabs
-        onChange={(_event, nextTab) => onResponseTabChange(nextTab as ResponseInspectorTab)}
-        scrollButtons="auto"
-        sx={{ bgcolor: "background.paper", minHeight: 32, px: 0.5 }}
-        value={responseTab}
-        variant="scrollable"
-      >
-        <Tab label={t("inspector.response.tabs.overview")} value="overview" />
-        <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
-        <Tab label={t("inspector.response.tabs.text")} value="text" />
-        <Tab label={t("inspector.response.tabs.json")} value="json" />
-        <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
-        <Tab label={t("inspector.response.tabs.raw")} value="raw" />
-      </Tabs>
+      <Box sx={{ alignItems: "center", bgcolor: "background.paper", display: "flex", minHeight: 32, pr: 0.5 }}>
+        <Tabs
+          onChange={(_event, nextTab) => onResponseTabChange(nextTab as ResponseInspectorTab)}
+          scrollButtons="auto"
+          sx={{ flex: 1, minHeight: 32, minWidth: 0, px: 0.5 }}
+          value={responseTab}
+          variant="scrollable"
+        >
+          <Tab label={t("inspector.response.tabs.overview")} value="overview" />
+          <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
+          <Tab label={t("inspector.response.tabs.text")} value="text" />
+          <Tab label={t("inspector.response.tabs.json")} value="json" />
+          <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
+          <Tab label={t("inspector.response.tabs.raw")} value="raw" />
+        </Tabs>
+
+        {isSearchable ? (
+          <Stack alignItems="center" direction="row" spacing={0.25}>
+            <Tooltip arrow title={searchPopoverOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
+              <IconButton
+                aria-label={searchPopoverOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
+                onClick={(event) => {
+                  if (searchPopoverOpen) {
+                    closeSearchPopover();
+                    return;
+                  }
+                  openSearchPopover(event.currentTarget);
+                }}
+                ref={searchButtonRef}
+                size="small"
+                sx={{ p: 0.75 }}
+              >
+                <SearchRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip arrow title={t("inspector.response.actions.copyContent")}>
+              <span>
+                <IconButton
+                  aria-label={t("inspector.response.actions.copyContent")}
+                  disabled={!copyValue}
+                  onClick={() => {
+                    void handleCopy();
+                  }}
+                  size="small"
+                  sx={{ p: 0.75 }}
+                >
+                  <ContentCopyRoundedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+        ) : null}
+      </Box>
 
       <Divider />
 
@@ -96,27 +176,65 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={responseTab}
-          searchValue={searchValue}
+          searchValue={searchPopoverOpen ? searchValue : ""}
           session={session}
         />
       </Box>
 
-      {showSearch ? (
-        <>
-          <Divider />
-          <Box sx={{ p: 1.5 }}>
-            <OutlinedInput
-              fullWidth
-              inputRef={searchInputRef}
-              onChange={(event) => setSearchValue(event.target.value)}
-              placeholder={searchPlaceholder}
+      <Popover
+        anchorEl={searchAnchorEl}
+        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+        onClose={closeSearchPopover}
+        open={searchPopoverOpen}
+        slotProps={{
+          paper: {
+            sx: {
+              border: 1,
+              borderColor: "divider",
+              boxShadow: 8,
+              mt: 0.75,
+              overflow: "hidden",
+            },
+          },
+        }}
+        transformOrigin={{ horizontal: "right", vertical: "top" }}
+      >
+        <Stack alignItems="center" direction="row" spacing={1} sx={{ p: 1 }}>
+          <OutlinedInput
+            autoFocus
+            inputRef={searchInputRef}
+            onChange={(event) => setSearchValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeSearchPopover();
+              }
+            }}
+            placeholder={searchPlaceholder}
+            size="small"
+            startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
+            sx={{ minWidth: 280 }}
+            value={searchValue}
+          />
+          <Tooltip arrow title={t("inspector.response.actions.closeSearch")}>
+            <IconButton
+              aria-label={t("inspector.response.actions.closeSearch")}
+              onClick={closeSearchPopover}
               size="small"
-              startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-              value={searchValue}
-            />
-          </Box>
-        </>
-      ) : null}
+              sx={{ p: 0.75 }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </Popover>
+
+      <Snackbar
+        autoHideDuration={1800}
+        message={t("contextMenu.copiedToClipboard")}
+        onClose={() => setSnackbarOpen(false)}
+        open={snackbarOpen}
+      />
     </Stack>
   );
 });

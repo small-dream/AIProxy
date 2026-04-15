@@ -31,7 +31,7 @@ import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { getSessionDetail } from "@/services/commands";
+import { getSessionDetail, setFocusedHost as syncFocusedHost } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
 const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
@@ -43,12 +43,12 @@ export function SessionsPage() {
   const navigate = useNavigate();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const sendComposedRequestMutation = useSendComposedRequest();
-  const { data: proxyStatus, error, isLoading } = useProxyStatus();
+  const { error, isLoading } = useProxyStatus();
   const {
     data: sessions = [],
     error: sessionsError,
     isLoading: areSessionsLoading,
-  } = useSessions(proxyStatus?.running ?? false);
+  } = useSessions();
   const clearSessionsMutation = useClearSessions();
   const deleteSessionsExceptMutation = useDeleteSessionsExcept();
   const dragFrameRef = useRef<number | null>(null);
@@ -137,6 +137,12 @@ export function SessionsPage() {
     }
 
     removeStorageValue(FOCUSED_HOST_STORAGE_KEY);
+  }, [focusedHost]);
+
+  useEffect(() => {
+    void syncFocusedHost(focusedHost).catch(() => {
+      // Session focus is a best-effort optimization for Rust-side eviction.
+    });
   }, [focusedHost]);
 
   useEffect(() => {
