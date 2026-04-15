@@ -1,7 +1,7 @@
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, Button, Chip, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
@@ -10,7 +10,6 @@ import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, S
 import {
   buildCountTabLabel,
   describeBody,
-  getMethodColor,
   type RequestInspectorTab,
 } from "./session-inspector.helpers";
 
@@ -92,7 +91,6 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
             value={requestTab}
             variant="scrollable"
           >
-            <Tab label={t("inspector.request.tabs.overview")} value="overview" />
             <Tab label={buildCountTabLabel(t("inspector.request.tabs.query"), detail?.queryParams.length ?? 0)} value="query" />
             <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
             <Tab label={t("inspector.request.tabs.body")} value="body" />
@@ -111,7 +109,6 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
             requestFormEntries={requestFormEntries}
             requestTab={requestTab}
             searchQuery={showSearch ? searchValue : ""}
-            session={session}
           />
         </Box>
       )}
@@ -142,14 +139,12 @@ function RequestTabContent({
   requestFormEntries,
   requestTab,
   searchQuery,
-  session,
 }: {
   detail: SessionDetail | undefined;
   requestBodyDisplayText: string;
   requestFormEntries: Array<[string, string]>;
   requestTab: RequestInspectorTab;
   searchQuery: string;
-  session: SessionSummary;
 }) {
   const { t } = useI18n();
   const bodyDescription = describeBody(detail?.requestBody, {
@@ -157,36 +152,6 @@ function RequestTabContent({
     truncatedPreviewLabel: t("common.tech.truncatedPreview"),
     unknownMimeTypeLabel: t("common.tech.unknownMimeType"),
   });
-
-  if (requestTab === "overview") {
-    return (
-      <InspectorScrollArea>
-        <Stack spacing={2}>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-            <Chip color={getMethodColor(session.method)} label={session.method} size="small" />
-          </Stack>
-          <InspectorDefinitionList
-            items={[
-              [t("common.labels.host"), session.host],
-              [t("common.labels.path"), session.path || "/"],
-              [t("common.labels.protocol"), session.protocol],
-              [t("common.labels.url"), session.url],
-              [t("common.labels.started"), session.startedAt],
-              [t("common.labels.finished"), session.finishedAt],
-              [t("common.labels.body"), bodyDescription ?? t("inspector.request.noBodyCaptured")],
-            ]}
-          />
-          <Stack spacing={1}>
-            <Typography variant="subtitle2">{t("inspector.cookies")}</Typography>
-            <InspectorDefinitionList
-              emptyMessage={t("inspector.request.cookiesEmpty")}
-              items={detail?.cookies.map((entry) => [entry.name, entry.value]) ?? []}
-            />
-          </Stack>
-        </Stack>
-      </InspectorScrollArea>
-    );
-  }
 
   if (requestTab === "query") {
     return (

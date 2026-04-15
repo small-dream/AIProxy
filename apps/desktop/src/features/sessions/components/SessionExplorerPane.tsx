@@ -48,6 +48,13 @@ type SessionExplorerPaneProps = {
   selectedSessionId: string | undefined;
 };
 
+const sessionTreeTextSx = {
+  color: "text.primary",
+  fontSize: 13,
+  fontWeight: 400,
+  lineHeight: 1.35,
+} as const;
+
 export function SessionExplorerPane({
   errorMessage,
   expandedHosts,
@@ -208,12 +215,11 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
       onContextMenu={onContextMenu}
       sx={(theme) => ({
         borderRadius: 1.5,
-        backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
         minHeight: 28,
         minWidth: "100%",
         px: 1.25,
         py: 0.375,
-        transition: "background-color 1800ms ease, box-shadow 140ms ease",
+        transition: "box-shadow 140ms ease",
         width: "100%",
         "&:hover": {
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
@@ -221,9 +227,21 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
       })}
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
-      <Typography noWrap sx={{ ml: 0.5 }} variant="body2">
-        {group.label}
-      </Typography>
+      <Box
+        component="span"
+        sx={(theme) => ({
+          backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
+          display: "inline-flex",
+          marginLeft: 0.5,
+          maxWidth: "calc(100% - 24px)",
+          minWidth: 0,
+          transition: "background-color 1800ms ease",
+        })}
+      >
+        <Typography noWrap sx={sessionTreeTextSx} variant="body2">
+          {group.label}
+        </Typography>
+      </Box>
     </ListItemButton>
   );
 }
@@ -315,11 +333,7 @@ function SessionTreeNode({
         </Box>
         <Typography
           noWrap
-          sx={{
-            color: "text.primary",
-            fontSize: 13,
-            lineHeight: 1.35,
-          }}
+          sx={sessionTreeTextSx}
           variant="body2"
         >
           {node.segmentLabel}
@@ -411,9 +425,8 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
           {showLeafLabel ? (
             <Typography
               sx={{
+                ...sessionTreeTextSx,
                 flex: "0 0 auto",
-                fontSize: 13,
-                lineHeight: 1.35,
                 whiteSpace: "nowrap",
               }}
               variant="body2"
@@ -424,12 +437,8 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
           {querySuffix ? (
             <Typography
               sx={{
-                color: "text.primary",
+                ...sessionTreeTextSx,
                 flex: "0 0 auto",
-                fontSize: 13,
-                fontWeight: 500,
-                lineHeight: 1.35,
-                opacity: 0.88,
                 whiteSpace: "nowrap",
               }}
               variant="body2"

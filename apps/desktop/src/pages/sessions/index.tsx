@@ -52,7 +52,7 @@ export function SessionsPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [searchValue, setSearchValue] = useState("");
   const [expandedHosts, setExpandedHosts] = useState<string[]>([]);
-  const [requestInspectorTab, setRequestInspectorTab] = useState<RequestInspectorTab>("overview");
+  const [requestInspectorTab, setRequestInspectorTab] = useState<RequestInspectorTab>("headers");
   const [responseInspectorTab, setResponseInspectorTab] = useState<ResponseInspectorTab>("overview");
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [explorerWidth, setExplorerWidth] = useState(360);

@@ -1,7 +1,7 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
-import { Box, Button, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
@@ -53,28 +53,28 @@ export function InspectorSummaryBar({
         <Stack alignItems="center" direction="row" spacing={0.5}>
           {onRepeat ? (
             <Tooltip arrow title={t("inspector.summary.repeatInCompose")}>
-              <Button
+              <IconButton
+                aria-label={t("common.actions.repeat")}
                 onClick={onRepeat}
                 size="small"
-                startIcon={<ReplayRoundedIcon />}
-                sx={{ minWidth: 0, px: 1.25 }}
-                variant="text"
+                sx={{ p: 0.75 }}
               >
-                {t("common.actions.repeat")}
-              </Button>
+                <ReplayRoundedIcon fontSize="small" />
+              </IconButton>
             </Tooltip>
           ) : null}
-          <Button
-            onClick={() => {
-              void navigator.clipboard?.writeText(session.url);
-            }}
-            size="small"
-            startIcon={<ContentCopyRoundedIcon />}
-            sx={{ minWidth: 0, px: 1.25 }}
-            variant="text"
-          >
-            {t("common.actions.copyUrl")}
-          </Button>
+          <Tooltip arrow title={t("common.actions.copyUrl")}>
+            <IconButton
+              aria-label={t("common.actions.copyUrl")}
+              onClick={() => {
+                void navigator.clipboard?.writeText(session.url);
+              }}
+              size="small"
+              sx={{ p: 0.75 }}
+            >
+              <ContentCopyRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
       </Stack>
 

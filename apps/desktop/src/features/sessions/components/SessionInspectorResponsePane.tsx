@@ -5,11 +5,11 @@ import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
-import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
+import { SessionInspectorOverview } from "./SessionInspectorOverview";
+import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
-  formatTiming,
   getBodyText,
   getStatusColor,
   type JsonParseResult,
@@ -145,22 +145,11 @@ function ResponseTabContent({
 
   if (responseTab === "overview") {
     return (
-      <InspectorScrollArea>
-        <Stack spacing={2}>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-            <Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />
-          </Stack>
-          <InspectorDefinitionList
-            items={[
-              [t("common.labels.duration"), t("common.tech.milliseconds", { value: session.durationMs })],
-              [t("common.labels.size"), t("common.tech.bytes", { value: session.sizeBytes })],
-              [t("inspector.response.serverIp"), detail?.serverIp ?? t("common.states.unavailable")],
-              [t("inspector.response.responseBody"), bodyDescription ?? t("inspector.response.noResponseBodyCaptured")],
-              [t("inspector.response.timingTotal"), formatTiming(detail?.timing?.totalMs, t("common.states.notCaptured"))],
-            ]}
-          />
-        </Stack>
-      </InspectorScrollArea>
+      <SessionInspectorOverview
+        detail={detail}
+        leading={<Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />}
+        session={session}
+      />
     );
   }
 

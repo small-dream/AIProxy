@@ -16,7 +16,7 @@ import {
 } from "./session-inspector.helpers";
 import { InspectorFlatTable, renderHighlightedText, useVirtualWindow } from "./SessionInspectorShared";
 
-const JSON_TREE_ROW_HEIGHT = 34;
+const JSON_TREE_ROW_HEIGHT = 32;
 
 type JsonTreeRow = {
   depth: number;
@@ -75,7 +75,7 @@ export function SessionInspectorJsonTree({
   );
   const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
   const visibleRows = rows.slice(startIndex, endIndex);
-  const columnTemplate = "minmax(210px, 1.7fr) minmax(88px, 0.62fr) minmax(140px, 1.18fr)";
+  const columnTemplate = "minmax(220px, 1.02fr) minmax(112px, 0.68fr) minmax(260px, 1.3fr)";
 
   return (
     <Box
@@ -280,14 +280,13 @@ function JsonTreeRowView({
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
   const rowType = getJsonDisplayType(value);
   const displayName = name ?? "root";
-  const isExpandedParent = hasChildren && isExpanded;
   const isSelected = selectedPath === path;
-  const highlightedRowBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.1);
-  const highlightedRowBorder = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.42 : 0.3);
   const selectedRowBackground = theme.palette.primary.main;
-  const typeColor = "text.secondary";
-  const valueColor =
-    typeof value === "string"
+  const dividerColor = isSelected ? alpha(theme.palette.common.white, 0.22) : theme.palette.divider;
+  const textColor = isSelected ? "common.white" : "text.primary";
+  const valueColor = isSelected
+    ? "common.white"
+    : typeof value === "string"
       ? syntaxColors.string
       : typeof value === "number"
         ? syntaxColors.number
@@ -298,16 +297,14 @@ function JsonTreeRowView({
   return (
     <Box
       sx={{
-        backgroundColor: isSelected ? selectedRowBackground : isExpandedParent ? highlightedRowBackground : "transparent",
-        borderLeft: `2px solid ${isSelected || isExpandedParent ? highlightedRowBorder : "transparent"}`,
-        borderRadius: 1,
+        backgroundColor: isSelected ? selectedRowBackground : "transparent",
         cursor: "pointer",
         display: "grid",
         gridTemplateColumns: columnTemplate,
         minHeight: JSON_TREE_ROW_HEIGHT,
-        transition: "background-color 120ms ease, border-color 120ms ease",
+        transition: "background-color 120ms ease",
         "&:hover": {
-          backgroundColor: isSelected ? selectedRowBackground : isExpandedParent ? highlightedRowBackground : "action.hover",
+          backgroundColor: isSelected ? selectedRowBackground : "action.hover",
         },
       }}
       onClick={() => onSelectPath(path)}
@@ -317,9 +314,9 @@ function JsonTreeRowView({
           alignItems: "center",
           display: "flex",
           minWidth: 0,
-          pl: depth * 2 + 0.25,
+          pl: depth * 1.5 + 0.5,
           pr: 0.75,
-          py: 0.375,
+          py: 0.25,
         }}
       >
         {hasChildren ? (
@@ -330,11 +327,11 @@ function JsonTreeRowView({
             }}
             size="small"
             sx={{
-              color: isSelected ? "common.white" : isExpandedParent ? "primary.main" : "text.secondary",
-              mr: 0.125,
+              color: isSelected ? "common.white" : "text.secondary",
+              mr: 0.25,
               p: 0,
               "& .MuiSvgIcon-root": {
-                fontSize: 16,
+                fontSize: 15,
               },
             }}
           >
@@ -347,24 +344,25 @@ function JsonTreeRowView({
         <Box
           sx={{
             alignItems: "center",
-            color: isSelected ? "common.white" : isExpandedParent ? "primary.main" : hasChildren ? "info.main" : "text.secondary",
+            color: isSelected ? "common.white" : hasChildren ? "info.main" : "text.secondary",
             display: "flex",
             flex: "0 0 auto",
-            mr: 0.75,
+            mr: 0.625,
           }}
         >
           {hasChildren ? (
-            isExpanded ? <FolderOpenRoundedIcon sx={{ fontSize: 18 }} /> : <FolderRoundedIcon sx={{ fontSize: 18 }} />
+            isExpanded ? <FolderOpenRoundedIcon sx={{ fontSize: 17 }} /> : <FolderRoundedIcon sx={{ fontSize: 17 }} />
           ) : (
-            <DescriptionOutlinedIcon sx={{ fontSize: 17 }} />
+            <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
           )}
         </Box>
 
         <Typography
           sx={{
-            color: isSelected ? "common.white" : "text.primary",
-            fontSize: 14,
-            fontWeight: isSelected || isExpandedParent ? 600 : 400,
+            color: textColor,
+            fontSize: 13,
+            fontWeight: 400,
+            lineHeight: 1.35,
             minWidth: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -378,14 +376,14 @@ function JsonTreeRowView({
       <Box
         sx={{
           alignItems: "center",
-          borderLeft: `1px solid ${isSelected ? alpha(theme.palette.common.white, 0.26) : theme.palette.divider}`,
+          borderLeft: `1px solid ${dividerColor}`,
           display: "flex",
           minWidth: 0,
           px: 0.875,
-          py: 0.375,
+          py: 0.25,
         }}
       >
-        <Typography sx={{ color: isSelected ? alpha(theme.palette.common.white, 0.9) : typeColor, fontSize: 14, minWidth: 0 }} variant="body2">
+        <Typography sx={{ color: textColor, fontSize: 13, lineHeight: 1.35, minWidth: 0 }} variant="body2">
           {renderHighlightedText(rowType, searchQuery)}
         </Typography>
       </Box>
@@ -393,18 +391,20 @@ function JsonTreeRowView({
       <Box
         sx={{
           alignItems: "center",
-          borderLeft: `1px solid ${isSelected ? alpha(theme.palette.common.white, 0.26) : theme.palette.divider}`,
+          borderLeft: `1px solid ${dividerColor}`,
           color: isSelected ? "common.white" : valueColor,
           display: "flex",
           minWidth: 0,
           px: 0.875,
-          py: 0.375,
+          py: 0.25,
         }}
       >
         {rowValue ? (
           <Tooltip arrow placement="top-start" title={rowValue}>
             <Typography
               sx={{
+                fontSize: 13,
+                lineHeight: 1.35,
                 minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",

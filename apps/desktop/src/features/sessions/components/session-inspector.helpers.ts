@@ -1,7 +1,6 @@
 import type { BodyReference, SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 export type RequestInspectorTab =
-  | "overview"
   | "query"
   | "headers"
   | "body"
@@ -34,6 +33,7 @@ export type JsonValue =
 
 const LARGE_JSON_SOFT_LIMIT = 256 * 1024;
 const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
+const JSON_TEXT_INDENT_SPACES = 4;
 
 export function buildCountTabLabel(label: string, count: number) {
   return count > 0 ? `${label} (${count})` : label;
@@ -134,7 +134,7 @@ export function parseJsonBody(
 }
 
 export function formatJsonText(value: JsonValue) {
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {

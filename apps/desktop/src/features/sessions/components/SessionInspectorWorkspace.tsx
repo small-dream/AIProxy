@@ -180,9 +180,16 @@ function SessionInspectorWorkspace({
             ? "auto 1px minmax(0, 1fr)"
             : `${inspectorSplitRatio}fr 1px ${1 - inspectorSplitRatio}fr`,
           minHeight: 0,
+          overflow: "hidden",
         }}
       >
-        <Box onClick={() => setActivePane("request")}>
+        <Box
+          onClick={() => setActivePane("request")}
+          sx={{
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
           <SessionInspectorRequestPane
             detail={detail}
             ref={requestPaneRef}
@@ -198,7 +205,13 @@ function SessionInspectorWorkspace({
 
         <Divider />
 
-        <Box onClick={() => setActivePane("response")}>
+        <Box
+          onClick={() => setActivePane("response")}
+          sx={{
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
           <SessionInspectorResponsePane
             detail={detail}
             ref={responsePaneRef}
