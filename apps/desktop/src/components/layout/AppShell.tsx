@@ -205,7 +205,6 @@ export function AppShell() {
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
   const activeWorkspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId;
-  const activeWorkspace = workspaces.find((w) => w.id === workspaceId);
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
   const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null);
   const [portDialogOpen, setPortDialogOpen] = useState(false);
@@ -231,6 +230,11 @@ export function AppShell() {
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
   const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
+  const initialStartProxyInput = {
+    enableSsl: certificateStatus?.trusted ?? false,
+    port,
+    workspaceId,
+  };
 
   useEffect(() => {
     if (!macosTitlebarEnabled) {
@@ -257,14 +261,29 @@ export function AppShell() {
       return;
     }
 
-    startProxyMutation.mutate({
-      enableSsl: Boolean(activeWorkspace?.sslEnabled && certificateStatus.trusted),
-      port,
-      workspaceId,
-    });
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const startedStatus = await startProxyMutation.mutateAsync(initialStartProxyInput);
+
+        if (cancelled || startedStatus.systemProxyEnabled) {
+          return;
+        }
+
+        await enableSystemProxyMutation.mutateAsync(undefined);
+      } catch {
+        // Startup auto-boot is best-effort. Manual controls remain available.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    activeWorkspace?.sslEnabled,
     certificateStatus,
+    enableSystemProxyMutation,
+    initialStartProxyInput,
     port,
     proxyStatus,
     startProxyMutation,
@@ -360,13 +379,7 @@ export function AppShell() {
           disabled={isBusy}
           icon={<PlayArrowRoundedIcon />}
           label={certificateStatus?.trusted ? t("common.actions.startHttpsProxy") : t("common.actions.startProxy")}
-          onClick={() =>
-            startProxyMutation.mutate({
-              enableSsl: certificateStatus?.trusted ?? false,
-              port,
-              workspaceId,
-            })
-          }
+          onClick={() => startProxyMutation.mutate(initialStartProxyInput)}
           tone="primary"
           variant="filled"
         />
