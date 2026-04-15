@@ -3,13 +3,14 @@ import {
   isAppError,
 } from "@pharles/shared-types";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Alert, Box, Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Button, OutlinedInput } from "@mui/material";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
 
+import type { AppShellOutletContext } from "@/components/layout/AppShell";
+import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
@@ -56,6 +57,7 @@ const IGNORED_HOSTS_STORAGE_KEY = "pharles.sessions.ignoredHosts";
 export function SessionsPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const sendComposedRequestMutation = useSendComposedRequest();
   const { error, isLoading } = useProxyStatus();
@@ -442,15 +444,6 @@ export function SessionsPage() {
     setContainerState((currentState) => closeSessionContainer(currentState, containerId));
   }, []);
 
-  const handleSearchValueChange = useCallback((nextValue: string) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        searchValue: nextValue,
-      })),
-    );
-  }, []);
-
   const handleSelectedSessionChange = useCallback((sessionId: string) => {
     setContainerState((currentState) =>
       updateActiveSessionContainer(currentState, (container) => ({
@@ -490,6 +483,40 @@ export function SessionsPage() {
   const handleClearActiveContainer = useCallback(() => {
     setContainerState((currentState) => clearActiveSessionContainer(currentState));
   }, []);
+
+  const headerActions = useMemo(
+    () => (
+      <Stack
+        direction="row"
+        spacing={1.25}
+        sx={{
+          flexWrap: "wrap",
+        }}
+      >
+        <TopBarActionButton
+          onClick={handleClearActiveContainer}
+          disabled={activeSessions.length === 0}
+          icon={<DeleteSweepRoundedIcon />}
+          label={t("sessionsPage.containers.clearCurrent")}
+        />
+        <TopBarActionButton
+          onClick={() => setExportDialogOpen(true)}
+          disabled={activeSessions.length === 0}
+          icon={<DownloadRoundedIcon />}
+          label={t("sessionsPage.export")}
+        />
+      </Stack>
+    ),
+    [activeSessions.length, handleClearActiveContainer, t],
+  );
+
+  useLayoutEffect(() => {
+    setHeaderActions(headerActions);
+
+    return () => {
+      setHeaderActions(null);
+    };
+  }, [headerActions, setHeaderActions]);
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
@@ -533,7 +560,7 @@ export function SessionsPage() {
   }
 
   return (
-    <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
+    <Stack spacing={0.75} sx={{ height: "100%", minHeight: 0, mt: -0.5 }}>
       <SessionContainerTabs
         containers={containerState.containers.map((container) => ({
           id: container.id,
@@ -544,39 +571,6 @@ export function SessionsPage() {
         onCloseContainer={handleCloseContainer}
         onSelectContainer={handleSelectContainer}
       />
-
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
-        <OutlinedInput
-          fullWidth
-          onChange={(event) => handleSearchValueChange(event.target.value)}
-          placeholder={t("sessionExplorer.searchPlaceholder")}
-          size="small"
-          startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-          sx={{
-            maxWidth: { md: `${explorerWidth}px` },
-          }}
-          value={activeContainer?.searchValue ?? ""}
-        />
-        <Stack direction="row" spacing={1} alignItems="flex-start">
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={handleClearActiveContainer}
-            disabled={activeSessions.length === 0}
-          >
-            {t("sessionsPage.containers.clearCurrent")}
-          </Button>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DownloadRoundedIcon />}
-            onClick={() => setExportDialogOpen(true)}
-            disabled={activeSessions.length === 0}
-          >
-            {t("sessionsPage.export")}
-          </Button>
-        </Stack>
-      </Stack>
 
       {error ? (
         <Alert severity="error">

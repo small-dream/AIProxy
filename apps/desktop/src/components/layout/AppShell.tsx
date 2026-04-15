@@ -3,13 +3,12 @@ import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordR
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
-import MenuIcon from "@mui/icons-material/Menu";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SettingsEthernetRoundedIcon from "@mui/icons-material/SettingsEthernetRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@pharles/shared-types";
 import {
-  AppBar,
   Box,
   Button,
   ButtonBase,
@@ -20,22 +19,20 @@ import {
   DialogTitle,
   Divider,
   Drawer,
-  IconButton,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   OutlinedInput,
   Stack,
-  Toolbar,
   Tooltip,
   Typography,
 } from "@mui/material";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { useAppShellStore } from "@/app/store/app-shell.store";
+import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
@@ -51,9 +48,16 @@ import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
 import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
-import { getSurfaceShadow } from "@/themes/app-theme";
 
-const NAVIGATION_WIDTH = 228;
+const ACTIVITY_BAR_WIDTH = 48;
+const MACOS_TITLEBAR_HEIGHT = 38;
+const TOP_CONTROLS_VERTICAL_OFFSET = 10;
+const TOP_CONTROLS_HORIZONTAL_GUTTER = 24;
+const MACOS_WINDOW_CONTROLS_SAFE_WIDTH = 112;
+const ACTIVITY_BAR_BG = "#2c2c2c";
+const ACTIVITY_BAR_ICON = "rgba(255, 255, 255, 0.42)";
+const ACTIVITY_BAR_ICON_ACTIVE = "#f5f5f5";
+const ACTIVITY_BAR_DIVIDER = "rgba(255, 255, 255, 0.1)";
 
 type StatusItemProps = {
   active?: boolean;
@@ -62,6 +66,10 @@ type StatusItemProps = {
   monospaced?: boolean;
   onClick?: () => void;
   title?: string;
+};
+
+export type AppShellOutletContext = {
+  setHeaderActions: (actions: ReactNode | null) => void;
 };
 
 function StatusSeparator() {
@@ -168,12 +176,22 @@ function getErrorMessage(error: unknown, fallbackMessage: string) {
   return fallbackMessage;
 }
 
+function isTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function isMacPlatform() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /mac/i.test(navigator.userAgent) || /mac/i.test(navigator.platform);
+}
+
 export function AppShell() {
   const { locale, t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
-  const navigationExpanded = useAppShellStore((state) => state.navigationExpanded);
-  const toggleNavigation = useAppShellStore((state) => state.toggleNavigation);
   useBreakpointEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();
@@ -187,15 +205,21 @@ export function AppShell() {
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
   const activeWorkspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId;
+  const activeWorkspace = workspaces.find((w) => w.id === workspaceId);
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
   const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null);
   const [portDialogOpen, setPortDialogOpen] = useState(false);
   const [portDraft, setPortDraft] = useState(String(port));
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
+  const [headerActions, setHeaderActions] = useState<ReactNode | null>(null);
+  const autoStartAttemptedRef = useRef(false);
   const workspaceNavigationItems = navigationItems.filter((item) => item.group === "workspace");
   const manageNavigationItems = navigationItems.filter((item) => item.group === "manage");
   const settingsItem = manageNavigationItems.find((item) => item.to === "/settings");
   const topManageItems = manageNavigationItems.filter((item) => item.to !== "/settings");
+  const macosTitlebarEnabled = isTauriRuntime() && isMacPlatform();
+  const topInset = macosTitlebarEnabled ? MACOS_TITLEBAR_HEIGHT : 0;
+  const topLayoutHeight = topInset;
   const sslLabel = proxyStatus?.sslEnabled
     ? t("appShell.sslOn")
     : certificateStatus?.trusted
@@ -207,6 +231,46 @@ export function AppShell() {
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
   const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
+
+  useEffect(() => {
+    if (!macosTitlebarEnabled) {
+      return;
+    }
+
+    void getCurrentWindow().setTitleBarStyle("overlay").catch(() => {
+      // Keep the default title bar if the platform does not accept overlay mode.
+    });
+  }, [macosTitlebarEnabled]);
+
+  useEffect(() => {
+    if (!isTauriRuntime() || autoStartAttemptedRef.current) {
+      return;
+    }
+
+    if (!proxyStatus || !certificateStatus || workspaces.length === 0) {
+      return;
+    }
+
+    autoStartAttemptedRef.current = true;
+
+    if (proxyStatus.running) {
+      return;
+    }
+
+    startProxyMutation.mutate({
+      enableSsl: Boolean(activeWorkspace?.sslEnabled && certificateStatus.trusted),
+      port,
+      workspaceId,
+    });
+  }, [
+    activeWorkspace?.sslEnabled,
+    certificateStatus,
+    port,
+    proxyStatus,
+    startProxyMutation,
+    workspaceId,
+    workspaces.length,
+  ]);
 
   function openWorkspaceDialog() {
     setWorkspaceDialogError(null);
@@ -280,294 +344,273 @@ export function AppShell() {
     await enableSystemProxyMutation.mutateAsync(undefined);
   }
 
+  const proxyControls = (
+    <Stack direction="row" spacing={1.25}>
+      {proxyStatus?.running ? (
+        <TopBarActionButton
+          disabled={isBusy}
+          icon={<StopRoundedIcon />}
+          label={t("common.actions.stopProxy")}
+          onClick={() => stopProxyMutation.mutate(workspaceId)}
+          tone="error"
+          variant="filled"
+        />
+      ) : (
+        <TopBarActionButton
+          disabled={isBusy}
+          icon={<PlayArrowRoundedIcon />}
+          label={certificateStatus?.trusted ? t("common.actions.startHttpsProxy") : t("common.actions.startProxy")}
+          onClick={() =>
+            startProxyMutation.mutate({
+              enableSsl: certificateStatus?.trusted ?? false,
+              port,
+              workspaceId,
+            })
+          }
+          tone="primary"
+          variant="filled"
+        />
+      )}
+
+      <TopBarActionButton
+        ariaPressed={proxyStatus?.systemProxyEnabled ?? false}
+        disabled={systemProxyActionDisabled}
+        icon={<LanguageRoundedIcon />}
+        label={
+          proxyStatus?.systemProxyEnabled
+            ? t("appShell.stopSystemProxyAction")
+            : t("appShell.startSystemProxyAction")
+        }
+        onClick={() => {
+          void handleSystemProxyToggle();
+        }}
+        tone={proxyStatus?.systemProxyEnabled ? "success" : "default"}
+        variant={proxyStatus?.systemProxyEnabled ? "filled" : "outlined"}
+      />
+    </Stack>
+  );
+
+  const topControls = (
+    <Stack
+      alignItems="center"
+      direction="row"
+      spacing={1.25}
+      sx={{
+        flexWrap: "wrap",
+        justifyContent: "center",
+        rowGap: 1,
+      }}
+    >
+      {proxyControls}
+      {headerActions}
+    </Stack>
+  );
+
+  function renderNavigationIcon(item: typeof navigationItems[number], options?: { badgeContent?: number }) {
+    const selected = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+
+    return (
+      <Tooltip arrow key={item.to} placement="right" title={t(item.labelKey)}>
+        <ListItemButton
+          component={NavLink}
+          selected={selected}
+          to={item.to}
+          sx={{
+            alignItems: "center",
+            borderRadius: 0,
+            color: selected ? ACTIVITY_BAR_ICON_ACTIVE : ACTIVITY_BAR_ICON,
+            justifyContent: "center",
+            minHeight: 60,
+            px: 0,
+            position: "relative",
+            transition: "background-color 140ms ease, color 140ms ease",
+            "&::before": {
+              bgcolor: ACTIVITY_BAR_ICON_ACTIVE,
+              borderRadius: 999,
+              content: '""',
+              height: 30,
+              left: 0,
+              opacity: selected ? 1 : 0,
+              position: "absolute",
+              top: "50%",
+              transform: "translateY(-50%)",
+              transition: "opacity 140ms ease",
+              width: 3,
+            },
+            "& .MuiListItemIcon-root": {
+              alignItems: "center",
+              color: "inherit",
+              justifyContent: "center",
+              minWidth: 0,
+            },
+            "& .MuiSvgIcon-root": {
+              fontSize: 32,
+            },
+            "&.Mui-selected": {
+              backgroundColor: "transparent",
+            },
+            "&.Mui-selected:hover": {
+              backgroundColor: "rgba(255, 255, 255, 0.04)",
+            },
+            "&:hover": {
+              backgroundColor: "rgba(255, 255, 255, 0.04)",
+            },
+          }}
+        >
+          <ListItemIcon sx={{ position: "relative" }}>
+            {item.icon}
+            {options?.badgeContent ? (
+              <Box
+                sx={{
+                  alignItems: "center",
+                  bgcolor: "primary.main",
+                  borderRadius: 999,
+                  border: "2px solid #2c2c2c",
+                  bottom: -3,
+                  color: "primary.contrastText",
+                  display: "flex",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  height: 22,
+                  justifyContent: "center",
+                  minWidth: 22,
+                  position: "absolute",
+                  right: -16,
+                  px: 0.5,
+                }}
+              >
+                {options.badgeContent > 9 ? "9+" : options.badgeContent}
+              </Box>
+            ) : null}
+          </ListItemIcon>
+        </ListItemButton>
+      </Tooltip>
+    );
+  }
+
   return (
     <Box sx={{ display: "flex", height: "100vh", overflow: "hidden", bgcolor: "background.default" }}>
-      <AppBar
-        color="transparent"
-        elevation={0}
-        position="fixed"
-        sx={{
-          borderBottom: 1,
-          borderColor: "divider",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <Toolbar sx={{ gap: 1, minHeight: 64 }}>
-          <IconButton color="inherit" onClick={toggleNavigation}>
-            <MenuIcon />
-          </IconButton>
-
-          <Stack spacing={0.125} sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 700, letterSpacing: 0.2 }} variant="h6">
-              Pharles
-            </Typography>
-            <Typography color="text.secondary" noWrap variant="caption">
-              {t("appShell.appSubtitle")}
-            </Typography>
-          </Stack>
-
-          <Box sx={{ flex: 1 }} />
-
-          {proxyStatus?.running ? (
-            <Button
-              color="error"
-              disabled={isBusy}
-              onClick={() => stopProxyMutation.mutate(workspaceId)}
-              size="small"
-              startIcon={<StopRoundedIcon />}
-              sx={{ borderRadius: 999, px: 1.75 }}
-              variant="contained"
-            >
-              {t("common.actions.stopProxy")}
-            </Button>
-          ) : (
-            <Button
-              disabled={isBusy}
-              onClick={() =>
-                startProxyMutation.mutate({
-                  enableSsl: certificateStatus?.trusted ?? false,
-                  port,
-                  workspaceId,
-                })
-              }
-              size="small"
-              startIcon={<PlayArrowRoundedIcon />}
-              sx={{ borderRadius: 999, px: 1.75 }}
-              variant="contained"
-            >
-              {certificateStatus?.trusted ? t("common.actions.startHttpsProxy") : t("common.actions.startProxy")}
-            </Button>
-          )}
-
-          <Button
-            aria-pressed={proxyStatus?.systemProxyEnabled ?? false}
-            color={proxyStatus?.systemProxyEnabled ? "success" : "inherit"}
-            disabled={systemProxyActionDisabled}
-            onClick={() => {
-              void handleSystemProxyToggle();
-            }}
-            size="small"
-            startIcon={<LanguageRoundedIcon />}
+      {macosTitlebarEnabled ? (
+        <Box
+          sx={{
+            backdropFilter: "blur(14px)",
+            bgcolor: "transparent",
+            height: MACOS_TITLEBAR_HEIGHT,
+            left: 0,
+            position: "fixed",
+            right: 0,
+            top: 0,
+            zIndex: (theme) => theme.zIndex.appBar + 1,
+          }}
+        >
+          <Box
+            data-tauri-drag-region
             sx={{
-              borderRadius: 999,
-              fontWeight: 700,
-              px: 1.75,
-              ...(proxyStatus?.systemProxyEnabled
-                ? {}
-                : {
-                    borderColor: "divider",
-                    color: "text.secondary",
-                  }),
+              height: "100%",
+              inset: 0,
+              position: "absolute",
             }}
-            variant={proxyStatus?.systemProxyEnabled ? "contained" : "outlined"}
+          />
+          <Box
+            sx={{
+              alignItems: "center",
+              display: "flex",
+              height: "100%",
+              inset: 0,
+              justifyContent: "center",
+              pointerEvents: "none",
+              position: "absolute",
+              transform: `translateY(${TOP_CONTROLS_VERTICAL_OFFSET}px)`,
+            }}
           >
-            {proxyStatus?.systemProxyEnabled
-              ? t("appShell.systemProxyOn")
-              : t("appShell.systemProxyOff")}
-          </Button>
-        </Toolbar>
-      </AppBar>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "center",
+                maxWidth: `calc(100vw - ${MACOS_WINDOW_CONTROLS_SAFE_WIDTH * 2}px)`,
+                pointerEvents: "auto",
+                width: `calc(100vw - ${MACOS_WINDOW_CONTROLS_SAFE_WIDTH * 2}px)`,
+              }}
+            >
+              {topControls}
+            </Box>
+          </Box>
+        </Box>
+      ) : null}
+
+      {!macosTitlebarEnabled ? (
+        <Box
+          sx={{
+            alignItems: "center",
+            display: "flex",
+            justifyContent: "center",
+            left: 0,
+            position: "fixed",
+            right: 0,
+            top: 12 + TOP_CONTROLS_VERTICAL_OFFSET,
+            zIndex: (theme) => theme.zIndex.appBar + 1,
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "center",
+              maxWidth: `calc(100vw - ${TOP_CONTROLS_HORIZONTAL_GUTTER * 2}px)`,
+              width: `calc(100vw - ${TOP_CONTROLS_HORIZONTAL_GUTTER * 2}px)`,
+            }}
+          >
+            {topControls}
+          </Box>
+        </Box>
+      ) : null}
 
       <Drawer
-        open={navigationExpanded}
         sx={{
           "& .MuiDrawer-paper": {
+            alignItems: "center",
+            backgroundColor: ACTIVITY_BAR_BG,
+            borderRight: `1px solid ${ACTIVITY_BAR_DIVIDER}`,
+            borderRadius: 0,
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
-            height: "calc(100vh - 64px)",
-            mt: "64px",
-            px: 1,
-            py: 1.25,
-            width: NAVIGATION_WIDTH,
+            height: `calc(100vh - ${topLayoutHeight}px)`,
+            mt: `${topLayoutHeight}px`,
+            overflow: "hidden",
+            px: 0,
+            py: 0,
+            width: ACTIVITY_BAR_WIDTH,
           },
           flexShrink: 0,
-          width: navigationExpanded ? NAVIGATION_WIDTH : 0,
+          width: ACTIVITY_BAR_WIDTH,
         }}
-        variant="persistent"
+        variant="permanent"
       >
-        <Stack sx={{ flex: 1, minHeight: 0 }}>
-          <Typography color="text.secondary" sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, px: 1, pb: 0.625, textTransform: "uppercase" }}>
-            {t("navigation.workspace")}
-          </Typography>
-          <List disablePadding sx={{ display: "grid", gap: 0.375 }}>
-            {workspaceNavigationItems.map((item) => {
-              const selected = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
-
-              return (
-                <ListItemButton
-                  component={NavLink}
-                  key={item.to}
-                  selected={selected}
-                  to={item.to}
-                  sx={{
-                    borderRadius: 2,
-                    minHeight: 38,
-                    px: 1,
-                    position: "relative",
-                    transition: "background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
-                    "&::before": {
-                      bgcolor: "primary.main",
-                      borderRadius: 999,
-                      content: '""',
-                      height: 22,
-                      left: -6,
-                      opacity: selected ? 1 : 0,
-                      position: "absolute",
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      transition: "opacity 160ms ease",
-                      width: 3,
-                    },
-                    "& .MuiListItemIcon-root": {
-                      color: selected ? "primary.main" : "text.secondary",
-                      minWidth: 32,
-                      transition: "color 160ms ease",
-                    },
-                    "& .MuiListItemText-primary": {
-                      color: selected ? "text.primary" : "text.secondary",
-                      fontSize: 13.5,
-                      fontWeight: selected ? 600 : 500,
-                      transition: "color 160ms ease",
-                    },
-                    "&.Mui-selected": {
-                      backgroundColor: "action.selected",
-                    },
-                    "&.Mui-selected:hover": {
-                      backgroundColor: "action.focus",
-                    },
-                    "&:hover": {
-                      backgroundColor: "action.hover",
-                      boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
-                      transform: "translateX(1px)",
-                    },
-                  }}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={t(item.labelKey)} />
-                </ListItemButton>
-              );
-            })}
+        <Stack sx={{ flex: 1, minHeight: 0, width: "100%" }}>
+          <List disablePadding sx={{ width: "100%" }}>
+            {workspaceNavigationItems.map((item) =>
+              renderNavigationIcon(
+                item,
+                item.to === "/rules" && pendingBreakpointCount > 0
+                  ? { badgeContent: pendingBreakpointCount }
+                  : undefined,
+              ),
+            )}
           </List>
 
-          <Divider sx={{ my: 1.25 }} />
-
-          <Typography color="text.secondary" sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, px: 1, pb: 0.625, textTransform: "uppercase" }}>
-            {t("navigation.manage")}
-          </Typography>
-          <List disablePadding sx={{ display: "grid", gap: 0.375 }}>
-            {topManageItems.map((item) => {
-              const selected = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
-
-              return (
-                <ListItemButton
-                  component={NavLink}
-                  key={item.to}
-                  selected={selected}
-                  to={item.to}
-                  sx={{
-                    borderRadius: 2,
-                    minHeight: 38,
-                    px: 1,
-                    position: "relative",
-                    transition: "background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
-                    "&::before": {
-                      bgcolor: "primary.main",
-                      borderRadius: 999,
-                      content: '""',
-                      height: 22,
-                      left: -6,
-                      opacity: selected ? 1 : 0,
-                      position: "absolute",
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      transition: "opacity 160ms ease",
-                      width: 3,
-                    },
-                    "& .MuiListItemIcon-root": {
-                      color: selected ? "primary.main" : "text.secondary",
-                      minWidth: 32,
-                      transition: "color 160ms ease",
-                    },
-                    "& .MuiListItemText-primary": {
-                      color: selected ? "text.primary" : "text.secondary",
-                      fontSize: 13.5,
-                      fontWeight: selected ? 600 : 500,
-                      transition: "color 160ms ease",
-                    },
-                    "&.Mui-selected": {
-                      backgroundColor: "action.selected",
-                    },
-                    "&.Mui-selected:hover": {
-                      backgroundColor: "action.focus",
-                    },
-                    "&:hover": {
-                      backgroundColor: "action.hover",
-                      boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
-                      transform: "translateX(1px)",
-                    },
-                  }}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={t(item.labelKey)} />
-                </ListItemButton>
-              );
-            })}
+          <List disablePadding sx={{ width: "100%" }}>
+            {topManageItems.map((item) => renderNavigationIcon(item))}
           </List>
 
           <Box sx={{ flex: 1 }} />
 
           {settingsItem ? (
-            <List disablePadding sx={{ pt: 1.25 }}>
-              <ListItemButton
-                component={NavLink}
-                selected={location.pathname.startsWith(settingsItem.to)}
-                to={settingsItem.to}
-                sx={{
-                  borderRadius: 2,
-                  minHeight: 38,
-                  px: 1,
-                  position: "relative",
-                  transition: "background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
-                  "&::before": {
-                    bgcolor: "primary.main",
-                    borderRadius: 999,
-                    content: '""',
-                    height: 22,
-                    left: -6,
-                    opacity: location.pathname.startsWith(settingsItem.to) ? 1 : 0,
-                    position: "absolute",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    transition: "opacity 160ms ease",
-                    width: 3,
-                  },
-                  "& .MuiListItemIcon-root": {
-                    color: location.pathname.startsWith(settingsItem.to) ? "primary.main" : "text.secondary",
-                    minWidth: 32,
-                  },
-                  "& .MuiListItemText-primary": {
-                    color: location.pathname.startsWith(settingsItem.to) ? "text.primary" : "text.secondary",
-                    fontSize: 13.5,
-                    fontWeight: location.pathname.startsWith(settingsItem.to) ? 600 : 500,
-                  },
-                  "&.Mui-selected": {
-                    backgroundColor: "action.selected",
-                  },
-                  "&.Mui-selected:hover": {
-                    backgroundColor: "action.focus",
-                  },
-                  "&:hover": {
-                    backgroundColor: "action.hover",
-                    boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
-                    transform: "translateX(1px)",
-                  },
-                }}
-              >
-                <ListItemIcon>{settingsItem.icon}</ListItemIcon>
-                <ListItemText primary={t(settingsItem.labelKey)} />
-              </ListItemButton>
-            </List>
+            <>
+              <Divider sx={{ borderColor: ACTIVITY_BAR_DIVIDER, mx: 1.5, my: 0.75 }} />
+              <List disablePadding sx={{ pb: 0.75, width: "100%" }}>
+                {renderNavigationIcon(settingsItem)}
+              </List>
+            </>
           ) : null}
         </Stack>
       </Drawer>
@@ -578,14 +621,14 @@ export function AppShell() {
           display: "flex",
           flex: 1,
           flexDirection: "column",
-          mt: "64px",
+          mt: `${topLayoutHeight}px`,
           minHeight: 0,
           minWidth: 0,
           overflow: "hidden",
         }}
       >
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 2 }}>
-          <Outlet />
+          <Outlet context={{ setHeaderActions }} />
         </Box>
 
         {pendingBreakpointCount > 0 && <BreakpointInterceptPanel />}

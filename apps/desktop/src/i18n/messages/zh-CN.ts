@@ -119,11 +119,13 @@ export const zhCNMessages: Messages = {
     sslOn: "SSL 已开启",
     sslReady: "SSL 已就绪",
     sslSetup: "SSL 待配置",
+    startSystemProxyAction: "启动系统代理",
     startProxyBeforeSystemProxy: "请先启动代理，再启用系统代理",
     statusDisableSystemProxy: "关闭系统代理",
     statusEnableSystemProxy: "启用系统代理",
     systemProxyOff: "系统代理已关闭",
     systemProxyOn: "系统代理已启用",
+    stopSystemProxyAction: "停止系统代理",
     switchProxyPreset: "切换代理预设",
     switchPresetRestartHint: "应用预设会用新配置重启代理。",
     switchPresetTitle: "切换代理预设",
@@ -483,7 +485,7 @@ export const zhCNMessages: Messages = {
   sessionsPage: {
     containers: {
       add: "新建会话容器",
-      clearCurrent: "清空当前容器",
+      clearCurrent: "清空会话",
       close: "关闭会话容器",
       live: "录制中",
       sessionCount: "{{count}} 条已捕获请求",

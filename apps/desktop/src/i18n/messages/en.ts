@@ -117,11 +117,13 @@ export const enMessages = {
     sslOn: "SSL On",
     sslReady: "SSL Ready",
     sslSetup: "SSL Setup",
+    startSystemProxyAction: "Start System Proxy",
     startProxyBeforeSystemProxy: "Start the proxy before enabling the system proxy",
     statusDisableSystemProxy: "Disable the system proxy",
     statusEnableSystemProxy: "Enable the system proxy",
     systemProxyOff: "System Proxy Off",
     systemProxyOn: "System Proxy On",
+    stopSystemProxyAction: "Stop System Proxy",
     switchProxyPreset: "Switch the proxy preset",
     switchPresetRestartHint: "Applying a preset restarts the proxy with the new configuration.",
     switchPresetTitle: "Switch Proxy Preset",
@@ -481,7 +483,7 @@ export const enMessages = {
   sessionsPage: {
     containers: {
       add: "New Session Container",
-      clearCurrent: "Clear Current Container",
+      clearCurrent: "Clear Session",
       close: "Close Session Container",
       live: "Live",
       sessionCount: "{{count}} captured requests",
