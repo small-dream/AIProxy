@@ -5,11 +5,11 @@ use std::sync::{Arc, Mutex};
 use crate::generator::{self, RootCaPair};
 use crate::TlsManagerError;
 
-const CERT_DIR_NAME: &str = "pharles";
+const CERT_DIR_NAME: &str = "aiproxy";
 const CERT_SUBDIR: &str = "certs";
-const ROOT_CERT_FILE: &str = "pharles-root-ca.pem";
-const ROOT_CERT_INSTALL_FILE: &str = "pharles-root-ca.cer";
-const ROOT_KEY_FILE: &str = "pharles-root-ca-key.pem";
+const ROOT_CERT_FILE: &str = "aiproxy-root-ca.pem";
+const ROOT_CERT_INSTALL_FILE: &str = "aiproxy-root-ca.cer";
+const ROOT_KEY_FILE: &str = "aiproxy-root-ca-key.pem";
 
 /// Manages on-disk root CA storage and in-memory host certificate cache.
 pub struct CertStorage {
@@ -55,7 +55,7 @@ impl CertStorage {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let temp_dir = std::env::temp_dir()
-            .join("pharles-test-certs")
+            .join("aiproxy-test-certs")
             .join(format!("session-{id}"));
         Self {
             root_cert_install_path: temp_dir.join(ROOT_CERT_INSTALL_FILE),
@@ -180,7 +180,7 @@ mod tests {
     fn resolves_storage_path_under_app_data_dir() {
         let storage = CertStorage::resolve().unwrap();
         let path = storage.cert_dir();
-        assert!(path.to_string_lossy().contains("pharles"));
+        assert!(path.to_string_lossy().contains("aiproxy"));
         assert!(path.to_string_lossy().contains("certs"));
     }
 

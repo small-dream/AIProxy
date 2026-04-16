@@ -1,8 +1,8 @@
-# Pharles System Proxy Design
+# AIProxy System Proxy Design
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：系统代理设计说明
 - 当前阶段：`Phase 1 / P0-1.5`
 - 文档状态：`Draft v1.0`
@@ -60,7 +60,7 @@
 
 用途：
 
-- 将当前系统代理切换到 Pharles 当前运行端口
+- 将当前系统代理切换到 AIProxy 当前运行端口
 
 输入：
 
@@ -83,7 +83,7 @@ type EnableSystemProxyOutput = ProxyStatus;
 
 用途：
 
-- 恢复 Pharles 接管前的系统代理配置
+- 恢复 AIProxy 接管前的系统代理配置
 
 输入：
 
@@ -107,7 +107,7 @@ Windows 当前实现基于：
 接管流程：
 
 1. 读取并保存当前 `ProxyEnable`、`ProxyServer`、`ProxyOverride`、`AutoConfigURL`、`AutoDetect`
-2. 写入 Pharles 代理地址，例如 `127.0.0.1:8888`
+2. 写入 AIProxy 代理地址，例如 `127.0.0.1:8888`
 3. 设置 `ProxyEnable=1`
 4. 设置 `ProxyOverride=<local>`
 5. 临时关闭 `AutoConfigURL` 与 `AutoDetect`
@@ -115,7 +115,7 @@ Windows 当前实现基于：
 
 恢复流程：
 
-1. 读取 Pharles 运行时保存的快照
+1. 读取 AIProxy 运行时保存的快照
 2. 逐项恢复原系统代理配置
 3. 通知 WinINet 刷新系统代理
 
@@ -127,7 +127,7 @@ Windows 当前实现基于：
 
 1. 列出所有活动网络服务
 2. 保存每个服务的 HTTP Proxy / HTTPS Proxy / Auto Proxy / Bypass Domains 快照
-3. 设置 Web Proxy 和 Secure Web Proxy 到 Pharles 代理地址
+3. 设置 Web Proxy 和 Secure Web Proxy 到 AIProxy 代理地址
 4. 关闭 Auto Proxy Discovery 和 Auto Proxy URL
 5. 设置 bypass domains 为 `localhost, 127.0.0.1, ::1`
 
@@ -152,7 +152,7 @@ Windows 当前实现基于：
 接管流程：
 
 1. 通过 `gsettings get` 保存 `org.gnome.system.proxy` 的 mode、http/https host/port、ignore-hosts
-2. 设置 http/https host 和 port 到 Pharles 代理地址
+2. 设置 http/https host 和 port 到 AIProxy 代理地址
 3. 设置 ignore-hosts 为 `['localhost', '127.0.0.1', '::1']`
 4. 设置 mode 为 `'manual'`
 
@@ -166,7 +166,7 @@ Windows 当前实现基于：
 
 1. 通过 `kreadconfig6` 保存 `kioslaverc` 中 Proxy Settings 组的 ProxyType、httpProxy、NoProxyFor
 2. 设置 ProxyType=1 (手动代理)
-3. 设置 httpProxy 和 httpsProxy 到 Pharles 代理地址
+3. 设置 httpProxy 和 httpsProxy 到 AIProxy 代理地址
 4. 设置 NoProxyFor
 
 恢复流程：
@@ -184,8 +184,8 @@ Windows 当前实现基于：
 
 开发阶段排查系统代理切换失败或“已接管但未见请求”时，优先查看：
 
-- `logs/dev/pharles-desktop-dev.log`
-- 若仓库日志目录未生成，则查看：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+- `logs/dev/aiproxy-desktop-dev.log`
+- 若仓库日志目录未生成，则查看：`%TEMP%\\aiproxy-dev\\logs\\dev\\aiproxy-desktop-dev.log`
 
 重点事件：
 
@@ -204,7 +204,7 @@ Windows 当前实现基于：
 
 说明：
 
-- `logs/dev/pharles-desktop-dev.log` 会在每次桌面端启动时自动清空，只保留当前运行日志
+- `logs/dev/aiproxy-desktop-dev.log` 会在每次桌面端启动时自动清空，只保留当前运行日志
 - 若证书已信任，主界面会以 HTTPS 解密模式启动代理
 
 若点击 `Enable System Proxy` 后仍无请求，按以下顺序判断：

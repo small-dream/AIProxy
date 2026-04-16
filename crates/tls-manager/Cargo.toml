@@ -1,5 +1,5 @@
 [package]
-name = "pharles-tls-manager"
+name = "aiproxy-tls-manager"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -18,4 +18,3 @@ sha1 = "0.10"
 sha2 = "0.10"
 thiserror = "2"
 x509-parser = "0.16"
-

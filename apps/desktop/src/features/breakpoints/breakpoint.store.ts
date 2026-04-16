@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BreakpointHit, BreakpointRule } from "@pharles/shared-types";
+import type { BreakpointHit, BreakpointRule } from "@aiproxy/shared-types";
 
 type BreakpointState = {
   rules: BreakpointRule[];

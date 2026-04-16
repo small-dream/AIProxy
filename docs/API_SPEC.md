@@ -1,8 +1,8 @@
-# Pharles API Specification
+# AIProxy API Specification
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：接口规范文档
 - 当前阶段：`Phase 1 / 初始化设计`
 - 文档状态：`Draft v1.0`
@@ -12,7 +12,7 @@
 
 ## 2. 设计原则
 
-Pharles 为桌面端应用，不采用传统远程 HTTP API 作为主交互形式，而采用以下双通道接口模型：
+AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形式，而采用以下双通道接口模型：
 
 - **命令式接口（Commands）**：前端通过 Tauri Command 调用 Rust 领域服务，完成明确动作
 - **事件式接口（Events）**：Rust 持续向前端推送代理状态、抓包会话、断点状态等实时事件
@@ -291,7 +291,7 @@ type ThrottleProfile = {
 
 - 启动本地代理服务
 - 代理默认绑定到 `0.0.0.0`（所有网络接口），支持局域网内手机等设备连接
-- 当 `enableSsl` 为 `true` 时，代理同时提供根证书下载端点 `GET /pharles-ca.crt`
+- 当 `enableSsl` 为 `true` 时，代理同时提供根证书下载端点 `GET /aiproxy-ca.crt`
 
 请求：
 
@@ -1017,17 +1017,17 @@ type ListAndroidAdbDevicesOutput = Array<{
 
 代理核心在启动时同时监听来自局域网的直连请求，提供以下内建 HTTP 端点：
 
-### `GET /pharles-ca.crt`
+### `GET /aiproxy-ca.crt`
 
-下载根 CA 证书（PEM 格式）。手机端可直接通过浏览器访问 `http://<local-ip>:<proxy-port>/pharles-ca.crt` 下载证书。
+下载根 CA 证书（PEM 格式）。手机端可直接通过浏览器访问 `http://<local-ip>:<proxy-port>/aiproxy-ca.crt` 下载证书。
 
 - Content-Type: `application/x-x509-ca-cert`
 - 需要已生成根证书且代理已启动
 - 仅响应非代理风格的直连请求（origin-form），不会拦截代理转发的请求
 
-### `GET /pharles-ca.pem`
+### `GET /aiproxy-ca.pem`
 
-同 `/pharles-ca.crt`，为 PEM 格式证书提供备用路径。
+同 `/aiproxy-ca.crt`，为 PEM 格式证书提供备用路径。
 
 ## 6.10 Export Commands
 

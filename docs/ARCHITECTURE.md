@@ -1,8 +1,8 @@
-# Pharles Architecture
+# AIProxy Architecture
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：系统架构文档
 - 当前阶段：`Phase 1 / 初始化设计`
 - 文档状态：`Draft v1.0`
@@ -78,7 +78,7 @@
 
 ```mermaid
 flowchart LR
-    A[用户] --> B[Pharles Desktop UI]
+    A[用户] --> B[AIProxy Desktop UI]
     B --> C[Tauri Command Layer]
     C --> D[Proxy Core]
     C --> E[Proxy Preset Service]
@@ -194,7 +194,7 @@ flowchart LR
 - 实现 HTTP / HTTPS / WebSocket 代理主流程
 - 接管请求转发、响应返回与中间事件
 - 对接断点、规则引擎、节流与会话记录
-- 提供根 CA 证书下载端点 `GET /pharles-ca.crt`，供手机端扫码下载
+- 提供根 CA 证书下载端点 `GET /aiproxy-ca.crt`，供手机端扫码下载
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 - 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
 
@@ -623,8 +623,8 @@ project-root/
 
 ### 15.1 开发期日志落点
 
-- 优先写入仓库内：`logs/dev/pharles-desktop-dev.log`
-- 若无法识别仓库根目录，则回退到：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+- 优先写入仓库内：`logs/dev/aiproxy-desktop-dev.log`
+- 若无法识别仓库根目录，则回退到：`%TEMP%\\aiproxy-dev\\logs\\dev\\aiproxy-desktop-dev.log`
 - 前端额外保留控制台结构化日志，方便 UI 行为排查
 
 ### 15.2 日志覆盖范围

@@ -7,7 +7,7 @@ import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";

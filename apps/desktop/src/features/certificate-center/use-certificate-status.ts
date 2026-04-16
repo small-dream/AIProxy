@@ -6,7 +6,7 @@ import {
   type CertificateStatus,
   type GenerateRootCertificateInput,
   type InstallAndroidCertificateViaAdbInput,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 import {
   getCertificateStatus,
   generateRootCertificate,

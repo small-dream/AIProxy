@@ -1,5 +1,5 @@
 [package]
-name = "pharles-proxy-core"
+name = "aiproxy-proxy-core"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -13,7 +13,7 @@ brotli = "8"
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
 flate2 = "1"
 httparse = "1"
-pharles-tls-manager = { path = "../tls-manager" }
+aiproxy-tls-manager = { path = "../tls-manager" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

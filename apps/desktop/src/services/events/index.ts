@@ -4,7 +4,7 @@ import {
   parseSessionDetail,
   type BreakpointHit,
   type SessionDetail,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 
 type Unlisten = () => void;
 

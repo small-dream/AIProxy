@@ -5,7 +5,7 @@ import type {
   RewriteRule,
   RewriteRuleType,
   RuleMatch,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 

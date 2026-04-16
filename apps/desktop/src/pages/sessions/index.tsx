@@ -1,8 +1,8 @@
 import {
   coerceAppError,
   isAppError,
-} from "@pharles/shared-types";
-import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Alert, Box, Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
@@ -49,10 +49,10 @@ import { downloadTextFile } from "@/lib/download";
 import { onSessionRemove, onSessionUpsert } from "@/services/events";
 import { getSessionDetail, setFocusedHost as syncFocusedHost } from "@/services/commands";
 
-const EXPLORER_WIDTH_STORAGE_KEY = "pharles.sessions.explorerWidth";
-const REQUEST_COLLAPSED_STORAGE_KEY = "pharles.sessions.requestCollapsed";
-const FOCUSED_HOST_STORAGE_KEY = "pharles.sessions.focusedHost";
-const IGNORED_HOSTS_STORAGE_KEY = "pharles.sessions.ignoredHosts";
+const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
+const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
+const FOCUSED_HOST_STORAGE_KEY = "aiproxy.sessions.focusedHost";
+const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 
 export function SessionsPage() {
   const { t } = useI18n();

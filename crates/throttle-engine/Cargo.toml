@@ -1,5 +1,5 @@
 [package]
-name = "pharles-throttle-engine"
+name = "aiproxy-throttle-engine"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

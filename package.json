@@ -1,11 +1,11 @@
 {
-  "name": "pharles",
+  "name": "aiproxy",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {
-    "dev": "pnpm --filter @pharles/desktop dev",
-    "build": "pnpm --filter @pharles/desktop build",
+    "dev": "pnpm --filter @aiproxy/desktop dev",
+    "build": "pnpm --filter @aiproxy/desktop build",
     "desktop:run": "node ./scripts/desktop.mjs run",
     "desktop:build": "node ./scripts/desktop.mjs build",
     "desktop:bundle": "node ./scripts/desktop.mjs bundle",

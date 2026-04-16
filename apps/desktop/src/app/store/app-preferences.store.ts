@@ -44,7 +44,7 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       setThemePreference: (themePreference) => set({ themePreference }),
     }),
     {
-      name: "pharles.app-preferences",
+      name: "aiproxy.app-preferences",
       storage: createJSONStorage(getSafeStorage),
     },
   ),

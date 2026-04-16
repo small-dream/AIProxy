@@ -1,4 +1,4 @@
-import type { SessionDetail } from "@pharles/shared-types";
+import type { SessionDetail } from "@aiproxy/shared-types";
 
 import { generateCurlCommand } from "@/features/compose/curl-export";
 
@@ -28,7 +28,7 @@ export function buildHarArchive(details: SessionDetail[]) {
     log: {
       version: "1.2",
       creator: {
-        name: "Pharles",
+        name: "AIProxy",
         version: "0.1.0",
       },
       entries: details.map((detail) => ({

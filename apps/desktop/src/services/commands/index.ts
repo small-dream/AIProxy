@@ -36,7 +36,7 @@ import {
   type StopProxyInput,
   type ThrottleProfile,
   type Workspace,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 
 import {
   logDevDebug,
@@ -44,9 +44,9 @@ import {
   logDevInfo,
 } from "@/services/logger/dev-logger";
 
-const REWRITE_RULES_STORAGE_KEY = "pharles.rules.rewrite";
-const MAP_RULES_STORAGE_KEY = "pharles.rules.map";
-const THROTTLE_PROFILES_STORAGE_KEY = "pharles.throttle.profiles";
+const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
+const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
+const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -313,7 +313,7 @@ export async function generateRootCertificate(
     return {
       trusted: false,
       platform: detectBrowserPlatform(),
-      certPath: "/tmp/pharles-test-cert.pem",
+      certPath: "/tmp/aiproxy-test-cert.pem",
       fingerprint: "AA:BB:CC:DD",
     };
   }
@@ -358,7 +358,7 @@ export async function openCertificateInstallGuide(): Promise<CertificateInstallG
     logDevDebug("ui.commands", "open_certificate_install_guide_bypassed_non_tauri_runtime");
     return {
       success: true,
-      certPath: "/tmp/pharles-test-cert.pem",
+      certPath: "/tmp/aiproxy-test-cert.pem",
       platform: detectBrowserPlatform(),
       steps: [
         { order: 1, description: "Open Certificate Manager" },
@@ -427,7 +427,7 @@ export async function installAndroidCertificateViaAdb(
     return {
       success: true,
       deviceSerial: input?.deviceSerial ?? "emulator-5554",
-      remotePath: "/sdcard/Download/pharles-root-ca.cer",
+      remotePath: "/sdcard/Download/aiproxy-root-ca.cer",
     };
   }
 

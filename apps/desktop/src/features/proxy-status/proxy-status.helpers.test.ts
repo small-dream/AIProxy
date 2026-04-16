@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultProxyStatus } from "@pharles/shared-types";
+import { createDefaultProxyStatus } from "@aiproxy/shared-types";
 
 import { getProxyStatusPresentation } from "./proxy-status.helpers";
 

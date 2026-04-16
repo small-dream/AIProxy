@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@pharles/shared-types";
+import type { SessionSummary } from "@aiproxy/shared-types";
 
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";

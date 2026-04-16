@@ -1,5 +1,5 @@
 {
-  "name": "@pharles/desktop",
+  "name": "@aiproxy/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,8 +16,8 @@
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^7.0.0",
     "@mui/material": "^7.0.0",
-    "@pharles/shared-types": "workspace:*",
-    "@pharles/ui-tokens": "workspace:*",
+    "@aiproxy/shared-types": "workspace:*",
+    "@aiproxy/ui-tokens": "workspace:*",
     "@tanstack/react-query": "^5.71.10",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",

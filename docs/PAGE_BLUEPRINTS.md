@@ -1,8 +1,8 @@
-# Pharles Page Blueprints
+# AIProxy Page Blueprints
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：页面蓝图与实现映射
 - 当前阶段：`Phase 1 / Page Blueprint`
 - 文档状态：`Draft v1.0`
@@ -153,8 +153,8 @@ type SessionsPageState = {
     ignoredHosts: string[];
   };
   persistence: {
-    explorerWidth: number; // localStorage: pharles.sessions.explorerWidth
-    requestCollapsed: boolean; // localStorage: pharles.sessions.requestCollapsed
+    explorerWidth: number; // localStorage: aiproxy.sessions.explorerWidth
+    requestCollapsed: boolean; // localStorage: aiproxy.sessions.requestCollapsed
   };
   ui: {
     requestTab: "overview" | "query" | "headers" | "body" | "form" | "raw";
@@ -579,7 +579,7 @@ User clicks Export in Sessions header
 │ [Mobile Setup Card]                                                         │
 │ Local IP: 192.168.x.x        Proxy Port: 8888                              │
 │ Wi-Fi Proxy: 192.168.x.x:8888                                              │
-│ ┌──────────────────┐  Cert URL: http://192.168.x.x:8888/pharles-ca.crt     │
+│ ┌──────────────────┐  Cert URL: http://192.168.x.x:8888/aiproxy-ca.crt     │
 │ │   [QR Code]      │  (Copy Proxy Address)                                 │
 │ └──────────────────┘                                                        │
 │ iOS Guide | Android Guide                                                   │

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { HeaderEntry } from "@pharles/shared-types";
+import type { HeaderEntry } from "@aiproxy/shared-types";
 
 export type BodyType = "none" | "formdata" | "urlencoded" | "raw";
 export type RawLanguage = "text" | "json" | "xml" | "html" | "javascript";

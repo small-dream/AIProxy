@@ -22,14 +22,14 @@ if (cli.help || !cli.action) {
 }
 
 if (!["run", "build", "bundle"].includes(cli.action)) {
-  console.error(`[pharles-scripts] Unsupported action "${cli.action}".`);
+  console.error(`[aiproxy-scripts] Unsupported action "${cli.action}".`);
   printUsage();
   process.exit(1);
 }
 
 if (cli.platform && cli.platform !== hostPlatform) {
   console.error(
-    `[pharles-scripts] Platform mismatch. Requested ${cli.platform}, current host is ${hostPlatform}. ` +
+    `[aiproxy-scripts] Platform mismatch. Requested ${cli.platform}, current host is ${hostPlatform}. ` +
       "Desktop compile/run/package must be executed on the matching native host.",
   );
   process.exit(1);
@@ -37,7 +37,7 @@ if (cli.platform && cli.platform !== hostPlatform) {
 
 if (cli.action === "bundle" && !hasCargoTauri()) {
   console.error(
-    "[pharles-scripts] `cargo tauri` is not installed. Install `cargo-tauri` on this host before running bundle.",
+    "[aiproxy-scripts] `cargo tauri` is not installed. Install `cargo-tauri` on this host before running bundle.",
   );
   process.exit(1);
 }
@@ -45,7 +45,7 @@ if (cli.action === "bundle" && !hasCargoTauri()) {
 const steps = createSteps(cli.action);
 
 for (const step of steps) {
-  console.log(`[pharles-scripts] ${step.label}`);
+  console.log(`[aiproxy-scripts] ${step.label}`);
   runCommand(step.command, step.args, step.cwd);
 }
 
@@ -62,7 +62,7 @@ function createSteps(action) {
         args: ["run", "--manifest-path", cargoManifestPath],
         command: resolveCommand("cargo"),
         cwd: repoRoot,
-        label: "Launching Pharles desktop application",
+        label: "Launching AIProxy desktop application",
       },
     ];
   }
@@ -79,7 +79,7 @@ function createSteps(action) {
         args: ["build", "--manifest-path", cargoManifestPath],
         command: resolveCommand("cargo"),
         cwd: repoRoot,
-        label: "Compiling Pharles desktop binary",
+        label: "Compiling AIProxy desktop binary",
       },
     ];
   }
@@ -119,7 +119,7 @@ function runCommand(command, args, cwd) {
   });
 
   if (result.error) {
-    console.error(`[pharles-scripts] Failed to start ${command}: ${result.error.message}`);
+    console.error(`[aiproxy-scripts] Failed to start ${command}: ${result.error.message}`);
     process.exit(1);
   }
 
@@ -150,7 +150,7 @@ function resolveFrontendPackageManager() {
   }
 
   console.error(
-    "[pharles-scripts] Neither `corepack` nor `pnpm` is available on PATH. Install pnpm or enable corepack before running desktop commands.",
+    "[aiproxy-scripts] Neither `corepack` nor `pnpm` is available on PATH. Install pnpm or enable corepack before running desktop commands.",
   );
   process.exit(1);
 }

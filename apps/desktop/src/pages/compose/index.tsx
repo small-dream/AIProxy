@@ -3,7 +3,7 @@ import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import { Alert, Box, CircularProgress, Divider, FormControlLabel, IconButton, MenuItem, OutlinedInput, Radio, RadioGroup, Select, Snackbar, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { HeaderEntry } from "@pharles/shared-types";
+import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { type BodyType, buildMultipartBody, FORMDATA_CONTENT_TYPE, RAW_LANGUAGE_CONTENT_TYPE, RAW_LANGUAGES, type RawLanguage, URLENCODED_CONTENT_TYPE, useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { generateCurlCommand } from "@/features/compose/curl-export";
@@ -23,7 +23,7 @@ const BODY_TYPE_LABELS: Record<BodyType, string> = {
   raw: "raw",
 };
 
-const COMPOSE_SPLIT_STORAGE_KEY = "pharles.compose.splitRatio";
+const COMPOSE_SPLIT_STORAGE_KEY = "aiproxy.compose.splitRatio";
 const COMPOSE_SPLIT_MIN = 0.15;
 const COMPOSE_SPLIT_MAX = 0.85;
 const COMPOSE_SPLIT_DEFAULT = 0.45;
@@ -111,7 +111,7 @@ export function ComposePage() {
       case "formdata": {
         const activeEntries = formDataEntries.filter((e) => e.name.trim());
         if (activeEntries.length > 0) {
-          const boundary = `----PharlesBoundary${Date.now().toString(16)}`;
+          const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
           encodedBody = buildMultipartBody(activeEntries, boundary);
           finalHeaders = ensureContentType(finalHeaders, `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`);
         }

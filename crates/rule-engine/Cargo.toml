@@ -1,5 +1,5 @@
 [package]
-name = "pharles-rule-engine"
+name = "aiproxy-rule-engine"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

@@ -1,4 +1,4 @@
-import type { BodyReference, SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 export type RequestInspectorTab =
   | "query"

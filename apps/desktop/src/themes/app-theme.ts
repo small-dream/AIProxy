@@ -1,5 +1,5 @@
 import { alpha, createTheme, type PaletteMode } from "@mui/material/styles";
-import { colorTokens, radiusTokens } from "@pharles/ui-tokens";
+import { colorTokens, radiusTokens } from "@aiproxy/ui-tokens";
 
 import type { ThemePreference } from "@/app/store/app-preferences.store";
 

@@ -15,7 +15,7 @@ import {
   Typography,
 } from "@mui/material";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { MapRule } from "@pharles/shared-types";
+import type { MapRule } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createEmptyMapRule, getMapValidationErrors } from "@/features/rules/rules.helpers";

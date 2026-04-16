@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MapRule, RewriteRule } from "@pharles/shared-types";
+import type { MapRule, RewriteRule } from "@aiproxy/shared-types";
 
 import {
   deleteRule,

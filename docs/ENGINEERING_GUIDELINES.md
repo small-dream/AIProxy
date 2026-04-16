@@ -1,8 +1,8 @@
-# Pharles Engineering Guidelines
+# AIProxy Engineering Guidelines
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：工程开发规范
 - 当前阶段：`Phase 1 / 初始化设计`
 - 文档状态：`Draft v1.0`
@@ -14,7 +14,7 @@
 
 ## 2. 目的
 
-本规范用于统一 Pharles 项目的代码质量标准、设计约束、测试要求与文档同步要求，作为团队成员与 AI 协作开发时的默认执行标准。
+本规范用于统一 AIProxy 项目的代码质量标准、设计约束、测试要求与文档同步要求，作为团队成员与 AI 协作开发时的默认执行标准。
 
 所有后续实现、重构、修复与扩展，均应优先遵循本规范；若与业务需求冲突，应先更新相关文档并明确决策原因。
 
@@ -29,7 +29,7 @@
 
 ## 4. 跨平台适配要求
 
-Pharles 是跨平台桌面工具（Windows / macOS / Linux），所有代码必须遵循以下约束：
+AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必须遵循以下约束：
 
 ### 4.1 平台特定代码隔离
 
@@ -182,9 +182,9 @@ Pharles 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 ### 8.3 前端静态质量基线
 
 - 桌面端前端静态校验默认执行：
-  - `pnpm --filter @pharles/desktop lint`
-  - `pnpm --filter @pharles/desktop typecheck`
-  - `pnpm --filter @pharles/desktop test`
+  - `pnpm --filter @aiproxy/desktop lint`
+  - `pnpm --filter @aiproxy/desktop typecheck`
+  - `pnpm --filter @aiproxy/desktop test`
 - ESLint 使用 flat config，配置文件位于 `apps/desktop/eslint.config.mjs`
 - 当前桌面端 lint 基线基于：
   - `eslint@10.2.0`
@@ -193,7 +193,7 @@ Pharles 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - `eslint-plugin-react-hooks`
 - 当前仓库接受 `eslint-plugin-react-hooks` 对 ESLint 10 的 peer warning，前提是：
   - 安装成功
-  - `pnpm --filter @pharles/desktop lint` 可稳定通过
+  - `pnpm --filter @aiproxy/desktop lint` 可稳定通过
   - 不因规避 warning 而回退已启用的 lint 基线
 - 若后续插件发布明确支持 ESLint 10 的正式版本，应优先升级并移除该说明
 

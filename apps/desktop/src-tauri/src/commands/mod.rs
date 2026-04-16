@@ -5,13 +5,13 @@ use crate::system_proxy::{
     SystemProxySettings,
 };
 use crate::workspace::WorkspaceData;
-use pharles_proxy_core::{
+use aiproxy_proxy_core::{
     get_local_ip_addresses, send_direct_request, start_proxy_server,
     BreakpointEventEmitter, BreakpointResolution, BreakpointRule, MapRule,
     ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
     RewriteRule, ThrottleProfileData, TlsManager,
 };
-use pharles_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
+use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Emitter, State};
@@ -576,7 +576,7 @@ fn open_certificate_install_guide_impl(
     let cert_path = cert_status.cert_path.clone().unwrap_or_default();
 
     let steps = match platform {
-        pharles_tls_manager::Platform::Windows => vec![
+        aiproxy_tls_manager::Platform::Windows => vec![
             serde_json::json!({"order": 1, "description": "Generate a root certificate, then click Install Certificate... to open the Windows certificate installer."}),
             serde_json::json!({"order": 2, "description": "In the dialog, click Install Certificate..."}),
             serde_json::json!({"order": 3, "description": "Select Current User or Local Machine (Local Machine requires administrator), then click Next."}),
@@ -584,7 +584,7 @@ fn open_certificate_install_guide_impl(
             serde_json::json!({"order": 5, "description": "Click Finish. Accept the security warning to confirm trust."}),
             serde_json::json!({"order": 6, "description": "Click Refresh Status to verify the certificate is now trusted."}),
         ],
-        pharles_tls_manager::Platform::Macos => vec![
+        aiproxy_tls_manager::Platform::Macos => vec![
             serde_json::json!({"order": 1, "description": format!("Double-click the certificate file at: {}", cert_path)}),
             serde_json::json!({"order": 2, "description": "Open Keychain Access. The certificate will appear in the 'login' keychain."}),
             serde_json::json!({"order": 3, "description": "Drag the certificate to the 'System' keychain in the left sidebar."}),
@@ -592,8 +592,8 @@ fn open_certificate_install_guide_impl(
             serde_json::json!({"order": 5, "description": "Close the window. You will be prompted for your administrator password."}),
             serde_json::json!({"order": 6, "description": "Restart your browser for the change to take effect."}),
         ],
-        pharles_tls_manager::Platform::Linux => vec![
-            serde_json::json!({"order": 1, "description": format!("Copy the certificate to the system CA directory: sudo cp {} /usr/local/share/ca-certificates/pharles-root-ca.crt", cert_path)}),
+        aiproxy_tls_manager::Platform::Linux => vec![
+            serde_json::json!({"order": 1, "description": format!("Copy the certificate to the system CA directory: sudo cp {} /usr/local/share/ca-certificates/aiproxy-root-ca.crt", cert_path)}),
             serde_json::json!({"order": 2, "description": "Update the CA store: sudo update-ca-certificates"}),
             serde_json::json!({"order": 3, "description": "Restart your browser for the change to take effect."}),
         ],
@@ -636,7 +636,7 @@ fn install_android_certificate_via_adb_impl(
         .map_err(|e| format!("failed to prepare installable root cert: {e}"))?;
 
     let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
-    let remote_path = "/sdcard/Download/pharles-root-ca.cer";
+    let remote_path = "/sdcard/Download/aiproxy-root-ca.cer";
 
     let push_output = std::process::Command::new("adb")
         .args(["-s", &device_serial, "push"])
@@ -877,9 +877,9 @@ fn format_command_output(output: &std::process::Output) -> String {
     }
 }
 
-fn certificate_display_path(storage: &CertStorage, platform: pharles_tls_manager::Platform) -> String {
+fn certificate_display_path(storage: &CertStorage, platform: aiproxy_tls_manager::Platform) -> String {
     match platform {
-        pharles_tls_manager::Platform::Macos => storage
+        aiproxy_tls_manager::Platform::Macos => storage
             .root_cert_install_path()
             .to_string_lossy()
             .to_string(),

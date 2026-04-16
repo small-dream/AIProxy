@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ThrottleProfile } from "@pharles/shared-types";
+import type { ThrottleProfile } from "@aiproxy/shared-types";
 
 import {
   listThrottleProfiles,

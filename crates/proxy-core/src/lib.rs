@@ -33,8 +33,8 @@ use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
-const DEV_LOG_ENV_VAR: &str = "PHARLES_DEV_LOG_FILE";
-const DEV_LOG_FILE_NAME: &str = "pharles-desktop-dev.log";
+const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
+const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -164,8 +164,8 @@ pub struct StartedProxyServer {
 
 /// TLS manager for HTTPS MITM interception.
 pub struct TlsManager {
-    pub root_ca: pharles_tls_manager::RootCaPair,
-    pub storage: Arc<pharles_tls_manager::CertStorage>,
+    pub root_ca: aiproxy_tls_manager::RootCaPair,
+    pub storage: Arc<aiproxy_tls_manager::CertStorage>,
     pub server_config: Arc<tokio_rustls::rustls::ServerConfig>,
 }
 
@@ -932,9 +932,9 @@ async fn handle_connection(
     };
 
     // Serve root CA certificate for mobile device download.
-    // Mobile browsers hit http://<local-ip>:<port>/pharles-ca.crt directly (no proxy config yet).
+    // Mobile browsers hit http://<local-ip>:<port>/aiproxy-ca.crt directly (no proxy config yet).
     if request.method == Method::GET
-        && (request.path == "/pharles-ca.crt" || request.path == "/pharles-ca.pem")
+        && (request.path == "/aiproxy-ca.crt" || request.path == "/aiproxy-ca.pem")
     {
         if let Some(ref mgr) = tls_manager {
             let cert_pem = mgr.root_ca.cert_pem();
@@ -1297,7 +1297,7 @@ fn resolve_log_file_path() -> PathBuf {
     }
 
     discover_workspace_root_from_current_exe()
-        .unwrap_or_else(|| env::temp_dir().join("pharles-dev"))
+        .unwrap_or_else(|| env::temp_dir().join("aiproxy-dev"))
         .join("logs")
         .join("dev")
         .join(DEV_LOG_FILE_NAME)

@@ -1,10 +1,10 @@
-# Pharles CLAUDE.md
+# AIProxy CLAUDE.md
 
-这是 Pharles 仓库的 Claude Code 项目记忆文件。内容按 Claude Code 官方最佳实践保持“短、具体、可执行”，重点记录这个项目里高频且稳定的协作约束。
+这是 AIProxy 仓库的 Claude Code 项目记忆文件。内容按 Claude Code 官方最佳实践保持“短、具体、可执行”，重点记录这个项目里高频且稳定的协作约束。
 
 ## 1. 项目概览
 
-- Pharles 是一个面向开发者的跨平台代理调试工具，产品方向对标 Charles。
+- AIProxy 是一个面向开发者的跨平台代理调试工具，产品方向对标 Charles。
 - 当前主应用是 `apps/desktop`。
 - 这是一个 monorepo，包含桌面端、Rust 核心模块、共享 TypeScript 包和项目文档。
 
@@ -98,10 +98,10 @@
 在仓库根目录运行：
 
 - 安装依赖：`pnpm install`
-- 启动桌面端开发：`pnpm --filter @pharles/desktop dev`
-- 桌面端 lint：`pnpm --filter @pharles/desktop lint`
-- 桌面端 test：`pnpm --filter @pharles/desktop test`
-- 桌面端 typecheck：`pnpm --filter @pharles/desktop typecheck`
+- 启动桌面端开发：`pnpm --filter @aiproxy/desktop dev`
+- 桌面端 lint：`pnpm --filter @aiproxy/desktop lint`
+- 桌面端 test：`pnpm --filter @aiproxy/desktop test`
+- 桌面端 typecheck：`pnpm --filter @aiproxy/desktop typecheck`
 - 全仓 lint：`pnpm lint`
 - 全仓 test：`pnpm test`
 - 全仓 typecheck：`pnpm typecheck`
@@ -114,7 +114,7 @@
 
 ## 11. 调试与排障
 
-- 开发日志优先看 `logs/dev/pharles-desktop-dev.log`。
+- 开发日志优先看 `logs/dev/aiproxy-desktop-dev.log`。
 - 代理、证书、系统代理、手机抓包问题优先结合日志和文档排查，不要只根据 UI 现象猜测。
 - HTTPS、证书信任、系统代理接管在不同平台上差异明显，修改相关代码时要保留平台保护和说明。
 

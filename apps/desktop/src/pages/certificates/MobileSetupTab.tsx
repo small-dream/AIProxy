@@ -17,7 +17,7 @@ export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }:
   const { t } = useI18n();
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const localIp = localIps?.[0];
-  const certDownloadUrl = localIp && proxyRunning ? `http://${localIp}:${proxyPort}/pharles-ca.crt` : null;
+  const certDownloadUrl = localIp && proxyRunning ? `http://${localIp}:${proxyPort}/aiproxy-ca.crt` : null;
   const proxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
 
   const showCertQr = sslEnabled && hasCert && Boolean(certDownloadUrl);

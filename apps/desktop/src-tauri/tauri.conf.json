@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pharles",
+  "productName": "AIProxy",
   "version": "0.1.0",
-  "identifier": "com.pharles.desktop",
+  "identifier": "com.aiproxy.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --dir ../.. --filter @pharles/desktop dev",
-    "beforeBuildCommand": "pnpm --dir ../.. --filter @pharles/desktop build",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @aiproxy/desktop dev",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @aiproxy/desktop build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Pharles",
+        "title": "AIProxy",
         "width": 1440,
         "height": 960,
         "minWidth": 1024,
@@ -31,8 +31,9 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
       "icons/icon.ico"
     ]
   }
 }
-

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default desktop capability set for Pharles.",
+  "description": "Default desktop capability set for AIProxy.",
   "windows": ["main"],
   "permissions": ["core:default", "core:window:allow-set-title-bar-style", "opener:default", "dialog:default"]
 }

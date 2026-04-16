@@ -18,7 +18,7 @@ import type {
   ExportScope,
   SessionDetail,
   SessionSummary,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 import { type ReactNode, useMemo, useState } from "react";
 
 import { getSessionDetail } from "@/services/commands";
@@ -81,7 +81,7 @@ export function SessionExportDialog({
 
       if (format === "json") {
         downloadTextFile(
-          `pharles-sessions-${Date.now()}.json`,
+          `aiproxy-sessions-${Date.now()}.json`,
           JSON.stringify(buildSessionSnapshot(details), null, 2),
           "application/json",
         );
@@ -91,7 +91,7 @@ export function SessionExportDialog({
 
       if (format === "har") {
         downloadTextFile(
-          `pharles-sessions-${Date.now()}.har`,
+          `aiproxy-sessions-${Date.now()}.har`,
           JSON.stringify(buildHarArchive(details), null, 2),
           "application/json",
         );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BodyReference, SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { formatJsonText, getRequestOperationLabel, parseJsonBody } from "./session-inspector.helpers";
 

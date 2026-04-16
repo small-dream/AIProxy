@@ -1,5 +1,5 @@
 import { Button, Chip, CircularProgress, Stack, Step, StepLabel, Stepper, Typography } from "@mui/material";
-import { type CertificateStatus } from "@pharles/shared-types";
+import { type CertificateStatus } from "@aiproxy/shared-types";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
 

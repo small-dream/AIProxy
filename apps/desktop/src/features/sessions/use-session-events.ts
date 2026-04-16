@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { SessionSummary } from "@pharles/shared-types";
+import type { SessionSummary } from "@aiproxy/shared-types";
 import { useEffect } from "react";
 
 import { onSessionRemove, onSessionUpsert } from "@/services/events";

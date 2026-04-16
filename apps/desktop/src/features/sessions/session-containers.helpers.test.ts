@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@pharles/shared-types";
+import type { SessionSummary } from "@aiproxy/shared-types";
 import { describe, expect, it } from "vitest";
 
 import {

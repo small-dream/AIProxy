@@ -1,4 +1,4 @@
-import type { HeaderEntry } from "@pharles/shared-types";
+import type { HeaderEntry } from "@aiproxy/shared-types";
 
 export function generateCurlCommand(params: {
   method: string;

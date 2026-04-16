@@ -1,8 +1,8 @@
-# Pharles PRD
+# AIProxy PRD
 
 ## 1. 文档信息
 
-- 产品代号：`Pharles`
+- 产品代号：`AIProxy`
 - 文档类型：产品需求文档（PRD）
 - 当前阶段：`Phase 1 / 项目初始化`
 - 文档状态：`Draft v1.0`
@@ -12,7 +12,7 @@
 
 ### 2.1 产品定位
 
-Pharles 是一款面向开发者、测试工程师与平台团队的跨平台代理调试工具，核心目标是提供与 Charles 同等级别的 HTTP/HTTPS/WebSocket 抓包、分析、重放、改写与网络模拟能力，并以独立的 Material Design 桌面体验重构交互效率。
+AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代理调试工具，核心目标是提供与 Charles 同等级别的 HTTP/HTTPS/WebSocket 抓包、分析、重放、改写与网络模拟能力，并以独立的 Material Design 桌面体验重构交互效率。
 
 ### 2.2 核心价值
 

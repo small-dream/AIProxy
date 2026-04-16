@@ -16,7 +16,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import type { ThrottleProfile } from "@pharles/shared-types";
+import type { ThrottleProfile } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
 import {

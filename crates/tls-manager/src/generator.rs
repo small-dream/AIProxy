@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::storage::CertStorage;
 use crate::{TlsManagerError, DYNAMIC_CERT_VALIDITY_YEARS, ROOT_CA_VALIDITY_YEARS};
 
-const ROOT_CA_CN: &str = "Pharles Root CA";
+const ROOT_CA_CN: &str = "AIProxy Root CA";
 
 /// Holds the root CA certificate and private key, with pre-serialized forms for reuse.
 pub struct RootCaPair {

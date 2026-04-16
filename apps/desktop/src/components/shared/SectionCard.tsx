@@ -1,6 +1,6 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { Card, CardContent, Stack, Typography } from "@mui/material";
-import { radiusTokens } from "@pharles/ui-tokens";
+import { radiusTokens } from "@aiproxy/ui-tokens";
 
 import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
 

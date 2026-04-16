@@ -1,7 +1,7 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { Box, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
-import type { HeaderEntry } from "@pharles/shared-types";
+import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 

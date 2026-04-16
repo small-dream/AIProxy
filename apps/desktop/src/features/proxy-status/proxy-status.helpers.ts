@@ -1,4 +1,4 @@
-import type { ProxyStatus } from "@pharles/shared-types";
+import type { ProxyStatus } from "@aiproxy/shared-types";
 
 type ProxyStatusPresentation = {
   chipColor: "default" | "error" | "success" | "warning";

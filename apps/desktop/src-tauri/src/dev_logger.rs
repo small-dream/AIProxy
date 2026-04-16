@@ -9,8 +9,8 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-const DEV_LOG_ENV_VAR: &str = "PHARLES_DEV_LOG_FILE";
-const DEV_LOG_FILE_NAME: &str = "pharles-desktop-dev.log";
+const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
+const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -20,7 +20,7 @@ pub fn initialize() -> Result<PathBuf, String> {
     if let Some(parent) = log_file_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
-                "failed to create Pharles development log directory {}: {error}",
+                "failed to create AIProxy development log directory {}: {error}",
                 parent.display()
             )
         })?;
@@ -33,7 +33,7 @@ pub fn initialize() -> Result<PathBuf, String> {
         .open(&log_file_path)
         .map_err(|error| {
             format!(
-                "failed to reset Pharles development log file {}: {error}",
+                "failed to reset AIProxy development log file {}: {error}",
                 log_file_path.display()
             )
         })?;
@@ -153,7 +153,7 @@ fn resolve_log_file_path() -> PathBuf {
     }
 
     discover_workspace_root_from_current_exe()
-        .unwrap_or_else(|| env::temp_dir().join("pharles-dev"))
+        .unwrap_or_else(|| env::temp_dir().join("aiproxy-dev"))
         .join("logs")
         .join("dev")
         .join(DEV_LOG_FILE_NAME)

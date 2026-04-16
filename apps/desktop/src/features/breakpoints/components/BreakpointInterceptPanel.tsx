@@ -6,7 +6,7 @@ import NavigateBeforeRoundedIcon from "@mui/icons-material/NavigateBeforeRounded
 import NavigateNextRoundedIcon from "@mui/icons-material/NavigateNextRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import { Box, Button, Chip, Divider, IconButton, OutlinedInput, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
-import type { BreakpointHit, BreakpointResolution, HeaderEntry } from "@pharles/shared-types";
+import type { BreakpointHit, BreakpointResolution, HeaderEntry } from "@aiproxy/shared-types";
 import { useCallback, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";

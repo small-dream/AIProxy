@@ -21,7 +21,7 @@ import {
   Switch,
   Typography,
 } from "@mui/material";
-import type { BreakpointRule, BreakpointStage } from "@pharles/shared-types";
+import type { BreakpointRule, BreakpointStage } from "@aiproxy/shared-types";
 import { useState } from "react";
 
 import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";

@@ -12,7 +12,7 @@ type DevLogEntry = {
 
 declare global {
   interface Window {
-    __PHARLES_DEV_LOGS__?: DevLogEntry[];
+    __AIPROXY_DEV_LOGS__?: DevLogEntry[];
   }
 }
 
@@ -42,12 +42,12 @@ function emitDevLog(level: DevLogLevel, component: string, event: string, contex
   };
   const consoleMethod = level === "debug" ? "debug" : level === "info" ? "info" : level;
 
-  console[consoleMethod]("[PharlesUI]", entry);
+  console[consoleMethod]("[AIProxyUI]", entry);
 
   if (typeof window !== "undefined") {
-    const previousLogs = window.__PHARLES_DEV_LOGS__ ?? [];
+    const previousLogs = window.__AIPROXY_DEV_LOGS__ ?? [];
     const nextLogs = [...previousLogs, entry].slice(-200);
 
-    window.__PHARLES_DEV_LOGS__ = nextLogs;
+    window.__AIPROXY_DEV_LOGS__ = nextLogs;
   }
 }

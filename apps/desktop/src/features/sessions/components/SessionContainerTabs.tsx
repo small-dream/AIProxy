@@ -2,7 +2,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import { Box, ButtonBase, IconButton, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { radiusTokens } from "@pharles/ui-tokens";
+import { radiusTokens } from "@aiproxy/ui-tokens";
 
 import { useI18n } from "@/i18n";
 import { getSurfaceShadow } from "@/themes/app-theme";

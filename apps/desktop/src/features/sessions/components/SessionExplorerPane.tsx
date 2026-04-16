@@ -19,8 +19,8 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { radiusTokens } from "@pharles/ui-tokens";
-import type { SessionSummary } from "@pharles/shared-types";
+import { radiusTokens } from "@aiproxy/ui-tokens";
+import type { SessionSummary } from "@aiproxy/shared-types";
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";

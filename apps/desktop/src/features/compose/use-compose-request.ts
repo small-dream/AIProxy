@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ComposedRequestInput, SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { ComposedRequestInput, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import {
   buildPendingComposedSessionDetail,

@@ -19,7 +19,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { DEFAULT_PROXY_PORT, type Workspace } from "@pharles/shared-types";
+import { DEFAULT_PROXY_PORT, type Workspace } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";

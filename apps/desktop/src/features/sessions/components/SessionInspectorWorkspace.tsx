@@ -1,7 +1,7 @@
 import { Alert, Box, Divider, Paper, Typography } from "@mui/material";
-import { radiusTokens } from "@pharles/ui-tokens";
+import { radiusTokens } from "@aiproxy/ui-tokens";
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSurfaceShadow } from "@/themes/app-theme";

@@ -1,7 +1,7 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, ButtonBase, Divider, Stack, Typography } from "@mui/material";
-import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 

@@ -1,5 +1,5 @@
 [package]
-name = "pharles-session-store"
+name = "aiproxy-session-store"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

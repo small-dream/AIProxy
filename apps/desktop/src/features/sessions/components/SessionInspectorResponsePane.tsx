@@ -3,7 +3,7 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { Alert, Box, Divider, IconButton, OutlinedInput, Popover, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";

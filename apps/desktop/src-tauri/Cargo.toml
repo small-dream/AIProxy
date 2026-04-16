@@ -1,5 +1,5 @@
 [package]
-name = "pharles-desktop"
+name = "aiproxy-desktop"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -9,12 +9,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
-pharles-exporter = { path = "../../../crates/exporter" }
-pharles-proxy-core = { path = "../../../crates/proxy-core" }
-pharles-rule-engine = { path = "../../../crates/rule-engine" }
-pharles-session-store = { path = "../../../crates/session-store" }
-pharles-throttle-engine = { path = "../../../crates/throttle-engine" }
-pharles-tls-manager = { path = "../../../crates/tls-manager" }
+aiproxy-exporter = { path = "../../../crates/exporter" }
+aiproxy-proxy-core = { path = "../../../crates/proxy-core" }
+aiproxy-rule-engine = { path = "../../../crates/rule-engine" }
+aiproxy-session-store = { path = "../../../crates/session-store" }
+aiproxy-throttle-engine = { path = "../../../crates/throttle-engine" }
+aiproxy-tls-manager = { path = "../../../crates/tls-manager" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }

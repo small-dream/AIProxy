@@ -1,6 +1,6 @@
-# Pharles
+# AIProxy
 
-Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能力对标 Charles，并采用独立的 Material Design 桌面体验。
+AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能力对标 Charles，并采用独立的 Material Design 桌面体验。
 
 当前仓库已完成：
 
@@ -13,9 +13,9 @@ Pharles 是一个面向开发者的跨平台代理调试工具项目，目标能
 
 桌面端当前质量命令：
 
-- `pnpm --filter @pharles/desktop lint`
-- `pnpm --filter @pharles/desktop test`
-- `pnpm --filter @pharles/desktop typecheck`
+- `pnpm --filter @aiproxy/desktop lint`
+- `pnpm --filter @aiproxy/desktop test`
+- `pnpm --filter @aiproxy/desktop typecheck`
 
 说明：
 
@@ -58,8 +58,8 @@ scripts/        开发、构建、发布脚本
 
 桌面端开发构建会把结构化调试日志写入以下位置之一：
 
-- 优先：`logs/dev/pharles-desktop-dev.log`
-- 回退：`%TEMP%\\pharles-dev\\logs\\dev\\pharles-desktop-dev.log`
+- 优先：`logs/dev/aiproxy-desktop-dev.log`
+- 回退：`%TEMP%\\aiproxy-dev\\logs\\dev\\aiproxy-desktop-dev.log`
 
 当前日志覆盖：
 
@@ -79,7 +79,7 @@ scripts/        开发、构建、发布脚本
 2. 点击 `Start HTTPS Proxy`
 3. 点击 `Enable System Proxy`
 4. 打开一个 `https://` 站点
-5. 查看 `logs/dev/pharles-desktop-dev.log`
+5. 查看 `logs/dev/aiproxy-desktop-dev.log`
 6. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`connect_received`、`connect_mitm_started`、`tls_handshake_succeeded`、`upstream_request_started`、`https_request_forwarded`
 
 ## 下一步建议

@@ -15,7 +15,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import type { RewriteRule, RewriteRuleType, RuleMatch } from "@pharles/shared-types";
+import type { RewriteRule, RewriteRuleType, RuleMatch } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDeleteManagedRule, useRewriteRules, useSaveRewriteRule } from "@/features/rules/use-rule-center";

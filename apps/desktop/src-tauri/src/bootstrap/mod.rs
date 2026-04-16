@@ -1,4 +1,4 @@
-use pharles_proxy_core::{BreakpointManager, MapManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager, ThrottleManager, TlsManager};
+use aiproxy_proxy_core::{BreakpointManager, MapManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager, ThrottleManager, TlsManager};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -384,7 +384,7 @@ fn select_session_eviction_index(
 #[cfg(test)]
 mod tests {
     use super::select_session_eviction_index;
-    use pharles_proxy_core::ProxySessionSummary;
+    use aiproxy_proxy_core::ProxySessionSummary;
 
     #[test]
     fn evicts_oldest_unfocused_session_before_focused_one() {

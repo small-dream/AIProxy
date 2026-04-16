@@ -7,7 +7,7 @@ import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SettingsEthernetRoundedIcon from "@mui/icons-material/SettingsEthernetRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@pharles/shared-types";
+import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import {
   Box,
   Button,

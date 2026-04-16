@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ProxyStatus, StartProxyInput } from "@pharles/shared-types";
+import type { ProxyStatus, StartProxyInput } from "@aiproxy/shared-types";
 
 import {
   clearSessions,

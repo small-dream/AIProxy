@@ -5,7 +5,7 @@ import type {
   SessionDetail,
   SessionSummary,
   TimingBreakdown,
-} from "@pharles/shared-types";
+} from "@aiproxy/shared-types";
 
 export function upsertSessionSummary(
   sessions: SessionSummary[],
