@@ -1,4 +1,5 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import DataObjectRoundedIcon from "@mui/icons-material/DataObjectRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
@@ -15,12 +16,14 @@ import {
   ListItemButton,
   Paper,
   Stack,
+  SvgIcon,
   Tooltip,
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { radiusTokens } from "@aiproxy/ui-tokens";
 import type { SessionSummary } from "@aiproxy/shared-types";
+import type { SvgIconProps } from "@mui/material/SvgIcon";
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
@@ -383,26 +386,30 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
       onClick={onClick}
       onContextMenu={onContextMenu}
       selected={selected}
-      sx={{
-        borderRadius: 1.5,
-        minHeight: 30,
+      sx={(theme) => ({
+        borderRadius: 1,
+        minHeight: 24,
         minWidth: "100%",
         pl: 2 + depth * 1.5 + 2,
         pr: 1,
-        py: 0.375,
+        py: 0.125,
         transition: "background-color 140ms ease, box-shadow 140ms ease",
         width: "max-content",
         "&:hover": {
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
         "&.Mui-selected": {
-          bgcolor: "action.selected",
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.32 : 0.18),
+          borderRadius: 0,
           boxShadow: (theme) => getHoverShadow(theme.palette.mode),
         },
-      }}
+        "&.Mui-selected:hover": {
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.36 : 0.22),
+        },
+      })}
     >
       <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}>
-        <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.75 }}>
+        <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.375 }}>
           {renderResourceIcon(resourceKind)}
         </Box>
       </Tooltip>
@@ -416,7 +423,7 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
           sx={{
             alignItems: "baseline",
             display: "flex",
-            gap: showLeafLabel && querySuffix ? 0.125 : 0,
+            gap: showLeafLabel && querySuffix ? 0.0625 : 0,
             width: "max-content",
           }}
         >
@@ -517,7 +524,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   const sx = { fontSize: 14 };
 
   if (resourceKind === "api") {
-    return <InsertDriveFileOutlinedIcon sx={sx} />;
+    return <JsonFileIcon sx={sx} />;
   }
 
   if (resourceKind === "javascript") {
@@ -585,4 +592,39 @@ function getResourceColor(resourceKind: SessionExplorerResourceKind): string {
   }
 
   return "text.secondary";
+}
+
+function JsonFileIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props} viewBox="0 0 16 16" data-testid="json-file-icon">
+      <path
+        d="M4 1.75h5.4L12.75 5v8.25A1.75 1.75 0 0 1 11 15H4A1.75 1.75 0 0 1 2.25 13.25v-9.75A1.75 1.75 0 0 1 4 1.75Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.25 1.75V4A1 1 0 0 0 10.25 5h2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.35 8.15c-.48 0-.8.34-.8.85s.32.85.8.85M10.65 8.15c.48 0 .8.34.8.85s-.32.85-.8.85"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1"
+      />
+      <path
+        d="M6.75 7.5h2.5M6.75 8.8h2.5M6.75 10.1h2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth=".9"
+      />
+    </SvgIcon>
+  );
 }
