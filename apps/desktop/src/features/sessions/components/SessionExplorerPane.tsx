@@ -13,7 +13,6 @@ import {
   CircularProgress,
   List,
   ListItemButton,
-  Paper,
   Stack,
   SvgIcon,
   Tooltip,
@@ -68,20 +67,16 @@ export function SessionExplorerPane({
   const { t } = useI18n();
 
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
-        border: 1,
+        bgcolor: "background.paper",
+        borderBottom: { lg: 0, xs: 1 },
         borderColor: "divider",
-        borderRadius: 0,
-        borderRightWidth: { lg: 0, xs: 1 },
-        boxShadow: "none",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
       }}
-      variant="outlined"
     >
       <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {isLoading ? (
@@ -166,7 +161,7 @@ export function SessionExplorerPane({
           </List>
         )}
       </Box>
-    </Paper>
+    </Box>
   );
 }
 

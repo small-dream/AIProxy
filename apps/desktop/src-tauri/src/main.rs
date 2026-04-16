@@ -64,6 +64,12 @@ pub fn run() {
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
 
+            #[cfg(target_os = "macos")]
+            {
+                let menu = tauri::menu::Menu::default(app.handle())?;
+                menu.set_as_app_menu()?;
+            }
+
             let window = app
                 .get_webview_window("main")
                 .expect("main window should exist");

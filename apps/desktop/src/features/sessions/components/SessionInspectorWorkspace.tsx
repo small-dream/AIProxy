@@ -1,4 +1,4 @@
-import { Alert, Box, Divider, Paper, Typography } from "@mui/material";
+import { Alert, Box, Divider, Typography } from "@mui/material";
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
@@ -122,18 +122,12 @@ function SessionInspectorWorkspace({
 
   if (!selectedSession) {
     return (
-      <Paper
-        elevation={0}
+      <Box
         sx={{
-          border: 1,
-          borderColor: "divider",
-          borderLeftWidth: { lg: 0, xs: 1 },
-          borderRadius: 0,
-          boxShadow: "none",
+          bgcolor: "background.paper",
           display: "flex",
           minHeight: 0,
         }}
-        variant="outlined"
       >
         <Box sx={{ p: 3 }}>
           <Typography variant="h6">{t("inspector.workspace.emptyTitle")}</Typography>
@@ -141,25 +135,19 @@ function SessionInspectorWorkspace({
             {t("inspector.workspace.emptyDescription")}
           </Typography>
         </Box>
-      </Paper>
+      </Box>
     );
   }
 
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
-        border: 1,
-        borderColor: "divider",
-        borderLeftWidth: { lg: 0, xs: 1 },
-        borderRadius: 0,
-        boxShadow: "none",
+        bgcolor: "background.paper",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
       }}
-      variant="outlined"
     >
       <InspectorSummaryBar
         detail={detail}
@@ -236,6 +224,6 @@ function SessionInspectorWorkspace({
           />
         </Box>
       </Box>
-    </Paper>
+    </Box>
   );
 });

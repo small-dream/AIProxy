@@ -3,6 +3,12 @@ name = "aiproxy-desktop"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
+autobins = false
+default-run = "AIProxy"
+
+[[bin]]
+name = "AIProxy"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

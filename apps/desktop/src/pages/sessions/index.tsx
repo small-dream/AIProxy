@@ -4,7 +4,7 @@ import {
 } from "@aiproxy/shared-types";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
-import { Alert, Box, Snackbar, Stack } from "@mui/material";
+import { Alert, Box, Paper, Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
@@ -573,100 +573,116 @@ export function SessionsPage() {
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
-      <SessionContainerTabs
-        containers={containerState.containers.map((container) => ({
-          id: container.id,
-          isActive: container.id === containerState.activeContainerId,
-          labelNumber: container.labelNumber,
-        }))}
-        onAddContainer={handleAddContainer}
-        onCloseContainer={handleCloseContainer}
-        onSelectContainer={handleSelectContainer}
-      />
-
       {error ? (
         <Alert severity="error">
           {t("sessionsPage.runtimeError")}
         </Alert>
       ) : null}
 
-      <Box
+      <Paper
+        elevation={0}
         sx={{
-          display: "grid",
           flex: 1,
-          gap: 0,
-          gridTemplateColumns: {
-            lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
-            xs: "1fr",
-          },
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 0,
+          boxShadow: "none",
+          display: "flex",
+          flexDirection: "column",
           minHeight: 0,
+          overflow: "hidden",
         }}
+        variant="outlined"
       >
-        <SessionExplorerPane
-          errorMessage={sessionsError ? sessionsErrorMessage : undefined}
-          expandedHosts={activeContainer?.expandedHosts ?? []}
-          groups={hostGroups}
-          isLoading={isLoading || areSessionsLoading}
-          onContextMenuHost={handleHostContextMenu}
-          onContextMenuSession={handleContextMenu}
-          onSelectSession={handleSelectedSessionChange}
-          onToggleHost={toggleHost}
-          selectedSessionId={selectedSessionIdValue}
+        <SessionContainerTabs
+          containers={containerState.containers.map((container) => ({
+            id: container.id,
+            isActive: container.id === containerState.activeContainerId,
+            labelNumber: container.labelNumber,
+          }))}
+          onAddContainer={handleAddContainer}
+          onCloseContainer={handleCloseContainer}
+          onSelectContainer={handleSelectContainer}
         />
 
         <Box
-          aria-hidden
-          onPointerDown={startResize}
           sx={{
-            bgcolor: "background.paper",
-            cursor: "col-resize",
-            display: { lg: "flex", xs: "none" },
-            justifyContent: "center",
+            display: "grid",
+            flex: 1,
+            gap: 0,
+            gridTemplateColumns: {
+              lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
+              xs: "1fr",
+            },
             minHeight: 0,
-            position: "relative",
-            touchAction: "none",
-            userSelect: "none",
-            "&::before": {
-              bgcolor: "divider",
-              content: '""',
-              height: "100%",
-              opacity: 0.7,
-              transition: "background-color 120ms ease, opacity 120ms ease",
-              width: 1,
-            },
-            "&:hover::before": {
-              bgcolor: "primary.main",
-              opacity: 1,
-            },
           }}
-        />
+        >
+          <SessionExplorerPane
+            errorMessage={sessionsError ? sessionsErrorMessage : undefined}
+            expandedHosts={activeContainer?.expandedHosts ?? []}
+            groups={hostGroups}
+            isLoading={isLoading || areSessionsLoading}
+            onContextMenuHost={handleHostContextMenu}
+            onContextMenuSession={handleContextMenu}
+            onSelectSession={handleSelectedSessionChange}
+            onToggleHost={toggleHost}
+            selectedSessionId={selectedSessionIdValue}
+          />
 
-        <SessionInspectorWorkspace
-          ref={workspaceRef}
-          detailErrorMessage={
-            sessionDetailError
-              ? getOperationErrorMessage(
-                  sessionDetailError,
-                  t("sessionsPage.detailLoadError"),
-                )
-              : undefined
-          }
-          inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
-          isDetailLoading={isSessionDetailLoading}
-          onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
-          onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
-          onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
-          onRepeat={selectedSession ? handleRepeat : undefined}
-          onRequestCollapsedChange={handleRequestCollapsedChange}
-          onRequestTabChange={handleRequestTabChange}
-          onResponseTabChange={handleResponseTabChange}
-          requestCollapsed={activeContainer?.requestCollapsed ?? false}
-          requestTab={activeContainer?.requestTab ?? "headers"}
-          responseTab={activeContainer?.responseTab ?? "overview"}
-          selectedSessionDetail={selectedSessionDetail}
-          selectedSession={selectedSession}
-        />
-      </Box>
+          <Box
+            aria-hidden
+            onPointerDown={startResize}
+            sx={{
+              bgcolor: "background.paper",
+              cursor: "col-resize",
+              display: { lg: "flex", xs: "none" },
+              justifyContent: "center",
+              minHeight: 0,
+              position: "relative",
+              touchAction: "none",
+              userSelect: "none",
+              "&::before": {
+                bgcolor: "divider",
+                content: '""',
+                height: "100%",
+                opacity: 0.7,
+                transition: "background-color 120ms ease, opacity 120ms ease",
+                width: 1,
+              },
+              "&:hover::before": {
+                bgcolor: "primary.main",
+                opacity: 1,
+              },
+            }}
+          />
+
+          <SessionInspectorWorkspace
+            ref={workspaceRef}
+            detailErrorMessage={
+              sessionDetailError
+                ? getOperationErrorMessage(
+                    sessionDetailError,
+                    t("sessionsPage.detailLoadError"),
+                  )
+                : undefined
+            }
+            inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
+            isDetailLoading={isSessionDetailLoading}
+            onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
+            onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
+            onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
+            onRepeat={selectedSession ? handleRepeat : undefined}
+            onRequestCollapsedChange={handleRequestCollapsedChange}
+            onRequestTabChange={handleRequestTabChange}
+            onResponseTabChange={handleResponseTabChange}
+            requestCollapsed={activeContainer?.requestCollapsed ?? false}
+            requestTab={activeContainer?.requestTab ?? "headers"}
+            responseTab={activeContainer?.responseTab ?? "overview"}
+            selectedSessionDetail={selectedSessionDetail}
+            selectedSession={selectedSession}
+          />
+        </Box>
+      </Paper>
 
       <SessionExportDialog
         allSessions={activeSessions}

@@ -1,6 +1,6 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import { Box, ButtonBase, IconButton, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, ButtonBase, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
@@ -27,17 +27,13 @@ export function SessionContainerTabs({
   const { t } = useI18n();
 
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
         bgcolor: "background.paper",
-        border: 1,
+        borderBottom: 1,
         borderColor: "divider",
-        borderRadius: 0,
-        boxShadow: "none",
-        overflow: "hidden",
+        minWidth: 0,
       }}
-      variant="outlined"
     >
       <Stack
         alignItems="center"
@@ -155,6 +151,6 @@ export function SessionContainerTabs({
           </Tooltip>
         </Stack>
       </Stack>
-    </Paper>
+    </Box>
   );
 }
