@@ -1,7 +1,7 @@
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Chip, Divider, IconButton, OutlinedInput, Popover, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Divider, IconButton, OutlinedInput, Popover, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
@@ -13,7 +13,6 @@ import {
   buildCountTabLabel,
   describeBody,
   getBodyText,
-  getStatusColor,
   type JsonParseResult,
   type ResponseInspectorTab,
 } from "./session-inspector.helpers";
@@ -108,11 +107,6 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
-      <Stack spacing={0.5} sx={{ px: 1.5, py: 1 }}>
-        <Typography variant="subtitle2">{t("inspector.response.sectionTitle")}</Typography>
-      </Stack>
-
-      <Divider />
 
       <Box sx={{ alignItems: "center", bgcolor: "background.paper", display: "flex", minHeight: 32, pr: 0.5 }}>
         <Tabs
@@ -265,7 +259,6 @@ function ResponseTabContent({
     return (
       <SessionInspectorOverview
         detail={detail}
-        leading={<Chip color={getStatusColor(session.statusCode)} label={String(session.statusCode)} size="small" variant="outlined" />}
         session={session}
       />
     );

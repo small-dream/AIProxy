@@ -1,13 +1,43 @@
 import { describe, expect, it } from "vitest";
-import type { BodyReference } from "@pharles/shared-types";
+import type { BodyReference, SessionDetail, SessionSummary } from "@pharles/shared-types";
 
-import { formatJsonText, parseJsonBody } from "./session-inspector.helpers";
+import { formatJsonText, getRequestOperationLabel, parseJsonBody } from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
   return {
     inlineText: "{\"ok\":true}",
     mimeType: "application/json",
     sizeBytes: 12,
+    ...overrides,
+  };
+}
+
+function createSessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    durationMs: 165,
+    finishedAt: "2026-04-11T10:00:03.000Z",
+    host: "api.example.com",
+    id: "session-1",
+    method: "POST",
+    path: "/api",
+    protocol: "https",
+    responseMimeType: "application/json",
+    sizeBytes: 512,
+    startedAt: "2026-04-11T10:00:00.000Z",
+    statusCode: 200,
+    url: "https://api.example.com/api",
+    ...overrides,
+  };
+}
+
+function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
+  return {
+    cookies: [],
+    id: "session-1",
+    queryParams: [],
+    requestHeaders: [],
+    responseHeaders: [],
+    summary: createSessionSummary(),
     ...overrides,
   };
 }
@@ -79,5 +109,45 @@ describe("parseJsonBody", () => {
 describe("formatJsonText", () => {
   it("pretty prints JSON values on demand", () => {
     expect(formatJsonText({ ok: true, items: [1, 2] })).toBe('{\n    "ok": true,\n    "items": [\n        1,\n        2\n    ]\n}');
+  });
+});
+
+describe("getRequestOperationLabel", () => {
+  it("prefers explicit query params like _method", () => {
+    const detail = createSessionDetail({
+      queryParams: [
+        { name: "_app", value: "Android" },
+        { name: "_method", value: "app.launch" },
+      ],
+    });
+
+    expect(getRequestOperationLabel(detail, createSessionSummary())).toBe("app.launch");
+  });
+
+  it("supports keyed path segments when the method is embedded in the path", () => {
+    const session = createSessionSummary({
+      path: "/rpc/method/app.launch",
+      url: "https://api.example.com/rpc/method/app.launch",
+    });
+
+    expect(getRequestOperationLabel(undefined, session)).toBe("app.launch");
+  });
+
+  it("falls back to explicit dotted path segments", () => {
+    const session = createSessionSummary({
+      path: "/api/app.launch",
+      url: "https://api.example.com/api/app.launch",
+    });
+
+    expect(getRequestOperationLabel(undefined, session)).toBe("app.launch");
+  });
+
+  it("does not treat generic rest segments as an operation label", () => {
+    const session = createSessionSummary({
+      path: "/api/users/list",
+      url: "https://api.example.com/api/users/list",
+    });
+
+    expect(getRequestOperationLabel(undefined, session)).toBeUndefined();
   });
 });

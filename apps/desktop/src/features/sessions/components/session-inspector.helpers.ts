@@ -214,6 +214,42 @@ export function getMethodColor(method: string): "default" | "error" | "info" | "
   return "default";
 }
 
+const REQUEST_OPERATION_QUERY_KEYS = [
+  "_method",
+  "method",
+  "action",
+  "operation",
+  "op",
+  "methodName",
+  "operationName",
+] as const;
+
+const REQUEST_OPERATION_PATH_KEYS = new Set([
+  "method",
+  "action",
+  "operation",
+  "op",
+  "m",
+  "rpc",
+]);
+
+export function getRequestOperationLabel(detail: SessionDetail | undefined, session: SessionSummary): string | undefined {
+  const queryParamValue = getRequestOperationFromQuery(detail?.queryParams);
+
+  if (queryParamValue) {
+    return queryParamValue;
+  }
+
+  const pathSegments = getRequestPathSegments(session);
+  const keyedPathValue = getRequestOperationFromKeyedPath(pathSegments);
+
+  if (keyedPathValue) {
+    return keyedPathValue;
+  }
+
+  return [...pathSegments].reverse().find(isLikelyOperationSegment);
+}
+
 export function isJsonObject(value: JsonValue): value is { [key: string]: JsonValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -250,6 +286,95 @@ export function formatJsonPrimitive(value: JsonValue): string {
   }
 
   return String(value);
+}
+
+function getRequestOperationFromQuery(queryParams: SessionDetail["queryParams"] | undefined): string | undefined {
+  if (!queryParams?.length) {
+    return undefined;
+  }
+
+  for (const key of REQUEST_OPERATION_QUERY_KEYS) {
+    const entry = queryParams.find((queryParam) => queryParam.name.toLowerCase() === key.toLowerCase());
+    const normalizedValue = normalizeOperationValue(entry?.value);
+
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+
+  const fuzzyEntry = queryParams.find((queryParam) => {
+    const normalizedName = queryParam.name.toLowerCase();
+    return normalizedName.endsWith("method") || normalizedName.endsWith("action") || normalizedName.endsWith("operation");
+  });
+
+  return normalizeOperationValue(fuzzyEntry?.value);
+}
+
+function getRequestPathSegments(session: SessionSummary): string[] {
+  try {
+    return new URL(session.url)
+      .pathname
+      .split("/")
+      .map(decodeURIComponent)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+  } catch {
+    return (session.path.split("?")[0] ?? session.path)
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+  }
+}
+
+function getRequestOperationFromKeyedPath(pathSegments: string[]): string | undefined {
+  for (let index = 0; index < pathSegments.length - 1; index += 1) {
+    const currentSegment = pathSegments[index];
+    const nextSegment = pathSegments[index + 1];
+    const nextNextSegment = pathSegments[index + 2];
+
+    if (!currentSegment || !nextSegment || !REQUEST_OPERATION_PATH_KEYS.has(currentSegment.toLowerCase())) {
+      continue;
+    }
+
+    if (REQUEST_OPERATION_PATH_KEYS.has(nextSegment.toLowerCase())) {
+      const nestedNormalizedValue = normalizeOperationValue(nextNextSegment);
+
+      if (nestedNormalizedValue) {
+        return nestedNormalizedValue;
+      }
+    }
+
+    const normalizedValue = normalizeOperationValue(nextSegment);
+
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+
+  return undefined;
+}
+
+function isLikelyOperationSegment(segment: string): boolean {
+  const normalizedSegment = normalizeOperationValue(segment);
+
+  if (!normalizedSegment) {
+    return false;
+  }
+
+  if (/^v\d+$/i.test(normalizedSegment) || /^\d+$/.test(normalizedSegment)) {
+    return false;
+  }
+
+  if (["api", "rest", "rpc", "gateway", "service", "services"].includes(normalizedSegment.toLowerCase())) {
+    return false;
+  }
+
+  return /[.:_]/.test(normalizedSegment);
+}
+
+function normalizeOperationValue(value: string | undefined): string | undefined {
+  const normalizedValue = value?.trim();
+  return normalizedValue ? normalizedValue : undefined;
 }
 
 export function getJsonValueType(

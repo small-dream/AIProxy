@@ -8,7 +8,7 @@ import type { SessionDetail, SessionSummary } from "@pharles/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
-import { getMethodColor, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
+import { getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -25,6 +25,8 @@ export function InspectorSummaryBar({
   session: SessionSummary;
 }) {
   const { t } = useI18n();
+  const totalDuration = detail?.timing?.totalMs ?? session.durationMs;
+  const requestOperationLabel = getRequestOperationLabel(detail, session);
 
   return (
     <Stack spacing={0.75} sx={{ px: 1.5, py: 1 }}>
@@ -32,22 +34,34 @@ export function InspectorSummaryBar({
         <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
           <Chip
             color={getMethodColor(session.method)}
-            label={session.method}
+            label={session.method.toUpperCase()}
             size="small"
             variant="filled"
           />
-          <Typography noWrap variant="subtitle2">
-            {session.path || "/"}
-          </Typography>
+          {requestOperationLabel ? (
+            <Tooltip arrow title={requestOperationLabel}>
+              <Chip
+                color="default"
+                label={requestOperationLabel}
+                size="small"
+                sx={{
+                  maxWidth: 240,
+                  "& .MuiChip-label": {
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  },
+                }}
+                variant="outlined"
+              />
+            </Tooltip>
+          ) : null}
           <Chip
             color={getStatusColor(session.statusCode)}
             label={String(session.statusCode)}
             size="small"
             variant="outlined"
           />
-          <Typography color="text.secondary" noWrap variant="caption">
-            {t("common.tech.milliseconds", { value: session.durationMs })} • {t("common.tech.bytes", { value: session.sizeBytes })}
-          </Typography>
+          <Chip label={`${totalDuration}ms`} size="small" variant="outlined" />
         </Stack>
 
         <Stack alignItems="center" direction="row" spacing={0.5}>
@@ -78,10 +92,22 @@ export function InspectorSummaryBar({
         </Stack>
       </Stack>
 
-      <Typography color="text.secondary" noWrap sx={{ fontSize: 11.5, lineHeight: 1.3 }}>
-        {session.host} • {session.protocol} • {session.url}
-        {detail?.serverIp ? ` • ${detail.serverIp}` : ""}
-      </Typography>
+      <Tooltip
+        arrow
+        slotProps={{
+          tooltip: {
+            sx: {
+              maxWidth: 720,
+              overflowWrap: "anywhere",
+            },
+          },
+        }}
+        title={session.url}
+      >
+        <Typography color="text.secondary" noWrap sx={{ fontSize: 11.5, lineHeight: 1.3 }} variant="body2">
+          {session.url}
+        </Typography>
+      </Tooltip>
     </Stack>
   );
 }
