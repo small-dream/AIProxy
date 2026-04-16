@@ -1,8 +1,7 @@
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Divider, IconButton, OutlinedInput, Popover, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Alert, Box, Divider, IconButton, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -15,7 +14,10 @@ import {
   getBodyText,
   type JsonParseResult,
   type ResponseInspectorTab,
+  type SearchMatcher,
 } from "./session-inspector.helpers";
+import { SearchBar } from "./SearchBar";
+import { useSearchController } from "./use-search-controller";
 
 export type ResponsePaneHandle = {
   activateSearch: () => void;
@@ -39,42 +41,26 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   session,
 }, ref) {
   const { t } = useI18n();
-  const [searchValue, setSearchValue] = useState("");
-  const [searchAnchorEl, setSearchAnchorEl] = useState<HTMLElement | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const searchController = useSearchController();
   const isSearchable = SEARCHABLE_TABS.has(responseTab);
-  const searchPopoverOpen = Boolean(searchAnchorEl);
 
   useEffect(() => {
-    setSearchValue("");
-    setSearchAnchorEl(null);
+    setIsSearchOpen(false);
     setSnackbarOpen(false);
   }, [session.id]);
 
   useEffect(() => {
     if (!isSearchable) {
-      setSearchValue("");
-      setSearchAnchorEl(null);
+      setIsSearchOpen(false);
     }
   }, [isSearchable]);
 
-  const openSearchPopover = useCallback((anchor: HTMLElement | null) => {
-    if (!isSearchable || !anchor) return;
-    setSearchAnchorEl(anchor);
-    setTimeout(() => searchInputRef.current?.focus(), 0);
-  }, [isSearchable]);
-
-  const closeSearchPopover = useCallback(() => {
-    setSearchAnchorEl(null);
-    setSearchValue("");
-  }, []);
-
   const activateSearch = useCallback(() => {
     if (!isSearchable) return;
-    openSearchPopover(searchButtonRef.current);
-  }, [isSearchable, openSearchPopover]);
+    setIsSearchOpen(true);
+  }, [isSearchable]);
 
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
@@ -105,6 +91,11 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     setSnackbarOpen(true);
   }, [copyValue]);
 
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    searchController.onQueryChange("");
+  }, [searchController]);
+
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
 
@@ -126,19 +117,18 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
         {isSearchable ? (
           <Stack alignItems="center" direction="row" spacing={0.25}>
-            <Tooltip arrow title={searchPopoverOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
+            <Tooltip arrow title={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
               <IconButton
-                aria-label={searchPopoverOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
-                onClick={(event) => {
-                  if (searchPopoverOpen) {
-                    closeSearchPopover();
+                aria-label={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
+                onClick={() => {
+                  if (isSearchOpen) {
+                    closeSearch();
                     return;
                   }
-                  openSearchPopover(event.currentTarget);
+                  setIsSearchOpen(true);
                 }}
-                ref={searchButtonRef}
                 size="small"
-                sx={{ p: 0.75 }}
+                sx={{ p: 0.75, color: isSearchOpen ? "primary.main" : undefined }}
               >
                 <SearchRoundedIcon fontSize="small" />
               </IconButton>
@@ -162,6 +152,22 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
         ) : null}
       </Box>
 
+      {isSearchOpen ? (
+        <SearchBar
+          currentMatchIndex={searchController.currentMatchIndex}
+          matchCount={searchController.matchCount}
+          onClose={closeSearch}
+          onNext={searchController.onNext}
+          onOptionsChange={searchController.onOptionsChange}
+          onPrevious={searchController.onPrevious}
+          onQueryChange={searchController.onQueryChange}
+          options={searchController.options}
+          placeholder={searchPlaceholder}
+          query={searchController.query}
+          regexInvalid={searchController.isRegexInvalid}
+        />
+      ) : null}
+
       <Divider />
 
       <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
@@ -170,58 +176,12 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={responseTab}
-          searchValue={searchPopoverOpen ? searchValue : ""}
+          searchMatcher={isSearchOpen ? searchController.matcher : null}
+          currentMatchIndex={isSearchOpen ? searchController.currentMatchIndex : undefined}
+          onMatchCountChange={isSearchOpen ? searchController.setMatchCount : undefined}
           session={session}
         />
       </Box>
-
-      <Popover
-        anchorEl={searchAnchorEl}
-        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
-        onClose={closeSearchPopover}
-        open={searchPopoverOpen}
-        slotProps={{
-          paper: {
-            sx: {
-              border: 1,
-              borderColor: "divider",
-              boxShadow: 8,
-              mt: 0.75,
-              overflow: "hidden",
-            },
-          },
-        }}
-        transformOrigin={{ horizontal: "right", vertical: "top" }}
-      >
-        <Stack alignItems="center" direction="row" spacing={1} sx={{ p: 1 }}>
-          <OutlinedInput
-            autoFocus
-            inputRef={searchInputRef}
-            onChange={(event) => setSearchValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                closeSearchPopover();
-              }
-            }}
-            placeholder={searchPlaceholder}
-            size="small"
-            startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-            sx={{ minWidth: 280 }}
-            value={searchValue}
-          />
-          <Tooltip arrow title={t("inspector.response.actions.closeSearch")}>
-            <IconButton
-              aria-label={t("inspector.response.actions.closeSearch")}
-              onClick={closeSearchPopover}
-              size="small"
-              sx={{ p: 0.75 }}
-            >
-              <CloseRoundedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      </Popover>
 
       <Snackbar
         autoHideDuration={1800}
@@ -238,14 +198,18 @@ function ResponseTabContent({
   responseJsonDisplayText,
   responseJsonResult,
   responseTab,
-  searchValue,
+  searchMatcher,
+  currentMatchIndex,
+  onMatchCountChange,
   session,
 }: {
   detail: SessionDetail | undefined;
   responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
-  searchValue: string;
+  searchMatcher: SearchMatcher | null;
+  currentMatchIndex: number | undefined;
+  onMatchCountChange: ((count: number) => void) | undefined;
   session: SessionSummary;
 }) {
   const { t } = useI18n();
@@ -276,7 +240,15 @@ function ResponseTabContent({
   }
 
   if (responseTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")} searchQuery={searchValue} />;
+    return (
+      <SearchableCodeBlock
+        code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")}
+        currentMatchIndex={currentMatchIndex}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
+      />
+    );
   }
 
   if (responseTab === "json") {
@@ -298,7 +270,15 @@ function ResponseTabContent({
       );
     }
 
-    return <SessionInspectorJsonTree searchQuery={searchValue} value={responseJsonResult.value} />;
+    return (
+      <SessionInspectorJsonTree
+        currentMatchIndex={currentMatchIndex}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
+        value={responseJsonResult.value}
+      />
+    );
   }
 
   if (responseTab === "jsonText") {
@@ -308,8 +288,11 @@ function ResponseTabContent({
           <Alert severity="info">{responseJsonResult.message}</Alert>
           <SearchableCodeBlock
             code={getBodyText(detail?.responseBody) ?? t("composePage.responseNoBody")}
+            currentMatchIndex={currentMatchIndex}
             language="json"
-            searchQuery={searchValue}
+            matcher={searchMatcher}
+            onMatchCountChange={onMatchCountChange}
+            searchQuery=""
           />
         </Stack>
       );
@@ -322,8 +305,11 @@ function ResponseTabContent({
     return (
       <SearchableCodeBlock
         code={responseJsonResult.status === "success" ? (responseJsonDisplayText ?? t("inspector.response.noJsonBody")) : t("inspector.response.noJsonBody")}
+        currentMatchIndex={currentMatchIndex}
         language="json"
-        searchQuery={searchValue}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
       />
     );
   }
@@ -333,7 +319,13 @@ function ResponseTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")} searchQuery={searchValue} />
+      <SearchableCodeBlock
+        code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")}
+        currentMatchIndex={currentMatchIndex}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
+      />
     </Stack>
   );
 }

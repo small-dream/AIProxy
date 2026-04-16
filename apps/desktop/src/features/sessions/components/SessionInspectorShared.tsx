@@ -11,7 +11,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars } from "@/themes/fonts";
-import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
+import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -422,11 +422,17 @@ export function InspectorKeyValueTable({
 
 export function SearchableCodeBlock({
   code,
+  currentMatchIndex,
   language = "plain",
+  matcher,
+  onMatchCountChange,
   searchQuery,
 }: {
   code: string;
+  currentMatchIndex?: number | undefined;
   language?: "json" | "plain";
+  matcher?: SearchMatcher | null | undefined;
+  onMatchCountChange?: ((count: number) => void) | undefined;
   searchQuery: string;
 }) {
   const theme = useTheme();
@@ -434,32 +440,57 @@ export function SearchableCodeBlock({
   const jsonTokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const containerRef = useRef<HTMLPreElement | HTMLDivElement | null>(null);
-  const normalizedSearchQuery = useMemo(
-    () => normalizeSearch(deferredSearchQuery),
-    [deferredSearchQuery],
-  );
   const shouldVirtualize = useMemo(
     () => shouldVirtualizeCodeBlock(code),
     [code],
   );
 
+  const allMatches = useMemo(() => {
+    if (!matcher) return [];
+    return matcher(code);
+  }, [code, matcher]);
+
+  const currentMatchRange = useMemo(() => {
+    if (!matcher || allMatches.length === 0 || currentMatchIndex === undefined) return null;
+    return allMatches[currentMatchIndex] ?? null;
+  }, [allMatches, currentMatchIndex, matcher]);
+
   useEffect(() => {
-    if (!normalizedSearchQuery || shouldVirtualize) {
+    if (onMatchCountChange) {
+      onMatchCountChange(allMatches.length);
+    }
+  }, [allMatches.length, matcher, onMatchCountChange]);
+
+  useEffect(() => {
+    if (shouldVirtualize || !matcher) {
       return;
     }
 
-    const firstMatch = containerRef.current?.querySelector("mark");
-
-    if (firstMatch instanceof HTMLElement && typeof firstMatch.scrollIntoView === "function") {
-      firstMatch.scrollIntoView({ block: "center" });
+    if (currentMatchIndex === undefined || allMatches.length === 0) {
+      const firstMatch = containerRef.current?.querySelector("mark");
+      if (firstMatch instanceof HTMLElement) {
+        firstMatch.scrollIntoView({ block: "center" });
+      }
+      return;
     }
-  }, [code, normalizedSearchQuery, shouldVirtualize]);
+
+    const targetMatch = allMatches[currentMatchIndex];
+    if (!targetMatch) return;
+
+    const el = containerRef.current?.querySelector(`mark[data-match-index="${targetMatch.start}"]`);
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ block: "center" });
+    }
+  }, [allMatches, code, currentMatchIndex, matcher, shouldVirtualize]);
 
   if (shouldVirtualize) {
     return (
       <VirtualizedSearchableCodeBlock
         code={code}
+        currentMatchIndex={currentMatchIndex}
         language={language}
+        matcher={matcher}
+        onMatchCountChange={onMatchCountChange}
         searchQuery={deferredSearchQuery}
         tokenColors={jsonTokenColors}
       />
@@ -487,9 +518,13 @@ export function SearchableCodeBlock({
         wordBreak: "break-word",
       }}
     >
-      {language === "json"
-        ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
-        : renderHighlightedText(code, deferredSearchQuery)}
+      {matcher
+        ? language === "json"
+          ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, undefined, matcher, currentMatchRange)
+          : renderHighlightedText(code, undefined, matcher, currentMatchRange)
+        : language === "json"
+          ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
+          : renderHighlightedText(code, deferredSearchQuery)}
     </Box>
   );
 }
@@ -547,12 +582,18 @@ export function useVirtualWindow(itemCount: number, itemHeight: number, overscan
 
 function VirtualizedSearchableCodeBlock({
   code,
+  currentMatchIndex,
   language,
+  matcher,
+  onMatchCountChange,
   searchQuery,
   tokenColors,
 }: {
   code: string;
+  currentMatchIndex?: number | undefined;
   language: "json" | "plain";
+  matcher?: SearchMatcher | null | undefined;
+  onMatchCountChange?: ((count: number) => void) | undefined;
   searchQuery: string;
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
 }) {
@@ -574,9 +615,39 @@ function VirtualizedSearchableCodeBlock({
   const lineHeight = language === "json" ? 22 : 20;
   const { containerRef: virtualContainerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);
+
+  const lineMatchInfo = useMemo(() => {
+    if (!matcher) return { totalMatches: 0, lineOffsets: [] as number[], matchLineIndex: -1 };
+    let totalMatches = 0;
+    const lineOffsets: number[] = [];
+    let targetLineIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      const matches = matcher(lines[i] ?? "");
+      const count = matches.length;
+      lineOffsets.push(totalMatches);
+      totalMatches += count;
+
+      if (targetLineIndex === -1 && currentMatchIndex !== undefined && currentMatchIndex < totalMatches) {
+        targetLineIndex = i;
+      }
+    }
+
+    return { totalMatches, lineOffsets, matchLineIndex: targetLineIndex };
+  }, [currentMatchIndex, lines, matcher]);
+
+  useEffect(() => {
+    if (onMatchCountChange) {
+      onMatchCountChange(lineMatchInfo.totalMatches);
+    }
+  }, [lineMatchInfo.totalMatches, matcher, onMatchCountChange]);
+
   const firstMatchingLineIndex = useMemo(
-    () => findFirstMatchingLineIndex(lines, searchQuery),
-    [lines, searchQuery],
+    () => {
+      if (matcher && lineMatchInfo.matchLineIndex !== -1) return lineMatchInfo.matchLineIndex;
+      return findFirstMatchingLineIndex(lines, searchQuery);
+    },
+    [lineMatchInfo.matchLineIndex, lines, matcher, searchQuery],
   );
 
   useEffect(() => {
@@ -618,9 +689,13 @@ function VirtualizedSearchableCodeBlock({
             const lineContent =
               line.length === 0
                 ? "\u00A0"
-                : language === "json"
-                  ? renderJsonSyntaxHighlightedText(line, tokenColors, searchQuery)
-                  : renderHighlightedText(line, searchQuery);
+                : matcher
+                  ? language === "json"
+                    ? renderJsonSyntaxHighlightedText(line, tokenColors, undefined, matcher)
+                    : renderHighlightedText(line, undefined, matcher)
+                  : language === "json"
+                    ? renderJsonSyntaxHighlightedText(line, tokenColors, searchQuery)
+                    : renderHighlightedText(line, searchQuery);
 
             return (
               <Box
@@ -682,6 +757,8 @@ export function renderJsonSyntaxHighlightedText(
   text: string,
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string },
   searchQuery?: string,
+  matcher?: SearchMatcher | null | undefined,
+  currentMatchRange?: { start: number; end: number } | null | undefined,
 ) {
   const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
   const segments: React.ReactNode[] = [];
@@ -702,7 +779,7 @@ export function renderJsonSyntaxHighlightedText(
 
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}>
-          {renderHighlightedText(stringToken, searchQuery)}
+          {renderHighlightedText(stringToken, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
 
@@ -716,19 +793,19 @@ export function renderJsonSyntaxHighlightedText(
     } else if (matchedText === "true" || matchedText === "false") {
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.boolean }}>
-          {renderHighlightedText(matchedText, searchQuery)}
+          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
     } else if (matchedText === "null") {
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.null }}>
-          {renderHighlightedText(matchedText, searchQuery)}
+          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
     } else if (/^-?\d/.test(matchedText)) {
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.number }}>
-          {renderHighlightedText(matchedText, searchQuery)}
+          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
     } else {
@@ -749,7 +826,51 @@ export function renderJsonSyntaxHighlightedText(
   return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
 }
 
-export function renderHighlightedText(text: string, searchQuery?: string) {
+export function renderHighlightedText(
+  text: string,
+  searchQuery?: string,
+  matcher?: SearchMatcher | null | undefined,
+  currentMatchRange?: { start: number; end: number } | null | undefined,
+) {
+  if (matcher) {
+    const matches = matcher(text);
+    if (matches.length === 0) {
+      return text;
+    }
+
+    const segments: React.ReactNode[] = [];
+    let cursor = 0;
+
+    for (const match of matches) {
+      if (match.start > cursor) {
+        segments.push(text.slice(cursor, match.start));
+      }
+
+      const isCurrent = currentMatchRange && currentMatchRange.start === match.start && currentMatchRange.end === match.end;
+      segments.push(
+        <Box
+          component="mark"
+          data-match-index={match.start}
+          key={`${match.start}-${match.end}`}
+          sx={{
+            bgcolor: isCurrent ? "warning.dark" : "warning.light",
+            color: isCurrent ? "warning.contrastText" : undefined,
+            px: 0.25,
+          }}
+        >
+          {text.slice(match.start, match.end)}
+        </Box>,
+      );
+      cursor = match.end;
+    }
+
+    if (cursor < text.length) {
+      segments.push(text.slice(cursor));
+    }
+
+    return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
+  }
+
   const normalizedQuery = normalizeSearch(searchQuery);
 
   if (!normalizedQuery) {

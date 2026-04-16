@@ -1,8 +1,7 @@
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, Button, Divider, OutlinedInput, Stack, Tab, Tabs, Typography } from "@mui/material";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Box, Button, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -11,7 +10,10 @@ import {
   buildCountTabLabel,
   describeBody,
   type RequestInspectorTab,
+  type SearchMatcher,
 } from "./session-inspector.helpers";
+import { SearchBar } from "./SearchBar";
+import { useSearchController } from "./use-search-controller";
 
 export type RequestPaneHandle = {
   activateSearch: () => void;
@@ -37,32 +39,33 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   session,
 }, ref) {
   const { t } = useI18n();
-  const [searchValue, setSearchValue] = useState("");
-  const [showSearch, setShowSearch] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchController = useSearchController();
 
   const searchableTabs: ReadonlySet<RequestInspectorTab> = new Set(["body", "raw"]);
   const isSearchable = searchableTabs.has(requestTab);
 
   useEffect(() => {
-    setSearchValue("");
-    setShowSearch(false);
+    setIsSearchOpen(false);
   }, [session.id]);
 
   useEffect(() => {
     if (!isSearchable) {
-      setSearchValue("");
-      setShowSearch(false);
+      setIsSearchOpen(false);
     }
   }, [isSearchable]);
 
   const activateSearch = useCallback(() => {
     if (!isSearchable) return;
-    setShowSearch(true);
-    setTimeout(() => searchInputRef.current?.focus(), 0);
+    setIsSearchOpen(true);
   }, [isSearchable]);
 
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
+
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    searchController.onQueryChange("");
+  }, [searchController]);
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
@@ -91,6 +94,22 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
         </Button>
       </Box>
 
+      {isSearchOpen && !requestCollapsed ? (
+        <SearchBar
+          currentMatchIndex={searchController.currentMatchIndex}
+          matchCount={searchController.matchCount}
+          onClose={closeSearch}
+          onNext={searchController.onNext}
+          onOptionsChange={searchController.onOptionsChange}
+          onPrevious={searchController.onPrevious}
+          onQueryChange={searchController.onQueryChange}
+          options={searchController.options}
+          placeholder={t("inspector.request.searchPlaceholder")}
+          query={searchController.query}
+          regexInvalid={searchController.isRegexInvalid}
+        />
+      ) : null}
+
       {requestCollapsed ? null : (
         <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
           <RequestTabContent
@@ -98,27 +117,12 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
             requestBodyDisplayText={requestBodyDisplayText}
             requestFormEntries={requestFormEntries}
             requestTab={requestTab}
-            searchQuery={showSearch ? searchValue : ""}
+            searchMatcher={isSearchOpen ? searchController.matcher : null}
+            currentMatchIndex={isSearchOpen ? searchController.currentMatchIndex : undefined}
+            onMatchCountChange={isSearchOpen ? searchController.setMatchCount : undefined}
           />
         </Box>
       )}
-
-      {showSearch && !requestCollapsed ? (
-        <>
-          <Divider />
-          <Box sx={{ p: 1.5 }}>
-            <OutlinedInput
-              fullWidth
-              inputRef={searchInputRef}
-              onChange={(event) => setSearchValue(event.target.value)}
-              placeholder={t("inspector.request.searchPlaceholder")}
-              size="small"
-              startAdornment={<SearchRoundedIcon fontSize="small" sx={{ mr: 1 }} />}
-              value={searchValue}
-            />
-          </Box>
-        </>
-      ) : null}
     </Stack>
   );
 });
@@ -128,13 +132,17 @@ function RequestTabContent({
   requestBodyDisplayText,
   requestFormEntries,
   requestTab,
-  searchQuery,
+  searchMatcher,
+  currentMatchIndex,
+  onMatchCountChange,
 }: {
   detail: SessionDetail | undefined;
   requestBodyDisplayText: string;
   requestFormEntries: Array<[string, string]>;
   requestTab: RequestInspectorTab;
-  searchQuery: string;
+  searchMatcher: SearchMatcher | null;
+  currentMatchIndex: number | undefined;
+  onMatchCountChange: ((count: number) => void) | undefined;
 }) {
   const { t } = useI18n();
   const bodyDescription = describeBody(detail?.requestBody, {
@@ -182,7 +190,15 @@ function RequestTabContent({
   }
 
   if (requestTab === "raw") {
-    return <SearchableCodeBlock code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")} searchQuery={searchQuery} />;
+    return (
+      <SearchableCodeBlock
+        code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")}
+        currentMatchIndex={currentMatchIndex}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
+      />
+    );
   }
 
   return (
@@ -190,7 +206,13 @@ function RequestTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock code={requestBodyDisplayText} searchQuery={searchQuery} />
+      <SearchableCodeBlock
+        code={requestBodyDisplayText}
+        currentMatchIndex={currentMatchIndex}
+        matcher={searchMatcher}
+        onMatchCountChange={onMatchCountChange}
+        searchQuery=""
+      />
     </Stack>
   );
 }

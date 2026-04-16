@@ -777,6 +777,16 @@ export const enMessages = {
       },
       timingTotal: "Timing Total",
     },
+    search: {
+      caseSensitive: "Match Case",
+      close: "Close",
+      nextMatch: "Next Match",
+      noResults: "No results",
+      previousMatch: "Previous Match",
+      regex: "Use Regular Expression",
+      regexInvalid: "Invalid regex",
+      wholeWord: "Match Whole Word",
+    },
     summary: {
       repeatInCompose: "Repeat this request in Compose",
     },

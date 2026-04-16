@@ -779,6 +779,16 @@ export const zhCNMessages: Messages = {
       },
       timingTotal: "总耗时",
     },
+    search: {
+      caseSensitive: "区分大小写",
+      close: "关闭",
+      nextMatch: "下一个匹配",
+      noResults: "无结果",
+      previousMatch: "上一个匹配",
+      regex: "使用正则表达式",
+      regexInvalid: "无效正则表达式",
+      wholeWord: "全字匹配",
+    },
     summary: {
       repeatInCompose: "在构造请求中重放该请求",
     },

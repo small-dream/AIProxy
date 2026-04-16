@@ -1,5 +1,84 @@
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
+export type SearchOptions = {
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  useRegex: boolean;
+};
+
+export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {
+  caseSensitive: false,
+  wholeWord: false,
+  useRegex: false,
+};
+
+export type SearchMatcher = (text: string) => Array<{ start: number; end: number }>;
+
+export function escapeRegExp(query: string): string {
+  return query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function buildSearchMatcher(query: string, options: SearchOptions): SearchMatcher | null {
+  const trimmed = query.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (options.useRegex) {
+    try {
+      const flags = options.caseSensitive ? "g" : "gi";
+      const pattern = options.wholeWord ? `\\b(?:${trimmed})\\b` : trimmed;
+      const regex = new RegExp(pattern, flags);
+      return (text: string) => {
+        const matches: Array<{ start: number; end: number }> = [];
+        let match: RegExpExecArray | null;
+        regex.lastIndex = 0;
+        while ((match = regex.exec(text)) !== null) {
+          if (match[0].length === 0) {
+            regex.lastIndex++;
+            continue;
+          }
+          matches.push({ start: match.index, end: match.index + match[0].length });
+        }
+        return matches;
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (options.wholeWord) {
+    const escaped = escapeRegExp(trimmed);
+    const flags = options.caseSensitive ? "g" : "gi";
+    const regex = new RegExp(`\\b(?:${escaped})\\b`, flags);
+    return (text: string) => {
+      const matches: Array<{ start: number; end: number }> = [];
+      let match: RegExpExecArray | null;
+      regex.lastIndex = 0;
+      while ((match = regex.exec(text)) !== null) {
+        matches.push({ start: match.index, end: match.index + match[0].length });
+      }
+      return matches;
+    };
+  }
+
+  const searchStr = options.caseSensitive ? trimmed : trimmed.toLowerCase();
+
+  return (text: string) => {
+    const source = options.caseSensitive ? text : text.toLowerCase();
+    const matches: Array<{ start: number; end: number }> = [];
+    let cursor = 0;
+    while (cursor < source.length) {
+      const index = source.indexOf(searchStr, cursor);
+      if (index === -1) break;
+      matches.push({ start: index, end: index + searchStr.length });
+      cursor = index + 1;
+    }
+    return matches;
+  };
+}
+
 export type RequestInspectorTab =
   | "query"
   | "headers"

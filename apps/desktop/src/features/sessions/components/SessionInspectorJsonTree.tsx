@@ -14,6 +14,7 @@ import {
   isJsonObject,
   normalizeSearch,
   type JsonValue,
+  type SearchMatcher,
 } from "./session-inspector.helpers";
 import { InspectorFlatTable, renderHighlightedText, useVirtualWindow } from "./SessionInspectorShared";
 
@@ -28,10 +29,20 @@ type JsonTreeRow = {
   value: JsonValue;
 };
 
+function rowMatchesTexts(matcher: SearchMatcher, texts: (string | undefined)[]): boolean {
+  return texts.some((text) => text !== undefined && text.length > 0 && matcher(text).length > 0);
+}
+
 export function SessionInspectorJsonTree({
+  currentMatchIndex,
+  matcher,
+  onMatchCountChange,
   searchQuery,
   value,
 }: {
+  currentMatchIndex?: number | undefined;
+  matcher?: SearchMatcher | null | undefined;
+  onMatchCountChange?: ((count: number) => void) | undefined;
   searchQuery: string;
   value: JsonValue;
 }) {
@@ -70,10 +81,46 @@ export function SessionInspectorJsonTree({
     return paths;
   }, [deferredSearchQuery, value]);
 
+  const effectiveExpandedPaths = useMemo(() => {
+    if (!matcher) return autoExpandedPaths;
+    const paths = new Set(autoExpandedPaths);
+    collectMatcherExpansionPaths(value, matcher, "root", undefined, paths);
+    return paths;
+  }, [autoExpandedPaths, matcher, value]);
+
   const rows = useMemo(
-    () => buildVisibleJsonRows(value, expandedPaths, autoExpandedPaths),
-    [autoExpandedPaths, expandedPaths, value],
+    () => buildVisibleJsonRows(value, expandedPaths, effectiveExpandedPaths),
+    [effectiveExpandedPaths, expandedPaths, value],
   );
+
+  const matchingRowPaths = useMemo(() => {
+    if (!matcher) return [];
+    const paths: string[] = [];
+    for (const row of rows) {
+      const displayName = row.name ?? "root";
+      const rowType = getJsonDisplayType(row.value);
+      const rowValue = row.hasChildren ? "" : formatJsonPrimitive(row.value);
+      if (rowMatchesTexts(matcher, [displayName, rowType, rowValue])) {
+        paths.push(row.path);
+      }
+    }
+    return paths;
+  }, [matcher, rows]);
+
+  useEffect(() => {
+    if (onMatchCountChange) {
+      onMatchCountChange(matchingRowPaths.length);
+    }
+  }, [matchingRowPaths.length, matcher, onMatchCountChange]);
+
+  useEffect(() => {
+    if (!matcher || matchingRowPaths.length === 0 || currentMatchIndex === undefined) return;
+    const targetPath = matchingRowPaths[currentMatchIndex];
+    if (targetPath) {
+      setSelectedPath(targetPath);
+    }
+  }, [currentMatchIndex, matcher, matchingRowPaths]);
+
   const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
   const visibleRows = rows.slice(startIndex, endIndex);
   const columnTemplate = "minmax(220px, 1.02fr) minmax(112px, 0.68fr) minmax(260px, 1.3fr)";
@@ -95,6 +142,7 @@ export function SessionInspectorJsonTree({
               <JsonTreeRowView
                 columnTemplate={columnTemplate}
                 key={row.path}
+                matcher={matcher}
                 onSelectPath={setSelectedPath}
                 onTogglePath={togglePath}
                 row={row}
@@ -260,8 +308,59 @@ function collectMatchingExpansionPaths(
   return selfMatches;
 }
 
+function collectMatcherExpansionPaths(
+  value: JsonValue,
+  matcher: SearchMatcher,
+  path: string,
+  name: string | undefined,
+  expandedPaths: Set<string>,
+): boolean {
+  const selfMatches = rowMatchesTexts(matcher, [
+    name,
+    typeof value === "string" ? value : undefined,
+    typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : undefined,
+  ]);
+
+  if (Array.isArray(value)) {
+    let hasMatchingDescendant = false;
+
+    value.forEach((childValue, index) => {
+      const childPath = `${path}.${index}`;
+      if (collectMatcherExpansionPaths(childValue, matcher, childPath, String(index), expandedPaths)) {
+        hasMatchingDescendant = true;
+      }
+    });
+
+    if (hasMatchingDescendant) {
+      expandedPaths.add(path);
+    }
+
+    return selfMatches || hasMatchingDescendant;
+  }
+
+  if (isJsonObject(value)) {
+    let hasMatchingDescendant = false;
+
+    Object.entries(value).forEach(([childName, childValue]) => {
+      const childPath = `${path}.${childName}`;
+      if (collectMatcherExpansionPaths(childValue, matcher, childPath, childName, expandedPaths)) {
+        hasMatchingDescendant = true;
+      }
+    });
+
+    if (hasMatchingDescendant) {
+      expandedPaths.add(path);
+    }
+
+    return selfMatches || hasMatchingDescendant;
+  }
+
+  return selfMatches;
+}
+
 function JsonTreeRowView({
   columnTemplate,
+  matcher,
   onSelectPath,
   onTogglePath,
   row,
@@ -269,6 +368,7 @@ function JsonTreeRowView({
   selectedPath,
 }: {
   columnTemplate: string;
+  matcher?: SearchMatcher | null | undefined;
   onSelectPath: (path: string) => void;
   onTogglePath: (path: string) => void;
   row: JsonTreeRow;
@@ -294,6 +394,13 @@ function JsonTreeRowView({
         : typeof value === "boolean" || value === null
           ? syntaxColors.boolean
           : "text.primary";
+
+  function highlight(text: string) {
+    if (matcher) {
+      return renderHighlightedText(text, undefined, matcher);
+    }
+    return renderHighlightedText(text, searchQuery);
+  }
 
   return (
     <Box
@@ -370,7 +477,7 @@ function JsonTreeRowView({
             whiteSpace: "nowrap",
           }}
         >
-          {renderHighlightedText(displayName, searchQuery)}
+          {highlight(displayName)}
         </Typography>
       </Box>
 
@@ -385,7 +492,7 @@ function JsonTreeRowView({
         }}
       >
         <Typography sx={{ color: textColor, fontSize: 13, lineHeight: 1.35, minWidth: 0 }} variant="body2">
-          {renderHighlightedText(rowType, searchQuery)}
+          {highlight(rowType)}
         </Typography>
       </Box>
 
@@ -413,7 +520,7 @@ function JsonTreeRowView({
               }}
               variant="body2"
             >
-              {renderHighlightedText(rowValue, searchQuery)}
+              {highlight(rowValue)}
             </Typography>
           </Tooltip>
         ) : null}
