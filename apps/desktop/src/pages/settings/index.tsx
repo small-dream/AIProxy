@@ -33,7 +33,14 @@ import {
 } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { getHoverShadow } from "@/themes/app-theme";
-import { fontFamilies } from "@/themes/fonts";
+import {
+  appFontSizeOptions,
+  appFontPreferences,
+  contentFontPreferences,
+  fontFamilies,
+  type AppFontPreference,
+  type ContentFontPreference,
+} from "@/themes/fonts";
 
 function createEmptyPreset(): Workspace {
   const now = new Date().toISOString();
@@ -255,8 +262,18 @@ function ProxyPresetsSection() {
 export function SettingsPage() {
   const { locale, preference, setPreference, t } = useI18n();
   const theme = useTheme();
+  const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
+  const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
+  const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
+  const fontSizePreference = useAppPreferencesStore((state) => state.fontSizePreference);
+  const uiCustomFontFamily = useAppPreferencesStore((state) => state.uiCustomFontFamily);
+  const setContentCustomFontFamily = useAppPreferencesStore((state) => state.setContentCustomFontFamily);
+  const setContentFontPreference = useAppPreferencesStore((state) => state.setContentFontPreference);
+  const setFontFamilyPreference = useAppPreferencesStore((state) => state.setFontFamilyPreference);
+  const setFontSizePreference = useAppPreferencesStore((state) => state.setFontSizePreference);
   const themePreference = useAppPreferencesStore((state) => state.themePreference);
   const setThemePreference = useAppPreferencesStore((state) => state.setThemePreference);
+  const setUiCustomFontFamily = useAppPreferencesStore((state) => state.setUiCustomFontFamily);
   const resolvedLanguageLabel =
     locale === "zh-CN"
       ? t("settingsPage.languageOptionZhCN")
@@ -265,6 +282,32 @@ export function SettingsPage() {
     theme.palette.mode === "dark"
       ? t("settingsPage.themeOptionDark")
       : t("settingsPage.themeOptionLight");
+  const fontOptionLabels: Record<AppFontPreference, string> = {
+    system: t("settingsPage.fontOptionSystem"),
+    pingfang: t("settingsPage.fontOptionPingFang"),
+    "noto-sans-sc": t("settingsPage.fontOptionNotoSansSc"),
+    "source-han-sans": t("settingsPage.fontOptionSourceHanSans"),
+    serif: t("settingsPage.fontOptionSerif"),
+    custom: t("settingsPage.fontOptionCustom"),
+  };
+  const contentFontOptionLabels: Record<ContentFontPreference, string> = {
+    "follow-ui": t("settingsPage.contentFontOptionFollowUi"),
+    "system-mono": t("settingsPage.contentFontOptionSystemMono"),
+    system: t("settingsPage.fontOptionSystem"),
+    pingfang: t("settingsPage.fontOptionPingFang"),
+    "noto-sans-sc": t("settingsPage.fontOptionNotoSansSc"),
+    "source-han-sans": t("settingsPage.fontOptionSourceHanSans"),
+    serif: t("settingsPage.fontOptionSerif"),
+    custom: t("settingsPage.fontOptionCustom"),
+  };
+  const resolvedUiFontLabel =
+    fontFamilyPreference === "custom" && uiCustomFontFamily.trim()
+      ? `${t("settingsPage.fontOptionCustom")} (${uiCustomFontFamily.trim()})`
+      : fontOptionLabels[fontFamilyPreference];
+  const resolvedContentFontLabel =
+    contentFontPreference === "custom" && contentCustomFontFamily.trim()
+      ? `${t("settingsPage.fontOptionCustom")} (${contentCustomFontFamily.trim()})`
+      : contentFontOptionLabels[contentFontPreference];
 
   return (
     <Stack spacing={3}>
@@ -316,23 +359,115 @@ export function SettingsPage() {
             {t("settingsPage.themeDescription")}
           </Typography>
 
-          <FormControl size="small" sx={{ maxWidth: 280 }}>
-            <InputLabel>{t("settingsPage.themeLabel")}</InputLabel>
-            <Select
-              label={t("settingsPage.themeLabel")}
-              value={themePreference}
-              onChange={(event) => setThemePreference(event.target.value as typeof themePreference)}
-            >
-              <MenuItem value="system">{t("settingsPage.themeOptionSystem")}</MenuItem>
-              <MenuItem value="light">{t("settingsPage.themeOptionLight")}</MenuItem>
-              <MenuItem value="dark">{t("settingsPage.themeOptionDark")}</MenuItem>
-            </Select>
-          </FormControl>
+          <Stack direction={{ sm: "row", xs: "column" }} spacing={2}>
+            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+              <InputLabel>{t("settingsPage.themeLabel")}</InputLabel>
+              <Select
+                label={t("settingsPage.themeLabel")}
+                value={themePreference}
+                onChange={(event) => setThemePreference(event.target.value as typeof themePreference)}
+              >
+                <MenuItem value="system">{t("settingsPage.themeOptionSystem")}</MenuItem>
+                <MenuItem value="light">{t("settingsPage.themeOptionLight")}</MenuItem>
+                <MenuItem value="dark">{t("settingsPage.themeOptionDark")}</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+              <InputLabel>{t("settingsPage.fontLabel")}</InputLabel>
+              <Select
+                label={t("settingsPage.fontLabel")}
+                value={fontFamilyPreference}
+                onChange={(event) =>
+                  setFontFamilyPreference(event.target.value as AppFontPreference)
+                }
+              >
+                {appFontPreferences.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {fontOptionLabels[option]}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+              <InputLabel>{t("settingsPage.contentFontLabel")}</InputLabel>
+              <Select
+                label={t("settingsPage.contentFontLabel")}
+                value={contentFontPreference}
+                onChange={(event) =>
+                  setContentFontPreference(event.target.value as ContentFontPreference)
+                }
+              >
+                {contentFontPreferences.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {contentFontOptionLabels[option]}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Typography color="text.secondary" variant="body2">
+            {t("settingsPage.fontDescription")}
+          </Typography>
+
+          {fontFamilyPreference === "custom" ? (
+            <TextField
+              fullWidth
+              label={t("settingsPage.customFontLabel")}
+              placeholder={t("settingsPage.customFontPlaceholder")}
+              size="small"
+              sx={{ maxWidth: 420 }}
+              value={uiCustomFontFamily}
+              onChange={(event) => setUiCustomFontFamily(event.target.value)}
+            />
+          ) : null}
+
+          <Stack direction={{ sm: "row", xs: "column" }} spacing={2}>
+            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+              <InputLabel>{t("settingsPage.fontSizeLabel")}</InputLabel>
+              <Select
+                label={t("settingsPage.fontSizeLabel")}
+                value={fontSizePreference}
+                onChange={(event) => setFontSizePreference(Number(event.target.value))}
+              >
+                {appFontSizeOptions.map((size) => (
+                  <MenuItem key={size} value={size}>
+                    {size}px
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <Typography color="text.secondary" variant="body2">
+              {t("settingsPage.fontSizeDescription")}
+            </Typography>
+          </Stack>
+
+          <Typography color="text.secondary" variant="body2">
+            {t("settingsPage.contentFontDescription")}
+          </Typography>
+
+          {contentFontPreference === "custom" ? (
+            <TextField
+              fullWidth
+              label={t("settingsPage.customContentFontLabel")}
+              placeholder={t("settingsPage.customFontPlaceholder")}
+              size="small"
+              sx={{ maxWidth: 420 }}
+              value={contentCustomFontFamily}
+              onChange={(event) => setContentCustomFontFamily(event.target.value)}
+            />
+          ) : null}
 
           <Alert severity="info" variant="outlined">
-            {themePreference === "system"
-              ? t("settingsPage.followSystemThemeHint")
-              : t("settingsPage.effectiveTheme", { theme: resolvedThemeLabel })}
+            {t("settingsPage.effectiveAppearance", {
+              contentFont: resolvedContentFontLabel,
+              size: fontSizePreference,
+              theme: resolvedThemeLabel,
+              uiFont: resolvedUiFontLabel,
+            })}
           </Alert>
         </Stack>
       </SectionCard>

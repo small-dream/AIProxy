@@ -10,7 +10,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
-import { fontFamilies } from "@/themes/fonts";
+import { appFontCssVars } from "@/themes/fonts";
 import { getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
@@ -137,7 +137,12 @@ export function InspectorSummaryBar({
         }}
         title={session.url}
       >
-        <Typography color="text.secondary" noWrap sx={{ fontSize: 11.5, lineHeight: 1.3 }} variant="body2">
+        <Typography
+          color="text.secondary"
+          noWrap
+          sx={{ fontFamily: appFontCssVars.content, fontSize: 11.5, lineHeight: 1.3 }}
+          variant="body2"
+        >
           {session.url}
         </Typography>
       </Tooltip>
@@ -178,7 +183,10 @@ export function InspectorDefinitionList({
           >
             {label}
           </Typography>
-          <Typography sx={{ flex: 1, minWidth: 0, wordBreak: "break-all" }} variant="body2">
+          <Typography
+            sx={{ flex: 1, fontFamily: appFontCssVars.content, minWidth: 0, wordBreak: "break-all" }}
+            variant="body2"
+          >
             {value}
           </Typography>
         </ListItem>
@@ -306,7 +314,17 @@ export function EllipsizedCell({
     <>
       <Stack alignItems="center" direction="row" spacing={0.25} sx={{ minWidth: 0, width: "100%" }}>
         <Tooltip arrow enterDelay={350} placement="top-start" title={text}>
-          <Typography sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} variant="body2">
+          <Typography
+            sx={{
+              flex: 1,
+              fontFamily: appFontCssVars.content,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            variant="body2"
+          >
             {text}
           </Typography>
         </Tooltip>
@@ -343,7 +361,7 @@ export function EllipsizedCell({
           component="pre"
           sx={{
             color: "text.primary",
-            fontFamily: fontFamilies.mono,
+            fontFamily: appFontCssVars.content,
             fontSize: 12.5,
             lineHeight: 1.5,
             m: 0,
@@ -383,7 +401,11 @@ export function InspectorKeyValueTable({
       {items.map(([label, value], index) => (
         <InspectorFlatTableRow
           cells={[
-            <Typography key="label" sx={{ minWidth: 0, wordBreak: "break-all" }} variant="body2">
+            <Typography
+              key="label"
+              sx={{ fontFamily: appFontCssVars.content, minWidth: 0, wordBreak: "break-all" }}
+              variant="body2"
+            >
               {label}
             </Typography>,
             <EllipsizedCell key="value" text={value} />,
@@ -434,7 +456,7 @@ export function SearchableCodeBlock({
         bgcolor: "background.paper",
         color: "text.primary",
         flex: 1,
-        fontFamily: fontFamilies.mono,
+        fontFamily: appFontCssVars.content,
         fontSize: language === "json" ? 13.5 : 12.5,
         lineHeight: language === "json" ? 1.6 : 1.5,
         m: 0,
@@ -542,7 +564,7 @@ function VirtualizedSearchableCodeBlock({
         bgcolor: "background.paper",
         color: "text.primary",
         flex: 1,
-        fontFamily: fontFamilies.mono,
+        fontFamily: appFontCssVars.content,
         fontSize: language === "json" ? 13.5 : 12.5,
         lineHeight: language === "json" ? 1.6 : 1.5,
         minHeight: 0,

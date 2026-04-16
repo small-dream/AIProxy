@@ -6,12 +6,28 @@ import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { I18nProvider, resolveLocale, type SupportedLocale } from "@/i18n";
 import { logDevInfo } from "@/services/logger/dev-logger";
 import { createAppTheme, resolveThemeMode } from "@/themes/app-theme";
-import { fontFamilies, getSansFontCandidates, getSansFontFamily } from "@/themes/fonts";
+import {
+  fontFamilies,
+  getAppFontCandidates,
+  getAppFontFamily,
+  getContentFontCandidates,
+  getContentFontFamily,
+} from "@/themes/fonts";
 
 function detectActiveFont(candidates: string[]): string {
+  if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) {
+    return "unknown";
+  }
+
   const testText = "mmmmmmmmmmlli";
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
+  let ctx: CanvasRenderingContext2D | null = null;
+
+  try {
+    ctx = canvas.getContext("2d");
+  } catch {
+    return "unknown";
+  }
 
   if (!ctx) {
     return "unknown";
@@ -55,8 +71,13 @@ function getSystemLocale(): SupportedLocale {
 }
 
 export function AppProviders({ children }: PropsWithChildren) {
+  const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
+  const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
+  const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
+  const fontSizePreference = useAppPreferencesStore((state) => state.fontSizePreference);
   const languagePreference = useAppPreferencesStore((state) => state.languagePreference);
   const themePreference = useAppPreferencesStore((state) => state.themePreference);
+  const uiCustomFontFamily = useAppPreferencesStore((state) => state.uiCustomFontFamily);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -72,7 +93,27 @@ export function AppProviders({ children }: PropsWithChildren) {
   const [systemLocale, setSystemLocale] = useState<SupportedLocale>(() => getSystemLocale());
   const themeMode = resolveThemeMode(themePreference, systemPrefersDark);
   const locale = languagePreference === "system" ? systemLocale : languagePreference;
-  const theme = useMemo(() => createAppTheme(themeMode, locale), [locale, themeMode]);
+  const theme = useMemo(
+    () =>
+      createAppTheme(
+        themeMode,
+        locale,
+        fontFamilyPreference,
+        contentFontPreference,
+        uiCustomFontFamily,
+        contentCustomFontFamily,
+        fontSizePreference,
+      ),
+    [
+      contentCustomFontFamily,
+      contentFontPreference,
+      fontFamilyPreference,
+      fontSizePreference,
+      locale,
+      themeMode,
+      uiCustomFontFamily,
+    ],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -120,17 +161,49 @@ export function AppProviders({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const computedFontFamily = window.getComputedStyle(document.body).fontFamily;
-    const configuredFontStack = getSansFontFamily(locale);
-    const activeFont = detectActiveFont([...getSansFontCandidates(locale)]);
+    const configuredFontStack = getAppFontFamily(fontFamilyPreference, locale, uiCustomFontFamily);
+    const activeFont = detectActiveFont([
+      ...getAppFontCandidates(fontFamilyPreference, locale, uiCustomFontFamily),
+    ]);
+    const configuredContentFontStack = getContentFontFamily(
+      contentFontPreference,
+      locale,
+      fontFamilyPreference,
+      uiCustomFontFamily,
+      contentCustomFontFamily,
+    );
+    const activeContentFont = detectActiveFont([
+      ...getContentFontCandidates(
+        contentFontPreference,
+        locale,
+        fontFamilyPreference,
+        uiCustomFontFamily,
+        contentCustomFontFamily,
+      ),
+    ]);
 
     logDevInfo("ui.theme", "font_resolved", {
       computedFontFamily,
+      configuredContentCustomFontFamily: contentCustomFontFamily,
+      configuredContentFontPreference: contentFontPreference,
+      configuredContentFontStack,
+      configuredCustomFontFamily: uiCustomFontFamily,
+      configuredFontPreference: fontFamilyPreference,
       configuredMonoFontStack: fontFamilies.mono,
       configuredFontStack,
+      configuredFontSize: fontSizePreference,
       locale,
+      resolvedContentFontCandidate: activeContentFont,
       resolvedFontCandidate: activeFont,
     });
-  }, [locale]);
+  }, [
+    contentCustomFontFamily,
+    contentFontPreference,
+    fontFamilyPreference,
+    fontSizePreference,
+    locale,
+    uiCustomFontFamily,
+  ]);
 
   return (
     <ThemeProvider theme={theme}>

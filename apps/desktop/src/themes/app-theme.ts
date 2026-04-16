@@ -2,7 +2,13 @@ import { alpha, createTheme, type PaletteMode } from "@mui/material/styles";
 import { colorTokens, radiusTokens } from "@aiproxy/ui-tokens";
 
 import type { ThemePreference } from "@/app/store/app-preferences.store";
-import { getSansFontFamily, type FontLocale } from "@/themes/fonts";
+import {
+  getAppFontFamily,
+  type AppFontPreference,
+  getContentFontFamily,
+  type ContentFontPreference,
+  type FontLocale,
+} from "@/themes/fonts";
 
 export function resolveThemeMode(preference: ThemePreference, systemPrefersDark: boolean | undefined): PaletteMode {
   if (preference === "light" || preference === "dark") {
@@ -44,8 +50,24 @@ export function getSyntaxColors(mode: PaletteMode) {
       };
 }
 
-export function createAppTheme(mode: PaletteMode, locale: FontLocale) {
+export function createAppTheme(
+  mode: PaletteMode,
+  locale: FontLocale,
+  fontPreference: AppFontPreference,
+  contentFontPreference: ContentFontPreference,
+  uiCustomFontFamily: string,
+  contentCustomFontFamily: string,
+  fontSize: number,
+) {
   const colors = colorTokens[mode];
+  const fontFamily = getAppFontFamily(fontPreference, locale, uiCustomFontFamily);
+  const contentFontFamily = getContentFontFamily(
+    contentFontPreference,
+    locale,
+    fontPreference,
+    uiCustomFontFamily,
+    contentCustomFontFamily,
+  );
 
   return createTheme({
     shape: {
@@ -88,7 +110,8 @@ export function createAppTheme(mode: PaletteMode, locale: FontLocale) {
       },
     },
     typography: {
-      fontFamily: getSansFontFamily(locale),
+      fontFamily,
+      fontSize,
       button: {
         fontWeight: 600,
         textTransform: "none",
@@ -98,6 +121,8 @@ export function createAppTheme(mode: PaletteMode, locale: FontLocale) {
       MuiCssBaseline: {
         styleOverrides: {
           ":root": {
+            "--aiproxy-content-font-family": contentFontFamily,
+            "--aiproxy-ui-font-family": fontFamily,
             colorScheme: mode,
           },
           "*, *::before, *::after": {
@@ -109,6 +134,7 @@ export function createAppTheme(mode: PaletteMode, locale: FontLocale) {
           },
           body: {
             color: colors.textPrimary,
+            fontFamily,
           },
           "::selection": {
             backgroundColor: alpha(colors.primary, mode === "dark" ? 0.34 : 0.2),

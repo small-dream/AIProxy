@@ -19,6 +19,9 @@ describe("AppProviders", () => {
     expect(screen.getAllByText("Display Language")).toHaveLength(2);
     expect(screen.getAllByText("Follow System")).toHaveLength(2);
     expect(screen.getAllByText("Appearance Theme")).toHaveLength(2);
+    expect(screen.getAllByText("Interface Font")).toHaveLength(2);
+    expect(screen.getAllByText("Content & Code Font")).toHaveLength(2);
+    expect(screen.getAllByText("Font Size")).toHaveLength(2);
   });
 
   it("shows the follow-system language hint", () => {
@@ -35,7 +38,7 @@ describe("AppProviders", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the follow-system theme hint", () => {
+  it("shows the effective appearance summary", () => {
     render(
       <AppProviders>
         <SettingsPage />
@@ -44,7 +47,7 @@ describe("AppProviders", () => {
 
     expect(
       screen.getByText(
-        "Following system appearance will switch automatically between light and dark based on your desktop setting.",
+        "Current appearance: Light · UI: System Default · Content: System Monospace · 14px",
       ),
     ).toBeInTheDocument();
   });

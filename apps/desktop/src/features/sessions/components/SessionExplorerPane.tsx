@@ -18,7 +18,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, type Theme } from "@mui/material/styles";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import { useEffect, useRef, useState } from "react";
@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
 import { getHoverShadow } from "@/themes/app-theme";
+import { defaultAppFontSize } from "@/themes/fonts";
 import {
   getSessionQuerySuffix,
   getSessionResourceKind,
@@ -46,12 +47,19 @@ type SessionExplorerPaneProps = {
   selectedSessionId: string | undefined;
 };
 
-const sessionTreeTextSx = {
-  color: "text.primary",
-  fontSize: 13,
-  fontWeight: 400,
-  lineHeight: 1.35,
-} as const;
+function getScaledFontSize(theme: Theme, basePx: number): string {
+  return `${(theme.typography.fontSize / defaultAppFontSize) * basePx}px`;
+}
+
+function getSessionTreeTextSx(theme: Theme) {
+  return {
+    color: "text.primary",
+    fontFamily: theme.typography.fontFamily,
+    fontSize: getScaledFontSize(theme, 13),
+    fontWeight: 400,
+    lineHeight: 1.35,
+  } as const;
+}
 
 export function SessionExplorerPane({
   errorMessage,
@@ -109,12 +117,26 @@ export function SessionExplorerPane({
               <LanguageRoundedIcon sx={{ fontSize: 28 }} />
             </Box>
             <Stack spacing={0.5}>
-              <Typography sx={{ fontSize: 17, fontWeight: 700 }}>{t("sessionExplorer.emptyTitle")}</Typography>
+              <Typography
+                sx={(theme) => ({
+                  fontFamily: theme.typography.fontFamily,
+                  fontSize: getScaledFontSize(theme, 17),
+                  fontWeight: 700,
+                })}
+              >
+                {t("sessionExplorer.emptyTitle")}
+              </Typography>
               <Typography color="text.secondary" sx={{ maxWidth: 320 }} variant="body2">
                 {t("sessionExplorer.emptyDescription")}
               </Typography>
             </Stack>
-            <Typography color="text.secondary" sx={{ fontSize: 12.5 }}>
+            <Typography
+              color="text.secondary"
+              sx={(theme) => ({
+                fontFamily: theme.typography.fontFamily,
+                fontSize: getScaledFontSize(theme, 12.5),
+              })}
+            >
               {t("sessionExplorer.emptyTip")}
             </Typography>
           </Stack>
@@ -233,7 +255,7 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
           transition: "background-color 1800ms ease",
         })}
       >
-        <Typography noWrap sx={sessionTreeTextSx} variant="body2">
+        <Typography noWrap sx={(theme) => getSessionTreeTextSx(theme)} variant="body2">
           {group.label}
         </Typography>
       </Box>
@@ -328,7 +350,7 @@ function SessionTreeNode({
         </Box>
         <Typography
           noWrap
-          sx={sessionTreeTextSx}
+          sx={(theme) => getSessionTreeTextSx(theme)}
           variant="body2"
         >
           {node.segmentLabel}
@@ -423,11 +445,11 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
         >
           {showLeafLabel ? (
             <Typography
-              sx={{
-                ...sessionTreeTextSx,
+              sx={(theme) => ({
+                ...getSessionTreeTextSx(theme),
                 flex: "0 0 auto",
                 whiteSpace: "nowrap",
-              }}
+              })}
               variant="body2"
             >
               {leafLabel}
@@ -435,11 +457,11 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
           ) : null}
           {querySuffix ? (
             <Typography
-              sx={{
-                ...sessionTreeTextSx,
+              sx={(theme) => ({
+                ...getSessionTreeTextSx(theme),
                 flex: "0 0 auto",
                 whiteSpace: "nowrap",
-              }}
+              })}
               variant="body2"
             >
               {querySuffix}
@@ -515,18 +537,40 @@ function getResourceTooltipLabel(
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
-  const sx = { fontSize: 14 };
+  const sx = (theme: Theme) => ({ fontSize: getScaledFontSize(theme, 14) });
 
   if (resourceKind === "api") {
     return <JsonFileIcon sx={sx} />;
   }
 
   if (resourceKind === "javascript") {
-    return <Typography sx={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>JS</Typography>;
+    return (
+      <Typography
+        sx={(theme) => ({
+          fontFamily: theme.typography.fontFamily,
+          fontSize: getScaledFontSize(theme, 10),
+          fontWeight: 700,
+          lineHeight: 1,
+        })}
+      >
+        JS
+      </Typography>
+    );
   }
 
   if (resourceKind === "css") {
-    return <Typography sx={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>CSS</Typography>;
+    return (
+      <Typography
+        sx={(theme) => ({
+          fontFamily: theme.typography.fontFamily,
+          fontSize: getScaledFontSize(theme, 10),
+          fontWeight: 700,
+          lineHeight: 1,
+        })}
+      >
+        CSS
+      </Typography>
+    );
   }
 
   if (resourceKind === "html") {
