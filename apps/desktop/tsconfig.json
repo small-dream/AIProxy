@@ -1,9 +1,8 @@
 {
   "extends": "../../packages/tsconfig/react-app.json",
   "compilerOptions": {
-    "baseUrl": "./src",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     },
     "types": ["vite/client", "node"]
   },
