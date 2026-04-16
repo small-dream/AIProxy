@@ -97,7 +97,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   }, [searchController]);
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
+    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
 
       <Box sx={{ alignItems: "center", bgcolor: "background.paper", display: "flex", minHeight: 32, pr: 0.5 }}>
         <Tabs
@@ -152,22 +152,6 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
         ) : null}
       </Box>
 
-      {isSearchOpen ? (
-        <SearchBar
-          currentMatchIndex={searchController.currentMatchIndex}
-          matchCount={searchController.matchCount}
-          onClose={closeSearch}
-          onNext={searchController.onNext}
-          onOptionsChange={searchController.onOptionsChange}
-          onPrevious={searchController.onPrevious}
-          onQueryChange={searchController.onQueryChange}
-          options={searchController.options}
-          placeholder={searchPlaceholder}
-          query={searchController.query}
-          regexInvalid={searchController.isRegexInvalid}
-        />
-      ) : null}
-
       <Divider />
 
       <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
@@ -182,6 +166,32 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           session={session}
         />
       </Box>
+
+      {isSearchOpen ? (
+        <Box
+          sx={{
+            maxWidth: "calc(100% - 16px)",
+            position: "absolute",
+            right: 8,
+            top: 38,
+            zIndex: 2,
+          }}
+        >
+          <SearchBar
+            currentMatchIndex={searchController.currentMatchIndex}
+            matchCount={searchController.matchCount}
+            onClose={closeSearch}
+            onNext={searchController.onNext}
+            onOptionsChange={searchController.onOptionsChange}
+            onPrevious={searchController.onPrevious}
+            onQueryChange={searchController.onQueryChange}
+            options={searchController.options}
+            placeholder={searchPlaceholder}
+            query={searchController.query}
+            regexInvalid={searchController.isRegexInvalid}
+          />
+        </Box>
+      ) : null}
 
       <Snackbar
         autoHideDuration={1800}

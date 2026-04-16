@@ -1,6 +1,6 @@
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, Button, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
@@ -68,7 +68,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   }, [searchController]);
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", width: "100%" }}>
+    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
       <Box sx={{ alignItems: "center", bgcolor: "background.paper", display: "flex", minHeight: 32, pr: 0.5 }}>
         <Tabs
           onChange={(_event, nextTab) => onRequestTabChange(nextTab as RequestInspectorTab)}
@@ -94,21 +94,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
         </Button>
       </Box>
 
-      {isSearchOpen && !requestCollapsed ? (
-        <SearchBar
-          currentMatchIndex={searchController.currentMatchIndex}
-          matchCount={searchController.matchCount}
-          onClose={closeSearch}
-          onNext={searchController.onNext}
-          onOptionsChange={searchController.onOptionsChange}
-          onPrevious={searchController.onPrevious}
-          onQueryChange={searchController.onQueryChange}
-          options={searchController.options}
-          placeholder={t("inspector.request.searchPlaceholder")}
-          query={searchController.query}
-          regexInvalid={searchController.isRegexInvalid}
-        />
-      ) : null}
+      <Divider />
 
       {requestCollapsed ? null : (
         <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
@@ -123,6 +109,32 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
           />
         </Box>
       )}
+
+      {isSearchOpen && !requestCollapsed ? (
+        <Box
+          sx={{
+            maxWidth: "calc(100% - 16px)",
+            position: "absolute",
+            right: 8,
+            top: 38,
+            zIndex: 2,
+          }}
+        >
+          <SearchBar
+            currentMatchIndex={searchController.currentMatchIndex}
+            matchCount={searchController.matchCount}
+            onClose={closeSearch}
+            onNext={searchController.onNext}
+            onOptionsChange={searchController.onOptionsChange}
+            onPrevious={searchController.onPrevious}
+            onQueryChange={searchController.onQueryChange}
+            options={searchController.options}
+            placeholder={t("inspector.request.searchPlaceholder")}
+            query={searchController.query}
+            regexInvalid={searchController.isRegexInvalid}
+          />
+        </Box>
+      ) : null}
     </Stack>
   );
 });
