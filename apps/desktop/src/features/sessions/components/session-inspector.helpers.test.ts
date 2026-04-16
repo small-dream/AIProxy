@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
-import { formatJsonText, getRequestOperationLabel, parseJsonBody } from "./session-inspector.helpers";
+import { findNormalizedMatchIndex, formatJsonText, getRequestOperationLabel, parseJsonBody } from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
   return {
@@ -109,6 +109,12 @@ describe("parseJsonBody", () => {
 describe("formatJsonText", () => {
   it("pretty prints JSON values on demand", () => {
     expect(formatJsonText({ ok: true, items: [1, 2] })).toBe('{\n    "ok": true,\n    "items": [\n        1,\n        2\n    ]\n}');
+  });
+});
+
+describe("findNormalizedMatchIndex", () => {
+  it("matches case-insensitively", () => {
+    expect(findNormalizedMatchIndex("UserID", "userid")).toBe(0);
   });
 });
 

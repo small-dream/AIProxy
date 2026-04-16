@@ -138,7 +138,17 @@ export function formatJsonText(value: JsonValue) {
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {
-  return searchQuery?.trim() ?? "";
+  return searchQuery?.trim().toLocaleLowerCase() ?? "";
+}
+
+export function findNormalizedMatchIndex(text: string, searchQuery: string | undefined, fromIndex = 0) {
+  const normalizedQuery = normalizeSearch(searchQuery);
+
+  if (!normalizedQuery) {
+    return -1;
+  }
+
+  return text.toLocaleLowerCase().indexOf(normalizedQuery, fromIndex);
 }
 
 export function describeBody(
@@ -261,16 +271,16 @@ export function jsonSubtreeMatches(name: string | undefined, value: JsonValue, s
     return true;
   }
 
-  if (name?.includes(normalizedQuery)) {
+  if (name && findNormalizedMatchIndex(name, normalizedQuery) !== -1) {
     return true;
   }
 
   if (typeof value === "string") {
-    return value.includes(normalizedQuery);
+    return findNormalizedMatchIndex(value, normalizedQuery) !== -1;
   }
 
   if (typeof value === "number" || typeof value === "boolean" || value === null) {
-    return String(value).includes(normalizedQuery);
+    return findNormalizedMatchIndex(String(value), normalizedQuery) !== -1;
   }
 
   if (Array.isArray(value)) {

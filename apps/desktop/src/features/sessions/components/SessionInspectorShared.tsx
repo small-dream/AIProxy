@@ -11,7 +11,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars } from "@/themes/fonts";
-import { getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
+import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -433,10 +433,27 @@ export function SearchableCodeBlock({
   const syntaxColors = getSyntaxColors(theme.palette.mode);
   const jsonTokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const containerRef = useRef<HTMLPreElement | HTMLDivElement | null>(null);
+  const normalizedSearchQuery = useMemo(
+    () => normalizeSearch(deferredSearchQuery),
+    [deferredSearchQuery],
+  );
   const shouldVirtualize = useMemo(
     () => shouldVirtualizeCodeBlock(code),
     [code],
   );
+
+  useEffect(() => {
+    if (!normalizedSearchQuery || shouldVirtualize) {
+      return;
+    }
+
+    const firstMatch = containerRef.current?.querySelector("mark");
+
+    if (firstMatch instanceof HTMLElement && typeof firstMatch.scrollIntoView === "function") {
+      firstMatch.scrollIntoView({ block: "center" });
+    }
+  }, [code, normalizedSearchQuery, shouldVirtualize]);
 
   if (shouldVirtualize) {
     return (
@@ -452,6 +469,7 @@ export function SearchableCodeBlock({
   return (
     <Box
       component="pre"
+      ref={containerRef}
       sx={{
         bgcolor: "background.paper",
         color: "text.primary",
@@ -554,12 +572,32 @@ function VirtualizedSearchableCodeBlock({
     return result;
   }, [code]);
   const lineHeight = language === "json" ? 22 : 20;
-  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
+  const { containerRef: virtualContainerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);
+  const firstMatchingLineIndex = useMemo(
+    () => findFirstMatchingLineIndex(lines, searchQuery),
+    [lines, searchQuery],
+  );
+
+  useEffect(() => {
+    const container = virtualContainerRef.current;
+
+    if (!container || firstMatchingLineIndex === -1) {
+      return;
+    }
+
+    const centeredScrollTop = Math.max(
+      0,
+      firstMatchingLineIndex * lineHeight - Math.max(0, container.clientHeight - lineHeight) / 2,
+    );
+
+    container.scrollTop = centeredScrollTop;
+    container.dispatchEvent(new Event("scroll"));
+  }, [firstMatchingLineIndex, lineHeight, virtualContainerRef]);
 
   return (
     <Box
-      ref={containerRef}
+      ref={virtualContainerRef}
       sx={{
         bgcolor: "background.paper",
         color: "text.primary",
@@ -622,6 +660,22 @@ function shouldVirtualizeCodeBlock(code: string) {
   }
 
   return false;
+}
+
+function findFirstMatchingLineIndex(lines: string[], searchQuery: string) {
+  const normalizedQuery = normalizeSearch(searchQuery);
+
+  if (!normalizedQuery) {
+    return -1;
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (findNormalizedMatchIndex(lines[index] ?? "", normalizedQuery) !== -1) {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 export function renderJsonSyntaxHighlightedText(
@@ -706,7 +760,7 @@ export function renderHighlightedText(text: string, searchQuery?: string) {
   let cursor = 0;
 
   while (cursor < text.length) {
-    const matchIndex = text.indexOf(normalizedQuery, cursor);
+    const matchIndex = findNormalizedMatchIndex(text, normalizedQuery, cursor);
 
     if (matchIndex === -1) {
       segments.push(text.slice(cursor));

@@ -9,6 +9,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { getSyntaxColors } from "@/themes/app-theme";
 import {
+  findNormalizedMatchIndex,
   formatJsonPrimitive,
   isJsonObject,
   normalizeSearch,
@@ -215,11 +216,11 @@ function collectMatchingExpansionPaths(
   expandedPaths: Set<string>,
 ): boolean {
   const selfMatches =
-    (name?.includes(searchQuery) ?? false) ||
+    ((name ? findNormalizedMatchIndex(name, searchQuery) !== -1 : false)) ||
     (typeof value === "string"
-      ? value.includes(searchQuery)
+      ? findNormalizedMatchIndex(value, searchQuery) !== -1
       : typeof value === "number" || typeof value === "boolean" || value === null
-        ? String(value).includes(searchQuery)
+        ? findNormalizedMatchIndex(String(value), searchQuery) !== -1
         : false);
 
   if (Array.isArray(value)) {
