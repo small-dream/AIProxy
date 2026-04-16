@@ -7,6 +7,8 @@ import {
   parseAndroidAdbCertificateInstallResult,
   parseAndroidAdbDevices,
   parseAndroidAdbProxyResult,
+  parseIOSSimulatorCertificateInstallResult,
+  parseIOSSimulatorDevices,
   parseMapRules,
   parseBreakpointRules,
   parseCertificateStatus,
@@ -30,6 +32,9 @@ import {
   type ComposedRequestInput,
   type GenerateRootCertificateInput,
   type InstallAndroidCertificateViaAdbInput,
+  type InstallIosCertificateViaSimulatorInput,
+  type IOSSimulatorCertificateInstallResult,
+  type IOSSimulatorDevice,
   type MapRule,
   type ProxyStatus,
   type RewriteRule,
@@ -450,6 +455,66 @@ export async function installAndroidCertificateViaAdb(
     return result;
   } catch (error) {
     reportCommandFailure("install_android_certificate_via_adb", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listIosSimulators(): Promise<IOSSimulatorDevice[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "list_ios_simulators_bypassed_non_tauri_runtime");
+    return [
+      {
+        name: "iPhone 16 Pro",
+        runtime: "iOS 18.0",
+        state: "Booted",
+        udid: "F6D7A4D8-62A0-4FD7-9B53-1234567890AB",
+      },
+    ];
+  }
+
+  try {
+    logDevInfo("ui.commands", "list_ios_simulators_requested");
+    const payload = await invoke<unknown>("list_ios_simulators");
+    const simulators = parseIOSSimulatorDevices(payload);
+
+    logDevInfo("ui.commands", "list_ios_simulators_succeeded", {
+      simulatorCount: simulators.length,
+    });
+
+    return simulators;
+  } catch (error) {
+    reportCommandFailure("list_ios_simulators", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function installIosCertificateViaSimulator(
+  input?: InstallIosCertificateViaSimulatorInput,
+): Promise<IOSSimulatorCertificateInstallResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "install_ios_certificate_via_simulator_bypassed_non_tauri_runtime", input);
+    return {
+      success: true,
+      simulatorName: "iPhone 16 Pro",
+      simulatorUdid: input?.simulatorUdid ?? "F6D7A4D8-62A0-4FD7-9B53-1234567890AB",
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "install_ios_certificate_via_simulator_requested", input);
+    const payload = await invoke<unknown>("install_ios_certificate_via_simulator", {
+      input: input ? { ...(input.simulatorUdid ? { simulatorUdid: input.simulatorUdid } : {}) } : {},
+    });
+    const result = parseIOSSimulatorCertificateInstallResult(payload);
+
+    logDevInfo("ui.commands", "install_ios_certificate_via_simulator_succeeded", {
+      simulatorName: result.simulatorName,
+      simulatorUdid: result.simulatorUdid,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("install_ios_certificate_via_simulator", error, input?.simulatorUdid);
     throw coerceAppError(error);
   }
 }

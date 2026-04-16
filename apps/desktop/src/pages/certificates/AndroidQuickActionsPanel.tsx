@@ -1,3 +1,4 @@
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { useState } from "react";
 import {
   Alert,
@@ -5,10 +6,12 @@ import {
   Button,
   CircularProgress,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 
@@ -42,6 +45,7 @@ function formatAdbDeviceLabel(device: {
 export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRunning }: Props) {
   const { t } = useI18n();
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
+  const [showInfo, setShowInfo] = useState(false);
 
   const adbDevicesQuery = useAndroidAdbDevices();
   const adbInstallMutation = useInstallAndroidCertificateViaAdb();
@@ -105,29 +109,35 @@ export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRun
   return (
     <SectionCard
       title={t("certificatesPage.mobile.quickActionsTitle")}
-      description={t("certificatesPage.mobile.quickActionsDescription")}
+      toolbar={(
+        <Tooltip arrow title={t("certificatesPage.mobile.quickActionsInfoAction")}>
+          <IconButton
+            aria-label={t("certificatesPage.mobile.quickActionsInfoAction")}
+            onClick={() => setShowInfo((current) => !current)}
+            size="small"
+          >
+            <InfoOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
     >
       <Stack spacing={1.5}>
-        <Alert severity="info">
-          <AlertTitle>{t("certificatesPage.mobile.adbProxyTitle")}</AlertTitle>
-          <Stack spacing={0.5}>
-            <Typography variant="body2">{t("certificatesPage.mobile.adbProxyBody")}</Typography>
-            {adbProxyAddress ? (
-              <Typography variant="body2">
-                {t("certificatesPage.mobile.adbProxyAddressHint", { proxyAddress: adbProxyAddress })}
-              </Typography>
-            ) : null}
-          </Stack>
-        </Alert>
-
-        <Alert severity="info">
-          <AlertTitle>{t("certificatesPage.mobile.adbInstallTitle")}</AlertTitle>
-          <Stack spacing={0.5}>
-            <Typography variant="body2">{t("certificatesPage.mobile.adbInstallBody")}</Typography>
-            <Typography variant="body2">{t("certificatesPage.mobile.adbInstallRequirements")}</Typography>
-            <Typography variant="body2">{t("certificatesPage.mobile.adbInstallHint")}</Typography>
-          </Stack>
-        </Alert>
+        {showInfo ? (
+          <Alert severity="info">
+            <AlertTitle>{t("certificatesPage.mobile.quickActionsInfoTitle")}</AlertTitle>
+            <Stack spacing={0.5}>
+              <Typography variant="body2">{t("certificatesPage.mobile.adbProxyBody")}</Typography>
+              {adbProxyAddress ? (
+                <Typography variant="body2">
+                  {t("certificatesPage.mobile.adbProxyAddressHint", { proxyAddress: adbProxyAddress })}
+                </Typography>
+              ) : null}
+              <Typography variant="body2">{t("certificatesPage.mobile.adbInstallBody")}</Typography>
+              <Typography variant="body2">{t("certificatesPage.mobile.adbInstallRequirements")}</Typography>
+              <Typography variant="body2">{t("certificatesPage.mobile.adbInstallHint")}</Typography>
+            </Stack>
+          </Alert>
+        ) : null}
 
         {adbDevicesQuery.isError ? (
           <Alert severity="error">
@@ -137,7 +147,15 @@ export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRun
         ) : null}
 
         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "stretch", md: "center" }}>
-          <FormControl size="small" fullWidth disabled={adbDevicesQuery.isLoading || (adbDevices?.length ?? 0) === 0}>
+          <FormControl
+            size="small"
+            disabled={adbDevicesQuery.isLoading || (adbDevices?.length ?? 0) === 0}
+            sx={{
+              flex: { xs: 1, md: "0 1 620px" },
+              minWidth: { xs: "100%", md: 360 },
+              maxWidth: { xs: "100%", md: 620 },
+            }}
+          >
             <InputLabel>{t("certificatesPage.mobile.adbDeviceSelectorLabel")}</InputLabel>
             <Select
               value={effectiveSelectedAdbDeviceSerial}

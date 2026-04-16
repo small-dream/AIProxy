@@ -3,6 +3,7 @@ import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n } from "@/i18n";
 
 import { AndroidQuickActionsPanel } from "./AndroidQuickActionsPanel";
+import { IosQuickActionsPanel } from "./IosQuickActionsPanel";
 import { NetworkInfoPanel } from "./NetworkInfoPanel";
 import { QrCodePanel } from "./QrCodePanel";
 import { MobileDeviceGuide } from "./MobileDeviceGuide";
@@ -39,6 +40,8 @@ export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }:
           {t("certificatesPage.mobile.httpOnlyBody")}
         </Alert>
       )}
+
+      <IosQuickActionsPanel hasCert={hasCert} />
 
       <AndroidQuickActionsPanel
         hasCert={hasCert}

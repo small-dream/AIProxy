@@ -77,6 +77,29 @@ pub struct InstallAndroidCertificateViaAdbInput {
     pub device_serial: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct IosSimulatorDevice {
+    pub name: String,
+    pub udid: String,
+    pub state: String,
+    pub runtime: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IosSimulatorInstallResult {
+    pub success: bool,
+    pub simulator_name: String,
+    pub simulator_udid: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallIosCertificateViaSimulatorInput {
+    pub simulator_udid: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetAndroidProxyViaAdbInput {
@@ -195,6 +218,19 @@ pub fn install_android_certificate_via_adb(
     state: State<'_, Arc<AppState>>,
 ) -> Result<AndroidAdbInstallResult, String> {
     install_android_certificate_via_adb_impl(input, Arc::clone(state.inner()))
+}
+
+#[tauri::command]
+pub fn list_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
+    list_ios_simulators_impl()
+}
+
+#[tauri::command]
+pub fn install_ios_certificate_via_simulator(
+    input: InstallIosCertificateViaSimulatorInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<IosSimulatorInstallResult, String> {
+    install_ios_certificate_via_simulator_impl(input, Arc::clone(state.inner()))
 }
 
 #[tauri::command]
@@ -739,6 +775,58 @@ fn install_android_certificate_via_adb_impl(
     })
 }
 
+fn list_ios_simulators_impl() -> Result<Vec<IosSimulatorDevice>, String> {
+    read_ios_simulators()
+}
+
+fn install_ios_certificate_via_simulator_impl(
+    input: InstallIosCertificateViaSimulatorInput,
+    _state: Arc<AppState>,
+) -> Result<IosSimulatorInstallResult, String> {
+    let storage = CertStorage::resolve()
+        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+
+    if !storage.root_cert_exists() {
+        return Err("No certificate found. Generate one first.".to_string());
+    }
+
+    let simulator = resolve_ios_simulator(input.simulator_udid.as_deref())?;
+
+    let output = std::process::Command::new("xcrun")
+        .args([
+            "simctl",
+            "keychain",
+            &simulator.udid,
+            "add-root-cert",
+        ])
+        .arg(storage.root_cert_path())
+        .output()
+        .map_err(xcrun_spawn_error)?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to install the root certificate into iOS Simulator `{}`: {}",
+            simulator.name,
+            format_command_output(&output)
+        ));
+    }
+
+    log_info(
+        "desktop.commands",
+        "install_ios_certificate_via_simulator_succeeded",
+        &[
+            ("simulator_name", simulator.name.clone()),
+            ("simulator_udid", simulator.udid.clone()),
+        ],
+    );
+
+    Ok(IosSimulatorInstallResult {
+        success: true,
+        simulator_name: simulator.name,
+        simulator_udid: simulator.udid,
+    })
+}
+
 fn set_android_proxy_via_adb_impl(
     input: SetAndroidProxyViaAdbInput,
 ) -> Result<AndroidAdbProxyResult, String> {
@@ -898,6 +986,82 @@ fn read_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
     Ok(devices)
 }
 
+fn read_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err("iOS Simulator quick actions are only supported on macOS.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("xcrun")
+            .args(["simctl", "list", "devices", "available", "--json"])
+            .output()
+            .map_err(xcrun_spawn_error)?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "Failed to query iOS Simulators: {}",
+                format_command_output(&output)
+            ));
+        }
+
+        let payload: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("failed to parse simulator list: {error}"))?;
+        let Some(devices_by_runtime) = payload.get("devices").and_then(|value| value.as_object()) else {
+            return Err("Simulator list did not include a devices map.".to_string());
+        };
+
+        let mut simulators = Vec::new();
+
+        for (runtime_key, entries) in devices_by_runtime {
+            let Some(entries) = entries.as_array() else {
+                continue;
+            };
+
+            for entry in entries {
+                let state = entry
+                    .get("state")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                if state != "Booted" {
+                    continue;
+                }
+
+                let is_available = entry
+                    .get("isAvailable")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
+                if !is_available {
+                    continue;
+                }
+
+                let name = entry
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                let udid = entry
+                    .get("udid")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+
+                if name.is_empty() || udid.is_empty() {
+                    continue;
+                }
+
+                simulators.push(IosSimulatorDevice {
+                    name: name.to_string(),
+                    udid: udid.to_string(),
+                    state: state.to_string(),
+                    runtime: format_ios_runtime_name(runtime_key),
+                });
+            }
+        }
+
+        Ok(simulators)
+    }
+}
+
 fn resolve_adb_target_device(requested_serial: Option<&str>) -> Result<String, String> {
     let devices = read_adb_devices()?;
     let ready_devices = devices
@@ -955,12 +1119,54 @@ fn resolve_adb_target_device(requested_serial: Option<&str>) -> Result<String, S
     Ok(ready_devices[0].serial.clone())
 }
 
+fn resolve_ios_simulator(requested_udid: Option<&str>) -> Result<IosSimulatorDevice, String> {
+    let simulators = read_ios_simulators()?;
+
+    if let Some(requested_udid) = requested_udid {
+        let Some(simulator) = simulators.iter().find(|simulator| simulator.udid == requested_udid) else {
+            return Err(format!(
+                "iOS Simulator `{requested_udid}` was not found in the booted simulator list. Refresh the simulator list and try again."
+            ));
+        };
+
+        return Ok(simulator.clone());
+    }
+
+    if simulators.is_empty() {
+        return Err(
+            "No booted iOS Simulator was found. Launch a simulator first, then try again."
+                .to_string(),
+        );
+    }
+
+    if simulators.len() > 1 {
+        return Err(format!(
+            "Multiple booted iOS Simulators were found ({}). Choose one in the Mobile Setup page, then try again.",
+            simulators
+                .iter()
+                .map(|simulator| simulator.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    Ok(simulators[0].clone())
+}
+
 fn adb_spawn_error(error: std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::NotFound {
         return "adb was not found in PATH. Install Android Platform Tools and make sure the `adb` command is available.".to_string();
     }
 
     format!("failed to run adb: {error}")
+}
+
+fn xcrun_spawn_error(error: std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return "xcrun was not found in PATH. Install Xcode Command Line Tools and make sure the `xcrun` command is available.".to_string();
+    }
+
+    format!("failed to run xcrun: {error}")
 }
 
 fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(), String> {
@@ -992,6 +1198,20 @@ fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(),
     }
 
     Ok(())
+}
+
+fn format_ios_runtime_name(runtime_key: &str) -> String {
+    let runtime = runtime_key
+        .rsplit('.')
+        .next()
+        .unwrap_or(runtime_key)
+        .replace('-', " ");
+
+    if let Some(version) = runtime.strip_prefix("iOS ") {
+        return format!("iOS {}", version.replace(' ', "."));
+    }
+
+    runtime
 }
 
 fn format_command_output(output: &std::process::Output) -> String {

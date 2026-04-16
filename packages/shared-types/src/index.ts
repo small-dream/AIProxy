@@ -127,6 +127,13 @@ export type AndroidAdbDevice = {
   transportId?: string;
 };
 
+export type IOSSimulatorDevice = {
+  name: string;
+  udid: string;
+  state: string;
+  runtime: string;
+};
+
 export type InstallAndroidCertificateViaAdbInput = {
   deviceSerial?: string;
 };
@@ -139,6 +146,16 @@ export type SetAndroidProxyViaAdbInput = {
 
 export type ClearAndroidProxyViaAdbInput = {
   deviceSerial?: string;
+};
+
+export type InstallIosCertificateViaSimulatorInput = {
+  simulatorUdid?: string;
+};
+
+export type IOSSimulatorCertificateInstallResult = {
+  success: boolean;
+  simulatorName: string;
+  simulatorUdid: string;
 };
 
 export type ComposedRequestInput = {
@@ -826,6 +843,52 @@ export function parseAndroidAdbDevices(value: unknown): AndroidAdbDevice[] {
       ? { transportId: device.transportId }
       : {}),
   }));
+}
+
+export function isIOSSimulatorDevice(value: unknown): value is IOSSimulatorDevice {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<IOSSimulatorDevice>;
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.udid === "string" &&
+    typeof candidate.state === "string" &&
+    typeof candidate.runtime === "string"
+  );
+}
+
+export function parseIOSSimulatorDevices(value: unknown): IOSSimulatorDevice[] {
+  if (!Array.isArray(value) || !value.every(isIOSSimulatorDevice)) {
+    throw coerceAppError(value);
+  }
+
+  return value.map((device) => ({
+    name: device.name,
+    udid: device.udid,
+    state: device.state,
+    runtime: device.runtime,
+  }));
+}
+
+export function isIOSSimulatorCertificateInstallResult(
+  value: unknown,
+): value is IOSSimulatorCertificateInstallResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<IOSSimulatorCertificateInstallResult>;
+  return (
+    typeof candidate.success === "boolean" &&
+    typeof candidate.simulatorName === "string" &&
+    typeof candidate.simulatorUdid === "string"
+  );
+}
+
+export function parseIOSSimulatorCertificateInstallResult(
+  value: unknown,
+): IOSSimulatorCertificateInstallResult {
+  if (!isIOSSimulatorCertificateInstallResult(value)) {
+    throw coerceAppError(value);
+  }
+
+  return value;
 }
 
 export function normalizeGenerateRootCertificateInput(

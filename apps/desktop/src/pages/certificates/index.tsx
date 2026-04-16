@@ -12,9 +12,8 @@ import { useI18n } from "@/i18n";
 import { DesktopCertificateTab } from "./DesktopCertificateTab";
 import { PlatformTrustGuide } from "./PlatformTrustGuide";
 import { MobileSetupTab } from "./MobileSetupTab";
-import { ReferenceTab } from "./ReferenceTab";
 
-type CertTab = "desktop" | "mobile" | "reference";
+type CertTab = "desktop" | "mobile";
 
 export function CertificatesPage() {
   const { t } = useI18n();
@@ -59,7 +58,6 @@ export function CertificatesPage() {
       >
         <Tab label={t("certificatesPage.tabs.desktop")} value="desktop" />
         <Tab label={t("certificatesPage.tabs.mobile")} value="mobile" />
-        <Tab label={t("certificatesPage.tabs.reference")} value="reference" />
       </Tabs>
 
       {/* Tab panels */}
@@ -85,10 +83,6 @@ export function CertificatesPage() {
           sslEnabled={proxyStatus?.sslEnabled ?? false}
           hasCert={!!status?.certPath}
         />
-      )}
-
-      {tab === "reference" && (
-        <ReferenceTab currentPlatform={status?.platform ?? "windows"} />
       )}
     </Stack>
   );
