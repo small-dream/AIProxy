@@ -26,9 +26,9 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Semaphore},
     task::JoinHandle,
-    time::sleep,
+    time::{sleep, timeout},
 };
 use uuid::Uuid;
 
@@ -36,6 +36,8 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
+const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
+const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 

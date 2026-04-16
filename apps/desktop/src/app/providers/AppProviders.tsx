@@ -21,7 +21,7 @@ function detectActiveFont(candidates: string[]): string {
 
   const testText = "mmmmmmmmmmlli";
   const canvas = document.createElement("canvas");
-  let ctx: CanvasRenderingContext2D | null = null;
+  let ctx: CanvasRenderingContext2D | null;
 
   try {
     ctx = canvas.getContext("2d");

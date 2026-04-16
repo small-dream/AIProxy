@@ -898,7 +898,7 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
             .args(["-a", "Keychain Access", cert_path])
             .spawn()
             .map_err(|e| format!("Failed to open certificate in Keychain Access: {e}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

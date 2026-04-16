@@ -141,7 +141,7 @@ impl CertStorage {
         hostname: &str,
     ) -> Result<Arc<rustls::sign::CertifiedKey>, TlsManagerError> {
         {
-            let cache = self.host_cache.lock().unwrap();
+            let cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cached) = cache.get(hostname) {
                 return Ok(Arc::clone(cached));
             }
@@ -158,7 +158,7 @@ impl CertStorage {
         ));
 
         {
-            let mut cache = self.host_cache.lock().unwrap();
+            let mut cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.insert(hostname.to_string(), Arc::clone(&certified_key));
         }
 

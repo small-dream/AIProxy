@@ -73,6 +73,12 @@ impl std::fmt::Debug for RewriteManager {
     }
 }
 
+impl Default for RewriteManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RewriteManager {
     pub fn new() -> Self {
         Self {
@@ -81,11 +87,11 @@ impl RewriteManager {
     }
 
     pub fn list_rules(&self) -> Vec<RewriteRule> {
-        self.rules.lock().expect("rewrite rules mutex").clone()
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn save_rule(&self, rule: RewriteRule) -> RewriteRule {
-        let mut rules = self.rules.lock().expect("rewrite rules mutex");
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
             *existing = rule.clone();
         } else {
@@ -95,7 +101,7 @@ impl RewriteManager {
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut rules = self.rules.lock().expect("rewrite rules mutex");
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         rules.retain(|r| r.id != rule_id);
     }
 }
@@ -113,6 +119,12 @@ impl std::fmt::Debug for MapManager {
     }
 }
 
+impl Default for MapManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MapManager {
     pub fn new() -> Self {
         Self {
@@ -121,11 +133,11 @@ impl MapManager {
     }
 
     pub fn list_rules(&self) -> Vec<MapRule> {
-        self.rules.lock().expect("map rules mutex").clone()
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn save_rule(&self, rule: MapRule) -> MapRule {
-        let mut rules = self.rules.lock().expect("map rules mutex");
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
             *existing = rule.clone();
         } else {
@@ -135,7 +147,7 @@ impl MapManager {
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut rules = self.rules.lock().expect("map rules mutex");
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         rules.retain(|r| r.id != rule_id);
     }
 }
@@ -153,6 +165,12 @@ impl std::fmt::Debug for ThrottleManager {
     }
 }
 
+impl Default for ThrottleManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThrottleManager {
     pub fn new() -> Self {
         Self {
@@ -161,11 +179,11 @@ impl ThrottleManager {
     }
 
     pub fn list_profiles(&self) -> Vec<ThrottleProfileData> {
-        self.profiles.lock().expect("throttle profiles mutex").clone()
+        self.profiles.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn save_profile(&self, profile: ThrottleProfileData) -> ThrottleProfileData {
-        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = profiles.iter_mut().find(|p| p.id == profile.id) {
             *existing = profile.clone();
         } else {
@@ -175,12 +193,12 @@ impl ThrottleManager {
     }
 
     pub fn delete_profile(&self, profile_id: &str) {
-        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
         profiles.retain(|p| p.id != profile_id);
     }
 
     pub fn set_active_profile(&self, workspace_id: &str, profile_id: Option<&str>) {
-        let mut profiles = self.profiles.lock().expect("throttle profiles mutex");
+        let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
         for profile in profiles.iter_mut() {
             if profile.workspace_id == workspace_id {
                 profile.enabled = match profile_id {
@@ -703,7 +721,7 @@ fn transfer_delay_ms(byte_count: usize, kbps: u32) -> u64 {
 
     let bits = (byte_count as u128) * 8;
     let bits_per_second = (kbps as u128) * 1024;
-    let millis = (bits * 1_000 + bits_per_second - 1) / bits_per_second;
+    let millis = (bits * 1_000).div_ceil(bits_per_second);
 
     millis as u64
 }

@@ -17,7 +17,7 @@ pub(crate) fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
 
 fn append_to_log_file(line: &str) {
     let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().expect("proxy-core log mutex should not be poisoned");
+    let _write_guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let log_file_path = resolve_log_file_path();
 
     if let Some(parent) = log_file_path.parent() {

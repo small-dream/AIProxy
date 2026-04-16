@@ -69,9 +69,9 @@ pub(crate) fn should_skip_request_header(header_name: &str) -> bool {
 }
 
 pub(crate) fn should_skip_response_header(header_name: &HeaderName) -> bool {
-    header_name == &CONNECTION
-        || header_name == &CONTENT_LENGTH
-        || header_name == &TRANSFER_ENCODING
+    header_name == CONNECTION
+        || header_name == CONTENT_LENGTH
+        || header_name == TRANSFER_ENCODING
 }
 
 pub(crate) fn read_content_length(headers: &[httparse::Header<'_>]) -> Result<usize, String> {

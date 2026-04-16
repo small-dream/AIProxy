@@ -29,7 +29,7 @@ import {
   Typography,
 } from "@mui/material";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
@@ -241,11 +241,14 @@ export function AppShell() {
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
   const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
-  const initialStartProxyInput = {
-    enableSsl: certificateStatus?.trusted ?? false,
-    port,
-    workspaceId,
-  };
+  const initialStartProxyInput = useMemo(
+    () => ({
+      enableSsl: certificateStatus?.trusted ?? false,
+      port,
+      workspaceId,
+    }),
+    [certificateStatus?.trusted, port, workspaceId],
+  );
 
   useEffect(() => {
     if (!macosTitlebarEnabled) {

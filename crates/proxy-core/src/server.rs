@@ -30,6 +30,7 @@ pub async fn start_proxy_server(
 
     let (shutdown_sender, mut shutdown_receiver) = oneshot::channel::<()>();
     let (session_sender, session_receiver) = mpsc::unbounded_channel();
+    let connection_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
 
     emit_log(
         "INFO",
@@ -38,6 +39,7 @@ pub async fn start_proxy_server(
             ("host", bind_addr.to_string()),
             ("port", bound_port.to_string()),
             ("ssl_enabled", config.ssl_enabled.to_string()),
+            ("max_connections", MAX_CONCURRENT_CONNECTIONS.to_string()),
         ],
     );
 
@@ -55,6 +57,21 @@ pub async fn start_proxy_server(
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((stream, client_addr)) => {
+                            let permit = match connection_semaphore.clone().try_acquire_owned() {
+                                Ok(permit) => permit,
+                                Err(_) => {
+                                    emit_log(
+                                        "WARN",
+                                        "connection_rejected",
+                                        &[
+                                            ("client_addr", client_addr.to_string()),
+                                            ("reason", "max_connections_reached".to_string()),
+                                        ],
+                                    );
+                                    continue;
+                                }
+                            };
+
                             let client = Arc::clone(&client);
                             let session_sender = session_sender.clone();
                             let tls_manager = tls_manager.clone();
@@ -66,6 +83,7 @@ pub async fn start_proxy_server(
                             let event_emitter = event_emitter.clone();
 
                             tokio::spawn(async move {
+                                let _permit = permit;
                                 if let Err(error) = handle_connection(
                                     stream,
                                     client_addr,
@@ -327,7 +345,9 @@ async fn handle_connection(
                             waiting_ms: Some(0),
                         },
                     );
-                    let _ = session_sender.send(detail);
+                    if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                     return Ok(());
                 }
             }
@@ -338,7 +358,9 @@ async fn handle_connection(
     }
 
     let pending_detail = build_pending_session_detail(&request, started_at);
-    let _ = session_sender.send(pending_detail);
+    if session_sender.send(pending_detail).is_err() {
+        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+    }
 
     let RequestRuntimeOutcome {
         local_response,
@@ -404,7 +426,9 @@ async fn handle_connection(
                             waiting_ms: Some(upstream_response.waiting_ms),
                         },
                     );
-                    let _ = session_sender.send(detail);
+                    if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                     return Err(error);
                 }
             };
@@ -429,7 +453,9 @@ async fn handle_connection(
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
                         );
-                        let _ = session_sender.send(detail);
+                        if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                         let _ = stream.shutdown().await;
                         return Ok(());
                     }
@@ -473,7 +499,9 @@ async fn handle_connection(
                         waiting_ms: Some(upstream_response.waiting_ms),
                     },
                 );
-                let _ = session_sender.send(detail);
+                if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                 return Err(error);
             }
 
@@ -495,7 +523,9 @@ async fn handle_connection(
                 },
             );
 
-            let _ = session_sender.send(detail);
+            if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
 
             emit_log(
                 "INFO",
@@ -538,7 +568,9 @@ async fn handle_connection(
                     waiting_ms: Some(started_at_instant.elapsed().as_millis()),
                 },
             );
-            let _ = session_sender.send(detail);
+            if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
             emit_log(
                 "ERROR",
                 "upstream_request_failed",
@@ -847,7 +879,9 @@ async fn handle_connect_mitm(
                             waiting_ms: Some(0),
                         },
                     );
-                    let _ = session_sender.send(detail);
+                    if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                     return Ok(());
                 }
             }
@@ -922,7 +956,9 @@ async fn handle_connect_mitm(
                             waiting_ms: Some(upstream_response.waiting_ms),
                         },
                     );
-                    let _ = session_sender.send(detail);
+                    if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                     return Err(error);
                 }
             };
@@ -947,7 +983,9 @@ async fn handle_connect_mitm(
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
                         );
-                        let _ = session_sender.send(detail);
+                        if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                         let _ = tls_stream.shutdown().await;
                         return Ok(());
                     }
@@ -991,7 +1029,9 @@ async fn handle_connect_mitm(
                         waiting_ms: Some(upstream_response.waiting_ms),
                     },
                 );
-                let _ = session_sender.send(detail);
+                if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
                 return Err(error);
             }
 
@@ -1013,7 +1053,9 @@ async fn handle_connect_mitm(
                 },
             );
 
-            let _ = session_sender.send(detail);
+            if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
 
             emit_log(
                 "INFO",
@@ -1056,7 +1098,9 @@ async fn handle_connect_mitm(
                     waiting_ms: Some(started_at_instant.elapsed().as_millis()),
                 },
             );
-            let _ = session_sender.send(detail);
+            if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
 
             emit_log(
                 "ERROR",
@@ -1084,9 +1128,11 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
-        let bytes_read = stream
-            .read(&mut chunk)
+        let read_result = timeout(CLIENT_HEADER_READ_TIMEOUT, stream.read(&mut chunk))
             .await
+            .map_err(|_| "timed out waiting for client request headers".to_string())?;
+
+        let bytes_read = read_result
             .map_err(|error| format!("failed to read from client stream: {error}"))?;
 
         if bytes_read == 0 {
@@ -1152,7 +1198,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let query_params = build_query_params(&url);
     let request_version = request.version.unwrap_or(1);
 
-    drop(request);
+    drop(request); // Release borrow on headers slice before consuming body bytes
 
     while buffer.len() < header_end + body_length {
         let bytes_read = stream
@@ -1383,7 +1429,9 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
             waiting_ms: Some(started_at_instant.elapsed().as_millis()),
         },
     );
-    let _ = session_sender.send(detail);
+    if session_sender.send(detail).is_err() {
+                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                    }
 
     emit_log(
         "WARN",

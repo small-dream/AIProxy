@@ -95,6 +95,12 @@ impl std::fmt::Debug for BreakpointManager {
     }
 }
 
+impl Default for BreakpointManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BreakpointManager {
     pub fn new() -> Self {
         Self {
@@ -106,7 +112,7 @@ impl BreakpointManager {
     pub fn list_rules(&self) -> Vec<BreakpointRule> {
         self.rules
             .lock()
-            .expect("breakpoint rules mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
@@ -114,7 +120,7 @@ impl BreakpointManager {
         let mut guard = self
             .rules
             .lock()
-            .expect("breakpoint rules mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         *guard = rules;
     }
 
@@ -123,7 +129,7 @@ impl BreakpointManager {
         let rules = self
             .rules
             .lock()
-            .expect("breakpoint rules mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         rules.iter().any(|rule| {
             if !rule.enabled {
                 return false;
@@ -155,7 +161,7 @@ impl BreakpointManager {
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
-            .expect("breakpoint pending mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(session_id, tx);
         rx
     }
@@ -165,7 +171,7 @@ impl BreakpointManager {
         let mut pending = self
             .pending
             .lock()
-            .expect("breakpoint pending mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(sender) = pending.remove(session_id) {
             sender
                 .send(resolution)
@@ -180,7 +186,7 @@ impl BreakpointManager {
         let mut pending = self
             .pending
             .lock()
-            .expect("breakpoint pending mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         pending.clear();
     }
 }
