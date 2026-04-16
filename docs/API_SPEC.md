@@ -954,11 +954,17 @@ type GetLocalIpOutput = string[];
 
 ### `launch_certificate_installer`
 
-启动系统证书安装器（仅 Windows）。
+启动系统证书安装器。
 
 请求：无参数。
 
 响应：`void`
+
+平台行为：
+
+- Windows：通过 `rundll32.exe` 调用系统证书安装器
+- macOS：通过 `open -a "Keychain Access"` 打开钥匙串访问
+- Linux：通过 `xdg-open` 打开证书文件，由系统默认程序处理
 
 ### `install_android_certificate_via_adb`
 

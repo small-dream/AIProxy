@@ -25,9 +25,19 @@
 
 ### macOS
 
-- 已预留平台模块与接口
-- 尚未实现真实系统代理切换
-- 计划后续接入系统网络服务配置能力
+- 已实现真实系统代理开关
+- 已实现原始系统代理快照保存与恢复
+- 通过 `/usr/sbin/networksetup` 遍历所有网络服务进行代理配置
+- 应用失败时自动回滚到快照
+
+### Linux
+
+- 已实现 GNOME 和 KDE 双桌面环境支持
+- 自动检测 `XDG_CURRENT_DESKTOP` / `DESKTOP_SESSION` 环境变量判断桌面环境
+- GNOME：通过 `gsettings` 操作 `org.gnome.system.proxy` schema
+- KDE Plasma：通过 `kwriteconfig6` / `kreadconfig6` 操作 `kioslaverc`
+- 已实现原始系统代理快照保存与恢复
+- 非 GNOME/KDE 桌面环境返回不支持的错误提示
 
 ## 4. 架构位置
 
@@ -36,6 +46,7 @@
 - `apps/desktop/src-tauri/src/system_proxy/mod.rs`
 - `apps/desktop/src-tauri/src/system_proxy/windows.rs`
 - `apps/desktop/src-tauri/src/system_proxy/macos.rs`
+- `apps/desktop/src-tauri/src/system_proxy/linux.rs`
 
 职责分层：
 
@@ -108,24 +119,64 @@ Windows 当前实现基于：
 2. 逐项恢复原系统代理配置
 3. 通知 WinINet 刷新系统代理
 
-## 7. macOS 预留接口
+## 7. macOS 实现说明
 
-`apps/desktop/src-tauri/src/system_proxy/macos.rs` 当前已预留以下接口：
+`apps/desktop/src-tauri/src/system_proxy/macos.rs` 通过 `/usr/sbin/networksetup` 实现：
 
-- `capture_system_proxy_snapshot()`
-- `apply_system_proxy_settings()`
-- `restore_system_proxy()`
+接管流程：
 
-后续实现建议：
+1. 列出所有活动网络服务
+2. 保存每个服务的 HTTP Proxy / HTTPS Proxy / Auto Proxy / Bypass Domains 快照
+3. 设置 Web Proxy 和 Secure Web Proxy 到 Pharles 代理地址
+4. 关闭 Auto Proxy Discovery 和 Auto Proxy URL
+5. 设置 bypass domains 为 `localhost, 127.0.0.1, ::1`
 
-- 优先封装“当前活动网络服务”的查询能力
-- 支持 HTTP Proxy 与 HTTPS Proxy 的独立开关
-- 支持恢复用户原始代理配置
-- 需要在文档中明确多网卡和多网络服务的行为策略
+恢复流程：
 
-## 8. 已知限制
+1. 逐服务恢复原始代理配置
+2. 恢复 Auto Proxy / Bypass Domains
 
-- 当前只实现 Windows 真正的系统代理切换
+## 8. Linux 实现说明
+
+`apps/desktop/src-tauri/src/system_proxy/linux.rs` 支持 GNOME 和 KDE 两种桌面环境。
+
+桌面环境检测：
+
+- 读取 `XDG_CURRENT_DESKTOP` 和 `DESKTOP_SESSION` 环境变量
+- 包含 `gnome`/`ubuntu`/`pop`/`unity` → 使用 gsettings
+- 包含 `kde`/`plasma` → 使用 kwriteconfig6
+- 其他桌面环境返回不支持的错误
+
+### GNOME (gsettings)
+
+接管流程：
+
+1. 通过 `gsettings get` 保存 `org.gnome.system.proxy` 的 mode、http/https host/port、ignore-hosts
+2. 设置 http/https host 和 port 到 Pharles 代理地址
+3. 设置 ignore-hosts 为 `['localhost', '127.0.0.1', '::1']`
+4. 设置 mode 为 `'manual'`
+
+恢复流程：
+
+1. 从快照恢复所有 gsettings 键值
+
+### KDE Plasma (kwriteconfig6)
+
+接管流程：
+
+1. 通过 `kreadconfig6` 保存 `kioslaverc` 中 Proxy Settings 组的 ProxyType、httpProxy、NoProxyFor
+2. 设置 ProxyType=1 (手动代理)
+3. 设置 httpProxy 和 httpsProxy 到 Pharles 代理地址
+4. 设置 NoProxyFor
+
+恢复流程：
+
+1. 从快照恢复所有 kioslaverc 键值
+
+## 9. 已知限制
+
+- Linux 仅支持 GNOME 和 KDE 桌面环境，其他桌面环境（如 Sway、i3、XFCE）暂不支持
+- Linux 系统代理不会设置环境变量 `http_proxy`/`https_proxy`，仅影响桌面应用
 - 仅适配 HTTP 代理闭环，HTTPS 解密尚未接入
 - 若应用异常崩溃，系统代理恢复仍需补充更强的兜底策略
 
@@ -169,6 +220,6 @@ Windows 当前实现基于：
 ## 10. 下一步建议
 
 1. 在应用退出事件中强制恢复系统代理
-2. 增加“恢复系统代理失败”的用户提示和手动恢复说明
-3. 实现 macOS 系统代理切换
-4. 在 HTTPS 阶段联动系统代理与证书状态检查
+2. 增加”恢复系统代理失败”的用户提示和手动恢复说明
+3. 在 HTTPS 阶段联动系统代理与证书状态检查
+4. 考虑支持 Linux 环境变量 `http_proxy`/`https_proxy` 设置

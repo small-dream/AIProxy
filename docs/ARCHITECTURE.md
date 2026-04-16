@@ -150,6 +150,12 @@ flowchart LR
 - 管理系统代理、文件系统、证书安装入口
 - 处理原生权限与平台差异
 
+平台差异处理：
+
+- 系统代理：Windows（注册表）、macOS（networksetup）、Linux（gsettings/kwriteconfig6）
+- 证书信任检测：Windows（Powerhell/Cert store）、macOS（security verify-cert）、Linux（系统 CA 目录扫描）
+- 证书安装器：Windows（rundll32）、macOS（Keychain Access）、Linux（xdg-open）
+
 技术：
 
 - Tauri commands
@@ -218,8 +224,14 @@ flowchart LR
 
 - 生成根证书与中间证书
 - 维护本地证书目录
-- 检测平台信任状态
+- 检测平台信任状态（Windows / macOS / Linux）
 - 为 HTTPS 解密提供签发能力
+
+平台信任检测实现：
+
+- Windows：通过 PowerShell 查询 `Cert:\CurrentUser\Root` 和 `Cert:\LocalMachine\Root`
+- macOS：通过 `/usr/bin/security verify-cert` 检查
+- Linux：扫描 `/usr/local/share/ca-certificates/`（Debian/Ubuntu）和 `/etc/pki/ca-trust/source/anchors/`（RHEL/Fedora），通过 SHA-1 fingerprint 比对
 
 ## 6.3 `session-store`
 
@@ -529,6 +541,12 @@ project-root/
 │     └─ src-tauri/
 │        ├─ src/
 │        │  ├─ commands/
+│        │  ├─ system_proxy/
+│        │  │  ├─ mod.rs
+│        │  │  ├─ windows.rs
+│        │  │  ├─ macos.rs
+│        │  │  ├─ linux.rs
+│        │  │  └─ unsupported.rs (legacy, no longer compiled)
 │        │  ├─ bootstrap/
 │        │  └─ main.rs
 │        └─ tauri.conf.json
@@ -614,6 +632,7 @@ project-root/
 - `desktop.app`：应用启动、日志初始化、panic
 - `desktop.commands`：`start_proxy`、`stop_proxy`、`enable_system_proxy`、`disable_system_proxy`
 - `desktop.system_proxy.windows`：快照捕获、注册表写入、WinINet 刷新、恢复
+- `desktop.system_proxy.linux`：快照捕获、gsettings/kwriteconfig6 写入、恢复、桌面环境检测
 - `proxy-core`：监听启动、监听停止、CONNECT 分流、TLS 握手、请求解析失败、上游请求开始 / 成功 / 失败、证书下载请求、断点请求阶段命中、断点响应阶段命中、断点取消
 - `ui.commands`：前端命令发起、成功、失败
 
@@ -646,6 +665,7 @@ project-root/
 
 - 系统代理切换受平台权限与系统策略影响
 - HTTPS 证书信任流程跨平台复杂度高
+- Linux 桌面环境碎片化严重，当前仅覆盖 GNOME 和 KDE，其他环境（XFCE、Sway、i3 等）暂不支持系统代理切换
 - 不同客户端的证书锁定与协议实现会影响抓包能力
 - 代理绑定 `0.0.0.0` 会将代理和证书下载端点暴露给局域网内所有设备，需注意网络安全隔离
 
