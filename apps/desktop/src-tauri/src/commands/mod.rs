@@ -298,6 +298,9 @@ async fn start_proxy_impl(
     };
 
     let breakpoint_manager = state.read_breakpoint_manager();
+    let rewrite_manager = state.read_rewrite_manager();
+    let map_manager = state.read_map_manager();
+    let throttle_manager = state.read_throttle_manager();
 
     let event_emitter: Option<BreakpointEventEmitter> = state.read_app_handle().map(|handle| {
         Arc::new(move |event: &str, payload: serde_json::Value| {
@@ -312,6 +315,10 @@ async fn start_proxy_impl(
         },
         tls_manager,
         Some(breakpoint_manager),
+        Some(rewrite_manager),
+        Some(map_manager),
+        Some(throttle_manager),
+        Some(input.workspace_id.clone()),
         event_emitter,
     )
     .await?;
