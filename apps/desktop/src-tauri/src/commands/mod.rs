@@ -52,6 +52,14 @@ pub struct AndroidAdbInstallResult {
     pub remote_path: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidAdbProxyResult {
+    pub success: bool,
+    pub device_serial: String,
+    pub proxy_address: Option<String>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AndroidAdbDevice {
@@ -66,6 +74,20 @@ pub struct AndroidAdbDevice {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallAndroidCertificateViaAdbInput {
+    pub device_serial: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAndroidProxyViaAdbInput {
+    pub device_serial: Option<String>,
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearAndroidProxyViaAdbInput {
     pub device_serial: Option<String>,
 }
 
@@ -173,6 +195,20 @@ pub fn install_android_certificate_via_adb(
     state: State<'_, Arc<AppState>>,
 ) -> Result<AndroidAdbInstallResult, String> {
     install_android_certificate_via_adb_impl(input, Arc::clone(state.inner()))
+}
+
+#[tauri::command]
+pub fn set_android_proxy_via_adb(
+    input: SetAndroidProxyViaAdbInput,
+) -> Result<AndroidAdbProxyResult, String> {
+    set_android_proxy_via_adb_impl(input)
+}
+
+#[tauri::command]
+pub fn clear_android_proxy_via_adb(
+    input: ClearAndroidProxyViaAdbInput,
+) -> Result<AndroidAdbProxyResult, String> {
+    clear_android_proxy_via_adb_impl(input)
 }
 
 #[tauri::command]
@@ -667,14 +703,14 @@ fn install_android_certificate_via_adb_impl(
             "am",
             "start",
             "-a",
-            "android.credentials.INSTALL",
+            "android.settings.SECURITY_SETTINGS",
         ])
         .output()
         .map_err(adb_spawn_error)?;
 
     if !launch_output.status.success() {
         return Err(format!(
-            "Failed to open the Android certificate installer entry: {}",
+            "Failed to open Android Security settings: {}",
             format_command_output(&launch_output)
         ));
     }
@@ -682,7 +718,7 @@ fn install_android_certificate_via_adb_impl(
     let launch_text = format_command_output(&launch_output);
     if launch_text.contains("Error:") {
         return Err(format!(
-            "Android reported an error while opening the certificate installer entry: {}",
+            "Android reported an error while opening Security settings: {}",
             launch_text
         ));
     }
@@ -700,6 +736,61 @@ fn install_android_certificate_via_adb_impl(
         success: true,
         device_serial,
         remote_path: remote_path.to_string(),
+    })
+}
+
+fn set_android_proxy_via_adb_impl(
+    input: SetAndroidProxyViaAdbInput,
+) -> Result<AndroidAdbProxyResult, String> {
+    let host = input.host.trim();
+    if host.is_empty() {
+        return Err("Android proxy host cannot be empty.".to_string());
+    }
+
+    let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
+    let proxy_address = format!("{host}:{}", input.port);
+
+    run_adb_shell_command(
+        &device_serial,
+        &["settings", "put", "global", "http_proxy", &proxy_address],
+    )?;
+
+    log_info(
+        "desktop.commands",
+        "set_android_proxy_via_adb_succeeded",
+        &[
+            ("device_serial", device_serial.clone()),
+            ("proxy_address", proxy_address.clone()),
+        ],
+    );
+
+    Ok(AndroidAdbProxyResult {
+        success: true,
+        device_serial,
+        proxy_address: Some(proxy_address),
+    })
+}
+
+fn clear_android_proxy_via_adb_impl(
+    input: ClearAndroidProxyViaAdbInput,
+) -> Result<AndroidAdbProxyResult, String> {
+    let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
+
+    run_adb_shell_command(
+        &device_serial,
+        &["settings", "put", "global", "http_proxy", ":0"],
+    )?;
+
+    log_info(
+        "desktop.commands",
+        "clear_android_proxy_via_adb_succeeded",
+        &[("device_serial", device_serial.clone())],
+    );
+
+    Ok(AndroidAdbProxyResult {
+        success: true,
+        device_serial,
+        proxy_address: None,
     })
 }
 
@@ -870,6 +961,37 @@ fn adb_spawn_error(error: std::io::Error) -> String {
     }
 
     format!("failed to run adb: {error}")
+}
+
+fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(), String> {
+    let output = std::process::Command::new("adb")
+        .args(["-s", device_serial, "shell"])
+        .args(shell_args)
+        .output()
+        .map_err(adb_spawn_error)?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to run `adb shell {}` on Android device `{}`: {}",
+            shell_args.join(" "),
+            device_serial,
+            format_command_output(&output)
+        ));
+    }
+
+    let output_text = format_command_output(&output);
+    if output_text.contains("Exception occurred while executing")
+        || output_text.starts_with("Error:")
+    {
+        return Err(format!(
+            "Android rejected `adb shell {}` on `{}`: {}",
+            shell_args.join(" "),
+            device_serial,
+            output_text
+        ));
+    }
+
+    Ok(())
 }
 
 fn format_command_output(output: &std::process::Output) -> String {

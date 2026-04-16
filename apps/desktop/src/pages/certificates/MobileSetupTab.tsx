@@ -2,6 +2,7 @@ import { Alert, AlertTitle, Stack } from "@mui/material";
 import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n } from "@/i18n";
 
+import { AndroidQuickActionsPanel } from "./AndroidQuickActionsPanel";
 import { NetworkInfoPanel } from "./NetworkInfoPanel";
 import { QrCodePanel } from "./QrCodePanel";
 import { MobileDeviceGuide } from "./MobileDeviceGuide";
@@ -39,6 +40,13 @@ export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }:
         </Alert>
       )}
 
+      <AndroidQuickActionsPanel
+        hasCert={hasCert}
+        localIp={localIp ?? null}
+        proxyPort={proxyPort}
+        proxyRunning={proxyRunning}
+      />
+
       <NetworkInfoPanel
         localIp={localIp ?? null}
         ipsLoading={ipsLoading}
@@ -55,7 +63,7 @@ export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }:
         />
       )}
 
-      <MobileDeviceGuide hasCert={hasCert} />
+      <MobileDeviceGuide />
     </Stack>
   );
 }

@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   parseAndroidAdbCertificateInstallResult,
   parseAndroidAdbDevices,
+  parseAndroidAdbProxyResult,
   parseMapRules,
   parseBreakpointRules,
   parseCertificateStatus,
@@ -22,8 +23,10 @@ import {
   type BreakpointRule,
   type AndroidAdbDevice,
   type AndroidAdbCertificateInstallResult,
+  type AndroidAdbProxyResult,
   type CertificateInstallGuide,
   type CertificateStatus,
+  type ClearAndroidProxyViaAdbInput,
   type ComposedRequestInput,
   type GenerateRootCertificateInput,
   type InstallAndroidCertificateViaAdbInput,
@@ -32,6 +35,7 @@ import {
   type RewriteRule,
   type SessionDetail,
   type SessionSummary,
+  type SetAndroidProxyViaAdbInput,
   type StartProxyInput,
   type StopProxyInput,
   type ThrottleProfile,
@@ -446,6 +450,70 @@ export async function installAndroidCertificateViaAdb(
     return result;
   } catch (error) {
     reportCommandFailure("install_android_certificate_via_adb", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function setAndroidProxyViaAdb(
+  input: SetAndroidProxyViaAdbInput,
+): Promise<AndroidAdbProxyResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "set_android_proxy_via_adb_bypassed_non_tauri_runtime", input);
+    return {
+      success: true,
+      deviceSerial: input.deviceSerial ?? "emulator-5554",
+      proxyAddress: `${input.host}:${input.port}`,
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "set_android_proxy_via_adb_requested", input);
+    const payload = await invoke<unknown>("set_android_proxy_via_adb", {
+      input: {
+        ...(input.deviceSerial ? { deviceSerial: input.deviceSerial } : {}),
+        host: input.host,
+        port: input.port,
+      },
+    });
+    const result = parseAndroidAdbProxyResult(payload);
+
+    logDevInfo("ui.commands", "set_android_proxy_via_adb_succeeded", {
+      deviceSerial: result.deviceSerial,
+      proxyAddress: result.proxyAddress,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("set_android_proxy_via_adb", error, input.deviceSerial);
+    throw coerceAppError(error);
+  }
+}
+
+export async function clearAndroidProxyViaAdb(
+  input?: ClearAndroidProxyViaAdbInput,
+): Promise<AndroidAdbProxyResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "clear_android_proxy_via_adb_bypassed_non_tauri_runtime", input);
+    return {
+      success: true,
+      deviceSerial: input?.deviceSerial ?? "emulator-5554",
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "clear_android_proxy_via_adb_requested", input);
+    const payload = await invoke<unknown>("clear_android_proxy_via_adb", {
+      input: input ? { ...(input.deviceSerial ? { deviceSerial: input.deviceSerial } : {}) } : {},
+    });
+    const result = parseAndroidAdbProxyResult(payload);
+
+    logDevInfo("ui.commands", "clear_android_proxy_via_adb_succeeded", {
+      deviceSerial: result.deviceSerial,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("clear_android_proxy_via_adb", error, input?.deviceSerial);
     throw coerceAppError(error);
   }
 }

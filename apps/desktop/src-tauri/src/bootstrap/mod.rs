@@ -110,6 +110,14 @@ impl AppState {
     }
 
     pub fn clear_sessions(&self) {
+        let ids_to_remove: Vec<String> = {
+            let sessions = self
+                .sessions
+                .lock()
+                .expect("session list mutex should not be poisoned");
+            sessions.iter().map(|session| session.id.clone()).collect()
+        };
+
         self.session_details
             .lock()
             .expect("session detail mutex should not be poisoned")
@@ -119,6 +127,12 @@ impl AppState {
             .lock()
             .expect("session list mutex should not be poisoned")
             .clear();
+
+        if let Some(handle) = self.read_app_handle() {
+            for id in &ids_to_remove {
+                let _ = handle.emit("session-remove", id);
+            }
+        }
     }
 
     pub fn delete_sessions_except(&self, keep_session_id: &str) {

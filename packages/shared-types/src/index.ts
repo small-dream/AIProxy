@@ -112,6 +112,12 @@ export type AndroidAdbCertificateInstallResult = {
   remotePath: string;
 };
 
+export type AndroidAdbProxyResult = {
+  success: boolean;
+  deviceSerial: string;
+  proxyAddress?: string;
+};
+
 export type AndroidAdbDevice = {
   serial: string;
   state: string;
@@ -122,6 +128,16 @@ export type AndroidAdbDevice = {
 };
 
 export type InstallAndroidCertificateViaAdbInput = {
+  deviceSerial?: string;
+};
+
+export type SetAndroidProxyViaAdbInput = {
+  deviceSerial?: string;
+  host: string;
+  port: number;
+};
+
+export type ClearAndroidProxyViaAdbInput = {
   deviceSerial?: string;
 };
 
@@ -752,6 +768,34 @@ export function parseAndroidAdbCertificateInstallResult(
     throw coerceAppError(value);
   }
   return value;
+}
+
+export function isAndroidAdbProxyResult(value: unknown): value is AndroidAdbProxyResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<AndroidAdbProxyResult>;
+  return (
+    typeof candidate.success === "boolean" &&
+    typeof candidate.deviceSerial === "string" &&
+    isNullableString(candidate.proxyAddress)
+  );
+}
+
+export function parseAndroidAdbProxyResult(value: unknown): AndroidAdbProxyResult {
+  if (!isAndroidAdbProxyResult(value)) {
+    throw coerceAppError(value);
+  }
+
+  const candidate = value as AndroidAdbProxyResult & {
+    proxyAddress?: string | null;
+  };
+
+  return {
+    success: candidate.success,
+    deviceSerial: candidate.deviceSerial,
+    ...(candidate.proxyAddress !== null && candidate.proxyAddress !== undefined
+      ? { proxyAddress: candidate.proxyAddress }
+      : {}),
+  };
 }
 
 export function isAndroidAdbDevice(value: unknown): value is AndroidAdbDevice {

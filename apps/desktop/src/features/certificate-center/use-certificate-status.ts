@@ -2,17 +2,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type AndroidAdbCertificateInstallResult,
   type AndroidAdbDevice,
+  type AndroidAdbProxyResult,
   type CertificateInstallGuide,
   type CertificateStatus,
+  type ClearAndroidProxyViaAdbInput,
   type GenerateRootCertificateInput,
   type InstallAndroidCertificateViaAdbInput,
+  type SetAndroidProxyViaAdbInput,
 } from "@aiproxy/shared-types";
 import {
+  clearAndroidProxyViaAdb,
   getCertificateStatus,
   generateRootCertificate,
   installAndroidCertificateViaAdb,
   listAndroidAdbDevices,
   openCertificateInstallGuide,
+  setAndroidProxyViaAdb,
   launchCertificateInstaller,
 } from "@/services/commands";
 
@@ -61,5 +66,17 @@ export function useAndroidAdbDevices() {
 export function useInstallAndroidCertificateViaAdb() {
   return useMutation<AndroidAdbCertificateInstallResult, Error, InstallAndroidCertificateViaAdbInput | undefined>({
     mutationFn: (input) => installAndroidCertificateViaAdb(input),
+  });
+}
+
+export function useSetAndroidProxyViaAdb() {
+  return useMutation<AndroidAdbProxyResult, Error, SetAndroidProxyViaAdbInput>({
+    mutationFn: (input) => setAndroidProxyViaAdb(input),
+  });
+}
+
+export function useClearAndroidProxyViaAdb() {
+  return useMutation<AndroidAdbProxyResult, Error, ClearAndroidProxyViaAdbInput | undefined>({
+    mutationFn: (input) => clearAndroidProxyViaAdb(input),
   });
 }

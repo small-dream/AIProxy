@@ -42,6 +42,8 @@ pub fn run() {
             commands::launch_certificate_installer,
             commands::list_android_adb_devices,
             commands::install_android_certificate_via_adb,
+            commands::set_android_proxy_via_adb,
+            commands::clear_android_proxy_via_adb,
             commands::get_local_ip,
             commands::send_composed_request,
             commands::list_breakpoint_rules,

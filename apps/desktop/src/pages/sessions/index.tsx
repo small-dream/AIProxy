@@ -13,6 +13,7 @@ import type { AppShellOutletContext } from "@/components/layout/AppShell";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
+import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContainerTabs } from "@/features/sessions/components/SessionContainerTabs";
@@ -27,7 +28,6 @@ import {
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
 import {
-  clearActiveSessionContainer,
   clearOtherSessionsInActiveContainer,
   closeSessionContainer,
   createAdditionalSessionContainer,
@@ -60,6 +60,7 @@ export function SessionsPage() {
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const sendComposedRequestMutation = useSendComposedRequest();
+  const { mutate: clearSessions, isPending: isClearingSessions } = useClearSessions();
   const { error, isLoading } = useProxyStatus();
   const {
     data: runtimeSessions = [],
@@ -493,8 +494,22 @@ export function SessionsPage() {
   }, []);
 
   const handleClearActiveContainer = useCallback(() => {
-    setContainerState((currentState) => clearActiveSessionContainer(currentState));
-  }, []);
+    clearSessions(undefined, {
+      onSuccess: () => {
+        setContainerState((currentState) =>
+          createInitialSessionContainerState({
+            requestCollapsed:
+              getSessionContainerById(currentState, currentState.activeContainerId)?.requestCollapsed
+              ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+            requestTab:
+              getSessionContainerById(currentState, currentState.activeContainerId)?.requestTab ?? "headers",
+            responseTab:
+              getSessionContainerById(currentState, currentState.activeContainerId)?.responseTab ?? "overview",
+          }),
+        );
+      },
+    });
+  }, [clearSessions]);
 
   const headerActions = useMemo(
     () => (
@@ -507,7 +522,7 @@ export function SessionsPage() {
       >
         <TopBarActionButton
           onClick={handleClearActiveContainer}
-          disabled={activeSessions.length === 0}
+          disabled={activeSessions.length === 0 || isClearingSessions}
           icon={<DeleteSweepRoundedIcon />}
           label={t("sessionsPage.containers.clearCurrent")}
         />
@@ -519,7 +534,7 @@ export function SessionsPage() {
         />
       </Stack>
     ),
-    [activeSessions.length, handleClearActiveContainer, t],
+    [activeSessions.length, handleClearActiveContainer, isClearingSessions, t],
   );
 
   useLayoutEffect(() => {
