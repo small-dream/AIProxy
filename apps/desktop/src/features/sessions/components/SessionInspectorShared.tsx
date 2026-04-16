@@ -1,5 +1,4 @@
 import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";

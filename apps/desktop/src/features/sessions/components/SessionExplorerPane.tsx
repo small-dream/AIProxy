@@ -1,5 +1,4 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
-import DataObjectRoundedIcon from "@mui/icons-material/DataObjectRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
@@ -21,14 +20,13 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { radiusTokens } from "@aiproxy/ui-tokens";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
-import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
+import { getHoverShadow } from "@/themes/app-theme";
 import {
   getSessionQuerySuffix,
   getSessionResourceKind,
@@ -75,8 +73,9 @@ export function SessionExplorerPane({
       sx={{
         border: 1,
         borderColor: "divider",
-        borderRadius: `${radiusTokens.card}px`,
-        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
+        borderRadius: 0,
+        borderRightWidth: { lg: 0, xs: 1 },
+        boxShadow: "none",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
@@ -215,11 +214,11 @@ function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
       onClick={onToggle}
       onContextMenu={onContextMenu}
       sx={{
-        borderRadius: 1.5,
-        minHeight: 28,
+        borderRadius: 0,
+        minHeight: 26,
         minWidth: "100%",
-        px: 1.25,
-        py: 0.375,
+        px: 1,
+        py: 0.25,
         transition: "box-shadow 140ms ease",
         width: "100%",
         "&:hover": {
@@ -302,12 +301,12 @@ function SessionTreeNode({
             }
           : undefined}
         sx={{
-          borderRadius: 1.5,
-          minHeight: 26,
+          borderRadius: 0,
+          minHeight: 24,
           minWidth: "100%",
-          pl: 2 + depth * 1.5,
+          pl: 1.75 + depth * 1.25,
           pr: 1,
-          py: 0.25,
+          py: 0.125,
           transition: "background-color 140ms ease, box-shadow 140ms ease",
           width: "100%",
           "&:hover": {
@@ -387,10 +386,10 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
       onContextMenu={onContextMenu}
       selected={selected}
       sx={(theme) => ({
-        borderRadius: 1,
-        minHeight: 24,
+        borderRadius: 0,
+        minHeight: 22,
         minWidth: "100%",
-        pl: 2 + depth * 1.5 + 2,
+        pl: 1.75 + depth * 1.25 + 2,
         pr: 1,
         py: 0.125,
         transition: "background-color 140ms ease, box-shadow 140ms ease",

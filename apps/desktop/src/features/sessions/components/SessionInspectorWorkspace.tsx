@@ -1,10 +1,8 @@
 import { Alert, Box, Divider, Paper, Typography } from "@mui/material";
-import { radiusTokens } from "@aiproxy/ui-tokens";
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { getSurfaceShadow } from "@/themes/app-theme";
 import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
 import { type ResponsePaneHandle, SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
@@ -129,8 +127,9 @@ function SessionInspectorWorkspace({
         sx={{
           border: 1,
           borderColor: "divider",
-          borderRadius: `${radiusTokens.card}px`,
-          boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
+          borderLeftWidth: { lg: 0, xs: 1 },
+          borderRadius: 0,
+          boxShadow: "none",
           display: "flex",
           minHeight: 0,
         }}
@@ -152,8 +151,9 @@ function SessionInspectorWorkspace({
       sx={{
         border: 1,
         borderColor: "divider",
-        borderRadius: `${radiusTokens.card}px`,
-        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
+        borderLeftWidth: { lg: 0, xs: 1 },
+        borderRadius: 0,
+        boxShadow: "none",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,

@@ -2,10 +2,8 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import { Box, ButtonBase, IconButton, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { radiusTokens } from "@aiproxy/ui-tokens";
 
 import { useI18n } from "@/i18n";
-import { getSurfaceShadow } from "@/themes/app-theme";
 
 type SessionContainerTabItem = {
   id: string;
@@ -34,9 +32,9 @@ export function SessionContainerTabs({
       sx={{
         bgcolor: "background.paper",
         border: 1,
-        borderColor: alpha("#7c8aa5", 0.18),
-        borderRadius: `${radiusTokens.card}px`,
-        boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
+        borderColor: "divider",
+        borderRadius: 0,
+        boxShadow: "none",
         overflow: "hidden",
       }}
       variant="outlined"
@@ -47,9 +45,9 @@ export function SessionContainerTabs({
         justifyContent="space-between"
         spacing={1}
         sx={{
-          minHeight: 38,
-          px: 0.625,
-          py: 0.375,
+          minHeight: 36,
+          px: 0.5,
+          py: 0.25,
         }}
       >
         <Stack
@@ -74,10 +72,10 @@ export function SessionContainerTabs({
                 cursor: "pointer",
                 display: "inline-flex",
                 flex: "0 0 auto",
-                height: 30,
+                height: 28,
                 justifyContent: "center",
                 minWidth: 0,
-                px: 0.875,
+                px: 0.75,
                 transition: "border-color 140ms ease, color 140ms ease",
                 "&:hover": {
                   color: "text.primary",
@@ -121,10 +119,10 @@ export function SessionContainerTabs({
                 }}
                 size="small"
                 sx={{
-                  borderRadius: 1.25,
+                  borderRadius: 0.75,
                   color: "text.secondary",
-                  height: 26,
-                  width: 26,
+                  height: 24,
+                  width: 24,
                   "&:hover": {
                     bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                     color: "text.primary",
@@ -142,10 +140,10 @@ export function SessionContainerTabs({
               onClick={onAddContainer}
               size="small"
               sx={{
-                borderRadius: 1.25,
+                borderRadius: 0.75,
                 color: "text.secondary",
-                height: 26,
-                width: 26,
+                height: 24,
+                width: 24,
                 "&:hover": {
                   bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                   color: "text.primary",

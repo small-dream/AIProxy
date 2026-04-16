@@ -51,7 +51,7 @@ import { useCertificateStatus } from "@/features/certificate-center/use-certific
 
 const ACTIVITY_BAR_WIDTH = 48;
 const MACOS_TITLEBAR_HEIGHT = 38;
-const TOP_CONTROLS_VERTICAL_OFFSET = 10;
+const TOP_CONTROLS_VERTICAL_OFFSET = 2;
 const TOP_CONTROLS_HORIZONTAL_GUTTER = 24;
 const MACOS_WINDOW_CONTROLS_SAFE_WIDTH = 112;
 const ACTIVITY_BAR_BG = "#2c2c2c";
@@ -201,6 +201,7 @@ export function AppShell() {
   const { locale, t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
+  const isSessionsWorkspace = location.pathname === "/";
   useBreakpointEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();
@@ -649,7 +650,14 @@ export function AppShell() {
           overflow: "hidden",
         }}
       >
-        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 2 }}>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflow: "auto",
+            p: isSessionsWorkspace ? 0.5 : 2,
+          }}
+        >
           <Outlet context={{ setHeaderActions }} />
         </Box>
 

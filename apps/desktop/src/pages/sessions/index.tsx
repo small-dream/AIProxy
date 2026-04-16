@@ -572,7 +572,7 @@ export function SessionsPage() {
   }
 
   return (
-    <Stack spacing={0.75} sx={{ height: "100%", minHeight: 0, mt: -0.5 }}>
+    <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <SessionContainerTabs
         containers={containerState.containers.map((container) => ({
           id: container.id,
@@ -594,9 +594,9 @@ export function SessionsPage() {
         sx={{
           display: "grid",
           flex: 1,
-          gap: { lg: 1, xs: 1.5 },
+          gap: 0,
           gridTemplateColumns: {
-            lg: `${explorerWidth}px 8px minmax(0, 1fr)`,
+            lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
             xs: "1fr",
           },
           minHeight: 0,
@@ -618,6 +618,7 @@ export function SessionsPage() {
           aria-hidden
           onPointerDown={startResize}
           sx={{
+            bgcolor: "background.paper",
             cursor: "col-resize",
             display: { lg: "flex", xs: "none" },
             justifyContent: "center",
@@ -627,12 +628,11 @@ export function SessionsPage() {
             userSelect: "none",
             "&::before": {
               bgcolor: "divider",
-              borderRadius: 999,
               content: '""',
               height: "100%",
               opacity: 0.7,
               transition: "background-color 120ms ease, opacity 120ms ease",
-              width: 2,
+              width: 1,
             },
             "&:hover::before": {
               bgcolor: "primary.main",

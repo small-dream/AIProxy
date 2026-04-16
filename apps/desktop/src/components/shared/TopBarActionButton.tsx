@@ -72,11 +72,11 @@ export function TopBarActionButton({
               borderColor: variant === "outlined" ? theme.palette.divider : "transparent",
               borderRadius: 999,
               color: variant === "outlined" ? theme.palette.text.secondary : undefined,
-              height: 34,
+              height: 30,
               transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease",
-              width: 34,
+              width: 30,
               "& .MuiSvgIcon-root": {
-                fontSize: 19,
+                fontSize: 17,
               },
               "&:hover": {
                 bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.06),
