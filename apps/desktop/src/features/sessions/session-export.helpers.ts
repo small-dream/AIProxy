@@ -10,15 +10,17 @@ export function buildSessionSnapshot(details: SessionDetail[]) {
   };
 }
 
+export function buildCurlCommand(detail: SessionDetail) {
+  return generateCurlCommand({
+    method: detail.summary.method,
+    url: detail.summary.url,
+    headers: detail.requestHeaders,
+    ...(getBodyText(detail.requestBody) ? { body: getBodyText(detail.requestBody) } : {}),
+  });
+}
+
 export function buildCurlBundle(details: SessionDetail[]) {
-  return details.map((detail) =>
-    generateCurlCommand({
-      method: detail.summary.method,
-      url: detail.summary.url,
-      headers: detail.requestHeaders,
-      ...(getBodyText(detail.requestBody) ? { body: getBodyText(detail.requestBody) } : {}),
-    }),
-  );
+  return details.map((detail) => buildCurlCommand(detail));
 }
 
 export function buildHarArchive(details: SessionDetail[]) {

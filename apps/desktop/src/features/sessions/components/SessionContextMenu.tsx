@@ -22,6 +22,7 @@ type SessionContextMenuProps = {
   onClose: () => void;
   onClearOthers: (session: SessionSummary) => void;
   onCompose: (session: SessionSummary) => void;
+  onCopyCurl: (session: SessionSummary) => void;
   onCopyRequest: (session: SessionSummary) => void;
   onCopyResponse: (session: SessionSummary) => void;
   onCopyUrl: (session: SessionSummary) => void;
@@ -44,6 +45,7 @@ export function SessionContextMenu({
   onClose,
   onClearOthers,
   onCompose,
+  onCopyCurl,
   onCopyRequest,
   onCopyResponse,
   onCopyUrl,
@@ -92,6 +94,13 @@ export function SessionContextMenu({
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText>{t("contextMenu.copyRequest")}</ListItemText>
+      </MenuItem>
+
+      <MenuItem onClick={handleClick(onCopyCurl)}>
+        <ListItemIcon>
+          <ContentCopyRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText>{t("contextMenu.copyAsCurl")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCopyResponse)}>

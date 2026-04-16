@@ -40,7 +40,7 @@ import {
   upsertSessionContainerSummary,
 } from "@/features/sessions/session-containers.helpers";
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
-import { getBodyText } from "@/features/sessions/session-export.helpers";
+import { buildCurlCommand, getBodyText } from "@/features/sessions/session-export.helpers";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
@@ -299,6 +299,15 @@ export function SessionsPage() {
     setSnackbarMessage(message);
   }, []);
 
+  const copyToClipboard = useCallback(async (text: string, message: string) => {
+    if (!text) {
+      return;
+    }
+
+    await navigator.clipboard?.writeText(text);
+    showSnackbar(message);
+  }, [showSnackbar]);
+
   const fetchDetailOnDemand = useCallback(async (session: SessionSummary): Promise<SessionDetail | undefined> => {
     if (selectedSessionDetail?.id === session.id) {
       return selectedSessionDetail;
@@ -311,25 +320,28 @@ export function SessionsPage() {
   }, [selectedSessionDetail]);
 
   const handleCopyUrl = useCallback((session: SessionSummary) => {
-    void navigator.clipboard?.writeText(session.url);
-    showSnackbar(t("contextMenu.copiedToClipboard"));
-  }, [showSnackbar, t]);
+    void copyToClipboard(session.url, t("contextMenu.copiedToClipboard"));
+  }, [copyToClipboard, t]);
 
   const handleCopyRequest = useCallback(async (session: SessionSummary) => {
     const detail = await fetchDetailOnDemand(session);
     const rawRequest = detail?.rawRequest;
     if (!rawRequest) return;
-    await navigator.clipboard?.writeText(rawRequest);
-    showSnackbar(t("contextMenu.copiedToClipboard"));
-  }, [fetchDetailOnDemand, showSnackbar, t]);
+    await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
+  }, [copyToClipboard, fetchDetailOnDemand, t]);
+
+  const handleCopyCurl = useCallback(async (session: SessionSummary) => {
+    const detail = await fetchDetailOnDemand(session);
+    if (!detail) return;
+    await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
+  }, [copyToClipboard, fetchDetailOnDemand, t]);
 
   const handleCopyResponse = useCallback(async (session: SessionSummary) => {
     const detail = await fetchDetailOnDemand(session);
     const rawResponse = detail?.rawResponse;
     if (!rawResponse) return;
-    await navigator.clipboard?.writeText(rawResponse);
-    showSnackbar(t("contextMenu.copiedToClipboard"));
-  }, [fetchDetailOnDemand, showSnackbar, t]);
+    await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
+  }, [copyToClipboard, fetchDetailOnDemand, t]);
 
   const handleSaveResponse = useCallback(async (session: SessionSummary) => {
     const detail = await fetchDetailOnDemand(session);
@@ -641,6 +653,9 @@ export function SessionsPage() {
           }
           inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
           isDetailLoading={isSessionDetailLoading}
+          onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
+          onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
+          onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
           onRepeat={selectedSession ? handleRepeat : undefined}
           onRequestCollapsedChange={handleRequestCollapsedChange}
           onRequestTabChange={handleRequestTabChange}
@@ -669,6 +684,7 @@ export function SessionsPage() {
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
+        onCopyCurl={handleCopyCurl}
         onCopyRequest={handleCopyRequest}
         onCopyResponse={handleCopyResponse}
         onCopyUrl={handleCopyUrl}

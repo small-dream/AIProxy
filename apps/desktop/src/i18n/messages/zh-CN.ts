@@ -174,8 +174,8 @@ export const zhCNMessages: Messages = {
   composePage: {
     bodyPlaceholder: "请求 Body（JSON、纯文本等）",
     configureHint: "配置请求后点击发送，即可在这里查看响应。",
-    copiedCurl: "已复制 cURL 命令到剪贴板",
-    copyAsCurl: "复制为 cURL 命令",
+    copiedCurl: "已复制 cURL",
+    copyAsCurl: "复制 cURL",
     copyResponse: "复制响应内容",
     description: "无需离开桌面工作台即可构造并重放请求。",
     dns: "DNS",
@@ -517,7 +517,7 @@ export const zhCNMessages: Messages = {
       json: "会话快照",
     },
     messages: {
-      copiedCurl: "已复制 cURL 命令到剪贴板。",
+      copiedCurl: "已复制 cURL。",
       exportedHar: "HAR 文件已导出。",
       exportedSnapshot: "会话快照已导出。",
     },
@@ -744,6 +744,7 @@ export const zhCNMessages: Messages = {
   contextMenu: {
     clearOthers: "清除其他会话",
     compose: "构造请求",
+    copyAsCurl: "复制 cURL",
     copiedToClipboard: "已复制到剪贴板",
     copyRequest: "复制请求",
     copyResponse: "复制响应",

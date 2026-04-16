@@ -26,6 +26,9 @@ type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
   inspectorSplitRatio: number;
   isDetailLoading: boolean;
+  onCopyCurl?: (() => void) | undefined;
+  onCopyRequest?: (() => void) | undefined;
+  onCopyUrl?: (() => void) | undefined;
   onRepeat?: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
@@ -42,6 +45,9 @@ function SessionInspectorWorkspace({
   detailErrorMessage,
   inspectorSplitRatio,
   isDetailLoading,
+  onCopyCurl,
+  onCopyRequest,
+  onCopyUrl,
   onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
@@ -155,7 +161,14 @@ function SessionInspectorWorkspace({
       }}
       variant="outlined"
     >
-      <InspectorSummaryBar detail={detail} onRepeat={onRepeat} session={selectedSession} />
+      <InspectorSummaryBar
+        detail={detail}
+        onCopyCurl={onCopyCurl}
+        onCopyRequest={onCopyRequest}
+        onCopyUrl={onCopyUrl}
+        onRepeat={onRepeat}
+        session={selectedSession}
+      />
       <Divider />
 
       {detailErrorMessage ? (

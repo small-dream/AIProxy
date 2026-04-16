@@ -172,8 +172,8 @@ export const enMessages = {
   composePage: {
     bodyPlaceholder: "Request body (JSON, plain text, etc.)",
     configureHint: "Configure a request and click Send to see the response here.",
-    copiedCurl: "cURL command copied to clipboard",
-    copyAsCurl: "Copy as cURL command",
+    copiedCurl: "Copied cURL",
+    copyAsCurl: "Copy cURL",
     copyResponse: "Copy response",
     description: "Build and replay requests without leaving the desktop workspace.",
     dns: "DNS",
@@ -515,7 +515,7 @@ export const enMessages = {
       json: "Session Snapshot",
     },
     messages: {
-      copiedCurl: "cURL command copied to the clipboard.",
+      copiedCurl: "Copied cURL.",
       exportedHar: "HAR file exported.",
       exportedSnapshot: "Session snapshot exported.",
     },
@@ -742,6 +742,7 @@ export const enMessages = {
   contextMenu: {
     clearOthers: "Clear Others",
     compose: "Compose",
+    copyAsCurl: "Copy cURL",
     copiedToClipboard: "Copied to clipboard",
     copyRequest: "Copy Request",
     copyResponse: "Copy Response",

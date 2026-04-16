@@ -1,6 +1,9 @@
+import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
+import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -17,10 +20,16 @@ const VIRTUAL_WINDOW_OVERSCAN = 12;
 
 export function InspectorSummaryBar({
   detail,
+  onCopyCurl,
+  onCopyRequest,
+  onCopyUrl,
   onRepeat,
   session,
 }: {
   detail: SessionDetail | undefined;
+  onCopyCurl?: (() => void) | undefined;
+  onCopyRequest?: (() => void) | undefined;
+  onCopyUrl?: (() => void) | undefined;
   onRepeat?: (() => void) | undefined;
   session: SessionSummary;
 }) {
@@ -77,18 +86,42 @@ export function InspectorSummaryBar({
               </IconButton>
             </Tooltip>
           ) : null}
-          <Tooltip arrow title={t("common.actions.copyUrl")}>
-            <IconButton
-              aria-label={t("common.actions.copyUrl")}
-              onClick={() => {
-                void navigator.clipboard?.writeText(session.url);
-              }}
-              size="small"
-              sx={{ p: 0.75 }}
-            >
-              <ContentCopyRoundedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          {onCopyUrl ? (
+            <Tooltip arrow title={t("common.actions.copyUrl")}>
+              <IconButton
+                aria-label={t("common.actions.copyUrl")}
+                onClick={onCopyUrl}
+                size="small"
+                sx={{ p: 0.75 }}
+              >
+                <LinkRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {onCopyRequest ? (
+            <Tooltip arrow title={t("contextMenu.copyRequest")}>
+              <IconButton
+                aria-label={t("contextMenu.copyRequest")}
+                onClick={onCopyRequest}
+                size="small"
+                sx={{ p: 0.75 }}
+              >
+                <ArticleRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {onCopyCurl ? (
+            <Tooltip arrow title={t("contextMenu.copyAsCurl")}>
+              <IconButton
+                aria-label={t("contextMenu.copyAsCurl")}
+                onClick={onCopyCurl}
+                size="small"
+                sx={{ p: 0.75 }}
+              >
+                <TerminalRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
         </Stack>
       </Stack>
 
