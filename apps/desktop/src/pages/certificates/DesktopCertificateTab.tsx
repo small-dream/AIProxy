@@ -25,7 +25,7 @@ export function DesktopCertificateTab({
   const { t } = useI18n();
   const hasCert = !!status?.certPath;
   const isTrusted = status?.trusted ?? false;
-  const supportsInstaller = status?.platform === "windows" || status?.platform === "macos";
+  const supportsInstaller = status?.platform === "windows" || status?.platform === "macos" || status?.platform === "linux";
   const showInstallButton = supportsInstaller && hasCert && !isTrusted;
 
   const activeStep = isTrusted ? 2 : hasCert ? 1 : 0;

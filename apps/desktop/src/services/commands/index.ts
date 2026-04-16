@@ -285,7 +285,7 @@ export async function disableSystemProxy(): Promise<ProxyStatus> {
 export async function getCertificateStatus(): Promise<CertificateStatus> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "get_certificate_status_bypassed_non_tauri_runtime");
-    return { trusted: false, platform: "windows" };
+    return { trusted: false, platform: detectBrowserPlatform() };
   }
 
   try {
@@ -312,7 +312,7 @@ export async function generateRootCertificate(
     logDevDebug("ui.commands", "generate_root_certificate_bypassed_non_tauri_runtime");
     return {
       trusted: false,
-      platform: "windows",
+      platform: detectBrowserPlatform(),
       certPath: "/tmp/pharles-test-cert.pem",
       fingerprint: "AA:BB:CC:DD",
     };
@@ -359,7 +359,7 @@ export async function openCertificateInstallGuide(): Promise<CertificateInstallG
     return {
       success: true,
       certPath: "/tmp/pharles-test-cert.pem",
-      platform: "windows",
+      platform: detectBrowserPlatform(),
       steps: [
         { order: 1, description: "Open Certificate Manager" },
         { order: 2, description: "Import the certificate" },
@@ -801,6 +801,15 @@ export async function setActiveThrottleProfile(input: {
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function detectBrowserPlatform(): "linux" | "macos" | "windows" {
+  if (typeof navigator === "undefined") return "windows";
+  const ua = navigator.userAgent.toLowerCase();
+  const platform = navigator.platform?.toLowerCase() ?? "";
+  if (ua.includes("linux") || platform.includes("linux")) return "linux";
+  if (ua.includes("mac") || platform.includes("mac")) return "macos";
+  return "windows";
 }
 
 function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {

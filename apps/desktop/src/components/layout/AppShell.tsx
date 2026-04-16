@@ -185,6 +185,15 @@ function isMacPlatform() {
     return false;
   }
 
+  const ua = navigator.userAgent.toLowerCase();
+  const platform = navigator.platform?.toLowerCase() ?? "";
+
+  // Exclude Linux before checking for Mac — some Linux desktop themes may
+  // appear in UA strings but should never get the macOS overlay titlebar.
+  if (ua.includes("linux") || platform.includes("linux")) {
+    return false;
+  }
+
   return /mac/i.test(navigator.userAgent) || /mac/i.test(navigator.platform);
 }
 

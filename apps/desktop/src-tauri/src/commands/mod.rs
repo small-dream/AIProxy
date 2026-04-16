@@ -700,7 +700,7 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("rundll32.exe")
-            .args(["cryptext.dll,CryptExtOpenCER", &cert_path])
+            .args(["cryptext.dll,CryptExtOpenCER", cert_path])
             .spawn()
             .map_err(|e| format!("Failed to open certificate installer: {e}"))?;
         return Ok(());
@@ -715,10 +715,19 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(cert_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open certificate file: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = cert_path;
-        Err("Certificate launcher is only supported on Windows and macOS.".to_string())
+        Err("Certificate launcher is not supported on this platform.".to_string())
     }
 }
 
