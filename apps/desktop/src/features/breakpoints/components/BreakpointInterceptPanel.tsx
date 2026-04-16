@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { resolveBreakpoint } from "@/services/commands";
+import { fontFamilies } from "@/themes/fonts";
 
 import { useBreakpointStore } from "../breakpoint.store";
 
@@ -45,14 +46,14 @@ function HeaderEditor({
             placeholder={namePlaceholder}
             value={h.name}
             onChange={(e) => update(idx, "name", e.target.value)}
-            sx={{ flex: 1, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
+            sx={{ flex: 1, fontFamily: fontFamilies.mono, fontSize: 12 }}
           />
           <OutlinedInput
             size="small"
             placeholder={valuePlaceholder}
             value={h.value}
             onChange={(e) => update(idx, "value", e.target.value)}
-            sx={{ flex: 1.5, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
+            sx={{ flex: 1.5, fontFamily: fontFamilies.mono, fontSize: 12 }}
           />
           <IconButton size="small" onClick={() => remove(idx)}>
             <CloseRoundedIcon sx={{ fontSize: 16 }} />
@@ -91,7 +92,7 @@ function BodyEditor({
         value={text}
         onChange={(e) => onChange(e.target.value)}
         sx={{
-          fontFamily: "JetBrains Mono, Consolas, monospace",
+          fontFamily: fontFamilies.mono,
           fontSize: 12,
           resize: "vertical",
         }}
@@ -229,7 +230,7 @@ export function BreakpointInterceptPanel() {
           label={activeHit.method}
           size="small"
           color={methodColor(activeHit.method)}
-          sx={{ fontWeight: 700, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11 }}
+          sx={{ fontWeight: 700, fontFamily: fontFamilies.mono, fontSize: 11 }}
         />
         <Chip
           label={isRequestStage ? t("breakpointPanel.requestTab") : t("breakpointPanel.responseTab")}
@@ -242,7 +243,7 @@ export function BreakpointInterceptPanel() {
           noWrap
           sx={{
             flex: 1,
-            fontFamily: "JetBrains Mono, Consolas, monospace",
+            fontFamily: fontFamilies.mono,
             fontSize: 12,
             color: "text.secondary",
           }}
@@ -315,7 +316,7 @@ export function BreakpointInterceptPanel() {
                     type="number"
                     value={mockStatusCode}
                     onChange={(e) => setMockStatusCode(e.target.value)}
-                    sx={{ width: 80, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
+                    sx={{ width: 80, fontFamily: fontFamilies.mono, fontSize: 12 }}
                   />
                 </Stack>
                 <HeaderEditor

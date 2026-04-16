@@ -4,6 +4,7 @@ import { Box, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 
 export function EditableKeyValueTable({
   items,
@@ -52,14 +53,14 @@ export function EditableKeyValueTable({
                 onChange={(event) => handleUpdate(index, "name", event.target.value)}
                 placeholder={namePlaceholder}
                 size="small"
-                sx={{ flex: 1, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
+                sx={{ flex: 1, fontFamily: fontFamilies.mono, fontSize: 13 }}
                 value={item.name}
               />
               <OutlinedInput
                 onChange={(event) => handleUpdate(index, "value", event.target.value)}
                 placeholder={valuePlaceholder}
                 size="small"
-                sx={{ flex: 1.8, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
+                sx={{ flex: 1.8, fontFamily: fontFamilies.mono, fontSize: 13 }}
                 value={item.value}
               />
               <Tooltip title={t("common.actions.remove")}>

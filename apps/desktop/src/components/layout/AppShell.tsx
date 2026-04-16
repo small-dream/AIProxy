@@ -47,6 +47,7 @@ import {
 import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
 import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 
 const ACTIVITY_BAR_WIDTH = 48;
@@ -76,7 +77,7 @@ function StatusSeparator() {
   return (
     <Typography
       color="text.disabled"
-      sx={{ flexShrink: 0, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12, px: 0.25, userSelect: "none" }}
+      sx={{ flexShrink: 0, fontFamily: fontFamilies.mono, fontSize: 12, px: 0.25, userSelect: "none" }}
     >
       |
     </Typography>
@@ -115,7 +116,7 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
       ) : null}
       <Typography
         sx={{
-          fontFamily: monospaced ? "JetBrains Mono, Consolas, monospace" : "inherit",
+          fontFamily: monospaced ? fontFamilies.mono : "inherit",
           fontSize: 12.5,
           fontWeight: onClick ? 600 : 500,
           minWidth: 0,

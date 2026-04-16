@@ -13,6 +13,7 @@ import { InspectorDefinitionList, InspectorKeyValueTable, SearchableCodeBlock } 
 import { SessionInspectorJsonTree } from "@/features/sessions/components/SessionInspectorJsonTree";
 import { formatJsonText, getBodyText, parseJsonBody, type JsonParseResult } from "@/features/sessions/components/session-inspector.helpers";
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
@@ -299,12 +300,12 @@ export function ComposePage() {
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", pb: 1.5 }}>
         <Select
           size="small"
-          sx={{ flex: "0 0 120px", fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13, fontWeight: 600 }}
+          sx={{ flex: "0 0 120px", fontFamily: fontFamilies.mono, fontSize: 13, fontWeight: 600 }}
           value={method}
           onChange={(e) => setMethod(e.target.value)}
         >
           {HTTP_METHODS.map((m) => (
-            <MenuItem key={m} sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }} value={m}>
+            <MenuItem key={m} sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }} value={m}>
               {m}
             </MenuItem>
           ))}
@@ -313,7 +314,7 @@ export function ComposePage() {
           fullWidth
           placeholder={t("composePage.urlPlaceholder")}
           size="small"
-          sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
+          sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => {
@@ -407,12 +408,12 @@ export function ComposePage() {
                   {bodyType === "raw" && (
                     <Select
                       size="small"
-                      sx={{ height: 26, fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11, "& .MuiSelect-select": { py: 0.25, pr: 3 } }}
+                      sx={{ height: 26, fontFamily: fontFamilies.mono, fontSize: 11, "& .MuiSelect-select": { py: 0.25, pr: 3 } }}
                       value={rawLanguage}
                       onChange={(e) => setRawLanguage(e.target.value as RawLanguage)}
                     >
                       {RAW_LANGUAGES.map((lang) => (
-                        <MenuItem key={lang.value} sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 11 }} value={lang.value}>
+                        <MenuItem key={lang.value} sx={{ fontFamily: fontFamilies.mono, fontSize: 11 }} value={lang.value}>
                           {lang.label}
                         </MenuItem>
                       ))}
@@ -455,9 +456,9 @@ export function ComposePage() {
                     placeholder={t("composePage.bodyPlaceholder")}
                     size="small"
                     sx={{
-                      fontFamily: "JetBrains Mono, Consolas, monospace",
+                      fontFamily: fontFamilies.mono,
                       "& .MuiInputBase-input": {
-                        fontFamily: "JetBrains Mono, Consolas, monospace",
+                        fontFamily: fontFamilies.mono,
                         fontSize: 13,
                         lineHeight: 1.5,
                       },
@@ -575,7 +576,7 @@ export function ComposePage() {
                     fullWidth
                     placeholder={responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") : t("inspector.response.jsonTextSearchPlaceholder")}
                     size="small"
-                    sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 12 }}
+                    sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
                   />

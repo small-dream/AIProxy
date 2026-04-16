@@ -28,6 +28,7 @@ import {
 } from "@/features/rules/rules.helpers";
 import { FieldGroup, InlineSwitch, ManagedRuleList, ManagedRulesWorkbench } from "@/features/rules/components/RulesSharedUi";
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 
 export function RewriteRulesPanel() {
   const { t } = useI18n();
@@ -264,7 +265,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
           label={t("rulesPage.rewrite.bodyText")}
           value={rule.payload.text}
           onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, text: e.target.value } })}
-          sx={{ "& .MuiInputBase-input": { fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 } }}
+          sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
         />
       </Stack>
     );

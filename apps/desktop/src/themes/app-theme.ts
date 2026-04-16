@@ -2,6 +2,7 @@ import { alpha, createTheme, type PaletteMode } from "@mui/material/styles";
 import { colorTokens, radiusTokens } from "@aiproxy/ui-tokens";
 
 import type { ThemePreference } from "@/app/store/app-preferences.store";
+import { getSansFontFamily, type FontLocale } from "@/themes/fonts";
 
 export function resolveThemeMode(preference: ThemePreference, systemPrefersDark: boolean | undefined): PaletteMode {
   if (preference === "light" || preference === "dark") {
@@ -43,7 +44,7 @@ export function getSyntaxColors(mode: PaletteMode) {
       };
 }
 
-export function createAppTheme(mode: PaletteMode) {
+export function createAppTheme(mode: PaletteMode, locale: FontLocale) {
   const colors = colorTokens[mode];
 
   return createTheme({
@@ -87,7 +88,7 @@ export function createAppTheme(mode: PaletteMode) {
       },
     },
     typography: {
-      fontFamily: "Inter, Segoe UI, SF Pro, sans-serif",
+      fontFamily: getSansFontFamily(locale),
       button: {
         fontWeight: 600,
         textTransform: "none",

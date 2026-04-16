@@ -10,6 +10,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
+import { fontFamilies } from "@/themes/fonts";
 import { getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
@@ -342,7 +343,7 @@ export function EllipsizedCell({
           component="pre"
           sx={{
             color: "text.primary",
-            fontFamily: "JetBrains Mono, Consolas, monospace",
+            fontFamily: fontFamilies.mono,
             fontSize: 12.5,
             lineHeight: 1.5,
             m: 0,
@@ -433,7 +434,7 @@ export function SearchableCodeBlock({
         bgcolor: "background.paper",
         color: "text.primary",
         flex: 1,
-        fontFamily: "JetBrains Mono, Consolas, monospace",
+        fontFamily: fontFamilies.mono,
         fontSize: language === "json" ? 13.5 : 12.5,
         lineHeight: language === "json" ? 1.6 : 1.5,
         m: 0,
@@ -541,7 +542,7 @@ function VirtualizedSearchableCodeBlock({
         bgcolor: "background.paper",
         color: "text.primary",
         flex: 1,
-        fontFamily: "JetBrains Mono, Consolas, monospace",
+        fontFamily: fontFamilies.mono,
         fontSize: language === "json" ? 13.5 : 12.5,
         lineHeight: language === "json" ? 1.6 : 1.5,
         minHeight: 0,

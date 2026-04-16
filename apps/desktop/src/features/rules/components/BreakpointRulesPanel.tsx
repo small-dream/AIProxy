@@ -28,6 +28,7 @@ import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoint
 import { createCatchAllRule, createEmptyBreakpointRule, HTTP_METHODS } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 import { getSurfaceShadow } from "@/themes/app-theme";
+import { fontFamilies } from "@/themes/fonts";
 
 export function BreakpointRulesPanel() {
   const { t } = useI18n();
@@ -91,7 +92,7 @@ export function BreakpointRulesPanel() {
                 sx={{ px: 2, py: 1, "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" } }}
               >
                 <Switch size="small" checked={rule.enabled} onChange={() => handleToggle(rule.id)} />
-                <Typography sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13, flex: 1 }} noWrap>
+                <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 13, flex: 1 }} noWrap>
                   {rule.urlPattern || "*"}
                 </Typography>
                 <Chip size="small" variant="outlined" color={rule.stage === "request" ? "info" : "secondary"} label={rule.stage === "request" ? t("rulesPage.stages.request") : t("rulesPage.stages.response")} />
@@ -118,7 +119,7 @@ export function BreakpointRulesPanel() {
               value={draft.urlPattern}
               onChange={(e) => setDraft({ ...draft, urlPattern: e.target.value })}
               fullWidth
-              sx={{ fontFamily: "JetBrains Mono, Consolas, monospace", fontSize: 13 }}
+              sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }}
             />
             <FormControl size="small" fullWidth>
               <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>

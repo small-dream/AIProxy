@@ -2,6 +2,7 @@ import { Box, Typography } from "@mui/material";
 import { QRCodeSVG } from "qrcode.react";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 
 type Props = {
   certDownloadUrl: string | null;
@@ -27,7 +28,7 @@ export function QrCodePanel({ certDownloadUrl, proxyAddress, sslEnabled, hasCert
                 <QRCodeSVG value={certDownloadUrl} size={160} />
               </Box>
             </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace", wordBreak: "break-all", mt: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: fontFamilies.mono, wordBreak: "break-all", mt: 1 }}>
               {certDownloadUrl}
             </Typography>
           </Box>

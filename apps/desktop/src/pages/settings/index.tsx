@@ -33,6 +33,7 @@ import {
 } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { getHoverShadow } from "@/themes/app-theme";
+import { fontFamilies } from "@/themes/fonts";
 
 function createEmptyPreset(): Workspace {
   const now = new Date().toISOString();
@@ -161,7 +162,7 @@ function ProxyPresetsSection() {
                     }
                     secondary={`:${preset.proxyPort}`}
                     secondaryTypographyProps={{
-                      fontFamily: "JetBrains Mono, Consolas, monospace",
+                      fontFamily: fontFamilies.mono,
                       fontSize: 12,
                     }}
                   />

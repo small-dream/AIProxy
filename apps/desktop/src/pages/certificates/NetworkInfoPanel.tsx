@@ -2,6 +2,7 @@ import { Chip, IconButton, Stack, Typography } from "@mui/material";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
 
 type Props = {
   localIp: string | null;
@@ -27,7 +28,7 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
           {ipsLoading ? (
             <Chip label={t("common.states.detecting")} size="small" />
           ) : localIp ? (
-            <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{localIp}</Typography>
+            <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontWeight: 600 }}>{localIp}</Typography>
           ) : (
             <Chip label={t("common.states.notDetected")} color="error" size="small" />
           )}
@@ -35,14 +36,14 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
 
         <Stack direction="row" spacing={2} alignItems="center">
           <Typography variant="body2" sx={{ minWidth: 120 }}>{t("certificatesPage.mobile.proxyPort")}</Typography>
-          <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>{proxyPort}</Typography>
+          <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontWeight: 600 }}>{proxyPort}</Typography>
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
           <Typography variant="body2" sx={{ minWidth: 120 }}>{t("certificatesPage.mobile.wifiProxy")}</Typography>
           {proxyAddress ? (
             <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600, color: "primary.main" }}>
+              <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontWeight: 600, color: "primary.main" }}>
                 {proxyAddress}
               </Typography>
               <IconButton size="small" onClick={handleCopyProxy} title={t("certificatesPage.mobile.copyProxyAddress")}>
