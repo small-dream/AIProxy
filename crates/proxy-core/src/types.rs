@@ -23,7 +23,7 @@ pub fn get_local_ip_addresses() -> Vec<String> {
     // Use a UDP socket trick to find the preferred outbound local IP.
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
         // connect() doesn't actually send data, it just selects the route
-        if socket.connect("8.8.8.8:80").is_ok() {
+        if socket.connect(UDP_ROUTE_PROBE_ADDRESS).is_ok() {
             if let Ok(local_addr) = socket.local_addr() {
                 let ip = local_addr.ip().to_string();
                 if ip != "0.0.0.0" && !ips.iter().any(|candidate| candidate == &ip) {
@@ -43,6 +43,8 @@ fn ranked_interface_ipv4_addresses() -> Vec<String> {
     let mut interface_addresses = Vec::new();
     let mut addrs = std::ptr::null_mut();
 
+    // SAFETY: getifaddrs takes a mutable pointer to a linked list head.
+    // On failure (result != 0) or null return, we bail early.
     let result = unsafe { libc::getifaddrs(&mut addrs) };
     if result != 0 || addrs.is_null() {
         return Vec::new();
@@ -50,9 +52,13 @@ fn ranked_interface_ipv4_addresses() -> Vec<String> {
 
     let mut cursor = addrs;
     while !cursor.is_null() {
+        // SAFETY: cursor is non-null and points to a valid ifaddrs node in the
+        // linked list returned by getifaddrs. The list is null-terminated.
         let ifaddr = unsafe { &*cursor };
 
         if !ifaddr.ifa_addr.is_null() {
+            // SAFETY: ifa_addr is non-null and was populated by getifaddrs.
+            // We only read sa_family, which is always valid for any sockaddr variant.
             let family = unsafe { (*ifaddr.ifa_addr).sa_family as i32 };
             let flags = ifaddr.ifa_flags as i32;
 
@@ -60,9 +66,12 @@ fn ranked_interface_ipv4_addresses() -> Vec<String> {
                 && flags & libc::IFF_UP != 0
                 && flags & libc::IFF_LOOPBACK == 0
             {
+                // SAFETY: ifa_name is a valid C string populated by getifaddrs.
                 let interface_name = unsafe { CStr::from_ptr(ifaddr.ifa_name) }
                     .to_string_lossy()
                     .into_owned();
+                // SAFETY: We checked sa_family == AF_INET, so ifa_addr points to
+                // a valid sockaddr_in. The pointer cast is sound.
                 let sockaddr_in = unsafe { &*(ifaddr.ifa_addr as *const libc::sockaddr_in) };
                 let ip = Ipv4Addr::from(u32::from_be(sockaddr_in.sin_addr.s_addr));
 
@@ -75,6 +84,8 @@ fn ranked_interface_ipv4_addresses() -> Vec<String> {
         cursor = ifaddr.ifa_next;
     }
 
+    // SAFETY: addrs was allocated by getifaddrs and must be freed by freeifaddrs.
+    // After this call, the memory is released and must not be accessed again.
     unsafe {
         libc::freeifaddrs(addrs);
     }

@@ -390,9 +390,9 @@ function buildOverviewSections({
           [t("inspector.request.overview.fields.request"), formatTiming(timing?.requestSendMs, fallback)],
           [t("inspector.request.overview.fields.response"), formatTiming(timing?.responseReadMs, fallback)],
           [t("inspector.request.overview.fields.latency"), formatTiming(timing?.waitingMs, fallback)],
-          [t("inspector.request.overview.fields.speed"), formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback)],
-          [t("inspector.request.overview.fields.requestSpeed"), formatBytesPerSecond(requestTotalBytes, timing?.requestSendMs, fallback)],
-          [t("inspector.request.overview.fields.responseSpeed"), formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback)],
+          [t("inspector.request.overview.fields.speed"), formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t)],
+          [t("inspector.request.overview.fields.requestSpeed"), formatBytesPerSecond(requestTotalBytes, timing?.requestSendMs, fallback, t)],
+          [t("inspector.request.overview.fields.responseSpeed"), formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t)],
         ],
       },
     ],
@@ -488,7 +488,12 @@ function formatBytes(value: number, t: ReturnType<typeof useI18n>["t"]) {
   return t("common.tech.bytes", { value });
 }
 
-function formatBytesPerSecond(bytes: number, durationMs: number | undefined, fallback: string) {
+function formatBytesPerSecond(
+  bytes: number,
+  durationMs: number | undefined,
+  fallback: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
   if (!durationMs || durationMs <= 0) {
     return fallback;
   }
@@ -496,14 +501,14 @@ function formatBytesPerSecond(bytes: number, durationMs: number | undefined, fal
   const bytesPerSecond = bytes / (durationMs / 1000);
 
   if (bytesPerSecond >= 1024 * 1024) {
-    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
+    return t("common.tech.megabytesPerSecond", { value: (bytesPerSecond / (1024 * 1024)).toFixed(2) });
   }
 
   if (bytesPerSecond >= 1024) {
-    return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`;
+    return t("common.tech.kilobytesPerSecond", { value: (bytesPerSecond / 1024).toFixed(2) });
   }
 
-  return `${Math.round(bytesPerSecond)} B/s`;
+  return t("common.tech.bytesPerSecond", { value: Math.round(bytesPerSecond) });
 }
 
 function formatCompression(

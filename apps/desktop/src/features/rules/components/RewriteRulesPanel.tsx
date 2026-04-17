@@ -132,7 +132,7 @@ export function RewriteRulesPanel() {
                 label={t("rulesPage.editor.urlPattern")}
                 value={draft.match.urlPattern}
                 onChange={(e) => setDraft({ ...draft, match: { ...draft.match, urlPattern: e.target.value } })}
-                placeholder="api.example.com/v1/*"
+                placeholder={t("rulesPage.editor.urlPatternExample")}
                 fullWidth
               />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
@@ -219,9 +219,9 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             </Select>
           </FormControl>
         </Stack>
-        <TextField size="small" label={t("rulesPage.rewrite.headerName")} value={rule.payload.headerName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })} placeholder="x-debug-mode" />
+        <TextField size="small" label={t("rulesPage.rewrite.headerName")} value={rule.payload.headerName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })} placeholder={t("rulesPage.rewrite.headerNameExample")} />
         {rule.payload.operation === "set" && (
-          <TextField size="small" label={t("rulesPage.rewrite.headerValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder="true" />
+          <TextField size="small" label={t("rulesPage.rewrite.headerValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.headerValueExample")} />
         )}
       </Stack>
     );
@@ -237,9 +237,9 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             <MenuItem value="remove">{t("rulesPage.rewrite.operations.remove")}</MenuItem>
           </Select>
         </FormControl>
-        <TextField size="small" label={t("rulesPage.rewrite.queryName")} value={rule.payload.paramName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })} placeholder="env" />
+        <TextField size="small" label={t("rulesPage.rewrite.queryName")} value={rule.payload.paramName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })} placeholder={t("rulesPage.rewrite.queryNameExample")} />
         {rule.payload.operation === "set" && (
-          <TextField size="small" label={t("rulesPage.rewrite.queryValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder="staging" />
+          <TextField size="small" label={t("rulesPage.rewrite.queryValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.queryValueExample")} />
         )}
       </Stack>
     );
@@ -274,7 +274,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
   // redirect
   return (
     <Stack spacing={1.5}>
-      <TextField size="small" label={t("rulesPage.rewrite.redirectTarget")} value={rule.payload.targetUrl} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })} placeholder="https://staging.example.com" />
+      <TextField size="small" label={t("rulesPage.rewrite.redirectTarget")} value={rule.payload.targetUrl} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })} placeholder={t("rulesPage.rewrite.redirectTargetExample")} />
       <Stack direction="row" spacing={2}>
         <InlineSwitch label={t("rulesPage.rewrite.preservePath")} checked={rule.payload.preservePath} onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preservePath: v } })} />
         <InlineSwitch label={t("rulesPage.rewrite.preserveQuery")} checked={rule.payload.preserveQuery} onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preserveQuery: v } })} />

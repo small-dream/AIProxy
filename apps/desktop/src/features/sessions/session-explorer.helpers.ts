@@ -1,5 +1,7 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 
+import { enMessages } from "@/i18n/messages/en";
+
 export type SessionExplorerResourceKind =
   | "api"
   | "css"
@@ -209,7 +211,7 @@ function matchesKeyword(session: SessionSummary, keyword: string): boolean {
 function normalizeHost(host: string): string {
   const normalizedHost = host.trim();
 
-  return normalizedHost.length > 0 ? normalizedHost : "<unknown>";
+  return normalizedHost.length > 0 ? normalizedHost : enMessages.sessionExplorer.unknownHost;
 }
 
 function normalizeOptionalHost(host?: string | null): string | null {

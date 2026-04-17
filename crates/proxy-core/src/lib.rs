@@ -38,6 +38,11 @@ const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
+const DEFAULT_HTTPS_PORT: u16 = 443;
+const MAX_REQUEST_HEADERS: usize = 64;
+const BROTLI_BUFFER_SIZE: usize = 4096;
+const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -77,6 +82,7 @@ pub(crate) use http_io::{
     build_upstream_headers, build_upstream_headers_from_entries, decode_body_bytes,
     find_header_end, map_io_error, read_content_length, resolve_target_url,
     should_skip_request_header, write_plain_text_response, write_upstream_response,
+    SessionSummaryInput,
 };
 pub(crate) use logging::emit_log;
 pub(crate) use rules::{

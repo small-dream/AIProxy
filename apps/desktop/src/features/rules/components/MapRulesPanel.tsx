@@ -141,7 +141,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                 label={t("rulesPage.mapEditor.sourcePattern")}
                 value={draft.sourcePattern}
                 onChange={(e) => setDraft({ ...draft, sourcePattern: e.target.value })}
-                placeholder="https://example.com/assets/*"
+                placeholder={t("rulesPage.mapEditor.sourcePatternExample")}
                 fullWidth
               />
               <TextField
@@ -149,7 +149,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                 label={isLocal ? t("rulesPage.mapLocal.targetPath") : t("rulesPage.mapRemote.targetUrl")}
                 value={draft.targetValue}
                 onChange={(e) => setDraft({ ...draft, targetValue: e.target.value })}
-                placeholder={isLocal ? "/Users/you/project/dist" : "https://staging.example.com"}
+                placeholder={isLocal ? t("rulesPage.mapLocal.targetPathExample") : t("rulesPage.mapRemote.targetUrlExample")}
                 fullWidth
                 InputProps={isLocal ? {
                   endAdornment: (

@@ -194,7 +194,11 @@ export function ThrottlingPage() {
                           {profile.enabled && <Chip size="small" label={t("throttlingPage.activeChip")} color="success" sx={{ height: 18, fontSize: 10 }} />}
                         </Stack>
                       )}
-                      secondary={`${profile.latencyMs} ms • ↓ ${profile.downloadKbps} kbps • ↑ ${profile.uploadKbps} kbps`}
+                      secondary={t("throttlingPage.customSummary", {
+                        latency: profile.latencyMs,
+                        download: profile.downloadKbps,
+                        upload: profile.uploadKbps,
+                      })}
                       secondaryTypographyProps={{ variant: "caption", noWrap: true }}
                     />
                   </ListItemButton>

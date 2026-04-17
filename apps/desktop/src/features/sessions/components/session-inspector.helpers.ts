@@ -1,5 +1,7 @@
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
+import { enMessages } from "@/i18n/messages/en";
+
 export type SearchOptions = {
   caseSensitive: boolean;
   wholeWord: boolean;
@@ -113,17 +115,19 @@ export type JsonValue =
 const LARGE_JSON_SOFT_LIMIT = 256 * 1024;
 const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
 const JSON_TEXT_INDENT_SPACES = 4;
+const DEFAULT_JSON_PARSE_MESSAGES = enMessages.inspector.jsonParse;
+const DEFAULT_COMMON_MESSAGES = enMessages.common;
 
 export function buildCountTabLabel(label: string, count: number) {
   return count > 0 ? `${label} (${count})` : label;
 }
 
 export function buildRequestSubtitle(detail: SessionDetail | undefined) {
-  return `${detail?.queryParams.length ?? 0} query • ${detail?.requestHeaders.length ?? 0} headers • ${describeBody(detail?.requestBody) ?? "No body"}`;
+  return `${detail?.queryParams.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.query.toLowerCase()} • ${detail?.requestHeaders.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.headers.toLowerCase()} • ${describeBody(detail?.requestBody) ?? DEFAULT_COMMON_MESSAGES.tech.noBody}`;
 }
 
 export function buildResponseSubtitle(detail: SessionDetail | undefined, session: SessionSummary) {
-  return `${session.statusCode} • ${detail?.responseHeaders.length ?? 0} headers • ${describeBody(detail?.responseBody) ?? "No body"}`;
+  return `${session.statusCode} • ${detail?.responseHeaders.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.headers.toLowerCase()} • ${describeBody(detail?.responseBody) ?? DEFAULT_COMMON_MESSAGES.tech.noBody}`;
 }
 
 export function getBodyText(body: BodyReference | undefined) {
@@ -170,7 +174,7 @@ export function parseJsonBody(
       status: "tooLarge",
       message:
         options?.tooLargeMessage ??
-        "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
+        DEFAULT_JSON_PARSE_MESSAGES.tooLarge,
     };
   }
 
@@ -179,7 +183,7 @@ export function parseJsonBody(
       status: "error",
       message:
         options?.truncatedMessage ??
-        "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
+        DEFAULT_JSON_PARSE_MESSAGES.truncated,
     };
   }
 
@@ -201,13 +205,13 @@ export function parseJsonBody(
     if (options?.allowLargeTextFallback) {
       return {
         status: "error",
-        message: options.requestFallbackMessage ?? "Unable to parse this body as JSON. Showing the original text instead.",
+        message: options.requestFallbackMessage ?? DEFAULT_JSON_PARSE_MESSAGES.requestFallback,
       };
     }
 
     return {
       status: "error",
-      message: options?.responseErrorMessage ?? "Unable to parse the response body as JSON.",
+      message: options?.responseErrorMessage ?? DEFAULT_JSON_PARSE_MESSAGES.responseError,
     };
   }
 }
@@ -242,15 +246,15 @@ export function describeBody(
     return undefined;
   }
 
-  const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? "unknown";
-  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? "truncated preview"})` : "";
-  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : `${body.sizeBytes} bytes`;
+  const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? DEFAULT_COMMON_MESSAGES.tech.unknownMimeType;
+  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? DEFAULT_COMMON_MESSAGES.tech.truncatedPreview})` : "";
+  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : DEFAULT_COMMON_MESSAGES.tech.bytes.replace("{{value}}", String(body.sizeBytes));
 
   return `${mimeType} - ${sizeLabel}${truncationSuffix}`;
 }
 
-export function formatTiming(value: number | undefined, fallbackLabel = "Not captured") {
-  return value === undefined ? fallbackLabel : `${value} ms`;
+export function formatTiming(value: number | undefined, fallbackLabel: string = DEFAULT_COMMON_MESSAGES.states.notCaptured) {
+  return value === undefined ? fallbackLabel : DEFAULT_COMMON_MESSAGES.tech.milliseconds.replace("{{value}}", String(value));
 }
 
 export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {

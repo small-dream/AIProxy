@@ -5,7 +5,7 @@ use rustls::server::ResolvesServerCert;
 use rustls::sign::CertifiedKey;
 
 use crate::generator::RootCaSignData;
-use crate::storage::CertStorage;
+use crate::{emit_log, storage::CertStorage};
 
 /// Dynamic certificate resolver that signs per-host certificates on demand.
 pub struct DynamicCertResolver {
@@ -45,11 +45,29 @@ impl ResolvesServerCert for DynamicCertResolver {
 
         // Generate a new host certificate
         let (cert_der, key_der) =
-            crate::generator::sign_host_certificate_from_data(&self.root_ca_sign_data, hostname)
-                .ok()?;
+            match crate::generator::sign_host_certificate_from_data(&self.root_ca_sign_data, hostname) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    emit_log("WARN", "host_cert_generation_failed", &[
+                        ("hostname", hostname.to_string()),
+                        ("error", error.to_string()),
+                    ]);
+                    return None;
+                }
+            };
 
-        let signing_key =
-            rustls::crypto::ring::sign::any_supported_type(&key_der).ok()?;
+        let signing_key = match rustls::crypto::ring::sign::any_supported_type(&key_der) {
+            Ok(key) => key,
+            Err(error) => {
+                emit_log("WARN", "host_cert_signing_key_failed", &[
+                    ("hostname", hostname.to_string()),
+                    ("error", error.to_string()),
+                ]);
+                return None;
+            }
+        };
+
+        emit_log("DEBUG", "host_cert_generated", &[("hostname", hostname.to_string())]);
 
         let certified_key = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));
 

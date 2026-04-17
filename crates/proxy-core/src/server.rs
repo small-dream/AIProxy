@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start_proxy_server(
     config: ProxyRuntimeConfig,
     tls_manager: Option<Arc<TlsManager>>,
@@ -12,7 +13,7 @@ pub async fn start_proxy_server(
 ) -> Result<StartedProxyServer, String> {
     config.validate().map_err(str::to_string)?;
 
-    let bind_addr : &str = "0.0.0.0";
+    let bind_addr: &str = DEFAULT_BIND_ADDRESS;
     let listener = TcpListener::bind((bind_addr, config.port))
         .await
         .map_err(|error| format!("failed to bind proxy listener on {bind_addr}:{}: {error}", config.port))?;
@@ -134,6 +135,7 @@ pub async fn start_proxy_server(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
@@ -212,10 +214,10 @@ async fn handle_connection(
 
     if request.method == Method::CONNECT {
         let host = request.host.clone();
-        let port: u16 = request.path.parse().unwrap_or(443);
+        let port: u16 = request.path.parse().unwrap_or(DEFAULT_HTTPS_PORT);
 
         emit_log(
-            "INFO",
+            "DEBUG",
             "connect_received",
             &[
                 ("request_id", request.request_id.clone()),
@@ -244,7 +246,7 @@ async fn handle_connection(
             }
             Some(mgr) => {
                 emit_log(
-                    "INFO",
+                    "DEBUG",
                     "connect_mitm_started",
                     &[
                         ("request_id", request.request_id.clone()),
@@ -528,7 +530,7 @@ async fn handle_connection(
                     }
 
             emit_log(
-                "INFO",
+                "DEBUG",
                 "request_forwarded",
                 &[
                     ("request_id", request.request_id.clone()),
@@ -719,6 +721,7 @@ async fn tunnel_blind_relay(
 }
 
 /// HTTPS MITM: terminate TLS, capture decrypted traffic, forward upstream.
+#[allow(clippy::too_many_arguments)]
 async fn handle_connect_mitm(
     mut stream: TcpStream,
     host: String,
@@ -747,7 +750,7 @@ async fn handle_connect_mitm(
         Ok(stream) => stream,
         Err(error) => {
             emit_log(
-                "ERROR",
+                "WARN",
                 "tls_handshake_failed",
                 &[
                     ("host", host.clone()),
@@ -760,7 +763,7 @@ async fn handle_connect_mitm(
     };
 
     emit_log(
-        "INFO",
+        "DEBUG",
         "tls_handshake_succeeded",
         &[
             ("host", host.clone()),
@@ -1058,7 +1061,7 @@ async fn handle_connect_mitm(
                     }
 
             emit_log(
-                "INFO",
+                "DEBUG",
                 "https_request_forwarded",
                 &[
                     ("request_id", https_request.request_id.clone()),
@@ -1150,7 +1153,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         }
     };
 
-    let mut headers = [EMPTY_HEADER; 64];
+    let mut headers = [EMPTY_HEADER; MAX_REQUEST_HEADERS];
     let mut request = Request::new(&mut headers);
     let parse_status = request
         .parse(&buffer[..header_end])
@@ -1160,45 +1163,71 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         return Err("request headers are incomplete".to_string());
     }
 
-    let method = Method::from_bytes(
-        request
-            .method
-            .ok_or_else(|| "request method is missing".to_string())?
-            .as_bytes(),
-    )
-    .map_err(|error| format!("unsupported HTTP method: {error}"))?;
-    let raw_path = request
-        .path
-        .ok_or_else(|| "request target is missing".to_string())?
-        .to_string();
-    let target_url = if method == Method::CONNECT {
-        format!("http://{raw_path}")
-    } else {
-        resolve_target_url(&raw_path, request.headers)?
-    };
-    let url =
-        Url::parse(&target_url).map_err(|error| format!("invalid proxy target URL: {error}"))?;
-    let body_length = read_content_length(request.headers)?;
-    let headers = build_upstream_headers(request.headers)?;
-    let request_headers = build_header_entries_from_httparse_headers(request.headers);
-    let host = url
-        .host_str()
-        .ok_or_else(|| "target URL does not contain a host".to_string())?
-        .to_string();
-    let path = if method == Method::CONNECT {
-        raw_path.clone()
-    } else {
-        build_request_path(&url)
-    };
-    let protocol = if method == Method::CONNECT {
-        "connect".to_string()
-    } else {
-        url.scheme().to_string()
-    };
-    let query_params = build_query_params(&url);
-    let request_version = request.version.unwrap_or(1);
+    let (
+        method,
+        raw_path,
+        url,
+        body_length,
+        headers,
+        request_headers,
+        host,
+        path,
+        protocol,
+        query_params,
+        request_version,
+    ) = {
+        let method = Method::from_bytes(
+            request
+                .method
+                .ok_or_else(|| "request method is missing".to_string())?
+                .as_bytes(),
+        )
+        .map_err(|error| format!("unsupported HTTP method: {error}"))?;
+        let raw_path = request
+            .path
+            .ok_or_else(|| "request target is missing".to_string())?
+            .to_string();
+        let target_url = if method == Method::CONNECT {
+            format!("http://{raw_path}")
+        } else {
+            resolve_target_url(&raw_path, request.headers)?
+        };
+        let url = Url::parse(&target_url)
+            .map_err(|error| format!("invalid proxy target URL: {error}"))?;
+        let body_length = read_content_length(request.headers)?;
+        let headers = build_upstream_headers(request.headers)?;
+        let request_headers = build_header_entries_from_httparse_headers(request.headers);
+        let host = url
+            .host_str()
+            .ok_or_else(|| "target URL does not contain a host".to_string())?
+            .to_string();
+        let path = if method == Method::CONNECT {
+            raw_path.clone()
+        } else {
+            build_request_path(&url)
+        };
+        let protocol = if method == Method::CONNECT {
+            "connect".to_string()
+        } else {
+            url.scheme().to_string()
+        };
+        let query_params = build_query_params(&url);
+        let request_version = request.version.unwrap_or(1);
 
-    drop(request); // Release borrow on headers slice before consuming body bytes
+        (
+            method,
+            raw_path,
+            url,
+            body_length,
+            headers,
+            request_headers,
+            host,
+            path,
+            protocol,
+            query_params,
+            request_version,
+        )
+    };
 
     while buffer.len() < header_end + body_length {
         let bytes_read = stream
@@ -1319,7 +1348,7 @@ pub async fn send_direct_request(
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     emit_log(
-        "INFO",
+        "DEBUG",
         "direct_request_completed",
         &[
             ("request_id", request_id.clone()),
@@ -1348,19 +1377,19 @@ pub async fn send_direct_request(
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
 
-    let summary = build_session_summary(
-        id.clone(),
+    let summary = build_session_summary(SessionSummaryInput {
+        id: id.clone(),
         method,
         host,
         path,
         protocol,
         url,
-        status_code.as_u16(),
-        response_body.len(),
+        status_code: status_code.as_u16(),
+        size_bytes: response_body.len(),
         response_mime_type,
         started_at,
         started_at_instant,
-    );
+    });
 
     let response_body_decoded = decode_body_bytes(
         &response_body,

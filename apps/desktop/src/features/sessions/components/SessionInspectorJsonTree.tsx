@@ -7,6 +7,7 @@ import { Box, IconButton, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
+import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import {
   findNormalizedMatchIndex,
@@ -46,6 +47,7 @@ export function SessionInspectorJsonTree({
   searchQuery: string;
   value: JsonValue;
 }) {
+  const { t } = useI18n();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(["root"]));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -97,15 +99,15 @@ export function SessionInspectorJsonTree({
     if (!matcher) return [];
     const paths: string[] = [];
     for (const row of rows) {
-      const displayName = row.name ?? "root";
-      const rowType = getJsonDisplayType(row.value);
+      const displayName = row.name ?? t("inspector.json.root");
+      const rowType = getJsonDisplayType(row.value, t);
       const rowValue = row.hasChildren ? "" : formatJsonPrimitive(row.value);
       if (rowMatchesTexts(matcher, [displayName, rowType, rowValue])) {
         paths.push(row.path);
       }
     }
     return paths;
-  }, [matcher, rows]);
+  }, [matcher, rows, t]);
 
   useEffect(() => {
     if (onMatchCountChange) {
@@ -228,32 +230,32 @@ function getJsonChildren(value: JsonValue): Array<[string, JsonValue]> {
   return [];
 }
 
-function getJsonDisplayType(value: JsonValue): string {
+function getJsonDisplayType(value: JsonValue, t: ReturnType<typeof useI18n>["t"]): string {
   if (Array.isArray(value)) {
-    return `Array[${value.length}]`;
+    return t("inspector.json.array", { count: value.length });
   }
 
   if (isJsonObject(value)) {
-    return `Object[${Object.keys(value).length}]`;
+    return t("inspector.json.object", { count: Object.keys(value).length });
   }
 
   if (value === null) {
-    return "Null";
+    return t("inspector.json.null");
   }
 
   if (typeof value === "string") {
-    return "String";
+    return t("inspector.json.string");
   }
 
   if (typeof value === "number") {
-    return "Number";
+    return t("inspector.json.number");
   }
 
   if (typeof value === "boolean") {
-    return "Boolean";
+    return t("inspector.json.boolean");
   }
 
-  return "Unknown";
+  return t("inspector.json.unknown");
 }
 
 function collectMatchingExpansionPaths(
@@ -375,12 +377,13 @@ function JsonTreeRowView({
   searchQuery: string;
   selectedPath: string | null;
 }) {
+  const { t } = useI18n();
   const { depth, hasChildren, isExpanded, name, path, value } = row;
   const theme = useTheme();
   const syntaxColors = getSyntaxColors(theme.palette.mode);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
-  const rowType = getJsonDisplayType(value);
-  const displayName = name ?? "root";
+  const rowType = getJsonDisplayType(value, t);
+  const displayName = name ?? t("inspector.json.root");
   const isSelected = selectedPath === path;
   const selectedRowBackground = theme.palette.primary.main;
   const dividerColor = isSelected ? alpha(theme.palette.common.white, 0.22) : theme.palette.divider;

@@ -15,13 +15,13 @@ export const RAW_LANGUAGE_CONTENT_TYPE: Record<RawLanguage, string> = {
 export const URLENCODED_CONTENT_TYPE = "application/x-www-form-urlencoded";
 export const FORMDATA_CONTENT_TYPE = "multipart/form-data";
 
-export const RAW_LANGUAGES: { value: RawLanguage; label: string }[] = [
-  { value: "text", label: "Text" },
-  { value: "json", label: "JSON" },
-  { value: "xml", label: "XML" },
-  { value: "html", label: "HTML" },
-  { value: "javascript", label: "JavaScript" },
-];
+export const RAW_LANGUAGES = [
+  { value: "text", labelKey: "composePage.rawLanguages.text" },
+  { value: "json", labelKey: "composePage.rawLanguages.json" },
+  { value: "xml", labelKey: "composePage.rawLanguages.xml" },
+  { value: "html", labelKey: "composePage.rawLanguages.html" },
+  { value: "javascript", labelKey: "composePage.rawLanguages.javascript" },
+] as const satisfies ReadonlyArray<{ value: RawLanguage; labelKey: string }>;
 
 export function buildMultipartBody(entries: HeaderEntry[], boundary: string): string {
   const parts: string[] = [];

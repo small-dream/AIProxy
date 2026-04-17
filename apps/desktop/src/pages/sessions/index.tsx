@@ -2,9 +2,9 @@ import {
   coerceAppError,
   isAppError,
 } from "@aiproxy/shared-types";
-import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
-import { Alert, Box, Paper, Snackbar, Stack } from "@mui/material";
+import { Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
@@ -16,12 +16,10 @@ import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
-import { SessionContainerTabs } from "@/features/sessions/components/SessionContainerTabs";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
-import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
-import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
 import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
+import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
 import {
   DEFAULT_REQUEST_SPLIT_RATIO,
   type RequestInspectorTab,
@@ -40,14 +38,20 @@ import {
   upsertSessionContainerSummary,
 } from "@/features/sessions/session-containers.helpers";
 import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
-import { buildCurlCommand, getBodyText } from "@/features/sessions/session-export.helpers";
+import {
+  normalizeStoredHost,
+  readStorageValue,
+  readStoredHosts,
+  removeStorageValue,
+  writeStorageValue,
+} from "@/features/sessions/session-ui.helpers";
+import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
-import { downloadTextFile } from "@/lib/download";
 import { onSessionRemove, onSessionUpsert } from "@/services/events";
-import { getSessionDetail, setFocusedHost as syncFocusedHost } from "@/services/commands";
+import { setFocusedHost as syncFocusedHost } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
 const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
@@ -82,17 +86,12 @@ export function SessionsPage() {
     return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 360;
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-
-  // Context menu state
-  const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
-  const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
-  const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{ left: number; top: number }>();
-  const [contextMenuHost, setContextMenuHost] = useState<string | null>(null);
-  const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
-
-  // Focus / Ignore state
-  const [focusedHost, setFocusedHost] = useState<string | null>(() => normalizeStoredHost(readStorageValue(FOCUSED_HOST_STORAGE_KEY)));
-  const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(() => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)));
+  const [focusedHost, setFocusedHost] = useState<string | null>(() =>
+    normalizeStoredHost(readStorageValue(FOCUSED_HOST_STORAGE_KEY)),
+  );
+  const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(
+    () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
+  );
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
@@ -111,12 +110,45 @@ export function SessionsPage() {
     [activeContainer?.sessionIds, containerState.sessionSummaryById],
   );
 
-  // Filter out ignored hosts before grouping
+  const {
+    contextMenuAnchor,
+    contextMenuHost,
+    contextMenuSession,
+    domainContextMenuAnchor,
+    snackbarMessage,
+    handleCompose,
+    handleContextMenu,
+    handleContextMenuClose,
+    handleCopyCurl,
+    handleCopyRequest,
+    handleCopyResponse,
+    handleCopyUrl,
+    handleFocusDomain,
+    handleFocusHost,
+    handleHostContextMenu,
+    handleHostContextMenuClose,
+    handleIgnoreDomain,
+    handleIgnoreHost,
+    handleRepeatDirect,
+    handleSaveResponse,
+    handleSnackbarClose,
+    handleStopIgnoringDomain,
+    handleStopIgnoringHost,
+    handleUnfocusHost,
+  } = useSessionContextActions({
+    loadFromSession,
+    navigate,
+    setFocusedHost,
+    setIgnoredHosts,
+    sendComposedRequest: sendComposedRequestMutation,
+  });
   const filteredByIgnoreSessions = useMemo(() => {
-    if (ignoredHosts.size === 0) return activeSessions;
-    return activeSessions.filter((s) => !ignoredHosts.has(s.host));
-  }, [activeSessions, ignoredHosts]);
+    if (ignoredHosts.size === 0) {
+      return activeSessions;
+    }
 
+    return activeSessions.filter((session) => !ignoredHosts.has(session.host));
+  }, [activeSessions, ignoredHosts]);
   const hostGroups = useMemo(
     () => buildSessionHostGroups(filteredByIgnoreSessions, activeContainer?.searchValue ?? "", {
       focusedHost,
@@ -257,132 +289,12 @@ export function SessionsPage() {
   }
 
   const handleRepeat = useCallback(() => {
-    if (!selectedSession) return;
-    const bodyText = selectedSessionDetail?.requestBody?.inlineText;
-    loadFromSession({
-      method: selectedSession.method,
-      url: selectedSession.url,
-      headers: selectedSessionDetail?.requestHeaders ?? [],
-      ...(bodyText ? { body: bodyText } : {}),
-    });
-    navigate("/compose");
-  }, [selectedSession, selectedSessionDetail, loadFromSession, navigate]);
-
-  // --- Context menu handlers ---
-
-  const handleContextMenu = useCallback((session: SessionSummary, event: React.MouseEvent) => {
-    event.preventDefault();
-    setDomainContextMenuAnchor(undefined);
-    setContextMenuHost(null);
-    setContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
-    setContextMenuSession(session);
-  }, []);
-
-  const handleContextMenuClose = useCallback(() => {
-    setContextMenuAnchor(undefined);
-    setContextMenuSession(null);
-  }, []);
-
-  const handleHostContextMenu = useCallback((host: string, event: React.MouseEvent) => {
-    event.preventDefault();
-    setContextMenuAnchor(undefined);
-    setContextMenuSession(null);
-    setDomainContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
-    setContextMenuHost(host);
-  }, []);
-
-  const handleHostContextMenuClose = useCallback(() => {
-    setDomainContextMenuAnchor(undefined);
-    setContextMenuHost(null);
-  }, []);
-
-  const showSnackbar = useCallback((message: string) => {
-    setSnackbarMessage(message);
-  }, []);
-
-  const copyToClipboard = useCallback(async (text: string, message: string) => {
-    if (!text) {
+    if (!selectedSession) {
       return;
     }
 
-    await navigator.clipboard?.writeText(text);
-    showSnackbar(message);
-  }, [showSnackbar]);
-
-  const fetchDetailOnDemand = useCallback(async (session: SessionSummary): Promise<SessionDetail | undefined> => {
-    if (selectedSessionDetail?.id === session.id) {
-      return selectedSessionDetail;
-    }
-    try {
-      return await getSessionDetail(session.id);
-    } catch {
-      return undefined;
-    }
-  }, [selectedSessionDetail]);
-
-  const handleCopyUrl = useCallback((session: SessionSummary) => {
-    void copyToClipboard(session.url, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, t]);
-
-  const handleCopyRequest = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const rawRequest = detail?.rawRequest;
-    if (!rawRequest) return;
-    await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
-
-  const handleCopyCurl = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    if (!detail) return;
-    await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
-
-  const handleCopyResponse = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const rawResponse = detail?.rawResponse;
-    if (!rawResponse) return;
-    await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
-
-  const handleSaveResponse = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const bodyText = getBodyText(detail?.responseBody);
-    if (!bodyText) return;
-
-    const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
-    const extension = guessExtension(mimeType);
-    const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
-    downloadTextFile(filename, bodyText, mimeType);
-  }, [fetchDetailOnDemand]);
-
-  const handleCompose = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const bodyText = detail?.requestBody?.inlineText;
-    loadFromSession({
-      method: session.method,
-      url: session.url,
-      headers: detail?.requestHeaders ?? [],
-      ...(bodyText ? { body: bodyText } : {}),
-    });
-    navigate("/compose");
-  }, [fetchDetailOnDemand, loadFromSession, navigate]);
-
-  const handleRepeatDirect = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    if (!detail) return;
-    const bodyText = detail.requestBody?.inlineText;
-    try {
-      await sendComposedRequestMutation.mutateAsync({
-        workspaceId: "default",
-        method: session.method,
-        url: session.url,
-        headers: detail.requestHeaders.map((h) => ({ name: h.name, value: h.value })),
-        ...(bodyText ? { body: bodyText } : {}),
-      });
-    } catch {
-      // Silent fail — the new session will appear via polling
-    }
-  }, [fetchDetailOnDemand, sendComposedRequestMutation]);
+    void handleCompose(selectedSession);
+  }, [handleCompose, selectedSession]);
 
   const handleExportSession = useCallback((session: SessionSummary) => {
     setContainerState((currentState) =>
@@ -405,45 +317,6 @@ export function SessionsPage() {
   const handleGoToRules = useCallback(() => {
     navigate("/rules");
   }, [navigate]);
-
-  const handleFocusDomain = useCallback((host: string) => {
-    setFocusedHost((prev) => prev === host ? null : host);
-  }, []);
-
-  const handleUnfocusHost = useCallback(() => {
-    setFocusedHost(null);
-  }, []);
-
-  const handleIgnoreDomain = useCallback((host: string) => {
-    setFocusedHost((prev) => prev === host ? null : prev);
-    setIgnoredHosts((prev) => {
-      const next = new Set(prev);
-      next.add(host);
-      return next;
-    });
-  }, []);
-
-  const handleStopIgnoringDomain = useCallback((host: string) => {
-    setIgnoredHosts((prev) => {
-      const next = new Set(prev);
-      next.delete(host);
-      return next;
-    });
-  }, []);
-
-  const handleFocusHost = useCallback((session: SessionSummary) => {
-    handleFocusDomain(session.host);
-  }, [handleFocusDomain]);
-
-  const handleIgnoreHost = useCallback((session: SessionSummary) => {
-    handleIgnoreDomain(session.host);
-  }, [handleIgnoreDomain]);
-
-  const handleStopIgnoringHost = useCallback((session: SessionSummary) => {
-    handleStopIgnoringDomain(session.host);
-  }, [handleStopIgnoringDomain]);
-
-  // --- End context menu handlers ---
 
   const handleAddContainer = useCallback(() => {
     setContainerState((currentState) => createAdditionalSessionContainer(currentState));
@@ -588,116 +461,51 @@ export function SessionsPage() {
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
-      {error ? (
-        <Alert severity="error">
-          {t("sessionsPage.runtimeError")}
-        </Alert>
-      ) : null}
-
-      <Paper
-        elevation={0}
-        sx={{
-          flex: 1,
-          border: 1,
-          borderColor: "divider",
-          borderRadius: 0,
-          boxShadow: "none",
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-          overflow: "hidden",
-        }}
-        variant="outlined"
-      >
-        <SessionContainerTabs
-          containers={containerState.containers.map((container) => ({
-            id: container.id,
-            isActive: container.id === containerState.activeContainerId,
-            labelNumber: container.labelNumber,
-          }))}
-          onAddContainer={handleAddContainer}
-          onCloseContainer={handleCloseContainer}
-          onSelectContainer={handleSelectContainer}
-        />
-
-        <Box
-          sx={{
-            display: "grid",
-            flex: 1,
-            gap: 0,
-            gridTemplateColumns: {
-              lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
-              xs: "1fr",
-            },
-            minHeight: 0,
-          }}
-        >
-          <SessionExplorerPane
-            errorMessage={sessionsError ? sessionsErrorMessage : undefined}
-            expandedHosts={activeContainer?.expandedHosts ?? []}
-            groups={hostGroups}
-            isLoading={isLoading || areSessionsLoading}
-            onContextMenuHost={handleHostContextMenu}
-            onContextMenuSession={handleContextMenu}
-            onSelectSession={handleSelectedSessionChange}
-            onToggleHost={toggleHost}
-            selectedSessionId={selectedSessionIdValue}
-          />
-
-          <Box
-            aria-hidden
-            onPointerDown={startResize}
-            sx={{
-              bgcolor: "background.paper",
-              cursor: "col-resize",
-              display: { lg: "flex", xs: "none" },
-              justifyContent: "center",
-              minHeight: 0,
-              position: "relative",
-              touchAction: "none",
-              userSelect: "none",
-              "&::before": {
-                bgcolor: "divider",
-                content: '""',
-                height: "100%",
-                opacity: 0.7,
-                transition: "background-color 120ms ease, opacity 120ms ease",
-                width: 1,
-              },
-              "&:hover::before": {
-                bgcolor: "primary.main",
-                opacity: 1,
-              },
-            }}
-          />
-
-          <SessionInspectorWorkspace
-            ref={workspaceRef}
-            detailErrorMessage={
-              sessionDetailError
-                ? getOperationErrorMessage(
-                    sessionDetailError,
-                    t("sessionsPage.detailLoadError"),
-                  )
-                : undefined
-            }
-            inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
-            isDetailLoading={isSessionDetailLoading}
-            onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
-            onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
-            onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
-            onRepeat={selectedSession ? handleRepeat : undefined}
-            onRequestCollapsedChange={handleRequestCollapsedChange}
-            onRequestTabChange={handleRequestTabChange}
-            onResponseTabChange={handleResponseTabChange}
-            requestCollapsed={activeContainer?.requestCollapsed ?? false}
-            requestTab={activeContainer?.requestTab ?? "headers"}
-            responseTab={activeContainer?.responseTab ?? "overview"}
-            selectedSessionDetail={selectedSessionDetail}
-            selectedSession={selectedSession}
-          />
-        </Box>
-      </Paper>
+      <SessionsWorkspacePanel
+        activeContainerId={containerState.activeContainerId}
+        containerTabs={containerState.containers.map((container) => ({
+          id: container.id,
+          labelNumber: container.labelNumber,
+        }))}
+        detailErrorMessage={
+          sessionDetailError
+            ? getOperationErrorMessage(
+                sessionDetailError,
+                t("sessionsPage.detailLoadError"),
+              )
+            : undefined
+        }
+        errorMessage={sessionsError ? sessionsErrorMessage : undefined}
+        expandedHosts={activeContainer?.expandedHosts ?? []}
+        explorerWidth={explorerWidth}
+        groups={hostGroups}
+        inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
+        isDetailLoading={isSessionDetailLoading}
+        isLoading={isLoading || areSessionsLoading}
+        onAddContainer={handleAddContainer}
+        onCloseContainer={handleCloseContainer}
+        onContextMenuHost={handleHostContextMenu}
+        onContextMenuSession={handleContextMenu}
+        onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
+        onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
+        onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
+        onRepeat={selectedSession ? handleRepeat : undefined}
+        onRequestCollapsedChange={handleRequestCollapsedChange}
+        onRequestTabChange={handleRequestTabChange}
+        onResizeStart={startResize}
+        onResponseTabChange={handleResponseTabChange}
+        onSelectContainer={handleSelectContainer}
+        onSelectSession={handleSelectedSessionChange}
+        onToggleHost={toggleHost}
+        requestCollapsed={activeContainer?.requestCollapsed ?? false}
+        requestTab={activeContainer?.requestTab ?? "headers"}
+        responseTab={activeContainer?.responseTab ?? "overview"}
+        runtimeErrorMessage={error ? t("sessionsPage.runtimeError") : undefined}
+        selectedSession={selectedSession}
+        selectedSessionDetail={selectedSessionDetail}
+        selectedSessionId={selectedSessionIdValue}
+        workspaceRef={workspaceRef}
+      />
 
       <SessionExportDialog
         allSessions={activeSessions}
@@ -746,7 +554,7 @@ export function SessionsPage() {
       <Snackbar
         anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
         autoHideDuration={2000}
-        onClose={() => setSnackbarMessage(null)}
+        onClose={handleSnackbarClose}
         open={snackbarMessage !== null}
         message={snackbarMessage}
       />
@@ -780,82 +588,6 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
   return coercedError.message || fallbackMessage;
 }
 
-function readStorageValue(key: string): string | null {
-  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
-    return null;
-  }
-
-  return window.localStorage.getItem(key);
-}
-
-function writeStorageValue(key: string, value: string) {
-  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
-    return;
-  }
-
-  window.localStorage.setItem(key, value);
-}
-
-function removeStorageValue(key: string) {
-  if (typeof window === "undefined" || typeof window.localStorage?.removeItem !== "function") {
-    return;
-  }
-
-  window.localStorage.removeItem(key);
-}
-
-function normalizeStoredHost(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = value.trim();
-
-  return normalizedValue.length > 0 ? normalizedValue : null;
-}
-
-function readStoredHosts(key: string): string[] {
-  const rawValue = readStorageValue(key);
-
-  if (!rawValue) {
-    return [];
-  }
-
-  try {
-    const parsedValue = JSON.parse(rawValue);
-
-    if (!Array.isArray(parsedValue)) {
-      return [];
-    }
-
-    return Array.from(
-      new Set(
-        parsedValue
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0),
-      ),
-    );
-  } catch {
-    return [];
-  }
-}
-
 function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
-}
-
-function guessExtension(mimeType: string): string {
-  if (mimeType.includes("json")) return "json";
-  if (mimeType.includes("html")) return "html";
-  if (mimeType.includes("xml")) return "xml";
-  if (mimeType.includes("javascript")) return "js";
-  if (mimeType.includes("css")) return "css";
-  if (mimeType.includes("text")) return "txt";
-  if (mimeType.includes("image/png")) return "png";
-  if (mimeType.includes("image/jpeg") || mimeType.includes("image/jpg")) return "jpg";
-  if (mimeType.includes("image/svg")) return "svg";
-  if (mimeType.includes("image/gif")) return "gif";
-  if (mimeType.includes("image/")) return "bin";
-  return "txt";
 }

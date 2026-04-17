@@ -106,22 +106,22 @@ pub(crate) fn build_session_detail(
 ) -> ProxySessionDetail {
     let id = request.request_id.clone();
     let response_header_entries = build_header_entries_from_map(response_headers);
-    let summary = build_session_summary(
-        id.clone(),
-        request.method.to_string(),
-        request.host.clone(),
-        request.path.clone(),
-        request.protocol.clone(),
-        request.url.to_string(),
+    let summary = build_session_summary(SessionSummaryInput {
+        id: id.clone(),
+        method: request.method.to_string(),
+        host: request.host.clone(),
+        path: request.path.clone(),
+        protocol: request.protocol.clone(),
+        url: request.url.to_string(),
         status_code,
-        response_body.len(),
-        response_headers
+        size_bytes: response_body.len(),
+        response_mime_type: response_headers
             .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string),
         started_at,
         started_at_instant,
-    );
+    });
 
     let response_body_decoded = decode_body_bytes(
         response_body,
@@ -331,7 +331,7 @@ pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> 
     }
 
     if encoding.contains("br") {
-        let mut decoder = Decompressor::new(Cursor::new(body), 4096);
+        let mut decoder = Decompressor::new(Cursor::new(body), BROTLI_BUFFER_SIZE);
         let mut decoded = Vec::new();
         decoder.read_to_end(&mut decoded).ok()?;
         return Some(decoded);
@@ -365,19 +365,35 @@ pub(crate) fn build_raw_http_message(
     raw_message
 }
 
-pub(crate) fn build_session_summary(
-    id: String,
-    method: String,
-    host: String,
-    path: String,
-    protocol: String,
-    url: String,
-    status_code: u16,
-    size_bytes: usize,
-    response_mime_type: Option<String>,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
-) -> ProxySessionSummary {
+pub(crate) struct SessionSummaryInput {
+    pub(crate) id: String,
+    pub(crate) method: String,
+    pub(crate) host: String,
+    pub(crate) path: String,
+    pub(crate) protocol: String,
+    pub(crate) url: String,
+    pub(crate) status_code: u16,
+    pub(crate) size_bytes: usize,
+    pub(crate) response_mime_type: Option<String>,
+    pub(crate) started_at: DateTime<Utc>,
+    pub(crate) started_at_instant: Instant,
+}
+
+pub(crate) fn build_session_summary(input: SessionSummaryInput) -> ProxySessionSummary {
+    let SessionSummaryInput {
+        id,
+        method,
+        host,
+        path,
+        protocol,
+        url,
+        status_code,
+        size_bytes,
+        response_mime_type,
+        started_at,
+        started_at_instant,
+    } = input;
+
     ProxySessionSummary {
         id,
         method,

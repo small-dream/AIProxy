@@ -3,6 +3,7 @@ import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import { Button, Chip, Stack, Typography } from "@mui/material";
 
+import { useI18n } from "@/i18n";
 import { SectionCard } from "./SectionCard";
 
 type ProxyStatusCardProps = {
@@ -30,10 +31,12 @@ export function ProxyStatusCard({
   sslEnabled,
   workspaceId,
 }: ProxyStatusCardProps) {
+  const { t } = useI18n();
+
   return (
     <SectionCard
-      description="This card is backed by the shared bootstrap command contract and will later reflect live runtime data."
-      title="Proxy Runtime"
+      description={t("proxyRuntime.description")}
+      title={t("proxyRuntime.title")}
       toolbar={
         <Stack direction="row" spacing={1}>
           {systemProxyEnabled ? (
@@ -44,7 +47,7 @@ export function ProxyStatusCard({
               startIcon={<LanguageRoundedIcon />}
               variant="outlined"
             >
-              Disable System Proxy
+              {t("common.actions.disableSystemProxy")}
             </Button>
           ) : (
             <Button
@@ -53,7 +56,7 @@ export function ProxyStatusCard({
               startIcon={<LanguageRoundedIcon />}
               variant="outlined"
             >
-              Enable System Proxy
+              {t("common.actions.enableSystemProxy")}
             </Button>
           )}
 
@@ -65,27 +68,27 @@ export function ProxyStatusCard({
               startIcon={<StopRoundedIcon />}
               variant="outlined"
             >
-              Stop Proxy
+              {t("common.actions.stopProxy")}
             </Button>
           ) : (
             <Button disabled={busy} onClick={onStart} startIcon={<PlayArrowRoundedIcon />} variant="contained">
-              Start Proxy
+              {t("common.actions.startProxy")}
             </Button>
           )}
         </Stack>
       }
     >
       <Stack spacing={1.25}>
-        <Typography variant="body2">Workspace: {workspaceId}</Typography>
-        <Typography variant="body2">Port: {port}</Typography>
+        <Typography variant="body2">{t("common.labels.workspace")}: {workspaceId}</Typography>
+        <Typography variant="body2">{t("common.labels.port")}: {port}</Typography>
         <Stack direction="row" spacing={1}>
-          <Chip color={isRunning ? "success" : "default"} label={isRunning ? "Running" : "Idle"} size="small" />
+          <Chip color={isRunning ? "success" : "default"} label={isRunning ? t("common.states.running") : t("common.states.idle")} size="small" />
           <Chip
             color={systemProxyEnabled ? "primary" : "default"}
-            label={systemProxyEnabled ? "System Proxy On" : "System Proxy Off"}
+            label={systemProxyEnabled ? t("proxyRuntime.systemProxyOn") : t("proxyRuntime.systemProxyOff")}
             size="small"
           />
-          <Chip color={sslEnabled ? "warning" : "default"} label={sslEnabled ? "SSL On" : "SSL Off"} size="small" />
+          <Chip color={sslEnabled ? "warning" : "default"} label={sslEnabled ? t("proxyRuntime.sslOn") : t("proxyRuntime.sslOff")} size="small" />
         </Stack>
       </Stack>
     </SectionCard>

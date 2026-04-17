@@ -7,6 +7,18 @@ pub use generator::RootCaPair;
 pub use storage::CertStorage;
 pub use trust::{detect_platform, is_cert_trusted_on_platform, Platform};
 
+fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let mut line = format!("timestamp={timestamp} level={level} component=tls-manager event={event}");
+    for (name, value) in fields {
+        line.push(' ');
+        line.push_str(name);
+        line.push('=');
+        line.push_str(&value.replace('\\', "\\\\").replace('"', "\\\""));
+    }
+    eprintln!("{line}");
+}
+
 use serde::Serialize;
 
 const ROOT_CA_VALIDITY_YEARS: u32 = 10;
