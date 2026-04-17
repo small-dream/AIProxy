@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   Alert,
   AlertTitle,
+  Box,
   Button,
   CircularProgress,
   FormControl,
@@ -200,13 +201,26 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
                 </Typography>
 
                 {showTrustSteps ? (
-                  <Stack component="ol" spacing={0.75} sx={{ m: 0, pl: 2 }}>
+                  <Box
+                    component="ol"
+                    sx={{
+                      m: 0,
+                      pl: 3,
+                      listStylePosition: "outside",
+                      "& > li": {
+                        mb: 0.75,
+                      },
+                      "& > li:last-child": {
+                        mb: 0,
+                      },
+                    }}
+                  >
                     {tList("certificatesPage.mobile.iosSimulatorTrustSteps").map((step, index) => (
                       <Typography component="li" key={index} variant="body2">
                         {step}
                       </Typography>
                     ))}
-                  </Stack>
+                  </Box>
                 ) : null}
               </Stack>
             </Alert>
