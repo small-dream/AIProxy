@@ -717,7 +717,8 @@ fn install_android_certificate_via_adb_impl(
     let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
     let remote_path = "/sdcard/Download/aiproxy-root-ca.cer";
 
-    let push_output = std::process::Command::new("adb")
+    let adb = resolve_adb_path()?;
+    let push_output = std::process::Command::new(&adb)
         .args(["-s", &device_serial, "push"])
         .arg(storage.root_cert_install_path())
         .arg(remote_path)
@@ -731,7 +732,7 @@ fn install_android_certificate_via_adb_impl(
         ));
     }
 
-    let launch_output = std::process::Command::new("adb")
+    let launch_output = std::process::Command::new(&adb)
         .args([
             "-s",
             &device_serial,
@@ -918,7 +919,8 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
 }
 
 fn read_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
-    let output = std::process::Command::new("adb")
+    let adb = resolve_adb_path()?;
+    let output = std::process::Command::new(&adb)
         .args(["devices", "-l"])
         .output()
         .map_err(adb_spawn_error)?;
@@ -1153,6 +1155,52 @@ fn resolve_ios_simulator(requested_udid: Option<&str>) -> Result<IosSimulatorDev
     Ok(simulators[0].clone())
 }
 
+fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
+    // 1. Try bare "adb" from PATH
+    if let Ok(output) = std::process::Command::new("adb")
+        .arg("--version")
+        .output()
+    {
+        if output.status.success() {
+            return Ok(std::path::PathBuf::from("adb"));
+        }
+    }
+
+    // 2. Check ANDROID_HOME / ANDROID_SDK_ROOT
+    for env_var in &["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Ok(sdk_dir) = std::env::var(env_var) {
+            let adb = std::path::Path::new(&sdk_dir).join("platform-tools").join("adb");
+            if adb.exists() {
+                return Ok(adb);
+            }
+        }
+    }
+
+    // 3. Check common install locations per platform
+    if let Some(home) = dirs::home_dir() {
+        let candidates: Vec<std::path::PathBuf> = if cfg!(target_os = "macos") {
+            vec![
+                home.join("Library/Android/sdk/platform-tools/adb"),
+            ]
+        } else if cfg!(target_os = "linux") {
+            vec![
+                home.join("Android/Sdk/platform-tools/adb"),
+                home.join(".android/sdk/platform-tools/adb"),
+            ]
+        } else {
+            vec![]
+        };
+
+        for adb in candidates {
+            if adb.exists() {
+                return Ok(adb);
+            }
+        }
+    }
+
+    Err("adb was not found. Install Android Platform Tools (https://developer.android.com/tools/releases/platform-tools) and ensure `adb` is on PATH or ANDROID_HOME is set.".to_string())
+}
+
 fn adb_spawn_error(error: std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::NotFound {
         return "adb was not found in PATH. Install Android Platform Tools and make sure the `adb` command is available.".to_string();
@@ -1170,7 +1218,8 @@ fn xcrun_spawn_error(error: std::io::Error) -> String {
 }
 
 fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(), String> {
-    let output = std::process::Command::new("adb")
+    let adb = resolve_adb_path()?;
+    let output = std::process::Command::new(&adb)
         .args(["-s", device_serial, "shell"])
         .args(shell_args)
         .output()

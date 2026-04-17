@@ -712,7 +712,7 @@ export const zhCNMessages: Messages = {
     tooltipPending: "{{method}} {{url}} · 等待中",
     tooltipResolved: "{{method}} {{url}} · {{statusCode}} · {{kind}}",
     unknownHost: "<未知主机>",
-    unfocusedGroup: "UnFocus",
+    unfocusedGroup: "Unfocused",
   },
   inspector: {
     cookies: "Cookies",

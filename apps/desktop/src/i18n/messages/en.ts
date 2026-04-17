@@ -710,7 +710,7 @@ export const enMessages = {
     tooltipPending: "{{method}} {{url}} · Pending",
     tooltipResolved: "{{method}} {{url}} · {{statusCode}} · {{kind}}",
     unknownHost: "<unknown>",
-    unfocusedGroup: "UnFocus",
+    unfocusedGroup: "Unfocused",
   },
   inspector: {
     cookies: "Cookies",
