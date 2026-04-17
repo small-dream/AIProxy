@@ -110,7 +110,13 @@ pub fn capture_system_proxy_snapshot() -> Result<LinuxSystemProxySnapshot, Strin
 
 pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(), String> {
     let snapshot = capture_system_proxy_snapshot()?;
+    apply_system_proxy_settings_with_pre_snapshot(settings, snapshot)
+}
 
+pub fn apply_system_proxy_settings_with_pre_snapshot(
+    settings: &SystemProxySettings,
+    snapshot: LinuxSystemProxySnapshot,
+) -> Result<(), String> {
     match snapshot.desktop {
         LinuxDesktopEnvironment::Gnome => apply_gnome_proxy(settings, snapshot.gnome.as_ref()),
         LinuxDesktopEnvironment::Kde => apply_kde_proxy(settings, snapshot.kde.as_ref()),

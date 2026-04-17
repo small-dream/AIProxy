@@ -91,12 +91,14 @@ export function AppShell() {
   const macosTitlebarEnabled = isTauriRuntime() && isMacPlatform();
   const topInset = macosTitlebarEnabled ? MACOS_TITLEBAR_HEIGHT : 0;
   const topLayoutHeight = topInset;
-  const isBusy =
+  const isProxyBusy =
     startProxyMutation.isPending ||
-    stopProxyMutation.isPending ||
+    stopProxyMutation.isPending;
+  const isSystemProxyBusy =
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
-  const systemProxyActionDisabled = isBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
+  const isBusy = isProxyBusy || isSystemProxyBusy;
+  const systemProxyActionDisabled = isSystemProxyBusy || isProxyBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
   const initialStartProxyInput = useMemo(
     () => ({
       enableSsl: certificateStatus?.trusted ?? false,
@@ -237,7 +239,7 @@ export function AppShell() {
     <Box sx={{ display: "flex", height: "100vh", overflow: "hidden", bgcolor: "background.default" }}>
       <AppShellTopControls
         headerActions={headerActions}
-        isBusy={isBusy}
+        isProxyBusy={isProxyBusy}
         macosTitlebarEnabled={macosTitlebarEnabled}
         onStartProxy={() => startProxyMutation.mutate(initialStartProxyInput)}
         onStopProxy={() => stopProxyMutation.mutate(workspaceId)}

@@ -12,7 +12,7 @@ const MACOS_WINDOW_CONTROLS_SAFE_WIDTH = 112;
 
 type AppShellTopControlsProps = {
   headerActions: ReactNode | null;
-  isBusy: boolean;
+  isProxyBusy: boolean;
   macosTitlebarEnabled: boolean;
   onStartProxy: () => void;
   onStopProxy: () => void;
@@ -28,7 +28,7 @@ type AppShellTopControlsProps = {
 
 export function AppShellTopControls({
   headerActions,
-  isBusy,
+  isProxyBusy,
   macosTitlebarEnabled,
   onStartProxy,
   onStopProxy,
@@ -55,7 +55,7 @@ export function AppShellTopControls({
       <Stack direction="row" spacing={1.25}>
         {proxyRunning ? (
           <TopBarActionButton
-            disabled={isBusy}
+            disabled={isProxyBusy}
             icon={<StopRoundedIcon />}
             label={stopProxyLabel}
             onClick={onStopProxy}
@@ -64,7 +64,7 @@ export function AppShellTopControls({
           />
         ) : (
           <TopBarActionButton
-            disabled={isBusy}
+            disabled={isProxyBusy}
             icon={<PlayArrowRoundedIcon />}
             label={startProxyLabel}
             onClick={onStartProxy}

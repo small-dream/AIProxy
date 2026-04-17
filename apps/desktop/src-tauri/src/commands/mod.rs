@@ -1,8 +1,8 @@
 use crate::bootstrap::{AppState, BootstrapStatus, CertificateStateSnapshot, RuntimeHandles};
 use crate::dev_logger::{log_debug, log_error, log_info, log_warn};
 use crate::system_proxy::{
-    apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
-    SystemProxySettings,
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy, SystemProxySettings,
 };
 use crate::workspace::WorkspaceData;
 use aiproxy_proxy_core::{
@@ -505,15 +505,12 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     }
 
     let settings = SystemProxySettings::localhost(status.port);
-    let captured_snapshot = if state.has_system_proxy_snapshot() {
-        None
+
+    if state.has_system_proxy_snapshot() {
+        apply_system_proxy_settings(&settings)?;
     } else {
-        Some(capture_system_proxy_snapshot()?)
-    };
-
-    apply_system_proxy_settings(&settings)?;
-
-    if let Some(snapshot) = captured_snapshot {
+        let snapshot = capture_system_proxy_snapshot()?;
+        apply_system_proxy_settings_with_pre_snapshot(&settings, snapshot.clone())?;
         state.store_system_proxy_snapshot(snapshot);
     }
 

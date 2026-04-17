@@ -26,12 +26,14 @@ mod windows;
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy,
     LinuxSystemProxySnapshot as SystemProxySnapshot,
 };
 #[cfg(target_os = "macos")]
 pub use macos::{
-    apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy,
     MacosSystemProxySnapshot as SystemProxySnapshot,
 };
 #[cfg(target_os = "windows")]

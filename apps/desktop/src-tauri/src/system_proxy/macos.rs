@@ -60,7 +60,13 @@ pub fn capture_system_proxy_snapshot() -> Result<MacosSystemProxySnapshot, Strin
 
 pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(), String> {
     let snapshot = capture_system_proxy_snapshot()?;
+    apply_system_proxy_settings_with_pre_snapshot(settings, snapshot)
+}
 
+pub fn apply_system_proxy_settings_with_pre_snapshot(
+    settings: &SystemProxySettings,
+    snapshot: MacosSystemProxySnapshot,
+) -> Result<(), String> {
     match apply_system_proxy_settings_with_snapshot(settings, &snapshot) {
         Ok(()) => {
             log_info(
