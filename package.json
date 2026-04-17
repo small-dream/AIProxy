@@ -4,6 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {
+    "setup:macos": "bash ./scripts/setup/setup-macos.sh",
+    "setup:linux": "bash ./scripts/setup/setup-linux.sh",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File .\\\\scripts\\\\setup\\\\setup-windows.ps1",
     "dev": "pnpm --filter @aiproxy/desktop dev",
     "build": "pnpm --filter @aiproxy/desktop build",
     "desktop:run": "node ./scripts/desktop.mjs run",

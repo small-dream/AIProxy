@@ -33,6 +33,8 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/ENGINEERING_GUIDELINES.md`
 - `docs/SYSTEM_PROXY.md`
 - `docs/DECISIONS/ADR-001-frontend-i18n.md`
+- `docs/BUILD_RUN_PACKAGE_GUIDE.md`
+- `docs/RELEASE_GUIDE.md`
 
 ## 仓库结构
 
@@ -44,6 +46,26 @@ docs/           需求与架构事实源
 fixtures/       测试与调试样本
 scripts/        开发、构建、发布脚本
 ```
+
+## 快速入口
+
+环境初始化一键脚本：
+
+- macOS: `bash scripts/setup/setup-macos.sh`
+- Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\setup\setup-windows.ps1`
+- Linux: `bash scripts/setup/setup-linux.sh`
+
+运行：
+
+- macOS: `pnpm desktop:run:macos`
+- Windows: `pnpm desktop:run:windows`
+- Linux: `pnpm desktop:run:linux`
+
+打包：
+
+- macOS: `pnpm desktop:bundle:macos`
+- Windows: `pnpm desktop:bundle:windows`
+- Linux: `pnpm desktop:bundle:linux`
 
 ## 开发约定
 
