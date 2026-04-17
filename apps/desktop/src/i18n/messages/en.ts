@@ -691,6 +691,7 @@ export const enMessages = {
     emptyDescription: "Start the proxy, then open a page or app request. Captured traffic will appear here in real time.",
     emptyTip: "Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.",
     emptyTitle: "No captured sessions yet.",
+    filterPlaceholder: "Filter",
     loading: "Loading captured sessions...",
     pending: "Pending",
     resourceKinds: {
@@ -717,6 +718,7 @@ export const enMessages = {
     json: {
       array: "Array[{{count}}]",
       boolean: "Boolean",
+      copyNode: "Copy Node",
       integer: "Integer",
       null: "Null",
       number: "Number",

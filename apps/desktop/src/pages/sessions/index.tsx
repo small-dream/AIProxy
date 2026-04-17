@@ -37,7 +37,11 @@ import {
   updateActiveSessionContainer,
   upsertSessionContainerSummary,
 } from "@/features/sessions/session-containers.helpers";
-import { buildSessionHostGroups, reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
+import {
+  buildSessionHostGroups,
+  filterSessionsByHostKeyword,
+  reconcileExpandedKeys,
+} from "@/features/sessions/session-explorer.helpers";
 import {
   normalizeStoredHost,
   readStorageValue,
@@ -149,12 +153,16 @@ export function SessionsPage() {
 
     return activeSessions.filter((session) => !ignoredHosts.has(session.host));
   }, [activeSessions, ignoredHosts]);
+  const domainFilteredSessions = useMemo(
+    () => filterSessionsByHostKeyword(filteredByIgnoreSessions, activeContainer?.domainFilterValue ?? ""),
+    [activeContainer?.domainFilterValue, filteredByIgnoreSessions],
+  );
   const hostGroups = useMemo(
-    () => buildSessionHostGroups(filteredByIgnoreSessions, activeContainer?.searchValue ?? "", {
+    () => buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
       focusedHost,
       unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
     }),
-    [activeContainer?.searchValue, filteredByIgnoreSessions, focusedHost, t],
+    [activeContainer?.searchValue, domainFilteredSessions, focusedHost, t],
   );
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
@@ -366,6 +374,15 @@ export function SessionsPage() {
     );
   }, []);
 
+  const handleDomainFilterChange = useCallback((value: string) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        domainFilterValue: value,
+      })),
+    );
+  }, []);
+
   const handleClearActiveContainer = useCallback(() => {
     clearSessions(undefined, {
       onSuccess: () => {
@@ -475,6 +492,7 @@ export function SessionsPage() {
               )
             : undefined
         }
+        domainFilterValue={activeContainer?.domainFilterValue ?? ""}
         errorMessage={sessionsError ? sessionsErrorMessage : undefined}
         expandedHosts={activeContainer?.expandedHosts ?? []}
         explorerWidth={explorerWidth}
@@ -489,6 +507,7 @@ export function SessionsPage() {
         onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
         onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
         onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
+        onDomainFilterChange={handleDomainFilterChange}
         onRepeat={selectedSession ? handleRepeat : undefined}
         onRequestCollapsedChange={handleRequestCollapsedChange}
         onRequestTabChange={handleRequestTabChange}

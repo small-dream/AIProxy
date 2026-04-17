@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { SessionSummary } from "@aiproxy/shared-types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import { buildSessionHostGroups } from "../session-explorer.helpers";
@@ -31,10 +31,12 @@ describe("SessionExplorerPane", () => {
     render(
       <AppProviders>
         <SessionExplorerPane
+          domainFilterValue=""
           errorMessage={undefined}
           expandedHosts={[groups[0]!.key]}
           groups={groups}
           isLoading={false}
+          onDomainFilterChange={() => {}}
           onSelectSession={() => {}}
           onToggleHost={() => {}}
           selectedSessionId={undefined}
@@ -43,5 +45,32 @@ describe("SessionExplorerPane", () => {
     );
 
     expect(screen.getByTestId("json-file-icon")).toBeInTheDocument();
+  });
+
+  it("renders the bottom domain filter and forwards changes", () => {
+    const handleDomainFilterChange = vi.fn();
+
+    render(
+      <AppProviders>
+        <SessionExplorerPane
+          domainFilterValue="api"
+          errorMessage={undefined}
+          expandedHosts={[]}
+          groups={[]}
+          isLoading={false}
+          onDomainFilterChange={handleDomainFilterChange}
+          onSelectSession={() => {}}
+          onToggleHost={() => {}}
+          selectedSessionId={undefined}
+        />
+      </AppProviders>,
+    );
+
+    const input = screen.getByPlaceholderText("Filter");
+    expect(input).toHaveValue("api");
+
+    fireEvent.change(input, { target: { value: "assets" } });
+
+    expect(handleDomainFilterChange).toHaveBeenCalledWith("assets");
   });
 });

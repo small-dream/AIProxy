@@ -6,6 +6,7 @@ import type {
 } from "./components/session-inspector.helpers";
 
 export type SessionContainer = {
+  domainFilterValue: string;
   expandedHosts: string[];
   id: string;
   labelNumber: number;
@@ -323,6 +324,7 @@ function createSessionContainer({
   responseTab = "overview",
 }: CreateSessionContainerOptions): SessionContainer {
   return {
+    domainFilterValue: "",
     expandedHosts: [],
     id: `session-container-${labelNumber}`,
     labelNumber,

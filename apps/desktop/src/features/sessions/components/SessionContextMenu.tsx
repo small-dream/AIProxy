@@ -11,8 +11,16 @@ import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
+import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuDividerSx,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "./context-menu.styles";
 
 type SessionContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
@@ -60,10 +68,15 @@ export function SessionContextMenu({
   onUnfocusHost,
 }: SessionContextMenuProps) {
   const { t } = useI18n();
+  const theme = useTheme();
 
   if (!session) {
     return null;
   }
+
+  const menuItemSx = getContextMenuItemSx(theme);
+  const iconSx = getContextMenuIconSx(theme);
+  const dividerSx = getContextMenuDividerSx(theme);
 
   const handleClick = (action: (session: SessionSummary) => void) => () => {
     action(session);
@@ -76,129 +89,125 @@ export function SessionContextMenu({
       anchorReference="anchorPosition"
       onClose={onClose}
       open={anchorPosition !== undefined}
-      slotProps={{
-        paper: {
-          sx: { minWidth: 200 },
-        },
-      }}
+      slotProps={buildContextMenuSlotProps(220)}
     >
-      <MenuItem onClick={handleClick(onCopyUrl)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onCopyUrl)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.copyUrl")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyUrl")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={handleClick(onCopyRequest)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onCopyRequest)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.copyRequest")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyRequest")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={handleClick(onCopyCurl)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onCopyCurl)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.copyAsCurl")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyAsCurl")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={handleClick(onCopyResponse)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onCopyResponse)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.copyResponse")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyResponse")}</ListItemText>
       </MenuItem>
 
-      <Divider />
+      <Divider sx={dividerSx} />
 
-      <MenuItem onClick={handleClick(onSaveResponse)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onSaveResponse)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <SaveAltRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.saveResponse")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.saveResponse")}</ListItemText>
       </MenuItem>
 
-      <Divider />
+      <Divider sx={dividerSx} />
 
-      <MenuItem onClick={handleClick(onCompose)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onCompose)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <EditRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.compose")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.compose")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={handleClick(onRepeat)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onRepeat)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <ReplayRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.repeat")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.repeat")}</ListItemText>
       </MenuItem>
 
-      <Divider />
+      <Divider sx={dividerSx} />
 
-      <MenuItem onClick={handleClick(onExportSession)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onExportSession)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <FileDownloadRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.exportSession")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.exportSession")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={handleClick(onClearOthers)}>
-        <ListItemIcon>
+      <MenuItem onClick={handleClick(onClearOthers)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <DeleteSweepRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.clearOthers")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.clearOthers")}</ListItemText>
       </MenuItem>
 
-      <Divider />
+      <Divider sx={dividerSx} />
 
       {isHostFocused ? (
-        <MenuItem onClick={() => { onUnfocusHost(); onClose(); }}>
-          <ListItemIcon>
+        <MenuItem onClick={() => { onUnfocusHost(); onClose(); }} sx={menuItemSx}>
+          <ListItemIcon sx={iconSx}>
             <VisibilityRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.unfocusHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.unfocusHost")}</ListItemText>
         </MenuItem>
       ) : (
-        <MenuItem onClick={handleClick(onFocusHost)}>
-          <ListItemIcon>
+        <MenuItem onClick={handleClick(onFocusHost)} sx={menuItemSx}>
+          <ListItemIcon sx={iconSx}>
             <VisibilityRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.focusHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.focusHost")}</ListItemText>
         </MenuItem>
       )}
 
       {isHostIgnored ? (
-        <MenuItem onClick={handleClick(onStopIgnoringHost)}>
-          <ListItemIcon>
+        <MenuItem onClick={handleClick(onStopIgnoringHost)} sx={menuItemSx}>
+          <ListItemIcon sx={iconSx}>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.stopIgnoringHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.stopIgnoringHost")}</ListItemText>
         </MenuItem>
       ) : (
-        <MenuItem onClick={handleClick(onIgnoreHost)}>
-          <ListItemIcon>
+        <MenuItem onClick={handleClick(onIgnoreHost)} sx={menuItemSx}>
+          <ListItemIcon sx={iconSx}>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>{t("contextMenu.ignoreHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.ignoreHost")}</ListItemText>
         </MenuItem>
       )}
 
-      <Divider />
+      <Divider sx={dividerSx} />
 
-      <MenuItem onClick={() => { onGoToBreakpoints(); onClose(); }}>
-        <ListItemIcon>
+      <MenuItem onClick={() => { onGoToBreakpoints(); onClose(); }} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <RuleRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.goToBreakpoints")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.goToBreakpoints")}</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={() => { onGoToRules(); onClose(); }}>
-        <ListItemIcon>
+      <MenuItem onClick={() => { onGoToRules(); onClose(); }} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
           <AltRouteRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText>{t("contextMenu.goToRules")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.goToRules")}</ListItemText>
       </MenuItem>
     </Menu>
   );

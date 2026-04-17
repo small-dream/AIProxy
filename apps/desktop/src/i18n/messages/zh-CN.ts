@@ -693,6 +693,7 @@ export const zhCNMessages: Messages = {
     emptyDescription: "启动代理后，再打开网页或应用请求。捕获到的流量会实时显示在这里。",
     emptyTip: "提示：在启用 SSL 拦截前，先用明文 HTTP 验证抓包链路通常最快。",
     emptyTitle: "还没有捕获到会话。",
+    filterPlaceholder: "过滤",
     loading: "正在加载已捕获的会话...",
     pending: "等待中",
     resourceKinds: {
@@ -719,6 +720,7 @@ export const zhCNMessages: Messages = {
     json: {
       array: "数组[{{count}}]",
       boolean: "布尔值",
+      copyNode: "复制节点",
       integer: "整数",
       null: "空值",
       number: "数字",

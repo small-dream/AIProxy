@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSessionHostGroups,
+  filterSessionsByHostKeyword,
   getSessionResourceKind,
   reconcileExpandedKeys,
 } from "./session-explorer.helpers";
@@ -234,6 +235,34 @@ describe("buildSessionHostGroups", () => {
     expect(
       reconcileExpandedKeys(["missing.example.com", "api.example.com", "api.example.com::api"], groups),
     ).toEqual(["api.example.com", "api.example.com::api"]);
+  });
+});
+
+describe("filterSessionsByHostKeyword", () => {
+  it("keeps only sessions whose host matches the domain filter", () => {
+    const sessions = [
+      createSessionSummary({
+        host: "api.example.com",
+        id: "session-16",
+        url: "http://api.example.com/users",
+      }),
+      createSessionSummary({
+        host: "assets.example.com",
+        id: "session-17",
+        url: "http://assets.example.com/logo.svg",
+      }),
+    ];
+
+    expect(filterSessionsByHostKeyword(sessions, "assets").map((session) => session.id)).toEqual(["session-17"]);
+  });
+
+  it("returns the original sessions when the domain filter is empty", () => {
+    const sessions = [
+      createSessionSummary({ id: "session-18" }),
+      createSessionSummary({ id: "session-19", host: "assets.example.com" }),
+    ];
+
+    expect(filterSessionsByHostKeyword(sessions, "")).toEqual(sessions);
   });
 });
 

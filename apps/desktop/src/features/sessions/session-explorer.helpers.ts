@@ -104,6 +104,19 @@ export function buildSessionHostGroups(
   ];
 }
 
+export function filterSessionsByHostKeyword(
+  sessions: SessionSummary[],
+  hostKeyword: string,
+): SessionSummary[] {
+  const normalizedKeyword = hostKeyword.trim().toLowerCase();
+
+  if (normalizedKeyword.length === 0) {
+    return sessions;
+  }
+
+  return sessions.filter((session) => normalizeHost(session.host).toLowerCase().includes(normalizedKeyword));
+}
+
 export function reconcileExpandedKeys(
   expandedKeys: string[],
   groups: SessionHostGroup[],

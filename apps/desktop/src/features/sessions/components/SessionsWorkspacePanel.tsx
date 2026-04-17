@@ -16,6 +16,7 @@ type SessionsWorkspacePanelProps = {
     labelNumber: number;
   }>;
   detailErrorMessage: string | undefined;
+  domainFilterValue: string;
   errorMessage: string | undefined;
   expandedHosts: string[];
   explorerWidth: number;
@@ -30,6 +31,7 @@ type SessionsWorkspacePanelProps = {
   onCopyCurl: (() => void) | undefined;
   onCopyRequest: (() => void) | undefined;
   onCopyUrl: (() => void) | undefined;
+  onDomainFilterChange: (value: string) => void;
   onRepeat: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
@@ -52,6 +54,7 @@ export function SessionsWorkspacePanel({
   activeContainerId,
   containerTabs,
   detailErrorMessage,
+  domainFilterValue,
   errorMessage,
   expandedHosts,
   explorerWidth,
@@ -66,6 +69,7 @@ export function SessionsWorkspacePanel({
   onCopyCurl,
   onCopyRequest,
   onCopyUrl,
+  onDomainFilterChange,
   onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
@@ -129,10 +133,12 @@ export function SessionsWorkspacePanel({
           }}
         >
           <SessionExplorerPane
+            domainFilterValue={domainFilterValue}
             errorMessage={errorMessage}
             expandedHosts={expandedHosts}
             groups={groups}
             isLoading={isLoading}
+            onDomainFilterChange={onDomainFilterChange}
             onContextMenuHost={onContextMenuHost}
             onContextMenuSession={onContextMenuSession}
             onSelectSession={onSelectSession}

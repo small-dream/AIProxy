@@ -1,16 +1,24 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
-import { Box, IconButton, Tooltip, Typography } from "@mui/material";
+import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "./context-menu.styles";
+import {
   findNormalizedMatchIndex,
+  formatJsonText,
   formatJsonPrimitive,
   isJsonObject,
   normalizeSearch,
@@ -28,6 +36,11 @@ type JsonTreeRow = {
   name?: string;
   path: string;
   value: JsonValue;
+};
+
+type JsonTreeContextMenuState = {
+  anchorPosition: { left: number; top: number };
+  row: JsonTreeRow;
 };
 
 function rowMatchesTexts(matcher: SearchMatcher, texts: (string | undefined)[]): boolean {
@@ -48,14 +61,44 @@ export function SessionInspectorJsonTree({
   value: JsonValue;
 }) {
   const { t } = useI18n();
+  const theme = useTheme();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(["root"]));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<JsonTreeContextMenuState | null>(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const menuItemSx = getContextMenuItemSx(theme);
+  const iconSx = getContextMenuIconSx(theme);
 
   useEffect(() => {
     setExpandedPaths(new Set(["root"]));
     setSelectedPath(null);
+    setContextMenuState(null);
+    setSnackbarOpen(false);
   }, [value]);
+
+  const handleContextMenuOpen = useCallback((row: JsonTreeRow, event: ReactMouseEvent) => {
+    event.preventDefault();
+    setSelectedPath(row.path);
+    setContextMenuState({
+      anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
+      row,
+    });
+  }, []);
+
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenuState(null);
+  }, []);
+
+  const handleCopyNode = useCallback(async () => {
+    if (!contextMenuState || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(serializeJsonNode(contextMenuState.row.value));
+    setSnackbarOpen(true);
+    setContextMenuState(null);
+  }, [contextMenuState]);
 
   function togglePath(path: string) {
     setExpandedPaths((currentPaths) => {
@@ -145,6 +188,7 @@ export function SessionInspectorJsonTree({
                 columnTemplate={columnTemplate}
                 key={row.path}
                 matcher={matcher}
+                onContextMenuOpen={handleContextMenuOpen}
                 onSelectPath={setSelectedPath}
                 onTogglePath={togglePath}
                 row={row}
@@ -155,6 +199,33 @@ export function SessionInspectorJsonTree({
           </InspectorFlatTable>
         </Box>
       </Box>
+
+      <Menu
+        anchorPosition={contextMenuState?.anchorPosition ?? { left: 0, top: 0 }}
+        anchorReference="anchorPosition"
+        onClose={handleContextMenuClose}
+        open={contextMenuState !== null}
+        slotProps={buildContextMenuSlotProps(188)}
+      >
+        <MenuItem
+          onClick={() => {
+            void handleCopyNode();
+          }}
+          sx={menuItemSx}
+        >
+          <ListItemIcon sx={iconSx}>
+            <ContentCopyRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText {...contextMenuItemTextProps}>{t("inspector.json.copyNode")}</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      <Snackbar
+        autoHideDuration={1800}
+        message={t("contextMenu.copiedToClipboard")}
+        onClose={() => setSnackbarOpen(false)}
+        open={snackbarOpen}
+      />
     </Box>
   );
 }
@@ -256,6 +327,14 @@ function getJsonDisplayType(value: JsonValue, t: ReturnType<typeof useI18n>["t"]
   }
 
   return t("inspector.json.unknown");
+}
+
+function serializeJsonNode(value: JsonValue) {
+  if (Array.isArray(value) || isJsonObject(value)) {
+    return formatJsonText(value);
+  }
+
+  return JSON.stringify(value);
 }
 
 function collectMatchingExpansionPaths(
@@ -363,6 +442,7 @@ function collectMatcherExpansionPaths(
 function JsonTreeRowView({
   columnTemplate,
   matcher,
+  onContextMenuOpen,
   onSelectPath,
   onTogglePath,
   row,
@@ -371,6 +451,7 @@ function JsonTreeRowView({
 }: {
   columnTemplate: string;
   matcher?: SearchMatcher | null | undefined;
+  onContextMenuOpen: (row: JsonTreeRow, event: ReactMouseEvent) => void;
   onSelectPath: (path: string) => void;
   onTogglePath: (path: string) => void;
   row: JsonTreeRow;
@@ -419,6 +500,7 @@ function JsonTreeRowView({
         },
       }}
       onClick={() => onSelectPath(path)}
+      onContextMenu={(event) => onContextMenuOpen(row, event)}
     >
       <Box
         sx={{

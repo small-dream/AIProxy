@@ -11,6 +11,7 @@ import {
   Alert,
   Box,
   CircularProgress,
+  InputBase,
   List,
   ListItemButton,
   Stack,
@@ -36,10 +37,12 @@ import {
 } from "../session-explorer.helpers";
 
 type SessionExplorerPaneProps = {
+  domainFilterValue: string;
   errorMessage: string | undefined;
   expandedHosts: string[];
   groups: SessionHostGroup[];
   isLoading: boolean;
+  onDomainFilterChange: (value: string) => void;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
@@ -62,10 +65,12 @@ function getSessionTreeTextSx(theme: Theme) {
 }
 
 export function SessionExplorerPane({
+  domainFilterValue,
   errorMessage,
   expandedHosts,
   groups,
   isLoading,
+  onDomainFilterChange,
   onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
@@ -182,6 +187,48 @@ export function SessionExplorerPane({
             })}
           </List>
         )}
+      </Box>
+
+      <Box
+        sx={(theme) => ({
+          borderTop: "1px solid",
+          borderColor: alpha(theme.palette.common.black, theme.palette.mode === "dark" ? 0.28 : 0.12),
+          bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.common.white, 0.02) : alpha(theme.palette.common.black, 0.015),
+          boxShadow: `inset 0 1px 0 ${alpha(theme.palette.common.white, theme.palette.mode === "dark" ? 0.03 : 0.55)}`,
+          flex: "0 0 auto",
+          minHeight: 34,
+          px: 0,
+          py: 0,
+        })}
+      >
+        <InputBase
+          aria-label={t("sessionExplorer.filterPlaceholder")}
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          onChange={(event) => onDomainFilterChange(event.target.value)}
+          placeholder={t("sessionExplorer.filterPlaceholder")}
+          spellCheck={false}
+          value={domainFilterValue}
+          sx={(theme) => ({
+            color: "text.primary",
+            fontFamily: theme.typography.fontFamily,
+            fontSize: getScaledFontSize(theme, 13.5),
+            fontWeight: 400,
+            lineHeight: 1.25,
+            minHeight: 34,
+            px: 1.5,
+            py: 0.25,
+            width: "100%",
+            "& input": {
+              padding: 0,
+            },
+            "& input::placeholder": {
+              color: theme.palette.text.disabled,
+              opacity: 1,
+            },
+          })}
+        />
       </Box>
     </Box>
   );
