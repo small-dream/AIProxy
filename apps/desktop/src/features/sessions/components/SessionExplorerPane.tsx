@@ -472,7 +472,15 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
       })}
     >
       <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}>
-        <Box sx={{ alignItems: "center", color: getResourceColor(resourceKind), display: "flex", flex: "0 0 auto", mr: 0.375 }}>
+        <Box
+          sx={(theme) => ({
+            alignItems: "center",
+            color: getResourceColor(theme, resourceKind),
+            display: "flex",
+            flex: "0 0 auto",
+            mr: 0.375,
+          })}
+        >
           {renderResourceIcon(resourceKind)}
         </Box>
       </Tooltip>
@@ -647,68 +655,64 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   return <InsertDriveFileOutlinedIcon sx={sx} />;
 }
 
-function getResourceColor(resourceKind: SessionExplorerResourceKind): string {
+function getResourceColor(theme: Theme, resourceKind: SessionExplorerResourceKind): string {
   if (resourceKind === "pending") {
-    return "info.main";
+    return theme.palette.info.main;
   }
 
   if (resourceKind === "warning") {
-    return "error.main";
+    return theme.palette.error.main;
   }
 
   if (resourceKind === "api") {
-    return "text.secondary";
+    return theme.palette.mode === "dark" ? "#D7DA53" : "#A7AD18";
   }
 
   if (resourceKind === "javascript") {
-    return "warning.dark";
+    return theme.palette.warning.dark;
   }
 
   if (resourceKind === "css") {
-    return "info.dark";
+    return theme.palette.info.dark;
   }
 
   if (resourceKind === "html") {
-    return "secondary.main";
+    return theme.palette.secondary.main;
   }
 
   if (resourceKind === "image") {
-    return "primary.main";
+    return theme.palette.primary.main;
   }
 
-  return "text.secondary";
+  return theme.palette.text.secondary;
 }
 
 function JsonFileIcon(props: SvgIconProps) {
   return (
     <SvgIcon {...props} viewBox="0 0 16 16" data-testid="json-file-icon">
       <path
-        d="M4 1.75h5.4L12.75 5v8.25A1.75 1.75 0 0 1 11 15H4A1.75 1.75 0 0 1 2.25 13.25v-9.75A1.75 1.75 0 0 1 4 1.75Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9.25 1.75V4A1 1 0 0 0 10.25 5h2.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M5.35 8.15c-.48 0-.8.34-.8.85s.32.85.8.85M10.65 8.15c.48 0 .8.34.8.85s-.32.85-.8.85"
+        d="M5.9 3.35c-.86.36-1.41.89-1.41 1.78v1.23c0 .57-.18.9-.67 1.06v.12c.49.16.67.49.67 1.06v1.23c0 .89.55 1.42 1.41 1.78"
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeWidth="1"
+        strokeLinejoin="round"
+        strokeWidth="1.35"
       />
       <path
-        d="M6.75 7.5h2.5M6.75 8.8h2.5M6.75 10.1h2.5"
+        d="M10.1 3.35c.86.36 1.41.89 1.41 1.78v1.23c0 .57.18.9.67 1.06v.12c-.49.16-.67.49-.67 1.06v1.23c0 .89-.55 1.42-1.41 1.78"
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeWidth=".9"
+        strokeLinejoin="round"
+        strokeWidth="1.35"
+      />
+      <path
+        d="M7.1 4.5 6.4 7.4l.7 2.9M8.9 4.5l.7 2.9-.7 2.9"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.15"
       />
     </SvgIcon>
   );
