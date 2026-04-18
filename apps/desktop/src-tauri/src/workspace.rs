@@ -41,6 +41,14 @@ impl WorkspaceManager {
         }
     }
 
+    pub fn set_workspaces(&self, workspaces: Vec<WorkspaceData>) {
+        let mut guard = self
+            .workspaces
+            .lock()
+            .expect("workspace list mutex should not be poisoned");
+        *guard = workspaces;
+    }
+
     pub fn list(&self) -> Vec<WorkspaceData> {
         self.workspaces
             .lock()

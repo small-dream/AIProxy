@@ -86,6 +86,11 @@ impl RewriteManager {
         }
     }
 
+    pub fn set_rules(&self, rules: Vec<RewriteRule>) {
+        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = rules;
+    }
+
     pub fn list_rules(&self) -> Vec<RewriteRule> {
         self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -132,6 +137,11 @@ impl MapManager {
         }
     }
 
+    pub fn set_rules(&self, rules: Vec<MapRule>) {
+        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = rules;
+    }
+
     pub fn list_rules(&self) -> Vec<MapRule> {
         self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -176,6 +186,11 @@ impl ThrottleManager {
         Self {
             profiles: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_profiles(&self, profiles: Vec<ThrottleProfileData>) {
+        let mut guard = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = profiles;
     }
 
     pub fn list_profiles(&self) -> Vec<ThrottleProfileData> {

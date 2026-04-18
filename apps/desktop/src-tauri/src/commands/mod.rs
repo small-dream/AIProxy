@@ -7,7 +7,7 @@ use crate::system_proxy::{
 use crate::workspace::WorkspaceData;
 use aiproxy_proxy_core::{
     get_local_ip_addresses, send_direct_request, start_proxy_server,
-    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, MapRule,
+    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, MapRule,
     ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
     RewriteRule, ThrottleProfileData, TlsManager,
 };
@@ -1318,6 +1318,27 @@ pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointR
 
 #[tauri::command]
 pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<AppState>>) {
+    // Persist to DB first
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let rows: Vec<aiproxy_db::rules::BreakpointRuleRow> = rules
+            .iter()
+            .map(|r| aiproxy_db::rules::BreakpointRuleRow {
+                id: r.id.clone(),
+                enabled: r.enabled,
+                url_pattern: r.url_pattern.clone(),
+                methods: serde_json::to_string(&r.methods).unwrap_or_default(),
+                stage: match r.stage {
+                    BreakpointStage::Request => "Request".to_string(),
+                    BreakpointStage::Response => "Response".to_string(),
+                },
+            })
+            .collect();
+        if let Err(error) = aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows) {
+            log_error("desktop.commands", "set_breakpoint_rules_db_failed", &[("error", error)]);
+        }
+    }
+
     state.read_breakpoint_manager().set_rules(rules);
 }
 
@@ -1356,6 +1377,27 @@ pub fn save_rewrite_rule(
     input: RewriteRule,
     state: State<'_, Arc<AppState>>,
 ) -> RewriteRule {
+    // Persist to DB first
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::RewriteRuleRow {
+            id: input.id.clone(),
+            workspace_id: input.workspace_id.clone(),
+            name: input.name.clone(),
+            note: input.note.clone(),
+            enabled: input.enabled,
+            priority: input.priority,
+            match_methods: serde_json::to_string(&input.r#match.methods).unwrap_or_default(),
+            match_stage: input.r#match.stage.clone(),
+            match_url_pattern: input.r#match.url_pattern.clone(),
+            rewrite_type: input.rewrite_type.clone(),
+            payload: input.payload.to_string(),
+        };
+        if let Err(error) = aiproxy_db::rules::save_rewrite_rule(&conn, &row) {
+            log_error("desktop.commands", "save_rewrite_rule_db_failed", &[("error", error)]);
+        }
+    }
+
     state.read_rewrite_manager().save_rule(input)
 }
 
@@ -1388,6 +1430,27 @@ pub fn save_map_rule(
     input: MapRule,
     state: State<'_, Arc<AppState>>,
 ) -> MapRule {
+    // Persist to DB first
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::MapRuleRow {
+            id: input.id.clone(),
+            workspace_id: input.workspace_id.clone(),
+            mode: input.mode.clone(),
+            name: input.name.clone(),
+            note: input.note.clone(),
+            enabled: input.enabled,
+            preserve_path: input.preserve_path,
+            preserve_query: input.preserve_query,
+            priority: input.priority,
+            source_pattern: input.source_pattern.clone(),
+            target_value: input.target_value.clone(),
+        };
+        if let Err(error) = aiproxy_db::rules::save_map_rule(&conn, &row) {
+            log_error("desktop.commands", "save_map_rule_db_failed", &[("error", error)]);
+        }
+    }
+
     state.read_map_manager().save_rule(input)
 }
 
@@ -1405,6 +1468,19 @@ pub fn delete_rule(
     input: DeleteRuleInput,
     state: State<'_, Arc<AppState>>,
 ) {
+    // Persist to DB first
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let db_result = match input.rule_type.as_str() {
+            "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
+            "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
+            _ => Ok(()),
+        };
+        if let Err(error) = db_result {
+            log_error("desktop.commands", "delete_rule_db_failed", &[("error", error)]);
+        }
+    }
+
     match input.rule_type.as_str() {
         "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
@@ -1436,6 +1512,26 @@ pub fn save_throttle_profile(
     input: ThrottleProfileData,
     state: State<'_, Arc<AppState>>,
 ) -> ThrottleProfileData {
+    // Persist to DB first
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::ThrottleProfileRow {
+            id: input.id.clone(),
+            workspace_id: input.workspace_id.clone(),
+            name: input.name.clone(),
+            note: input.note.clone(),
+            enabled: input.enabled,
+            preset: input.preset,
+            latency_ms: input.latency_ms,
+            upload_kbps: input.upload_kbps,
+            download_kbps: input.download_kbps,
+            packet_loss_ratio: input.packet_loss_ratio,
+        };
+        if let Err(error) = aiproxy_db::rules::save_throttle_profile(&conn, &row) {
+            log_error("desktop.commands", "save_throttle_profile_db_failed", &[("error", error)]);
+        }
+    }
+
     state.read_throttle_manager().save_profile(input)
 }
 
@@ -1455,6 +1551,29 @@ pub fn set_active_throttle_profile(
         &input.workspace_id,
         input.profile_id.as_deref(),
     );
+
+    // Persist all profiles for this workspace (enabled flag changed)
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let profiles = state.read_throttle_manager().list_profiles();
+        for p in profiles.iter().filter(|p| p.workspace_id == input.workspace_id) {
+            let row = aiproxy_db::rules::ThrottleProfileRow {
+                id: p.id.clone(),
+                workspace_id: p.workspace_id.clone(),
+                name: p.name.clone(),
+                note: p.note.clone(),
+                enabled: p.enabled,
+                preset: p.preset,
+                latency_ms: p.latency_ms,
+                upload_kbps: p.upload_kbps,
+                download_kbps: p.download_kbps,
+                packet_loss_ratio: p.packet_loss_ratio,
+            };
+            if let Err(error) = aiproxy_db::rules::save_throttle_profile(&conn, &row) {
+                log_error("desktop.commands", "set_active_throttle_profile_db_failed", &[("error", error)]);
+            }
+        }
+    }
 }
 
 // --- Workspace commands ---
@@ -1492,6 +1611,24 @@ pub fn create_workspace(
     let workspace = state
         .read_workspace_manager()
         .create(input.name, input.proxy_port, ssl_enabled);
+
+    // Persist to DB
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::workspaces::WorkspaceRow {
+            id: workspace.id.clone(),
+            name: workspace.name.clone(),
+            proxy_port: workspace.proxy_port,
+            ssl_enabled: workspace.ssl_enabled,
+            system_proxy_enabled: workspace.system_proxy_enabled,
+            storage_path: workspace.storage_path.clone(),
+            created_at: workspace.created_at.clone(),
+            updated_at: workspace.updated_at.clone(),
+        };
+        if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
+            log_error("desktop.commands", "create_workspace_db_failed", &[("error", error)]);
+        }
+    }
 
     log_info(
         "desktop.commands",
@@ -1558,10 +1695,25 @@ pub fn update_workspace(
 
     let workspace = state.read_workspace_manager().update(
         &input.workspace_id,
-        input.name,
+        input.name.clone(),
         input.proxy_port,
         input.ssl_enabled,
     )?;
+
+    // Persist to DB
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        if let Err(error) = aiproxy_db::workspaces::update_workspace(
+            &conn,
+            &input.workspace_id,
+            input.name.as_deref(),
+            input.proxy_port,
+            input.ssl_enabled,
+            &workspace.updated_at,
+        ) {
+            log_error("desktop.commands", "update_workspace_db_failed", &[("error", error)]);
+        }
+    }
 
     log_info(
         "desktop.commands",

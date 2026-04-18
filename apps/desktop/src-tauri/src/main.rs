@@ -8,7 +8,7 @@ use bootstrap::AppState;
 use dev_logger::{log_error, log_info, log_warn};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use system_proxy::restore_system_proxy;
 use tauri::{Manager, RunEvent};
@@ -21,10 +21,59 @@ pub fn run() {
         eprintln!("level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\"");
     }
 
+    // Initialize database before building the app
+    let db_connection = match aiproxy_db::connection::open_database() {
+        Ok(conn) => {
+            log_info("desktop.app", "database_opened", &[]);
+            conn
+        }
+        Err(error) => {
+            log_error("desktop.app", "database_open_failed", &[("error", error.clone())]);
+            eprintln!("level=ERROR component=desktop.app event=database_open_failed error=\"{error}\"");
+            std::process::exit(1);
+        }
+    };
+
+    let body_store_dir = aiproxy_db::connection::resolve_db_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("aiproxy"))
+        .join("bodies");
+    let body_store = aiproxy_db::body_store::BodyStore::new(body_store_dir);
+    if let Err(error) = body_store.ensure_dir() {
+        log_error("desktop.app", "body_store_init_failed", &[("error", error.clone())]);
+    }
+
+    let app_state = AppState::new(
+        Arc::new(Mutex::new(db_connection)),
+        Arc::new(body_store),
+    );
+
+    // Seed default workspace to DB if empty
+    {
+        let conn = app_state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        if aiproxy_db::workspaces::is_empty(&conn) {
+            let default_ws = app_state.read_workspace_manager().list();
+            if let Some(ws) = default_ws.first() {
+                let row = aiproxy_db::workspaces::WorkspaceRow {
+                    id: ws.id.clone(),
+                    name: ws.name.clone(),
+                    proxy_port: ws.proxy_port,
+                    ssl_enabled: ws.ssl_enabled,
+                    system_proxy_enabled: ws.system_proxy_enabled,
+                    storage_path: ws.storage_path.clone(),
+                    created_at: ws.created_at.clone(),
+                    updated_at: ws.updated_at.clone(),
+                };
+                if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
+                    log_error("desktop.app", "seed_default_workspace_failed", &[("error", error)]);
+                }
+            }
+        }
+    }
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(Arc::new(AppState::new()))
+        .manage(Arc::new(app_state))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_status,
             commands::list_sessions,

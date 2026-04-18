@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "apps/desktop/src-tauri",
+  "crates/db",
   "crates/exporter",
   "crates/proxy-core",
   "crates/rule-engine",

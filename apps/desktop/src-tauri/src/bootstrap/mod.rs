@@ -1,4 +1,14 @@
-use aiproxy_proxy_core::{BreakpointManager, MapManager, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager, ThrottleManager, TlsManager};
+use aiproxy_db::body_store::BodyStore;
+use aiproxy_db::rules::{
+    BreakpointRuleRow, MapRuleRow, RewriteRuleRow, ThrottleProfileRow,
+};
+use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
+use aiproxy_db::workspaces::WorkspaceRow;
+use aiproxy_proxy_core::{
+    BreakpointManager, BreakpointRule, BreakpointStage, MapManager, MapRule, ProxyServerHandle,
+    ProxySessionDetail, ProxySessionSummary, RewriteManager, RewriteRule, RewriteRuleMatch,
+    ThrottleManager, ThrottleProfileData, TlsManager,
+};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -7,7 +17,7 @@ use std::{
 use tauri::{async_runtime::JoinHandle, Emitter};
 
 use crate::system_proxy::SystemProxySnapshot;
-use crate::workspace::WorkspaceManager;
+use crate::workspace::{WorkspaceData, WorkspaceManager};
 
 /// Snapshot of the certificate state for the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -65,11 +75,13 @@ pub struct AppState {
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     focused_host: Mutex<Option<String>>,
+    db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
+    body_store: Arc<BodyStore>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>, body_store: Arc<BodyStore>) -> Self {
+        let state = Self {
             runtime: Mutex::new(None),
             session_details: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(Vec::new())),
@@ -84,6 +96,63 @@ impl AppState {
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
             focused_host: Mutex::new(None),
+            db,
+            body_store,
+        };
+
+        state.init_from_db();
+        state
+    }
+
+    /// Load all persisted data from SQLite into the in-memory managers.
+    fn init_from_db(&self) {
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+
+        // Load workspaces
+        if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
+            if !rows.is_empty() {
+                self.workspace_manager.set_workspaces(
+                    rows.into_iter().map(workspace_row_to_data).collect(),
+                );
+            }
+        }
+
+        // Load rewrite rules
+        if let Ok(rows) = aiproxy_db::rules::load_all_rewrite_rules(&conn) {
+            self.rewrite_manager.set_rules(
+                rows.into_iter().map(rewrite_row_to_rule).collect(),
+            );
+        }
+
+        // Load map rules
+        if let Ok(rows) = aiproxy_db::rules::load_all_map_rules(&conn) {
+            self.map_manager.set_rules(
+                rows.into_iter().map(map_row_to_rule).collect(),
+            );
+        }
+
+        // Load throttle profiles
+        if let Ok(rows) = aiproxy_db::rules::load_all_throttle_profiles(&conn) {
+            self.throttle_manager.set_profiles(
+                rows.into_iter().map(throttle_row_to_profile).collect(),
+            );
+        }
+
+        // Load breakpoint rules
+        if let Ok(rows) = aiproxy_db::rules::load_breakpoint_rules(&conn) {
+            self.breakpoint_manager.set_rules(
+                rows.into_iter().map(breakpoint_row_to_rule).collect(),
+            );
+        }
+
+        // Load recent session summaries
+        if let Ok(rows) = aiproxy_db::sessions::load_recent_summaries(&conn, 15_000) {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("session list mutex should not be poisoned");
+            // Reverse so newest is last (matching the append order during capture)
+            *sessions = rows.into_iter().rev().map(summary_row_to_proxy).collect();
         }
     }
 
@@ -102,14 +171,44 @@ impl AppState {
     }
 
     pub fn read_session_detail(&self, session_id: &str) -> Option<ProxySessionDetail> {
-        self.session_details
+        // Try in-memory cache first
+        if let Some(detail) = self
+            .session_details
             .lock()
             .expect("session detail mutex should not be poisoned")
             .get(session_id)
             .cloned()
+        {
+            return Some(detail);
+        }
+
+        // Fallback: load from DB
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        if let Ok(Some(row)) = aiproxy_db::sessions::load_session_detail(&conn, session_id) {
+            let summary = self
+                .sessions
+                .lock()
+                .expect("session list mutex should not be poisoned")
+                .iter()
+                .find(|s| s.id == session_id)
+                .cloned();
+
+            if let Some(summary) = summary {
+                return Some(detail_row_to_proxy(&row, summary, &self.body_store));
+            }
+        }
+
+        None
     }
 
     pub fn clear_sessions(&self) {
+        // Clear from DB and body files
+        {
+            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let _ = aiproxy_db::sessions::clear_all_sessions(&conn);
+        }
+        let _ = self.body_store.clear_all();
+
         let ids_to_remove: Vec<String> = {
             let sessions = self
                 .sessions
@@ -148,6 +247,15 @@ impl AppState {
                 .collect()
         };
 
+        // Delete from DB and body files
+        {
+            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let _ = aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_remove);
+        }
+        for id in &ids_to_remove {
+            let _ = self.body_store.remove_bodies(id);
+        }
+
         self.sessions
             .lock()
             .expect("session list mutex should not be poisoned")
@@ -173,6 +281,21 @@ impl AppState {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
 
+        // Persist to DB
+        {
+            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let summary_row = proxy_summary_to_row(&session_summary);
+            let detail_row = proxy_detail_to_row(&session_detail, &self.body_store);
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+            {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "session_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+        }
+
         self.session_details
             .lock()
             .expect("session detail mutex should not be poisoned")
@@ -197,6 +320,17 @@ impl AppState {
                 focused_host.as_deref(),
             );
             let removed_session = sessions.remove(eviction_index);
+
+            // Remove from DB and body files
+            {
+                let conn = self.db.lock().expect("db mutex should not be poisoned");
+                let _ = aiproxy_db::sessions::delete_sessions_by_ids(
+                    &conn,
+                    &[removed_session.id.clone()],
+                );
+            }
+            let _ = self.body_store.remove_bodies(&removed_session.id);
+
             self.session_details
                 .lock()
                 .expect("session detail mutex should not be poisoned")
@@ -209,6 +343,10 @@ impl AppState {
         if let Some(handle) = self.read_app_handle() {
             let _ = handle.emit("session-upsert", session_detail);
         }
+    }
+
+    pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
+        &self.db
     }
 
     pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {
@@ -393,6 +531,227 @@ fn select_session_eviction_index(
         .iter()
         .position(|session| session.host != focused_host)
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Conversion helpers: DB rows <-> domain types
+// ---------------------------------------------------------------------------
+
+fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
+    WorkspaceData {
+        id: row.id,
+        name: row.name,
+        proxy_port: row.proxy_port,
+        ssl_enabled: row.ssl_enabled,
+        system_proxy_enabled: row.system_proxy_enabled,
+        storage_path: row.storage_path,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
+}
+
+fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
+    RewriteRule {
+        id: row.id,
+        enabled: row.enabled,
+        name: row.name,
+        note: row.note,
+        priority: row.priority,
+        r#match: RewriteRuleMatch {
+            methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
+            stage: row.match_stage,
+            url_pattern: row.match_url_pattern,
+        },
+        rewrite_type: row.rewrite_type,
+        workspace_id: row.workspace_id,
+        payload: serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null),
+    }
+}
+
+fn map_row_to_rule(row: MapRuleRow) -> MapRule {
+    MapRule {
+        id: row.id,
+        enabled: row.enabled,
+        mode: row.mode,
+        name: row.name,
+        note: row.note,
+        preserve_path: row.preserve_path,
+        preserve_query: row.preserve_query,
+        priority: row.priority,
+        source_pattern: row.source_pattern,
+        target_value: row.target_value,
+        workspace_id: row.workspace_id,
+    }
+}
+
+fn throttle_row_to_profile(row: ThrottleProfileRow) -> ThrottleProfileData {
+    ThrottleProfileData {
+        id: row.id,
+        download_kbps: row.download_kbps,
+        enabled: row.enabled,
+        latency_ms: row.latency_ms,
+        name: row.name,
+        note: row.note,
+        packet_loss_ratio: row.packet_loss_ratio,
+        preset: row.preset,
+        upload_kbps: row.upload_kbps,
+        workspace_id: row.workspace_id,
+    }
+}
+
+fn breakpoint_row_to_rule(row: BreakpointRuleRow) -> BreakpointRule {
+    BreakpointRule {
+        id: row.id,
+        enabled: row.enabled,
+        url_pattern: row.url_pattern,
+        methods: serde_json::from_str(&row.methods).unwrap_or_default(),
+        stage: match row.stage.as_str() {
+            "Response" => BreakpointStage::Response,
+            _ => BreakpointStage::Request,
+        },
+    }
+}
+
+fn summary_row_to_proxy(row: SessionSummaryRow) -> ProxySessionSummary {
+    ProxySessionSummary {
+        id: row.id,
+        method: row.method,
+        host: row.host,
+        path: row.path,
+        protocol: row.protocol,
+        started_at: row.started_at,
+        finished_at: row.finished_at,
+        duration_ms: row.duration_ms,
+        size_bytes: row.size_bytes,
+        status_code: row.status_code,
+        url: row.url,
+        response_mime_type: row.response_mime_type,
+    }
+}
+
+fn detail_row_to_proxy(
+    row: &SessionDetailRow,
+    summary: ProxySessionSummary,
+    _body_store: &BodyStore,
+) -> ProxySessionDetail {
+    use aiproxy_proxy_core::{ProxyBodyReference, ProxyHeaderEntry, ProxyTimingBreakdown};
+
+    let headers_from_json = |json: &str| -> Vec<ProxyHeaderEntry> {
+        serde_json::from_str(json).unwrap_or_default()
+    };
+
+    let body_ref_from_json = |json: Option<&str>| -> Option<ProxyBodyReference> {
+        json.and_then(|j| {
+            // Body ref is stored as JSON with optional inline text or file path
+            let v: serde_json::Value = serde_json::from_str(j).ok()?;
+            Some(ProxyBodyReference {
+                base64_text: v.get("base64_text").and_then(|v| v.as_str()).map(String::from),
+                encoding: v.get("encoding").and_then(|v| v.as_str()).map(String::from),
+                inline_text: v.get("inline_text").and_then(|v| v.as_str()).map(String::from),
+                mime_type: v.get("mime_type").and_then(|v| v.as_str()).map(String::from),
+                size_bytes: v.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+                truncated: v.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false),
+            })
+        })
+    };
+
+    let timing = row.timing.as_ref().and_then(|j| {
+        let v: serde_json::Value = serde_json::from_str(j).ok()?;
+        Some(ProxyTimingBreakdown {
+            connect_ms: v.get("connect_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            request_send_ms: v.get("request_send_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            response_read_ms: v.get("response_read_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            tls_ms: v.get("tls_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            total_ms: v.get("total_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            waiting_ms: v.get("waiting_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+        })
+    });
+
+    ProxySessionDetail {
+        id: row.session_summary_id.clone(),
+        query_params: headers_from_json(&row.query_params),
+        cookies: headers_from_json(&row.cookies),
+        raw_request: row.raw_request.clone(),
+        raw_response: row.raw_response.clone(),
+        request_body: body_ref_from_json(row.request_body_ref.as_deref()),
+        request_headers: headers_from_json(&row.request_headers),
+        response_body: body_ref_from_json(row.response_body_ref.as_deref()),
+        response_headers: headers_from_json(&row.response_headers),
+        server_ip: row.server_ip.clone(),
+        summary,
+        timing,
+    }
+}
+
+fn proxy_summary_to_row(summary: &ProxySessionSummary) -> SessionSummaryRow {
+    SessionSummaryRow {
+        id: summary.id.clone(),
+        method: summary.method.clone(),
+        host: summary.host.clone(),
+        path: summary.path.clone(),
+        protocol: summary.protocol.clone(),
+        started_at: summary.started_at.clone(),
+        finished_at: summary.finished_at.clone(),
+        duration_ms: summary.duration_ms,
+        size_bytes: summary.size_bytes,
+        status_code: summary.status_code,
+        url: summary.url.clone(),
+        response_mime_type: summary.response_mime_type.clone(),
+    }
+}
+
+fn proxy_detail_to_row(detail: &ProxySessionDetail, _body_store: &BodyStore) -> SessionDetailRow {
+    let body_to_json = |body: &Option<aiproxy_proxy_core::ProxyBodyReference>| -> Option<String> {
+        body.as_ref().map(|b| {
+            // For large bodies stored on disk, the ref points to a file
+            // For small bodies, we store inline
+            let mut body_json = serde_json::json!({
+                "size_bytes": b.size_bytes,
+                "truncated": b.truncated,
+            });
+            if let Some(ref text) = b.inline_text {
+                body_json["inline_text"] = serde_json::Value::String(text.clone());
+            }
+            if let Some(ref mime) = b.mime_type {
+                body_json["mime_type"] = serde_json::Value::String(mime.clone());
+            }
+            if let Some(ref enc) = b.encoding {
+                body_json["encoding"] = serde_json::Value::String(enc.clone());
+            }
+            if let Some(ref b64) = b.base64_text {
+                body_json["base64_text"] = serde_json::Value::String(b64.clone());
+            }
+            body_json.to_string()
+        })
+    };
+
+    let timing_json = detail.timing.as_ref().map(|t| {
+        let mut v = serde_json::json!({});
+        if let Some(ms) = t.connect_ms { v["connect_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.dns_ms { v["dns_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.request_send_ms { v["request_send_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.response_read_ms { v["response_read_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.tls_ms { v["tls_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.total_ms { v["total_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.waiting_ms { v["waiting_ms"] = serde_json::json!(ms); }
+        v.to_string()
+    });
+
+    SessionDetailRow {
+        id: format!("{}-detail", detail.id),
+        session_summary_id: detail.id.clone(),
+        query_params: serde_json::to_string(&detail.query_params).unwrap_or_else(|_| "[]".into()),
+        cookies: serde_json::to_string(&detail.cookies).unwrap_or_else(|_| "[]".into()),
+        request_headers: serde_json::to_string(&detail.request_headers).unwrap_or_else(|_| "[]".into()),
+        response_headers: serde_json::to_string(&detail.response_headers).unwrap_or_else(|_| "[]".into()),
+        raw_request: detail.raw_request.clone(),
+        raw_response: detail.raw_response.clone(),
+        server_ip: detail.server_ip.clone(),
+        request_body_ref: body_to_json(&detail.request_body),
+        response_body_ref: body_to_json(&detail.response_body),
+        timing: timing_json,
+    }
 }
 
 #[cfg(test)]
