@@ -2,6 +2,13 @@ import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shar
 
 import { enMessages } from "@/i18n/messages/en";
 
+export function isWebSocketSession(session: SessionSummary): boolean {
+  return session.statusCode === 101
+    || session.protocol === "ws"
+    || session.protocol === "wss"
+    || session.responseMimeType === "websocket";
+}
+
 export type SearchOptions = {
   caseSensitive: boolean;
   wholeWord: boolean;
@@ -91,6 +98,7 @@ export type RequestInspectorTab =
 export type ResponseInspectorTab =
   | "overview"
   | "headers"
+  | "messages"
   | "text"
   | "json"
   | "jsonText"

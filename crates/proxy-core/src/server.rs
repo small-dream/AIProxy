@@ -31,6 +31,7 @@ pub async fn start_proxy_server(
 
     let (shutdown_sender, mut shutdown_receiver) = oneshot::channel::<()>();
     let (session_sender, session_receiver) = mpsc::unbounded_channel();
+    let (ws_message_sender, ws_message_receiver) = mpsc::unbounded_channel();
     let connection_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
 
     emit_log(
@@ -75,6 +76,7 @@ pub async fn start_proxy_server(
 
                             let client = Arc::clone(&client);
                             let session_sender = session_sender.clone();
+                            let ws_message_sender = ws_message_sender.clone();
                             let tls_manager = tls_manager.clone();
                             let breakpoint_manager = breakpoint_manager.clone();
                             let rewrite_manager = rewrite_manager.clone();
@@ -90,6 +92,7 @@ pub async fn start_proxy_server(
                                     client_addr,
                                     client,
                                     session_sender,
+                                    ws_message_sender,
                                     tls_manager,
                                     breakpoint_manager,
                                     rewrite_manager,
@@ -132,6 +135,7 @@ pub async fn start_proxy_server(
             join_handle,
         },
         session_receiver,
+        ws_message_receiver,
     })
 }
 
@@ -141,6 +145,7 @@ async fn handle_connection(
     client_addr: SocketAddr,
     client: Arc<Client>,
     session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
+    ws_message_sender: mpsc::UnboundedSender<crate::ws::WsMessageData>,
     tls_manager: Option<Arc<TlsManager>>,
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
@@ -264,6 +269,7 @@ async fn handle_connection(
                     mgr,
                     client,
                     session_sender,
+                    ws_message_sender,
                     started_at,
                     started_at_instant,
                     breakpoint_manager,
@@ -386,7 +392,23 @@ async fn handle_connection(
 
     let upstream_result = match local_response {
         Some(local_response) => Ok(local_response),
-        None => forward_request(&client, &request).await,
+        None => {
+            // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
+            let is_ws = request.headers.iter().any(|(name, value)| {
+                name.as_str().eq_ignore_ascii_case("upgrade") && value.as_bytes().eq_ignore_ascii_case(b"websocket")
+            });
+            if is_ws {
+                emit_log("INFO", "ws_http_upgrade_detected", &[
+                    ("request_id", request.request_id.clone()),
+                    ("host", request.host.clone()),
+                    ("url", request.url.to_string()),
+                    ("method", request.method.to_string()),
+                ]);
+                handle_http_websocket_upgrade(&mut stream, &request, &session_sender, &ws_message_sender, started_at, started_at_instant).await?;
+                return Ok(());
+            }
+            forward_request(&client, &request).await
+        }
     };
 
     match upstream_result {
@@ -720,6 +742,376 @@ async fn tunnel_blind_relay(
     Ok(())
 }
 
+fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
+    use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use tokio_rustls::rustls::crypto::CryptoProvider;
+    use tokio_rustls::rustls::DigitallySignedStruct;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+
+    #[derive(Debug)]
+    struct NoVerifier;
+
+    impl ServerCertVerifier for NoVerifier {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
+        ) -> Result<ServerCertVerified, tokio_rustls::rustls::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
+            CryptoProvider::get_default()
+                .map(|p| p.signature_verification_algorithms.supported_schemes())
+                .unwrap_or_default()
+        }
+    }
+
+    let config = tokio_rustls::rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoVerifier))
+        .with_no_client_auth();
+
+    Arc::new(config)
+}
+
+/// Handle WebSocket upgrade for plain HTTP (ws://) connections.
+/// Opens a raw TCP connection to upstream, sends the upgrade request, reads the 101 response,
+/// writes it back to the client, then enters bidirectional frame relay.
+async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    client_stream: &mut S,
+    request: &ParsedProxyRequest,
+    session_sender: &mpsc::UnboundedSender<ProxySessionDetail>,
+    ws_message_sender: &mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<(), String> {
+    let port = request.url.port().unwrap_or(80);
+    let host_port = format!("{}:{}", request.host, port);
+
+    emit_log("DEBUG", "ws_http_connecting_upstream", &[
+        ("request_id", request.request_id.clone()),
+        ("host_port", host_port.clone()),
+    ]);
+
+    let mut upstream = TcpStream::connect(&*host_port)
+        .await
+        .map_err(|e| {
+            emit_log("ERROR", "ws_http_upstream_connect_failed", &[
+                ("request_id", request.request_id.clone()),
+                ("host_port", host_port.clone()),
+                ("error", e.to_string()),
+            ]);
+            format!("ws upstream connect: {e}")
+        })?;
+
+    emit_log("DEBUG", "ws_http_upstream_connected", &[
+        ("request_id", request.request_id.clone()),
+    ]);
+
+    let raw_req = build_raw_upgrade_request(request)?;
+    emit_log("DEBUG", "ws_http_sending_upgrade", &[
+        ("request_id", request.request_id.clone()),
+        ("raw_req_len", raw_req.len().to_string()),
+    ]);
+    emit_log("DEBUG", "ws_http_raw_request", &[
+        ("request_id", request.request_id.clone()),
+        ("raw_req", raw_req.clone()),
+    ]);
+
+    upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
+        emit_log("ERROR", "ws_http_upgrade_send_failed", &[
+            ("request_id", request.request_id.clone()),
+            ("error", e.to_string()),
+        ]);
+        format!("ws upgrade send: {e}")
+    })?;
+
+    // Read the upstream 101 response and relay it to the client
+    let response_head = read_http_response_head(&mut upstream).await.map_err(|e| {
+        emit_log("ERROR", "ws_http_read_response_head_failed", &[
+            ("request_id", request.request_id.clone()),
+            ("error", e.clone()),
+        ]);
+        e
+    })?;
+
+    emit_log("DEBUG", "ws_http_got_response_head", &[
+        ("request_id", request.request_id.clone()),
+        ("response_head", response_head.clone()),
+    ]);
+
+    // Parse status code from the response
+    let status_line = response_head.lines().next().unwrap_or("");
+    let status_code: u16 = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(502);
+
+    emit_log("INFO", "ws_http_upstream_status", &[
+        ("request_id", request.request_id.clone()),
+        ("status_code", status_code.to_string()),
+    ]);
+
+    // Write the response head back to the client
+    client_stream
+        .write_all(response_head.as_bytes())
+        .await
+        .map_err(|e| {
+            emit_log("ERROR", "ws_http_write_to_client_failed", &[
+                ("request_id", request.request_id.clone()),
+                ("error", e.to_string()),
+            ]);
+            format!("ws response write to client: {e}")
+        })?;
+    client_stream.flush().await.map_err(|e| format!("ws flush: {e}"))?;
+
+    emit_log("INFO", "ws_http_entering_relay", &[
+        ("request_id", request.request_id.clone()),
+        ("session_id", request.request_id.clone()),
+    ]);
+
+    let mut detail = build_session_detail(
+        request,
+        status_code,
+        &HeaderMap::new(),
+        &[],
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: None,
+            dns_ms: None,
+            request_send_ms: Some(0),
+            response_read_ms: Some(0),
+            tls_ms: None,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(0),
+        },
+    );
+    detail.summary.protocol = "ws".to_string();
+    detail.summary.response_mime_type = Some("websocket".to_string());
+    let session_id_for_relay = detail.id.clone();
+    if session_sender.send(detail).is_err() {
+        return Ok(());
+    }
+
+    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender).await;
+    Ok(())
+}
+
+/// Handle WebSocket upgrade for HTTPS (wss://) connections via MITM.
+/// Opens a raw TLS connection to upstream, sends the upgrade request, reads the 101 response,
+/// writes it back to the client, then enters bidirectional frame relay.
+async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    client_stream: &mut S,
+    request: &ParsedProxyRequest,
+    session_sender: &mpsc::UnboundedSender<ProxySessionDetail>,
+    ws_message_sender: &mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+    tls_ms: u128,
+) -> Result<(), String> {
+    let port = request.url.port().unwrap_or(443);
+    let host_port = format!("{}:{}", request.host, port);
+
+    emit_log("DEBUG", "wss_connecting_upstream", &[
+        ("request_id", request.request_id.clone()),
+        ("host_port", host_port.clone()),
+    ]);
+
+    let ws_tcp = TcpStream::connect(&*host_port)
+        .await
+        .map_err(|e| {
+            emit_log("ERROR", "wss_upstream_connect_failed", &[
+                ("request_id", request.request_id.clone()),
+                ("host_port", host_port.clone()),
+                ("error", e.to_string()),
+            ]);
+            format!("wss upstream connect: {e}")
+        })?;
+
+    emit_log("DEBUG", "wss_tcp_connected", &[
+        ("request_id", request.request_id.clone()),
+    ]);
+
+    let client_config = build_dangerous_client_tls_config();
+    let tls_connector = tokio_rustls::TlsConnector::from(client_config);
+    let ws_host = request.host.clone();
+    let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(ws_host.clone())
+        .unwrap_or_else(|_| tokio_rustls::rustls::pki_types::ServerName::IpAddress(
+            std::net::Ipv4Addr::LOCALHOST.into(),
+        ));
+
+    emit_log("DEBUG", "wss_starting_tls_handshake", &[
+        ("request_id", request.request_id.clone()),
+        ("ws_host", ws_host.clone()),
+    ]);
+
+    let mut upstream = tls_connector
+        .connect(dns_name, ws_tcp)
+        .await
+        .map_err(|e| {
+            emit_log("ERROR", "wss_tls_handshake_failed", &[
+                ("request_id", request.request_id.clone()),
+                ("ws_host", ws_host.clone()),
+                ("error", e.to_string()),
+            ]);
+            format!("wss upstream tls handshake: {e}")
+        })?;
+
+    emit_log("DEBUG", "wss_tls_connected", &[
+        ("request_id", request.request_id.clone()),
+    ]);
+
+    let raw_req = build_raw_upgrade_request(request)?;
+    emit_log("DEBUG", "wss_sending_upgrade", &[
+        ("request_id", request.request_id.clone()),
+        ("raw_req_len", raw_req.len().to_string()),
+    ]);
+    emit_log("DEBUG", "wss_raw_request", &[
+        ("request_id", request.request_id.clone()),
+        ("raw_req", raw_req.clone()),
+    ]);
+
+    upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
+        emit_log("ERROR", "wss_upgrade_send_failed", &[
+            ("request_id", request.request_id.clone()),
+            ("error", e.to_string()),
+        ]);
+        format!("wss upgrade send: {e}")
+    })?;
+
+    // Read the upstream 101 response and relay it to the client
+    let response_head = read_http_response_head(&mut upstream).await.map_err(|e| {
+        emit_log("ERROR", "wss_read_response_head_failed", &[
+            ("request_id", request.request_id.clone()),
+            ("error", e.clone()),
+        ]);
+        e
+    })?;
+
+    emit_log("DEBUG", "wss_got_response_head", &[
+        ("request_id", request.request_id.clone()),
+        ("response_head", response_head.clone()),
+    ]);
+
+    let status_line = response_head.lines().next().unwrap_or("");
+    let status_code: u16 = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(502);
+
+    emit_log("INFO", "wss_upstream_status", &[
+        ("request_id", request.request_id.clone()),
+        ("status_code", status_code.to_string()),
+    ]);
+
+    client_stream
+        .write_all(response_head.as_bytes())
+        .await
+        .map_err(|e| {
+            emit_log("ERROR", "wss_write_to_client_failed", &[
+                ("request_id", request.request_id.clone()),
+                ("error", e.to_string()),
+            ]);
+            format!("wss response write to client: {e}")
+        })?;
+    client_stream.flush().await.map_err(|e| format!("wss flush: {e}"))?;
+
+    emit_log("INFO", "wss_entering_relay", &[
+        ("request_id", request.request_id.clone()),
+        ("session_id", request.request_id.clone()),
+    ]);
+
+    let mut detail = build_session_detail(
+        request,
+        status_code,
+        &HeaderMap::new(),
+        &[],
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: None,
+            dns_ms: None,
+            request_send_ms: Some(0),
+            response_read_ms: Some(0),
+            tls_ms: Some(tls_ms),
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(0),
+        },
+    );
+    detail.summary.protocol = "wss".to_string();
+    detail.summary.response_mime_type = Some("websocket".to_string());
+    let session_id_for_relay = detail.id.clone();
+    if session_sender.send(detail).is_err() {
+        return Ok(());
+    }
+
+    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender).await;
+    Ok(())
+}
+
+/// Read a complete HTTP response head (status line + headers) from a stream.
+/// Returns the full text including the trailing \r\n\r\n.
+async fn read_http_response_head<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut byte = [0u8; 1];
+
+    loop {
+        reader
+            .read_exact(&mut byte)
+            .await
+            .map_err(|e| format!("read response head: {e}"))?;
+        buf.push(byte[0]);
+
+        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+            return String::from_utf8(buf).map_err(|e| format!("response head utf8: {e}"));
+        }
+    }
+}
+
+/// Build a raw HTTP upgrade request string for WebSocket relay.
+fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, String> {
+    let path = build_request_path(&request.url);
+    let mut raw = format!(
+        "{} {} HTTP/1.1\r\n",
+        request.method,
+        path,
+    );
+    for (name, value) in &request.headers {
+        raw.push_str(&format!(
+            "{}: {}\r\n",
+            name,
+            value.to_str().unwrap_or("")
+        ));
+    }
+    raw.push_str("\r\n");
+    Ok(raw)
+}
+
 /// HTTPS MITM: terminate TLS, capture decrypted traffic, forward upstream.
 #[allow(clippy::too_many_arguments)]
 async fn handle_connect_mitm(
@@ -729,6 +1121,7 @@ async fn handle_connect_mitm(
     tls_manager: Arc<TlsManager>,
     client: Arc<Client>,
     session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
+    ws_message_sender: mpsc::UnboundedSender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     breakpoint_manager: Option<Arc<BreakpointManager>>,
@@ -917,7 +1310,26 @@ async fn handle_connect_mitm(
 
     let upstream_result = match local_response {
         Some(local_response) => Ok(local_response),
-        None => forward_request(&client, &https_request).await,
+        None => {
+            // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
+            let is_ws = https_request.headers.iter().any(|(name, value)| {
+                name.as_str().eq_ignore_ascii_case("upgrade") && value.as_bytes().eq_ignore_ascii_case(b"websocket")
+            });
+            if is_ws {
+                handle_https_websocket_upgrade(
+                    &mut tls_stream,
+                    &https_request,
+                    &session_sender,
+                    &ws_message_sender,
+                    started_at,
+                    started_at_instant,
+                    tls_ms,
+                )
+                .await?;
+                return Ok(());
+            }
+            forward_request(&client, &https_request).await
+        }
     };
 
     match upstream_result {

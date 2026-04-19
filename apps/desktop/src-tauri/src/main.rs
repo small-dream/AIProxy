@@ -111,7 +111,8 @@ pub fn run() {
             commands::list_workspaces,
             commands::create_workspace,
             commands::load_workspace,
-            commands::update_workspace
+            commands::update_workspace,
+            commands::list_ws_messages
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

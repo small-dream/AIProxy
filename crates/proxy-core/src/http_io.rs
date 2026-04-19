@@ -21,10 +21,16 @@ pub(crate) fn resolve_target_url(
 pub(crate) fn build_upstream_headers(
     headers: &[httparse::Header<'_>],
 ) -> Result<HeaderMap, String> {
+    let is_ws_upgrade = is_websocket_upgrade(headers);
+
     let mut header_map = HeaderMap::new();
 
     for header in headers {
-        if should_skip_request_header(header.name) {
+        if should_skip_request_header(header.name) && !is_ws_upgrade {
+            continue;
+        }
+        // For WS upgrades, still skip host/content-length/transfer-encoding
+        if is_ws_upgrade && is_hop_by_hop_only(header.name) {
             continue;
         }
 
@@ -42,10 +48,17 @@ pub(crate) fn build_upstream_headers(
 pub(crate) fn build_upstream_headers_from_entries(
     headers: &[ProxyHeaderEntry],
 ) -> Result<HeaderMap, String> {
+    let is_ws_upgrade = headers.iter().any(|h| {
+        h.name.eq_ignore_ascii_case("upgrade") && h.value.eq_ignore_ascii_case("websocket")
+    });
+
     let mut header_map = HeaderMap::new();
 
     for header in headers {
-        if should_skip_request_header(&header.name) {
+        if should_skip_request_header(&header.name) && !is_ws_upgrade {
+            continue;
+        }
+        if is_ws_upgrade && is_hop_by_hop_only(&header.name) {
             continue;
         }
 
@@ -66,6 +79,21 @@ pub(crate) fn should_skip_request_header(header_name: &str) -> bool {
         || header_name.eq_ignore_ascii_case("proxy-connection")
         || header_name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str())
         || header_name.eq_ignore_ascii_case(TRANSFER_ENCODING.as_str())
+}
+
+/// Headers to skip even for WS upgrades (host, content-length, transfer-encoding).
+fn is_hop_by_hop_only(header_name: &str) -> bool {
+    header_name.eq_ignore_ascii_case(HOST.as_str())
+        || header_name.eq_ignore_ascii_case("proxy-connection")
+        || header_name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str())
+        || header_name.eq_ignore_ascii_case(TRANSFER_ENCODING.as_str())
+}
+
+/// Check if headers indicate a WebSocket upgrade request.
+pub(crate) fn is_websocket_upgrade(headers: &[httparse::Header<'_>]) -> bool {
+    headers.iter().any(|h| {
+        h.name.eq_ignore_ascii_case("upgrade") && h.value.eq_ignore_ascii_case(b"websocket")
+    })
 }
 
 pub(crate) fn should_skip_response_header(header_name: &HeaderName) -> bool {

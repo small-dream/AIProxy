@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-const V1_UP: &str = "
+const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS workspaces (
     id                   TEXT NOT NULL PRIMARY KEY,
     name                 TEXT NOT NULL,
@@ -99,48 +99,25 @@ CREATE TABLE IF NOT EXISTS session_details (
     timing             TEXT,
     FOREIGN KEY (session_summary_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS ws_messages (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    direction       TEXT NOT NULL,
+    timestamp       TEXT NOT NULL,
+    opcode          TEXT NOT NULL,
+    payload_text    TEXT,
+    payload_size    INTEGER NOT NULL DEFAULT 0,
+    fin             INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ws_messages_session ON ws_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_ws_messages_timestamp ON ws_messages(timestamp);
 ";
 
-/// Run all pending migrations in a single transaction.
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
-    let current = get_version(conn);
-
-    if current < 1 {
-        conn.execute_batch("BEGIN;")
-            .map_err(|e| format!("migration begin: {e}"))?;
-        conn.execute_batch(V1_UP)
-            .map_err(|e| format!("migration V1: {e}"))?;
-        set_version(conn, 1)?;
-        conn.execute_batch("COMMIT;")
-            .map_err(|e| format!("migration commit: {e}"))?;
-    }
-
-    Ok(())
-}
-
-fn ensure_version_table(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL PRIMARY KEY);",
-    )
-    .expect("schema_version table creation should not fail");
-}
-
-fn get_version(conn: &Connection) -> u32 {
-    ensure_version_table(conn);
-    conn.query_row(
-        "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
-        [],
-        |row| row.get::<_, u32>(0),
-    )
-    .unwrap_or(0)
-}
-
-fn set_version(conn: &Connection, version: u32) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
-        rusqlite::params![version],
-    )
-    .map_err(|e| format!("set schema version: {e}"))?;
+    conn.execute_batch(CREATE_TABLES)
+        .map_err(|e| format!("create tables: {e}"))?;
     Ok(())
 }
 
@@ -149,14 +126,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fresh_db_has_version_1() {
-        let conn = Connection::open_in_memory().unwrap();
-        run_migrations(&conn).unwrap();
-        assert_eq!(get_version(&conn), 1);
-    }
-
-    #[test]
-    fn all_tables_exist_after_migration() {
+    fn all_tables_exist_after_init() {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
@@ -174,10 +144,10 @@ mod tests {
             "breakpoint_rules",
             "map_rules",
             "rewrite_rules",
-            "schema_version",
             "session_details",
             "session_summaries",
             "throttle_profiles",
+            "ws_messages",
             "workspaces",
         ];
         for table in &expected {

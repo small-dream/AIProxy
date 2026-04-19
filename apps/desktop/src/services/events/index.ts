@@ -1,9 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
 import {
+  isWsMessage,
   parseBreakpointHit,
   parseSessionDetail,
   type BreakpointHit,
   type SessionDetail,
+  type WsMessage,
 } from "@aiproxy/shared-types";
 
 type Unlisten = () => void;
@@ -49,6 +51,18 @@ export function onSessionRemove(callback: (sessionId: string) => void): Promise<
 
   return listen<string>("session-remove", (event) => {
     if (typeof event.payload === "string" && event.payload.length > 0) {
+      callback(event.payload);
+    }
+  });
+}
+
+export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("ws-message", (event) => {
+    if (isWsMessage(event.payload)) {
       callback(event.payload);
     }
   });

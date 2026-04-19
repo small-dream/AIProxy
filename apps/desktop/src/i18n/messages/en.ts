@@ -705,6 +705,7 @@ export const enMessages = {
       pending: "Pending",
       request: "Request",
       text: "Text",
+      websocket: "WebSocket",
     },
     searchPlaceholder: "Search domain or path",
     tooltipPending: "{{method}} {{url}} · Pending",
@@ -878,6 +879,20 @@ export const enMessages = {
     saveResponse: "Save Response...",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Unfocus",
+  },
+  websocket: {
+    messagesTab: "Messages",
+    directionAll: "All",
+    directionSent: "Sent",
+    directionReceived: "Received",
+    opcodeAll: "All",
+    opcodeText: "Text",
+    opcodeBinary: "Binary",
+    opcodeControl: "Control",
+    emptyTitle: "No WebSocket Messages",
+    emptyDescription: "Messages will appear here when a WebSocket connection is captured.",
+    binaryPayload: "Binary {{size}}",
+    searchPlaceholder: "Search messages...",
   },
 } as const;
 

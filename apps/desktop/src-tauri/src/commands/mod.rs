@@ -178,6 +178,53 @@ pub fn clear_sessions(state: State<'_, Arc<AppState>>) {
     state.clear_sessions();
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWsMessagesInput {
+    pub session_id: String,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsMessageOutput {
+    pub id: String,
+    pub session_id: String,
+    pub direction: String,
+    pub timestamp: String,
+    pub opcode: String,
+    pub payload_text: Option<String>,
+    pub payload_size: usize,
+    pub fin: bool,
+}
+
+#[tauri::command]
+pub fn list_ws_messages(
+    input: ListWsMessagesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<WsMessageOutput> {
+    let limit = input.limit.unwrap_or(500);
+    let offset = input.offset.unwrap_or(0);
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset) {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|r| WsMessageOutput {
+                id: r.id,
+                session_id: r.session_id,
+                direction: r.direction,
+                timestamp: r.timestamp,
+                opcode: r.opcode,
+                payload_text: r.payload_text,
+                payload_size: r.payload_size,
+                fin: r.fin,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[tauri::command]
 pub fn get_certificate_status(
     state: State<'_, Arc<AppState>>,
@@ -396,10 +443,59 @@ async fn start_proxy_impl(
     .await?;
 
     let mut session_receiver = started_proxy_server.session_receiver;
+    let mut ws_message_receiver = started_proxy_server.ws_message_receiver;
     let state_for_collector = Arc::clone(&state);
+    let state_for_ws = Arc::clone(&state);
     let collector_handle = tauri::async_runtime::spawn(async move {
-        while let Some(session) = session_receiver.recv().await {
-            state_for_collector.upsert_session(session);
+        loop {
+            tokio::select! {
+                session = session_receiver.recv() => {
+                    match session {
+                        Some(session) => state_for_collector.upsert_session(session),
+                        None => break,
+                    }
+                }
+                ws_msg = ws_message_receiver.recv() => {
+                    match ws_msg {
+                        Some(msg) => {
+                            let conn = state_for_ws.read_db_connection().lock().expect("db mutex");
+                            let row = aiproxy_db::sessions::WsMessageRow {
+                                id: msg.id.clone(),
+                                session_id: msg.session_id.clone(),
+                                direction: msg.direction.clone(),
+                                timestamp: msg.timestamp.clone(),
+                                opcode: msg.opcode.clone(),
+                                payload_text: msg.payload_text.clone(),
+                                payload_size: msg.payload_size,
+                                fin: msg.fin,
+                            };
+                            if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
+                                crate::dev_logger::log_error(
+                                    "desktop.ws_collector",
+                                    "insert_ws_message_failed",
+                                    &[("error", e)],
+                                );
+                            }
+                            drop(conn);
+
+                            // Emit to frontend
+                            if let Some(handle) = state_for_ws.read_app_handle() {
+                                let _ = handle.emit("ws-message", serde_json::json!({
+                                    "id": msg.id,
+                                    "sessionId": msg.session_id,
+                                    "direction": msg.direction,
+                                    "timestamp": msg.timestamp,
+                                    "opcode": msg.opcode,
+                                    "payloadText": msg.payload_text,
+                                    "payloadSize": msg.payload_size,
+                                    "fin": msg.fin,
+                                }));
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
         }
     });
 

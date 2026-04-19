@@ -6,6 +6,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
+import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
 import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
 import {
@@ -16,6 +17,7 @@ import {
   type ResponseInspectorTab,
   type SearchMatcher,
 } from "./session-inspector.helpers";
+import { isWebSocketSession } from "./session-inspector.helpers";
 import { SearchBar } from "./SearchBar";
 import { useSearchController } from "./use-search-controller";
 
@@ -109,6 +111,9 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
         >
           <Tab label={t("inspector.response.tabs.overview")} value="overview" />
           <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
+          {isWebSocketSession(session) && (
+            <Tab label={t("websocket.messagesTab")} value="messages" />
+          )}
           <Tab label={t("inspector.response.tabs.text")} value="text" />
           <Tab label={t("inspector.response.tabs.json")} value="json" />
           <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
@@ -236,6 +241,10 @@ function ResponseTabContent({
         session={session}
       />
     );
+  }
+
+  if (responseTab === "messages") {
+    return <SessionInspectorMessagesPane sessionId={session.id} />;
   }
 
   if (responseTab === "headers") {

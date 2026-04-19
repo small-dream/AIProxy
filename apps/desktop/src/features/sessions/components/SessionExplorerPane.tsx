@@ -1,3 +1,4 @@
+import CableRoundedIcon from "@mui/icons-material/CableRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
@@ -588,6 +589,10 @@ function getResourceTooltipLabel(
     return t("sessionExplorer.resourceKinds.request");
   }
 
+  if (resourceKind === "websocket") {
+    return t("sessionExplorer.resourceKinds.websocket");
+  }
+
   return t("sessionExplorer.resourceKinds.file");
 }
 
@@ -648,6 +653,10 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
     return <WarningAmberRoundedIcon sx={sx} />;
   }
 
+  if (resourceKind === "websocket") {
+    return <CableRoundedIcon sx={sx} />;
+  }
+
   if (resourceKind === "request") {
     return <InsertDriveFileOutlinedIcon sx={sx} />;
   }
@@ -682,6 +691,10 @@ function getResourceColor(theme: Theme, resourceKind: SessionExplorerResourceKin
 
   if (resourceKind === "image") {
     return theme.palette.primary.main;
+  }
+
+  if (resourceKind === "websocket") {
+    return theme.palette.mode === "dark" ? "#4DD0E1" : "#00838F";
   }
 
   return theme.palette.text.secondary;

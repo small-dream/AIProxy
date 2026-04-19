@@ -159,13 +159,96 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
     Ok(count)
 }
 
-/// Delete all sessions (summaries cascade to details).
+/// Delete all sessions (summaries cascade to details and ws_messages).
 pub fn clear_all_sessions(conn: &Connection) -> Result<(), String> {
     conn.execute("DELETE FROM session_details", [])
         .map_err(|e| format!("clear session details: {e}"))?;
+    conn.execute("DELETE FROM ws_messages", [])
+        .map_err(|e| format!("clear ws messages: {e}"))?;
     conn.execute("DELETE FROM session_summaries", [])
         .map_err(|e| format!("clear session summaries: {e}"))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket message row
+// ---------------------------------------------------------------------------
+
+pub struct WsMessageRow {
+    pub id: String,
+    pub session_id: String,
+    pub direction: String,
+    pub timestamp: String,
+    pub opcode: String,
+    pub payload_text: Option<String>,
+    pub payload_size: usize,
+    pub fin: bool,
+}
+
+/// Insert a single WebSocket message.
+pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR IGNORE INTO ws_messages
+            (id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            msg.id, msg.session_id, msg.direction, msg.timestamp,
+            msg.opcode, msg.payload_text, msg.payload_size as i64, msg.fin as i32,
+        ],
+    )
+    .map_err(|e| format!("insert ws message: {e}"))?;
+    Ok(())
+}
+
+/// Load WebSocket messages for a session, ordered by timestamp ascending.
+pub fn load_ws_messages(
+    conn: &Connection,
+    session_id: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<WsMessageRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
+             FROM ws_messages
+             WHERE session_id = ?1
+             ORDER BY timestamp ASC
+             LIMIT ?2 OFFSET ?3",
+        )
+        .map_err(|e| format!("prepare load ws messages: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![session_id, limit as i64, offset as i64], row_to_ws_message)
+        .map_err(|e| format!("query ws messages: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+/// Count WebSocket messages for a session.
+pub fn count_ws_messages(conn: &Connection, session_id: &str) -> Result<usize, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM ws_messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("count ws messages: {e}"))?;
+    Ok(count as usize)
+}
+
+fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> {
+    Ok(WsMessageRow {
+        id: row.get("id")?,
+        session_id: row.get("session_id")?,
+        direction: row.get("direction")?,
+        timestamp: row.get("timestamp")?,
+        opcode: row.get("opcode")?,
+        payload_text: row.get("payload_text")?,
+        payload_size: row.get::<_, i64>("payload_size")? as usize,
+        fin: row.get::<_, i32>("fin")? != 0,
+    })
 }
 
 fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummaryRow> {
@@ -268,5 +351,49 @@ mod tests {
         let remaining = load_recent_summaries(&conn, 100).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, "s2");
+    }
+
+    #[test]
+    fn ws_message_round_trip() {
+        let conn = test_conn();
+        upsert_session(&conn, &test_summary("ws1", "ws.example.com"), &test_detail("ws1")).unwrap();
+
+        let msg = WsMessageRow {
+            id: "m1".into(),
+            session_id: "ws1".into(),
+            direction: "clientToServer".into(),
+            timestamp: "2026-04-19T00:00:01Z".into(),
+            opcode: "text".into(),
+            payload_text: Some("hello".into()),
+            payload_size: 5,
+            fin: true,
+        };
+        insert_ws_message(&conn, &msg).unwrap();
+
+        let loaded = load_ws_messages(&conn, "ws1", 100, 0).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].payload_text, Some("hello".into()));
+        assert_eq!(loaded[0].direction, "clientToServer");
+    }
+
+    #[test]
+    fn ws_messages_cascade_on_session_delete() {
+        let conn = test_conn();
+        upsert_session(&conn, &test_summary("ws2", "ws.example.com"), &test_detail("ws2")).unwrap();
+
+        insert_ws_message(&conn, &WsMessageRow {
+            id: "m1".into(),
+            session_id: "ws2".into(),
+            direction: "serverToClient".into(),
+            timestamp: "2026-04-19T00:00:01Z".into(),
+            opcode: "text".into(),
+            payload_text: None,
+            payload_size: 0,
+            fin: true,
+        }).unwrap();
+
+        delete_sessions_by_ids(&conn, &["ws2".into()]).unwrap();
+        let loaded = load_ws_messages(&conn, "ws2", 100, 0).unwrap();
+        assert!(loaded.is_empty());
     }
 }

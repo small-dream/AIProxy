@@ -52,6 +52,7 @@ mod logging;
 mod rules;
 mod server;
 mod types;
+pub mod ws;
 
 #[cfg(test)]
 mod tests;
@@ -65,6 +66,7 @@ pub use rules::{
     ThrottleProfileData,
 };
 pub use server::{send_direct_request, start_proxy_server};
+pub use ws::{WsDirection, WsMessageData, WsOpcode};
 pub use types::{
     get_local_ip_addresses, ProxyBodyReference, ProxyHeaderEntry, ProxyRuntimeConfig,
     ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,

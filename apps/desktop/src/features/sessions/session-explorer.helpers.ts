@@ -12,7 +12,8 @@ export type SessionExplorerResourceKind =
   | "pending"
   | "request"
   | "text"
-  | "warning";
+  | "warning"
+  | "websocket";
 
 export type SessionPathLeaf = {
   kind: "leaf";
@@ -154,6 +155,10 @@ export function getSessionResourceKind(session: SessionSummary): SessionExplorer
 
   if (session.statusCode >= 400) {
     return "warning";
+  }
+
+  if (session.statusCode === 101 || session.protocol === "ws" || session.protocol === "wss" || session.responseMimeType === "websocket") {
+    return "websocket";
   }
 
   const mimeType = session.responseMimeType?.toLowerCase() ?? "";

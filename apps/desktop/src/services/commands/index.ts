@@ -21,6 +21,7 @@ import {
   parseThrottleProfiles,
   parseWorkspace,
   parseWorkspaces,
+  parseWsMessages,
   type BreakpointResolution,
   type BreakpointRule,
   type AndroidAdbDevice,
@@ -44,6 +45,7 @@ import {
   type StartProxyInput,
   type StopProxyInput,
   type ThrottleProfile,
+  type WsMessage,
   type Workspace,
 } from "@aiproxy/shared-types";
 
@@ -202,6 +204,33 @@ export async function clearSessions(): Promise<void> {
     logDevInfo("ui.commands", "clear_sessions_succeeded");
   } catch (error) {
     reportCommandFailure("clear_sessions", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listWsMessages(
+  sessionId: string,
+  limit?: number,
+  offset?: number,
+): Promise<WsMessage[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "list_ws_messages_bypassed_non_tauri_runtime");
+    return [];
+  }
+
+  try {
+    logDevDebug("ui.commands", "list_ws_messages_requested", { sessionId });
+    const payload = await invoke<unknown>("list_ws_messages", {
+      input: { sessionId, limit, offset },
+    });
+    const messages = parseWsMessages(payload);
+    logDevDebug("ui.commands", "list_ws_messages_succeeded", {
+      sessionId,
+      count: messages.length,
+    });
+    return messages;
+  } catch (error) {
+    reportCommandFailure("list_ws_messages", error);
     throw coerceAppError(error);
   }
 }
