@@ -225,6 +225,7 @@ App Shell
 - Rewrite Rules
 - Map Local
 - Map Remote
+- DNS
 - Throttling
 - Certificates
 - Settings
@@ -475,13 +476,13 @@ Compose Page
 
 ### 页面定位
 
-Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote。
+Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote、DNS。
 
 当前实现补充：
 
 - 顶部使用 `Tabs` 固定承载规则类型切换
-- Breakpoint 使用“快捷断点 + 规则列表 + 新增对话框”的轻量流
-- Rewrite / Map 使用“左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
+- Breakpoint 使用”快捷断点 + 规则列表 + 新增对话框”的轻量流
+- Rewrite / Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
 - 规则创建优先提供快捷模板，降低首次配置门槛
 
 ### 页面结构树
@@ -722,6 +723,7 @@ Settings Page
 - `BreakpointWorkbench`
 - `RewriteWorkbench`
 - `MapWorkbench`
+- `DnsMappingsPanel`
 - `CertificateCenter`
 
 ## 11. 交互规范

@@ -281,6 +281,21 @@ type ThrottleProfile = {
 };
 ```
 
+## 5.7 DnsMappingRule
+
+```ts
+type DnsMappingRule = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  note?: string;
+  enabled: boolean;
+  priority: number;
+  hostPattern: string;  // "*.example.com"
+  targetIp: string;     // "192.168.1.100"
+};
+```
+
 ## 6. Command Specification
 
 ## 6.1 Proxy Commands
@@ -751,13 +766,45 @@ type SaveMapRuleInput = Omit<MapRule, "id"> & {
 type SaveMapRuleOutput = MapRule;
 ```
 
+### `list_dns_mappings`
+
+请求：
+
+```ts
+type ListDnsMappingsInput = {
+  workspaceId: string;
+};
+```
+
+响应：
+
+```ts
+type ListDnsMappingsOutput = DnsMappingRule[];
+```
+
+### `save_dns_mapping`
+
+请求：
+
+```ts
+type SaveDnsMappingInput = Omit<DnsMappingRule, "id"> & {
+  id?: string;
+};
+```
+
+响应：
+
+```ts
+type SaveDnsMappingOutput = DnsMappingRule;
+```
+
 ### `delete_rule`
 
 请求：
 
 ```ts
 type DeleteRuleInput = {
-  ruleType: "breakpoint" | "rewrite" | "map";
+  ruleType: "breakpoint" | "rewrite" | "map" | "dns";
   ruleId: string;
 };
 ```
@@ -1130,7 +1177,7 @@ type BreakpointHitEvent = BreakpointHit;
 ```ts
 type RuleMatchedEvent = {
   sessionId: string;
-  ruleType: "breakpoint" | "rewrite" | "map";
+  ruleType: "breakpoint" | "rewrite" | "map" | "dns";
   ruleId: string;
   ruleName: string;
 };

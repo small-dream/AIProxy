@@ -197,6 +197,16 @@ flowchart LR
 - 提供根 CA 证书下载端点 `GET /aiproxy-ca.crt`，供手机端扫码下载
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 - 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
+- 内建 `DnsManager`，在代理管道的 5 个连接路径中提供 DNS 覆盖能力 — `已实现`
+
+DNS 覆盖实现机制：
+
+- `DnsManager` 管理运行时 DNS 映射规则列表，按 workspace 隔离
+- `resolve_dns_override()` 在连接上游前查询匹配的已启用规则，按优先级降序取第一个命中规则
+- HTTP/HTTPS 转发路径（reqwest）：将 URL 中的 host 替换为覆盖 IP，保留原始 Host header
+- TCP 直连路径（blind tunnel、WebSocket）：将 `TcpStream::connect` 目标替换为覆盖 IP
+- TLS SNI 始终使用原始 hostname，不受 DNS 覆盖影响
+- `send_direct_request`（Compose）不应用 DNS 覆盖，保持直接请求语义
 
 断点实现机制：
 
@@ -246,7 +256,7 @@ flowchart LR
 
 职责：
 
-- 统一处理 Breakpoint、Rewrite、Map Local、Map Remote
+- 统一处理 Breakpoint、Rewrite、Map Local、Map Remote、DNS Mapping
 - 执行规则匹配、优先级排序、动作派发
 - 预留脚本化规则扩展点
 
@@ -293,6 +303,9 @@ flowchart LR
 - `save_breakpoint_rule`
 - `save_rewrite_rule`
 - `save_map_rule`
+- `list_dns_mappings` — `已实现`，返回指定 workspace 的 DNS 映射规则列表
+- `save_dns_mapping` — `已实现`，新增或更新单条 DNS 映射规则
+- `delete_rule` — `已实现`，支持 `ruleType: "rewrite" | "map" | "dns"`
 - `set_throttle_profile`
 - `export_sessions`
 - `get_certificate_status`
@@ -418,6 +431,16 @@ erDiagram
 - `enabled`
 - `priority`
 
+### `dns_mapping`
+
+- `id`
+- `workspace_id`
+- `name`
+- `host_pattern`
+- `target_ip`
+- `enabled`
+- `priority`
+
 ### `throttle_profile`
 
 - `id`
@@ -485,7 +508,7 @@ erDiagram
 
 - `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
-- `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域；`Rewrite / Map` 采用 `Rule List Pane` + `Rule Editor Pane`
+- `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Map Local / Map Remote / DNS）；`Rewrite / Map / DNS` 采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
 - `SettingsPage`：当前已实现 `Proxy Presets` + `Language & Region` + `Appearance` 三个设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
@@ -500,6 +523,7 @@ erDiagram
 - `breakpoints` — `已实现`：BreakpointManager (Rust) + breakpoint.store + use-breakpoint-events hook + use-breakpoint-rules hook + BreakpointInterceptPanel + Rules 页面断点规则管理
 - `rewrite-rules` — `已实现首版`：Rules 页面 Rewrite 工作台 + use-rule-center hooks + shared rewrite rule types
 - `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
+- `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层

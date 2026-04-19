@@ -317,7 +317,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 
 ### 6.1 页面目标
 
-统一管理断点、改写、本地映射与远程映射规则。
+统一管理断点、改写、本地映射、远程映射与 DNS 映射规则。
 
 ### 6.2 低保真线框
 
@@ -326,7 +326,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: Rules                                                                │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ <Breakpoint> <Rewrite> <Map Local> <Map Remote>                             │
+│ <Breakpoint> <Rewrite> <Map Local> <Map Remote> <DNS>                       │
 ├───────────────────────┬──────────────────────────────────────────────────────┤
 │ [Rule List]           │ [Rule Editor]                                        │
 │ (New Rule)            │ Name                                                 │
@@ -344,7 +344,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 RulesPage
 ├─ PageHeader
 ├─ SectionCard "Rule Center"
-│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Map Local / Map Remote)
+│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Map Local / Map Remote / DNS)
 │  └─ ActiveWorkbench
 │     ├─ BreakpointRulesPanel
 │     │  ├─ SectionCard "Quick Breakpoint"
@@ -371,6 +371,17 @@ RulesPage
 │        │     ├─ SectionCard "Basic Information"
 │        │     ├─ SectionCard "Source & Target"
 │        │     └─ RulePreviewCard
+│     └─ DnsMappingsPanel
+│        ├─ ManagedRulesWorkbench
+│        │  ├─ Left Pane
+│        │  │  ├─ Create Rule Button
+│        │  │  ├─ Rule Search Field
+│        │  │  └─ ManagedRuleList
+│        │  └─ Right Pane
+│        │     ├─ FieldGroup "Rule Name"
+│        │     ├─ FieldGroup "Host Pattern"
+│        │     ├─ FieldGroup "Target IP"
+│        │     └─ FieldGroup "Priority / Enabled / Note"
 ```
 
 断点拦截面板（独立组件，在 AppShell 中渲染）：
@@ -403,7 +414,7 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 ```ts
 type RulesPageState = {
   query: {
-    ruleType: "breakpoint" | "rewrite" | "mapLocal" | "mapRemote";
+    ruleType: "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns";
     keyword: string;
   };
   selection: {
@@ -746,7 +757,7 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 | --- | --- | --- |
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
-| Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules` | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现) |
+| Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |
 
