@@ -51,6 +51,16 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   useEffect(() => {
     setIsSearchOpen(false);
     setSnackbarOpen(false);
+
+    if (isWebSocketSession(session)) {
+      if (responseTab === "text" || responseTab === "json" || responseTab === "jsonText") {
+        onResponseTabChange("overview");
+      }
+    } else if (responseTab === "messages") {
+      onResponseTabChange("overview");
+    }
+    // Only reset when the session itself changes, not on every render of responseTab/session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
 
   useEffect(() => {
@@ -114,13 +124,11 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           {isWebSocketSession(session) && (
             <Tab label={t("websocket.messagesTab")} value="messages" />
           )}
-          {!isWebSocketSession(session) && (
-            <>
-              <Tab label={t("inspector.response.tabs.text")} value="text" />
-              <Tab label={t("inspector.response.tabs.json")} value="json" />
-              <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
-            </>
-          )}
+          {!isWebSocketSession(session) && [
+            <Tab key="text" label={t("inspector.response.tabs.text")} value="text" />,
+            <Tab key="json" label={t("inspector.response.tabs.json")} value="json" />,
+            <Tab key="jsonText" label={t("inspector.response.tabs.jsonText")} value="jsonText" />,
+          ]}
           <Tab label={t("inspector.response.tabs.raw")} value="raw" />
         </Tabs>
 
@@ -163,7 +171,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
       <Divider />
 
-      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2.5 }}>
         <ResponseTabContent
           detail={detail}
           responseJsonDisplayText={responseJsonDisplayText}

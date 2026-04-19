@@ -47,6 +47,12 @@ export function InspectorSummaryBar({
             size="small"
             variant="filled"
           />
+          <Chip
+            color={getStatusColor(session.statusCode)}
+            label={String(session.statusCode)}
+            size="small"
+            variant="outlined"
+          />
           {requestOperationLabel ? (
             <Tooltip arrow title={requestOperationLabel}>
               <Chip
@@ -64,12 +70,6 @@ export function InspectorSummaryBar({
               />
             </Tooltip>
           ) : null}
-          <Chip
-            color={getStatusColor(session.statusCode)}
-            label={String(session.statusCode)}
-            size="small"
-            variant="outlined"
-          />
           <Chip label={`${totalDuration}ms`} size="small" variant="outlined" />
         </Stack>
 
@@ -139,8 +139,15 @@ export function InspectorSummaryBar({
       >
         <Typography
           color="text.secondary"
-          noWrap
-          sx={{ fontFamily: appFontCssVars.content, fontSize: 11.5, lineHeight: 1.3 }}
+          sx={{
+            display: "-webkit-box",
+            fontSize: 13,
+            lineClamp: 2,
+            lineHeight: 1.5,
+            overflow: "hidden",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+          }}
           variant="body2"
         >
           {session.url}
@@ -174,17 +181,17 @@ export function InspectorDefinitionList({
           disableGutters
           divider
           key={`${label}:${value}`}
-          sx={{ alignItems: "center", columnGap: 2, py: 0.75 }}
+          sx={{ alignItems: "center", columnGap: 3, minHeight: 32, py: 0.5 }}
         >
           <Typography
             color="text.secondary"
-            sx={{ flex: "0 0 180px", minWidth: 0, pr: 1 }}
-            variant="caption"
+            sx={{ flex: "0 0 180px", fontSize: 12, fontWeight: 500, minWidth: 0, pr: 1 }}
+            variant="body2"
           >
             {label}
           </Typography>
           <Typography
-            sx={{ flex: 1, fontFamily: appFontCssVars.content, minWidth: 0, wordBreak: "break-all" }}
+            sx={{ flex: 1, fontSize: 13, minWidth: 0, wordBreak: "break-all" }}
             variant="body2"
           >
             {value}
@@ -271,7 +278,7 @@ export function InspectorFlatTableRow({
       sx={{
         display: "grid",
         gridTemplateColumns: columnTemplate,
-        minHeight: dense ? 22 : 24,
+        minHeight: dense ? 26 : 28,
         ...(hoverable
           ? {
               borderRadius: 0.5,
@@ -317,7 +324,7 @@ export function EllipsizedCell({
           <Typography
             sx={{
               flex: 1,
-              fontFamily: appFontCssVars.content,
+              fontSize: 13,
               minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -403,7 +410,7 @@ export function InspectorKeyValueTable({
           cells={[
             <Typography
               key="label"
-              sx={{ fontFamily: appFontCssVars.content, minWidth: 0, wordBreak: "break-all" }}
+              sx={{ fontSize: 12, fontWeight: 500, minWidth: 0, wordBreak: "break-all" }}
               variant="body2"
             >
               {label}

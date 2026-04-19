@@ -111,8 +111,8 @@ export function SessionInspectorOverview({
                       alignItems: "center",
                       display: "grid",
                       gridTemplateColumns: "1fr",
-                      minHeight: 30,
-                      px: 1,
+                      minHeight: 36,
+                      px: 1.5,
                       py: 0,
                       "&:hover": {
                         bgcolor: "action.hover",
@@ -125,7 +125,7 @@ export function SessionInspectorOverview({
                       ) : (
                         <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
                       )}
-                      <Typography sx={{ fontSize: 11.5, fontWeight: 700 }} variant="body2">
+                      <Typography sx={{ fontSize: 13, fontWeight: 600 }} variant="body2">
                         {block.title}
                       </Typography>
                     </Stack>
@@ -136,9 +136,9 @@ export function SessionInspectorOverview({
                   <Box
                     sx={{
                       bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "background.paper",
-                      pb: 0.5,
-                      px: 1,
-                      pt: 0,
+                      pb: 1,
+                      px: 1.5,
+                      pt: 1,
                     }}
                   >
                     {block.content}
@@ -212,8 +212,8 @@ function OverviewSizeTree({
                     bgcolor: "transparent",
                     display: "grid",
                     gridTemplateColumns: "1fr auto",
-                    minHeight: 34,
-                    px: 1,
+                    minHeight: 36,
+                    px: 1.5,
                     py: 0,
                     transition: "background-color 120ms ease",
                     "&:hover": {
@@ -228,13 +228,13 @@ function OverviewSizeTree({
                       <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
                     )}
                     <Typography
-                      sx={{ color: "text.primary", fontSize: 12, fontWeight: 700 }}
+                      sx={{ color: "text.primary", fontSize: 13, fontWeight: 600 }}
                       variant="body2"
                     >
                       {group.title}
                     </Typography>
                   </Stack>
-                  <Typography sx={{ color: "text.primary", fontSize: 12 }} variant="body2">
+                  <Typography sx={{ color: "text.primary", fontSize: 13 }} variant="body2">
                     {group.total}
                   </Typography>
                 </Box>
@@ -245,10 +245,10 @@ function OverviewSizeTree({
                   spacing={0}
                   sx={{
                     bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-                    pb: 0.5,
+                    pb: 1,
                     pl: 5,
-                    pr: 1,
-                    pt: 0.5,
+                    pr: 1.5,
+                    pt: 1,
                   }}
                 >
                   {group.items.map(([label, value]) => (
@@ -256,17 +256,17 @@ function OverviewSizeTree({
                       key={`${group.title}:${label}:${value}`}
                       sx={{
                         bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-                        columnGap: 2,
+                        columnGap: 3,
                         display: "grid",
                         gridTemplateColumns: "180px minmax(0, 1fr)",
-                        minHeight: 24,
+                        minHeight: 28,
                         py: 0,
                       }}
                     >
-                      <Typography color="text.secondary" sx={{ fontSize: 11.5, minWidth: 0 }} variant="body2">
+                      <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 500, minWidth: 0 }} variant="body2">
                         {label}
                       </Typography>
-                      <Typography sx={{ fontSize: 11.5, minWidth: 0, wordBreak: "break-all" }} variant="body2">
+                      <Typography sx={{ fontSize: 13, minWidth: 0, wordBreak: "break-all" }} variant="body2">
                         {value}
                       </Typography>
                     </Box>
@@ -281,18 +281,18 @@ function OverviewSizeTree({
           sx={{
             alignItems: "center",
             bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-            columnGap: 2,
+            columnGap: 3,
             display: "grid",
             gridTemplateColumns: "1fr auto",
-            minHeight: 32,
-            px: 1,
+            minHeight: 34,
+            px: 1.5,
             py: 0,
           }}
         >
-          <Typography sx={{ fontSize: 12, fontWeight: 700 }} variant="body2">
+          <Typography sx={{ fontSize: 13, fontWeight: 600 }} variant="body2">
             {sizeBreakdown.total[0]}
           </Typography>
-          <Typography sx={{ fontSize: 12 }} variant="body2">{sizeBreakdown.total[1]}</Typography>
+          <Typography sx={{ fontSize: 13 }} variant="body2">{sizeBreakdown.total[1]}</Typography>
         </Box>
       </Stack>
     </Stack>
