@@ -170,15 +170,19 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
     }
 
     if mask_output {
-        // Generate a deterministic mask key (zeros for simplicity -- real clients use random)
-        let mask_key = [0u8; 4];
+        let mask_key = rand::random::<[u8; 4]>();
         writer
             .write_all(&mask_key)
             .await
             .map_err(|e| format!("ws frame write mask: {e}"))?;
-        // With mask_key all zeros, XOR is identity
+        let masked: Vec<u8> = frame
+            .payload
+            .iter()
+            .enumerate()
+            .map(|(i, byte)| byte ^ mask_key[i % 4])
+            .collect();
         writer
-            .write_all(&frame.payload)
+            .write_all(&masked)
             .await
             .map_err(|e| format!("ws frame write payload: {e}"))?;
     } else {
@@ -305,8 +309,8 @@ pub async fn relay_websocket_frames<C, U>(
                             let _ = forward_raw_frame(upstream_stream, &frame).await;
                             client_done = true;
                         } else {
-                            // Forward to upstream as unmasked (server expects unmasked from proxy)
-                            if let Err(e) = write_ws_frame(upstream_stream, &frame, false).await {
+                            // Forward to upstream masked per RFC 6455 §5.1 (proxy acts as client to upstream)
+                            if let Err(e) = write_ws_frame(upstream_stream, &frame, true).await {
                                 emit_log("DEBUG", "ws_relay_client_to_upstream_write_failed", &[("error", e)]);
                                 break;
                             }

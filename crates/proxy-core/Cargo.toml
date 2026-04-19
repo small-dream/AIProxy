@@ -21,3 +21,4 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
+rand = "0.8"

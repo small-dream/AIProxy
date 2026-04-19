@@ -1101,7 +1101,18 @@ fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Str
         request.method,
         path,
     );
+
+    // Re-inject Host header because build_upstream_headers strips it as hop-by-hop.
+    let host_with_port = match request.url.port() {
+        Some(port) => format!("{}:{}", request.host, port),
+        None => request.host.clone(),
+    };
+    raw.push_str(&format!("Host: {}\r\n", host_with_port));
+
     for (name, value) in &request.headers {
+        if name.as_str().eq_ignore_ascii_case("host") {
+            continue;
+        }
         raw.push_str(&format!(
             "{}: {}\r\n",
             name,

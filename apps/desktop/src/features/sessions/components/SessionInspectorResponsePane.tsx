@@ -114,9 +114,13 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           {isWebSocketSession(session) && (
             <Tab label={t("websocket.messagesTab")} value="messages" />
           )}
-          <Tab label={t("inspector.response.tabs.text")} value="text" />
-          <Tab label={t("inspector.response.tabs.json")} value="json" />
-          <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
+          {!isWebSocketSession(session) && (
+            <>
+              <Tab label={t("inspector.response.tabs.text")} value="text" />
+              <Tab label={t("inspector.response.tabs.json")} value="json" />
+              <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
+            </>
+          )}
           <Tab label={t("inspector.response.tabs.raw")} value="raw" />
         </Tabs>
 

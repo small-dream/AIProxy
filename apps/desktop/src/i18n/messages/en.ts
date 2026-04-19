@@ -893,6 +893,18 @@ export const enMessages = {
     emptyDescription: "Messages will appear here when a WebSocket connection is captured.",
     binaryPayload: "Binary {{size}}",
     searchPlaceholder: "Search messages...",
+    frameDetails: "Frame Details",
+    direction: "Direction",
+    opcode: "Opcode",
+    fin: "FIN",
+    timestamp: "Timestamp",
+    payloadSize: "Payload Size",
+    formatText: "Text",
+    formatJson: "JSON",
+    formatHex: "Hex",
+    copyPayload: "Copy Payload",
+    selectMessage: "Select a message to inspect",
+    binaryHexUnavailable: "Binary payload ({{size}}) — hex view requires base64 support",
   },
 } as const;
 
