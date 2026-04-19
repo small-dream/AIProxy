@@ -643,7 +643,125 @@ type RepeatSessionOutput = {
 };
 ```
 
-## 6.5 Rule Commands — `Breakpoint 部分已实现`
+## 6.5 WebSocket Commands — `已实现`
+
+### `list_ws_messages` — `已实现`
+
+获取指定 WebSocket 会话的消息帧列表，按时间升序排列，支持分页。
+
+请求：
+
+```ts
+type ListWsMessagesInput = {
+  sessionId: string;
+  limit?: number;   // 默认 500
+  offset?: number;  // 默认 0
+};
+```
+
+响应：
+
+```ts
+type WsMessage = {
+  id: string;
+  sessionId: string;
+  direction: "clientToServer" | "serverToClient";
+  timestamp: string;          // RFC 3339
+  opcode: "text" | "binary" | "close" | "ping" | "pong" | "continuation";
+  payloadText?: string;       // 仅文本帧有值
+  payloadSize: number;
+  fin: boolean;
+};
+```
+
+实现说明：
+- 消息存储在 SQLite `ws_messages` 表中，通过 `session_id` 关联父会话
+- WebSocket 会话通过 `protocol: "ws" | "wss"` 或 `responseMimeType: "websocket"` 识别
+- 消息帧在代理实时中继时同步写入数据库并推送 `ws-message` 事件
+
+### `get_ws_connection_status` — `已实现`
+
+查询指定 WebSocket 会话的连接状态（活跃 / 已关闭）。
+
+请求：
+
+```ts
+type GetWsConnectionStatusInput = {
+  sessionId: string;
+};
+```
+
+响应：
+
+```ts
+type WsConnectionStatusOutput = {
+  status: "active" | "closed";
+};
+```
+
+实现说明：
+- `proxy-core` 维护全局 `WsConnectionRegistry`，在 WebSocket 升级时注册，中继结束时标记关闭并注销
+- 前端可在 Messages 面板据此显示连接状态指示器并控制 Compose 按钮的可用性
+
+### `inject_ws_message` — `已实现`
+
+向活跃的 WebSocket 连接注入（重放）一帧消息。注入的帧会正常转发并通过 `ws-message` 事件出现在消息列表中。
+
+请求：
+
+```ts
+type WsInjectInput = {
+  sessionId: string;
+  direction: "clientToServer" | "serverToClient";
+  opcode: "text" | "binary" | "close" | "ping" | "pong";
+  payload: string;
+  fin?: boolean;  // 默认 true
+};
+```
+
+响应：
+
+```ts
+// 无返回值，成功时为空
+```
+
+失败场景：
+- 会话不存在或连接已关闭：返回错误信息
+- 注入通道异常：返回错误信息
+
+实现说明：
+- 注入帧通过 `mpsc::unbounded_channel` 传入中继循环
+- `clientToServer` 方向的帧使用掩码发送（RFC 6455 §5.1）
+- `serverToClient` 方向的帧不使用掩码
+- 注入的帧同时作为 `WsMessageData` 发送到会话层，确保 UI 实时更新
+
+### `search_ws_messages` — `已实现`
+
+在指定 WebSocket 会话中搜索消息，使用 SQLite `LIKE` 匹配 `payload_text` 字段。
+
+请求：
+
+```ts
+type SearchWsMessagesInput = {
+  sessionId: string;
+  query: string;
+  limit?: number;   // 默认 500
+  offset?: number;  // 默认 0
+};
+```
+
+响应：
+
+```ts
+// 返回 WsMessage[]，结构与 list_ws_messages 一致
+```
+
+实现说明：
+- 使用 `payload_text LIKE ? ESCAPE '\\'` 进行匹配
+- 仅搜索有文本内容的帧（binary 帧的 `payload_text` 为 `NULL`）
+- 适用于消息量较大的会话中进行深度搜索
+
+## 6.6 Rule Commands — `Breakpoint 部分已实现`
 
 ### `list_breakpoint_rules` — `已实现`
 
@@ -1183,7 +1301,60 @@ type RuleMatchedEvent = {
 };
 ```
 
-## 7.5 导出事件
+## 7.5 WebSocket 事件 — `已实现`
+
+### `ws-message` — `已实现`
+
+每个 WebSocket 帧被捕获时实时推送。
+
+```ts
+type WsMessageEvent = WsMessage;
+// {
+//   id: string;
+//   sessionId: string;
+//   direction: "clientToServer" | "serverToClient";
+//   timestamp: string;
+//   opcode: "text" | "binary" | "close" | "ping" | "pong" | "continuation";
+//   payloadText?: string;
+//   payloadSize: number;
+//   fin: boolean;
+// }
+```
+
+触发时机：
+
+- 代理中继捕获到每个 WebSocket 帧
+- 注入（重放）的帧也会触发此事件
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onWsMessage()` 订阅此事件
+- 事件载荷经过 `isWsMessage()` 类型守卫校验
+- `SessionInspectorMessagesPane` 组件根据 `sessionId` 过滤并追加到消息列表
+
+### `ws-connection-status` — `已实现`
+
+WebSocket 连接状态变化时推送。
+
+```ts
+type WsConnectionStatusEvent = {
+  sessionId: string;
+  status: "active" | "closed";
+};
+```
+
+触发时机：
+
+- WebSocket 升级完成、中继开始时（`status: "active"`）
+- 中继结束（任一方关闭连接或连接异常断开）时（`status: "closed"`）
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onWsConnectionStatus()` 订阅此事件
+- `SessionInspectorMessagesPane` 据此更新连接状态指示器（绿点 = 活跃，灰点 = 已关闭）
+- 状态为 `closed` 时 Compose 和 Replay 按钮自动禁用
+
+## 7.6 导出事件
 
 ### `export/progress`
 

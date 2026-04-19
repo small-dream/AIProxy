@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 
 // ---------------------------------------------------------------------------
 // WebSocket frame types
@@ -275,13 +278,109 @@ pub async fn forward_raw_frame<W: AsyncWriteExt + Unpin>(
     write_ws_frame(writer, frame, false).await
 }
 
+// ---------------------------------------------------------------------------
+// Injection support (replay into active connections)
+// ---------------------------------------------------------------------------
+
+/// Request to inject a frame into an active WS connection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsInjectRequest {
+    pub direction: WsDirection,
+    pub opcode: WsOpcode,
+    pub payload: String,
+    pub fin: bool,
+}
+
+/// Connection status for a WS session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WsConnectionStatus {
+    Active,
+    Closed,
+}
+
+struct WsConnectionEntry {
+    inject_sender: mpsc::UnboundedSender<WsInjectRequest>,
+    status: WsConnectionStatus,
+}
+
+/// Global registry of active WS connections, keyed by session_id.
+pub struct WsConnectionRegistry {
+    connections: Mutex<HashMap<String, WsConnectionEntry>>,
+}
+
+impl WsConnectionRegistry {
+    pub fn new() -> Self {
+        Self {
+            connections: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn register(&self, session_id: String, sender: mpsc::UnboundedSender<WsInjectRequest>) {
+        let mut map = self.connections.lock().expect("ws registry mutex");
+        map.insert(
+            session_id,
+            WsConnectionEntry {
+                inject_sender: sender,
+                status: WsConnectionStatus::Active,
+            },
+        );
+    }
+
+    pub fn mark_closed(&self, session_id: &str) {
+        let mut map = self.connections.lock().expect("ws registry mutex");
+        if let Some(entry) = map.get_mut(session_id) {
+            entry.status = WsConnectionStatus::Closed;
+        }
+    }
+
+    pub fn unregister(&self, session_id: &str) {
+        let mut map = self.connections.lock().expect("ws registry mutex");
+        map.remove(session_id);
+    }
+
+    pub fn get_status(&self, session_id: &str) -> WsConnectionStatus {
+        let map = self.connections.lock().expect("ws registry mutex");
+        map.get(session_id)
+            .map(|e| e.status)
+            .unwrap_or(WsConnectionStatus::Closed)
+    }
+
+    pub fn inject(&self, session_id: &str, request: WsInjectRequest) -> Result<(), String> {
+        let map = self.connections.lock().expect("ws registry mutex");
+        let entry = map.get(session_id).ok_or_else(|| {
+            format!("WebSocket session {} is not active or does not exist", session_id)
+        })?;
+        if entry.status != WsConnectionStatus::Active {
+            return Err(format!("WebSocket session {} is closed", session_id));
+        }
+        entry
+            .inject_sender
+            .send(request)
+            .map_err(|e| format!("Failed to inject frame: {:?}", e))
+    }
+}
+
+static WS_REGISTRY: OnceLock<WsConnectionRegistry> = OnceLock::new();
+
+pub fn global_ws_registry() -> &'static WsConnectionRegistry {
+    WS_REGISTRY.get_or_init(WsConnectionRegistry::new)
+}
+
+// ---------------------------------------------------------------------------
+// Frame relay with injection support
+// ---------------------------------------------------------------------------
+
 /// Relay WebSocket frames between client and upstream until the connection closes.
 /// Emits each parsed frame as a WsMessageData via the sender.
+/// Accepts an injection receiver for replaying frames into the connection.
 pub async fn relay_websocket_frames<C, U>(
     client_stream: &mut C,
     upstream_stream: &mut U,
     session_id: &str,
-    ws_sender: &tokio::sync::mpsc::UnboundedSender<WsMessageData>,
+    ws_sender: &mpsc::UnboundedSender<WsMessageData>,
+    inject_rx: &mut mpsc::UnboundedReceiver<WsInjectRequest>,
 ) where
     C: AsyncReadExt + AsyncWriteExt + Unpin,
     U: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -345,6 +444,35 @@ pub async fn relay_websocket_frames<C, U>(
                     }
                     None => {
                         upstream_done = true;
+                    }
+                }
+            }
+            inject_result = inject_rx.recv() => {
+                match inject_result {
+                    Some(req) => {
+                        let frame = WsFrame {
+                            fin: req.fin,
+                            opcode: req.opcode,
+                            mask: false,
+                            payload: req.payload.into_bytes(),
+                        };
+                        let write_result = match req.direction {
+                            WsDirection::ClientToServer => {
+                                write_ws_frame(upstream_stream, &frame, true).await
+                            }
+                            WsDirection::ServerToClient => {
+                                write_ws_frame(client_stream, &frame, false).await
+                            }
+                        };
+                        if let Err(e) = write_result {
+                            emit_log("DEBUG", "ws_inject_write_failed", &[("error", e)]);
+                            break;
+                        }
+                        let msg = build_ws_message(session_id, req.direction, &frame);
+                        let _ = ws_sender.send(msg);
+                    }
+                    None => {
+                        // Injection channel closed; stop listening for injects.
                     }
                 }
             }

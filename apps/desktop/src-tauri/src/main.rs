@@ -122,7 +122,10 @@ pub fn run() {
             commands::create_workspace,
             commands::load_workspace,
             commands::update_workspace,
-            commands::list_ws_messages
+            commands::list_ws_messages,
+            commands::get_ws_connection_status,
+            commands::inject_ws_message,
+            commands::search_ws_messages
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

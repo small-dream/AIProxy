@@ -198,6 +198,7 @@ flowchart LR
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 - 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
 - 内建 `DnsManager`，在代理管道的 5 个连接路径中提供 DNS 覆盖能力 — `已实现`
+- 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
 
 DNS 覆盖实现机制：
 
@@ -215,6 +216,15 @@ DNS 覆盖实现机制：
 - 匹配规则时创建 `oneshot` 通道，代理 task await 接收端；前端通过 `resolve_breakpoint` 命令发送决策到发送端
 - 支持三种决策：Forward（放行，可选修改 headers/body）、Drop（丢弃连接）、Mock（在请求阶段直接返回用户构造的响应）
 - 事件推送通过框架无关的 `BreakpointEventEmitter` 回调实现，Tauri 层封装 `app_handle.emit()`
+
+WebSocket 注入（重放）实现机制：
+
+- `WsConnectionRegistry` 使用全局 `OnceLock<Mutex<HashMap<String, WsConnectionEntry>>>` 追踪所有活跃 WebSocket 连接，以 `session_id` 为键
+- 每个 WS 升级建立中继时，创建 `mpsc::unbounded_channel`，将发送端注册到 Registry，接收端传入 `relay_websocket_frames()`
+- 中继循环使用三路 `tokio::select!`：客户端帧、上游帧、注入通道帧
+- 前端通过 `inject_ws_message` 命令将帧发送到 Registry，Registry 通过 channel 转交中继任务
+- 注入帧遵循 RFC 6455 掩码规则：发往上游使用掩码（proxy as client），发往客户端不使用掩码（proxy as server）
+- 中继结束时自动 `mark_closed` → `unregister`，并通过事件通知前端连接已关闭
 
 输入：
 

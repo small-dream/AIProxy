@@ -238,6 +238,40 @@ pub fn count_ws_messages(conn: &Connection, session_id: &str) -> Result<usize, S
     Ok(count as usize)
 }
 
+/// Search WebSocket messages by payload text using LIKE.
+pub fn search_ws_messages(
+    conn: &Connection,
+    session_id: &str,
+    query: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<WsMessageRow>, String> {
+    let like_pattern = format!(
+        "%{}%",
+        query.replace('%', "\\%").replace('_', "\\_")
+    );
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
+             FROM ws_messages
+             WHERE session_id = ?1 AND payload_text LIKE ?2 ESCAPE '\\'
+             ORDER BY timestamp ASC
+             LIMIT ?3 OFFSET ?4",
+        )
+        .map_err(|e| format!("prepare search ws messages: {e}"))?;
+
+    let rows = stmt
+        .query_map(
+            params![session_id, like_pattern, limit as i64, offset as i64],
+            row_to_ws_message,
+        )
+        .map_err(|e| format!("search ws messages: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> {
     Ok(WsMessageRow {
         id: row.get("id")?,

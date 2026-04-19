@@ -114,6 +114,11 @@ SessionsPage
 │     ├─ InspectorSummaryBar
 │     ├─ SessionInspectorRequestPane
 │     └─ SessionInspectorResponsePane
+│        └─ SessionInspectorMessagesPane（WebSocket 专用）
+│           ├─ Connection Status Indicator
+│           ├─ Message List + Detail Split
+│           ├─ MessageRow（含 Replay 按钮）
+│           └─ Compose Panel（方向/操作码/内容/发送）
 ├─ SessionExportDialog
 ├─ SessionContextMenu
 └─ Snackbar
@@ -220,6 +225,62 @@ User right clicks a session leaf node
 - `Rules` 跳转支持按动作类型直达对应 tab
 - `list_sessions` 改为实时事件推送 + 增量合并
 - `get_session_detail` 按需加载 Inspector 真正内容，列表与详情解耦
+
+### 4.10 WebSocket Messages 面板 — `已实现`
+
+当 Inspector 检测到 WebSocket 会话（`protocol: "ws"/"wss"` 或 `responseMimeType: "websocket"`）时，Response 面板显示 **Messages** 标签页替代 Text / JSON / Raw 标签。
+
+组件：`SessionInspectorMessagesPane`
+
+状态模型：
+
+```ts
+interface WsMessagesPaneState {
+  messages: WsMessage[];           // 全部消息
+  directionFilter: "all" | "clientToServer" | "serverToClient";
+  opcodeFilter: "all" | "text" | "binary" | "control";
+  search: string;                  // 客户端搜索
+  selectedId: string | null;       // 选中消息 ID
+  connectionStatus: "active" | "closed";
+  composeOpen: boolean;            // 编写面板展开状态
+  composeDirection: WsMessageDirection;
+  composeOpcode: "text" | "ping" | "pong";
+  composePayload: string;
+}
+```
+
+事件流：
+
+1. 挂载时调用 `listWsMessages(sessionId)` 加载历史消息
+2. 订阅 `onWsMessage` 事件实时追加新帧
+3. 订阅 `onWsConnectionStatus` 事件更新连接状态
+4. 点击 Compose 或 Replay 按钮展开编写面板
+5. 发送时调用 `injectWsMessage()` 注入帧，成功后面板关闭
+
+UI 布局：
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│ [方向 Tabs] [类型 Tabs] [搜索框]     [状态●活跃] [✉Compose]     │
+├─────────────────────────┬────────────────────────────────────────┤
+│ Message List            │ Message Detail                         │
+│ ┌─────────────────────┐ │ ┌──────────────────────────────────┐  │
+│ │ 12:30:01 text ↑ 60B │ │ │ Frame Metadata Card              │  │
+│ │ 12:30:02 text ↓ 1KB▶│ │ │ direction / opcode / fin / time  │  │
+│ │ 12:30:03 ping ↑   ▶│ │ ├──────────────────────────────────┤  │
+│ │         ...         │ │ │ [Text] [JSON] [Hex]    [Copy]    │  │
+│ └─────────────────────┘ │ ├──────────────────────────────────┤  │
+│                         │ │ Payload Content                   │  │
+│                         │ └──────────────────────────────────┘  │
+├─────────────────────────┴────────────────────────────────────────┤
+│ ▼ Compose Message（折叠/展开）                                    │
+│ [Send to Server ▾] [Text ▾]                                      │
+│ ┌──────────────────────────────────────────────────────────────┐ │
+│ │ payload textarea                                             │ │
+│ └──────────────────────────────────────────────────────────────┘ │
+│                                          [Cancel] [Send]         │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ## 5. Compose Page — `已实现`
 

@@ -6,10 +6,10 @@ use crate::system_proxy::{
 };
 use crate::workspace::WorkspaceData;
 use aiproxy_proxy_core::{
-    get_local_ip_addresses, send_direct_request, start_proxy_server,
+    get_local_ip_addresses, global_ws_registry, send_direct_request, start_proxy_server,
     BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, DnsMappingRule,
     MapRule, ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
-    RewriteRule, ThrottleProfileData, TlsManager,
+    RewriteRule, ThrottleProfileData, TlsManager, WsConnectionStatus, WsDirection, WsOpcode,
 };
 use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,104 @@ pub fn list_ws_messages(
     let offset = input.offset.unwrap_or(0);
     let conn = state.read_db_connection().lock().expect("db mutex");
     match aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset) {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|r| WsMessageOutput {
+                id: r.id,
+                session_id: r.session_id,
+                direction: r.direction,
+                timestamp: r.timestamp,
+                opcode: r.opcode,
+                payload_text: r.payload_text,
+                payload_size: r.payload_size,
+                fin: r.fin,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket connection status & injection commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetWsConnectionStatusInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsConnectionStatusOutput {
+    pub status: String,
+}
+
+#[tauri::command]
+pub fn get_ws_connection_status(input: GetWsConnectionStatusInput) -> WsConnectionStatusOutput {
+    let registry = global_ws_registry();
+    let status = registry.get_status(&input.session_id);
+    WsConnectionStatusOutput {
+        status: match status {
+            WsConnectionStatus::Active => "active".to_string(),
+            WsConnectionStatus::Closed => "closed".to_string(),
+        },
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InjectWsMessageInput {
+    pub session_id: String,
+    pub direction: String,
+    pub opcode: String,
+    pub payload: String,
+    pub fin: Option<bool>,
+}
+
+#[tauri::command]
+pub fn inject_ws_message(input: InjectWsMessageInput) -> Result<(), String> {
+    let direction = match input.direction.as_str() {
+        "clientToServer" => WsDirection::ClientToServer,
+        "serverToClient" => WsDirection::ServerToClient,
+        _ => return Err(format!("Invalid direction: {}", input.direction)),
+    };
+    let opcode = match input.opcode.as_str() {
+        "text" => WsOpcode::Text,
+        "binary" => WsOpcode::Binary,
+        "close" => WsOpcode::Close,
+        "ping" => WsOpcode::Ping,
+        "pong" => WsOpcode::Pong,
+        _ => return Err(format!("Invalid opcode: {}", input.opcode)),
+    };
+    let registry = global_ws_registry();
+    let request = aiproxy_proxy_core::WsInjectRequest {
+        direction,
+        opcode,
+        payload: input.payload,
+        fin: input.fin.unwrap_or(true),
+    };
+    registry.inject(&input.session_id, request)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWsMessagesInput {
+    pub session_id: String,
+    pub query: String,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[tauri::command]
+pub fn search_ws_messages(
+    input: SearchWsMessagesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<WsMessageOutput> {
+    let limit = input.limit.unwrap_or(500);
+    let offset = input.offset.unwrap_or(0);
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::sessions::search_ws_messages(&conn, &input.session_id, &input.query, limit, offset) {
         Ok(rows) => rows
             .into_iter()
             .map(|r| WsMessageOutput {

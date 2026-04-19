@@ -1,10 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
 import {
+  isWsConnectionStatusEvent,
   isWsMessage,
   parseBreakpointHit,
   parseSessionDetail,
   type BreakpointHit,
   type SessionDetail,
+  type WsConnectionStatusEvent,
   type WsMessage,
 } from "@aiproxy/shared-types";
 
@@ -84,6 +86,20 @@ export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unl
 
   return listen<unknown>("ws-message", (event) => {
     if (isWsMessage(event.payload)) {
+      callback(event.payload);
+    }
+  });
+}
+
+export function onWsConnectionStatus(
+  callback: (event: WsConnectionStatusEvent) => void,
+): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("ws-connection-status", (event) => {
+    if (isWsConnectionStatusEvent(event.payload)) {
       callback(event.payload);
     }
   });

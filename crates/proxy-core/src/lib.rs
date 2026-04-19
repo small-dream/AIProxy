@@ -66,7 +66,7 @@ pub use rules::{
     RewriteRuleMatch, ThrottleManager, ThrottleProfileData,
 };
 pub use server::{send_direct_request, start_proxy_server};
-pub use ws::{WsDirection, WsMessageData, WsOpcode};
+pub use ws::{WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest, WsMessageData, WsOpcode, global_ws_registry};
 pub use types::{
     get_local_ip_addresses, ProxyBodyReference, ProxyHeaderEntry, ProxyRuntimeConfig,
     ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,

@@ -970,7 +970,14 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         return Ok(());
     }
 
-    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender).await;
+    let (inject_tx, mut inject_rx) = tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
+    let registry = crate::ws::global_ws_registry();
+    registry.register(session_id_for_relay.clone(), inject_tx);
+
+    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
+
+    registry.mark_closed(&session_id_for_relay);
+    registry.unregister(&session_id_for_relay);
     Ok(())
 }
 
@@ -1136,7 +1143,14 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         return Ok(());
     }
 
-    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender).await;
+    let (inject_tx, mut inject_rx) = tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
+    let registry = crate::ws::global_ws_registry();
+    registry.register(session_id_for_relay.clone(), inject_tx);
+
+    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
+
+    registry.mark_closed(&session_id_for_relay);
+    registry.unregister(&session_id_for_relay);
     Ok(())
 }
 

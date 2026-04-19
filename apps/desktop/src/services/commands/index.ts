@@ -48,6 +48,8 @@ import {
   type StopProxyInput,
   type ThrottleProfile,
   type WsMessage,
+  type WsInjectInput,
+  type WsConnectionStatusValue,
   type Workspace,
 } from "@aiproxy/shared-types";
 
@@ -234,6 +236,66 @@ export async function listWsMessages(
     return messages;
   } catch (error) {
     reportCommandFailure("list_ws_messages", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function getWsConnectionStatus(
+  sessionId: string,
+): Promise<WsConnectionStatusValue> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "get_ws_connection_status_bypassed_non_tauri_runtime");
+    return "closed";
+  }
+
+  try {
+    const result = await invoke<{ status: string }>(
+      "get_ws_connection_status",
+      { input: { sessionId } },
+    );
+    return result.status === "active" ? "active" : "closed";
+  } catch (error) {
+    reportCommandFailure("get_ws_connection_status", error);
+    return "closed";
+  }
+}
+
+export async function injectWsMessage(input: WsInjectInput): Promise<void> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "inject_ws_message_bypassed_non_tauri_runtime");
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "inject_ws_message_requested", {
+      sessionId: input.sessionId,
+    });
+    await invoke("inject_ws_message", { input });
+    logDevInfo("ui.commands", "inject_ws_message_succeeded");
+  } catch (error) {
+    reportCommandFailure("inject_ws_message", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function searchWsMessages(
+  sessionId: string,
+  query: string,
+  limit?: number,
+  offset?: number,
+): Promise<WsMessage[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "search_ws_messages_bypassed_non_tauri_runtime");
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("search_ws_messages", {
+      input: { sessionId, query, limit, offset },
+    });
+    return parseWsMessages(payload);
+  } catch (error) {
+    reportCommandFailure("search_ws_messages", error);
     throw coerceAppError(error);
   }
 }

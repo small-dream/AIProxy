@@ -1,8 +1,13 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
+import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import {
   alpha,
   Box,
+  Button,
   Chip,
+  Collapse,
   IconButton,
   Snackbar,
   Stack,
@@ -16,16 +21,22 @@ import {
   useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { WsMessage, WsOpcode } from "@aiproxy/shared-types";
+import type {
+  WsConnectionStatusValue,
+  WsMessage,
+  WsMessageDirection,
+  WsOpcode,
+} from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { listWsMessages } from "@/services/commands";
-import { onWsMessage } from "@/services/events";
+import { getWsConnectionStatus, injectWsMessage } from "@/services/commands";
+import { onWsConnectionStatus, onWsMessage } from "@/services/events";
 import { SearchableCodeBlock } from "./SessionInspectorShared";
 
 type DirectionFilter = "all" | "clientToServer" | "serverToClient";
 type OpcodeFilter = "all" | "text" | "binary" | "control";
 type PayloadFormat = "text" | "json" | "hex";
+type ComposeOpcode = "text" | "ping" | "pong";
 
 const CONTROL_OPCODES = new Set<WsOpcode>(["close", "ping", "pong"]);
 
@@ -87,21 +98,38 @@ function formatJson(text: string): string {
 
 export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string }) {
   const { t } = useI18n();
+  const theme = useTheme();
   const [messages, setMessages] = useState<WsMessage[]>([]);
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
   const [opcodeFilter, setOpcodeFilter] = useState<OpcodeFilter>("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState("");
 
+  // Connection status
+  const [connectionStatus, setConnectionStatus] = useState<WsConnectionStatusValue>("closed");
+
+  // Compose panel state
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeDirection, setComposeDirection] = useState<WsMessageDirection>("clientToServer");
+  const [composeOpcode, setComposeOpcode] = useState<ComposeOpcode>("text");
+  const [composePayload, setComposePayload] = useState("");
+  const [injecting, setInjecting] = useState(false);
+
+  // Load messages
   useEffect(() => {
     let cancelled = false;
-    listWsMessages(sessionId).then((loaded) => {
+    setMessages([]);
+    setSelectedId(null);
+    setComposeOpen(false);
+    listWsMessagesLocal(sessionId).then((loaded) => {
       if (!cancelled) setMessages(loaded);
     });
     return () => { cancelled = true; };
   }, [sessionId]);
 
+  // Live updates
   useEffect(() => {
     const unlisten = onWsMessage((msg) => {
       if (msg.sessionId === sessionId) {
@@ -110,6 +138,19 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     });
     return () => { void unlisten.then((fn) => fn()); };
   }, [sessionId]);
+
+  // Connection status
+  useEffect(() => {
+    getWsConnectionStatus(sessionId).then(setConnectionStatus);
+    const unlisten = onWsConnectionStatus((evt) => {
+      if (evt.sessionId === sessionId) {
+        setConnectionStatus(evt.status);
+      }
+    });
+    return () => { void unlisten.then((fn) => fn()); };
+  }, [sessionId]);
+
+  const isActive = connectionStatus === "active";
 
   const filtered = useMemo(() => {
     return messages.filter((msg) => {
@@ -142,8 +183,45 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const handleCopy = useCallback(async (text: string) => {
     if (!text) return;
     await navigator.clipboard?.writeText(text);
+    setSnackbarMsg(t("contextMenu.copiedToClipboard"));
     setSnackbarOpen(true);
+  }, [t]);
+
+  const handleEditReplay = useCallback((msg: WsMessage) => {
+    if (!msg.payloadText) return;
+    setComposeDirection(msg.direction);
+    setComposePayload(msg.payloadText);
+    setComposeOpcode(msg.opcode === "ping" || msg.opcode === "pong" ? msg.opcode as ComposeOpcode : "text");
+    setComposeOpen(true);
   }, []);
+
+  const handleCompose = useCallback(() => {
+    setComposeDirection("clientToServer");
+    setComposeOpcode("text");
+    setComposePayload("");
+    setComposeOpen(true);
+  }, []);
+
+  const handleInject = useCallback(async () => {
+    if (!composePayload.trim()) return;
+    setInjecting(true);
+    try {
+      await injectWsMessage({
+        sessionId,
+        direction: composeDirection,
+        opcode: composeOpcode,
+        payload: composePayload,
+        fin: true,
+      });
+      setComposeOpen(false);
+      setComposePayload("");
+    } catch {
+      setSnackbarMsg(t("websocket.injectionFailed"));
+      setSnackbarOpen(true);
+    } finally {
+      setInjecting(false);
+    }
+  }, [sessionId, composeDirection, composeOpcode, composePayload, t]);
 
   if (messages.length === 0) {
     return (
@@ -160,6 +238,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
 
   return (
     <Stack sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {/* Filter bar */}
       <Stack direction="row" spacing={1} sx={{ px: 1, py: 0.5, alignItems: "center" }}>
         <Tabs onChange={handleDirectionChange} sx={{ minHeight: 28 }} value={directionFilter}>
           <Tab label={t("websocket.directionAll")} sx={{ minHeight: 28, py: 0 }} value="all" />
@@ -179,8 +258,34 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
           onChange={(e) => setSearch(e.target.value)}
           sx={{ minWidth: 160, "& .MuiInputBase-input": { py: 0.5, fontSize: 13 } }}
         />
+        <Box sx={{ flex: 1 }} />
+        {/* Connection status */}
+        <Tooltip arrow title={t("websocket.connectionStatusTooltip", { status: isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed") })}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: "default" }}>
+            <FiberManualRecordRoundedIcon
+              sx={{ fontSize: 12, color: isActive ? "success.main" : "action.disabled" }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed")}
+            </Typography>
+          </Stack>
+        </Tooltip>
+        {/* Compose button */}
+        <Tooltip arrow title={t("websocket.composeButton")}>
+          <span>
+            <IconButton
+              size="small"
+              onClick={handleCompose}
+              disabled={!isActive}
+              sx={{ p: 0.5 }}
+            >
+              <SendRoundedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
 
+      {/* Message list + detail */}
       <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         <Box sx={{ flex: 1, borderRight: 1, borderColor: "divider", overflow: "auto" }}>
           <Stack spacing={0}>
@@ -189,7 +294,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
                 key={msg.id}
                 message={msg}
                 selected={msg.id === selectedId}
+                isActive={isActive}
                 onClick={() => setSelectedId(msg.id)}
+                onReplay={handleEditReplay}
               />
             ))}
           </Stack>
@@ -209,9 +316,89 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
         </Box>
       </Box>
 
+      {/* Compose panel */}
+      <Collapse in={composeOpen}>
+        <Stack
+          spacing={1}
+          sx={{
+            px: 1.5,
+            py: 1,
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: alpha(theme.palette.background.default, 0.5),
+          }}
+        >
+          <Typography variant="caption" fontWeight={500}>
+            {t("websocket.composeTitle")}
+          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <ToggleButtonGroup
+              size="small"
+              value={composeDirection}
+              exclusive
+              onChange={(_, val) => { if (val) setComposeDirection(val as WsMessageDirection); }}
+              sx={{ height: 28 }}
+            >
+              <ToggleButton value="clientToServer" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+                {t("websocket.sendToServer")}
+              </ToggleButton>
+              <ToggleButton value="serverToClient" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+                {t("websocket.sendToClient")}
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <ToggleButtonGroup
+              size="small"
+              value={composeOpcode}
+              exclusive
+              onChange={(_, val) => { if (val) setComposeOpcode(val as ComposeOpcode); }}
+              sx={{ height: 28 }}
+            >
+              <ToggleButton value="text" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+                Text
+              </ToggleButton>
+              <ToggleButton value="ping" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+                Ping
+              </ToggleButton>
+              <ToggleButton value="pong" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+                Pong
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+          <TextField
+            multiline
+            minRows={2}
+            maxRows={6}
+            size="small"
+            placeholder={t("websocket.payloadPlaceholder")}
+            value={composePayload}
+            onChange={(e) => setComposePayload(e.target.value)}
+            sx={{ "& .MuiInputBase-input": { fontSize: 13, fontFamily: "monospace" } }}
+          />
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button
+              size="small"
+              onClick={() => setComposeOpen(false)}
+              sx={{ textTransform: "none" }}
+            >
+              {t("common.actions.cancel")}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              disabled={!composePayload.trim() || injecting}
+              onClick={handleInject}
+              startIcon={<SendRoundedIcon fontSize="small" />}
+              sx={{ textTransform: "none" }}
+            >
+              {t("websocket.sendButton")}
+            </Button>
+          </Stack>
+        </Stack>
+      </Collapse>
+
       <Snackbar
         autoHideDuration={1800}
-        message={t("contextMenu.copiedToClipboard")}
+        message={snackbarMsg}
         onClose={() => setSnackbarOpen(false)}
         open={snackbarOpen}
       />
@@ -219,15 +406,26 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   );
 }
 
+// Helper to avoid circular import
+async function listWsMessagesLocal(sessionId: string): Promise<WsMessage[]> {
+  const { listWsMessages } = await import("@/services/commands");
+  return listWsMessages(sessionId);
+}
+
 function MessageRow({
   message,
   selected,
+  isActive,
   onClick,
+  onReplay,
 }: {
   message: WsMessage;
   selected: boolean;
+  isActive: boolean;
   onClick: () => void;
+  onReplay: (msg: WsMessage) => void;
 }) {
+  const { t } = useI18n();
   const theme = useTheme();
   const isSent = message.direction === "clientToServer";
   const preview = message.payloadText
@@ -235,6 +433,8 @@ function MessageRow({
       ? message.payloadText.slice(0, 60) + "..."
       : message.payloadText
     : `[Binary ${formatBytes(message.payloadSize)}]`;
+
+  const canReplay = isActive && !!message.payloadText;
 
   return (
     <Stack
@@ -281,6 +481,17 @@ function MessageRow({
       <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
         {formatBytes(message.payloadSize)}
       </Typography>
+      {canReplay && (
+        <Tooltip arrow title={t("websocket.replayTooltip")}>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onReplay(message); }}
+            sx={{ p: 0.25 }}
+          >
+            <PlayArrowRoundedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      )}
     </Stack>
   );
 }

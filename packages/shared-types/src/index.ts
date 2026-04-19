@@ -1256,3 +1256,33 @@ export function parseWsMessages(value: unknown): WsMessage[] {
   }
   throw coerceAppError(value);
 }
+
+// ---------------------------------------------------------------------------
+// WebSocket connection status and injection types
+// ---------------------------------------------------------------------------
+
+export type WsConnectionStatusValue = "active" | "closed";
+
+export type WsConnectionStatusEvent = {
+  sessionId: string;
+  status: WsConnectionStatusValue;
+};
+
+export type WsInjectInput = {
+  sessionId: string;
+  direction: WsMessageDirection;
+  opcode: "text" | "binary" | "close" | "ping" | "pong";
+  payload: string;
+  fin?: boolean;
+};
+
+export function isWsConnectionStatusEvent(
+  value: unknown,
+): value is WsConnectionStatusEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<WsConnectionStatusEvent>;
+  return (
+    typeof candidate.sessionId === "string" &&
+    (candidate.status === "active" || candidate.status === "closed")
+  );
+}
