@@ -51,6 +51,24 @@ for (const step of steps) {
 
 function createSteps(action) {
   if (action === "run") {
+    if (hostPlatform === "macos") {
+      if (!hasCargoTauri()) {
+        console.error(
+          "[aiproxy-scripts] `cargo tauri` is not installed. Install `cargo-tauri` on macOS before running desktop:run.",
+        );
+        process.exit(1);
+      }
+
+      return [
+        {
+          args: ["tauri", "dev", "--no-watch"],
+          command: resolveCommand("cargo"),
+          cwd: tauriDir,
+          label: "Launching AIProxy desktop application",
+        },
+      ];
+    }
+
     return [
       {
         args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
