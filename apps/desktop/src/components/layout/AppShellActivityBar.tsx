@@ -41,7 +41,7 @@ export function AppShellActivityBar({
             borderRadius: 0,
             color: selected ? ACTIVITY_BAR_ICON_ACTIVE : ACTIVITY_BAR_ICON,
             justifyContent: "center",
-            minHeight: 60,
+            minHeight: 52,
             px: 0,
             position: "relative",
             transition: "background-color 140ms ease, color 140ms ease",

@@ -2,6 +2,7 @@ mod bootstrap;
 mod commands;
 mod dev_logger;
 mod system_proxy;
+mod window_state;
 mod workspace;
 
 use bootstrap::AppState;
@@ -12,6 +13,12 @@ use std::sync::{
 };
 use system_proxy::restore_system_proxy;
 use tauri::{Manager, RunEvent};
+use window_state::{
+    persist_main_window_state,
+    register_main_window_state_tracking,
+    schedule_main_window_state_restore,
+    restore_main_window_state,
+};
 
 static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -127,7 +134,10 @@ pub fn run() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window should exist");
+            register_main_window_state_tracking(&window);
             window.show()?;
+            restore_main_window_state(&window);
+            schedule_main_window_state_restore(&window);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -147,6 +157,10 @@ fn main() {
 fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
     if SHUTDOWN_CLEANUP_STARTED.swap(true, Ordering::SeqCst) {
         return;
+    }
+
+    if let Some(window) = app_handle.get_webview_window("main") {
+        persist_main_window_state(&window);
     }
 
     let app_state = app_handle.state::<Arc<AppState>>();
