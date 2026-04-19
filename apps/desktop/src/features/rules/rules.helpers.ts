@@ -1,6 +1,7 @@
 import type {
   BreakpointRule,
   BreakpointStage,
+  DnsMappingRule,
   MapRule,
   RewriteRule,
   RewriteRuleType,
@@ -12,7 +13,7 @@ import { useI18n } from "@/i18n";
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const DEFAULT_WORKSPACE_ID = "default";
 
-export type RulesTabValue = "breakpoint" | "rewrite" | "mapLocal" | "mapRemote";
+export type RulesTabValue = "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns";
 export type TranslationFn = ReturnType<typeof useI18n>["t"];
 
 /* ── Factory helpers ──────────────────────────────────────────────── */
@@ -67,6 +68,45 @@ export function createEmptyMapRule(mode: MapRule["mode"]): MapRule {
 
 export function createCatchAllRule(stage: BreakpointStage): BreakpointRule {
   return { id: crypto.randomUUID(), enabled: true, urlPattern: "*", methods: [], stage };
+}
+
+export function createEmptyDnsMappingRule(): DnsMappingRule {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: "",
+    enabled: true,
+    priority: 100,
+    hostPattern: "",
+    targetIp: "",
+    note: "",
+  };
+}
+
+function isValidIpAddress(ip: string): boolean {
+  // IPv4
+  const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (ipv4.test(ip)) {
+    return ip.split(".").every((octet) => {
+      const n = Number(octet);
+      return n >= 0 && n <= 255;
+    });
+  }
+  // IPv6 (basic check)
+  const ipv6 = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+  return ipv6.test(ip);
+}
+
+export function getDnsMappingValidationErrors(rule: DnsMappingRule, t: TranslationFn): string[] {
+  const errors: string[] = [];
+  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
+  if (!rule.hostPattern.trim()) errors.push(t("rulesPage.validation.dnsHostPatternRequired"));
+  if (!rule.targetIp.trim()) {
+    errors.push(t("rulesPage.validation.dnsTargetIpRequired"));
+  } else if (!isValidIpAddress(rule.targetIp.trim())) {
+    errors.push(t("rulesPage.validation.dnsTargetIpInvalid"));
+  }
+  return errors;
 }
 
 /* ── Validation helpers ───────────────────────────────────────────── */

@@ -309,6 +309,17 @@ export type ThrottleProfile = {
 export type ExportFormat = "har" | "curl" | "json";
 export type ExportScope = "selected" | "filtered" | "all";
 
+export type DnsMappingRule = {
+  enabled: boolean;
+  hostPattern: string;
+  id: string;
+  name: string;
+  note?: string;
+  priority: number;
+  targetIp: string;
+  workspaceId: string;
+};
+
 export function isComposedRequestInput(value: unknown): value is ComposedRequestInput {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ComposedRequestInput>;
@@ -1132,6 +1143,30 @@ export function parseThrottleProfiles(value: unknown): ThrottleProfile[] {
   }
 
   if (value.every(isThrottleProfile)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function isDnsMappingRule(value: unknown): value is DnsMappingRule {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<DnsMappingRule>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.hostPattern === "string" &&
+    typeof candidate.targetIp === "string" &&
+    typeof candidate.priority === "number"
+  );
+}
+
+export function parseDnsMappings(value: unknown): DnsMappingRule[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isDnsMappingRule)) {
     return value;
   }
 

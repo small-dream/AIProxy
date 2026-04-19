@@ -1,16 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MapRule, RewriteRule } from "@aiproxy/shared-types";
+import type { DnsMappingRule, MapRule, RewriteRule } from "@aiproxy/shared-types";
 
 import {
   deleteRule,
+  listDnsMappings,
   listMapRules,
   listRewriteRules,
+  saveDnsMapping,
   saveMapRule,
   saveRewriteRule,
 } from "@/services/commands";
 
 const REWRITE_RULES_KEY = ["rewrite-rules"] as const;
 const MAP_RULES_KEY = ["map-rules"] as const;
+const DNS_MAPPINGS_KEY = ["dns-mappings"] as const;
 
 export function useRewriteRules() {
   return useQuery({
@@ -50,14 +53,38 @@ export function useSaveMapRule() {
   });
 }
 
+export function useDnsMappings(workspaceId: string) {
+  return useQuery({
+    queryKey: [...DNS_MAPPINGS_KEY, workspaceId],
+    queryFn: () => listDnsMappings({ workspaceId }),
+    staleTime: Infinity,
+  });
+}
+
+export function useSaveDnsMapping() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: Omit<DnsMappingRule, "id"> & { id?: string }) => saveDnsMapping(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_KEY });
+    },
+  });
+}
+
 export function useDeleteManagedRule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" }) => deleteRule(input),
+    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" | "dns" }) => deleteRule(input),
     onSuccess: (_, input) => {
       if (input.ruleType === "rewrite") {
         queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
+        return;
+      }
+
+      if (input.ruleType === "dns") {
+        queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_KEY });
         return;
       }
 

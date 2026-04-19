@@ -111,11 +111,15 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 
 作为开发者，我希望使用 Rewrite / Map Local / Map Remote 规则替换请求或响应内容，以支持联调、Mock 与资源调试。
 
-#### US-011 会话保存与导出
+#### US-011 DNS 映射
+
+作为开发者，我希望将指定域名映射到自定义 IP 地址，以便在不修改代码或系统 hosts 文件的情况下切换后端环境、联调灰度服务或验证多环境部署。
+
+#### US-012 会话保存与导出
 
 作为开发者，我希望保存、导出和重新加载会话，以便复盘、共享和留档。
 
-#### US-012 弱网模拟
+#### US-013 弱网模拟
 
 作为测试工程师，我希望模拟不同网络条件，以验证应用在低速、高延迟和丢包环境下的表现。
 
@@ -143,6 +147,7 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - Compose
 - Breakpoints
 - Rewrite / Map Local / Map Remote
+- DNS 映射 / Host Override
 - Throttling
 - 会话持久化
 
@@ -297,6 +302,23 @@ flowchart LR
 - 远程地址映射
 - 优先级与启停控制
 
+### 9.7 DNS 映射 — `已实现`
+
+- 主机名模式匹配（支持通配符 `*.example.com`）
+- 映射到自定义 IPv4 / IPv6 地址
+- 规则按 workspace 隔离
+- 优先级与启停控制
+- 持久化到 SQLite，重启不丢失
+
+实现说明：
+
+- Rust 侧 `proxy-core` 提供 `DnsManager`，在代理管道的 5 个连接路径（HTTP forward、HTTPS blind tunnel、HTTP WebSocket、HTTPS WebSocket、HTTPS MITM）中解析 DNS 覆盖
+- HTTP/HTTPS 转发通过 URL 重写实现（将 host 替换为覆盖 IP，保留原始 Host header）
+- TCP 直连路径（blind tunnel、WebSocket）通过 `TcpStream::connect` 目标替换实现
+- TLS SNI 保持原始 hostname，不受 DNS 覆盖影响
+- Rules 页面 DNS tab 提供规则 CRUD，编辑器包含主机名模式和目标 IP 两个字段
+- Compose 发送的直接请求不应用 DNS 覆盖，保持原始语义
+
 当前交互落地：
 
 - 统一收敛到 `Rules` 页面中的 `Rule Center`
@@ -306,7 +328,7 @@ flowchart LR
 - `Map Local / Map Remote` 在同一编辑模型中强调来源模式、目标地址、保留路径、保留 Query
 - 保存前使用自然语言预览最终效果，降低误配置风险
 
-### 9.7 Throttling
+### 9.8 Throttling
 
 - 预设网络配置
 - 自定义上行、下行、延迟、丢包
@@ -320,7 +342,7 @@ flowchart LR
 - 右侧集中编辑四个核心参数，并支持“保存”与“保存并启用”两条路径
 - 预览区以一句话摘要当前弱网条件，方便测试复核
 
-### 9.8 会话导出
+### 9.9 会话导出
 
 - 导出会话快照
 - 导出 `HAR`

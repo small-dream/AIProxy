@@ -225,6 +225,89 @@ impl ThrottleManager {
     }
 }
 
+/// A DNS mapping rule that overrides hostname resolution to a custom IP.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsMappingRule {
+    pub id: String,
+    pub enabled: bool,
+    pub name: String,
+    pub note: Option<String>,
+    pub priority: u32,
+    pub host_pattern: String,
+    pub target_ip: String,
+    pub workspace_id: String,
+}
+
+/// Manages DNS mapping rules in memory.
+pub struct DnsManager {
+    rules: Mutex<Vec<DnsMappingRule>>,
+}
+
+impl std::fmt::Debug for DnsManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DnsManager")
+            .field("rules_count", &self.list_rules().len())
+            .finish()
+    }
+}
+
+impl Default for DnsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DnsManager {
+    pub fn new() -> Self {
+        Self {
+            rules: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn set_rules(&self, rules: Vec<DnsMappingRule>) {
+        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = rules;
+    }
+
+    pub fn list_rules(&self) -> Vec<DnsMappingRule> {
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn save_rule(&self, rule: DnsMappingRule) -> DnsMappingRule {
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
+            *existing = rule.clone();
+        } else {
+            rules.push(rule.clone());
+        }
+        rule
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) {
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        rules.retain(|r| r.id != rule_id);
+    }
+}
+
+/// Look up a DNS override for the given hostname. Returns the target IP if a
+/// matching, enabled rule is found (highest priority first).
+pub(crate) fn resolve_dns_override(
+    dns_manager: &Option<std::sync::Arc<DnsManager>>,
+    workspace_id: &str,
+    hostname: &str,
+) -> Option<std::net::IpAddr> {
+    let manager = dns_manager.as_ref()?;
+    let rules = manager.list_rules();
+    let mut matched: Vec<&DnsMappingRule> = rules
+        .iter()
+        .filter(|r| r.enabled && r.workspace_id == workspace_id && pattern_matches(&r.host_pattern, hostname))
+        .collect();
+    matched.sort_by(|a, b| b.priority.cmp(&a.priority));
+    let rule = matched.first()?;
+    rule.target_ip.parse().ok()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RewriteHeaderPayload {

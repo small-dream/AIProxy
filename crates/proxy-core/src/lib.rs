@@ -62,8 +62,8 @@ pub use breakpoints::{
     BreakpointResolution, BreakpointRule, BreakpointStage, MockResponse,
 };
 pub use rules::{
-    MapManager, MapRule, RewriteManager, RewriteRule, RewriteRuleMatch, ThrottleManager,
-    ThrottleProfileData,
+    DnsManager, DnsMappingRule, MapManager, MapRule, RewriteManager, RewriteRule,
+    RewriteRuleMatch, ThrottleManager, ThrottleProfileData,
 };
 pub use server::{send_direct_request, start_proxy_server};
 pub use ws::{WsDirection, WsMessageData, WsOpcode};
@@ -89,6 +89,6 @@ pub(crate) use http_io::{
 pub(crate) use logging::emit_log;
 pub(crate) use rules::{
     apply_request_runtime_rules, apply_request_throttle, apply_response_rewrite_rules,
-    apply_response_throttle, RequestRuntimeOutcome,
+    apply_response_throttle, resolve_dns_override, RequestRuntimeOutcome,
 };
 pub(crate) use types::{ParsedProxyRequest, UpstreamResponse};

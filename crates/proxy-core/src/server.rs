@@ -8,6 +8,7 @@ pub async fn start_proxy_server(
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
+    dns_manager: Option<Arc<DnsManager>>,
     workspace_id: Option<String>,
     event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<StartedProxyServer, String> {
@@ -82,6 +83,7 @@ pub async fn start_proxy_server(
                             let rewrite_manager = rewrite_manager.clone();
                             let map_manager = map_manager.clone();
                             let throttle_manager = throttle_manager.clone();
+                            let dns_manager = dns_manager.clone();
                             let workspace_id = workspace_id.clone();
                             let event_emitter = event_emitter.clone();
 
@@ -98,6 +100,7 @@ pub async fn start_proxy_server(
                                     rewrite_manager,
                                     map_manager,
                                     throttle_manager,
+                                    dns_manager,
                                     workspace_id,
                                     event_emitter,
                                 )
@@ -151,6 +154,7 @@ async fn handle_connection(
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
+    dns_manager: Option<Arc<DnsManager>>,
     workspace_id: Option<String>,
     event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<(), String> {
@@ -247,7 +251,7 @@ async fn handle_connection(
                 );
 
                 // No TLS manager — blind tunnel (no decryption)
-                return tunnel_blind_relay(stream, &host, port).await;
+                return tunnel_blind_relay(stream, &host, port, &dns_manager, &active_workspace_id).await;
             }
             Some(mgr) => {
                 emit_log(
@@ -276,6 +280,7 @@ async fn handle_connection(
                     rewrite_manager,
                     map_manager,
                     throttle_manager,
+                    dns_manager,
                     active_workspace_id,
                     event_emitter,
                 )
@@ -404,10 +409,10 @@ async fn handle_connection(
                     ("url", request.url.to_string()),
                     ("method", request.method.to_string()),
                 ]);
-                handle_http_websocket_upgrade(&mut stream, &request, &session_sender, &ws_message_sender, started_at, started_at_instant).await?;
+                handle_http_websocket_upgrade(&mut stream, &request, &session_sender, &ws_message_sender, started_at, started_at_instant, &dns_manager, &active_workspace_id).await?;
                 return Ok(());
             }
-            forward_request(&client, &request).await
+            forward_request(&client, &request, &dns_manager, &active_workspace_id).await
         }
     };
 
@@ -614,6 +619,8 @@ async fn handle_connection(
 async fn forward_request(
     client: &Client,
     request: &ParsedProxyRequest,
+    dns_manager: &Option<Arc<DnsManager>>,
+    workspace_id: &str,
 ) -> Result<UpstreamResponse, String> {
     emit_log(
         "INFO",
@@ -632,6 +639,27 @@ async fn forward_request(
 
     if !request.body.is_empty() {
         request_builder = request_builder.body(request.body.clone());
+    }
+
+    // Apply DNS override if configured for this host.
+    // reqwest does not expose a per-request resolve() in this version, so we
+    // rebuild the URL with the override IP and explicitly set the Host header
+    // to the original hostname so upstream virtual-hosting still works.
+    if let Some(ip) = resolve_dns_override(dns_manager, workspace_id, &request.host) {
+        emit_log("INFO", "dns_override_applied", &[
+            ("host", request.host.clone()),
+            ("override_ip", ip.to_string()),
+        ]);
+
+        let mut override_url = request.url.clone();
+        let port = override_url.port().unwrap_or(if override_url.scheme() == "https" { 443 } else { 80 });
+        let authority = format!("{ip}:{port}");
+        override_url.set_host(Some(&authority)).ok();
+        request_builder = client.request(request.method.clone(), override_url);
+        request_builder = request_builder.headers(request.headers.clone());
+        if !request.body.is_empty() {
+            request_builder = request_builder.body(request.body.clone());
+        }
     }
 
     let waiting_started_at = Instant::now();
@@ -708,6 +736,8 @@ async fn tunnel_blind_relay(
     mut client_stream: TcpStream,
     host: &str,
     port: u16,
+    dns_manager: &Option<Arc<DnsManager>>,
+    workspace_id: &str,
 ) -> Result<(), String> {
     // Send 200 Connection Established
     client_stream
@@ -715,7 +745,17 @@ async fn tunnel_blind_relay(
         .await
         .map_err(map_io_error)?;
 
-    let mut upstream = TcpStream::connect((host, port))
+    let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
+        Some(ip) => {
+            emit_log("INFO", "dns_override_applied", &[
+                ("host", host.to_string()),
+                ("override_ip", ip.to_string()),
+            ]);
+            ip.to_string()
+        }
+        None => host.to_string(),
+    };
+    let mut upstream = TcpStream::connect((&*connect_host, port))
         .await
         .map_err(|e| format!("failed to connect to upstream {host}:{port}: {e}"))?;
 
@@ -806,16 +846,29 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     ws_message_sender: &mpsc::UnboundedSender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
+    dns_manager: &Option<Arc<DnsManager>>,
+    workspace_id: &str,
 ) -> Result<(), String> {
     let port = request.url.port().unwrap_or(80);
+    let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
+        Some(ip) => {
+            emit_log("INFO", "dns_override_ws_http", &[
+                ("host", request.host.clone()),
+                ("override_ip", ip.to_string()),
+            ]);
+            ip.to_string()
+        }
+        None => request.host.clone(),
+    };
     let host_port = format!("{}:{}", request.host, port);
+    let connect_host_port = format!("{}:{}", connect_host, port);
 
     emit_log("DEBUG", "ws_http_connecting_upstream", &[
         ("request_id", request.request_id.clone()),
         ("host_port", host_port.clone()),
     ]);
 
-    let mut upstream = TcpStream::connect(&*host_port)
+    let mut upstream = TcpStream::connect(&*connect_host_port)
         .await
         .map_err(|e| {
             emit_log("ERROR", "ws_http_upstream_connect_failed", &[
@@ -932,16 +985,29 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     tls_ms: u128,
+    dns_manager: &Option<Arc<DnsManager>>,
+    workspace_id: &str,
 ) -> Result<(), String> {
     let port = request.url.port().unwrap_or(443);
     let host_port = format!("{}:{}", request.host, port);
+    let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
+        Some(ip) => {
+            emit_log("INFO", "dns_override_wss", &[
+                ("host", request.host.clone()),
+                ("override_ip", ip.to_string()),
+            ]);
+            ip.to_string()
+        }
+        None => request.host.clone(),
+    };
+    let connect_host_port = format!("{}:{}", connect_host, port);
 
     emit_log("DEBUG", "wss_connecting_upstream", &[
         ("request_id", request.request_id.clone()),
         ("host_port", host_port.clone()),
     ]);
 
-    let ws_tcp = TcpStream::connect(&*host_port)
+    let ws_tcp = TcpStream::connect(&*connect_host_port)
         .await
         .map_err(|e| {
             emit_log("ERROR", "wss_upstream_connect_failed", &[
@@ -1139,6 +1205,7 @@ async fn handle_connect_mitm(
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
+    dns_manager: Option<Arc<DnsManager>>,
     workspace_id: String,
     event_emitter: Option<BreakpointEventEmitter>,
 ) -> Result<(), String> {
@@ -1335,11 +1402,13 @@ async fn handle_connect_mitm(
                     started_at,
                     started_at_instant,
                     tls_ms,
+                    &dns_manager,
+                    &workspace_id,
                 )
                 .await?;
                 return Ok(());
             }
-            forward_request(&client, &https_request).await
+            forward_request(&client, &https_request, &dns_manager, &workspace_id).await
         }
     };
 

@@ -113,6 +113,8 @@ pub fn run() {
             commands::list_map_rules,
             commands::save_map_rule,
             commands::delete_rule,
+            commands::list_dns_mappings,
+            commands::save_dns_mapping,
             commands::list_throttle_profiles,
             commands::save_throttle_profile,
             commands::set_active_throttle_profile,

@@ -7,6 +7,7 @@ import {
   parseAndroidAdbCertificateInstallResult,
   parseAndroidAdbDevices,
   parseAndroidAdbProxyResult,
+  parseDnsMappings,
   parseIOSSimulatorCertificateInstallResult,
   parseIOSSimulatorDevices,
   parseMapRules,
@@ -31,6 +32,7 @@ import {
   type CertificateStatus,
   type ClearAndroidProxyViaAdbInput,
   type ComposedRequestInput,
+  type DnsMappingRule,
   type GenerateRootCertificateInput,
   type InstallAndroidCertificateViaAdbInput,
   type InstallIosCertificateViaSimulatorInput,
@@ -58,6 +60,7 @@ import {
 const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
 const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
 const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
+const DNS_MAPPINGS_STORAGE_KEY = "aiproxy.rules.dns";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -826,9 +829,58 @@ export async function saveMapRule(input: Omit<MapRule, "id"> & { id?: string }):
   return nextRule;
 }
 
+// ---------------------------------------------------------------------------
+// DNS Mappings
+// ---------------------------------------------------------------------------
+
+export async function listDnsMappings(input: { workspaceId: string }): Promise<DnsMappingRule[]> {
+  if (isTauriRuntime()) {
+    try {
+      const result = await invoke("list_dns_mappings", { input });
+      return parseDnsMappings(result);
+    } catch (error) {
+      reportCommandFailure("list_dns_mappings", error);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  return readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings)
+    .filter((rule) => rule.workspaceId === input.workspaceId);
+}
+
+export async function saveDnsMapping(input: Omit<DnsMappingRule, "id"> & { id?: string }): Promise<DnsMappingRule> {
+  if (isTauriRuntime()) {
+    try {
+      const result = await invoke("save_dns_mapping", { input });
+      const parsed = parseDnsMappings([result]);
+      if (parsed.length === 0) throw coerceAppError("empty result from save_dns_mapping");
+      return parsed[0]!;
+    } catch (error) {
+      reportCommandFailure("save_dns_mapping", error);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  const rules = readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings);
+  const nextRule = {
+    ...input,
+    id: input.id ?? crypto.randomUUID(),
+  } as DnsMappingRule;
+
+  writeStoredRules(DNS_MAPPINGS_STORAGE_KEY, upsertStoredEntity(rules, nextRule));
+
+  return nextRule;
+}
+
 export async function deleteRule(input: {
   ruleId: string;
-  ruleType: "rewrite" | "map";
+  ruleType: "rewrite" | "map" | "dns";
 }): Promise<void> {
   if (isTauriRuntime()) {
     try {
@@ -849,6 +901,14 @@ export async function deleteRule(input: {
     writeStoredRules(
       REWRITE_RULES_STORAGE_KEY,
       readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter((rule) => rule.id !== input.ruleId),
+    );
+    return;
+  }
+
+  if (input.ruleType === "dns") {
+    writeStoredRules(
+      DNS_MAPPINGS_STORAGE_KEY,
+      readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings).filter((rule) => rule.id !== input.ruleId),
     );
     return;
   }

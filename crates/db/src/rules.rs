@@ -293,6 +293,69 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
 }
 
 // ---------------------------------------------------------------------------
+// DNS mappings
+// ---------------------------------------------------------------------------
+
+pub struct DnsMappingRow {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub note: Option<String>,
+    pub enabled: bool,
+    pub priority: u32,
+    pub host_pattern: String,
+    pub target_ip: String,
+}
+
+pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO dns_mappings
+            (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            r.id, r.workspace_id, r.name, r.note,
+            r.enabled as i32, r.priority, r.host_pattern, r.target_ip,
+        ],
+    )
+    .map_err(|e| format!("save dns mapping: {e}"))?;
+    Ok(())
+}
+
+pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, name, note, enabled, priority, host_pattern, target_ip
+             FROM dns_mappings ORDER BY priority DESC, name",
+        )
+        .map_err(|e| format!("prepare load dns mappings: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(DnsMappingRow {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                note: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                priority: row.get::<_, i32>(5)? as u32,
+                host_pattern: row.get(6)?,
+                target_ip: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("query dns mappings: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM dns_mappings WHERE id=?1", params![id])
+        .map_err(|e| format!("delete dns mapping: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -420,5 +483,30 @@ mod tests {
         let loaded = load_breakpoint_rules(&conn).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "b1");
+    }
+
+    #[test]
+    fn dns_mapping_round_trip() {
+        let conn = test_conn();
+        let mapping = DnsMappingRow {
+            id: "d1".into(),
+            workspace_id: "default".into(),
+            name: "Local API".into(),
+            note: Some("redirect to local".into()),
+            enabled: true,
+            priority: 100,
+            host_pattern: "api.example.com".into(),
+            target_ip: "127.0.0.1".into(),
+        };
+
+        save_dns_mapping(&conn, &mapping).unwrap();
+        let loaded = load_all_dns_mappings(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].host_pattern, "api.example.com");
+        assert_eq!(loaded[0].target_ip, "127.0.0.1");
+        assert_eq!(loaded[0].priority, 100);
+
+        delete_dns_mapping(&conn, "d1").unwrap();
+        assert!(load_all_dns_mappings(&conn).unwrap().is_empty());
     }
 }

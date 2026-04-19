@@ -7,8 +7,8 @@ use crate::system_proxy::{
 use crate::workspace::WorkspaceData;
 use aiproxy_proxy_core::{
     get_local_ip_addresses, send_direct_request, start_proxy_server,
-    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, MapRule,
-    ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
+    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, DnsMappingRule,
+    MapRule, ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
     RewriteRule, ThrottleProfileData, TlsManager,
 };
 use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
@@ -427,6 +427,8 @@ async fn start_proxy_impl(
         }) as BreakpointEventEmitter
     });
 
+    let dns_manager = state.read_dns_manager();
+
     let started_proxy_server = start_proxy_server(
         ProxyRuntimeConfig {
             port,
@@ -437,6 +439,7 @@ async fn start_proxy_impl(
         Some(rewrite_manager),
         Some(map_manager),
         Some(throttle_manager),
+        Some(dns_manager),
         Some(input.workspace_id.clone()),
         event_emitter,
     )
@@ -1570,6 +1573,7 @@ pub fn delete_rule(
         let db_result = match input.rule_type.as_str() {
             "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
+            "dns" => aiproxy_db::rules::delete_dns_mapping(&conn, &input.rule_id),
             _ => Ok(()),
         };
         if let Err(error) = db_result {
@@ -1580,8 +1584,50 @@ pub fn delete_rule(
     match input.rule_type.as_str() {
         "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
+        "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         _ => {}
     }
+}
+
+// --- DNS mapping commands ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDnsMappingsInput {
+    pub workspace_id: String,
+}
+
+#[tauri::command]
+pub fn list_dns_mappings(input: ListDnsMappingsInput, state: State<'_, Arc<AppState>>) -> Vec<DnsMappingRule> {
+    let rules = state.read_dns_manager().list_rules();
+    rules.into_iter().filter(|r| r.workspace_id == input.workspace_id).collect()
+}
+
+#[tauri::command]
+pub fn save_dns_mapping(input: DnsMappingRule, state: State<'_, Arc<AppState>>) -> DnsMappingRule {
+    let rule = input;
+
+    // Persist to DB
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::DnsMappingRow {
+            id: rule.id.clone(),
+            workspace_id: rule.workspace_id.clone(),
+            name: rule.name.clone(),
+            note: rule.note.clone(),
+            enabled: rule.enabled,
+            priority: rule.priority,
+            host_pattern: rule.host_pattern.clone(),
+            target_ip: rule.target_ip.clone(),
+        };
+        if let Err(error) = aiproxy_db::rules::save_dns_mapping(&conn, &row) {
+            log_error("desktop.commands", "save_dns_mapping_db_failed", &[("error", error)]);
+        }
+    }
+
+    // Update in-memory manager
+    state.read_dns_manager().save_rule(rule.clone());
+    rule
 }
 
 // --- Throttle commands ---

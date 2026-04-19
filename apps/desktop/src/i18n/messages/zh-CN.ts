@@ -266,9 +266,10 @@ export const zhCNMessages: Messages = {
     urlPatternPlaceholder: "URL 匹配模式（子串匹配，例如 api.example.com 或 *）",
     tabs: {
       breakpoint: "断点",
-      rewrite: "改写",
+      dns: "DNS",
       mapLocal: "本地映射",
       mapRemote: "远程映射",
+      rewrite: "改写",
     },
     table: {
       methods: "方法",
@@ -382,11 +383,24 @@ export const zhCNMessages: Messages = {
       sourcePattern: "来源 URL 模式",
       sourcePatternExample: "https://example.com/assets/*",
     },
+    dns: {
+      createRule: "新建 DNS 映射",
+      emptyDescription: "创建 DNS 映射规则，将主机名解析到自定义 IP 地址。",
+      hostPattern: "主机名模式",
+      hostPatternExample: "*.example.com",
+      searchPlaceholder: "搜索 DNS 映射",
+      targetIp: "目标 IP 地址",
+      targetIpExample: "127.0.0.1",
+      title: "DNS 映射",
+    },
     preview: {
       matchLine: "在 {{stage}} 阶段，匹配 {{methods}} 的 {{urlPattern}}。",
     },
     validation: {
       bodyTextRequired: "请填写替换后的 Body 内容。",
+      dnsHostPatternRequired: "请填写主机名模式。",
+      dnsTargetIpInvalid: "请输入有效的 IPv4 或 IPv6 地址。",
+      dnsTargetIpRequired: "请填写目标 IP 地址。",
       headerNameRequired: "请填写 Header 名称。",
       headerValueRequired: "请填写 Header 值。",
       localTargetRequired: "请填写本地文件或目录路径。",

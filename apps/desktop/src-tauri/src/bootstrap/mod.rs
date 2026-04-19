@@ -1,13 +1,13 @@
 use aiproxy_db::body_store::BodyStore;
 use aiproxy_db::rules::{
-    BreakpointRuleRow, MapRuleRow, RewriteRuleRow, ThrottleProfileRow,
+    BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ThrottleProfileRow,
 };
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
-    BreakpointManager, BreakpointRule, BreakpointStage, MapManager, MapRule, ProxyServerHandle,
-    ProxySessionDetail, ProxySessionSummary, RewriteManager, RewriteRule, RewriteRuleMatch,
-    ThrottleManager, ThrottleProfileData, TlsManager,
+    BreakpointManager, BreakpointRule, BreakpointStage, DnsManager, DnsMappingRule, MapManager,
+    MapRule, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager,
+    RewriteRule, RewriteRuleMatch, ThrottleManager, ThrottleProfileData, TlsManager,
 };
 use serde::Serialize;
 use std::{
@@ -72,6 +72,7 @@ pub struct AppState {
     rewrite_manager: Arc<RewriteManager>,
     map_manager: Arc<MapManager>,
     throttle_manager: Arc<ThrottleManager>,
+    dns_manager: Arc<DnsManager>,
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     focused_host: Mutex<Option<String>>,
@@ -93,6 +94,7 @@ impl AppState {
             rewrite_manager: Arc::new(RewriteManager::new()),
             map_manager: Arc::new(MapManager::new()),
             throttle_manager: Arc::new(ThrottleManager::new()),
+            dns_manager: Arc::new(DnsManager::new()),
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
             focused_host: Mutex::new(None),
@@ -142,6 +144,13 @@ impl AppState {
         if let Ok(rows) = aiproxy_db::rules::load_breakpoint_rules(&conn) {
             self.breakpoint_manager.set_rules(
                 rows.into_iter().map(breakpoint_row_to_rule).collect(),
+            );
+        }
+
+        // Load DNS mappings
+        if let Ok(rows) = aiproxy_db::rules::load_all_dns_mappings(&conn) {
+            self.dns_manager.set_rules(
+                rows.into_iter().map(dns_mapping_row_to_rule).collect(),
             );
         }
 
@@ -473,6 +482,10 @@ impl AppState {
         Arc::clone(&self.throttle_manager)
     }
 
+    pub fn read_dns_manager(&self) -> Arc<DnsManager> {
+        Arc::clone(&self.dns_manager)
+    }
+
     pub fn read_workspace_manager(&self) -> Arc<WorkspaceManager> {
         Arc::clone(&self.workspace_manager)
     }
@@ -751,6 +764,19 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, _body_store: &BodyStore) -> 
         request_body_ref: body_to_json(&detail.request_body),
         response_body_ref: body_to_json(&detail.response_body),
         timing: timing_json,
+    }
+}
+
+fn dns_mapping_row_to_rule(row: DnsMappingRow) -> DnsMappingRule {
+    DnsMappingRule {
+        id: row.id,
+        enabled: row.enabled,
+        name: row.name,
+        note: row.note,
+        priority: row.priority,
+        host_pattern: row.host_pattern,
+        target_ip: row.target_ip,
+        workspace_id: row.workspace_id,
     }
 }
 

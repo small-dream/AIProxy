@@ -113,6 +113,19 @@ CREATE TABLE IF NOT EXISTS ws_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ws_messages_session ON ws_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_ws_messages_timestamp ON ws_messages(timestamp);
+
+CREATE TABLE IF NOT EXISTS dns_mappings (
+    id              TEXT NOT NULL PRIMARY KEY,
+    workspace_id    TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    note            TEXT,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    priority        INTEGER NOT NULL DEFAULT 0,
+    host_pattern    TEXT NOT NULL,
+    target_ip       TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+CREATE INDEX IF NOT EXISTS idx_dns_mappings_workspace ON dns_mappings(workspace_id);
 ";
 
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
@@ -142,6 +155,7 @@ mod tests {
 
         let expected = [
             "breakpoint_rules",
+            "dns_mappings",
             "map_rules",
             "rewrite_rules",
             "session_details",

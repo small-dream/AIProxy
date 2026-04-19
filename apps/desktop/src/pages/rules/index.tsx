@@ -2,6 +2,7 @@ import { Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { useState } from "react";
 
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
+import { DnsMappingsPanel } from "@/features/rules/components/DnsMappingsPanel";
 import { MapRulesPanel } from "@/features/rules/components/MapRulesPanel";
 import { RewriteRulesPanel } from "@/features/rules/components/RewriteRulesPanel";
 import type { RulesTabValue } from "@/features/rules/rules.helpers";
@@ -31,6 +32,7 @@ export function RulesPage() {
         <Tab value="rewrite" label={t("rulesPage.tabs.rewrite")} />
         <Tab value="mapLocal" label={t("rulesPage.tabs.mapLocal")} />
         <Tab value="mapRemote" label={t("rulesPage.tabs.mapRemote")} />
+        <Tab value="dns" label={t("rulesPage.tabs.dns")} />
       </Tabs>
 
       <Box>
@@ -38,6 +40,7 @@ export function RulesPage() {
         {tab === "rewrite" && <RewriteRulesPanel />}
         {tab === "mapLocal" && <MapRulesPanel mode="local" />}
         {tab === "mapRemote" && <MapRulesPanel mode="remote" />}
+        {tab === "dns" && <DnsMappingsPanel />}
       </Box>
     </Stack>
   );

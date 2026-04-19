@@ -264,9 +264,10 @@ export const enMessages = {
     urlPatternPlaceholder: "URL pattern (substring match, e.g. api.example.com or *)",
     tabs: {
       breakpoint: "Breakpoint",
-      rewrite: "Rewrite",
+      dns: "DNS",
       mapLocal: "Map Local",
       mapRemote: "Map Remote",
+      rewrite: "Rewrite",
     },
     table: {
       methods: "Methods",
@@ -380,11 +381,24 @@ export const enMessages = {
       sourcePattern: "Source URL Pattern",
       sourcePatternExample: "https://example.com/assets/*",
     },
+    dns: {
+      createRule: "New DNS Mapping",
+      emptyDescription: "Create a DNS mapping to redirect hostname resolution to a custom IP address.",
+      hostPattern: "Hostname Pattern",
+      hostPatternExample: "*.example.com",
+      searchPlaceholder: "Search DNS mappings",
+      targetIp: "Target IP Address",
+      targetIpExample: "127.0.0.1",
+      title: "DNS Mapping",
+    },
     preview: {
       matchLine: "Match {{methods}} during {{stage}} for {{urlPattern}}.",
     },
     validation: {
       bodyTextRequired: "Provide replacement body content.",
+      dnsHostPatternRequired: "Enter a hostname pattern.",
+      dnsTargetIpInvalid: "Enter a valid IPv4 or IPv6 address.",
+      dnsTargetIpRequired: "Enter a target IP address.",
       headerNameRequired: "Enter a header name.",
       headerValueRequired: "Enter a header value.",
       localTargetRequired: "Enter a local file or folder path.",
