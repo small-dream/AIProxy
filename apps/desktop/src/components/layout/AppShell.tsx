@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
@@ -23,6 +24,8 @@ import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
 import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
+import { onMenuEvent } from "@/services/events";
+import { clearSessions } from "@/services/commands";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
 
@@ -234,6 +237,171 @@ export function AppShell() {
 
     await enableSystemProxyMutation.mutateAsync(undefined);
   }
+
+  // --- Menu bar event handling ---
+  const setThemePreference = useAppPreferencesStore((s) => s.setThemePreference);
+  const menuHandlerRef = useRef({
+    navigate,
+    proxyStatus,
+    initialStartProxyInput,
+    workspaceId,
+    startProxyMutation,
+    stopProxyMutation,
+    handleSystemProxyToggle,
+    setThemePreference,
+  });
+
+  useEffect(() => {
+    menuHandlerRef.current = {
+      navigate,
+      proxyStatus,
+      initialStartProxyInput,
+      workspaceId,
+      startProxyMutation,
+      stopProxyMutation,
+      handleSystemProxyToggle,
+      setThemePreference,
+    };
+  });
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    onMenuEvent((payload) => {
+      const h = menuHandlerRef.current;
+      switch (payload.menuId) {
+        case "preferences":
+          h.navigate("/settings");
+          break;
+        case "goto_sessions":
+          h.navigate("/");
+          break;
+        case "goto_compose":
+          h.navigate("/compose");
+          break;
+        case "goto_rules":
+          h.navigate("/rules");
+          break;
+        case "goto_throttling":
+          h.navigate("/throttling");
+          break;
+        case "goto_certificates":
+          h.navigate("/certificates");
+          break;
+        case "goto_settings":
+          h.navigate("/settings");
+          break;
+        case "theme_dark":
+          h.setThemePreference("dark");
+          break;
+        case "theme_light":
+          h.setThemePreference("light");
+          break;
+        case "theme_system":
+          h.setThemePreference("system");
+          break;
+        case "start_proxy":
+          if (!h.proxyStatus?.running) {
+            h.startProxyMutation.mutate(h.initialStartProxyInput);
+          }
+          break;
+        case "stop_proxy":
+          if (h.proxyStatus?.running) {
+            h.stopProxyMutation.mutate(h.workspaceId);
+          }
+          break;
+        case "toggle_system_proxy":
+          void h.handleSystemProxyToggle();
+          break;
+        case "clear_sessions":
+        case "clear_all_sessions":
+          void clearSessions();
+          break;
+        case "find":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));
+          break;
+        case "refresh":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-refresh"));
+          break;
+        case "zoom_in":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-in"));
+          break;
+        case "zoom_out":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-out"));
+          break;
+        case "zoom_reset":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-reset"));
+          break;
+        case "breakpoint_rules":
+          h.navigate("/rules");
+          break;
+        case "throttling_tool":
+          h.navigate("/throttling");
+          break;
+        case "install_cert":
+          h.navigate("/certificates");
+          break;
+        case "cert_status":
+          h.navigate("/certificates");
+          break;
+        case "import_har":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-import-har"));
+          break;
+        case "export_har":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-har"));
+          break;
+        case "export_curl":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-curl"));
+          break;
+        case "export_snapshot":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-snapshot"));
+          break;
+        case "documentation": {
+          const docsUrl = "https://github.com/jakejiang/aiproxy";
+          window.open(docsUrl, "_blank");
+          break;
+        }
+        case "shortcuts":
+          window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
+          break;
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  // --- Zoom state ---
+  const [zoomLevel, setZoomLevel] = useState(1);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.zoom = String(zoomLevel);
+  }, [zoomLevel]);
+
+  useEffect(() => {
+    function handleZoomIn() {
+      setZoomLevel((prev) => Math.min(prev + 0.1, 2));
+    }
+    function handleZoomOut() {
+      setZoomLevel((prev) => Math.max(prev - 0.1, 0.5));
+    }
+    function handleZoomReset() {
+      setZoomLevel(1);
+    }
+
+    window.addEventListener("aiproxy-menu-zoom-in", handleZoomIn);
+    window.addEventListener("aiproxy-menu-zoom-out", handleZoomOut);
+    window.addEventListener("aiproxy-menu-zoom-reset", handleZoomReset);
+
+    return () => {
+      window.removeEventListener("aiproxy-menu-zoom-in", handleZoomIn);
+      window.removeEventListener("aiproxy-menu-zoom-out", handleZoomOut);
+      window.removeEventListener("aiproxy-menu-zoom-reset", handleZoomReset);
+    };
+  }, []);
 
   return (
     <Box sx={{ display: "flex", height: "100vh", overflow: "hidden", bgcolor: "background.default" }}>

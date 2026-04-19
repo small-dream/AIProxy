@@ -14,6 +14,27 @@ export async function subscribeToProxyStatus(): Promise<Unlisten> {
   return () => undefined;
 }
 
+export type MenuEventPayload = {
+  menuId: string;
+};
+
+export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("menu-event", (event) => {
+    try {
+      const payload = event.payload as Record<string, unknown>;
+      if (typeof payload.menuId === "string") {
+        callback({ menuId: payload.menuId });
+      }
+    } catch {
+      // Ignore malformed events
+    }
+  });
+}
+
 export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});

@@ -1,6 +1,7 @@
 mod bootstrap;
 mod commands;
 mod dev_logger;
+mod menu;
 mod system_proxy;
 mod window_state;
 mod workspace;
@@ -125,11 +126,10 @@ pub fn run() {
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
 
-            #[cfg(target_os = "macos")]
-            {
-                let menu = tauri::menu::Menu::default(app.handle())?;
-                menu.set_as_app_menu()?;
+            if let Err(error) = menu::build_menu(app.handle()) {
+                log_warn("desktop.app", "menu_build_failed", &[("error", error.to_string())]);
             }
+            menu::register_menu_event_handler(app.handle());
 
             let window = app
                 .get_webview_window("main")
