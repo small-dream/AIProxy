@@ -1,13 +1,50 @@
+import { CircularProgress, Stack } from "@mui/material";
+import { Suspense, lazy, type ComponentType } from "react";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
-import { CertificatesPage } from "@/pages/certificates";
-import { CollectionsPage } from "@/pages/collections";
-import { ComposePage } from "@/pages/compose";
-import { RulesPage } from "@/pages/rules";
-import { SessionsPage } from "@/pages/sessions";
-import { SettingsPage } from "@/pages/settings";
-import { ThrottlingPage } from "@/pages/throttling";
+
+const SessionsPage = lazy(async () => ({
+  default: (await import("@/pages/sessions")).SessionsPage,
+}));
+const ComposePage = lazy(async () => ({
+  default: (await import("@/pages/compose")).ComposePage,
+}));
+const CollectionsPage = lazy(async () => ({
+  default: (await import("@/pages/collections")).CollectionsPage,
+}));
+const RulesPage = lazy(async () => ({
+  default: (await import("@/pages/rules")).RulesPage,
+}));
+const ThrottlingPage = lazy(async () => ({
+  default: (await import("@/pages/throttling")).ThrottlingPage,
+}));
+const CertificatesPage = lazy(async () => ({
+  default: (await import("@/pages/certificates")).CertificatesPage,
+}));
+const SettingsPage = lazy(async () => ({
+  default: (await import("@/pages/settings")).SettingsPage,
+}));
+
+function LazyRouteFallback() {
+  return (
+    <Stack
+      alignItems="center"
+      justifyContent="center"
+      sx={{ minHeight: 240, width: "100%" }}
+    >
+      <CircularProgress size={24} />
+    </Stack>
+  );
+}
+
+function renderLazyRoute(Component: ComponentType) {
+  return (
+    <Suspense fallback={<LazyRouteFallback />}>
+      <Component />
+    </Suspense>
+  );
+}
 
 const router = createHashRouter([
   {
@@ -16,31 +53,31 @@ const router = createHashRouter([
     children: [
       {
         index: true,
-        element: <SessionsPage />,
+        element: renderLazyRoute(SessionsPage),
       },
       {
         path: "compose",
-        element: <ComposePage />,
+        element: renderLazyRoute(ComposePage),
       },
       {
         path: "collections",
-        element: <CollectionsPage />,
+        element: renderLazyRoute(CollectionsPage),
       },
       {
         path: "rules",
-        element: <RulesPage />,
+        element: renderLazyRoute(RulesPage),
       },
       {
         path: "throttling",
-        element: <ThrottlingPage />,
+        element: renderLazyRoute(ThrottlingPage),
       },
       {
         path: "certificates",
-        element: <CertificatesPage />,
+        element: renderLazyRoute(CertificatesPage),
       },
       {
         path: "settings",
-        element: <SettingsPage />,
+        element: renderLazyRoute(SettingsPage),
       },
     ],
   },

@@ -29,7 +29,11 @@ import type {
 } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { getWsConnectionStatus, injectWsMessage } from "@/services/commands";
+import {
+  getWsConnectionStatus,
+  injectWsMessage,
+  listWsMessages,
+} from "@/services/commands/ws";
 import { onWsConnectionStatus, onWsMessage } from "@/services/events";
 import { SearchableCodeBlock } from "./SessionInspectorShared";
 
@@ -123,7 +127,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     setMessages([]);
     setSelectedId(null);
     setComposeOpen(false);
-    listWsMessagesLocal(sessionId).then((loaded) => {
+    listWsMessages(sessionId).then((loaded) => {
       if (!cancelled) setMessages(loaded);
     });
     return () => { cancelled = true; };
@@ -404,12 +408,6 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       />
     </Stack>
   );
-}
-
-// Helper to avoid circular import
-async function listWsMessagesLocal(sessionId: string): Promise<WsMessage[]> {
-  const { listWsMessages } = await import("@/services/commands");
-  return listWsMessages(sessionId);
 }
 
 function MessageRow({

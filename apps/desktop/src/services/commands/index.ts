@@ -54,8 +54,6 @@ import {
   type StopProxyInput,
   type ThrottleProfile,
   type WsMessage,
-  type WsInjectInput,
-  type WsConnectionStatusValue,
   type Workspace,
   type ApiCollection,
   type ApiCollectionItem,
@@ -82,6 +80,12 @@ const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
 const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 const DNS_MAPPINGS_STORAGE_KEY = "aiproxy.rules.dns";
 const SCRIPT_RULES_STORAGE_KEY = "aiproxy.rules.script";
+
+export {
+  getWsConnectionStatus,
+  injectWsMessage,
+  listWsMessages,
+} from "./ws";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -228,71 +232,6 @@ export async function clearSessions(): Promise<void> {
     logDevInfo("ui.commands", "clear_sessions_succeeded");
   } catch (error) {
     reportCommandFailure("clear_sessions", error);
-    throw coerceAppError(error);
-  }
-}
-
-export async function listWsMessages(
-  sessionId: string,
-  limit?: number,
-  offset?: number,
-): Promise<WsMessage[]> {
-  if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "list_ws_messages_bypassed_non_tauri_runtime");
-    return [];
-  }
-
-  try {
-    logDevDebug("ui.commands", "list_ws_messages_requested", { sessionId });
-    const payload = await invoke<unknown>("list_ws_messages", {
-      input: { sessionId, limit, offset },
-    });
-    const messages = parseWsMessages(payload);
-    logDevDebug("ui.commands", "list_ws_messages_succeeded", {
-      sessionId,
-      count: messages.length,
-    });
-    return messages;
-  } catch (error) {
-    reportCommandFailure("list_ws_messages", error);
-    throw coerceAppError(error);
-  }
-}
-
-export async function getWsConnectionStatus(
-  sessionId: string,
-): Promise<WsConnectionStatusValue> {
-  if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "get_ws_connection_status_bypassed_non_tauri_runtime");
-    return "closed";
-  }
-
-  try {
-    const result = await invoke<{ status: string }>(
-      "get_ws_connection_status",
-      { input: { sessionId } },
-    );
-    return result.status === "active" ? "active" : "closed";
-  } catch (error) {
-    reportCommandFailure("get_ws_connection_status", error);
-    return "closed";
-  }
-}
-
-export async function injectWsMessage(input: WsInjectInput): Promise<void> {
-  if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "inject_ws_message_bypassed_non_tauri_runtime");
-    return;
-  }
-
-  try {
-    logDevInfo("ui.commands", "inject_ws_message_requested", {
-      sessionId: input.sessionId,
-    });
-    await invoke("inject_ws_message", { input });
-    logDevInfo("ui.commands", "inject_ws_message_succeeded");
-  } catch (error) {
-    reportCommandFailure("inject_ws_message", error);
     throw coerceAppError(error);
   }
 }
