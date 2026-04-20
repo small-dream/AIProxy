@@ -198,6 +198,7 @@ flowchart LR
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 - 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
 - 内建 `DnsManager`，在代理管道的 5 个连接路径中提供 DNS 覆盖能力 — `已实现`
+- 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
 
 DNS 覆盖实现机制：
@@ -208,6 +209,16 @@ DNS 覆盖实现机制：
 - TCP 直连路径（blind tunnel、WebSocket）：将 `TcpStream::connect` 目标替换为覆盖 IP
 - TLS SNI 始终使用原始 hostname，不受 DNS 覆盖影响
 - `send_direct_request`（Compose）不应用 DNS 覆盖，保持直接请求语义
+
+脚本化规则实现机制：
+
+- `aiproxy-rule-engine` 负责脚本规则模型、TS 转译、导出校验、QuickJS 沙箱执行与 trace 结构定义
+- 保存规则时完成 `TypeScript -> JavaScript` 转译与 `onRequest / onResponse` 导出检查，运行时不再做热路径转译
+- 请求链执行顺序：`Rewrite -> Map -> Script(onRequest) -> Breakpoint -> Throttle -> Upstream`
+- 响应链执行顺序：`Upstream/Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoint -> Throttle -> Client`
+- `Map Local` 命中后跳过 `onRequest`，但仍执行 `onResponse`
+- 脚本运行默认 `fail-open`，异常、超时或结果非法只记录 trace，不中断正常代理链
+- 脚本日志与提取结果通过 `script_runs / script_run_entries` 落库，并在 Session Inspector 的 `Automation` 标签页懒加载展示
 
 断点实现机制：
 

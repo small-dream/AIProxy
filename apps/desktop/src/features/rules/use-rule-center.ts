@@ -1,19 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { DnsMappingRule, MapRule, RewriteRule } from "@aiproxy/shared-types";
+import type { DnsMappingRule, MapRule, RewriteRule, ScriptRule } from "@aiproxy/shared-types";
 
 import {
   deleteRule,
   listDnsMappings,
   listMapRules,
   listRewriteRules,
+  listScriptRules,
   saveDnsMapping,
   saveMapRule,
   saveRewriteRule,
+  saveScriptRule,
 } from "@/services/commands";
 
 const REWRITE_RULES_KEY = ["rewrite-rules"] as const;
 const MAP_RULES_KEY = ["map-rules"] as const;
 const DNS_MAPPINGS_KEY = ["dns-mappings"] as const;
+const SCRIPT_RULES_KEY = ["script-rules"] as const;
 
 export function useRewriteRules() {
   return useQuery({
@@ -53,6 +56,25 @@ export function useSaveMapRule() {
   });
 }
 
+export function useScriptRules(workspaceId?: string) {
+  return useQuery({
+    queryKey: [...SCRIPT_RULES_KEY, workspaceId ?? "default"],
+    queryFn: () => listScriptRules(workspaceId),
+    staleTime: Infinity,
+  });
+}
+
+export function useSaveScriptRule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: Omit<ScriptRule, "id"> & { id?: string }) => saveScriptRule(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SCRIPT_RULES_KEY });
+    },
+  });
+}
+
 export function useDnsMappings(workspaceId: string) {
   return useQuery({
     queryKey: [...DNS_MAPPINGS_KEY, workspaceId],
@@ -76,7 +98,7 @@ export function useDeleteManagedRule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" | "dns" }) => deleteRule(input),
+    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" | "dns" | "script" }) => deleteRule(input),
     onSuccess: (_, input) => {
       if (input.ruleType === "rewrite") {
         queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
@@ -85,6 +107,11 @@ export function useDeleteManagedRule() {
 
       if (input.ruleType === "dns") {
         queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_KEY });
+        return;
+      }
+
+      if (input.ruleType === "script") {
+        queryClient.invalidateQueries({ queryKey: SCRIPT_RULES_KEY });
         return;
       }
 

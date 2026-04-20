@@ -7,6 +7,7 @@ pub async fn start_proxy_server(
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
+    script_manager: Option<Arc<ScriptManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
     dns_manager: Option<Arc<DnsManager>>,
     workspace_id: Option<String>,
@@ -82,6 +83,7 @@ pub async fn start_proxy_server(
                             let breakpoint_manager = breakpoint_manager.clone();
                             let rewrite_manager = rewrite_manager.clone();
                             let map_manager = map_manager.clone();
+                            let script_manager = script_manager.clone();
                             let throttle_manager = throttle_manager.clone();
                             let dns_manager = dns_manager.clone();
                             let workspace_id = workspace_id.clone();
@@ -99,6 +101,7 @@ pub async fn start_proxy_server(
                                     breakpoint_manager,
                                     rewrite_manager,
                                     map_manager,
+                                    script_manager,
                                     throttle_manager,
                                     dns_manager,
                                     workspace_id,
@@ -153,6 +156,7 @@ async fn handle_connection(
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
+    script_manager: Option<Arc<ScriptManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
     dns_manager: Option<Arc<DnsManager>>,
     workspace_id: Option<String>,
@@ -279,6 +283,7 @@ async fn handle_connection(
                     breakpoint_manager,
                     rewrite_manager,
                     map_manager,
+                    script_manager,
                     throttle_manager,
                     dns_manager,
                     active_workspace_id,
@@ -289,13 +294,27 @@ async fn handle_connection(
         }
     }
 
-    let request_runtime = apply_request_runtime_rules(
+    let RequestRuntimeOutcome {
+        mut local_response,
+        throttle_profile,
+    } = apply_request_runtime_rules(
         &rewrite_manager,
         &map_manager,
         &throttle_manager,
         &active_workspace_id,
         &mut request,
     )?;
+    let mut script_traces = Vec::new();
+
+    if local_response.is_none() {
+        let script_outcome = apply_request_script_rules(
+            &script_manager,
+            &active_workspace_id,
+            &mut request,
+        );
+        local_response = script_outcome.local_response;
+        script_traces.extend(script_outcome.traces);
+    }
 
     // --- Request-stage breakpoint ---
     if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut request).await? {
@@ -306,7 +325,7 @@ async fn handle_connection(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(profile) = request_runtime.throttle_profile.as_ref() {
+                    if let Some(profile) = throttle_profile.as_ref() {
                         if let Err(error) = apply_request_throttle(profile, request.body.len()).await {
                             return respond_with_throttle_failure(
                                 &mut stream,
@@ -328,8 +347,14 @@ async fn handle_connection(
                         &request,
                         &mut mock_response,
                     )?;
+                    script_traces.extend(apply_response_script_rules(
+                        &script_manager,
+                        &active_workspace_id,
+                        &request,
+                        &mut mock_response,
+                    ));
 
-                    if let Some(profile) = request_runtime.throttle_profile.as_ref() {
+                    if let Some(profile) = throttle_profile.as_ref() {
                         apply_response_throttle(profile, mock_response.response_body.len()).await;
                     }
 
@@ -341,7 +366,7 @@ async fn handle_connection(
                     )
                     .await?;
 
-                    let detail = build_session_detail(
+                    let mut detail = build_session_detail(
                         &request,
                         mock_response.status_code.as_u16(),
                         &mock_response.response_headers,
@@ -358,6 +383,7 @@ async fn handle_connection(
                             waiting_ms: Some(0),
                         },
                     );
+                    detail.script_traces = script_traces;
                     if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -374,11 +400,6 @@ async fn handle_connection(
     if session_sender.send(pending_detail).is_err() {
         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
     }
-
-    let RequestRuntimeOutcome {
-        local_response,
-        throttle_profile,
-    } = request_runtime;
 
     if let Some(profile) = throttle_profile.as_ref() {
         if let Err(error) = apply_request_throttle(profile, request.body.len()).await {
@@ -424,6 +445,12 @@ async fn handle_connection(
                 &request,
                 &mut upstream_response,
             )?;
+            script_traces.extend(apply_response_script_rules(
+                &script_manager,
+                &active_workspace_id,
+                &request,
+                &mut upstream_response,
+            ));
 
             // --- Response-stage breakpoint ---
             let breakpoint_resolution = match intercept_response_stage(
@@ -438,7 +465,7 @@ async fn handle_connection(
             {
                 Ok(resolution) => resolution,
                 Err(error) => {
-                    let detail = build_session_detail(
+                    let mut detail = build_session_detail(
                         &request,
                         upstream_response.status_code.as_u16(),
                         &upstream_response.response_headers,
@@ -455,6 +482,7 @@ async fn handle_connection(
                             waiting_ms: Some(upstream_response.waiting_ms),
                         },
                     );
+                    detail.script_traces = script_traces.clone();
                     if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -465,7 +493,7 @@ async fn handle_connection(
             if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
-                        let detail = build_session_detail(
+                        let mut detail = build_session_detail(
                             &request,
                             upstream_response.status_code.as_u16(),
                             &upstream_response.response_headers,
@@ -482,6 +510,7 @@ async fn handle_connection(
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
                         );
+                        detail.script_traces = script_traces.clone();
                         if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -511,7 +540,7 @@ async fn handle_connection(
             )
             .await
             {
-                let detail = build_session_detail(
+                let mut detail = build_session_detail(
                     &request,
                     upstream_response.status_code.as_u16(),
                     &upstream_response.response_headers,
@@ -528,13 +557,14 @@ async fn handle_connection(
                         waiting_ms: Some(upstream_response.waiting_ms),
                     },
                 );
+                detail.script_traces = script_traces.clone();
                 if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
                 return Err(error);
             }
 
-            let detail = build_session_detail(
+            let mut detail = build_session_detail(
                 &request,
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
@@ -551,6 +581,7 @@ async fn handle_connection(
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
             );
+            detail.script_traces = script_traces;
 
             if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -1218,6 +1249,7 @@ async fn handle_connect_mitm(
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
+    script_manager: Option<Arc<ScriptManager>>,
     throttle_manager: Option<Arc<ThrottleManager>>,
     dns_manager: Option<Arc<DnsManager>>,
     workspace_id: String,
@@ -1298,13 +1330,27 @@ async fn handle_connect_mitm(
         ..request
     };
 
-    let request_runtime = apply_request_runtime_rules(
+    let RequestRuntimeOutcome {
+        mut local_response,
+        throttle_profile,
+    } = apply_request_runtime_rules(
         &rewrite_manager,
         &map_manager,
         &throttle_manager,
         &workspace_id,
         &mut https_request,
     )?;
+    let mut script_traces = Vec::new();
+
+    if local_response.is_none() {
+        let script_outcome = apply_request_script_rules(
+            &script_manager,
+            &workspace_id,
+            &mut https_request,
+        );
+        local_response = script_outcome.local_response;
+        script_traces.extend(script_outcome.traces);
+    }
 
     // --- Request-stage breakpoint (HTTPS) ---
     if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut https_request).await? {
@@ -1315,7 +1361,7 @@ async fn handle_connect_mitm(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(profile) = request_runtime.throttle_profile.as_ref() {
+                    if let Some(profile) = throttle_profile.as_ref() {
                         if let Err(error) = apply_request_throttle(profile, https_request.body.len()).await {
                             return respond_with_throttle_failure(
                                 &mut tls_stream,
@@ -1337,8 +1383,14 @@ async fn handle_connect_mitm(
                         &https_request,
                         &mut mock_response,
                     )?;
+                    script_traces.extend(apply_response_script_rules(
+                        &script_manager,
+                        &workspace_id,
+                        &https_request,
+                        &mut mock_response,
+                    ));
 
-                    if let Some(profile) = request_runtime.throttle_profile.as_ref() {
+                    if let Some(profile) = throttle_profile.as_ref() {
                         apply_response_throttle(profile, mock_response.response_body.len()).await;
                     }
 
@@ -1350,7 +1402,7 @@ async fn handle_connect_mitm(
                     )
                     .await?;
 
-                    let detail = build_session_detail(
+                    let mut detail = build_session_detail(
                         &https_request,
                         mock_response.status_code.as_u16(),
                         &mock_response.response_headers,
@@ -1367,6 +1419,7 @@ async fn handle_connect_mitm(
                             waiting_ms: Some(0),
                         },
                     );
+                    detail.script_traces = script_traces;
                     if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -1379,11 +1432,6 @@ async fn handle_connect_mitm(
 
     let pending_detail = build_pending_session_detail(&https_request, started_at);
     let _ = session_sender.send(pending_detail);
-
-    let RequestRuntimeOutcome {
-        local_response,
-        throttle_profile,
-    } = request_runtime;
 
     if let Some(profile) = throttle_profile.as_ref() {
         if let Err(error) = apply_request_throttle(profile, https_request.body.len()).await {
@@ -1434,6 +1482,12 @@ async fn handle_connect_mitm(
                 &https_request,
                 &mut upstream_response,
             )?;
+            script_traces.extend(apply_response_script_rules(
+                &script_manager,
+                &workspace_id,
+                &https_request,
+                &mut upstream_response,
+            ));
 
             // --- Response-stage breakpoint (HTTPS) ---
             let breakpoint_resolution = match intercept_response_stage(
@@ -1448,7 +1502,7 @@ async fn handle_connect_mitm(
             {
                 Ok(resolution) => resolution,
                 Err(error) => {
-                    let detail = build_session_detail(
+                    let mut detail = build_session_detail(
                         &https_request,
                         upstream_response.status_code.as_u16(),
                         &upstream_response.response_headers,
@@ -1465,6 +1519,7 @@ async fn handle_connect_mitm(
                             waiting_ms: Some(upstream_response.waiting_ms),
                         },
                     );
+                    detail.script_traces = script_traces.clone();
                     if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -1475,7 +1530,7 @@ async fn handle_connect_mitm(
             if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
-                        let detail = build_session_detail(
+                        let mut detail = build_session_detail(
                             &https_request,
                             upstream_response.status_code.as_u16(),
                             &upstream_response.response_headers,
@@ -1492,6 +1547,7 @@ async fn handle_connect_mitm(
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
                         );
+                        detail.script_traces = script_traces.clone();
                         if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -1521,7 +1577,7 @@ async fn handle_connect_mitm(
             )
             .await
             {
-                let detail = build_session_detail(
+                let mut detail = build_session_detail(
                     &https_request,
                     upstream_response.status_code.as_u16(),
                     &upstream_response.response_headers,
@@ -1538,13 +1594,14 @@ async fn handle_connect_mitm(
                         waiting_ms: Some(upstream_response.waiting_ms),
                     },
                 );
+                detail.script_traces = script_traces.clone();
                 if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
                 return Err(error);
             }
 
-            let detail = build_session_detail(
+            let mut detail = build_session_detail(
                 &https_request,
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
@@ -1561,6 +1618,7 @@ async fn handle_connect_mitm(
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
             );
+            detail.script_traces = script_traces;
 
             if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -1929,6 +1987,7 @@ pub async fn send_direct_request(
         ),
         response_headers: response_header_entries,
         server_ip: None,
+        script_traces: Vec::new(),
         summary,
         timing: Some(timing),
     })

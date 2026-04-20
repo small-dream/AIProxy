@@ -97,6 +97,7 @@ export type RequestInspectorTab =
 
 export type ResponseInspectorTab =
   | "overview"
+  | "automation"
   | "headers"
   | "messages"
   | "text"

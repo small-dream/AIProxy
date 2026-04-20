@@ -61,6 +61,13 @@ pub use breakpoints::{
     BreakpointActionKind, BreakpointEventEmitter, BreakpointHit, BreakpointManager,
     BreakpointResolution, BreakpointRule, BreakpointStage, MockResponse,
 };
+pub use aiproxy_rule_engine::{
+    compile_script_rule, execute_request_hook, execute_response_hook, CompiledScriptRule,
+    ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptLogLevel, ScriptManager,
+    ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule, ScriptRuleLanguage,
+    ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
+};
 pub use rules::{
     DnsManager, DnsMappingRule, MapManager, MapRule, RewriteManager, RewriteRule,
     RewriteRuleMatch, ThrottleManager, ThrottleProfileData,
@@ -88,7 +95,8 @@ pub(crate) use http_io::{
 };
 pub(crate) use logging::emit_log;
 pub(crate) use rules::{
-    apply_request_runtime_rules, apply_request_throttle, apply_response_rewrite_rules,
+    apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
+    apply_response_script_rules, apply_response_rewrite_rules,
     apply_response_throttle, resolve_dns_override, RequestRuntimeOutcome,
 };
 pub(crate) use types::{ParsedProxyRequest, UpstreamResponse};

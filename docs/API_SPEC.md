@@ -1401,13 +1401,25 @@ type ExportProgressEvent = {
 ### v1
 
 - 覆盖本地桌面必需命令与实时事件
-- 不引入脚本运行接口
+- 覆盖脚本规则配置接口与会话 trace 查询接口
 
 ### v2
 
-- 增加脚本化规则 API
 - 增加插件注册与生命周期 API
 - 增加分析面板聚合查询 API
+
+## 10.1 Script Rule Commands
+
+- `list_script_rules({ workspaceId }) -> ScriptRule[]`
+- `save_script_rule({ input: ScriptRule }) -> ScriptRule`
+- `read_script_source_file({ path }) -> { fileName, language, path, sourceCode }`
+- `list_script_session_trace({ sessionId }) -> ScriptSessionTrace[]`
+
+约束：
+
+- 仅支持单文件 `JS / TS`
+- 仅支持 `export function onRequest(ctx) {}` 与 `export function onResponse(ctx) {}`
+- 运行时不开放文件系统、网络、模块加载、宿主命令执行
 
 ## 11. 实现建议
 

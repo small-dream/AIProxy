@@ -269,6 +269,7 @@ export const enMessages = {
       mapLocal: "Map Local",
       mapRemote: "Map Remote",
       rewrite: "Rewrite",
+      script: "Scripts",
     },
     table: {
       methods: "Methods",
@@ -392,6 +393,21 @@ export const enMessages = {
       targetIpExample: "127.0.0.1",
       title: "DNS Mapping",
     },
+    script: {
+      createRule: "New Script Rule",
+      emptyDescription: "Create a script rule to customize request and response handling with JavaScript or TypeScript.",
+      importFile: "Import File",
+      importedFrom: "Imported from: {{path}}",
+      language: "Language",
+      searchPlaceholder: "Search script rules",
+      sourceCode: "Script Source",
+      sourceTitle: "Script Source",
+      templates: {
+        extract: "Extract Data",
+        header: "Set Header",
+        mock: "Mock Response",
+      },
+    },
     preview: {
       matchLine: "Match {{methods}} during {{stage}} for {{urlPattern}}.",
     },
@@ -409,6 +425,7 @@ export const enMessages = {
       redirectTargetRequired: "Enter a redirect target URL.",
       remoteTargetRequired: "Enter the remote target URL.",
       ruleNameRequired: "Enter a rule name.",
+      scriptSourceRequired: "Enter script source code.",
       urlPatternRequired: "Enter a URL pattern.",
     },
   },
@@ -831,6 +848,7 @@ export const enMessages = {
       sectionTitle: "Response",
       serverIp: "Server IP",
       tabs: {
+        automation: "Automation",
         headers: "Headers",
         json: "JSON",
         jsonText: "JSON Text",
@@ -867,6 +885,10 @@ export const enMessages = {
       tooLarge: "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
       truncated: "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
     },
+  },
+  automationTab: {
+    emptyDescription: "No script automation traces were recorded for this session.",
+    loadFailed: "Unable to load automation traces for this session.",
   },
   breakpointPanel: {
     cancelMock: "Cancel Mock",

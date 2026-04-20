@@ -5,6 +5,7 @@ import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRule
 import { DnsMappingsPanel } from "@/features/rules/components/DnsMappingsPanel";
 import { MapRulesPanel } from "@/features/rules/components/MapRulesPanel";
 import { RewriteRulesPanel } from "@/features/rules/components/RewriteRulesPanel";
+import { ScriptRulesPanel } from "@/features/rules/components/ScriptRulesPanel";
 import type { RulesTabValue } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 
@@ -33,6 +34,7 @@ export function RulesPage() {
         <Tab value="mapLocal" label={t("rulesPage.tabs.mapLocal")} />
         <Tab value="mapRemote" label={t("rulesPage.tabs.mapRemote")} />
         <Tab value="dns" label={t("rulesPage.tabs.dns")} />
+        <Tab value="script" label={t("rulesPage.tabs.script")} />
       </Tabs>
 
       <Box>
@@ -41,6 +43,7 @@ export function RulesPage() {
         {tab === "mapLocal" && <MapRulesPanel mode="local" />}
         {tab === "mapRemote" && <MapRulesPanel mode="remote" />}
         {tab === "dns" && <DnsMappingsPanel />}
+        {tab === "script" && <ScriptRulesPanel />}
       </Box>
     </Stack>
   );

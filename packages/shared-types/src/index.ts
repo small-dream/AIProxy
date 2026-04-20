@@ -320,6 +320,65 @@ export type DnsMappingRule = {
   workspaceId: string;
 };
 
+export type ScriptRuleLanguage = "javascript" | "typescript";
+
+export type ScriptRuleSourceType = "inline" | "fileImport";
+
+export type ScriptEntrypoints = {
+  onRequest: boolean;
+  onResponse: boolean;
+};
+
+export type ScriptRule = {
+  enabled: boolean;
+  entrypoints: ScriptEntrypoints;
+  id: string;
+  language: ScriptRuleLanguage;
+  match: RuleMatch;
+  name: string;
+  note?: string;
+  priority: number;
+  sourceCode: string;
+  sourcePath?: string;
+  sourceType: ScriptRuleSourceType;
+  workspaceId: string;
+};
+
+export type ScriptLogLevel = "debug" | "info" | "warn" | "error";
+
+export type ScriptRunEntryKind = "log" | "extraction" | "error";
+
+export type ScriptRunOutcome =
+  | "success"
+  | "skipped"
+  | "runtimeError"
+  | "timedOut"
+  | "invalidResult";
+
+export type ScriptRunEntry = {
+  kind: ScriptRunEntryKind;
+  key?: string;
+  level?: ScriptLogLevel;
+  message?: string;
+  payloadJson?: string;
+  sequence: number;
+};
+
+export type ScriptSessionTrace = {
+  durationMs: number;
+  entries: ScriptRunEntry[];
+  outcome: ScriptRunOutcome;
+  ruleId: string;
+  stage: "request" | "response";
+};
+
+export type ScriptSourceFile = {
+  fileName: string;
+  language: ScriptRuleLanguage;
+  path: string;
+  sourceCode: string;
+};
+
 // ---------------------------------------------------------------------------
 // API Collection types
 // ---------------------------------------------------------------------------
@@ -1253,6 +1312,88 @@ export function parseDnsMappings(value: unknown): DnsMappingRule[] {
   }
 
   throw coerceAppError(value);
+}
+
+export function isScriptEntrypoints(value: unknown): value is ScriptEntrypoints {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptEntrypoints>;
+  return (
+    typeof candidate.onRequest === "boolean"
+    && typeof candidate.onResponse === "boolean"
+  );
+}
+
+export function isScriptRule(value: unknown): value is ScriptRule {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptRule>;
+  return (
+    typeof candidate.id === "string"
+    && typeof candidate.workspaceId === "string"
+    && typeof candidate.name === "string"
+    && typeof candidate.enabled === "boolean"
+    && typeof candidate.priority === "number"
+    && isNullableString(candidate.note)
+    && isRuleMatch(candidate.match)
+    && (candidate.language === "javascript" || candidate.language === "typescript")
+    && (candidate.sourceType === "inline" || candidate.sourceType === "fileImport")
+    && typeof candidate.sourceCode === "string"
+    && isNullableString(candidate.sourcePath)
+    && isScriptEntrypoints(candidate.entrypoints)
+  );
+}
+
+export function parseScriptRules(value: unknown): ScriptRule[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isScriptRule)) return value;
+  throw coerceAppError(value);
+}
+
+export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptRunEntry>;
+  return (
+    (candidate.kind === "log" || candidate.kind === "extraction" || candidate.kind === "error")
+    && (candidate.level === undefined || candidate.level === "debug" || candidate.level === "info" || candidate.level === "warn" || candidate.level === "error")
+    && isNullableString(candidate.key)
+    && isNullableString(candidate.message)
+    && isNullableString(candidate.payloadJson)
+    && typeof candidate.sequence === "number"
+  );
+}
+
+export function isScriptSessionTrace(value: unknown): value is ScriptSessionTrace {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptSessionTrace>;
+  return (
+    typeof candidate.durationMs === "number"
+    && Array.isArray(candidate.entries)
+    && candidate.entries.every(isScriptRunEntry)
+    && (candidate.outcome === "success" || candidate.outcome === "skipped" || candidate.outcome === "runtimeError" || candidate.outcome === "timedOut" || candidate.outcome === "invalidResult")
+    && typeof candidate.ruleId === "string"
+    && (candidate.stage === "request" || candidate.stage === "response")
+  );
+}
+
+export function parseScriptSessionTrace(value: unknown): ScriptSessionTrace[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isScriptSessionTrace)) return value;
+  throw coerceAppError(value);
+}
+
+export function isScriptSourceFile(value: unknown): value is ScriptSourceFile {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptSourceFile>;
+  return (
+    typeof candidate.fileName === "string"
+    && (candidate.language === "javascript" || candidate.language === "typescript")
+    && typeof candidate.path === "string"
+    && typeof candidate.sourceCode === "string"
+  );
+}
+
+export function parseScriptSourceFile(value: unknown): ScriptSourceFile {
+  if (!isScriptSourceFile(value)) throw coerceAppError(value);
+  return value;
 }
 
 // ---------------------------------------------------------------------------

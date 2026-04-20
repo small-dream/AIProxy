@@ -356,6 +356,269 @@ pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Script rules
+// ---------------------------------------------------------------------------
+
+pub struct ScriptRuleRow {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub note: Option<String>,
+    pub enabled: bool,
+    pub priority: u32,
+    pub match_methods: String,
+    pub match_stage: String,
+    pub match_url_pattern: String,
+    pub language: String,
+    pub source_type: String,
+    pub source_code: String,
+    pub source_path: Option<String>,
+    pub entrypoints: String,
+    pub compiled_code: String,
+    pub source_map: Option<String>,
+    pub updated_at: String,
+}
+
+pub struct ScriptRunRow {
+    pub id: String,
+    pub session_id: String,
+    pub rule_id: String,
+    pub workspace_id: String,
+    pub stage: String,
+    pub outcome: String,
+    pub duration_ms: u128,
+    pub created_at: String,
+}
+
+pub struct ScriptRunEntryRow {
+    pub id: String,
+    pub run_id: String,
+    pub kind: String,
+    pub level: Option<String>,
+    pub key: Option<String>,
+    pub message: Option<String>,
+    pub payload_json: Option<String>,
+    pub seq: u32,
+}
+
+pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO script_rules
+            (id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
+             match_url_pattern, language, source_type, source_code, source_path, entrypoints,
+             compiled_code, source_map, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        params![
+            row.id,
+            row.workspace_id,
+            row.name,
+            row.note,
+            row.enabled as i32,
+            row.priority,
+            row.match_methods,
+            row.match_stage,
+            row.match_url_pattern,
+            row.language,
+            row.source_type,
+            row.source_code,
+            row.source_path,
+            row.entrypoints,
+            row.compiled_code,
+            row.source_map,
+            row.updated_at,
+        ],
+    )
+    .map_err(|e| format!("save script rule: {e}"))?;
+    Ok(())
+}
+
+pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
+                    match_url_pattern, language, source_type, source_code, source_path, entrypoints,
+                    compiled_code, source_map, updated_at
+             FROM script_rules ORDER BY priority DESC, updated_at DESC",
+        )
+        .map_err(|e| format!("prepare load script rules: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ScriptRuleRow {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                note: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                priority: row.get::<_, i32>(5)? as u32,
+                match_methods: row.get(6)?,
+                match_stage: row.get(7)?,
+                match_url_pattern: row.get(8)?,
+                language: row.get(9)?,
+                source_type: row.get(10)?,
+                source_code: row.get(11)?,
+                source_path: row.get(12)?,
+                entrypoints: row.get(13)?,
+                compiled_code: row.get(14)?,
+                source_map: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        })
+        .map_err(|e| format!("query script rules: {e}"))?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn delete_script_rule(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM script_rules WHERE id=?1", params![id])
+        .map_err(|e| format!("delete script rule: {e}"))?;
+    Ok(())
+}
+
+pub fn replace_script_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+    runs: &[ScriptRunRow],
+    entries: &[ScriptRunEntryRow],
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id = ?1)",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete script run entries for session: {e}"))?;
+
+    conn.execute("DELETE FROM script_runs WHERE session_id = ?1", params![session_id])
+        .map_err(|e| format!("delete script runs for session: {e}"))?;
+
+    for run in runs {
+        conn.execute(
+            "INSERT INTO script_runs
+                (id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                run.id,
+                run.session_id,
+                run.rule_id,
+                run.workspace_id,
+                run.stage,
+                run.outcome,
+                run.duration_ms as i64,
+                run.created_at,
+            ],
+        )
+        .map_err(|e| format!("insert script run: {e}"))?;
+    }
+
+    for entry in entries {
+        conn.execute(
+            "INSERT INTO script_run_entries
+                (id, run_id, kind, level, key, message, payload_json, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                entry.id,
+                entry.run_id,
+                entry.kind,
+                entry.level,
+                entry.key,
+                entry.message,
+                entry.payload_json,
+                entry.seq,
+            ],
+        )
+        .map_err(|e| format!("insert script run entry: {e}"))?;
+    }
+
+    Ok(())
+}
+
+pub fn load_script_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<ScriptRunRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at
+             FROM script_runs WHERE session_id = ?1 ORDER BY created_at ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare load script runs: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(ScriptRunRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                rule_id: row.get(2)?,
+                workspace_id: row.get(3)?,
+                stage: row.get(4)?,
+                outcome: row.get(5)?,
+                duration_ms: row.get::<_, i64>(6)? as u128,
+                created_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("query script runs: {e}"))?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn load_script_run_entries(
+    conn: &Connection,
+    run_ids: &[String],
+) -> Result<Vec<ScriptRunEntryRow>, String> {
+    if run_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders: Vec<String> = run_ids
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("?{}", index + 1))
+        .collect();
+    let sql = format!(
+        "SELECT id, run_id, kind, level, key, message, payload_json, seq
+         FROM script_run_entries
+         WHERE run_id IN ({})
+         ORDER BY seq ASC, id ASC",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = run_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare load script run entries: {e}"))?;
+
+    let rows = stmt
+        .query_map(params.as_slice(), |row| {
+            Ok(ScriptRunEntryRow {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                kind: row.get(2)?,
+                level: row.get(3)?,
+                key: row.get(4)?,
+                message: row.get(5)?,
+                payload_json: row.get(6)?,
+                seq: row.get::<_, i32>(7)? as u32,
+            })
+        })
+        .map_err(|e| format!("query script run entries: {e}"))?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn clear_script_runs(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM script_run_entries", [])
+        .map_err(|e| format!("clear script run entries: {e}"))?;
+    conn.execute("DELETE FROM script_runs", [])
+        .map_err(|e| format!("clear script runs: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -508,5 +771,115 @@ mod tests {
 
         delete_dns_mapping(&conn, "d1").unwrap();
         assert!(load_all_dns_mappings(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn script_rule_round_trip() {
+        let conn = test_conn();
+        let rule = ScriptRuleRow {
+            id: "s1".into(),
+            workspace_id: "default".into(),
+            name: "Header Script".into(),
+            note: Some("script note".into()),
+            enabled: true,
+            priority: 90,
+            match_methods: "[\"GET\"]".into(),
+            match_stage: "either".into(),
+            match_url_pattern: "example.com".into(),
+            language: "typescript".into(),
+            source_type: "inline".into(),
+            source_code: "export function onRequest(ctx) {}".into(),
+            source_path: None,
+            entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
+            compiled_code: "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}".into(),
+            source_map: Some("{}".into()),
+            updated_at: "2026-04-20T00:00:00Z".into(),
+        };
+
+        save_script_rule(&conn, &rule).unwrap();
+        let loaded = load_all_script_rules(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].language, "typescript");
+        assert_eq!(loaded[0].match_url_pattern, "example.com");
+
+        delete_script_rule(&conn, "s1").unwrap();
+        assert!(load_all_script_rules(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn script_runs_round_trip() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url, response_mime_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                "session-1",
+                "GET",
+                "example.com",
+                "/api",
+                "https",
+                "2026-04-20T00:00:00Z",
+                "2026-04-20T00:00:01Z",
+                1,
+                0,
+                200,
+                "https://example.com/api",
+                "application/json",
+            ],
+        )
+        .unwrap();
+
+        save_script_rule(&conn, &ScriptRuleRow {
+            id: "rule-1".into(),
+            workspace_id: "default".into(),
+            name: "Trace Rule".into(),
+            note: None,
+            enabled: true,
+            priority: 10,
+            match_methods: "[]".into(),
+            match_stage: "either".into(),
+            match_url_pattern: "*".into(),
+            language: "javascript".into(),
+            source_type: "inline".into(),
+            source_code: "export function onRequest(ctx) {}".into(),
+            source_path: None,
+            entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
+            compiled_code: "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}".into(),
+            source_map: None,
+            updated_at: "2026-04-20T00:00:00Z".into(),
+        }).unwrap();
+
+        let runs = vec![ScriptRunRow {
+            id: "run-1".into(),
+            session_id: "session-1".into(),
+            rule_id: "rule-1".into(),
+            workspace_id: "default".into(),
+            stage: "request".into(),
+            outcome: "success".into(),
+            duration_ms: 12,
+            created_at: "2026-04-20T00:00:01Z".into(),
+        }];
+        let entries = vec![ScriptRunEntryRow {
+            id: "entry-1".into(),
+            run_id: "run-1".into(),
+            kind: "log".into(),
+            level: Some("info".into()),
+            key: None,
+            message: Some("hello".into()),
+            payload_json: Some(r#"{"ok":true}"#.into()),
+            seq: 0,
+        }];
+
+        replace_script_runs_for_session(&conn, "session-1", &runs, &entries).unwrap();
+
+        let loaded_runs = load_script_runs_for_session(&conn, "session-1").unwrap();
+        let loaded_entries = load_script_run_entries(&conn, &["run-1".into()]).unwrap();
+
+        assert_eq!(loaded_runs.len(), 1);
+        assert_eq!(loaded_runs[0].outcome, "success");
+        assert_eq!(loaded_entries.len(), 1);
+        assert_eq!(loaded_entries[0].message.as_deref(), Some("hello"));
     }
 }

@@ -9,15 +9,17 @@ use aiproxy_proxy_core::{
     get_local_ip_addresses, global_ws_registry, send_direct_request, start_proxy_server,
     BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, DnsMappingRule,
     MapRule, ProxyRuntimeConfig, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
-    RewriteRule, ThrottleProfileData, TlsManager, WsConnectionStatus, WsDirection, WsOpcode,
+    RewriteRule, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData,
+    TlsManager, WsConnectionStatus, WsDirection, WsOpcode, compile_script_rule,
 };
 use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tauri::{Emitter, State};
 use url::form_urlencoded;
 
 const DEFAULT_PROXY_PORT: u16 = 8888;
+const MAX_IMPORTED_SCRIPT_BYTES: usize = 128 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -172,6 +174,41 @@ pub fn get_session_detail(
     state
         .read_session_detail(&input.session_id)
         .ok_or_else(|| format!("captured session {} was not found", input.session_id))
+}
+
+#[tauri::command]
+pub fn list_script_session_trace(
+    input: ListScriptSessionTraceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ScriptSessionTraceOutput>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let runs = aiproxy_db::rules::load_script_runs_for_session(&conn, &input.session_id)
+        .map_err(|error| format!("load script runs: {error}"))?;
+    let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+    let entries = aiproxy_db::rules::load_script_run_entries(&conn, &run_ids)
+        .map_err(|error| format!("load script run entries: {error}"))?;
+
+    Ok(runs
+        .into_iter()
+        .map(|run| ScriptSessionTraceOutput {
+            duration_ms: run.duration_ms,
+            entries: entries
+                .iter()
+                .filter(|entry| entry.run_id == run.id)
+                .map(|entry| ScriptRunEntryOutput {
+                    kind: entry.kind.clone(),
+                    level: entry.level.clone(),
+                    key: entry.key.clone(),
+                    message: entry.message.clone(),
+                    payload_json: entry.payload_json.clone(),
+                    sequence: entry.seq,
+                })
+                .collect(),
+            outcome: run.outcome,
+            rule_id: run.rule_id,
+            stage: run.stage,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -518,6 +555,7 @@ async fn start_proxy_impl(
     let breakpoint_manager = state.read_breakpoint_manager();
     let rewrite_manager = state.read_rewrite_manager();
     let map_manager = state.read_map_manager();
+    let script_manager = state.read_script_manager();
     let throttle_manager = state.read_throttle_manager();
 
     let event_emitter: Option<BreakpointEventEmitter> = state.read_app_handle().map(|handle| {
@@ -537,6 +575,7 @@ async fn start_proxy_impl(
         Some(breakpoint_manager),
         Some(rewrite_manager),
         Some(map_manager),
+        Some(script_manager),
         Some(throttle_manager),
         Some(dns_manager),
         Some(input.workspace_id.clone()),
@@ -1608,6 +1647,54 @@ pub struct ListMapRulesInput {
     pub mode: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListScriptRulesInput {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadScriptSourceFileInput {
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptSourceFileOutput {
+    pub file_name: String,
+    pub language: String,
+    pub path: String,
+    pub source_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListScriptSessionTraceInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptRunEntryOutput {
+    pub kind: String,
+    pub level: Option<String>,
+    pub key: Option<String>,
+    pub message: Option<String>,
+    pub payload_json: Option<String>,
+    pub sequence: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptSessionTraceOutput {
+    pub duration_ms: u128,
+    pub entries: Vec<ScriptRunEntryOutput>,
+    pub outcome: String,
+    pub rule_id: String,
+    pub stage: String,
+}
+
 #[tauri::command]
 pub fn list_map_rules(
     input: ListMapRulesInput,
@@ -1652,6 +1739,104 @@ pub fn save_map_rule(
     state.read_map_manager().save_rule(input)
 }
 
+// --- Script rule commands ---
+
+#[tauri::command]
+pub fn list_script_rules(
+    input: ListScriptRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<ScriptRule> {
+    state
+        .read_script_manager()
+        .list_rules()
+        .into_iter()
+        .filter(|rule| rule.workspace_id == input.workspace_id)
+        .collect()
+}
+
+#[tauri::command]
+pub fn save_script_rule(
+    input: ScriptRule,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ScriptRule, String> {
+    let compiled = compile_script_rule(input)?;
+
+    {
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::ScriptRuleRow {
+            id: compiled.rule.id.clone(),
+            workspace_id: compiled.rule.workspace_id.clone(),
+            name: compiled.rule.name.clone(),
+            note: compiled.rule.note.clone(),
+            enabled: compiled.rule.enabled,
+            priority: compiled.rule.priority,
+            match_methods: serde_json::to_string(&compiled.rule.r#match.methods).unwrap_or_default(),
+            match_stage: compiled.rule.r#match.stage.clone(),
+            match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
+            language: match compiled.rule.language {
+                ScriptRuleLanguage::JavaScript => "javascript".to_string(),
+                ScriptRuleLanguage::TypeScript => "typescript".to_string(),
+            },
+            source_type: match compiled.rule.source_type {
+                ScriptRuleSourceType::Inline => "inline".to_string(),
+                ScriptRuleSourceType::FileImport => "fileImport".to_string(),
+            },
+            source_code: compiled.rule.source_code.clone(),
+            source_path: compiled.rule.source_path.clone(),
+            entrypoints: serde_json::to_string(&compiled.rule.entrypoints).unwrap_or_else(|_| "{}".to_string()),
+            compiled_code: compiled.compiled_code.clone(),
+            source_map: compiled.source_map.clone(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        aiproxy_db::rules::save_script_rule(&conn, &row)
+            .map_err(|error| format!("save script rule: {error}"))?;
+    }
+
+    Ok(state.read_script_manager().save_rule(compiled))
+}
+
+#[tauri::command]
+pub fn read_script_source_file(
+    input: ReadScriptSourceFileInput,
+) -> Result<ScriptSourceFileOutput, String> {
+    let path = Path::new(&input.path);
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .ok_or_else(|| "script file must end with .js, .mjs, .ts, or .mts".to_string())?;
+    let language = match extension.as_str() {
+        "js" | "mjs" => "javascript",
+        "ts" | "mts" => "typescript",
+        _ => return Err("unsupported script file extension".to_string()),
+    };
+
+    let bytes = std::fs::read(path).map_err(|error| format!("read script file: {error}"))?;
+    if bytes.len() > MAX_IMPORTED_SCRIPT_BYTES {
+        return Err(format!(
+            "script file exceeds the {} KB limit",
+            MAX_IMPORTED_SCRIPT_BYTES / 1024
+        ));
+    }
+
+    let source_code = String::from_utf8(bytes).map_err(|error| format!("decode script file as utf-8: {error}"))?;
+
+    Ok(ScriptSourceFileOutput {
+        file_name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("script")
+            .to_string(),
+        language: language.to_string(),
+        path: input.path,
+        source_code,
+    })
+}
+
 // --- Delete rule (shared for rewrite/map) ---
 
 #[derive(Debug, Deserialize)]
@@ -1673,6 +1858,7 @@ pub fn delete_rule(
             "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
             "dns" => aiproxy_db::rules::delete_dns_mapping(&conn, &input.rule_id),
+            "script" => aiproxy_db::rules::delete_script_rule(&conn, &input.rule_id),
             _ => Ok(()),
         };
         if let Err(error) = db_result {
@@ -1684,6 +1870,7 @@ pub fn delete_rule(
         "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
+        "script" => state.read_script_manager().delete_rule(&input.rule_id),
         _ => {}
     }
 }

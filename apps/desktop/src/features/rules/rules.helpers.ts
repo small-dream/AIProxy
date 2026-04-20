@@ -6,6 +6,7 @@ import type {
   RewriteRule,
   RewriteRuleType,
   RuleMatch,
+  ScriptRule,
 } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -13,7 +14,7 @@ import { useI18n } from "@/i18n";
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const DEFAULT_WORKSPACE_ID = "default";
 
-export type RulesTabValue = "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns";
+export type RulesTabValue = "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns" | "script";
 export type TranslationFn = ReturnType<typeof useI18n>["t"];
 
 /* ── Factory helpers ──────────────────────────────────────────────── */
@@ -83,6 +84,27 @@ export function createEmptyDnsMappingRule(): DnsMappingRule {
   };
 }
 
+export function createEmptyScriptRule(language: ScriptRule["language"] = "typescript"): ScriptRule {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: "",
+    enabled: true,
+    priority: 100,
+    match: createEmptyRuleMatch(),
+    note: "",
+    language,
+    sourceType: "inline",
+    sourceCode: language === "typescript"
+      ? "export function onRequest(ctx) {\n  ctx.request.setHeader(\"x-script\", \"enabled\");\n}\n"
+      : "export function onRequest(ctx) {\n  ctx.request.setHeader(\"x-script\", \"enabled\");\n}\n",
+    entrypoints: {
+      onRequest: true,
+      onResponse: false,
+    },
+  };
+}
+
 function isValidIpAddress(ip: string): boolean {
   // IPv4
   const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -135,6 +157,14 @@ export function getMapValidationErrors(rule: MapRule, t: TranslationFn): string[
   if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
   if (!rule.sourcePattern.trim()) errors.push(t("rulesPage.validation.mapSourceRequired"));
   if (!rule.targetValue.trim()) errors.push(rule.mode === "local" ? t("rulesPage.validation.localTargetRequired") : t("rulesPage.validation.remoteTargetRequired"));
+  return errors;
+}
+
+export function getScriptValidationErrors(rule: ScriptRule, t: TranslationFn): string[] {
+  const errors: string[] = [];
+  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
+  if (!rule.match.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
+  if (!rule.sourceCode.trim()) errors.push(t("rulesPage.validation.scriptSourceRequired"));
   return errors;
 }
 

@@ -1,13 +1,17 @@
 use aiproxy_db::body_store::BodyStore;
 use aiproxy_db::rules::{
-    BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ThrottleProfileRow,
+    BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ScriptRuleRow,
+    ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
 };
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
     BreakpointManager, BreakpointRule, BreakpointStage, DnsManager, DnsMappingRule, MapManager,
     MapRule, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager,
-    RewriteRule, RewriteRuleMatch, ThrottleManager, ThrottleProfileData, TlsManager,
+    RewriteRule, RewriteRuleMatch, ScriptEntrypoints, ScriptManager, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleSourceType, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager, ThrottleProfileData,
+    TlsManager, CompiledScriptRule,
 };
 use serde::Serialize;
 use std::{
@@ -71,6 +75,7 @@ pub struct AppState {
     breakpoint_manager: Arc<BreakpointManager>,
     rewrite_manager: Arc<RewriteManager>,
     map_manager: Arc<MapManager>,
+    script_manager: Arc<ScriptManager>,
     throttle_manager: Arc<ThrottleManager>,
     dns_manager: Arc<DnsManager>,
     workspace_manager: Arc<WorkspaceManager>,
@@ -93,6 +98,7 @@ impl AppState {
             breakpoint_manager: Arc::new(BreakpointManager::new()),
             rewrite_manager: Arc::new(RewriteManager::new()),
             map_manager: Arc::new(MapManager::new()),
+            script_manager: Arc::new(ScriptManager::new()),
             throttle_manager: Arc::new(ThrottleManager::new()),
             dns_manager: Arc::new(DnsManager::new()),
             workspace_manager: Arc::new(WorkspaceManager::new()),
@@ -130,6 +136,13 @@ impl AppState {
         if let Ok(rows) = aiproxy_db::rules::load_all_map_rules(&conn) {
             self.map_manager.set_rules(
                 rows.into_iter().map(map_row_to_rule).collect(),
+            );
+        }
+
+        // Load script rules
+        if let Ok(rows) = aiproxy_db::rules::load_all_script_rules(&conn) {
+            self.script_manager.set_rules(
+                rows.into_iter().map(script_row_to_rule).collect(),
             );
         }
 
@@ -300,6 +313,23 @@ impl AppState {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "session_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_script_traces(
+                &conn,
+                &session_detail.id,
+                self.read_status()
+                    .active_workspace_id
+                    .as_deref()
+                    .unwrap_or("default"),
+                &session_detail.summary,
+                &session_detail.script_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "script_trace_upsert_db_failed",
                     &[("error", e)],
                 );
             }
@@ -480,6 +510,10 @@ impl AppState {
 
     pub fn read_throttle_manager(&self) -> Arc<ThrottleManager> {
         Arc::clone(&self.throttle_manager)
+    }
+
+    pub fn read_script_manager(&self) -> Arc<ScriptManager> {
+        Arc::clone(&self.script_manager)
     }
 
     pub fn read_dns_manager(&self) -> Arc<DnsManager> {
@@ -692,6 +726,7 @@ fn detail_row_to_proxy(
         response_body: body_ref_from_json(row.response_body_ref.as_deref()),
         response_headers: headers_from_json(&row.response_headers),
         server_ip: row.server_ip.clone(),
+        script_traces: Vec::new(),
         summary,
         timing,
     }
@@ -778,6 +813,105 @@ fn dns_mapping_row_to_rule(row: DnsMappingRow) -> DnsMappingRule {
         target_ip: row.target_ip,
         workspace_id: row.workspace_id,
     }
+}
+
+fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
+    let language = match row.language.as_str() {
+        "typescript" => ScriptRuleLanguage::TypeScript,
+        _ => ScriptRuleLanguage::JavaScript,
+    };
+    let source_type = match row.source_type.as_str() {
+        "fileImport" => ScriptRuleSourceType::FileImport,
+        _ => ScriptRuleSourceType::Inline,
+    };
+    let entrypoints: ScriptEntrypoints = serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
+        on_request: false,
+        on_response: false,
+    });
+
+    CompiledScriptRule {
+        rule: ScriptRule {
+            id: row.id,
+            workspace_id: row.workspace_id,
+            name: row.name,
+            note: row.note,
+            enabled: row.enabled,
+            priority: row.priority,
+            r#match: aiproxy_proxy_core::ScriptRuleMatch {
+                url_pattern: row.match_url_pattern,
+                methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
+                stage: row.match_stage,
+            },
+            language,
+            source_type,
+            source_code: row.source_code,
+            source_path: row.source_path,
+            entrypoints,
+        },
+        compiled_code: row.compiled_code,
+        source_map: row.source_map,
+    }
+}
+
+fn persist_script_traces(
+    conn: &aiproxy_db::rusqlite::Connection,
+    session_id: &str,
+    workspace_id: &str,
+    summary: &ProxySessionSummary,
+    traces: &[ScriptTrace],
+) -> Result<(), String> {
+    let created_at = summary.finished_at.clone();
+    let runs: Vec<ScriptRunRow> = traces
+        .iter()
+        .enumerate()
+        .map(|(index, trace)| ScriptRunRow {
+            id: format!("{session_id}-script-run-{index}"),
+            session_id: session_id.to_string(),
+            rule_id: trace.rule_id.clone(),
+            workspace_id: workspace_id.to_string(),
+            stage: match trace.stage {
+                ScriptTraceStage::Request => "request".to_string(),
+                ScriptTraceStage::Response => "response".to_string(),
+            },
+            outcome: match trace.outcome {
+                ScriptRunOutcome::Success => "success".to_string(),
+                ScriptRunOutcome::Skipped => "skipped".to_string(),
+                ScriptRunOutcome::RuntimeError => "runtimeError".to_string(),
+                ScriptRunOutcome::TimedOut => "timedOut".to_string(),
+                ScriptRunOutcome::InvalidResult => "invalidResult".to_string(),
+            },
+            duration_ms: trace.duration_ms,
+            created_at: created_at.clone(),
+        })
+        .collect();
+
+    let entries: Vec<ScriptRunEntryRow> = traces
+        .iter()
+        .enumerate()
+        .flat_map(|(run_index, trace)| {
+            trace.entries.iter().enumerate().map(move |(entry_index, entry)| ScriptRunEntryRow {
+                id: format!("{session_id}-script-run-{run_index}-entry-{entry_index}"),
+                run_id: format!("{session_id}-script-run-{run_index}"),
+                kind: match entry.kind {
+                    ScriptRunEntryKind::Log => "log".to_string(),
+                    ScriptRunEntryKind::Extraction => "extraction".to_string(),
+                    ScriptRunEntryKind::Error => "error".to_string(),
+                },
+                level: entry.level.as_ref().map(|level| match level {
+                    aiproxy_proxy_core::ScriptLogLevel::Debug => "debug".to_string(),
+                    aiproxy_proxy_core::ScriptLogLevel::Info => "info".to_string(),
+                    aiproxy_proxy_core::ScriptLogLevel::Warn => "warn".to_string(),
+                    aiproxy_proxy_core::ScriptLogLevel::Error => "error".to_string(),
+                }),
+                key: entry.key.clone(),
+                message: entry.message.clone(),
+                payload_json: entry.payload_json.clone(),
+                seq: entry.sequence,
+            })
+        })
+        .collect();
+
+    aiproxy_db::rules::replace_script_runs_for_session(conn, session_id, &runs, &entries)
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
+import { SessionInspectorAutomationPane } from "./SessionInspectorAutomationPane";
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
 import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
@@ -53,7 +54,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     setSnackbarOpen(false);
 
     if (isWebSocketSession(session)) {
-      if (responseTab === "text" || responseTab === "json" || responseTab === "jsonText") {
+      if (responseTab === "text" || responseTab === "json" || responseTab === "jsonText" || responseTab === "automation") {
         onResponseTabChange("overview");
       }
     } else if (responseTab === "messages") {
@@ -120,6 +121,9 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           variant="scrollable"
         >
           <Tab label={t("inspector.response.tabs.overview")} value="overview" />
+          {!isWebSocketSession(session) && (
+            <Tab label={t("inspector.response.tabs.automation")} value="automation" />
+          )}
           <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
           {isWebSocketSession(session) && (
             <Tab label={t("websocket.messagesTab")} value="messages" />
@@ -268,6 +272,10 @@ function ResponseTabContent({
         />
       </InspectorScrollArea>
     );
+  }
+
+  if (responseTab === "automation") {
+    return <SessionInspectorAutomationPane sessionId={session.id} />;
   }
 
   if (responseTab === "raw") {

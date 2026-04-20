@@ -146,12 +146,28 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
     }
 
     let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+
+    let delete_script_entries_sql = format!(
+        "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
+        placeholders.join(",")
+    );
+    conn.execute(&delete_script_entries_sql, params.as_slice())
+        .map_err(|e| format!("delete script run entries for sessions: {e}"))?;
+
+    let delete_script_runs_sql = format!(
+        "DELETE FROM script_runs WHERE session_id IN ({})",
+        placeholders.join(",")
+    );
+    conn.execute(&delete_script_runs_sql, params.as_slice())
+        .map_err(|e| format!("delete script runs for sessions: {e}"))?;
+
+    let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
     let sql = format!(
         "DELETE FROM session_summaries WHERE id IN ({})",
         placeholders.join(",")
     );
 
-    let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
     let count = conn
         .execute(&sql, params.as_slice())
         .map_err(|e| format!("delete sessions: {e}"))?;
@@ -161,6 +177,10 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
 /// Delete all sessions (summaries cascade to details and ws_messages).
 pub fn clear_all_sessions(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM script_run_entries", [])
+        .map_err(|e| format!("clear script run entries: {e}"))?;
+    conn.execute("DELETE FROM script_runs", [])
+        .map_err(|e| format!("clear script runs: {e}"))?;
     conn.execute("DELETE FROM session_details", [])
         .map_err(|e| format!("clear session details: {e}"))?;
     conn.execute("DELETE FROM ws_messages", [])

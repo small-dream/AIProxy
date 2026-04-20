@@ -8,6 +8,7 @@ version.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+aiproxy-rule-engine = { path = "../rule-engine" }
 base64 = "0.22"
 brotli = "8"
 chrono = { version = "0.4", default-features = true, features = ["clock"] }

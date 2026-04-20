@@ -127,6 +127,56 @@ CREATE TABLE IF NOT EXISTS dns_mappings (
 );
 CREATE INDEX IF NOT EXISTS idx_dns_mappings_workspace ON dns_mappings(workspace_id);
 
+CREATE TABLE IF NOT EXISTS script_rules (
+    id              TEXT NOT NULL PRIMARY KEY,
+    workspace_id    TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    note            TEXT,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    priority        INTEGER NOT NULL DEFAULT 0,
+    match_methods   TEXT NOT NULL DEFAULT '[]',
+    match_stage     TEXT NOT NULL DEFAULT '',
+    match_url_pattern TEXT NOT NULL DEFAULT '',
+    language        TEXT NOT NULL,
+    source_type     TEXT NOT NULL,
+    source_code     TEXT NOT NULL,
+    source_path     TEXT,
+    entrypoints     TEXT NOT NULL DEFAULT '{}',
+    compiled_code   TEXT NOT NULL,
+    source_map      TEXT,
+    updated_at      TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+CREATE INDEX IF NOT EXISTS idx_script_rules_workspace ON script_rules(workspace_id);
+
+CREATE TABLE IF NOT EXISTS script_runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL,
+    stage           TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES script_rules(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_script_runs_session ON script_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_script_runs_rule ON script_runs(rule_id);
+
+CREATE TABLE IF NOT EXISTS script_run_entries (
+    id              TEXT NOT NULL PRIMARY KEY,
+    run_id          TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    level           TEXT,
+    key             TEXT,
+    message         TEXT,
+    payload_json    TEXT,
+    seq             INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (run_id) REFERENCES script_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_script_run_entries_run ON script_run_entries(run_id);
+
 CREATE TABLE IF NOT EXISTS api_collections (
     id          TEXT NOT NULL PRIMARY KEY,
     parent_id   TEXT,
@@ -211,6 +261,9 @@ mod tests {
             "breakpoint_rules",
             "dns_mappings",
             "map_rules",
+            "script_run_entries",
+            "script_runs",
+            "script_rules",
             "rewrite_rules",
             "session_details",
             "session_summaries",

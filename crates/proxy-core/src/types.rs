@@ -1,4 +1,5 @@
 use super::*;
+use aiproxy_rule_engine::ScriptTrace;
 
 pub struct ProxyRuntimeConfig {
     pub port: u16,
@@ -217,6 +218,8 @@ pub struct ProxySessionDetail {
     pub response_headers: Vec<ProxyHeaderEntry>,
     pub server_ip: Option<String>,
     pub summary: ProxySessionSummary,
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub script_traces: Vec<ScriptTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
 }
 

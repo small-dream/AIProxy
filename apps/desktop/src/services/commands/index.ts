@@ -15,6 +15,9 @@ import {
   parseCertificateStatus,
   parseCertificateInstallGuide,
   parseRewriteRules,
+  parseScriptRules,
+  parseScriptSessionTrace,
+  parseScriptSourceFile,
   parseSessionDetail,
   normalizeStartProxyInput,
   parseSessionSummaries,
@@ -41,6 +44,9 @@ import {
   type MapRule,
   type ProxyStatus,
   type RewriteRule,
+  type ScriptRule,
+  type ScriptSessionTrace,
+  type ScriptSourceFile,
   type SessionDetail,
   type SessionSummary,
   type SetAndroidProxyViaAdbInput,
@@ -75,6 +81,7 @@ const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
 const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
 const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 const DNS_MAPPINGS_STORAGE_KEY = "aiproxy.rules.dns";
+const SCRIPT_RULES_STORAGE_KEY = "aiproxy.rules.script";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -903,6 +910,85 @@ export async function saveMapRule(input: Omit<MapRule, "id"> & { id?: string }):
   return nextRule;
 }
 
+export async function listScriptRules(workspaceId = DEFAULT_WORKSPACE_ID): Promise<ScriptRule[]> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("list_script_rules", {
+        input: { workspaceId },
+      });
+
+      return parseScriptRules(payload);
+    } catch (error) {
+      reportCommandFailure("list_script_rules", error, workspaceId);
+
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  return readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter((rule) => rule.workspaceId === workspaceId);
+}
+
+export async function saveScriptRule(
+  input: Omit<ScriptRule, "id"> & { id?: string },
+): Promise<ScriptRule> {
+  if (isTauriRuntime()) {
+    try {
+      const payload = await invoke<unknown>("save_script_rule", { input });
+      const [savedRule] = parseScriptRules([payload]);
+      return savedRule!;
+    } catch (error) {
+      reportCommandFailure("save_script_rule", error, input.workspaceId);
+      throw coerceAppError(error);
+    }
+  }
+
+  const rules = readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules);
+  const nextRule = {
+    ...input,
+    id: input.id ?? crypto.randomUUID(),
+  } as ScriptRule;
+
+  writeStoredRules(SCRIPT_RULES_STORAGE_KEY, upsertStoredEntity(rules, nextRule));
+  return nextRule;
+}
+
+export async function readScriptSourceFile(path: string): Promise<ScriptSourceFile> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Reading script files requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    const payload = await invoke<unknown>("read_script_source_file", {
+      input: { path },
+    });
+    return parseScriptSourceFile(payload);
+  } catch (error) {
+    reportCommandFailure("read_script_source_file", error, path);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listScriptSessionTrace(sessionId: string): Promise<ScriptSessionTrace[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("list_script_session_trace", {
+      input: { sessionId },
+    });
+    return parseScriptSessionTrace(payload);
+  } catch (error) {
+    reportCommandFailure("list_script_session_trace", error, sessionId);
+    throw coerceAppError(error);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // DNS Mappings
 // ---------------------------------------------------------------------------
@@ -954,7 +1040,7 @@ export async function saveDnsMapping(input: Omit<DnsMappingRule, "id"> & { id?: 
 
 export async function deleteRule(input: {
   ruleId: string;
-  ruleType: "rewrite" | "map" | "dns";
+  ruleType: "rewrite" | "map" | "dns" | "script";
 }): Promise<void> {
   if (isTauriRuntime()) {
     try {
@@ -983,6 +1069,14 @@ export async function deleteRule(input: {
     writeStoredRules(
       DNS_MAPPINGS_STORAGE_KEY,
       readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings).filter((rule) => rule.id !== input.ruleId),
+    );
+    return;
+  }
+
+  if (input.ruleType === "script") {
+    writeStoredRules(
+      SCRIPT_RULES_STORAGE_KEY,
+      readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter((rule) => rule.id !== input.ruleId),
     );
     return;
   }

@@ -271,6 +271,7 @@ export const zhCNMessages: Messages = {
       mapLocal: "本地映射",
       mapRemote: "远程映射",
       rewrite: "改写",
+      script: "脚本",
     },
     table: {
       methods: "方法",
@@ -394,6 +395,21 @@ export const zhCNMessages: Messages = {
       targetIpExample: "127.0.0.1",
       title: "DNS 映射",
     },
+    script: {
+      createRule: "新建脚本规则",
+      emptyDescription: "使用 JavaScript 或 TypeScript 编写脚本规则，自定义请求与响应处理逻辑。",
+      importFile: "导入文件",
+      importedFrom: "导入来源：{{path}}",
+      language: "语言",
+      searchPlaceholder: "搜索脚本规则",
+      sourceCode: "脚本源码",
+      sourceTitle: "脚本源码",
+      templates: {
+        extract: "提取数据",
+        header: "设置请求头",
+        mock: "动态 Mock",
+      },
+    },
     preview: {
       matchLine: "在 {{stage}} 阶段，匹配 {{methods}} 的 {{urlPattern}}。",
     },
@@ -411,6 +427,7 @@ export const zhCNMessages: Messages = {
       redirectTargetRequired: "请填写重定向目标 URL。",
       remoteTargetRequired: "请填写远程目标 URL。",
       ruleNameRequired: "请填写规则名称。",
+      scriptSourceRequired: "请填写脚本源码。",
       urlPatternRequired: "请填写 URL 模式。",
     },
   },
@@ -833,6 +850,7 @@ export const zhCNMessages: Messages = {
       sectionTitle: "响应",
       serverIp: "服务端 IP",
       tabs: {
+        automation: "自动化",
         headers: "Headers",
         json: "JSON",
         jsonText: "JSON 文本",
@@ -869,6 +887,10 @@ export const zhCNMessages: Messages = {
       tooLarge: "JSON Body 目前过大，无法用树形视图展示。请改用 JSON 文本或 Raw 查看。",
       truncated: "JSON Body 在抓包时被截断，请改用 JSON 文本或 Raw 查看部分内容。",
     },
+  },
+  automationTab: {
+    emptyDescription: "当前会话没有记录到脚本自动化 trace。",
+    loadFailed: "无法加载当前会话的自动化 trace。",
   },
   breakpointPanel: {
     cancelMock: "取消 Mock",

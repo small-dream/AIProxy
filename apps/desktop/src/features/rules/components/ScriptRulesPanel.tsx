@@ -1,0 +1,315 @@
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
+import FileOpenRoundedIcon from "@mui/icons-material/FileOpenRounded";
+import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import {
+  Alert,
+  Button,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared-types";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useMemo, useState } from "react";
+
+import { FieldGroup, ManagedRuleList, ManagedRulesWorkbench } from "@/features/rules/components/RulesSharedUi";
+import {
+  createEmptyScriptRule,
+  formatRuleMatch,
+  getScriptValidationErrors,
+  HTTP_METHODS,
+} from "@/features/rules/rules.helpers";
+import { useDeleteManagedRule, useSaveScriptRule, useScriptRules } from "@/features/rules/use-rule-center";
+import { useI18n } from "@/i18n";
+import { readScriptSourceFile } from "@/services/commands";
+import { fontFamilies } from "@/themes/fonts";
+
+const HEADER_TEMPLATE = `export function onRequest(ctx) {
+  ctx.request.setHeader("x-script", "enabled");
+}`;
+
+const MOCK_TEMPLATE = `export function onRequest(ctx) {
+  if (!ctx.request.url.includes("/mock")) {
+    return;
+  }
+
+  ctx.respond({
+    status: 200,
+    headers: [
+      { name: "content-type", value: "application/json" },
+    ],
+    bodyText: JSON.stringify({ message: "mocked by script" }, null, 2),
+    mimeType: "application/json",
+  });
+}`;
+
+const EXTRACT_TEMPLATE = `export function onResponse(ctx) {
+  const data = ctx.response.getJson();
+  const token = data?.token;
+
+  if (!token) {
+    return;
+  }
+
+  ctx.extract("token", token);
+  ctx.log.info("extracted token", { token });
+}`;
+
+export function ScriptRulesPanel() {
+  const { t } = useI18n();
+  const { data: rules = [] } = useScriptRules();
+  const saveMutation = useSaveScriptRule();
+  const deleteMutation = useDeleteManagedRule();
+  const [searchValue, setSearchValue] = useState("");
+  const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
+
+  const filteredRules = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+    return [...rules]
+      .sort((a, b) => b.priority - a.priority)
+      .filter((rule) => {
+        if (!q) return true;
+        return `${rule.name} ${rule.match.urlPattern} ${rule.language}`.toLowerCase().includes(q);
+      });
+  }, [rules, searchValue]);
+
+  useEffect(() => {
+    if (selectedRuleId && rules.some((rule) => rule.id === selectedRuleId)) return;
+    const next = filteredRules[0];
+    if (next) {
+      setSelectedRuleId(next.id);
+      setDraft(next);
+      return;
+    }
+    setSelectedRuleId(undefined);
+  }, [filteredRules, rules, selectedRuleId]);
+
+  function selectRule(rule: ScriptRule) {
+    setSelectedRuleId(rule.id);
+    setDraft(rule);
+  }
+
+  function handleCreate(template?: "header" | "mock" | "extract") {
+    const next = createEmptyScriptRule();
+    if (template === "header") {
+      next.sourceCode = HEADER_TEMPLATE;
+      next.entrypoints = { onRequest: true, onResponse: false };
+    }
+    if (template === "mock") {
+      next.sourceCode = MOCK_TEMPLATE;
+      next.entrypoints = { onRequest: true, onResponse: false };
+    }
+    if (template === "extract") {
+      next.sourceCode = EXTRACT_TEMPLATE;
+      next.entrypoints = { onRequest: false, onResponse: true };
+      next.match.stage = "response";
+    }
+    setSelectedRuleId(next.id);
+    setDraft(next);
+  }
+
+  async function handleImportFile() {
+    const selected = await open({
+      directory: false,
+      filters: [{ name: "Script", extensions: ["js", "mjs", "ts", "mts"] }],
+      multiple: false,
+      title: t("rulesPage.script.importFile"),
+    });
+
+    if (!selected || Array.isArray(selected)) {
+      return;
+    }
+
+    try {
+      const imported = await readScriptSourceFile(selected);
+      setDraft((current) => ({
+        ...current,
+        language: imported.language,
+        name: current.name || imported.fileName.replace(/\.[^.]+$/, ""),
+        sourceCode: imported.sourceCode,
+        sourcePath: imported.path,
+        sourceType: "fileImport",
+      }));
+    } catch {
+      // Error handled by command layer.
+    }
+  }
+
+  function handleSave() {
+    saveMutation.mutate(draft, {
+      onSuccess: (saved) => {
+        setSelectedRuleId(saved.id);
+        setDraft(saved);
+      },
+    });
+  }
+
+  function handleDelete() {
+    if (!selectedRuleId || !rules.some((rule) => rule.id === selectedRuleId)) {
+      setSelectedRuleId(undefined);
+      setDraft(createEmptyScriptRule());
+      return;
+    }
+    deleteMutation.mutate(
+      { ruleId: selectedRuleId, ruleType: "script" },
+      {
+        onSuccess: () => {
+          setSelectedRuleId(undefined);
+          setDraft(createEmptyScriptRule());
+        },
+      },
+    );
+  }
+
+  const errors = getScriptValidationErrors(draft, t);
+  const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
+
+  return (
+    <ManagedRulesWorkbench
+      searchPlaceholder={t("rulesPage.script.searchPlaceholder")}
+      searchValue={searchValue}
+      onSearchChange={setSearchValue}
+      createActions={(
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => handleCreate()}>
+            {t("rulesPage.script.createRule")}
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleCreate("header")}>
+            {t("rulesPage.script.templates.header")}
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleCreate("mock")}>
+            {t("rulesPage.script.templates.mock")}
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleCreate("extract")}>
+            {t("rulesPage.script.templates.extract")}
+          </Button>
+          <Button size="small" variant="outlined" startIcon={<FileOpenRoundedIcon />} onClick={() => { void handleImportFile(); }}>
+            {t("rulesPage.script.importFile")}
+          </Button>
+        </Stack>
+      )}
+      list={(
+        <ManagedRuleList
+          emptyDescription={t("rulesPage.script.emptyDescription")}
+          items={filteredRules.map((rule) => ({
+            id: rule.id,
+            active: rule.id === selectedRuleId,
+            enabled: rule.enabled,
+            name: rule.name || t("rulesPage.untitledRule"),
+            subtitle: `${formatRuleMatch(rule.match)} • ${rule.language.toUpperCase()}`,
+            chipLabel: `${rule.priority}`,
+            onClick: () => selectRule(rule),
+          }))}
+        />
+      )}
+      editor={(
+        <Stack spacing={2}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
+            <Switch size="small" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
+            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) || 0 })} sx={{ width: 110 }} />
+            <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
+              {t("common.actions.remove")}
+            </Button>
+            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={errors.length > 0 || saveMutation.isPending}>
+              {t("rulesPage.editor.saveRule")}
+            </Button>
+          </Stack>
+
+          {errors.length > 0 && (
+            <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+              <Stack spacing={0.25}>
+                {errors.map((error) => <Typography key={error} variant="body2">{error}</Typography>)}
+              </Stack>
+            </Alert>
+          )}
+
+          {saveError && (
+            <Alert severity="error" variant="outlined">
+              {saveError}
+            </Alert>
+          )}
+
+          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+            <FieldGroup title={t("rulesPage.editor.matchTitle")}>
+              <TextField
+                size="small"
+                label={t("rulesPage.editor.urlPattern")}
+                value={draft.match.urlPattern}
+                onChange={(event) => setDraft({ ...draft, match: { ...draft.match, urlPattern: event.target.value } })}
+                placeholder={t("rulesPage.editor.urlPatternExample")}
+                fullWidth
+              />
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>
+                  <Select
+                    multiple
+                    value={draft.match.methods}
+                    onChange={(event) => setDraft({ ...draft, match: { ...draft.match, methods: event.target.value as string[] } })}
+                    label={t("rulesPage.labels.httpMethods")}
+                    renderValue={(selected) => (selected.length === 0 ? t("rulesPage.allMethods") : selected.join(", "))}
+                  >
+                    {HTTP_METHODS.map((method) => (
+                      <MenuItem key={method} value={method}>{method}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 160 }}>
+                  <InputLabel>{t("rulesPage.editor.matchStage")}</InputLabel>
+                  <Select
+                    label={t("rulesPage.editor.matchStage")}
+                    value={draft.match.stage}
+                    onChange={(event) => setDraft({ ...draft, match: { ...draft.match, stage: event.target.value as RuleMatch["stage"] } })}
+                  >
+                    <MenuItem value="either">{t("rulesPage.editor.matchStageEither")}</MenuItem>
+                    <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
+                    <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 180 }}>
+                  <InputLabel>{t("rulesPage.script.language")}</InputLabel>
+                  <Select
+                    label={t("rulesPage.script.language")}
+                    value={draft.language}
+                    onChange={(event) => setDraft({ ...draft, language: event.target.value as ScriptRule["language"] })}
+                  >
+                    <MenuItem value="typescript">TypeScript</MenuItem>
+                    <MenuItem value="javascript">JavaScript</MenuItem>
+                  </Select>
+                </FormControl>
+              </Stack>
+              {draft.sourcePath && (
+                <Typography color="text.secondary" variant="caption">
+                  {t("rulesPage.script.importedFrom", { path: draft.sourcePath })}
+                </Typography>
+              )}
+            </FieldGroup>
+          </Paper>
+
+          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+            <FieldGroup title={t("rulesPage.script.sourceTitle")}>
+              <TextField
+                size="small"
+                multiline
+                minRows={14}
+                label={t("rulesPage.script.sourceCode")}
+                value={draft.sourceCode}
+                onChange={(event) => setDraft({ ...draft, sourceCode: event.target.value, sourceType: "inline" })}
+                sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
+              />
+            </FieldGroup>
+          </Paper>
+        </Stack>
+      )}
+    />
+  );
+}
