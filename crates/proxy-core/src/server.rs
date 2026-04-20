@@ -452,119 +452,8 @@ async fn handle_connection(
                 &mut upstream_response,
             ));
 
-            // --- Response-stage breakpoint ---
-            let breakpoint_resolution = match intercept_response_stage(
-                &breakpoint_manager,
-                &event_emitter,
-                &request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                Ok(resolution) => resolution,
-                Err(error) => {
-                    let mut detail = build_session_detail(
-                        &request,
-                        upstream_response.status_code.as_u16(),
-                        &upstream_response.response_headers,
-                        &upstream_response.response_body,
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: Some(0),
-                            response_read_ms: Some(upstream_response.response_read_ms),
-                            tls_ms: None,
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(upstream_response.waiting_ms),
-                        },
-                    );
-                    detail.script_traces = script_traces.clone();
-                    if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                    return Err(error);
-                }
-            };
-
-            if let Some(resolution) = breakpoint_resolution {
-                match resolution.action {
-                    BreakpointActionKind::Drop => {
-                        let mut detail = build_session_detail(
-                            &request,
-                            upstream_response.status_code.as_u16(),
-                            &upstream_response.response_headers,
-                            &upstream_response.response_body,
-                            started_at,
-                            started_at_instant,
-                            ProxyTimingBreakdown {
-                                connect_ms: None,
-                                dns_ms: None,
-                                request_send_ms: Some(0),
-                                response_read_ms: Some(upstream_response.response_read_ms),
-                                tls_ms: None,
-                                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                waiting_ms: Some(upstream_response.waiting_ms),
-                            },
-                        );
-                        detail.script_traces = script_traces.clone();
-                        if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                        let _ = stream.shutdown().await;
-                        return Ok(());
-                    }
-                    BreakpointActionKind::Mock => {
-                        if let Some(ref mock) = resolution.mock {
-                            upstream_response = build_mock_upstream_response(mock);
-                        }
-                    }
-                    BreakpointActionKind::Forward => {
-                        apply_response_resolution(&resolution, &mut upstream_response);
-                    }
-                }
-            }
-
-            if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body.len()).await;
-            }
-
-            if let Err(error) = write_upstream_response(
-                &mut stream,
-                upstream_response.status_code,
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                let mut detail = build_session_detail(
-                    &request,
-                    upstream_response.status_code.as_u16(),
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                    started_at,
-                    started_at_instant,
-                    ProxyTimingBreakdown {
-                        connect_ms: None,
-                        dns_ms: None,
-                        request_send_ms: Some(0),
-                        response_read_ms: Some(upstream_response.response_read_ms),
-                        tls_ms: None,
-                        total_ms: Some(started_at_instant.elapsed().as_millis()),
-                        waiting_ms: Some(upstream_response.waiting_ms),
-                    },
-                );
-                detail.script_traces = script_traces.clone();
-                if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                return Err(error);
-            }
-
-            let mut detail = build_session_detail(
+            // Build session detail once; rebuild only if Mock/Forward modifies the response.
+            let mut session_detail = build_session_detail(
                 &request,
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
@@ -581,9 +470,99 @@ async fn handle_connection(
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
             );
-            detail.script_traces = script_traces;
+            session_detail.script_traces = script_traces.clone();
 
-            if session_sender.send(detail).is_err() {
+            // --- Response-stage breakpoint ---
+            let breakpoint_resolution = match intercept_response_stage(
+                &breakpoint_manager,
+                &event_emitter,
+                &request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await
+            {
+                Ok(resolution) => resolution,
+                Err(error) => {
+                    let _ = session_sender.send(session_detail);
+                    return Err(error);
+                }
+            };
+
+            if let Some(resolution) = breakpoint_resolution {
+                match resolution.action {
+                    BreakpointActionKind::Drop => {
+                        let _ = session_sender.send(session_detail);
+                        let _ = stream.shutdown().await;
+                        return Ok(());
+                    }
+                    BreakpointActionKind::Mock => {
+                        if let Some(ref mock) = resolution.mock {
+                            upstream_response = build_mock_upstream_response(mock);
+                            session_detail = build_session_detail(
+                                &request,
+                                upstream_response.status_code.as_u16(),
+                                &upstream_response.response_headers,
+                                &upstream_response.response_body,
+                                started_at,
+                                started_at_instant,
+                                ProxyTimingBreakdown {
+                                    connect_ms: None,
+                                    dns_ms: None,
+                                    request_send_ms: Some(0),
+                                    response_read_ms: Some(upstream_response.response_read_ms),
+                                    tls_ms: None,
+                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                    waiting_ms: Some(upstream_response.waiting_ms),
+                                },
+                            );
+                            session_detail.script_traces = script_traces.clone();
+                        }
+                    }
+                    BreakpointActionKind::Forward => {
+                        apply_response_resolution(&resolution, &mut upstream_response);
+                        session_detail = build_session_detail(
+                            &request,
+                            upstream_response.status_code.as_u16(),
+                            &upstream_response.response_headers,
+                            &upstream_response.response_body,
+                            started_at,
+                            started_at_instant,
+                            ProxyTimingBreakdown {
+                                connect_ms: None,
+                                dns_ms: None,
+                                request_send_ms: Some(0),
+                                response_read_ms: Some(upstream_response.response_read_ms),
+                                tls_ms: None,
+                                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(upstream_response.waiting_ms),
+                            },
+                        );
+                        session_detail.script_traces = script_traces.clone();
+                    }
+                }
+            }
+
+            if let Some(profile) = throttle_profile.as_ref() {
+                apply_response_throttle(profile, upstream_response.response_body.len()).await;
+            }
+
+            if let Err(error) = write_upstream_response(
+                &mut stream,
+                upstream_response.status_code,
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await
+            {
+                let _ = session_sender.send(session_detail);
+                return Err(error);
+            }
+
+            session_detail.script_traces = script_traces;
+
+            if session_sender.send(session_detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 
@@ -1489,119 +1468,8 @@ async fn handle_connect_mitm(
                 &mut upstream_response,
             ));
 
-            // --- Response-stage breakpoint (HTTPS) ---
-            let breakpoint_resolution = match intercept_response_stage(
-                &breakpoint_manager,
-                &event_emitter,
-                &https_request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                Ok(resolution) => resolution,
-                Err(error) => {
-                    let mut detail = build_session_detail(
-                        &https_request,
-                        upstream_response.status_code.as_u16(),
-                        &upstream_response.response_headers,
-                        &upstream_response.response_body,
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: Some(0),
-                            response_read_ms: Some(upstream_response.response_read_ms),
-                            tls_ms: Some(tls_ms),
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(upstream_response.waiting_ms),
-                        },
-                    );
-                    detail.script_traces = script_traces.clone();
-                    if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                    return Err(error);
-                }
-            };
-
-            if let Some(resolution) = breakpoint_resolution {
-                match resolution.action {
-                    BreakpointActionKind::Drop => {
-                        let mut detail = build_session_detail(
-                            &https_request,
-                            upstream_response.status_code.as_u16(),
-                            &upstream_response.response_headers,
-                            &upstream_response.response_body,
-                            started_at,
-                            started_at_instant,
-                            ProxyTimingBreakdown {
-                                connect_ms: None,
-                                dns_ms: None,
-                                request_send_ms: Some(0),
-                                response_read_ms: Some(upstream_response.response_read_ms),
-                                tls_ms: Some(tls_ms),
-                                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                waiting_ms: Some(upstream_response.waiting_ms),
-                            },
-                        );
-                        detail.script_traces = script_traces.clone();
-                        if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                        let _ = tls_stream.shutdown().await;
-                        return Ok(());
-                    }
-                    BreakpointActionKind::Mock => {
-                        if let Some(ref mock) = resolution.mock {
-                            upstream_response = build_mock_upstream_response(mock);
-                        }
-                    }
-                    BreakpointActionKind::Forward => {
-                        apply_response_resolution(&resolution, &mut upstream_response);
-                    }
-                }
-            }
-
-            if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body.len()).await;
-            }
-
-            if let Err(error) = write_upstream_response(
-                &mut tls_stream,
-                upstream_response.status_code,
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                let mut detail = build_session_detail(
-                    &https_request,
-                    upstream_response.status_code.as_u16(),
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                    started_at,
-                    started_at_instant,
-                    ProxyTimingBreakdown {
-                        connect_ms: None,
-                        dns_ms: None,
-                        request_send_ms: Some(0),
-                        response_read_ms: Some(upstream_response.response_read_ms),
-                        tls_ms: Some(tls_ms),
-                        total_ms: Some(started_at_instant.elapsed().as_millis()),
-                        waiting_ms: Some(upstream_response.waiting_ms),
-                    },
-                );
-                detail.script_traces = script_traces.clone();
-                if session_sender.send(detail).is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
-                return Err(error);
-            }
-
-            let mut detail = build_session_detail(
+            // Build session detail once; rebuild only if Mock/Forward modifies the response.
+            let mut session_detail = build_session_detail(
                 &https_request,
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
@@ -1618,9 +1486,99 @@ async fn handle_connect_mitm(
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
             );
-            detail.script_traces = script_traces;
+            session_detail.script_traces = script_traces.clone();
 
-            if session_sender.send(detail).is_err() {
+            // --- Response-stage breakpoint (HTTPS) ---
+            let breakpoint_resolution = match intercept_response_stage(
+                &breakpoint_manager,
+                &event_emitter,
+                &https_request,
+                upstream_response.status_code.as_u16(),
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await
+            {
+                Ok(resolution) => resolution,
+                Err(error) => {
+                    let _ = session_sender.send(session_detail);
+                    return Err(error);
+                }
+            };
+
+            if let Some(resolution) = breakpoint_resolution {
+                match resolution.action {
+                    BreakpointActionKind::Drop => {
+                        let _ = session_sender.send(session_detail);
+                        let _ = tls_stream.shutdown().await;
+                        return Ok(());
+                    }
+                    BreakpointActionKind::Mock => {
+                        if let Some(ref mock) = resolution.mock {
+                            upstream_response = build_mock_upstream_response(mock);
+                            session_detail = build_session_detail(
+                                &https_request,
+                                upstream_response.status_code.as_u16(),
+                                &upstream_response.response_headers,
+                                &upstream_response.response_body,
+                                started_at,
+                                started_at_instant,
+                                ProxyTimingBreakdown {
+                                    connect_ms: None,
+                                    dns_ms: None,
+                                    request_send_ms: Some(0),
+                                    response_read_ms: Some(upstream_response.response_read_ms),
+                                    tls_ms: Some(tls_ms),
+                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                    waiting_ms: Some(upstream_response.waiting_ms),
+                                },
+                            );
+                            session_detail.script_traces = script_traces.clone();
+                        }
+                    }
+                    BreakpointActionKind::Forward => {
+                        apply_response_resolution(&resolution, &mut upstream_response);
+                        session_detail = build_session_detail(
+                            &https_request,
+                            upstream_response.status_code.as_u16(),
+                            &upstream_response.response_headers,
+                            &upstream_response.response_body,
+                            started_at,
+                            started_at_instant,
+                            ProxyTimingBreakdown {
+                                connect_ms: None,
+                                dns_ms: None,
+                                request_send_ms: Some(0),
+                                response_read_ms: Some(upstream_response.response_read_ms),
+                                tls_ms: Some(tls_ms),
+                                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(upstream_response.waiting_ms),
+                            },
+                        );
+                        session_detail.script_traces = script_traces.clone();
+                    }
+                }
+            }
+
+            if let Some(profile) = throttle_profile.as_ref() {
+                apply_response_throttle(profile, upstream_response.response_body.len()).await;
+            }
+
+            if let Err(error) = write_upstream_response(
+                &mut tls_stream,
+                upstream_response.status_code,
+                &upstream_response.response_headers,
+                &upstream_response.response_body,
+            )
+            .await
+            {
+                let _ = session_sender.send(session_detail);
+                return Err(error);
+            }
+
+            session_detail.script_traces = script_traces;
+
+            if session_sender.send(session_detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 
