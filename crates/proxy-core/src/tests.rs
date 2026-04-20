@@ -1,8 +1,9 @@
 use super::{
-    build_request_path, build_upstream_headers_from_entries, find_header_end, resolve_target_url,
+    build_raw_http_head, build_request_path, build_upstream_headers_from_entries, find_header_end, resolve_target_url,
     send_direct_request, start_proxy_server, MapManager, MapRule, ParsedProxyRequest,
     ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, RewriteManager, RewriteRule,
-    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData,
+    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, ProxySessionSummary,
+    ProxyTimingBreakdown, ProxyBodyReference,
     MAX_CAPTURED_BODY_BYTES,
 };
 use super::rules::{
@@ -73,6 +74,108 @@ use tokio::{
         let actual = build_request_path(&Url::parse("http://example.com/hello?lang=en").unwrap());
 
         assert_eq!(actual, "/hello?lang=en");
+    }
+
+    #[test]
+    fn serializes_body_references_on_demand() {
+        let body = ProxyBodyReference::from_decoded_bytes(
+            br#"{"ok":true}"#.to_vec(),
+            Some("application/json".to_string()),
+            11,
+            false,
+            true,
+        );
+
+        let actual = serde_json::to_value(&body).unwrap();
+
+        assert_eq!(actual["inlineText"], json!(r#"{"ok":true}"#));
+        assert_eq!(actual["encoding"], json!("utf-8"));
+        assert_eq!(actual["mimeType"], json!("application/json"));
+        assert_eq!(actual["sizeBytes"], json!(11));
+        assert_eq!(actual["base64Text"], json!("eyJvayI6dHJ1ZX0="));
+    }
+
+    #[test]
+    fn serializes_raw_messages_from_heads_and_body_references() {
+        let detail = ProxySessionDetail {
+            cookies: Vec::new(),
+            id: "session-1".to_string(),
+            query_params: Vec::new(),
+            raw_request_head: Some(build_raw_http_head(
+                "POST /hello HTTP/1.1",
+                &[ProxyHeaderEntry {
+                    name: "Content-Type".to_string(),
+                    value: "application/json".to_string(),
+                }],
+            )),
+            raw_response_head: Some(build_raw_http_head(
+                "HTTP/1.1 200 OK",
+                &[ProxyHeaderEntry {
+                    name: "Content-Type".to_string(),
+                    value: "application/json".to_string(),
+                }],
+            )),
+            request_body: Some(ProxyBodyReference::from_decoded_bytes(
+                br#"{"hello":"world"}"#.to_vec(),
+                Some("application/json".to_string()),
+                17,
+                false,
+                true,
+            )),
+            request_headers: vec![ProxyHeaderEntry {
+                name: "Content-Type".to_string(),
+                value: "application/json".to_string(),
+            }],
+            response_body: Some(ProxyBodyReference::from_decoded_bytes(
+                br#"{"ok":true}"#.to_vec(),
+                Some("application/json".to_string()),
+                11,
+                false,
+                true,
+            )),
+            response_headers: vec![ProxyHeaderEntry {
+                name: "Content-Type".to_string(),
+                value: "application/json".to_string(),
+            }],
+            server_ip: None,
+            summary: ProxySessionSummary {
+                id: "session-1".to_string(),
+                method: "POST".to_string(),
+                host: "example.com".to_string(),
+                path: "/hello".to_string(),
+                protocol: "http".to_string(),
+                started_at: "2026-04-21T00:00:00Z".to_string(),
+                finished_at: "2026-04-21T00:00:01Z".to_string(),
+                duration_ms: 1,
+                size_bytes: 11,
+                status_code: 200,
+                url: "http://example.com/hello".to_string(),
+                response_mime_type: Some("application/json".to_string()),
+            },
+            script_traces: Vec::new(),
+            timing: Some(ProxyTimingBreakdown {
+                connect_ms: None,
+                dns_ms: None,
+                request_send_ms: None,
+                response_read_ms: Some(1),
+                tls_ms: None,
+                total_ms: Some(1),
+                waiting_ms: Some(1),
+            }),
+        };
+
+        let actual = serde_json::to_value(&detail).unwrap();
+
+        assert_eq!(
+            actual["rawRequest"],
+            json!("POST /hello HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"hello\":\"world\"}")
+        );
+        assert_eq!(
+            actual["rawResponse"],
+            json!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}")
+        );
+        assert_eq!(actual["requestBody"]["inlineText"], json!(r#"{"hello":"world"}"#));
+        assert_eq!(actual["responseBody"]["inlineText"], json!(r#"{"ok":true}"#));
     }
 
     #[test]
@@ -288,7 +391,7 @@ use tokio::{
             session
                 .response_body
                 .as_ref()
-                .and_then(|body| body.inline_text.clone()),
+                .and_then(|body| body.inline_text()),
             Some("Hello".to_string())
         );
 

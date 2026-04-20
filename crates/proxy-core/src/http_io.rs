@@ -153,17 +153,12 @@ pub(crate) fn build_session_detail(
         started_at_instant,
     });
 
-    let response_body_decoded = decode_body_bytes(
-        response_body,
-        response_headers.get(reqwest::header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()),
-    ).unwrap_or_else(|| response_body.to_vec());
-
     ProxySessionDetail {
         cookies: build_cookie_entries(&request.request_headers, &response_header_entries),
         id,
         query_params: request.query_params.clone(),
-        raw_request: Some(request.raw_request.clone()),
-        raw_response: Some(build_raw_http_message(
+        raw_request_head: Some(request.raw_request.clone()),
+        raw_response_head: Some(build_raw_http_head(
             &format!(
                 "HTTP/1.1 {} {}",
                 status_code,
@@ -173,7 +168,6 @@ pub(crate) fn build_session_detail(
                     .unwrap_or_else(|| "Unknown".to_string()),
             ),
             &response_header_entries,
-            &response_body_decoded,
         )),
         request_body: build_body_reference(
             &request.body,
@@ -208,8 +202,8 @@ pub(crate) fn build_pending_session_detail(
         cookies: Vec::new(),
         id: request.request_id.clone(),
         query_params: request.query_params.clone(),
-        raw_request: Some(request.raw_request.clone()),
-        raw_response: None,
+        raw_request_head: Some(request.raw_request.clone()),
+        raw_response_head: None,
         request_body: build_body_reference(
             &request.body,
             request.headers.get(CONTENT_TYPE),
@@ -320,20 +314,15 @@ pub(crate) fn build_body_reference(
     // Decode the full body before generating text so compressed streams are never broken.
     let decoded_body = decode_body_bytes(body, content_encoding.as_deref()).unwrap_or_else(|| body.to_vec());
 
-    let inline_text = if should_render_body_as_text(mime_type.as_deref(), &decoded_body) {
-        Some(String::from_utf8_lossy(&decoded_body).to_string())
-    } else {
-        None
-    };
+    let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
 
-    Some(ProxyBodyReference {
-        base64_text: Some(BASE64_STANDARD.encode(&decoded_body)),
-        encoding: inline_text.as_ref().map(|_| "utf-8".to_string()),
-        inline_text,
+    Some(ProxyBodyReference::from_decoded_bytes(
+        decoded_body,
         mime_type,
         size_bytes,
         truncated,
-    })
+        render_as_text,
+    ))
 }
 
 fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
@@ -380,10 +369,9 @@ pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> 
     None
 }
 
-pub(crate) fn build_raw_http_message(
+pub(crate) fn build_raw_http_head(
     start_line: &str,
     headers: &[ProxyHeaderEntry],
-    body: &[u8],
 ) -> String {
     let mut raw_message = String::new();
     raw_message.push_str(start_line);
@@ -397,11 +385,6 @@ pub(crate) fn build_raw_http_message(
     }
 
     raw_message.push_str("\r\n");
-
-    if !body.is_empty() {
-        raw_message.push_str(&String::from_utf8_lossy(body));
-    }
-
     raw_message
 }
 

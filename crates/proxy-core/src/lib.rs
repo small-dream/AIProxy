@@ -88,8 +88,8 @@ pub(crate) use breakpoints::{
 pub(crate) use http_io::{
     build_body_reference, build_cookie_entries, build_header_entries_from_httparse_headers,
     build_header_entries_from_map, build_pending_session_detail, build_query_params,
-    build_raw_http_message, build_request_path, build_session_detail, build_session_summary,
-    build_upstream_headers, build_upstream_headers_from_entries, decode_body_bytes,
+    build_raw_http_head, build_request_path, build_session_detail, build_session_summary,
+    build_upstream_headers, build_upstream_headers_from_entries,
     find_header_end, map_io_error, read_content_length, resolve_target_url,
     should_skip_response_header,
     should_skip_request_header, write_plain_text_response, write_upstream_response,

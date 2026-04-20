@@ -1,5 +1,7 @@
 use super::*;
 use aiproxy_rule_engine::ScriptTrace;
+use serde::ser::SerializeStruct;
+use std::mem::size_of;
 
 pub struct ProxyRuntimeConfig {
     pub port: u16,
@@ -181,19 +183,189 @@ pub struct ProxyHeaderEntry {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProxyBodyStorage {
+    InMemory(Arc<[u8]>),
+    FilePath(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProxyBodyReference {
-    pub base64_text: Option<String>,
+    storage: ProxyBodyStorage,
     pub encoding: Option<String>,
-    pub inline_text: Option<String>,
     pub mime_type: Option<String>,
     pub size_bytes: usize,
     pub truncated: bool,
+    render_as_text: bool,
+}
+
+impl ProxyBodyReference {
+    pub fn from_decoded_bytes(
+        bytes: Vec<u8>,
+        mime_type: Option<String>,
+        size_bytes: usize,
+        truncated: bool,
+        render_as_text: bool,
+    ) -> Self {
+        Self {
+            storage: ProxyBodyStorage::InMemory(Arc::<[u8]>::from(bytes)),
+            encoding: render_as_text.then(|| "utf-8".to_string()),
+            mime_type,
+            size_bytes,
+            truncated,
+            render_as_text,
+        }
+    }
+
+    pub fn from_file_path(
+        file_path: String,
+        mime_type: Option<String>,
+        encoding: Option<String>,
+        size_bytes: usize,
+        truncated: bool,
+        render_as_text: bool,
+    ) -> Self {
+        Self {
+            storage: ProxyBodyStorage::FilePath(file_path),
+            encoding,
+            mime_type,
+            size_bytes,
+            truncated,
+            render_as_text,
+        }
+    }
+
+    pub fn from_serialized_fields(
+        inline_text: Option<String>,
+        base64_text: Option<String>,
+        mime_type: Option<String>,
+        encoding: Option<String>,
+        size_bytes: usize,
+        truncated: bool,
+        file_path: Option<String>,
+    ) -> Option<Self> {
+        if let Some(path) = file_path {
+            return Some(Self::from_file_path(
+                path,
+                mime_type,
+                encoding.clone(),
+                size_bytes,
+                truncated,
+                encoding.is_some(),
+            ));
+        }
+
+        let decoded_bytes = if let Some(base64_text) = base64_text {
+            BASE64_STANDARD.decode(base64_text).ok()
+        } else {
+            inline_text.map(String::into_bytes)
+        }?;
+
+        Some(Self::from_decoded_bytes(
+            decoded_bytes,
+            mime_type,
+            size_bytes,
+            truncated,
+            encoding.is_some(),
+        ))
+    }
+
+    pub fn in_memory_bytes(&self) -> Option<&[u8]> {
+        match &self.storage {
+            ProxyBodyStorage::InMemory(bytes) => Some(bytes.as_ref()),
+            ProxyBodyStorage::FilePath(_) => None,
+        }
+    }
+
+    pub fn file_path(&self) -> Option<&str> {
+        match &self.storage {
+            ProxyBodyStorage::InMemory(_) => None,
+            ProxyBodyStorage::FilePath(path) => Some(path.as_str()),
+        }
+    }
+
+    pub fn replace_with_file_path(&mut self, file_path: String) {
+        self.storage = ProxyBodyStorage::FilePath(file_path);
+    }
+
+    pub fn inline_text(&self) -> Option<String> {
+        if !self.render_as_text {
+            return None;
+        }
+
+        Some(String::from_utf8_lossy(&self.load_bytes().ok()?).to_string())
+    }
+
+    pub fn base64_text(&self) -> Option<String> {
+        Some(BASE64_STANDARD.encode(self.load_bytes().ok()?))
+    }
+
+    pub fn lossily_rendered_body(&self) -> Option<String> {
+        Some(String::from_utf8_lossy(&self.load_bytes().ok()?).to_string())
+    }
+
+    pub fn storage_kind(&self) -> &'static str {
+        match &self.storage {
+            ProxyBodyStorage::InMemory(_) => "memory",
+            ProxyBodyStorage::FilePath(_) => "file",
+        }
+    }
+
+    pub fn resident_memory_bytes_estimate(&self) -> usize {
+        size_of::<Self>()
+            + self.encoding.as_ref().map_or(0, String::capacity)
+            + self.mime_type.as_ref().map_or(0, String::capacity)
+            + match &self.storage {
+                ProxyBodyStorage::InMemory(bytes) => bytes.len(),
+                ProxyBodyStorage::FilePath(path) => path.capacity(),
+            }
+    }
+
+    fn load_bytes(&self) -> Result<Vec<u8>, String> {
+        match &self.storage {
+            ProxyBodyStorage::InMemory(bytes) => Ok(bytes.to_vec()),
+            ProxyBodyStorage::FilePath(path) => fs::read(path)
+                .map_err(|error| format!("read body file {path}: {error}")),
+        }
+    }
+}
+
+impl Serialize for ProxyBodyReference {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let inline_text = self.inline_text();
+        let base64_text = self.base64_text();
+        let field_count = 2
+            + usize::from(self.encoding.is_some())
+            + usize::from(self.mime_type.is_some())
+            + usize::from(self.truncated)
+            + usize::from(inline_text.is_some())
+            + usize::from(base64_text.is_some());
+        let mut state = serializer.serialize_struct("ProxyBodyReference", field_count)?;
+
+        if let Some(base64_text) = base64_text {
+            state.serialize_field("base64Text", &base64_text)?;
+        }
+        if let Some(encoding) = &self.encoding {
+            state.serialize_field("encoding", encoding)?;
+        }
+        if let Some(inline_text) = inline_text {
+            state.serialize_field("inlineText", &inline_text)?;
+        }
+        if let Some(mime_type) = &self.mime_type {
+            state.serialize_field("mimeType", mime_type)?;
+        }
+        state.serialize_field("sizeBytes", &self.size_bytes)?;
+        if self.truncated {
+            state.serialize_field("truncated", &self.truncated)?;
+        }
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub struct ProxyTimingBreakdown {
     pub connect_ms: Option<u128>,
     pub dns_ms: Option<u128>,
@@ -204,23 +376,122 @@ pub struct ProxyTimingBreakdown {
     pub waiting_ms: Option<u128>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProxySessionDetail {
     pub cookies: Vec<ProxyHeaderEntry>,
     pub id: String,
     pub query_params: Vec<ProxyHeaderEntry>,
-    pub raw_request: Option<String>,
-    pub raw_response: Option<String>,
+    pub raw_request_head: Option<String>,
+    pub raw_response_head: Option<String>,
     pub request_body: Option<ProxyBodyReference>,
     pub request_headers: Vec<ProxyHeaderEntry>,
     pub response_body: Option<ProxyBodyReference>,
     pub response_headers: Vec<ProxyHeaderEntry>,
     pub server_ip: Option<String>,
     pub summary: ProxySessionSummary,
-    #[serde(skip_serializing, skip_deserializing, default)]
     pub script_traces: Vec<ScriptTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
+}
+
+impl ProxySessionDetail {
+    pub fn raw_request_text(&self) -> Option<String> {
+        render_raw_http_message(self.raw_request_head.as_deref(), self.request_body.as_ref())
+    }
+
+    pub fn raw_response_text(&self) -> Option<String> {
+        render_raw_http_message(self.raw_response_head.as_deref(), self.response_body.as_ref())
+    }
+
+    pub fn resident_memory_bytes_estimate(&self) -> usize {
+        size_of::<Self>()
+            + estimate_header_entries_memory(&self.cookies)
+            + self.id.capacity()
+            + estimate_header_entries_memory(&self.query_params)
+            + self.raw_request_head.as_ref().map_or(0, String::capacity)
+            + self.raw_response_head.as_ref().map_or(0, String::capacity)
+            + self.request_body
+                .as_ref()
+                .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
+            + estimate_header_entries_memory(&self.request_headers)
+            + self.response_body
+                .as_ref()
+                .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
+            + estimate_header_entries_memory(&self.response_headers)
+            + self.server_ip.as_ref().map_or(0, String::capacity)
+            + self.summary.resident_memory_bytes_estimate()
+            + self.timing
+                .as_ref()
+                .map_or(0, |_| size_of::<ProxyTimingBreakdown>())
+            + self.script_traces.capacity() * size_of::<ScriptTrace>()
+    }
+}
+
+impl Serialize for ProxySessionDetail {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("ProxySessionDetail", 12)?;
+        state.serialize_field("cookies", &self.cookies)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("queryParams", &self.query_params)?;
+        if let Some(raw_request) = self.raw_request_text() {
+            state.serialize_field("rawRequest", &raw_request)?;
+        }
+        if let Some(raw_response) = self.raw_response_text() {
+            state.serialize_field("rawResponse", &raw_response)?;
+        }
+        if let Some(request_body) = &self.request_body {
+            state.serialize_field("requestBody", request_body)?;
+        }
+        state.serialize_field("requestHeaders", &self.request_headers)?;
+        if let Some(response_body) = &self.response_body {
+            state.serialize_field("responseBody", response_body)?;
+        }
+        state.serialize_field("responseHeaders", &self.response_headers)?;
+        if let Some(server_ip) = &self.server_ip {
+            state.serialize_field("serverIp", server_ip)?;
+        }
+        state.serialize_field("summary", &self.summary)?;
+        if let Some(timing) = &self.timing {
+            state.serialize_field("timing", timing)?;
+        }
+        state.end()
+    }
+}
+
+fn render_raw_http_message(
+    head: Option<&str>,
+    body: Option<&ProxyBodyReference>,
+) -> Option<String> {
+    let mut message = head?.to_string();
+    if let Some(body) = body.and_then(ProxyBodyReference::lossily_rendered_body) {
+        message.push_str(&body);
+    }
+    Some(message)
+}
+
+fn estimate_header_entries_memory(entries: &[ProxyHeaderEntry]) -> usize {
+    entries.len() * size_of::<ProxyHeaderEntry>()
+        + entries
+            .iter()
+            .map(|entry| entry.name.capacity() + entry.value.capacity())
+            .sum::<usize>()
+}
+
+impl ProxySessionSummary {
+    pub fn resident_memory_bytes_estimate(&self) -> usize {
+        size_of::<Self>()
+            + self.id.capacity()
+            + self.method.capacity()
+            + self.host.capacity()
+            + self.path.capacity()
+            + self.protocol.capacity()
+            + self.started_at.capacity()
+            + self.finished_at.capacity()
+            + self.url.capacity()
+            + self.response_mime_type.as_ref().map_or(0, String::capacity)
+    }
 }
 
 #[derive(Debug)]

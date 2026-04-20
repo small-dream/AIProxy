@@ -1,5 +1,6 @@
 use crate::bootstrap::{AppState, BootstrapStatus, CertificateStateSnapshot, RuntimeHandles};
 use crate::dev_logger::{log_debug, log_error, log_info, log_warn};
+use crate::session_stats;
 use crate::system_proxy::{
     apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
     capture_system_proxy_snapshot, restore_system_proxy, SystemProxySettings,
@@ -14,7 +15,7 @@ use aiproxy_proxy_core::{
 };
 use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Instant};
 use tauri::{Emitter, State};
 use url::form_urlencoded;
 
@@ -171,9 +172,73 @@ pub fn get_session_detail(
     input: GetSessionDetailInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ProxySessionDetail, String> {
-    state
+    let detail = state
         .read_session_detail(&input.session_id)
-        .ok_or_else(|| format!("captured session {} was not found", input.session_id))
+        .ok_or_else(|| format!("captured session {} was not found", input.session_id))?;
+
+    log_session_detail_serialization_stats(&detail);
+
+    Ok(detail)
+}
+
+fn log_session_detail_serialization_stats(detail: &ProxySessionDetail) {
+    if !session_stats::is_enabled() {
+        return;
+    }
+
+    let serialization_started_at = Instant::now();
+    let result = serde_json::to_vec(detail);
+    let serialization_elapsed_us = serialization_started_at.elapsed().as_micros();
+
+    match result {
+        Ok(json) => {
+            let raw_request_bytes = detail.raw_request_text().map_or(0, |value| value.len());
+            let raw_response_bytes = detail.raw_response_text().map_or(0, |value| value.len());
+
+            session_stats::record(
+                "session_detail_serialize_stats",
+                &[
+                    ("session_id", detail.id.clone()),
+                    ("method", detail.summary.method.clone()),
+                    ("status_code", detail.summary.status_code.to_string()),
+                    ("json_bytes", json.len().to_string()),
+                    ("serialize_elapsed_us", serialization_elapsed_us.to_string()),
+                    (
+                        "resident_memory_bytes_estimate",
+                        detail.resident_memory_bytes_estimate().to_string(),
+                    ),
+                    ("raw_request_bytes", raw_request_bytes.to_string()),
+                    ("raw_response_bytes", raw_response_bytes.to_string()),
+                    (
+                        "request_body_storage",
+                        detail
+                            .request_body
+                            .as_ref()
+                            .map_or("none", |body| body.storage_kind())
+                            .to_string(),
+                    ),
+                    (
+                        "response_body_storage",
+                        detail
+                            .response_body
+                            .as_ref()
+                            .map_or("none", |body| body.storage_kind())
+                            .to_string(),
+                    ),
+                ],
+            );
+        }
+        Err(error) => {
+            session_stats::record(
+                "session_detail_serialize_failed",
+                &[
+                    ("session_id", detail.id.clone()),
+                    ("serialize_elapsed_us", serialization_elapsed_us.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+        }
+    }
 }
 
 #[tauri::command]

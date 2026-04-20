@@ -2,6 +2,7 @@ mod bootstrap;
 mod commands;
 mod dev_logger;
 mod menu;
+mod session_stats;
 mod system_proxy;
 mod window_state;
 mod workspace;
@@ -27,6 +28,24 @@ static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 pub fn run() {
     if let Err(error) = dev_logger::initialize() {
         eprintln!("level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\"");
+    }
+
+    match session_stats::initialize() {
+        Ok(Some(path)) => {
+            log_info(
+                "desktop.app",
+                "session_stats_initialized",
+                &[("stats_file", path.display().to_string())],
+            );
+        }
+        Ok(None) => {}
+        Err(error) => {
+            log_warn(
+                "desktop.app",
+                "session_stats_init_failed",
+                &[("error", error)],
+            );
+        }
     }
 
     // Initialize database before building the app

@@ -535,9 +535,9 @@ fn body_text_and_base64(
 ) -> (Option<String>, Option<String>, Option<String>) {
     match build_body_reference(body, content_type, content_encoding, body.len(), false) {
         Some(reference) => (
-            reference.inline_text,
-            reference.base64_text,
-            reference.mime_type,
+            reference.inline_text(),
+            reference.base64_text(),
+            reference.mime_type.clone(),
         ),
         None => (None, None, None),
     }
@@ -723,10 +723,9 @@ fn rebuild_request_runtime_state(request: &mut ParsedProxyRequest) -> Result<(),
     request.protocol = request.url.scheme().to_string();
     request.query_params = build_query_params(&request.url);
     set_header_entry(&mut request.request_headers, "Host", &host_header_value(&request.url));
-    request.raw_request = build_raw_http_message(
+    request.raw_request = build_raw_http_head(
         &format!("{} {} HTTP/1.1", request.method.as_str(), request.path),
         &request.request_headers,
-        &request.body,
     );
 
     Ok(())

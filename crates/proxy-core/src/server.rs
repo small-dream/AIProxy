@@ -2010,7 +2010,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         buffer.extend_from_slice(&chunk[..bytes_read]);
     }
     let body = buffer[header_end..header_end + body_length].to_vec();
-    let raw_request = build_raw_http_message(
+    let raw_request = build_raw_http_head(
         &format!(
             "{} {} HTTP/1.{}",
             method.as_str(),
@@ -2018,7 +2018,6 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
             request_version,
         ),
         &request_headers,
-        &body,
     );
 
     Ok(ParsedProxyRequest {
@@ -2076,10 +2075,9 @@ pub async fn send_direct_request(
         .map(|b| b.as_bytes().to_vec())
         .unwrap_or_default();
 
-    let raw_request = build_raw_http_message(
+    let raw_request = build_raw_http_head(
         &format!("{method} {path} HTTP/1.1"),
         &headers,
-        &body_bytes,
     );
 
     let client = Client::builder()
@@ -2158,24 +2156,18 @@ pub async fn send_direct_request(
         started_at_instant,
     });
 
-    let response_body_decoded = decode_body_bytes(
-        &response_body,
-        response_headers.get(reqwest::header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()),
-    ).unwrap_or_else(|| response_body.clone());
-
     Ok(ProxySessionDetail {
         cookies: build_cookie_entries(&headers, &response_header_entries),
         id,
         query_params,
-        raw_request: Some(raw_request),
-        raw_response: Some(build_raw_http_message(
+        raw_request_head: Some(raw_request),
+        raw_response_head: Some(build_raw_http_head(
             &format!(
                 "HTTP/1.1 {} {}",
                 status_code.as_u16(),
                 status_code.canonical_reason().unwrap_or("Unknown"),
             ),
             &response_header_entries,
-            &response_body_decoded,
         )),
         request_body: build_body_reference(
             &body_bytes,

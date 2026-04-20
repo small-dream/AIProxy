@@ -39,7 +39,7 @@ impl BodyStore {
 
     /// Read a body file given its relative path.
     pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, String> {
-        let full_path = self.base_dir.join(relative_path);
+        let full_path = self.resolve_body_path(relative_path);
         fs::read(&full_path)
             .map_err(|e| format!("failed to read body file {}: {e}", full_path.display()))
     }
@@ -67,12 +67,25 @@ impl BodyStore {
 
     /// Check whether a relative body path points to an existing file.
     pub fn exists(&self, relative_path: &str) -> bool {
-        Path::new(&self.base_dir).join(relative_path).exists()
+        self.resolve_body_path(relative_path).exists()
+    }
+
+    /// Resolve a stored relative body path into an absolute path under the store directory.
+    pub fn resolve_body_path(&self, relative_path: &str) -> PathBuf {
+        self.base_dir.join(relative_path)
+    }
+
+    /// Convert an absolute body path back into the relative path persisted in SQLite.
+    pub fn relative_body_path(&self, full_path: &Path) -> Option<String> {
+        full_path
+            .strip_prefix(&self.base_dir)
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
     }
 }
 
 /// Minimum body size (bytes) to store on disk instead of inline in the DB.
-pub const BODY_FILE_THRESHOLD: usize = 64 * 1024;
+pub const BODY_FILE_THRESHOLD: usize = 256 * 1024;
 
 #[cfg(test)]
 mod tests {

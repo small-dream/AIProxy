@@ -1,4 +1,4 @@
-use aiproxy_db::body_store::BodyStore;
+use aiproxy_db::body_store::{BodyStore, BODY_FILE_THRESHOLD};
 use aiproxy_db::rules::{
     BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ScriptRuleRow,
     ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
@@ -17,9 +17,11 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 use tauri::{async_runtime::JoinHandle, Emitter};
 
+use crate::session_stats;
 use crate::system_proxy::SystemProxySnapshot;
 use crate::workspace::{WorkspaceData, WorkspaceManager};
 
@@ -299,15 +301,33 @@ impl AppState {
         }
     }
 
-    pub fn upsert_session(&self, session_detail: ProxySessionDetail) {
+    pub fn upsert_session(&self, mut session_detail: ProxySessionDetail) {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
+
+        let spill_started_at = Instant::now();
+        if let Err(error) = spill_session_bodies_to_disk(&mut session_detail, &self.body_store) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "session_body_spill_failed",
+                &[("error", error)],
+            );
+        }
+        let spill_elapsed_us = spill_started_at.elapsed().as_micros();
 
         // Persist to DB
         {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
             let summary_row = proxy_summary_to_row(&session_summary);
+            let row_build_started_at = Instant::now();
             let detail_row = proxy_detail_to_row(&session_detail, &self.body_store);
+            let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
+            log_session_storage_stats(
+                &session_detail,
+                &detail_row,
+                spill_elapsed_us,
+                row_build_elapsed_us,
+            );
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
             {
                 crate::dev_logger::log_error(
@@ -555,6 +575,104 @@ impl AppState {
     }
 }
 
+fn log_session_storage_stats(
+    detail: &ProxySessionDetail,
+    row: &SessionDetailRow,
+    spill_elapsed_us: u128,
+    row_build_elapsed_us: u128,
+) {
+    if !session_stats::is_enabled() {
+        return;
+    }
+
+    let request_body_storage = detail
+        .request_body
+        .as_ref()
+        .map_or("none", |body| body.storage_kind());
+    let response_body_storage = detail
+        .response_body
+        .as_ref()
+        .map_or("none", |body| body.storage_kind());
+    let request_body_resident_bytes = detail
+        .request_body
+        .as_ref()
+        .map_or(0, |body| body.resident_memory_bytes_estimate());
+    let response_body_resident_bytes = detail
+        .response_body
+        .as_ref()
+        .map_or(0, |body| body.resident_memory_bytes_estimate());
+
+    session_stats::record(
+        "session_storage_stats",
+        &[
+            ("session_id", detail.id.clone()),
+            ("method", detail.summary.method.clone()),
+            ("status_code", detail.summary.status_code.to_string()),
+            (
+                "resident_memory_bytes_estimate",
+                detail.resident_memory_bytes_estimate().to_string(),
+            ),
+            (
+                "summary_memory_bytes_estimate",
+                detail.summary.resident_memory_bytes_estimate().to_string(),
+            ),
+            ("request_body_storage", request_body_storage.to_string()),
+            (
+                "request_body_resident_bytes",
+                request_body_resident_bytes.to_string(),
+            ),
+            ("response_body_storage", response_body_storage.to_string()),
+            (
+                "response_body_resident_bytes",
+                response_body_resident_bytes.to_string(),
+            ),
+            (
+                "db_row_text_bytes",
+                estimate_session_detail_row_text_bytes(row).to_string(),
+            ),
+            (
+                "request_body_ref_bytes",
+                row.request_body_ref
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            (
+                "response_body_ref_bytes",
+                row.response_body_ref
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            (
+                "raw_request_head_bytes",
+                row.raw_request.as_ref().map_or(0, |value| value.len()).to_string(),
+            ),
+            (
+                "raw_response_head_bytes",
+                row.raw_response.as_ref().map_or(0, |value| value.len()).to_string(),
+            ),
+            ("spill_elapsed_us", spill_elapsed_us.to_string()),
+            ("row_build_elapsed_us", row_build_elapsed_us.to_string()),
+        ],
+    );
+}
+
+fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> usize {
+    row.id.len()
+        + row.session_summary_id.len()
+        + row.query_params.len()
+        + row.cookies.len()
+        + row.request_headers.len()
+        + row.response_headers.len()
+        + row.raw_request.as_ref().map_or(0, |value| value.len())
+        + row.raw_response.as_ref().map_or(0, |value| value.len())
+        + row.server_ip.as_ref().map_or(0, |value| value.len())
+        + row.request_body_ref.as_ref().map_or(0, |value| value.len())
+        + row.response_body_ref.as_ref().map_or(0, |value| value.len())
+        + row.timing.as_ref().map_or(0, |value| value.len())
+}
+
 fn normalize_optional_host(host: Option<String>) -> Option<String> {
     host.and_then(|value| {
         let trimmed = value.trim();
@@ -679,7 +797,7 @@ fn summary_row_to_proxy(row: SessionSummaryRow) -> ProxySessionSummary {
 fn detail_row_to_proxy(
     row: &SessionDetailRow,
     summary: ProxySessionSummary,
-    _body_store: &BodyStore,
+    body_store: &BodyStore,
 ) -> ProxySessionDetail {
     use aiproxy_proxy_core::{ProxyBodyReference, ProxyHeaderEntry, ProxyTimingBreakdown};
 
@@ -689,16 +807,21 @@ fn detail_row_to_proxy(
 
     let body_ref_from_json = |json: Option<&str>| -> Option<ProxyBodyReference> {
         json.and_then(|j| {
-            // Body ref is stored as JSON with optional inline text or file path
             let v: serde_json::Value = serde_json::from_str(j).ok()?;
-            Some(ProxyBodyReference {
-                base64_text: v.get("base64_text").and_then(|v| v.as_str()).map(String::from),
-                encoding: v.get("encoding").and_then(|v| v.as_str()).map(String::from),
-                inline_text: v.get("inline_text").and_then(|v| v.as_str()).map(String::from),
-                mime_type: v.get("mime_type").and_then(|v| v.as_str()).map(String::from),
-                size_bytes: v.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-                truncated: v.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false),
-            })
+            let file_path = v
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .map(|path| body_store.resolve_body_path(path).to_string_lossy().into_owned());
+
+            ProxyBodyReference::from_serialized_fields(
+                v.get("inline_text").and_then(|value| value.as_str()).map(String::from),
+                v.get("base64_text").and_then(|value| value.as_str()).map(String::from),
+                v.get("mime_type").and_then(|value| value.as_str()).map(String::from),
+                v.get("encoding").and_then(|value| value.as_str()).map(String::from),
+                v.get("size_bytes").and_then(|value| value.as_u64()).unwrap_or(0) as usize,
+                v.get("truncated").and_then(|value| value.as_bool()).unwrap_or(false),
+                file_path,
+            )
         })
     };
 
@@ -719,8 +842,8 @@ fn detail_row_to_proxy(
         id: row.session_summary_id.clone(),
         query_params: headers_from_json(&row.query_params),
         cookies: headers_from_json(&row.cookies),
-        raw_request: row.raw_request.clone(),
-        raw_response: row.raw_response.clone(),
+        raw_request_head: row.raw_request.as_deref().map(extract_raw_message_head),
+        raw_response_head: row.raw_response.as_deref().map(extract_raw_message_head),
         request_body: body_ref_from_json(row.request_body_ref.as_deref()),
         request_headers: headers_from_json(&row.request_headers),
         response_body: body_ref_from_json(row.response_body_ref.as_deref()),
@@ -749,26 +872,30 @@ fn proxy_summary_to_row(summary: &ProxySessionSummary) -> SessionSummaryRow {
     }
 }
 
-fn proxy_detail_to_row(detail: &ProxySessionDetail, _body_store: &BodyStore) -> SessionDetailRow {
+fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> SessionDetailRow {
     let body_to_json = |body: &Option<aiproxy_proxy_core::ProxyBodyReference>| -> Option<String> {
         body.as_ref().map(|b| {
-            // For large bodies stored on disk, the ref points to a file
-            // For small bodies, we store inline
             let mut body_json = serde_json::json!({
                 "size_bytes": b.size_bytes,
                 "truncated": b.truncated,
             });
-            if let Some(ref text) = b.inline_text {
-                body_json["inline_text"] = serde_json::Value::String(text.clone());
-            }
             if let Some(ref mime) = b.mime_type {
                 body_json["mime_type"] = serde_json::Value::String(mime.clone());
             }
             if let Some(ref enc) = b.encoding {
                 body_json["encoding"] = serde_json::Value::String(enc.clone());
             }
-            if let Some(ref b64) = b.base64_text {
-                body_json["base64_text"] = serde_json::Value::String(b64.clone());
+            if let Some(file_path) = b.file_path() {
+                if let Some(relative_path) = body_store.relative_body_path(std::path::Path::new(file_path)) {
+                    body_json["file_path"] = serde_json::Value::String(relative_path);
+                }
+            } else {
+                if let Some(text) = b.inline_text() {
+                    body_json["inline_text"] = serde_json::Value::String(text);
+                }
+                if let Some(b64) = b.base64_text() {
+                    body_json["base64_text"] = serde_json::Value::String(b64);
+                }
             }
             body_json.to_string()
         })
@@ -793,13 +920,53 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, _body_store: &BodyStore) -> 
         cookies: serde_json::to_string(&detail.cookies).unwrap_or_else(|_| "[]".into()),
         request_headers: serde_json::to_string(&detail.request_headers).unwrap_or_else(|_| "[]".into()),
         response_headers: serde_json::to_string(&detail.response_headers).unwrap_or_else(|_| "[]".into()),
-        raw_request: detail.raw_request.clone(),
-        raw_response: detail.raw_response.clone(),
+        raw_request: detail.raw_request_head.clone(),
+        raw_response: detail.raw_response_head.clone(),
         server_ip: detail.server_ip.clone(),
         request_body_ref: body_to_json(&detail.request_body),
         response_body_ref: body_to_json(&detail.response_body),
         timing: timing_json,
     }
+}
+
+fn extract_raw_message_head(raw_message: &str) -> String {
+    match raw_message.find("\r\n\r\n") {
+        Some(index) => raw_message[..index + 4].to_string(),
+        None => raw_message.to_string(),
+    }
+}
+
+fn spill_session_bodies_to_disk(
+    detail: &mut ProxySessionDetail,
+    body_store: &BodyStore,
+) -> Result<(), String> {
+    spill_body_reference_to_disk(&detail.id, "request", &mut detail.request_body, body_store)?;
+    spill_body_reference_to_disk(&detail.id, "response", &mut detail.response_body, body_store)?;
+    Ok(())
+}
+
+fn spill_body_reference_to_disk(
+    session_id: &str,
+    kind: &str,
+    body: &mut Option<aiproxy_proxy_core::ProxyBodyReference>,
+    body_store: &BodyStore,
+) -> Result<(), String> {
+    let Some(body) = body.as_mut() else {
+        return Ok(());
+    };
+
+    if body.file_path().is_some() || body.size_bytes < BODY_FILE_THRESHOLD {
+        return Ok(());
+    }
+
+    let Some(bytes) = body.in_memory_bytes() else {
+        return Ok(());
+    };
+
+    let relative_path = body_store.write_body(session_id, kind, bytes)?;
+    let full_path = body_store.resolve_body_path(&relative_path);
+    body.replace_with_file_path(full_path.to_string_lossy().into_owned());
+    Ok(())
 }
 
 fn dns_mapping_row_to_rule(row: DnsMappingRow) -> DnsMappingRule {
