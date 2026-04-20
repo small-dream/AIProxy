@@ -17,6 +17,7 @@ import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
+import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
 import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
@@ -135,10 +136,14 @@ export function SessionsPage() {
     handleIgnoreHost,
     handleRepeatDirect,
     handleSaveResponse,
+    handleSaveToCollection,
+    handleSaveToCollectionCancel,
+    handleSaveToCollectionConfirm,
     handleSnackbarClose,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
     handleUnfocusHost,
+    saveToCollectionSession,
   } = useSessionContextActions({
     loadFromSession,
     navigate,
@@ -553,9 +558,17 @@ export function SessionsPage() {
         onIgnoreHost={handleIgnoreHost}
         onRepeat={handleRepeatDirect}
         onSaveResponse={handleSaveResponse}
+        onSaveToCollection={handleSaveToCollection}
         onStopIgnoringHost={handleStopIgnoringHost}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
+      />
+
+      <SaveToCollectionDialog
+        open={saveToCollectionSession !== null}
+        sessionName={saveToCollectionSession ? `${saveToCollectionSession.method} ${saveToCollectionSession.host}${saveToCollectionSession.path}` : ""}
+        onCancel={handleSaveToCollectionCancel}
+        onConfirm={handleSaveToCollectionConfirm}
       />
 
       <DomainContextMenu

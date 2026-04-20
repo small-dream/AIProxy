@@ -1818,6 +1818,620 @@ pub fn set_active_throttle_profile(
 
 // --- Workspace commands ---
 
+// ---------------------------------------------------------------------------
+// API Collection commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiCollectionOutput {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub sort_order: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiCollectionItemOutput {
+    pub id: String,
+    pub collection_id: String,
+    pub name: String,
+    pub description: String,
+    pub sort_order: u32,
+    pub method: String,
+    pub url: String,
+    pub headers: String,
+    pub body: String,
+    pub body_type: String,
+    pub raw_language: String,
+    pub form_data: String,
+    pub url_encoded: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertApiCollectionInput {
+    pub id: Option<String>,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub sort_order: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertApiCollectionItemInput {
+    pub id: Option<String>,
+    pub collection_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub sort_order: Option<u32>,
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<ProxyHeaderEntry>,
+    pub body: String,
+    pub body_type: String,
+    pub raw_language: String,
+    pub form_data: Vec<ProxyHeaderEntry>,
+    pub url_encoded: Vec<ProxyHeaderEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteApiCollectionInput {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListApiCollectionItemsInput {
+    pub collection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetApiCollectionItemInput {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteApiCollectionItemInput {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveApiCollectionItemInput {
+    pub id: String,
+    pub target_collection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSessionToCollectionInput {
+    pub session_id: String,
+    pub collection_id: String,
+    pub name: Option<String>,
+}
+
+#[tauri::command]
+pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Vec<ApiCollectionOutput> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::collections::list_all_collections(&conn) {
+        Ok(rows) => rows.into_iter().map(|r| ApiCollectionOutput {
+            id: r.id,
+            parent_id: r.parent_id,
+            name: r.name,
+            description: r.description,
+            sort_order: r.sort_order,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub fn upsert_api_collection(
+    input: UpsertApiCollectionInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ApiCollectionOutput, String> {
+    let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let row = aiproxy_db::collections::CollectionRow {
+        id: id.clone(),
+        parent_id: input.parent_id,
+        name: input.name,
+        description: input.description.unwrap_or_default(),
+        sort_order: input.sort_order.unwrap_or(0),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex");
+        aiproxy_db::collections::upsert_collection(&conn, &row)
+            .map_err(|e| format!("upsert collection: {e}"))?;
+    }
+
+    Ok(ApiCollectionOutput {
+        id: row.id,
+        parent_id: row.parent_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn delete_api_collection(
+    input: DeleteApiCollectionInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::collections::delete_collection(&conn, &input.id)
+        .map_err(|e| format!("delete collection: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_api_collection_items(
+    input: ListApiCollectionItemsInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<ApiCollectionItemOutput> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::collections::list_collection_items(&conn, &input.collection_id) {
+        Ok(rows) => rows.into_iter().map(|r| ApiCollectionItemOutput {
+            id: r.id,
+            collection_id: r.collection_id,
+            name: r.name,
+            description: r.description,
+            sort_order: r.sort_order,
+            method: r.method,
+            url: r.url,
+            headers: r.headers,
+            body: r.body,
+            body_type: r.body_type,
+            raw_language: r.raw_language,
+            form_data: r.form_data,
+            url_encoded: r.url_encoded,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub fn get_api_collection_item(
+    input: GetApiCollectionItemInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ApiCollectionItemOutput, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    let row = aiproxy_db::collections::get_collection_item(&conn, &input.id)
+        .map_err(|e| format!("get collection item: {e}"))?
+        .ok_or_else(|| format!("collection item {} not found", input.id))?;
+
+    Ok(ApiCollectionItemOutput {
+        id: row.id,
+        collection_id: row.collection_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        method: row.method,
+        url: row.url,
+        headers: row.headers,
+        body: row.body,
+        body_type: row.body_type,
+        raw_language: row.raw_language,
+        form_data: row.form_data,
+        url_encoded: row.url_encoded,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn upsert_api_collection_item(
+    input: UpsertApiCollectionItemInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ApiCollectionItemOutput, String> {
+    let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let headers_json = serde_json::to_string(&input.headers).unwrap_or_else(|_| "[]".into());
+    let form_data_json = serde_json::to_string(&input.form_data).unwrap_or_else(|_| "[]".into());
+    let url_encoded_json = serde_json::to_string(&input.url_encoded).unwrap_or_else(|_| "[]".into());
+
+    let row = aiproxy_db::collections::CollectionItemRow {
+        id: id.clone(),
+        collection_id: input.collection_id,
+        name: input.name,
+        description: input.description.unwrap_or_default(),
+        sort_order: input.sort_order.unwrap_or(0),
+        method: input.method,
+        url: input.url,
+        headers: headers_json,
+        body: input.body,
+        body_type: input.body_type,
+        raw_language: input.raw_language,
+        form_data: form_data_json,
+        url_encoded: url_encoded_json,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex");
+        aiproxy_db::collections::upsert_collection_item(&conn, &row)
+            .map_err(|e| format!("upsert collection item: {e}"))?;
+    }
+
+    Ok(ApiCollectionItemOutput {
+        id: row.id,
+        collection_id: row.collection_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        method: row.method,
+        url: row.url,
+        headers: row.headers,
+        body: row.body,
+        body_type: row.body_type,
+        raw_language: row.raw_language,
+        form_data: row.form_data,
+        url_encoded: row.url_encoded,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn delete_api_collection_item(
+    input: DeleteApiCollectionItemInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::collections::delete_collection_item(&conn, &input.id)
+        .map_err(|e| format!("delete collection item: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_api_collection_item(
+    input: MoveApiCollectionItemInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::collections::move_collection_item(&conn, &input.id, &input.target_collection_id)
+        .map_err(|e| format!("move collection item: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_session_to_collection(
+    input: SaveSessionToCollectionInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ApiCollectionItemOutput, String> {
+    // Load session summary and detail from DB
+    let (method, url, headers_json, body_text) = {
+        let conn = state.read_db_connection().lock().expect("db mutex");
+
+        let summary = aiproxy_db::sessions::load_recent_summaries(&conn, 50000)
+            .map_err(|e| format!("load sessions: {e}"))?
+            .into_iter()
+            .find(|s| s.id == input.session_id)
+            .ok_or_else(|| format!("session {} not found", input.session_id))?;
+
+        let detail = aiproxy_db::sessions::load_session_detail(&conn, &input.session_id)
+            .map_err(|e| format!("load session detail: {e}"))?
+            .ok_or_else(|| format!("session detail {} not found", input.session_id))?;
+
+        let body_text = detail.request_body_ref
+            .and_then(|ref_json| {
+                let parsed: serde_json::Value = serde_json::from_str(&ref_json).ok()?;
+                parsed.get("inlineText")?.as_str().map(String::from)
+            })
+            .unwrap_or_default();
+
+        (summary.method, summary.url, detail.request_headers, body_text)
+    };
+
+    // Determine body type from Content-Type header
+    let headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_json).unwrap_or_default();
+    let content_type = headers.iter()
+        .find(|h| h.name.eq_ignore_ascii_case("content-type"))
+        .map(|h| h.value.to_lowercase())
+        .unwrap_or_default();
+
+    let (body_type, raw_language) = if content_type.contains("application/json") {
+        ("raw".to_string(), "json".to_string())
+    } else if content_type.contains("multipart/form-data") {
+        ("formdata".to_string(), "json".to_string())
+    } else if content_type.contains("application/x-www-form-urlencoded") {
+        ("urlencoded".to_string(), "json".to_string())
+    } else if !body_text.is_empty() {
+        ("raw".to_string(), "text".to_string())
+    } else {
+        ("none".to_string(), "json".to_string())
+    };
+
+    let name = input.name.unwrap_or_else(|| format!("{} {}", method, url));
+
+    let upsert_input = UpsertApiCollectionItemInput {
+        id: None,
+        collection_id: input.collection_id,
+        name,
+        description: None,
+        sort_order: None,
+        method,
+        url,
+        headers: headers.clone(),
+        body: body_text,
+        body_type,
+        raw_language,
+        form_data: vec![],
+        url_encoded: vec![],
+    };
+
+    upsert_api_collection_item(upsert_input, state)
+}
+
+// ---------------------------------------------------------------------------
+// API Environment commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiEnvironmentOutput {
+    pub id: String,
+    pub name: String,
+    pub sort_order: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiEnvironmentVariableOutput {
+    pub id: String,
+    pub environment_id: String,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub sort_order: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertApiEnvironmentInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub sort_order: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteApiEnvironmentInput {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListApiEnvironmentVariablesInput {
+    pub environment_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetApiEnvironmentVariablesInput {
+    pub environment_id: String,
+    pub variables: Vec<ApiEnvironmentVariableInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiEnvironmentVariableInput {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub sort_order: Option<u32>,
+}
+
+#[tauri::command]
+pub fn list_api_environments(state: State<'_, Arc<AppState>>) -> Vec<ApiEnvironmentOutput> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::environments::list_environments(&conn) {
+        Ok(rows) => rows.into_iter().map(|r| ApiEnvironmentOutput {
+            id: r.id,
+            name: r.name,
+            sort_order: r.sort_order,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub fn upsert_api_environment(
+    input: UpsertApiEnvironmentInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ApiEnvironmentOutput, String> {
+    let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let row = aiproxy_db::environments::EnvironmentRow {
+        id: id.clone(),
+        name: input.name,
+        sort_order: input.sort_order.unwrap_or(0),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex");
+        aiproxy_db::environments::upsert_environment(&conn, &row)
+            .map_err(|e| format!("upsert environment: {e}"))?;
+    }
+
+    Ok(ApiEnvironmentOutput {
+        id: row.id,
+        name: row.name,
+        sort_order: row.sort_order,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+#[tauri::command]
+pub fn delete_api_environment(
+    input: DeleteApiEnvironmentInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::environments::delete_environment(&conn, &input.id)
+        .map_err(|e| format!("delete environment: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_api_environment_variables(
+    input: ListApiEnvironmentVariablesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<ApiEnvironmentVariableOutput> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    match aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id) {
+        Ok(rows) => rows.into_iter().map(|r| ApiEnvironmentVariableOutput {
+            id: r.id,
+            environment_id: r.environment_id,
+            key: r.key,
+            value: r.value,
+            enabled: r.enabled,
+            sort_order: r.sort_order,
+        }).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+pub fn set_api_environment_variables(
+    input: SetApiEnvironmentVariablesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let vars: Vec<aiproxy_db::environments::EnvironmentVariableRow> = input.variables.into_iter().enumerate().map(|(i, v)| {
+        aiproxy_db::environments::EnvironmentVariableRow {
+            id: v.id,
+            environment_id: input.environment_id.clone(),
+            key: v.key,
+            value: v.value,
+            enabled: v.enabled,
+            sort_order: v.sort_order.unwrap_or(i as u32),
+        }
+    }).collect();
+
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::environments::set_environment_variables(&conn, &input.environment_id, &vars)
+        .map_err(|e| format!("set environment variables: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Batch execute collection items
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchExecuteInput {
+    pub item_ids: Vec<String>,
+    pub environment_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn batch_execute_collection_items(
+    input: BatchExecuteInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ProxySessionDetail>, String> {
+    let items: Vec<aiproxy_db::collections::CollectionItemRow> = {
+        let conn = state.read_db_connection().lock().expect("db mutex");
+        let mut found = Vec::new();
+        for id in &input.item_ids {
+            if let Some(item) = aiproxy_db::collections::get_collection_item(&conn, id)
+                .map_err(|e| format!("get item: {e}"))?
+            {
+                found.push(item);
+            }
+        }
+        found
+    };
+
+    // Load environment variables if specified
+    let env_vars: std::collections::HashMap<String, String> = match &input.environment_id {
+        Some(env_id) => {
+            let conn = state.read_db_connection().lock().expect("db mutex");
+            let vars = aiproxy_db::environments::list_environment_variables(&conn, env_id)
+                .map_err(|e| format!("load env vars: {e}"))?;
+            vars.into_iter()
+                .filter(|v| v.enabled)
+                .map(|v| (v.key, v.value))
+                .collect()
+        }
+        None => std::collections::HashMap::new(),
+    };
+
+    let mut results = Vec::new();
+    for item in items {
+        let url = substitute_vars(&item.url, &env_vars);
+        let headers_str = substitute_vars(&item.headers, &env_vars);
+        let body = substitute_vars(&item.body, &env_vars);
+
+        let headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_str).unwrap_or_default();
+
+        match send_direct_request(item.method, url, headers, Some(body)).await {
+            Ok(detail) => {
+                let session_id = detail.id.clone();
+                state.upsert_session(detail.clone());
+                log_debug(
+                    "desktop.commands",
+                    "batch_execute_item_succeeded",
+                    &[("session_id", session_id)],
+                );
+                results.push(detail);
+            }
+            Err(e) => {
+                log_error(
+                    "desktop.commands",
+                    "batch_execute_item_failed",
+                    &[("item_id", item.id), ("error", e.clone())],
+                );
+                return Err(format!("batch execute failed at item '{}': {}", item.name, e));
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+fn substitute_vars(template: &str, vars: &std::collections::HashMap<String, String>) -> String {
+    let mut result = template.to_string();
+    for (key, value) in vars {
+        let pattern = format!("{{{{{}}}}}", key);
+        result = result.replace(&pattern, value);
+    }
+    result
+}
+
 #[tauri::command]
 pub fn list_workspaces(state: State<'_, Arc<AppState>>) -> Vec<WorkspaceData> {
     state.read_workspace_manager().list()

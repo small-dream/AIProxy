@@ -5,6 +5,7 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
+import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
@@ -41,6 +42,7 @@ type SessionContextMenuProps = {
   onIgnoreHost: (session: SessionSummary) => void;
   onRepeat: (session: SessionSummary) => void;
   onSaveResponse: (session: SessionSummary) => void;
+  onSaveToCollection: (session: SessionSummary) => void;
   onStopIgnoringHost: (session: SessionSummary) => void;
   onUnfocusHost: () => void;
 };
@@ -64,6 +66,7 @@ export function SessionContextMenu({
   onIgnoreHost,
   onRepeat,
   onSaveResponse,
+  onSaveToCollection,
   onStopIgnoringHost,
   onUnfocusHost,
 }: SessionContextMenuProps) {
@@ -142,6 +145,13 @@ export function SessionContextMenu({
           <ReplayRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.repeat")}</ListItemText>
+      </MenuItem>
+
+      <MenuItem onClick={handleClick(onSaveToCollection)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <FolderCopyRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("collectionsPage.saveToCollection")}</ListItemText>
       </MenuItem>
 
       <Divider sx={dividerSx} />

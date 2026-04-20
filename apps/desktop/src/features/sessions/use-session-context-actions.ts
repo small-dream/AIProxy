@@ -12,7 +12,7 @@ import type {
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { getSessionDetail } from "@/services/commands";
+import { getSessionDetail, saveSessionToCollection } from "@/services/commands";
 
 import { buildCurlCommand, getBodyText } from "@/features/sessions/session-export.helpers";
 import { guessExtension } from "@/features/sessions/session-ui.helpers";
@@ -47,6 +47,9 @@ export function useSessionContextActions({
   const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{ left: number; top: number }>();
   const [contextMenuHost, setContextMenuHost] = useState<string | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
+
+  // Save-to-collection dialog state
+  const [saveToCollectionSession, setSaveToCollectionSession] = useState<SessionSummary | null>(null);
 
   const handleContextMenu = useCallback((session: SessionSummary, event: ReactMouseEvent) => {
     event.preventDefault();
@@ -224,12 +227,34 @@ export function useSessionContextActions({
     handleStopIgnoringDomain(session.host);
   }, [handleStopIgnoringDomain]);
 
+  const handleSaveToCollection = useCallback((session: SessionSummary) => {
+    setSaveToCollectionSession(session);
+  }, []);
+
+  const handleSaveToCollectionCancel = useCallback(() => {
+    setSaveToCollectionSession(null);
+  }, []);
+
+  const handleSaveToCollectionConfirm = useCallback(async (collectionId: string, name?: string) => {
+    if (!saveToCollectionSession) return;
+    try {
+      await saveSessionToCollection({
+        sessionId: saveToCollectionSession.id,
+        collectionId,
+        ...(name ? { name } : {}),
+      });
+      showSnackbar(t("collectionsPage.saved"));
+      setSaveToCollectionSession(null);
+    } catch {
+      showSnackbar("Failed to save");
+    }
+  }, [saveToCollectionSession, showSnackbar, t]);
+
   return {
     contextMenuAnchor,
     contextMenuHost,
     contextMenuSession,
     domainContextMenuAnchor,
-    snackbarMessage,
     handleCompose,
     handleContextMenu,
     handleContextMenuClose,
@@ -245,9 +270,14 @@ export function useSessionContextActions({
     handleIgnoreHost,
     handleRepeatDirect,
     handleSaveResponse,
+    handleSaveToCollection,
+    handleSaveToCollectionCancel,
+    handleSaveToCollectionConfirm,
     handleSnackbarClose,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
     handleUnfocusHost,
+    saveToCollectionSession,
+    snackbarMessage,
   };
 }

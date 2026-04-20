@@ -2,6 +2,7 @@ import { createHashRouter, RouterProvider } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { CertificatesPage } from "@/pages/certificates";
+import { CollectionsPage } from "@/pages/collections";
 import { ComposePage } from "@/pages/compose";
 import { RulesPage } from "@/pages/rules";
 import { SessionsPage } from "@/pages/sessions";
@@ -20,6 +21,10 @@ const router = createHashRouter([
       {
         path: "compose",
         element: <ComposePage />,
+      },
+      {
+        path: "collections",
+        element: <CollectionsPage />,
       },
       {
         path: "rules",

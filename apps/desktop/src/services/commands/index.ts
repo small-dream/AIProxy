@@ -51,6 +51,18 @@ import {
   type WsInjectInput,
   type WsConnectionStatusValue,
   type Workspace,
+  type ApiCollection,
+  type ApiCollectionItem,
+  type ApiEnvironment,
+  type ApiEnvironmentVariable,
+  parseApiCollections,
+  parseApiCollectionItem,
+  parseApiCollectionItems,
+  parseApiEnvironments,
+  parseApiEnvironmentVariables,
+  type CollectionSaveInput,
+  type SessionToCollectionInput,
+  type BatchExecuteInput,
 } from "@aiproxy/shared-types";
 
 import {
@@ -1334,6 +1346,268 @@ export async function updateWorkspace(input: {
     return workspace;
   } catch (error) {
     reportCommandFailure("update_workspace", error, input.workspaceId);
+    throw coerceAppError(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// API Collection commands
+// ---------------------------------------------------------------------------
+
+export async function listApiCollections(): Promise<ApiCollection[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+  try {
+    const payload = await invoke<unknown>("list_api_collections");
+    return parseApiCollections(payload);
+  } catch (error) {
+    reportCommandFailure("list_api_collections", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function upsertApiCollection(input: {
+  id?: string;
+  parentId?: string | null;
+  name: string;
+  description?: string;
+  sortOrder?: number;
+}): Promise<ApiCollection> {
+  if (!isTauriRuntime()) {
+    return {
+      id: input.id ?? crypto.randomUUID(),
+      parentId: input.parentId ?? null,
+      name: input.name,
+      description: input.description ?? "",
+      sortOrder: input.sortOrder ?? 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  try {
+    const payload = await invoke<unknown>("upsert_api_collection", {
+      input: { ...input, parentId: input.parentId ?? null },
+    });
+    const collections = parseApiCollections([payload]);
+    const result = collections[0];
+    if (!result) throw coerceAppError("Empty response");
+    return result;
+  } catch (error) {
+    reportCommandFailure("upsert_api_collection", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function deleteApiCollection(id: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("delete_api_collection", { input: { id } });
+  } catch (error) {
+    reportCommandFailure("delete_api_collection", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listApiCollectionItems(collectionId: string): Promise<ApiCollectionItem[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const payload = await invoke<unknown>("list_api_collection_items", {
+      input: { collectionId },
+    });
+    return parseApiCollectionItems(payload);
+  } catch (error) {
+    reportCommandFailure("list_api_collection_items", error, collectionId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function getApiCollectionItem(id: string): Promise<ApiCollectionItem> {
+  if (!isTauriRuntime()) {
+    throw coerceAppError("Not available outside Tauri runtime");
+  }
+  try {
+    const payload = await invoke<unknown>("get_api_collection_item", { input: { id } });
+    return parseApiCollectionItem(payload);
+  } catch (error) {
+    reportCommandFailure("get_api_collection_item", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function upsertApiCollectionItem(
+  input: CollectionSaveInput,
+): Promise<ApiCollectionItem> {
+  if (!isTauriRuntime()) {
+    return {
+      id: input.id ?? crypto.randomUUID(),
+      collectionId: input.collectionId,
+      name: input.name,
+      description: input.description ?? "",
+      sortOrder: 0,
+      method: input.method,
+      url: input.url,
+      headers: input.headers,
+      body: input.body,
+      bodyType: input.bodyType,
+      rawLanguage: input.rawLanguage,
+      formData: input.formData,
+      urlEncoded: input.urlEncoded,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  try {
+    const payload = await invoke<unknown>("upsert_api_collection_item", { input });
+    return parseApiCollectionItem(payload);
+  } catch (error) {
+    reportCommandFailure("upsert_api_collection_item", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function deleteApiCollectionItem(id: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("delete_api_collection_item", { input: { id } });
+  } catch (error) {
+    reportCommandFailure("delete_api_collection_item", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function moveApiCollectionItem(
+  id: string,
+  targetCollectionId: string,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("move_api_collection_item", {
+      input: { id, targetCollectionId },
+    });
+  } catch (error) {
+    reportCommandFailure("move_api_collection_item", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function saveSessionToCollection(
+  input: SessionToCollectionInput,
+): Promise<ApiCollectionItem> {
+  if (!isTauriRuntime()) {
+    throw coerceAppError("Not available outside Tauri runtime");
+  }
+  try {
+    const payload = await invoke<unknown>("save_session_to_collection", { input });
+    return parseApiCollectionItem(payload);
+  } catch (error) {
+    reportCommandFailure("save_session_to_collection", error, input.sessionId);
+    throw coerceAppError(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// API Environment commands
+// ---------------------------------------------------------------------------
+
+export async function listApiEnvironments(): Promise<ApiEnvironment[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const payload = await invoke<unknown>("list_api_environments");
+    return parseApiEnvironments(payload);
+  } catch (error) {
+    reportCommandFailure("list_api_environments", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function upsertApiEnvironment(input: {
+  id?: string;
+  name: string;
+  sortOrder?: number;
+}): Promise<ApiEnvironment> {
+  if (!isTauriRuntime()) {
+    return {
+      id: input.id ?? crypto.randomUUID(),
+      name: input.name,
+      sortOrder: input.sortOrder ?? 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  try {
+    const payload = await invoke<unknown>("upsert_api_environment", { input });
+    const envs = parseApiEnvironments([payload]);
+    const result = envs[0];
+    if (!result) throw coerceAppError("Empty response");
+    return result;
+  } catch (error) {
+    reportCommandFailure("upsert_api_environment", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function deleteApiEnvironment(id: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("delete_api_environment", { input: { id } });
+  } catch (error) {
+    reportCommandFailure("delete_api_environment", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listApiEnvironmentVariables(
+  environmentId: string,
+): Promise<ApiEnvironmentVariable[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const payload = await invoke<unknown>("list_api_environment_variables", {
+      input: { environmentId },
+    });
+    return parseApiEnvironmentVariables(payload);
+  } catch (error) {
+    reportCommandFailure("list_api_environment_variables", error, environmentId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function setApiEnvironmentVariables(
+  environmentId: string,
+  variables: Array<{
+    id: string;
+    key: string;
+    value: string;
+    enabled: boolean;
+    sortOrder?: number;
+  }>,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("set_api_environment_variables", {
+      input: { environmentId, variables },
+    });
+  } catch (error) {
+    reportCommandFailure("set_api_environment_variables", error, environmentId);
+    throw coerceAppError(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch execute
+// ---------------------------------------------------------------------------
+
+export async function batchExecuteCollectionItems(
+  input: BatchExecuteInput,
+): Promise<SessionDetail[]> {
+  if (!isTauriRuntime()) {
+    throw coerceAppError("Not available outside Tauri runtime");
+  }
+  try {
+    const payload = await invoke<unknown[]>("batch_execute_collection_items", { input });
+    return payload.map((item) => parseSessionDetail(item));
+  } catch (error) {
+    reportCommandFailure("batch_execute_collection_items", error);
     throw coerceAppError(error);
   }
 }

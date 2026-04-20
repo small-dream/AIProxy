@@ -125,7 +125,22 @@ pub fn run() {
             commands::list_ws_messages,
             commands::get_ws_connection_status,
             commands::inject_ws_message,
-            commands::search_ws_messages
+            commands::search_ws_messages,
+            commands::list_api_collections,
+            commands::upsert_api_collection,
+            commands::delete_api_collection,
+            commands::list_api_collection_items,
+            commands::get_api_collection_item,
+            commands::upsert_api_collection_item,
+            commands::delete_api_collection_item,
+            commands::move_api_collection_item,
+            commands::save_session_to_collection,
+            commands::list_api_environments,
+            commands::upsert_api_environment,
+            commands::delete_api_environment,
+            commands::list_api_environment_variables,
+            commands::set_api_environment_variables,
+            commands::batch_execute_collection_items
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

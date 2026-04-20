@@ -126,6 +126,56 @@ CREATE TABLE IF NOT EXISTS dns_mappings (
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
 );
 CREATE INDEX IF NOT EXISTS idx_dns_mappings_workspace ON dns_mappings(workspace_id);
+
+CREATE TABLE IF NOT EXISTS api_collections (
+    id          TEXT NOT NULL PRIMARY KEY,
+    parent_id   TEXT,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_collections_parent ON api_collections(parent_id);
+
+CREATE TABLE IF NOT EXISTS api_collection_items (
+    id            TEXT NOT NULL PRIMARY KEY,
+    collection_id TEXT NOT NULL,
+    name          TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    method        TEXT NOT NULL DEFAULT 'GET',
+    url           TEXT NOT NULL DEFAULT '',
+    headers       TEXT NOT NULL DEFAULT '[]',
+    body          TEXT NOT NULL DEFAULT '',
+    body_type     TEXT NOT NULL DEFAULT 'none',
+    raw_language  TEXT NOT NULL DEFAULT 'json',
+    form_data     TEXT NOT NULL DEFAULT '[]',
+    url_encoded   TEXT NOT NULL DEFAULT '[]',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    FOREIGN KEY (collection_id) REFERENCES api_collections(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_api_collection_items_coll ON api_collection_items(collection_id);
+
+CREATE TABLE IF NOT EXISTS api_environments (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_environment_variables (
+    id             TEXT NOT NULL PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    key            TEXT NOT NULL,
+    value          TEXT NOT NULL DEFAULT '',
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (environment_id) REFERENCES api_environments(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_api_env_vars_env ON api_environment_variables(environment_id);
 ";
 
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
@@ -154,6 +204,10 @@ mod tests {
             .collect();
 
         let expected = [
+            "api_collection_items",
+            "api_collections",
+            "api_environment_variables",
+            "api_environments",
             "breakpoint_rules",
             "dns_mappings",
             "map_rules",
