@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 base64 = "0.22"
-chrono = { version = "0.4", default-features = true, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "6"
 rcgen = { version = "0.13", features = ["x509-parser"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

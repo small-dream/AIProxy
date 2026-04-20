@@ -11,7 +11,7 @@ path = "src/lib.rs"
 aiproxy-rule-engine = { path = "../rule-engine" }
 base64 = "0.22"
 brotli = "8"
-chrono = { version = "0.4", default-features = true, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flate2 = "1"
 httparse = "1"
 aiproxy-tls-manager = { path = "../tls-manager" }

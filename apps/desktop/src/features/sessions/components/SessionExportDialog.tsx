@@ -267,5 +267,14 @@ async function loadDetailsForScope(props: {
 
   const summaries = scope === "filtered" ? filteredSessions : allSessions;
 
-  return Promise.all(summaries.map((session) => getSessionDetail(session.id)));
+  const BATCH_SIZE = 10;
+  const details: SessionDetail[] = [];
+
+  for (let i = 0; i < summaries.length; i += BATCH_SIZE) {
+    const batch = summaries.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map((session) => getSessionDetail(session.id)));
+    details.push(...batchResults);
+  }
+
+  return details;
 }

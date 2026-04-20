@@ -43,6 +43,7 @@ type SessionsWorkspacePanelProps = {
   requestCollapsed: boolean;
   requestTab: RequestInspectorTab;
   responseTab: ResponseInspectorTab;
+  sessionSelectionNonce: number;
   runtimeErrorMessage: string | undefined;
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
@@ -81,6 +82,7 @@ export function SessionsWorkspacePanel({
   requestCollapsed,
   requestTab,
   responseTab,
+  sessionSelectionNonce,
   runtimeErrorMessage,
   selectedSession,
   selectedSessionDetail,
@@ -188,6 +190,7 @@ export function SessionsWorkspacePanel({
             requestCollapsed={requestCollapsed}
             requestTab={requestTab}
             responseTab={responseTab}
+            sessionSelectionNonce={sessionSelectionNonce}
             selectedSessionDetail={selectedSessionDetail}
             selectedSession={selectedSession}
           />

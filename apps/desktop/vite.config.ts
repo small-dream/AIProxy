@@ -15,6 +15,9 @@ const LOCAL_CHUNK_GROUPS: Array<[pattern: string, chunkName: string]> = [
 export default defineConfig({
   plugins: [react()],
   build: {
+    target: "esnext",
+    cssCodeSplit: true,
+    chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
         entryFileNames(chunkInfo) {

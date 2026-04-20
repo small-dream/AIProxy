@@ -97,6 +97,7 @@ export function SessionsPage() {
   const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(
     () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
   );
+  const [sessionSelectionNonce, setSessionSelectionNonce] = useState(0);
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
@@ -196,21 +197,58 @@ export function SessionsPage() {
   }, [areSessionsLoading, runtimeSessions]);
 
   useEffect(() => {
+    let cancelled = false;
     const unlistenFns: Array<() => void> = [];
+    let upsertBuffer: SessionSummary[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function flushUpsertBuffer() {
+      if (upsertBuffer.length === 0) return;
+      const batch = upsertBuffer;
+      upsertBuffer = [];
+      flushTimer = null;
+
+      setContainerState((currentState) => {
+        let next = currentState;
+        for (const summary of batch) {
+          next = upsertSessionContainerSummary(next, summary);
+        }
+        return next;
+      });
+    }
 
     onSessionUpsert((detail) => {
-      setContainerState((currentState) => upsertSessionContainerSummary(currentState, detail.summary));
+      if (cancelled) return;
+      upsertBuffer.push(detail.summary);
+
+      if (!flushTimer) {
+        flushTimer = setTimeout(flushUpsertBuffer, 100);
+      }
     }).then((fn) => {
-      unlistenFns.push(fn);
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
     });
 
     onSessionRemove((sessionId) => {
+      if (cancelled) return;
       setContainerState((currentState) => removeSessionContainerSummary(currentState, sessionId));
     }).then((fn) => {
-      unlistenFns.push(fn);
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
     });
 
     return () => {
+      cancelled = true;
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushUpsertBuffer();
+      }
       for (const fn of unlistenFns) {
         fn();
       }
@@ -344,6 +382,7 @@ export function SessionsPage() {
   }, []);
 
   const handleSelectedSessionChange = useCallback((sessionId: string) => {
+    setSessionSelectionNonce((currentValue) => currentValue + 1);
     setContainerState((currentState) =>
       updateActiveSessionContainer(currentState, (container) => ({
         ...container,
@@ -524,6 +563,7 @@ export function SessionsPage() {
         requestCollapsed={activeContainer?.requestCollapsed ?? false}
         requestTab={activeContainer?.requestTab ?? "headers"}
         responseTab={activeContainer?.responseTab ?? "overview"}
+        sessionSelectionNonce={sessionSelectionNonce}
         runtimeErrorMessage={error ? t("sessionsPage.runtimeError") : undefined}
         selectedSession={selectedSession}
         selectedSessionDetail={selectedSessionDetail}

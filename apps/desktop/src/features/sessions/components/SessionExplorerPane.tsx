@@ -23,7 +23,7 @@ import {
 import { alpha, type Theme } from "@mui/material/styles";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
@@ -242,7 +242,7 @@ type HostRowProps = {
   onToggle: () => void;
 };
 
-function HostRow({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
+function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps) {
   const [flashVisible, setFlashVisible] = useState(false);
   const previousLatestStartedAtRef = useRef(group.latestStartedAt);
   const flashTimeoutRef = useRef<number | null>(null);
@@ -438,7 +438,9 @@ type SessionLeafNodeProps = {
   session: SessionSummary;
 };
 
-function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
+const HostRow = memo(HostRowImpl);
+
+function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
   const { t } = useI18n();
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
@@ -528,6 +530,8 @@ function SessionLeafNode({ depth, getResourceTooltip, leafLabel, onClick, onCont
     </ListItemButton>
   );
 }
+
+const SessionLeafNode = memo(SessionLeafNodeImpl);
 
 function buildLeafTooltip(
   session: SessionSummary,

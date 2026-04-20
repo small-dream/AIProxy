@@ -20,7 +20,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type {
   WsConnectionStatusValue,
   WsMessage,
@@ -410,7 +410,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   );
 }
 
-function MessageRow({
+function MessageRowImpl({
   message,
   selected,
   isActive,
@@ -493,6 +493,8 @@ function MessageRow({
     </Stack>
   );
 }
+
+const MessageRow = memo(MessageRowImpl);
 
 function MessageDetail({
   message,

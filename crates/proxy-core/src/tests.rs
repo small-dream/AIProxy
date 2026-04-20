@@ -10,10 +10,11 @@ use super::rules::{
 use reqwest::header::HeaderMap;
 use reqwest::{Method, Url};
 use serde_json::json;
-use std::{fs, sync::Arc};
+use std::{fs, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    time::timeout,
 };
 
     #[test]
@@ -242,6 +243,7 @@ use tokio::{
             None,
             None,
             None,
+            None,
             Option::<String>::None,
             None,
         )
@@ -257,7 +259,16 @@ use tokio::{
 
         let mut response = String::new();
         client_stream.read_to_string(&mut response).await.unwrap();
-        let session: ProxySessionDetail = started_proxy.session_receiver.recv().await.unwrap();
+        let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+            loop {
+                let session = started_proxy.session_receiver.recv().await.unwrap();
+                if session.summary.status_code != 0 {
+                    break session;
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the completed session detail");
 
         assert!(response.contains("HTTP/1.1 200 OK"));
         assert!(response.contains("Hello"));

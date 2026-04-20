@@ -11,27 +11,39 @@ export function useSessionEvents() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    let cancelled = false;
     const unlistenFns: (() => void)[] = [];
 
     onSessionUpsert((detail) => {
+      if (cancelled) return;
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
         upsertSessionSummary(currentSessions, detail.summary),
       );
       queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, detail.id], detail);
     }).then((fn) => {
-      unlistenFns.push(fn);
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
     });
 
     onSessionRemove((sessionId) => {
+      if (cancelled) return;
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
         removeSessionSummary(currentSessions, sessionId),
       );
       queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, sessionId] });
     }).then((fn) => {
-      unlistenFns.push(fn);
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
     });
 
     return () => {
+      cancelled = true;
       for (const fn of unlistenFns) {
         fn();
       }

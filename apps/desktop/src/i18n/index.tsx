@@ -1,4 +1,4 @@
-import { createContext, type PropsWithChildren, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useMemo, type PropsWithChildren, useContext, useEffect, useState } from "react";
 
 import { useAppPreferencesStore, type LanguagePreference } from "@/app/store/app-preferences.store";
 
@@ -121,11 +121,8 @@ export function I18nProvider({ children }: PropsWithChildren) {
     document.documentElement.lang = locale;
   }, [locale]);
 
-  const value: I18nContextValue = {
-    locale,
-    preference,
-    setPreference,
-    t: (key, params) => {
+  const t = useCallback(
+    (key: TranslationKey, params?: TranslationParams) => {
       const value = getMessage(messages, key);
 
       if (typeof value !== "string") {
@@ -134,7 +131,11 @@ export function I18nProvider({ children }: PropsWithChildren) {
 
       return formatMessage(value, params);
     },
-    tList: (key) => {
+    [messages],
+  );
+
+  const tList = useCallback(
+    (key: TranslationKey) => {
       const value = getMessage(messages, key);
 
       if (!Array.isArray(value)) {
@@ -143,7 +144,13 @@ export function I18nProvider({ children }: PropsWithChildren) {
 
       return value;
     },
-  };
+    [messages],
+  );
+
+  const value = useMemo<I18nContextValue>(
+    () => ({ locale, preference, setPreference, t, tList }),
+    [locale, preference, setPreference, t, tList],
+  );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

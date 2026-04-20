@@ -100,7 +100,7 @@ export function SessionInspectorJsonTree({
     setContextMenuState(null);
   }, [contextMenuState]);
 
-  function togglePath(path: string) {
+  const togglePath = useCallback((path: string) => {
     setExpandedPaths((currentPaths) => {
       const nextPaths = new Set(currentPaths);
 
@@ -112,7 +112,7 @@ export function SessionInspectorJsonTree({
 
       return nextPaths;
     });
-  }
+  }, []);
 
   const autoExpandedPaths = useMemo(() => {
     const normalizedQuery = normalizeSearch(deferredSearchQuery);

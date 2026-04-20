@@ -34,6 +34,7 @@ type SessionInspectorWorkspaceProps = {
   requestCollapsed: boolean;
   requestTab: RequestInspectorTab;
   responseTab: ResponseInspectorTab;
+  sessionSelectionNonce: number;
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
 };
@@ -53,6 +54,7 @@ function SessionInspectorWorkspace({
   requestCollapsed,
   requestTab,
   responseTab,
+  sessionSelectionNonce,
   selectedSession,
   selectedSessionDetail,
 }, ref) {
@@ -192,6 +194,7 @@ function SessionInspectorWorkspace({
           }}
         >
           <SessionInspectorRequestPane
+            key={`${selectedSession.id}:${sessionSelectionNonce}:request`}
             detail={detail}
             ref={requestPaneRef}
             onRequestCollapsedChange={onRequestCollapsedChange}
@@ -214,6 +217,7 @@ function SessionInspectorWorkspace({
           }}
         >
           <SessionInspectorResponsePane
+            key={`${selectedSession.id}:${sessionSelectionNonce}:response`}
             detail={detail}
             ref={responsePaneRef}
             onResponseTabChange={onResponseTabChange}

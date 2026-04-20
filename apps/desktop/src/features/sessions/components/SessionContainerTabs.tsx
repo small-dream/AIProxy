@@ -3,6 +3,8 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import { Box, ButtonBase, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
+import { memo } from "react";
+
 import { useI18n } from "@/i18n";
 
 type SessionContainerTabItem = {
@@ -18,7 +20,7 @@ type SessionContainerTabsProps = {
   onSelectContainer: (containerId: string) => void;
 };
 
-export function SessionContainerTabs({
+function SessionContainerTabsImpl({
   containers,
   onAddContainer,
   onCloseContainer,
@@ -154,3 +156,5 @@ export function SessionContainerTabs({
     </Box>
   );
 }
+
+export const SessionContainerTabs = memo(SessionContainerTabsImpl);

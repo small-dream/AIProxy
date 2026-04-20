@@ -14,7 +14,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-chrono = { version = "0.4", default-features = true, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 aiproxy-db = { path = "../../../crates/db" }
 aiproxy-exporter = { path = "../../../crates/exporter" }
 aiproxy-proxy-core = { path = "../../../crates/proxy-core" }

@@ -84,7 +84,7 @@ export function AppProviders({ children }: PropsWithChildren) {
         defaultOptions: {
           queries: {
             retry: 1,
-            staleTime: 10_000,
+            staleTime: 60_000,
           },
         },
       }),
