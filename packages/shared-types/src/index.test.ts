@@ -10,6 +10,7 @@ import {
   isSessionSummary,
   normalizeStartProxyInput,
   parseSessionDetail,
+  parseSessionSummary,
   parseSessionSummaries,
   parseProxyStatus,
 } from "./index";
@@ -182,6 +183,32 @@ describe("parseSessionSummaries", () => {
 
   it("throws when the payload is not an array", () => {
     expect(() => parseSessionSummaries({})).toThrow();
+  });
+});
+
+describe("parseSessionSummary", () => {
+  it("returns a valid session summary unchanged", () => {
+    const payload = {
+      durationMs: 42,
+      finishedAt: "2026-04-11T16:00:01.000Z",
+      host: "example.com",
+      id: "session-1",
+      method: "GET",
+      path: "/health",
+      protocol: "http",
+      sizeBytes: 512,
+      startedAt: "2026-04-11T16:00:00.000Z",
+      statusCode: 200,
+      url: "http://example.com/health",
+    };
+
+    const actual = parseSessionSummary(payload);
+
+    expect(actual).toEqual(payload);
+  });
+
+  it("throws when the payload is invalid", () => {
+    expect(() => parseSessionSummary({ id: "session-1" })).toThrow();
   });
 });
 

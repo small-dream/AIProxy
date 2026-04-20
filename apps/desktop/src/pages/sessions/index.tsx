@@ -217,9 +217,9 @@ export function SessionsPage() {
       });
     }
 
-    onSessionUpsert((detail) => {
+    onSessionUpsert((summary) => {
       if (cancelled) return;
-      upsertBuffer.push(detail.summary);
+      upsertBuffer.push(summary);
 
       if (!flushTimer) {
         flushTimer = setTimeout(flushUpsertBuffer, 100);

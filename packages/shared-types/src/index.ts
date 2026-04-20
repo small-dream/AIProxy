@@ -78,6 +78,10 @@ export type SessionDetail = {
   timing?: TimingBreakdown;
 };
 
+export type SessionUpsertEvent = SessionSummary;
+
+export type SessionRemoveEvent = string;
+
 export type StartProxyInput = {
   workspaceId: string;
   port?: number;
@@ -682,6 +686,20 @@ export function parseSessionSummaries(value: unknown): SessionSummary[] {
   throw {
     code: "INVALID_SESSION_SUMMARIES",
     message: "One or more captured sessions do not match the shared contract.",
+    details: {
+      payload: value,
+    },
+  } satisfies AppError;
+}
+
+export function parseSessionSummary(value: unknown): SessionSummary {
+  if (isSessionSummary(value)) {
+    return value;
+  }
+
+  throw {
+    code: "INVALID_SESSION_SUMMARY",
+    message: "The session summary payload does not match the shared contract.",
     details: {
       payload: value,
     },

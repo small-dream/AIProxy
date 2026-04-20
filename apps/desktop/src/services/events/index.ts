@@ -3,9 +3,10 @@ import {
   isWsConnectionStatusEvent,
   isWsMessage,
   parseBreakpointHit,
-  parseSessionDetail,
+  parseSessionSummary,
   type BreakpointHit,
-  type SessionDetail,
+  type SessionRemoveEvent,
+  type SessionUpsertEvent,
   type WsConnectionStatusEvent,
   type WsMessage,
 } from "@aiproxy/shared-types";
@@ -52,22 +53,21 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
   });
 }
 
-export function onSessionUpsert(callback: (detail: SessionDetail) => void): Promise<Unlisten> {
+export function onSessionUpsert(callback: (summary: SessionUpsertEvent) => void): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});
   }
 
   return listen<unknown>("session-upsert", (event) => {
     try {
-      const detail = parseSessionDetail(event.payload);
-      callback(detail);
+      callback(parseSessionSummary(event.payload));
     } catch {
       // Ignore malformed events
     }
   });
 }
 
-export function onSessionRemove(callback: (sessionId: string) => void): Promise<Unlisten> {
+export function onSessionRemove(callback: (sessionId: SessionRemoveEvent) => void): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});
   }

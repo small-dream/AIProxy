@@ -14,12 +14,15 @@ export function useSessionEvents() {
     let cancelled = false;
     const unlistenFns: (() => void)[] = [];
 
-    onSessionUpsert((detail) => {
+    onSessionUpsert((summary) => {
       if (cancelled) return;
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-        upsertSessionSummary(currentSessions, detail.summary),
+        upsertSessionSummary(currentSessions, summary),
       );
-      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, detail.id], detail);
+      void queryClient.invalidateQueries({
+        exact: true,
+        queryKey: [SESSION_DETAIL_QUERY_KEY, summary.id],
+      });
     }).then((fn) => {
       if (!cancelled) {
         unlistenFns.push(fn);

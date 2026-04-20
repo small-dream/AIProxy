@@ -336,9 +336,8 @@ WebSocket 注入（重放）实现机制：
 ## 7.3 关键事件示例
 
 - `proxy/status_changed`
-- `session/created`
-- `session/updated`
-- `session/removed`
+- `session-upsert`
+- `session-remove`
 - `breakpoint-hit` — `已实现`，代理管道在断点命中时向前端推送 `BreakpointHit` 载荷，包含 session ID、阶段、请求/响应详情
 - `rule/matched`
 - `certificate/status_changed`
@@ -366,7 +365,7 @@ sequenceDiagram
     P->>S: 写入会话
     S->>DB: 保存元数据/内容引用
     P-->>T: 推送会话事件
-    T-->>UI: session/created, session/updated
+    T-->>UI: session-upsert
     U->>UI: 查看详情 / Repeat / Compose
 ```
 

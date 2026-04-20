@@ -346,9 +346,9 @@ impl AppState {
             .expect("session list mutex should not be poisoned");
 
         if let Some(existing_index) = sessions.iter().position(|session| session.id == session_id) {
-            sessions[existing_index] = session_summary;
+            sessions[existing_index] = session_summary.clone();
         } else {
-            sessions.push(session_summary);
+            sessions.push(session_summary.clone());
         }
 
         let focused_host = self.read_focused_host();
@@ -380,7 +380,7 @@ impl AppState {
         }
 
         if let Some(handle) = self.read_app_handle() {
-            let _ = handle.emit("session-upsert", session_detail);
+            let _ = handle.emit("session-upsert", session_summary);
         }
     }
 

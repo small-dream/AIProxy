@@ -1236,24 +1236,16 @@ type ProxyStatusChangedEvent = ProxyStatus;
 
 ## 7.2 会话事件
 
-### `session/created`
+### `session-upsert`
 
 ```ts
-type SessionCreatedEvent = SessionSummary;
+type SessionUpsertEvent = SessionSummary;
 ```
 
-### `session/updated`
+### `session-remove`
 
 ```ts
-type SessionUpdatedEvent = SessionSummary;
-```
-
-### `session/removed`
-
-```ts
-type SessionRemovedEvent = {
-  sessionId: string;
-};
+type SessionRemoveEvent = string;
 ```
 
 ## 7.3 断点事件 — `已实现`
