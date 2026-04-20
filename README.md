@@ -36,6 +36,13 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/BUILD_RUN_PACKAGE_GUIDE.md`
 - `docs/RELEASE_GUIDE.md`
 
+## 用户指南
+
+- `docs/user-guides/dns-mapping.md`
+- `docs/user-guides/websocket-inspector.md`
+- `docs/user-guides/script-rules.md`
+- `docs/user-guides/script-rules-examples.md`
+
 ## 仓库结构
 
 ```text
