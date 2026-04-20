@@ -42,7 +42,12 @@ function formatAdbDeviceLabel(device: {
   return `${primaryLabel} (${device.serial}) - ${device.state}`;
 }
 
-export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRunning }: Props) {
+export function AndroidQuickActionsPanel({
+  hasCert,
+  localIp,
+  proxyPort,
+  proxyRunning,
+}: Props) {
   const { t } = useI18n();
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);

@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
-import { Box } from "@mui/material";
+import { Box, Snackbar } from "@mui/material";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -25,7 +25,13 @@ import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 import { onMenuEvent } from "@/services/events";
-import { clearSessions } from "@/services/commands";
+import {
+  clearAndroidProxyViaAdb,
+  clearSessions,
+  getLocalIp,
+  listAndroidAdbDevices,
+  setAndroidProxyViaAdb,
+} from "@/services/commands";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
 
@@ -89,6 +95,8 @@ export function AppShell() {
   const [portDialogOpen, setPortDialogOpen] = useState(false);
   const [portDraft, setPortDraft] = useState(String(port));
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
+  const [menuSnackbarMessage, setMenuSnackbarMessage] = useState<string | null>(null);
+  const [adbMenuActionPending, setAdbMenuActionPending] = useState(false);
   const [headerActions, setHeaderActions] = useState<ReactNode | null>(null);
   const autoStartAttemptedRef = useRef(false);
   const macosTitlebarEnabled = isTauriRuntime() && isMacPlatform();
@@ -238,9 +246,94 @@ export function AppShell() {
     await enableSystemProxyMutation.mutateAsync(undefined);
   }
 
+  async function handleAdbSetProxy() {
+    if (adbMenuActionPending) {
+      return;
+    }
+
+    setAdbMenuActionPending(true);
+
+    try {
+      if (!proxyStatus?.running) {
+        throw new Error(t("certificatesPage.mobile.adbProxyRequiresRunningProxy"));
+      }
+
+      const adbDevices = await listAndroidAdbDevices();
+      const targetDevice = adbDevices[0];
+
+      if (!targetDevice) {
+        throw new Error(t("certificatesPage.mobile.adbNoDevices"));
+      }
+
+      if (targetDevice.state !== "device") {
+        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
+          state: targetDevice.state,
+        }));
+      }
+
+      const localIps = await getLocalIp();
+      const localIp = localIps[0];
+
+      if (!localIp) {
+        throw new Error(t("certificatesPage.mobile.adbProxyRequiresLocalIp"));
+      }
+
+      const result = await setAndroidProxyViaAdb({
+        deviceSerial: targetDevice.serial,
+        host: localIp,
+        port,
+      });
+
+      setMenuSnackbarMessage(t("certificatesPage.mobile.adbSetProxySuccessBody", {
+        deviceSerial: result.deviceSerial,
+        proxyAddress: result.proxyAddress ?? `${localIp}:${port}`,
+      }));
+    } catch (error) {
+      setMenuSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbSetProxyErrorTitle")));
+    } finally {
+      setAdbMenuActionPending(false);
+    }
+  }
+
+  async function handleAdbClearProxy() {
+    if (adbMenuActionPending) {
+      return;
+    }
+
+    setAdbMenuActionPending(true);
+
+    try {
+      const adbDevices = await listAndroidAdbDevices();
+      const targetDevice = adbDevices[0];
+
+      if (!targetDevice) {
+        throw new Error(t("certificatesPage.mobile.adbNoDevices"));
+      }
+
+      if (targetDevice.state !== "device") {
+        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
+          state: targetDevice.state,
+        }));
+      }
+
+      const result = await clearAndroidProxyViaAdb({
+        deviceSerial: targetDevice.serial,
+      });
+      setMenuSnackbarMessage(t("certificatesPage.mobile.adbClearProxySuccessBody", {
+        deviceSerial: result.deviceSerial,
+      }));
+    } catch (error) {
+      setMenuSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbClearProxyErrorTitle")));
+    } finally {
+      setAdbMenuActionPending(false);
+    }
+  }
+
   // --- Menu bar event handling ---
   const setThemePreference = useAppPreferencesStore((s) => s.setThemePreference);
   const menuHandlerRef = useRef({
+    handleAdbClearProxy,
+    handleAdbSetProxy,
     navigate,
     proxyStatus,
     initialStartProxyInput,
@@ -253,6 +346,8 @@ export function AppShell() {
 
   useEffect(() => {
     menuHandlerRef.current = {
+      handleAdbClearProxy,
+      handleAdbSetProxy,
       navigate,
       proxyStatus,
       initialStartProxyInput,
@@ -343,6 +438,22 @@ export function AppShell() {
           break;
         case "cert_status":
           h.navigate("/certificates");
+          break;
+        case "ios_quick_actions":
+          h.navigate("/certificates?tab=mobile&panel=ios", {
+            state: { menuActionAt: Date.now() },
+          });
+          break;
+        case "android_quick_actions":
+          h.navigate("/certificates?tab=mobile&panel=android", {
+            state: { menuActionAt: Date.now() },
+          });
+          break;
+        case "adb_set_proxy":
+          void h.handleAdbSetProxy();
+          break;
+        case "adb_clear_proxy":
+          void h.handleAdbClearProxy();
           break;
         case "import_har":
           window.dispatchEvent(new CustomEvent("aiproxy-menu-import-har"));
@@ -496,6 +607,19 @@ export function AppShell() {
           name: workspace.name,
           proxyPort: workspace.proxyPort,
         }))}
+      />
+
+      <Snackbar
+        autoHideDuration={4000}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        message={menuSnackbarMessage}
+        onClose={() => setMenuSnackbarMessage(null)}
+        open={menuSnackbarMessage !== null}
+        sx={{
+          top: "50% !important",
+          bottom: "auto !important",
+          transform: "translateY(-50%)",
+        }}
       />
     </Box>
   );

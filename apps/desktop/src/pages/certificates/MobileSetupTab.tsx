@@ -1,4 +1,5 @@
-import { Alert, AlertTitle, Stack } from "@mui/material";
+import type { RefObject } from "react";
+import { Alert, AlertTitle, Box, Stack } from "@mui/material";
 import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n } from "@/i18n";
 
@@ -13,9 +14,18 @@ type Props = {
   proxyRunning: boolean;
   sslEnabled: boolean;
   hasCert: boolean;
+  iosQuickActionsRef?: RefObject<HTMLDivElement | null> | undefined;
+  androidQuickActionsRef?: RefObject<HTMLDivElement | null> | undefined;
 };
 
-export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }: Props) {
+export function MobileSetupTab({
+  proxyPort,
+  proxyRunning,
+  sslEnabled,
+  hasCert,
+  iosQuickActionsRef,
+  androidQuickActionsRef,
+}: Props) {
   const { t } = useI18n();
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const localIp = localIps?.[0];
@@ -41,14 +51,18 @@ export function MobileSetupTab({ proxyPort, proxyRunning, sslEnabled, hasCert }:
         </Alert>
       )}
 
-      <IosQuickActionsPanel hasCert={hasCert} />
+      <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
+        <IosQuickActionsPanel hasCert={hasCert} />
+      </Box>
 
-      <AndroidQuickActionsPanel
-        hasCert={hasCert}
-        localIp={localIp ?? null}
-        proxyPort={proxyPort}
-        proxyRunning={proxyRunning}
-      />
+      <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
+        <AndroidQuickActionsPanel
+          hasCert={hasCert}
+          localIp={localIp ?? null}
+          proxyPort={proxyPort}
+          proxyRunning={proxyRunning}
+        />
+      </Box>
 
       <NetworkInfoPanel
         localIp={localIp ?? null}

@@ -33,6 +33,9 @@ pub mod ids {
     pub const THROTTLING: &str = "throttling_tool";
     pub const INSTALL_CERT: &str = "install_cert";
     pub const CERT_STATUS: &str = "cert_status";
+    pub const IOS_QUICK_ACTIONS: &str = "ios_quick_actions";
+    pub const ADB_SET_PROXY: &str = "adb_set_proxy";
+    pub const ADB_CLEAR_PROXY: &str = "adb_clear_proxy";
     pub const DOCUMENTATION: &str = "documentation";
     pub const SHORTCUTS: &str = "shortcuts";
 }
@@ -164,6 +167,15 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .build()?;
 
     // --- Tools ---
+    let android_quick_actions_menu = SubmenuBuilder::new(handle, "Android Quick Actions")
+        .item(&MenuItemBuilder::new("Set Proxy via ADB")
+            .id(ids::ADB_SET_PROXY)
+            .build(handle)?)
+        .item(&MenuItemBuilder::new("Clear Proxy via ADB")
+            .id(ids::ADB_CLEAR_PROXY)
+            .build(handle)?)
+        .build()?;
+
     let tools_menu = SubmenuBuilder::new(handle, "Tools")
         .item(&MenuItemBuilder::new("Breakpoint Rules...")
             .id(ids::BREAKPOINT_RULES)
@@ -178,6 +190,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .item(&MenuItemBuilder::new("Certificate Status")
             .id(ids::CERT_STATUS)
             .build(handle)?)
+        .separator()
+        .item(&MenuItemBuilder::new("iOS Quick Actions")
+            .id(ids::IOS_QUICK_ACTIONS)
+            .build(handle)?)
+        .item(&android_quick_actions_menu)
         .build()?;
 
     // --- Window ---
