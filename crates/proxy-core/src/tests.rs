@@ -1,8 +1,9 @@
 use super::{
     build_request_path, build_upstream_headers_from_entries, find_header_end, resolve_target_url,
-    start_proxy_server, MapManager, MapRule, ParsedProxyRequest, ProxyHeaderEntry,
-    ProxyRuntimeConfig, ProxySessionDetail, RewriteManager, RewriteRule, RewriteRuleMatch,
-    StartedProxyServer, ThrottleManager, ThrottleProfileData,
+    send_direct_request, start_proxy_server, MapManager, MapRule, ParsedProxyRequest,
+    ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, RewriteManager, RewriteRule,
+    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData,
+    MAX_CAPTURED_BODY_BYTES,
 };
 use super::rules::{
     active_throttle_profile_for_workspace, apply_map_rules, apply_request_rewrite_rules,
@@ -175,7 +176,10 @@ use tokio::{
             .unwrap();
 
         assert_eq!(response.status_code, reqwest::StatusCode::OK);
-        assert_eq!(String::from_utf8(response.response_body).unwrap(), "mapped body");
+        assert_eq!(
+            String::from_utf8(response.response_body.clone()).unwrap(),
+            "mapped body"
+        );
 
         let _ = fs::remove_file(file_path);
     }
@@ -289,6 +293,145 @@ use tokio::{
         );
 
         started_proxy.server_handle.shutdown().await;
+        upstream_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn forwards_large_http_responses_without_truncating_the_client_body() {
+        let large_body = vec![b'a'; MAX_CAPTURED_BODY_BYTES + 1024];
+        let expected_len = large_body.len();
+
+        let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let upstream_port = upstream_listener.local_addr().unwrap().port();
+        let upstream_task = tokio::spawn(async move {
+            let (mut stream, _) = upstream_listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer).await.unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {expected_len}\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            stream.write_all(&large_body).await.unwrap();
+        });
+
+        let proxy_port = allocate_unused_port();
+        let mut started_proxy = start_proxy_server(
+            ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Option::<String>::None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let target_url = format!("http://127.0.0.1:{upstream_port}/large");
+        let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        let request = format!(
+            "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+        );
+        client_stream.write_all(request.as_bytes()).await.unwrap();
+
+        let mut response_bytes = Vec::new();
+        client_stream.read_to_end(&mut response_bytes).await.unwrap();
+        let session: ProxySessionDetail = timeout(Duration::from_secs(2), async {
+            loop {
+                let session = started_proxy.session_receiver.recv().await.unwrap();
+                if session.summary.status_code != 0 {
+                    break session;
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the completed session detail");
+
+        let header_end = find_header_end(&response_bytes).expect("missing HTTP response headers");
+        let body = &response_bytes[header_end..];
+
+        assert_eq!(body.len(), expected_len);
+        assert!(body.iter().all(|byte| *byte == b'a'));
+        assert_eq!(session.summary.size_bytes, expected_len);
+        assert_eq!(
+            session
+                .response_body
+                .as_ref()
+                .map(|body| body.size_bytes),
+            Some(expected_len)
+        );
+        assert_eq!(
+            session
+                .response_body
+                .as_ref()
+                .and_then(|body| body.truncated.then_some(true)),
+            Some(true)
+        );
+
+        started_proxy.server_handle.shutdown().await;
+        upstream_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn direct_request_marks_large_response_previews_as_truncated() {
+        let large_body = vec![b'b'; MAX_CAPTURED_BODY_BYTES + 2048];
+        let expected_len = large_body.len();
+
+        let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let upstream_port = upstream_listener.local_addr().unwrap().port();
+        let upstream_task = tokio::spawn(async move {
+            let (mut stream, _) = upstream_listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer).await.unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {expected_len}\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            stream.write_all(&large_body).await.unwrap();
+        });
+
+        let detail = send_direct_request(
+            "GET".to_string(),
+            format!("http://127.0.0.1:{upstream_port}/compose"),
+            Vec::new(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(detail.summary.status_code, 200);
+        assert_eq!(detail.summary.size_bytes, expected_len);
+        assert_eq!(
+            detail
+                .response_body
+                .as_ref()
+                .map(|body| body.size_bytes),
+            Some(expected_len)
+        );
+        assert_eq!(
+            detail
+                .response_body
+                .as_ref()
+                .and_then(|body| body.truncated.then_some(true)),
+            Some(true)
+        );
+
         upstream_task.await.unwrap();
     }
 

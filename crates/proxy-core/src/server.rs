@@ -371,6 +371,7 @@ async fn handle_connection(
                         mock_response.status_code.as_u16(),
                         &mock_response.response_headers,
                         &mock_response.response_body,
+                        mock_response.response_body_size_bytes,
                         started_at,
                         started_at_instant,
                         ProxyTimingBreakdown {
@@ -382,6 +383,7 @@ async fn handle_connection(
                             total_ms: Some(started_at_instant.elapsed().as_millis()),
                             waiting_ms: Some(0),
                         },
+                        mock_response.body_truncated,
                     );
                     detail.script_traces = script_traces;
                     if session_sender.send(detail).is_err() {
@@ -439,18 +441,34 @@ async fn handle_connection(
 
     match upstream_result {
         Ok(mut upstream_response) => {
-            apply_response_rewrite_rules(
-                &rewrite_manager,
-                &active_workspace_id,
-                &request,
-                &mut upstream_response,
-            )?;
-            script_traces.extend(apply_response_script_rules(
-                &script_manager,
-                &active_workspace_id,
-                &request,
-                &mut upstream_response,
-            ));
+            if upstream_response.body_truncated {
+                emit_log(
+                    "WARN",
+                    "response_body_passthrough_mode",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("url", request.url.to_string()),
+                        (
+                            "reason",
+                            "response body exceeded capture limit; skipping response mutations"
+                                .to_string(),
+                        ),
+                    ],
+                );
+            } else {
+                apply_response_rewrite_rules(
+                    &rewrite_manager,
+                    &active_workspace_id,
+                    &request,
+                    &mut upstream_response,
+                )?;
+                script_traces.extend(apply_response_script_rules(
+                    &script_manager,
+                    &active_workspace_id,
+                    &request,
+                    &mut upstream_response,
+                ));
+            }
 
             // Build session detail once; rebuild only if Mock/Forward modifies the response.
             let mut session_detail = build_session_detail(
@@ -458,6 +476,7 @@ async fn handle_connection(
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
+                upstream_response.response_body_size_bytes,
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
@@ -469,24 +488,29 @@ async fn handle_connection(
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
+                upstream_response.body_truncated,
             );
             session_detail.script_traces = script_traces.clone();
 
             // --- Response-stage breakpoint ---
-            let breakpoint_resolution = match intercept_response_stage(
-                &breakpoint_manager,
-                &event_emitter,
-                &request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                Ok(resolution) => resolution,
-                Err(error) => {
-                    let _ = session_sender.send(session_detail);
-                    return Err(error);
+            let breakpoint_resolution = if upstream_response.body_truncated {
+                None
+            } else {
+                match intercept_response_stage(
+                    &breakpoint_manager,
+                    &event_emitter,
+                    &request,
+                    upstream_response.status_code.as_u16(),
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                )
+                .await
+                {
+                    Ok(resolution) => resolution,
+                    Err(error) => {
+                        let _ = session_sender.send(session_detail);
+                        return Err(error);
+                    }
                 }
             };
 
@@ -505,6 +529,7 @@ async fn handle_connection(
                                 upstream_response.status_code.as_u16(),
                                 &upstream_response.response_headers,
                                 &upstream_response.response_body,
+                                upstream_response.response_body_size_bytes,
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
@@ -516,6 +541,7 @@ async fn handle_connection(
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
+                                upstream_response.body_truncated,
                             );
                             session_detail.script_traces = script_traces.clone();
                         }
@@ -527,6 +553,7 @@ async fn handle_connection(
                             upstream_response.status_code.as_u16(),
                             &upstream_response.response_headers,
                             &upstream_response.response_body,
+                            upstream_response.response_body_size_bytes,
                             started_at,
                             started_at_instant,
                             ProxyTimingBreakdown {
@@ -538,6 +565,7 @@ async fn handle_connection(
                                 total_ms: Some(started_at_instant.elapsed().as_millis()),
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
+                            upstream_response.body_truncated,
                         );
                         session_detail.script_traces = script_traces.clone();
                     }
@@ -545,17 +573,31 @@ async fn handle_connection(
             }
 
             if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body.len()).await;
+                apply_response_throttle(profile, upstream_response.response_body_size_bytes).await;
             }
 
-            if let Err(error) = write_upstream_response(
-                &mut stream,
-                upstream_response.status_code,
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
+            let write_result = if let Some(spooled_response_path) =
+                upstream_response.spooled_response_path.as_deref()
             {
+                write_spooled_upstream_response(
+                    &mut stream,
+                    upstream_response.status_code,
+                    &upstream_response.response_headers,
+                    upstream_response.response_body_size_bytes,
+                    spooled_response_path,
+                )
+                .await
+            } else {
+                write_upstream_response(
+                    &mut stream,
+                    upstream_response.status_code,
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                )
+                .await
+            };
+
+            if let Err(error) = write_result {
                 let _ = session_sender.send(session_detail);
                 return Err(error);
             }
@@ -595,6 +637,7 @@ async fn handle_connection(
                 StatusCode::BAD_GATEWAY.as_u16(),
                 &HeaderMap::new(),
                 response_message.as_bytes(),
+                response_message.len(),
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
@@ -606,6 +649,7 @@ async fn handle_connection(
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(started_at_instant.elapsed().as_millis()),
                 },
+                false,
             );
             if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -695,26 +739,25 @@ async fn forward_request(
     let status_code = response.status();
     let response_headers = response.headers().clone();
     let response_read_started_at = Instant::now();
-    let response_body = response
-        .bytes()
-        .await
-        .map_err(|error| {
-            emit_log(
-                "ERROR",
-                "upstream_response_read_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("method", request.method.to_string()),
-                    ("scheme", request.url.scheme().to_string()),
-                    ("host", request.host.clone()),
-                    ("url", request.url.to_string()),
-                    ("status_code", status_code.as_u16().to_string()),
-                    ("error", error.to_string()),
-                ],
-            );
-            format!("failed to read upstream response body: {error}")
-        })?
-        .to_vec();
+    let (response_body, response_body_size_bytes, body_truncated, spooled_response_path) =
+        read_response_body_with_limit(response, &request.request_id, true)
+            .await
+            .map_err(|error| {
+                emit_log(
+                    "ERROR",
+                    "upstream_response_read_failed",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("method", request.method.to_string()),
+                        ("scheme", request.url.scheme().to_string()),
+                        ("host", request.host.clone()),
+                        ("url", request.url.to_string()),
+                        ("status_code", status_code.as_u16().to_string()),
+                        ("error", error.clone()),
+                    ],
+                );
+                format!("failed to read upstream response body: {error}")
+            })?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     emit_log(
@@ -733,12 +776,167 @@ async fn forward_request(
     );
 
     Ok(UpstreamResponse {
+        body_truncated,
         response_body,
+        response_body_size_bytes,
         response_headers,
         response_read_ms,
+        spooled_response_path,
         status_code,
         waiting_ms,
     })
+}
+
+async fn read_response_body_with_limit(
+    mut response: reqwest::Response,
+    request_id: &str,
+    preserve_full_body: bool,
+) -> Result<(Vec<u8>, usize, bool, Option<PathBuf>), String> {
+    let mut response_body = Vec::new();
+    let mut response_body_size_bytes = 0usize;
+    let mut body_truncated = false;
+    let mut spooled_response_path = None;
+    let mut spooled_file: Option<fs::File> = None;
+
+    if let Some(content_length) = response.content_length() {
+        response_body.reserve((content_length as usize).min(MAX_CAPTURED_BODY_BYTES));
+    }
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("read response chunk: {error}"))?
+    {
+        if preserve_full_body {
+            if body_truncated {
+                if let Some(file) = spooled_file.as_mut() {
+                    file.write_all(&chunk)
+                        .map_err(|error| format!("write spooled response chunk: {error}"))?;
+                }
+            } else if response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
+                let (mut file, path) = create_response_spool_file(request_id)?;
+                if !response_body.is_empty() {
+                    file.write_all(&response_body)
+                        .map_err(|error| format!("seed spooled response body: {error}"))?;
+                }
+                file.write_all(&chunk)
+                    .map_err(|error| format!("write spooled response chunk: {error}"))?;
+                spooled_response_path = Some(path);
+                spooled_file = Some(file);
+                body_truncated = true;
+            }
+        } else if !body_truncated && response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
+            body_truncated = true;
+        }
+
+        response_body_size_bytes += chunk.len();
+
+        if response_body.len() < MAX_CAPTURED_BODY_BYTES {
+            let remaining = MAX_CAPTURED_BODY_BYTES - response_body.len();
+            response_body.extend_from_slice(&chunk[..remaining.min(chunk.len())]);
+        }
+    }
+
+    if let Some(file) = spooled_file.as_mut() {
+        file.flush()
+            .map_err(|error| format!("flush spooled response body: {error}"))?;
+    }
+
+    if body_truncated {
+        emit_log(
+            "WARN",
+            "response_body_truncated",
+            &[
+                ("request_id", request_id.to_string()),
+                ("original_size", response_body_size_bytes.to_string()),
+                ("captured_size", MAX_CAPTURED_BODY_BYTES.to_string()),
+                ("spooled", preserve_full_body.to_string()),
+            ],
+        );
+    }
+
+    Ok((
+        response_body,
+        response_body_size_bytes,
+        body_truncated,
+        spooled_response_path,
+    ))
+}
+
+fn create_response_spool_file(request_id: &str) -> Result<(fs::File, PathBuf), String> {
+    let dir = env::temp_dir().join("aiproxy-response-spool");
+    fs::create_dir_all(&dir)
+        .map_err(|error| format!("create response spool directory '{}': {error}", dir.display()))?;
+
+    let path = dir.join(format!("{request_id}-{}.body", Uuid::new_v4()));
+    let file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| format!("create spooled response file '{}': {error}", path.display()))?;
+
+    Ok((file, path))
+}
+
+async fn write_spooled_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    stream: &mut S,
+    status_code: StatusCode,
+    headers: &HeaderMap,
+    body_size_bytes: usize,
+    spooled_response_path: &Path,
+) -> Result<(), String> {
+    let reason = status_code.canonical_reason().unwrap_or("Unknown");
+    let mut response = format!("HTTP/1.1 {} {reason}\r\n", status_code.as_u16());
+
+    for (header_name, header_value) in headers {
+        if should_skip_response_header(header_name) {
+            continue;
+        }
+
+        let header_value = header_value
+            .to_str()
+            .map_err(|error| format!("response header value is not valid UTF-8: {error}"))?;
+
+        response.push_str(header_name.as_str());
+        response.push_str(": ");
+        response.push_str(header_value);
+        response.push_str("\r\n");
+    }
+
+    response.push_str(&format!("Content-Length: {body_size_bytes}\r\n"));
+    response.push_str("Connection: close\r\n\r\n");
+
+    stream
+        .write_all(response.as_bytes())
+        .await
+        .map_err(map_io_error)?;
+
+    let mut file = fs::File::open(spooled_response_path).map_err(|error| {
+        format!(
+            "open spooled response file '{}': {error}",
+            spooled_response_path.display()
+        )
+    })?;
+    let mut buffer = vec![0_u8; READ_BUFFER_BYTES];
+
+    loop {
+        let bytes_read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("read spooled response file: {error}"))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        stream
+            .write_all(&buffer[..bytes_read])
+            .await
+            .map_err(map_io_error)?;
+    }
+
+    stream.flush().await.map_err(map_io_error)?;
+
+    Ok(())
 }
 
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
@@ -961,6 +1159,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         status_code,
         &HeaderMap::new(),
         &[],
+        0,
         started_at,
         started_at_instant,
         ProxyTimingBreakdown {
@@ -972,6 +1171,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
             total_ms: Some(started_at_instant.elapsed().as_millis()),
             waiting_ms: Some(0),
         },
+        false,
     );
     detail.summary.protocol = "ws".to_string();
     detail.summary.response_mime_type = Some("websocket".to_string());
@@ -1134,6 +1334,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         status_code,
         &HeaderMap::new(),
         &[],
+        0,
         started_at,
         started_at_instant,
         ProxyTimingBreakdown {
@@ -1145,6 +1346,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
             total_ms: Some(started_at_instant.elapsed().as_millis()),
             waiting_ms: Some(0),
         },
+        false,
     );
     detail.summary.protocol = "wss".to_string();
     detail.summary.response_mime_type = Some("websocket".to_string());
@@ -1386,6 +1588,7 @@ async fn handle_connect_mitm(
                         mock_response.status_code.as_u16(),
                         &mock_response.response_headers,
                         &mock_response.response_body,
+                        mock_response.response_body_size_bytes,
                         started_at,
                         started_at_instant,
                         ProxyTimingBreakdown {
@@ -1397,6 +1600,7 @@ async fn handle_connect_mitm(
                             total_ms: Some(started_at_instant.elapsed().as_millis()),
                             waiting_ms: Some(0),
                         },
+                        mock_response.body_truncated,
                     );
                     detail.script_traces = script_traces;
                     if session_sender.send(detail).is_err() {
@@ -1455,18 +1659,34 @@ async fn handle_connect_mitm(
 
     match upstream_result {
         Ok(mut upstream_response) => {
-            apply_response_rewrite_rules(
-                &rewrite_manager,
-                &workspace_id,
-                &https_request,
-                &mut upstream_response,
-            )?;
-            script_traces.extend(apply_response_script_rules(
-                &script_manager,
-                &workspace_id,
-                &https_request,
-                &mut upstream_response,
-            ));
+            if upstream_response.body_truncated {
+                emit_log(
+                    "WARN",
+                    "response_body_passthrough_mode",
+                    &[
+                        ("request_id", https_request.request_id.clone()),
+                        ("url", https_request.url.to_string()),
+                        (
+                            "reason",
+                            "response body exceeded capture limit; skipping response mutations"
+                                .to_string(),
+                        ),
+                    ],
+                );
+            } else {
+                apply_response_rewrite_rules(
+                    &rewrite_manager,
+                    &workspace_id,
+                    &https_request,
+                    &mut upstream_response,
+                )?;
+                script_traces.extend(apply_response_script_rules(
+                    &script_manager,
+                    &workspace_id,
+                    &https_request,
+                    &mut upstream_response,
+                ));
+            }
 
             // Build session detail once; rebuild only if Mock/Forward modifies the response.
             let mut session_detail = build_session_detail(
@@ -1474,6 +1694,7 @@ async fn handle_connect_mitm(
                 upstream_response.status_code.as_u16(),
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
+                upstream_response.response_body_size_bytes,
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
@@ -1485,24 +1706,29 @@ async fn handle_connect_mitm(
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
+                upstream_response.body_truncated,
             );
             session_detail.script_traces = script_traces.clone();
 
             // --- Response-stage breakpoint (HTTPS) ---
-            let breakpoint_resolution = match intercept_response_stage(
-                &breakpoint_manager,
-                &event_emitter,
-                &https_request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
-            {
-                Ok(resolution) => resolution,
-                Err(error) => {
-                    let _ = session_sender.send(session_detail);
-                    return Err(error);
+            let breakpoint_resolution = if upstream_response.body_truncated {
+                None
+            } else {
+                match intercept_response_stage(
+                    &breakpoint_manager,
+                    &event_emitter,
+                    &https_request,
+                    upstream_response.status_code.as_u16(),
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                )
+                .await
+                {
+                    Ok(resolution) => resolution,
+                    Err(error) => {
+                        let _ = session_sender.send(session_detail);
+                        return Err(error);
+                    }
                 }
             };
 
@@ -1521,6 +1747,7 @@ async fn handle_connect_mitm(
                                 upstream_response.status_code.as_u16(),
                                 &upstream_response.response_headers,
                                 &upstream_response.response_body,
+                                upstream_response.response_body_size_bytes,
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
@@ -1532,6 +1759,7 @@ async fn handle_connect_mitm(
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
+                                upstream_response.body_truncated,
                             );
                             session_detail.script_traces = script_traces.clone();
                         }
@@ -1543,6 +1771,7 @@ async fn handle_connect_mitm(
                             upstream_response.status_code.as_u16(),
                             &upstream_response.response_headers,
                             &upstream_response.response_body,
+                            upstream_response.response_body_size_bytes,
                             started_at,
                             started_at_instant,
                             ProxyTimingBreakdown {
@@ -1554,6 +1783,7 @@ async fn handle_connect_mitm(
                                 total_ms: Some(started_at_instant.elapsed().as_millis()),
                                 waiting_ms: Some(upstream_response.waiting_ms),
                             },
+                            upstream_response.body_truncated,
                         );
                         session_detail.script_traces = script_traces.clone();
                     }
@@ -1561,17 +1791,31 @@ async fn handle_connect_mitm(
             }
 
             if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body.len()).await;
+                apply_response_throttle(profile, upstream_response.response_body_size_bytes).await;
             }
 
-            if let Err(error) = write_upstream_response(
-                &mut tls_stream,
-                upstream_response.status_code,
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-            )
-            .await
+            let write_result = if let Some(spooled_response_path) =
+                upstream_response.spooled_response_path.as_deref()
             {
+                write_spooled_upstream_response(
+                    &mut tls_stream,
+                    upstream_response.status_code,
+                    &upstream_response.response_headers,
+                    upstream_response.response_body_size_bytes,
+                    spooled_response_path,
+                )
+                .await
+            } else {
+                write_upstream_response(
+                    &mut tls_stream,
+                    upstream_response.status_code,
+                    &upstream_response.response_headers,
+                    &upstream_response.response_body,
+                )
+                .await
+            };
+
+            if let Err(error) = write_result {
                 let _ = session_sender.send(session_detail);
                 return Err(error);
             }
@@ -1611,6 +1855,7 @@ async fn handle_connect_mitm(
                 StatusCode::BAD_GATEWAY.as_u16(),
                 &HeaderMap::new(),
                 response_message.as_bytes(),
+                response_message.len(),
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
@@ -1622,6 +1867,7 @@ async fn handle_connect_mitm(
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(started_at_instant.elapsed().as_millis()),
                 },
+                false,
             );
             if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -1862,11 +2108,10 @@ pub async fn send_direct_request(
     let response_headers = response.headers().clone();
 
     let response_read_started_at = Instant::now();
-    let response_body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("failed to read response body: {e}"))?
-        .to_vec();
+    let (response_body, response_body_size_bytes, body_truncated, _) =
+        read_response_body_with_limit(response, &request_id, false)
+            .await
+            .map_err(|error| format!("failed to read response body: {error}"))?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     emit_log(
@@ -1907,7 +2152,7 @@ pub async fn send_direct_request(
         protocol,
         url,
         status_code: status_code.as_u16(),
-        size_bytes: response_body.len(),
+        size_bytes: response_body_size_bytes,
         response_mime_type,
         started_at,
         started_at_instant,
@@ -1936,12 +2181,16 @@ pub async fn send_direct_request(
             &body_bytes,
             header_map.get(CONTENT_TYPE),
             header_map.get(reqwest::header::CONTENT_ENCODING),
+            body_bytes.len(),
+            false,
         ),
         request_headers: headers,
         response_body: build_body_reference(
             &response_body,
             response_headers.get(CONTENT_TYPE),
             response_headers.get(reqwest::header::CONTENT_ENCODING),
+            response_body_size_bytes,
+            body_truncated,
         ),
         response_headers: response_header_entries,
         server_ip: None,
@@ -1969,6 +2218,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         StatusCode::GATEWAY_TIMEOUT.as_u16(),
         &HeaderMap::new(),
         response_message.as_bytes(),
+        response_message.len(),
         started_at,
         started_at_instant,
         ProxyTimingBreakdown {
@@ -1980,6 +2230,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
             total_ms: Some(started_at_instant.elapsed().as_millis()),
             waiting_ms: Some(started_at_instant.elapsed().as_millis()),
         },
+        false,
     );
     if session_sender.send(detail).is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);

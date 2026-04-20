@@ -277,9 +277,33 @@ pub(crate) struct ParsedProxyRequest {
 
 #[derive(Debug)]
 pub(crate) struct UpstreamResponse {
+    pub(crate) body_truncated: bool,
     pub(crate) response_body: Vec<u8>,
+    pub(crate) response_body_size_bytes: usize,
     pub(crate) response_headers: HeaderMap,
     pub(crate) response_read_ms: u128,
+    pub(crate) spooled_response_path: Option<PathBuf>,
     pub(crate) status_code: StatusCode,
     pub(crate) waiting_ms: u128,
+}
+
+impl UpstreamResponse {
+    pub(crate) fn clear_spooled_response(&mut self) {
+        if let Some(path) = self.spooled_response_path.take() {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    pub(crate) fn replace_response_body(&mut self, body: Vec<u8>) {
+        self.clear_spooled_response();
+        self.response_body_size_bytes = body.len();
+        self.response_body = body;
+        self.body_truncated = false;
+    }
+}
+
+impl Drop for UpstreamResponse {
+    fn drop(&mut self) {
+        self.clear_spooled_response();
+    }
 }

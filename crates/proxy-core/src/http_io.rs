@@ -128,9 +128,11 @@ pub(crate) fn build_session_detail(
     status_code: u16,
     response_headers: &HeaderMap,
     response_body: &[u8],
+    response_body_size_bytes: usize,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     timing: ProxyTimingBreakdown,
+    response_body_truncated: bool,
 ) -> ProxySessionDetail {
     let id = request.request_id.clone();
     let response_header_entries = build_header_entries_from_map(response_headers);
@@ -142,7 +144,7 @@ pub(crate) fn build_session_detail(
         protocol: request.protocol.clone(),
         url: request.url.to_string(),
         status_code,
-        size_bytes: response_body.len(),
+        size_bytes: response_body_size_bytes,
         response_mime_type: response_headers
             .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
@@ -177,12 +179,16 @@ pub(crate) fn build_session_detail(
             &request.body,
             request.headers.get(CONTENT_TYPE),
             request.headers.get(reqwest::header::CONTENT_ENCODING),
+            request.body.len(),
+            false,
         ),
         request_headers: request.request_headers.clone(),
         response_body: build_body_reference(
             response_body,
             response_headers.get(CONTENT_TYPE),
             response_headers.get(reqwest::header::CONTENT_ENCODING),
+            response_body_size_bytes,
+            response_body_truncated,
         ),
         response_headers: response_header_entries,
         server_ip: None,
@@ -208,6 +214,8 @@ pub(crate) fn build_pending_session_detail(
             &request.body,
             request.headers.get(CONTENT_TYPE),
             request.headers.get(reqwest::header::CONTENT_ENCODING),
+            request.body.len(),
+            false,
         ),
         request_headers: request.request_headers.clone(),
         response_body: None,
@@ -293,6 +301,8 @@ pub(crate) fn build_body_reference(
     body: &[u8],
     content_type_header: Option<&HeaderValue>,
     content_encoding_header: Option<&HeaderValue>,
+    size_bytes: usize,
+    truncated: bool,
 ) -> Option<ProxyBodyReference> {
     if body.is_empty() {
         return None;
@@ -321,8 +331,8 @@ pub(crate) fn build_body_reference(
         encoding: inline_text.as_ref().map(|_| "utf-8".to_string()),
         inline_text,
         mime_type,
-        size_bytes: body.len(),
-        truncated: false,
+        size_bytes,
+        truncated,
     })
 }
 

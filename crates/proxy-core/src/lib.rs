@@ -42,6 +42,7 @@ const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
 const BROTLI_BUFFER_SIZE: usize = 4096;
+const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -90,6 +91,7 @@ pub(crate) use http_io::{
     build_raw_http_message, build_request_path, build_session_detail, build_session_summary,
     build_upstream_headers, build_upstream_headers_from_entries, decode_body_bytes,
     find_header_end, map_io_error, read_content_length, resolve_target_url,
+    should_skip_response_header,
     should_skip_request_header, write_plain_text_response, write_upstream_response,
     SessionSummaryInput,
 };

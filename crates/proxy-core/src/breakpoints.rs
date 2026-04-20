@@ -208,7 +208,13 @@ fn build_request_stage_hit(request: &ParsedProxyRequest) -> BreakpointHit {
         host: request.host.clone(),
         path: request.path.clone(),
         request_headers: request.request_headers.clone(),
-        request_body: build_body_reference(&request.body, content_type, content_encoding),
+        request_body: build_body_reference(
+            &request.body,
+            content_type,
+            content_encoding,
+            request.body.len(),
+            false,
+        ),
         response_status_code: None,
         response_headers: None,
         response_body: None,
@@ -234,7 +240,13 @@ fn build_response_stage_hit(
         host: request.host.clone(),
         path: request.path.clone(),
         request_headers: request.request_headers.clone(),
-        request_body: build_body_reference(&request.body, req_content_type, req_content_encoding),
+        request_body: build_body_reference(
+            &request.body,
+            req_content_type,
+            req_content_encoding,
+            request.body.len(),
+            false,
+        ),
         response_status_code: Some(status_code),
         response_headers: Some(
             response_headers
@@ -245,7 +257,13 @@ fn build_response_stage_hit(
                 })
                 .collect(),
         ),
-        response_body: build_body_reference(response_body, resp_content_type, resp_content_encoding),
+        response_body: build_body_reference(
+            response_body,
+            resp_content_type,
+            resp_content_encoding,
+            response_body.len(),
+            false,
+        ),
     }
 }
 
@@ -391,9 +409,11 @@ pub(crate) fn apply_response_resolution(
         upstream_response.response_headers = new_headers;
     }
     if let Some(ref body_b64) = resolution.modified_response_body_base64 {
-        upstream_response.response_body = BASE64_STANDARD
-            .decode(body_b64)
-            .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
+        upstream_response.replace_response_body(
+            BASE64_STANDARD
+                .decode(body_b64)
+                .unwrap_or_else(|_| body_b64.as_bytes().to_vec()),
+        );
     }
 }
 
@@ -404,6 +424,7 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         .as_deref()
         .map(|b| BASE64_STANDARD.decode(b).unwrap_or_else(|_| b.as_bytes().to_vec()))
         .unwrap_or_default();
+    let body_len = body.len();
     let mut headers = HeaderMap::new();
     for entry in &mock.headers {
         if let (Ok(name), Ok(value)) = (
@@ -416,9 +437,12 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
     // Ensure content-length matches body
     headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&body.len().to_string()).unwrap_or_else(|_| HeaderValue::from_static("0")));
     UpstreamResponse {
+        body_truncated: false,
         response_body: body,
+        response_body_size_bytes: body_len,
         response_headers: headers,
         response_read_ms: 0,
+        spooled_response_path: None,
         status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
         waiting_ms: 0,
     }

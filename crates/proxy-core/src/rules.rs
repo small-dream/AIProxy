@@ -533,7 +533,7 @@ fn body_text_and_base64(
     content_type: Option<&HeaderValue>,
     content_encoding: Option<&HeaderValue>,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    match build_body_reference(body, content_type, content_encoding) {
+    match build_body_reference(body, content_type, content_encoding, body.len(), false) {
         Some(reference) => (
             reference.inline_text,
             reference.base64_text,
@@ -646,15 +646,24 @@ fn apply_script_response_to_runtime(
     response.status_code = StatusCode::from_u16(script_response.status)
         .map_err(|error| format!("invalid script response status '{}': {error}", script_response.status))?;
     response.response_headers = header_map_from_script_headers(&script_response.headers);
-    response.response_body = bytes_from_script_body(script_response.body_text, script_response.body_base64)?;
+    response.replace_response_body(bytes_from_script_body(
+        script_response.body_text,
+        script_response.body_base64,
+    )?);
     Ok(())
 }
 
 fn upstream_response_from_override(override_response: ScriptResponseOverride) -> Result<UpstreamResponse, String> {
+    let response_body =
+        bytes_from_script_body(override_response.body_text, override_response.body_base64)?;
+
     Ok(UpstreamResponse {
-        response_body: bytes_from_script_body(override_response.body_text, override_response.body_base64)?,
+        body_truncated: false,
+        response_body_size_bytes: response_body.len(),
+        response_body,
         response_headers: header_map_from_script_headers(&override_response.headers),
         response_read_ms: 0,
+        spooled_response_path: None,
         status_code: StatusCode::from_u16(override_response.status)
             .map_err(|error| format!("invalid mock response status '{}': {error}", override_response.status))?,
         waiting_ms: 0,
@@ -845,7 +854,7 @@ pub(crate) fn apply_response_rewrite_rules(
                     continue;
                 }
 
-                response.response_body = payload.text.into_bytes();
+                response.replace_response_body(payload.text.into_bytes());
 
                 if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
                     response.response_headers.insert(CONTENT_TYPE, content_type);
@@ -1011,9 +1020,12 @@ fn build_local_file_response(path: &Path) -> Result<UpstreamResponse, String> {
     );
 
     Ok(UpstreamResponse {
+        body_truncated: false,
+        response_body_size_bytes: body.len(),
         response_body: body,
         response_headers: headers,
         response_read_ms: 0,
+        spooled_response_path: None,
         status_code: StatusCode::OK,
         waiting_ms: 0,
     })
