@@ -104,6 +104,7 @@ export function CollectionsPage() {
   const [newCollectionName, setNewCollectionName] = useState("");
 
   // Response display state
+  const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
   const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
   const [searchValue, setSearchValue] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -111,6 +112,7 @@ export function CollectionsPage() {
   // When selecting an item, load it into the editor
   function handleSelectItem(item: { id: string; collectionId: string; name: string; description: string; method: string; url: string; headers: HeaderEntry[]; body: string; bodyType: string; rawLanguage: string; formData: HeaderEntry[]; urlEncoded: HeaderEntry[] }) {
     setSelectedItemId(item.id);
+    setRequestTab("headers");
     editor.loadFromItem(item);
   }
 
@@ -304,6 +306,7 @@ export function CollectionsPage() {
                 size="small"
                 onClick={() => {
                   editor.reset();
+                  setRequestTab("headers");
                   setSelectedItemId(null);
                   if (selectedCollectionId) {
                     useCollectionEditorStore.setState({ collectionId: selectedCollectionId });
@@ -418,12 +421,12 @@ export function CollectionsPage() {
             <Box sx={{ flex: 1, overflow: "auto" }}>
               <Box sx={{ height: "50%", overflow: "auto" }}>
                 <ComposeRequestSection
-                  activeTab="headers"
+                  activeTab={requestTab}
                   body={editor.body}
                   bodyType={editor.bodyType}
                   formDataEntries={editor.formDataEntries}
                   headers={editor.headers}
-                  onActiveTabChange={() => {}}
+                  onActiveTabChange={setRequestTab}
                   onBodyChange={editor.setBody}
                   onBodyTypeChange={editor.setBodyType}
                   onFormDataEntriesChange={editor.setFormDataEntries}

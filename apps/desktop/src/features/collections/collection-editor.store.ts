@@ -64,9 +64,25 @@ const INITIAL: Omit<CollectionEditorState, "loadFromItem" | "setName" | "setDesc
   urlEncodedEntries: [],
 };
 
+function parseUrlEncodedEntries(body: string): HeaderEntry[] {
+  return Array.from(new URLSearchParams(body).entries()).map(([name, value]) => ({ name, value }));
+}
+
 export const useCollectionEditorStore = create<CollectionEditorState>((set) => ({
   ...INITIAL,
-  loadFromItem: (item) =>
+  loadFromItem: (item) => {
+    const hasStructuredFormData = item.formData.length > 0;
+    const hasStructuredUrlEncoded = item.urlEncoded.length > 0;
+    const fallbackUrlEncodedEntries = !hasStructuredUrlEncoded && item.bodyType === "urlencoded"
+      ? parseUrlEncodedEntries(item.body)
+      : item.urlEncoded;
+    const fallbackBodyType = item.bodyType === "formdata" && !hasStructuredFormData && item.body
+      ? "raw"
+      : item.bodyType;
+    const fallbackRawLanguage = fallbackBodyType === "raw" && item.rawLanguage === "json" && item.bodyType === "formdata"
+      ? "text"
+      : item.rawLanguage;
+
     set({
       itemId: item.id,
       collectionId: item.collectionId,
@@ -76,11 +92,12 @@ export const useCollectionEditorStore = create<CollectionEditorState>((set) => (
       url: item.url,
       headers: [...item.headers],
       body: item.body,
-      bodyType: (item.bodyType || "none") as BodyType,
-      rawLanguage: (item.rawLanguage || "json") as RawLanguage,
+      bodyType: (fallbackBodyType || "none") as BodyType,
+      rawLanguage: (fallbackRawLanguage || "json") as RawLanguage,
       formDataEntries: [...item.formData],
-      urlEncodedEntries: [...item.urlEncoded],
-    }),
+      urlEncodedEntries: [...fallbackUrlEncodedEntries],
+    });
+  },
   setName: (name) => set({ name }),
   setDescription: (description) => set({ description }),
   setMethod: (method) => set({ method }),

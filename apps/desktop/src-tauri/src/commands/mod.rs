@@ -15,6 +15,7 @@ use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStor
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{Emitter, State};
+use url::form_urlencoded;
 
 const DEFAULT_PROXY_PORT: u16 = 8888;
 
@@ -1844,14 +1845,49 @@ pub struct ApiCollectionItemOutput {
     pub sort_order: u32,
     pub method: String,
     pub url: String,
-    pub headers: String,
+    pub headers: Vec<ProxyHeaderEntry>,
     pub body: String,
     pub body_type: String,
     pub raw_language: String,
-    pub form_data: String,
-    pub url_encoded: String,
+    pub form_data: Vec<ProxyHeaderEntry>,
+    pub url_encoded: Vec<ProxyHeaderEntry>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn parse_collection_header_entries(value: &str) -> Vec<ProxyHeaderEntry> {
+    serde_json::from_str(value).unwrap_or_default()
+}
+
+fn parse_urlencoded_entries(value: &str) -> Vec<ProxyHeaderEntry> {
+    form_urlencoded::parse(value.as_bytes())
+        .map(|(name, value)| ProxyHeaderEntry {
+            name: name.into_owned(),
+            value: value.into_owned(),
+        })
+        .collect()
+}
+
+fn collection_item_output_from_row(
+    row: aiproxy_db::collections::CollectionItemRow,
+) -> ApiCollectionItemOutput {
+    ApiCollectionItemOutput {
+        id: row.id,
+        collection_id: row.collection_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        method: row.method,
+        url: row.url,
+        headers: parse_collection_header_entries(&row.headers),
+        body: row.body,
+        body_type: row.body_type,
+        raw_language: row.raw_language,
+        form_data: parse_collection_header_entries(&row.form_data),
+        url_encoded: parse_collection_header_entries(&row.url_encoded),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1991,23 +2027,10 @@ pub fn list_api_collection_items(
 ) -> Vec<ApiCollectionItemOutput> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     match aiproxy_db::collections::list_collection_items(&conn, &input.collection_id) {
-        Ok(rows) => rows.into_iter().map(|r| ApiCollectionItemOutput {
-            id: r.id,
-            collection_id: r.collection_id,
-            name: r.name,
-            description: r.description,
-            sort_order: r.sort_order,
-            method: r.method,
-            url: r.url,
-            headers: r.headers,
-            body: r.body,
-            body_type: r.body_type,
-            raw_language: r.raw_language,
-            form_data: r.form_data,
-            url_encoded: r.url_encoded,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-        }).collect(),
+        Ok(rows) => rows
+            .into_iter()
+            .map(collection_item_output_from_row)
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -2022,23 +2045,7 @@ pub fn get_api_collection_item(
         .map_err(|e| format!("get collection item: {e}"))?
         .ok_or_else(|| format!("collection item {} not found", input.id))?;
 
-    Ok(ApiCollectionItemOutput {
-        id: row.id,
-        collection_id: row.collection_id,
-        name: row.name,
-        description: row.description,
-        sort_order: row.sort_order,
-        method: row.method,
-        url: row.url,
-        headers: row.headers,
-        body: row.body,
-        body_type: row.body_type,
-        raw_language: row.raw_language,
-        form_data: row.form_data,
-        url_encoded: row.url_encoded,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })
+    Ok(collection_item_output_from_row(row))
 }
 
 #[tauri::command]
@@ -2077,23 +2084,7 @@ pub fn upsert_api_collection_item(
             .map_err(|e| format!("upsert collection item: {e}"))?;
     }
 
-    Ok(ApiCollectionItemOutput {
-        id: row.id,
-        collection_id: row.collection_id,
-        name: row.name,
-        description: row.description,
-        sort_order: row.sort_order,
-        method: row.method,
-        url: row.url,
-        headers: row.headers,
-        body: row.body,
-        body_type: row.body_type,
-        raw_language: row.raw_language,
-        form_data: row.form_data,
-        url_encoded: row.url_encoded,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })
+    Ok(collection_item_output_from_row(row))
 }
 
 #[tauri::command]
@@ -2154,13 +2145,19 @@ pub fn save_session_to_collection(
         .map(|h| h.value.to_lowercase())
         .unwrap_or_default();
 
+    let url_encoded = if content_type.contains("application/x-www-form-urlencoded") {
+        parse_urlencoded_entries(&body_text)
+    } else {
+        Vec::new()
+    };
+
     let (body_type, raw_language) = if content_type.contains("application/json") {
         ("raw".to_string(), "json".to_string())
-    } else if content_type.contains("multipart/form-data") {
-        ("formdata".to_string(), "json".to_string())
-    } else if content_type.contains("application/x-www-form-urlencoded") {
+    } else if content_type.contains("application/x-www-form-urlencoded") && !url_encoded.is_empty() {
         ("urlencoded".to_string(), "json".to_string())
     } else if !body_text.is_empty() {
+        // Keep multipart or otherwise unparsed bodies visible/editable instead of
+        // switching to a structured editor with empty fields.
         ("raw".to_string(), "text".to_string())
     } else {
         ("none".to_string(), "json".to_string())
@@ -2181,7 +2178,7 @@ pub fn save_session_to_collection(
         body_type,
         raw_language,
         form_data: vec![],
-        url_encoded: vec![],
+        url_encoded,
     };
 
     upsert_api_collection_item(upsert_input, state)
@@ -2576,4 +2573,55 @@ pub fn update_workspace(
     );
 
     Ok(workspace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        collection_item_output_from_row, parse_collection_header_entries,
+        parse_urlencoded_entries,
+    };
+    use aiproxy_db::collections::CollectionItemRow;
+
+    #[test]
+    fn collection_item_output_decodes_json_fields() {
+        let output = collection_item_output_from_row(CollectionItemRow {
+            id: "item-1".into(),
+            collection_id: "collection-1".into(),
+            name: "Create Order".into(),
+            description: String::new(),
+            sort_order: 0,
+            method: "POST".into(),
+            url: "https://api.example.com/orders".into(),
+            headers: r#"[{"name":"Content-Type","value":"application/json"}]"#.into(),
+            body: "{\"ok\":true}".into(),
+            body_type: "raw".into(),
+            raw_language: "json".into(),
+            form_data: r#"[{"name":"file","value":"demo.txt"}]"#.into(),
+            url_encoded: r#"[{"name":"page","value":"1"}]"#.into(),
+            created_at: "2026-04-20T00:00:00Z".into(),
+            updated_at: "2026-04-20T00:00:00Z".into(),
+        });
+
+        assert_eq!(output.headers.len(), 1);
+        assert_eq!(output.headers[0].name, "Content-Type");
+        assert_eq!(output.form_data[0].name, "file");
+        assert_eq!(output.url_encoded[0].value, "1");
+    }
+
+    #[test]
+    fn invalid_collection_json_falls_back_to_empty_entries() {
+        assert!(parse_collection_header_entries("{invalid json]").is_empty());
+    }
+
+    #[test]
+    fn urlencoded_body_is_decoded_into_entries() {
+        let entries = parse_urlencoded_entries("name=alice+smith&city=New%20York");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "name");
+        assert_eq!(entries[0].value, "alice smith");
+        assert_eq!(entries[1].name, "city");
+        assert_eq!(entries[1].value, "New York");
+    }
 }
