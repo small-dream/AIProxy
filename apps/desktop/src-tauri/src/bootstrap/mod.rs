@@ -207,22 +207,35 @@ impl AppState {
         }
 
         // Fallback: load from DB
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
-        if let Ok(Some(row)) = aiproxy_db::sessions::load_session_detail(&conn, session_id) {
+        let detail = {
+            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let row = aiproxy_db::sessions::load_session_detail(&conn, session_id)
+                .ok()
+                .flatten()?;
+
             let summary = self
                 .sessions
                 .lock()
                 .expect("session list mutex should not be poisoned")
                 .iter()
                 .find(|s| s.id == session_id)
-                .cloned();
+                .cloned()
+                .or_else(|| {
+                    aiproxy_db::sessions::load_session_summary(&conn, session_id)
+                        .ok()
+                        .flatten()
+                        .map(summary_row_to_proxy)
+                })?;
 
-            if let Some(summary) = summary {
-                return Some(detail_row_to_proxy(&row, summary, &self.body_store));
-            }
-        }
+            detail_row_to_proxy(&row, summary, &self.body_store)
+        };
 
-        None
+        self.session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .insert(session_id.to_string(), detail.clone());
+
+        Some(detail)
     }
 
     pub fn clear_sessions(&self) {
@@ -1083,8 +1096,11 @@ fn persist_script_traces(
 
 #[cfg(test)]
 mod tests {
-    use super::select_session_eviction_index;
-    use aiproxy_proxy_core::ProxySessionSummary;
+    use super::{proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState};
+    use aiproxy_db::body_store::BodyStore;
+    use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
+    use std::sync::{Arc, Mutex};
+    use uuid::Uuid;
 
     #[test]
     fn evicts_oldest_unfocused_session_before_focused_one() {
@@ -1123,6 +1139,42 @@ mod tests {
         assert_eq!(select_session_eviction_index(&sessions, None), 0);
     }
 
+    #[test]
+    fn reads_session_detail_from_db_when_summary_cache_is_missing() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+
+        let body_store_dir = std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+
+        let summary = build_summary("db-session", "api.example.com");
+        let detail = build_detail(&summary);
+        let summary_row = proxy_summary_to_row(&summary);
+        let detail_row = proxy_detail_to_row(&detail, body_store.as_ref());
+        aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+        state
+            .sessions
+            .lock()
+            .expect("session list mutex should not be poisoned")
+            .clear();
+        state
+            .session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .clear();
+
+        let loaded = state.read_session_detail("db-session").expect("detail should load from db");
+
+        assert_eq!(loaded.id, "db-session");
+        assert_eq!(loaded.summary.host, "api.example.com");
+        assert_eq!(loaded.server_ip.as_deref(), Some("1.2.3.4"));
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
     fn build_summary(id: &str, host: &str) -> ProxySessionSummary {
         ProxySessionSummary {
             id: id.to_string(),
@@ -1137,6 +1189,24 @@ mod tests {
             status_code: 200,
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".to_string()),
+        }
+    }
+
+    fn build_detail(summary: &ProxySessionSummary) -> ProxySessionDetail {
+        ProxySessionDetail {
+            id: summary.id.clone(),
+            query_params: Vec::new(),
+            cookies: Vec::new(),
+            raw_request_head: Some("GET / HTTP/1.1".to_string()),
+            raw_response_head: Some("HTTP/1.1 200 OK".to_string()),
+            request_body: None,
+            request_headers: Vec::new(),
+            response_body: None,
+            response_headers: Vec::new(),
+            server_ip: Some("1.2.3.4".to_string()),
+            script_traces: Vec::new(),
+            summary: summary.clone(),
+            timing: None,
         }
     }
 }

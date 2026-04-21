@@ -2677,10 +2677,8 @@ pub fn save_session_to_collection(
     let (method, url, headers_json, body_text) = {
         let conn = state.read_db_connection().lock().expect("db mutex");
 
-        let summary = aiproxy_db::sessions::load_recent_summaries(&conn, 50000)
-            .map_err(|e| format!("load sessions: {e}"))?
-            .into_iter()
-            .find(|s| s.id == input.session_id)
+        let summary = aiproxy_db::sessions::load_session_summary(&conn, &input.session_id)
+            .map_err(|e| format!("load session summary: {e}"))?
             .ok_or_else(|| format!("session {} not found", input.session_id))?;
 
         let detail = aiproxy_db::sessions::load_session_detail(&conn, &input.session_id)

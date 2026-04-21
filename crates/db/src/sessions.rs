@@ -106,6 +106,27 @@ pub fn load_recent_summaries(
     Ok(rows)
 }
 
+/// Load a single session summary by ID.
+pub fn load_session_summary(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<SessionSummaryRow>, String> {
+    let result = conn.query_row(
+        "SELECT id, method, host, path, protocol, started_at, finished_at,
+                duration_ms, size_bytes, status_code, url, response_mime_type
+         FROM session_summaries
+         WHERE id = ?1",
+        params![id],
+        row_to_summary,
+    );
+
+    match result {
+        Ok(summary) => Ok(Some(summary)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("load session summary: {e}")),
+    }
+}
+
 /// Load a single session detail by ID.
 pub fn load_session_detail(conn: &Connection, id: &str) -> Result<Option<SessionDetailRow>, String> {
     let result = conn.query_row(
@@ -380,6 +401,18 @@ mod tests {
 
         let loaded_detail = load_session_detail(&conn, "s1").unwrap().unwrap();
         assert_eq!(loaded_detail.server_ip, Some("1.2.3.4".into()));
+    }
+
+    #[test]
+    fn load_session_summary_returns_exact_match() {
+        let conn = test_conn();
+        upsert_session(&conn, &test_summary("s1", "a.com"), &test_detail("s1")).unwrap();
+        upsert_session(&conn, &test_summary("s2", "b.com"), &test_detail("s2")).unwrap();
+
+        let loaded = load_session_summary(&conn, "s2").unwrap().unwrap();
+
+        assert_eq!(loaded.id, "s2");
+        assert_eq!(loaded.host, "b.com");
     }
 
     #[test]
