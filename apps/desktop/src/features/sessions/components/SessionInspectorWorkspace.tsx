@@ -29,7 +29,6 @@ type SessionInspectorWorkspaceProps = {
   inspectorSplitRatio: number;
   isDetailLoading: boolean;
   onCopyCurl?: (() => void) | undefined;
-  onCopyRequest?: (() => void) | undefined;
   onCopyUrl?: (() => void) | undefined;
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRepeat?: (() => void) | undefined;
@@ -50,7 +49,6 @@ function SessionInspectorWorkspace({
   inspectorSplitRatio,
   isDetailLoading,
   onCopyCurl,
-  onCopyRequest,
   onCopyUrl,
   onInspectorResizeStart,
   onRepeat,
@@ -270,7 +268,6 @@ function SessionInspectorWorkspace({
       <InspectorSummaryBar
         detail={detail}
         onCopyCurl={onCopyCurl}
-        onCopyRequest={onCopyRequest}
         onCopyUrl={onCopyUrl}
         onRepeat={onRepeat}
         session={selectedSession}

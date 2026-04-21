@@ -40,4 +40,20 @@ describe("SessionInspectorJsonTree", () => {
       expect(writeText).toHaveBeenCalledWith('{\n    "age": 30,\n    "name": "Alice"\n}');
     });
   });
+
+  it("renders string values without wrapping quotes in the tree view", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          searchQuery=""
+          value={{
+            url: "https://example.com/demo",
+          }}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.getByText("https://example.com/demo")).toBeInTheDocument();
+    expect(screen.queryByText('"https://example.com/demo"')).not.toBeInTheDocument();
+  });
 });

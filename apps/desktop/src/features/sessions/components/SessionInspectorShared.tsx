@@ -1,4 +1,3 @@
-import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
@@ -21,14 +20,12 @@ const VIRTUAL_WINDOW_OVERSCAN = 12;
 export function InspectorSummaryBar({
   detail,
   onCopyCurl,
-  onCopyRequest,
   onCopyUrl,
   onRepeat,
   session,
 }: {
   detail: SessionDetail | undefined;
   onCopyCurl?: (() => void) | undefined;
-  onCopyRequest?: (() => void) | undefined;
   onCopyUrl?: (() => void) | undefined;
   onRepeat?: (() => void) | undefined;
   session: SessionSummary;
@@ -95,18 +92,6 @@ export function InspectorSummaryBar({
                 sx={{ p: 0.75 }}
               >
                 <LinkRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : null}
-          {onCopyRequest ? (
-            <Tooltip arrow title={t("contextMenu.copyRequest")}>
-              <IconButton
-                aria-label={t("contextMenu.copyRequest")}
-                onClick={onCopyRequest}
-                size="small"
-                sx={{ p: 0.75 }}
-              >
-                <ArticleRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           ) : null}

@@ -29,7 +29,6 @@ type SessionsWorkspacePanelProps = {
   onContextMenuHost: (host: string, event: React.MouseEvent) => void;
   onContextMenuSession: (session: SessionSummary, event: React.MouseEvent) => void;
   onCopyCurl: (() => void) | undefined;
-  onCopyRequest: (() => void) | undefined;
   onCopyUrl: (() => void) | undefined;
   onDomainFilterChange: (value: string) => void;
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -69,7 +68,6 @@ export function SessionsWorkspacePanel({
   onContextMenuHost,
   onContextMenuSession,
   onCopyCurl,
-  onCopyRequest,
   onCopyUrl,
   onDomainFilterChange,
   onInspectorResizeStart,
@@ -183,7 +181,6 @@ export function SessionsWorkspacePanel({
             inspectorSplitRatio={inspectorSplitRatio}
             isDetailLoading={isDetailLoading}
             onCopyCurl={onCopyCurl}
-            onCopyRequest={onCopyRequest}
             onCopyUrl={onCopyUrl}
             onInspectorResizeStart={onInspectorResizeStart}
             onRepeat={onRepeat}

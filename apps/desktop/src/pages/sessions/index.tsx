@@ -743,7 +743,6 @@ export function SessionsPage() {
         onContextMenuHost={handleHostContextMenu}
         onContextMenuSession={handleContextMenu}
         onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
-        onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
         onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
         onDomainFilterChange={handleDomainFilterChange}
         onInspectorResizeStart={startInspectorResize}

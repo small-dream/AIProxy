@@ -466,18 +466,19 @@ function JsonTreeRowView({
   const rowType = getJsonDisplayType(value, t);
   const displayName = name ?? t("inspector.json.root");
   const isSelected = selectedPath === path;
-  const selectedRowBackground = theme.palette.primary.main;
-  const dividerColor = isSelected ? alpha(theme.palette.common.white, 0.22) : theme.palette.divider;
-  const textColor = isSelected ? "common.white" : "text.primary";
-  const valueColor = isSelected
-    ? "common.white"
-    : typeof value === "string"
-      ? syntaxColors.string
-      : typeof value === "number"
-        ? syntaxColors.number
-        : typeof value === "boolean" || value === null
-          ? syntaxColors.boolean
-          : "text.primary";
+  const selectedRowBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.26 : 0.12);
+  const selectedRowHoverBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.32 : 0.16);
+  const dividerColor = isSelected
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.22)
+    : theme.palette.divider;
+  const textColor = "text.primary";
+  const valueColor = typeof value === "string"
+    ? syntaxColors.string
+    : typeof value === "number"
+      ? syntaxColors.number
+      : typeof value === "boolean" || value === null
+        ? syntaxColors.boolean
+        : "text.primary";
 
   function highlight(text: string) {
     if (matcher) {
@@ -490,13 +491,14 @@ function JsonTreeRowView({
     <Box
       sx={{
         backgroundColor: isSelected ? selectedRowBackground : "transparent",
+        boxShadow: isSelected ? `inset 2px 0 0 ${theme.palette.primary.main}` : "none",
         cursor: "pointer",
         display: "grid",
         gridTemplateColumns: columnTemplate,
         minHeight: JSON_TREE_ROW_HEIGHT,
-        transition: "background-color 120ms ease",
+        transition: "background-color 120ms ease, box-shadow 120ms ease",
         "&:hover": {
-          backgroundColor: isSelected ? selectedRowBackground : "action.hover",
+          backgroundColor: isSelected ? selectedRowHoverBackground : "action.hover",
         },
       }}
       onClick={() => onSelectPath(path)}
@@ -516,11 +518,11 @@ function JsonTreeRowView({
           <IconButton
             onClick={(event) => {
               event.stopPropagation();
-              onTogglePath(path);
+            onTogglePath(path);
             }}
             size="small"
             sx={{
-              color: isSelected ? "common.white" : "text.secondary",
+              color: isSelected ? "primary.main" : "text.secondary",
               mr: 0.25,
               p: 0,
               "& .MuiSvgIcon-root": {
@@ -537,7 +539,7 @@ function JsonTreeRowView({
         <Box
           sx={{
             alignItems: "center",
-            color: isSelected ? "common.white" : hasChildren ? "info.main" : "text.secondary",
+            color: isSelected ? "primary.main" : hasChildren ? "info.main" : "text.secondary",
             display: "flex",
             flex: "0 0 auto",
             mr: 0.625,
@@ -585,7 +587,7 @@ function JsonTreeRowView({
         sx={{
           alignItems: "center",
           borderLeft: `1px solid ${dividerColor}`,
-          color: isSelected ? "common.white" : valueColor,
+          color: valueColor,
           display: "flex",
           minWidth: 0,
           px: 0.875,

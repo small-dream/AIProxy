@@ -414,7 +414,7 @@ export function jsonSubtreeMatches(name: string | undefined, value: JsonValue, s
 
 export function formatJsonPrimitive(value: JsonValue): string {
   if (typeof value === "string") {
-    return `"${value}"`;
+    return value;
   }
 
   return String(value);

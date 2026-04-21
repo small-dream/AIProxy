@@ -59,7 +59,6 @@ describe("SessionInspectorWorkspace", () => {
           inspectorSplitRatio={0.4}
           isDetailLoading={false}
           onCopyCurl={undefined}
-          onCopyRequest={undefined}
           onCopyUrl={undefined}
           onInspectorResizeStart={handleInspectorResizeStart}
           onRepeat={undefined}
@@ -94,7 +93,6 @@ describe("SessionInspectorWorkspace", () => {
           inspectorSplitRatio={0.4}
           isDetailLoading={false}
           onCopyCurl={undefined}
-          onCopyRequest={undefined}
           onCopyUrl={undefined}
           onInspectorResizeStart={() => {}}
           onRepeat={undefined}
