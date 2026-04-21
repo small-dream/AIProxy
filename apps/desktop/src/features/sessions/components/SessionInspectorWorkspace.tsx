@@ -1,6 +1,7 @@
 import { Alert, Box, Divider, Typography } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -30,6 +31,7 @@ type SessionInspectorWorkspaceProps = {
   onCopyCurl?: (() => void) | undefined;
   onCopyRequest?: (() => void) | undefined;
   onCopyUrl?: (() => void) | undefined;
+  onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRepeat?: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
@@ -50,6 +52,7 @@ function SessionInspectorWorkspace({
   onCopyCurl,
   onCopyRequest,
   onCopyUrl,
+  onInspectorResizeStart,
   onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
@@ -289,12 +292,13 @@ function SessionInspectorWorkspace({
       ) : null}
 
       <Box
+        data-testid="session-inspector-grid"
         sx={{
           display: "grid",
           flex: 1,
           gridTemplateRows: requestCollapsed
             ? "auto 1px minmax(0, 1fr)"
-            : `${inspectorSplitRatio}fr 1px ${1 - inspectorSplitRatio}fr`,
+            : `${inspectorSplitRatio}fr 8px ${1 - inspectorSplitRatio}fr`,
           minHeight: 0,
           overflow: "hidden",
         }}
@@ -322,7 +326,38 @@ function SessionInspectorWorkspace({
           />
         </Box>
 
-        <Divider />
+        {requestCollapsed ? (
+          <Divider />
+        ) : (
+          <Box
+            aria-hidden
+            data-testid="session-inspector-splitter"
+            onPointerDown={onInspectorResizeStart}
+            sx={{
+              alignItems: "center",
+              cursor: "row-resize",
+              display: "flex",
+              justifyContent: "center",
+              minHeight: 0,
+              position: "relative",
+              touchAction: "none",
+              userSelect: "none",
+              "&::before": {
+                bgcolor: "divider",
+                borderRadius: 999,
+                content: '""',
+                height: 2,
+                opacity: 0.7,
+                transition: "background-color 120ms ease, opacity 120ms ease",
+                width: "100%",
+              },
+              "&:hover::before": {
+                bgcolor: "primary.main",
+                opacity: 1,
+              },
+            }}
+          />
+        )}
 
         <Box
           onClick={() => setActivePane("response")}

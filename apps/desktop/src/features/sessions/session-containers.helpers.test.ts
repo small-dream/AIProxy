@@ -31,6 +31,19 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
 }
 
 describe("session-containers.helpers", () => {
+  it("stores the initial inspector split ratio when provided", () => {
+    const state = createInitialSessionContainerState({ inspectorSplitRatio: 0.61 });
+
+    expect(state.containers[0]?.inspectorSplitRatio).toBe(0.61);
+  });
+
+  it("inherits the active container inspector split ratio for new tabs", () => {
+    let state = createInitialSessionContainerState({ inspectorSplitRatio: 0.64 });
+    state = createAdditionalSessionContainer(state);
+
+    expect(state.containers[1]?.inspectorSplitRatio).toBe(0.64);
+  });
+
   it("seeds the default container with the initial runtime sessions", () => {
     const state = createInitialSessionContainerState();
     const seededState = seedSessionContainers(state, [
@@ -90,7 +103,7 @@ describe("session-containers.helpers", () => {
   });
 
   it("clears only the active container and preserves the others", () => {
-    let state = createInitialSessionContainerState();
+    let state = createInitialSessionContainerState({ inspectorSplitRatio: 0.58 });
     state = seedSessionContainers(state, [
       createSessionSummary({ id: "session-a", url: "http://example.com/a" }),
     ]);
@@ -104,6 +117,7 @@ describe("session-containers.helpers", () => {
 
     expect(state.containers[0]?.sessionIds).toEqual(["session-a"]);
     expect(state.containers[1]?.sessionIds).toEqual([]);
+    expect(state.containers[1]?.inspectorSplitRatio).toBe(0.58);
     expect(state.sessionSummaryById["session-a"]).toBeDefined();
     expect(state.sessionSummaryById["session-b"]).toBeUndefined();
   });

@@ -32,6 +32,7 @@ type SessionsWorkspacePanelProps = {
   onCopyRequest: (() => void) | undefined;
   onCopyUrl: (() => void) | undefined;
   onDomainFilterChange: (value: string) => void;
+  onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRepeat: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
@@ -71,6 +72,7 @@ export function SessionsWorkspacePanel({
   onCopyRequest,
   onCopyUrl,
   onDomainFilterChange,
+  onInspectorResizeStart,
   onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
@@ -183,6 +185,7 @@ export function SessionsWorkspacePanel({
             onCopyCurl={onCopyCurl}
             onCopyRequest={onCopyRequest}
             onCopyUrl={onCopyUrl}
+            onInspectorResizeStart={onInspectorResizeStart}
             onRepeat={onRepeat}
             onRequestCollapsedChange={onRequestCollapsedChange}
             onRequestTabChange={onRequestTabChange}

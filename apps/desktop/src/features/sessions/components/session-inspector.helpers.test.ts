@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
-import { findNormalizedMatchIndex, formatJsonText, getRequestOperationLabel, parseJsonBody } from "./session-inspector.helpers";
+import {
+  clampInspectorSplitRatio,
+  findNormalizedMatchIndex,
+  formatJsonText,
+  getRequestOperationLabel,
+  parseJsonBody,
+} from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
   return {
@@ -115,6 +121,14 @@ describe("formatJsonText", () => {
 describe("findNormalizedMatchIndex", () => {
   it("matches case-insensitively", () => {
     expect(findNormalizedMatchIndex("UserID", "userid")).toBe(0);
+  });
+});
+
+describe("clampInspectorSplitRatio", () => {
+  it("keeps the ratio within the supported drag bounds", () => {
+    expect(clampInspectorSplitRatio(0.05)).toBe(0.15);
+    expect(clampInspectorSplitRatio(0.45)).toBe(0.45);
+    expect(clampInspectorSplitRatio(0.95)).toBe(0.85);
   });
 });
 

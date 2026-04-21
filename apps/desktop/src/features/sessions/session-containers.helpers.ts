@@ -1,14 +1,16 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 
-import type {
-  RequestInspectorTab,
-  ResponseInspectorTab,
+import {
+  DEFAULT_REQUEST_SPLIT_RATIO,
+  type RequestInspectorTab,
+  type ResponseInspectorTab,
 } from "./components/session-inspector.helpers";
 
 export type SessionContainer = {
   domainFilterValue: string;
   expandedHosts: string[];
   id: string;
+  inspectorSplitRatio: number;
   labelNumber: number;
   requestCollapsed: boolean;
   requestTab: RequestInspectorTab;
@@ -28,6 +30,7 @@ export type SessionContainerState = {
 };
 
 type CreateSessionContainerOptions = {
+  inspectorSplitRatio?: number;
   labelNumber: number;
   requestCollapsed?: boolean;
   requestTab?: RequestInspectorTab;
@@ -35,11 +38,15 @@ type CreateSessionContainerOptions = {
 };
 
 export function createInitialSessionContainerState(
-  options?: Pick<CreateSessionContainerOptions, "requestCollapsed" | "requestTab" | "responseTab">,
+  options?: Pick<CreateSessionContainerOptions, "inspectorSplitRatio" | "requestCollapsed" | "requestTab" | "responseTab">,
 ): SessionContainerState {
   const initialContainerOptions: CreateSessionContainerOptions = {
     labelNumber: 1,
   };
+
+  if (typeof options?.inspectorSplitRatio === "number") {
+    initialContainerOptions.inspectorSplitRatio = options.inspectorSplitRatio;
+  }
 
   if (typeof options?.requestCollapsed === "boolean") {
     initialContainerOptions.requestCollapsed = options.requestCollapsed;
@@ -66,8 +73,12 @@ export function createInitialSessionContainerState(
 }
 
 export function createAdditionalSessionContainer(state: SessionContainerState): SessionContainerState {
+  const activeContainer = getSessionContainerById(state, state.activeContainerId);
   const nextContainer = createSessionContainer({
     labelNumber: state.nextContainerNumber,
+    ...(typeof activeContainer?.inspectorSplitRatio === "number"
+      ? { inspectorSplitRatio: activeContainer.inspectorSplitRatio }
+      : {}),
   });
 
   return {
@@ -318,6 +329,7 @@ export function getSessionContainerById(
 }
 
 function createSessionContainer({
+  inspectorSplitRatio = DEFAULT_REQUEST_SPLIT_RATIO,
   labelNumber,
   requestCollapsed = false,
   requestTab = "headers",
@@ -327,6 +339,7 @@ function createSessionContainer({
     domainFilterValue: "",
     expandedHosts: [],
     id: `session-container-${labelNumber}`,
+    inspectorSplitRatio,
     labelNumber,
     requestCollapsed,
     requestTab,

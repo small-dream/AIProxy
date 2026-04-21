@@ -111,7 +111,13 @@ export type JsonParseResult =
   | { status: "error"; message: string }
   | { status: "success"; value: JsonValue };
 
+export const INSPECTOR_SPLIT_MIN = 0.15;
+export const INSPECTOR_SPLIT_MAX = 0.85;
 export const DEFAULT_REQUEST_SPLIT_RATIO = 0.38;
+
+export function clampInspectorSplitRatio(ratio: number): number {
+  return Math.min(INSPECTOR_SPLIT_MAX, Math.max(INSPECTOR_SPLIT_MIN, ratio));
+}
 
 export type JsonValue =
   | null

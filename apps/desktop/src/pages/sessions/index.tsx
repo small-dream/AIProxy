@@ -23,6 +23,7 @@ import type { WorkspaceHandle } from "@/features/sessions/components/SessionInsp
 import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
 import {
   DEFAULT_REQUEST_SPLIT_RATIO,
+  clampInspectorSplitRatio,
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
@@ -59,6 +60,7 @@ import { onSessionRemove, onSessionUpsert } from "@/services/events";
 import { setFocusedHost as syncFocusedHost } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
+const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
 const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
 const FOCUSED_HOST_STORAGE_KEY = "aiproxy.sessions.focusedHost";
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
@@ -76,9 +78,18 @@ export function SessionsPage() {
     error: sessionsError,
     isLoading: areSessionsLoading,
   } = useSessions();
-  const dragFrameRef = useRef<number | null>(null);
+  const explorerDragFrameRef = useRef<number | null>(null);
+  const inspectorDragFrameRef = useRef<number | null>(null);
+  const defaultInspectorSplitRatio = useMemo(() => {
+    const savedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
+
+    return Number.isFinite(savedRatio)
+      ? clampInspectorSplitRatio(savedRatio)
+      : DEFAULT_REQUEST_SPLIT_RATIO;
+  }, []);
   const [containerState, setContainerState] = useState(() =>
     createInitialSessionContainerState({
+      inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
       requestTab: "headers",
       responseTab: "overview",
@@ -260,6 +271,13 @@ export function SessionsPage() {
   }, [explorerWidth]);
 
   useEffect(() => {
+    writeStorageValue(
+      INSPECTOR_SPLIT_RATIO_STORAGE_KEY,
+      String(activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio),
+    );
+  }, [activeContainer?.inspectorSplitRatio, defaultInspectorSplitRatio]);
+
+  useEffect(() => {
     writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(activeContainer?.requestCollapsed ?? false));
   }, [activeContainer?.requestCollapsed]);
 
@@ -289,8 +307,12 @@ export function SessionsPage() {
 
   useEffect(() => {
     return () => {
-      if (dragFrameRef.current) {
-        window.cancelAnimationFrame(dragFrameRef.current);
+      if (explorerDragFrameRef.current) {
+        window.cancelAnimationFrame(explorerDragFrameRef.current);
+      }
+
+      if (inspectorDragFrameRef.current) {
+        window.cancelAnimationFrame(inspectorDragFrameRef.current);
       }
     };
   }, []);
@@ -427,11 +449,23 @@ export function SessionsPage() {
     );
   }, []);
 
+  const handleInspectorSplitRatioChange = useCallback((ratio: number) => {
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        inspectorSplitRatio: ratio,
+      })),
+    );
+  }, []);
+
   const handleClearActiveContainer = useCallback(() => {
     clearSessions(undefined, {
       onSuccess: () => {
         setContainerState((currentState) =>
           createInitialSessionContainerState({
+            inspectorSplitRatio:
+              getSessionContainerById(currentState, currentState.activeContainerId)?.inspectorSplitRatio
+              ?? defaultInspectorSplitRatio,
             requestCollapsed:
               getSessionContainerById(currentState, currentState.activeContainerId)?.requestCollapsed
               ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
@@ -443,7 +477,7 @@ export function SessionsPage() {
         );
       },
     });
-  }, [clearSessions]);
+  }, [clearSessions, defaultInspectorSplitRatio]);
 
   const headerActions = useMemo(
     () => (
@@ -479,7 +513,7 @@ export function SessionsPage() {
     };
   }, [headerActions, setHeaderActions]);
 
-  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+  function startExplorerResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
 
     if (!container) {
@@ -494,11 +528,11 @@ export function SessionsPage() {
       const bounds = container.getBoundingClientRect();
       const nextWidth = clampExplorerWidth(clientX - bounds.left);
 
-      if (dragFrameRef.current) {
-        window.cancelAnimationFrame(dragFrameRef.current);
+      if (explorerDragFrameRef.current) {
+        window.cancelAnimationFrame(explorerDragFrameRef.current);
       }
 
-      dragFrameRef.current = window.requestAnimationFrame(() => {
+      explorerDragFrameRef.current = window.requestAnimationFrame(() => {
         setExplorerWidth(nextWidth);
       });
     };
@@ -519,6 +553,52 @@ export function SessionsPage() {
     window.addEventListener("pointerup", stopResize);
     window.addEventListener("pointercancel", stopResize);
   }
+
+  const startInspectorResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = event.currentTarget.parentElement;
+
+    if (!container || activeContainer?.requestCollapsed) {
+      return;
+    }
+
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+
+    const updateRatio = (clientY: number) => {
+      const bounds = container.getBoundingClientRect();
+
+      if (bounds.height <= 0) {
+        return;
+      }
+
+      const nextRatio = clampInspectorSplitRatio((clientY - bounds.top) / bounds.height);
+
+      if (inspectorDragFrameRef.current) {
+        window.cancelAnimationFrame(inspectorDragFrameRef.current);
+      }
+
+      inspectorDragFrameRef.current = window.requestAnimationFrame(() => {
+        handleInspectorSplitRatioChange(nextRatio);
+      });
+    };
+
+    updateRatio(event.clientY);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateRatio(moveEvent.clientY);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }, [activeContainer?.requestCollapsed, handleInspectorSplitRatioChange]);
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
@@ -541,7 +621,7 @@ export function SessionsPage() {
         expandedHosts={activeContainer?.expandedHosts ?? []}
         explorerWidth={explorerWidth}
         groups={hostGroups}
-        inspectorSplitRatio={DEFAULT_REQUEST_SPLIT_RATIO}
+        inspectorSplitRatio={activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio}
         isDetailLoading={isSessionDetailLoading}
         isLoading={isLoading || areSessionsLoading}
         onAddContainer={handleAddContainer}
@@ -552,10 +632,11 @@ export function SessionsPage() {
         onCopyRequest={selectedSession ? () => { void handleCopyRequest(selectedSession); } : undefined}
         onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
         onDomainFilterChange={handleDomainFilterChange}
+        onInspectorResizeStart={startInspectorResize}
         onRepeat={selectedSession ? handleRepeat : undefined}
         onRequestCollapsedChange={handleRequestCollapsedChange}
         onRequestTabChange={handleRequestTabChange}
-        onResizeStart={startResize}
+        onResizeStart={startExplorerResize}
         onResponseTabChange={handleResponseTabChange}
         onSelectContainer={handleSelectContainer}
         onSelectSession={handleSelectedSessionChange}
