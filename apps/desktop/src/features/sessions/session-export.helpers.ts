@@ -78,6 +78,22 @@ export function buildHarArchive(details: SessionDetail[]) {
   };
 }
 
+export function buildHarExportFilename(scope: "request" | "host" | "sessions", label?: string) {
+  const normalizedLabel = label
+    ?.replace(/[^a-zA-Z0-9.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  const filenameParts = ["aiproxy", scope];
+
+  if (normalizedLabel) {
+    filenameParts.push(normalizedLabel);
+  }
+
+  filenameParts.push(String(Date.now()));
+
+  return `${filenameParts.join("-")}.har`;
+}
+
 export function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
   if (!body) {
     return "";

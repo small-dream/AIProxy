@@ -7,6 +7,7 @@ import { AppProviders } from "@/app/providers/AppProviders";
 import { SessionsPage } from "@/pages/sessions";
 
 const mockSetHeaderActions = vi.fn();
+const mockLocation = { key: "default", pathname: "/", state: null };
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
 
 vi.mock("react-router-dom", async () => {
@@ -14,6 +15,7 @@ vi.mock("react-router-dom", async () => {
 
   return {
     ...actual,
+    useLocation: () => mockLocation,
     useNavigate: () => vi.fn(),
     useOutletContext: () => ({ setHeaderActions: mockSetHeaderActions }),
   };

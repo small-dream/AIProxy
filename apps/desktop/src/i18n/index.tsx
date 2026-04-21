@@ -32,7 +32,19 @@ const messagesByLocale: Record<SupportedLocale, Messages> = {
   "zh-CN": zhCNMessages,
 };
 
-const I18nContext = createContext<I18nContextValue | null>(null);
+const I18N_CONTEXT_KEY = "__AIPROXY_I18N_CONTEXT__";
+
+type GlobalWithI18nContext = typeof globalThis & {
+  [I18N_CONTEXT_KEY]?: ReturnType<typeof createContext<I18nContextValue | null>>;
+};
+
+const I18nContext = (
+  globalThis as GlobalWithI18nContext
+)[I18N_CONTEXT_KEY] ?? createContext<I18nContextValue | null>(null);
+
+(
+  globalThis as GlobalWithI18nContext
+)[I18N_CONTEXT_KEY] = I18nContext;
 
 export function resolveLocale(
   preference: LanguagePreference,

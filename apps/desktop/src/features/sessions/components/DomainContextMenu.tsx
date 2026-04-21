@@ -1,13 +1,15 @@
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
+import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
-import { ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
+import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
 import {
   buildContextMenuSlotProps,
   contextMenuItemTextProps,
+  getContextMenuDividerSx,
   getContextMenuIconSx,
   getContextMenuItemSx,
 } from "./context-menu.styles";
@@ -18,6 +20,7 @@ type DomainContextMenuProps = {
   isHostFocused: boolean;
   isHostIgnored: boolean;
   onClose: () => void;
+  onExportHost: (host: string) => void;
   onFocusHost: (host: string) => void;
   onIgnoreHost: (host: string) => void;
   onStopIgnoringHost: (host: string) => void;
@@ -30,6 +33,7 @@ export function DomainContextMenu({
   isHostFocused,
   isHostIgnored,
   onClose,
+  onExportHost,
   onFocusHost,
   onIgnoreHost,
   onStopIgnoringHost,
@@ -43,6 +47,7 @@ export function DomainContextMenu({
   }
 
   const menuItemSx = getContextMenuItemSx(theme);
+  const dividerSx = getContextMenuDividerSx(theme);
   const iconSx = getContextMenuIconSx(theme);
 
   return (
@@ -53,6 +58,21 @@ export function DomainContextMenu({
       open={anchorPosition !== undefined}
       slotProps={buildContextMenuSlotProps(220)}
     >
+      <MenuItem
+        onClick={() => {
+          onExportHost(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <FileDownloadRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.exportHost")}</ListItemText>
+      </MenuItem>
+
+      <Divider sx={dividerSx} />
+
       {isHostFocused ? (
         <MenuItem
           onClick={() => {

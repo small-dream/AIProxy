@@ -14,6 +14,7 @@ import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
 import { AppShellTopControls } from "@/components/layout/AppShellTopControls";
+import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
@@ -24,6 +25,7 @@ import {
   useStartProxy,
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
+import type { SessionsMenuAction } from "@/features/sessions/session-menu-actions";
 import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
 import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
@@ -38,10 +40,6 @@ import {
 } from "@/services/commands";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
-
-export type AppShellOutletContext = {
-  setHeaderActions: (actions: ReactNode | null) => void;
-};
 
 function getErrorMessage(error: unknown, fallbackMessage: string) {
   const normalizedError = coerceAppError(error);
@@ -419,6 +417,14 @@ export function AppShell() {
 
     onMenuEvent((payload) => {
       const h = menuHandlerRef.current;
+      const navigateToSessionsMenuAction = (menuAction: SessionsMenuAction) => {
+        h.navigate("/", {
+          state: {
+            sessionsMenuAction: menuAction,
+          },
+        });
+      };
+
       switch (payload.menuId) {
         case "preferences":
           h.navigate("/settings");
@@ -511,16 +517,17 @@ export function AppShell() {
           void h.handleAdbClearProxy();
           break;
         case "import_har":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-import-har"));
+          navigateToSessionsMenuAction({
+            kind: "import-har",
+            requestedAt: Date.now(),
+          });
           break;
         case "export_har":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-har"));
-          break;
-        case "export_curl":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-curl"));
-          break;
-        case "export_snapshot":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-export-snapshot"));
+          navigateToSessionsMenuAction({
+            format: "har",
+            kind: "export",
+            requestedAt: Date.now(),
+          });
           break;
         case "documentation": {
           const docsUrl = "https://github.com/jakejiang/aiproxy";

@@ -78,6 +78,12 @@ import {
   logDevError,
   logDevInfo,
 } from "@/services/logger/dev-logger";
+import {
+  clearImportedSessions,
+  getImportedSessionDetail,
+  keepOnlyImportedSession,
+  listImportedSessionSummaries,
+} from "@/features/sessions/imported-sessions.store";
 
 const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
 const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
@@ -174,15 +180,17 @@ export async function stopProxy(input: StopProxyInput): Promise<ProxyStatus> {
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
+  const importedSessions = listImportedSessionSummaries();
+
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "list_sessions_bypassed_non_tauri_runtime");
-    return [];
+    return importedSessions;
   }
 
   try {
     logDevDebug("ui.commands", "list_sessions_requested");
     const payload = await invoke<unknown>("list_sessions");
-    const sessions = parseSessionSummaries(payload);
+    const sessions = mergeImportedSessionSummaries(parseSessionSummaries(payload), importedSessions);
 
     logDevDebug("ui.commands", "list_sessions_succeeded", {
       sessionCount: sessions.length,
@@ -196,6 +204,12 @@ export async function listSessions(): Promise<SessionSummary[]> {
 }
 
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
+  const importedDetail = getImportedSessionDetail(sessionId);
+
+  if (importedDetail) {
+    return importedDetail;
+  }
+
   if (!isTauriRuntime()) {
     throw {
       code: "DESKTOP_RUNTIME_REQUIRED",
@@ -227,6 +241,62 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
 export async function getSessionDetailContent(
   input: SessionDetailContentRequest,
 ): Promise<SessionDetailContentPatch> {
+  const importedDetail = getImportedSessionDetail(input.sessionId);
+
+  if (importedDetail) {
+    return {
+      sessionId: input.sessionId,
+      ...(input.includeRawRequest && importedDetail.rawRequest !== undefined
+        ? { rawRequest: importedDetail.rawRequest }
+        : {}),
+      ...(input.includeRawRequest && importedDetail.rawRequestDeferred !== undefined
+        ? { rawRequestDeferred: importedDetail.rawRequestDeferred }
+        : {}),
+      ...(input.includeRawResponse && importedDetail.rawResponse !== undefined
+        ? { rawResponse: importedDetail.rawResponse }
+        : {}),
+      ...(input.includeRawResponse && importedDetail.rawResponseDeferred !== undefined
+        ? { rawResponseDeferred: importedDetail.rawResponseDeferred }
+        : {}),
+      ...(input.includeRequestBodyText || input.includeRequestBodyBase64
+        ? {
+            requestBody: {
+              ...(input.includeRequestBodyText && importedDetail.requestBody?.inlineText !== undefined
+                ? { inlineText: importedDetail.requestBody.inlineText }
+                : {}),
+              ...(input.includeRequestBodyText && importedDetail.requestBody?.textDeferred !== undefined
+                ? { textDeferred: importedDetail.requestBody.textDeferred }
+                : {}),
+              ...(input.includeRequestBodyBase64 && importedDetail.requestBody?.base64Text !== undefined
+                ? { base64Text: importedDetail.requestBody.base64Text }
+                : {}),
+              ...(input.includeRequestBodyBase64 && importedDetail.requestBody?.base64Deferred !== undefined
+                ? { base64Deferred: importedDetail.requestBody.base64Deferred }
+                : {}),
+            },
+          }
+        : {}),
+      ...(input.includeResponseBodyText || input.includeResponseBodyBase64
+        ? {
+            responseBody: {
+              ...(input.includeResponseBodyText && importedDetail.responseBody?.inlineText !== undefined
+                ? { inlineText: importedDetail.responseBody.inlineText }
+                : {}),
+              ...(input.includeResponseBodyText && importedDetail.responseBody?.textDeferred !== undefined
+                ? { textDeferred: importedDetail.responseBody.textDeferred }
+                : {}),
+              ...(input.includeResponseBodyBase64 && importedDetail.responseBody?.base64Text !== undefined
+                ? { base64Text: importedDetail.responseBody.base64Text }
+                : {}),
+              ...(input.includeResponseBodyBase64 && importedDetail.responseBody?.base64Deferred !== undefined
+                ? { base64Deferred: importedDetail.responseBody.base64Deferred }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
   if (!isTauriRuntime()) {
     throw {
       code: "DESKTOP_RUNTIME_REQUIRED",
@@ -266,6 +336,8 @@ export async function getSessionDetailWithContent(
 }
 
 export async function clearSessions(): Promise<void> {
+  clearImportedSessions();
+
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "clear_sessions_bypassed_non_tauri_runtime");
     return;
@@ -304,6 +376,8 @@ export async function searchWsMessages(
 }
 
 export async function deleteSessionsExcept(keepSessionId: string): Promise<void> {
+  keepOnlyImportedSession(keepSessionId);
+
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "delete_sessions_except_bypassed_non_tauri_runtime");
     return;
@@ -319,6 +393,27 @@ export async function deleteSessionsExcept(keepSessionId: string): Promise<void>
     reportCommandFailure("delete_sessions_except", error);
     throw coerceAppError(error);
   }
+}
+
+function mergeImportedSessionSummaries(
+  sessions: SessionSummary[],
+  importedSessions: SessionSummary[],
+): SessionSummary[] {
+  if (importedSessions.length === 0) {
+    return sessions;
+  }
+
+  const sessionsById = new Map<string, SessionSummary>();
+
+  for (const session of sessions) {
+    sessionsById.set(session.id, session);
+  }
+
+  for (const importedSession of importedSessions) {
+    sessionsById.set(importedSession.id, importedSession);
+  }
+
+  return Array.from(sessionsById.values());
 }
 
 export async function setFocusedHosts(hosts: string[]): Promise<void> {
@@ -953,6 +1048,24 @@ export async function readScriptSourceFile(path: string): Promise<ScriptSourceFi
     return parseScriptSourceFile(payload);
   } catch (error) {
     reportCommandFailure("read_script_source_file", error, path);
+    throw coerceAppError(error);
+  }
+}
+
+export async function readHarFile(path: string): Promise<string> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Reading HAR files requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    return await invoke<string>("read_har_file", {
+      input: { path },
+    });
+  } catch (error) {
+    reportCommandFailure("read_har_file", error, path);
     throw coerceAppError(error);
   }
 }

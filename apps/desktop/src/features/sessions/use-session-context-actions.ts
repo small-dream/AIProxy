@@ -176,7 +176,7 @@ export function useSessionContextActions({
     const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
     const extension = guessExtension(mimeType);
     const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
-    downloadTextFile(filename, bodyText, mimeType);
+    await downloadTextFile(filename, bodyText, mimeType);
   }, [queryClient]);
 
   const handleCompose = useCallback(async (session: SessionSummary) => {

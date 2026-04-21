@@ -1,15 +1,19 @@
 import {
   coerceAppError,
   isAppError,
+  type ExportFormat,
+  type SessionDetail,
 } from "@aiproxy/shared-types";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { open } from "@tauri-apps/plugin-dialog";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
-import type { AppShellOutletContext } from "@/components/layout/AppShell";
+import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
@@ -18,7 +22,11 @@ import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
 import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
-import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
+import {
+  SessionExportDialog,
+  type SessionExportDialogScope,
+  type SessionExportHostScope,
+} from "@/features/sessions/components/SessionExportDialog";
 import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
 import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
 import {
@@ -39,11 +47,17 @@ import {
   updateActiveSessionContainer,
   upsertSessionContainerSummary,
 } from "@/features/sessions/session-containers.helpers";
+import { upsertImportedSessions } from "@/features/sessions/imported-sessions.store";
+import { upsertSessionSummary } from "@/features/sessions/session-cache.helpers";
 import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
   reconcileExpandedKeys,
 } from "@/features/sessions/session-explorer.helpers";
+import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
+import { buildHarArchive, buildHarExportFilename } from "@/features/sessions/session-export.helpers";
+import { parseHarArchive } from "@/features/sessions/session-import.helpers";
+import { readSessionsMenuAction } from "@/features/sessions/session-menu-actions";
 import {
   readStorageValue,
   readStoredHosts,
@@ -55,8 +69,9 @@ import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
+import { downloadTextFile } from "@/lib/download";
 import { onSessionRemove, onSessionUpsert } from "@/services/events";
-import { setFocusedHosts as syncFocusedHosts } from "@/services/commands";
+import { readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
@@ -66,7 +81,9 @@ const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 
 export function SessionsPage() {
   const { t } = useI18n();
+  const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const sendComposedRequestMutation = useSendComposedRequest();
@@ -100,7 +117,11 @@ export function SessionsPage() {
 
     return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 360;
   });
+  const lastHandledMenuActionRef = useRef(0);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportDialogInitialScope, setExportDialogInitialScope] = useState<SessionExportDialogScope>();
+  const [exportDialogHostScope, setExportDialogHostScope] = useState<SessionExportHostScope | null>(null);
+  const [importSnackbarMessage, setImportSnackbarMessage] = useState<string | null>(null);
   const [focusedHosts, setFocusedHosts] = useState<Set<string>>(() =>
     readFocusedHostsFromStorage(),
   );
@@ -370,14 +391,90 @@ export function SessionsPage() {
   }, [handleCompose, selectedSession]);
 
   const handleExportSession = useCallback((session: SessionSummary) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        selectedSessionId: session.id,
-      })),
-    );
+    void exportSessionsAsHar(queryClient, [session], buildHarExportFilename("request", session.host))
+      .catch((error) => {
+        setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+      });
+  }, [queryClient, t]);
+
+  const handleOpenExportDialog = useCallback((scope?: SessionExportDialogScope) => {
+    setExportDialogHostScope(null);
+    setExportDialogInitialScope(scope);
     setExportDialogOpen(true);
   }, []);
+
+  const handleExportHost = useCallback((host: string) => {
+    const hostSessions = visibleSessions.filter((session) => session.host === host);
+    void exportSessionsAsHar(queryClient, hostSessions, buildHarExportFilename("host", host))
+      .catch((error) => {
+        setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+      });
+  }, [queryClient, t, visibleSessions]);
+
+  const handleImportSessions = useCallback((details: SessionDetail[]) => {
+    if (details.length === 0) {
+      return;
+    }
+
+    upsertImportedSessions(details);
+
+    queryClient.setQueryData<SessionSummary[]>(["sessions"], (currentSessions = []) => {
+      let nextSessions = currentSessions;
+
+      for (const detail of details) {
+        nextSessions = upsertSessionSummary(nextSessions, detail.summary);
+      }
+
+      return nextSessions;
+    });
+
+    for (const detail of details) {
+      queryClient.setQueryData(["session-detail", detail.id], detail);
+    }
+
+    setContainerState((currentState) => {
+      let nextState = currentState;
+
+      for (const detail of details) {
+        nextState = upsertSessionContainerSummary(nextState, detail.summary);
+      }
+
+      return updateActiveSessionContainer(nextState, (container) => ({
+        ...container,
+        ...(details[0]?.id ? { selectedSessionId: details[0].id } : {}),
+      }));
+    });
+
+    setSessionSelectionNonce((currentValue) => currentValue + 1);
+    setImportSnackbarMessage(t("sessionsImport.messages.importedHar", {
+      count: details.length,
+    }));
+  }, [queryClient, t]);
+
+  const handleImportHarPickerOpen = useCallback(async () => {
+    try {
+      const selected = await open({
+        directory: false,
+        filters: [{ name: "HAR", extensions: ["har"] }],
+        multiple: false,
+        title: t("sessionsImport.title"),
+      });
+
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+
+      if (!selected.toLowerCase().endsWith(".har")) {
+        throw new Error(t("sessionsImport.invalidFileType"));
+      }
+
+      const contents = await readHarFile(selected);
+      const details = parseHarArchive(contents);
+      handleImportSessions(details);
+    } catch (error) {
+      setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+    }
+  }, [handleImportSessions, t]);
 
   const handleClearOthers = useCallback((session: SessionSummary) => {
     setContainerState((currentState) => clearOtherSessionsInActiveContainer(currentState, session.id));
@@ -495,14 +592,14 @@ export function SessionsPage() {
           label={t("sessionsPage.containers.clearCurrent")}
         />
         <TopBarActionButton
-          onClick={() => setExportDialogOpen(true)}
+          onClick={() => handleOpenExportDialog()}
           disabled={activeSessions.length === 0}
           icon={<DownloadRoundedIcon />}
           label={t("sessionsPage.export")}
         />
       </Stack>
     ),
-    [activeSessions.length, handleClearActiveContainer, isClearingSessions, t],
+    [activeSessions.length, handleClearActiveContainer, handleOpenExportDialog, isClearingSessions, t],
   );
 
   useLayoutEffect(() => {
@@ -600,6 +697,23 @@ export function SessionsPage() {
     window.addEventListener("pointercancel", stopResize);
   }, [activeContainer?.requestCollapsed, handleInspectorSplitRatioChange]);
 
+  useEffect(() => {
+    const menuAction = readSessionsMenuAction(location.state);
+
+    if (!menuAction || menuAction.requestedAt <= lastHandledMenuActionRef.current) {
+      return;
+    }
+
+    lastHandledMenuActionRef.current = menuAction.requestedAt;
+
+    if (menuAction.kind === "import-har") {
+      handleImportHarPickerOpen();
+      return;
+    }
+
+    handleOpenExportDialog();
+  }, [handleImportHarPickerOpen, handleOpenExportDialog, location.key, location.state]);
+
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <SessionsWorkspacePanel
@@ -655,7 +769,13 @@ export function SessionsPage() {
       <SessionExportDialog
         allSessions={activeSessions}
         filteredSessions={visibleSessions}
-        onClose={() => setExportDialogOpen(false)}
+        {...(exportDialogHostScope ? { hostScope: exportDialogHostScope } : {})}
+        {...(exportDialogInitialScope ? { initialScope: exportDialogInitialScope } : {})}
+        onClose={() => {
+          setExportDialogOpen(false);
+          setExportDialogInitialScope(undefined);
+          setExportDialogHostScope(null);
+        }}
         open={exportDialogOpen}
         selectedSession={selectedSession}
         selectedSessionDetail={selectedSessionDetail}
@@ -698,6 +818,7 @@ export function SessionsPage() {
         isHostFocused={contextMenuHost ? focusedHosts.has(contextMenuHost) : false}
         isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
         onClose={handleHostContextMenuClose}
+        onExportHost={handleExportHost}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}
         onStopIgnoringHost={handleStopIgnoringDomain}
@@ -710,6 +831,14 @@ export function SessionsPage() {
         onClose={handleSnackbarClose}
         open={snackbarMessage !== null}
         message={snackbarMessage}
+      />
+
+      <Snackbar
+        anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
+        autoHideDuration={2400}
+        onClose={() => setImportSnackbarMessage(null)}
+        open={importSnackbarMessage !== null}
+        message={importSnackbarMessage}
       />
     </Stack>
   );
@@ -747,4 +876,32 @@ function clampExplorerWidth(width: number) {
 
 function readFocusedHostsFromStorage(): Set<string> {
   return new Set(readStoredHosts(FOCUSED_HOSTS_STORAGE_KEY));
+}
+
+async function exportSessionsAsHar(
+  queryClient: QueryClient,
+  sessions: SessionSummary[],
+  filename: string,
+) {
+  if (sessions.length === 0) {
+    return;
+  }
+
+  const details = await Promise.all(
+    sessions.map((session) => ensureSessionDetailContent(queryClient, session.id, {
+      includeRawRequest: true,
+      includeRawResponse: true,
+      includeRequestBodyText: true,
+      includeResponseBodyText: true,
+      includeRequestBodyBase64: true,
+      includeResponseBodyBase64: true,
+    })),
+  );
+
+  await downloadTextFile(
+    filename,
+    JSON.stringify(buildHarArchive(details), null, 2),
+    "application/json",
+    { revealInFolder: true },
+  );
 }

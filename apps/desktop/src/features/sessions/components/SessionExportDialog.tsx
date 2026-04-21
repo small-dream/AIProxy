@@ -1,9 +1,10 @@
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import FileCopyRoundedIcon from "@mui/icons-material/FileCopyRounded";
+import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -15,25 +16,30 @@ import {
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { downloadTextFile } from "@/lib/download";
 import type {
-  ExportFormat,
   ExportScope,
   SessionDetail,
   SessionSummary,
 } from "@aiproxy/shared-types";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
 import { SESSION_DETAIL_QUERY_KEY } from "@/features/sessions/use-session-detail";
 import {
-  buildCurlBundle,
   buildHarArchive,
-  buildSessionSnapshot,
 } from "../session-export.helpers";
+
+export type SessionExportDialogScope = ExportScope | "host";
+export type SessionExportHostScope = {
+  host: string;
+  sessions: SessionSummary[];
+};
 
 type Props = {
   allSessions: SessionSummary[];
   filteredSessions: SessionSummary[];
+  hostScope?: SessionExportHostScope;
+  initialScope?: SessionExportDialogScope;
   onClose: () => void;
   open: boolean;
   selectedSession: SessionSummary | undefined;
@@ -43,6 +49,8 @@ type Props = {
 export function SessionExportDialog({
   allSessions,
   filteredSessions,
+  hostScope,
+  initialScope,
   onClose,
   open,
   selectedSession,
@@ -50,15 +58,37 @@ export function SessionExportDialog({
 }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const [scope, setScope] = useState<ExportScope>(selectedSession ? "selected" : "filtered");
-  const [format, setFormat] = useState<ExportFormat>("json");
+  const [scope, setScope] = useState<SessionExportDialogScope>(
+    initialScope ?? (selectedSession ? "selected" : "filtered"),
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setScope(
+      initialScope
+      ?? (hostScope && hostScope.sessions.length > 0
+        ? "host"
+        : selectedSession
+          ? "selected"
+          : "filtered"),
+    );
+    setFeedbackMessage(undefined);
+    setErrorMessage(undefined);
+  }, [hostScope, initialScope, open, selectedSession]);
+
   const scopeCount = useMemo(() => {
     if (scope === "selected") {
       return selectedSession ? 1 : 0;
+    }
+
+    if (scope === "host") {
+      return hostScope?.sessions.length ?? 0;
     }
 
     if (scope === "filtered") {
@@ -66,7 +96,7 @@ export function SessionExportDialog({
     }
 
     return allSessions.length;
-  }, [allSessions.length, filteredSessions.length, scope, selectedSession]);
+  }, [allSessions.length, filteredSessions.length, hostScope?.sessions.length, scope, selectedSession]);
 
   async function handleExport() {
     setErrorMessage(undefined);
@@ -81,31 +111,17 @@ export function SessionExportDialog({
         scope,
         selectedSession,
         selectedSessionDetail,
+        ...(hostScope ? { hostScope } : {}),
       });
 
-      if (format === "json") {
-        downloadTextFile(
-          `aiproxy-sessions-${Date.now()}.json`,
-          JSON.stringify(buildSessionSnapshot(details), null, 2),
-          "application/json",
-        );
-        setFeedbackMessage(t("sessionsExport.messages.exportedSnapshot"));
-        return;
-      }
-
-      if (format === "har") {
-        downloadTextFile(
-          `aiproxy-sessions-${Date.now()}.har`,
-          JSON.stringify(buildHarArchive(details), null, 2),
-          "application/json",
-        );
-        setFeedbackMessage(t("sessionsExport.messages.exportedHar"));
-        return;
-      }
-
-      const curlBundle = buildCurlBundle(details).join("\n\n");
-      await navigator.clipboard?.writeText(curlBundle);
-      setFeedbackMessage(t("sessionsExport.messages.copiedCurl"));
+      await downloadTextFile(
+        `aiproxy-sessions-${Date.now()}.har`,
+        JSON.stringify(buildHarArchive(details), null, 2),
+        "application/json",
+        { revealInFolder: true },
+      );
+      setFeedbackMessage(t("sessionsExport.messages.exportedHar"));
+      onClose();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
     } finally {
@@ -120,13 +136,41 @@ export function SessionExportDialog({
         <Stack spacing={3} sx={{ pt: 1 }}>
           <Stack spacing={1}>
             <Typography variant="subtitle2">{t("sessionsExport.scopeTitle")}</Typography>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={1.25}>
+            <Box
+              sx={{
+                display: "grid",
+                gap: 1.25,
+                gridTemplateColumns: {
+                  xs: "minmax(0, 1fr)",
+                  md: "repeat(2, minmax(0, 1fr))",
+                },
+              }}
+            >
               <SelectableCard
                 active={scope === "selected"}
                 disabled={!selectedSession}
                 title={t("sessionsExport.scopes.selected")}
-                description={selectedSession ? selectedSession.url : t("sessionsExport.noSelectedSession")}
+                description={
+                  selectedSession
+                    ? <SessionScopePreview session={selectedSession} />
+                    : t("sessionsExport.noSelectedSession")
+                }
                 onClick={() => setScope("selected")}
+              />
+              <SelectableCard
+                active={scope === "host"}
+                disabled={!hostScope || hostScope.sessions.length === 0}
+                title={t("sessionsExport.scopes.host")}
+                description={
+                  hostScope
+                    ? t("sessionsExport.hostDescription", {
+                      count: hostScope.sessions.length,
+                      host: hostScope.host,
+                    })
+                    : t("sessionsExport.noHostScope")
+                }
+                icon={<PublicRoundedIcon fontSize="small" />}
+                onClick={() => setScope("host")}
               />
               <SelectableCard
                 active={scope === "filtered"}
@@ -142,45 +186,13 @@ export function SessionExportDialog({
                 description={t("sessionsExport.allDescription", { count: allSessions.length })}
                 onClick={() => setScope("all")}
               />
-            </Stack>
-          </Stack>
-
-          <Stack spacing={1}>
-            <Typography variant="subtitle2">{t("sessionsExport.formatTitle")}</Typography>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={1.25}>
-              <SelectableCard
-                active={format === "json"}
-                title={t("sessionsExport.formats.json")}
-                description={t("sessionsExport.formatDescriptions.json")}
-                icon={<DownloadRoundedIcon fontSize="small" />}
-                onClick={() => setFormat("json")}
-              />
-              <SelectableCard
-                active={format === "har"}
-                title={t("sessionsExport.formats.har")}
-                description={t("sessionsExport.formatDescriptions.har")}
-                icon={<DownloadRoundedIcon fontSize="small" />}
-                onClick={() => setFormat("har")}
-              />
-              <SelectableCard
-                active={format === "curl"}
-                title={t("sessionsExport.formats.curl")}
-                description={t("sessionsExport.formatDescriptions.curl")}
-                icon={<FileCopyRoundedIcon fontSize="small" />}
-                onClick={() => setFormat("curl")}
-              />
-            </Stack>
+            </Box>
           </Stack>
 
           <Alert severity="info" variant="outlined">
             {t("sessionsExport.summary", {
               count: scopeCount,
-              format:
-                format === "json"
-                  ? t("sessionsExport.formats.json")
-                  : format === "har"
-                    ? t("sessionsExport.formats.har")
-                    : t("sessionsExport.formats.curl"),
+              format: t("sessionsExport.formats.har"),
             })}
           </Alert>
 
@@ -204,7 +216,7 @@ export function SessionExportDialog({
           onClick={handleExport}
           disabled={scopeCount === 0 || isExporting}
         >
-          {format === "curl" ? t("sessionsExport.exportCurl") : t("sessionsExport.exportFile")}
+          {t("sessionsExport.exportHar")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -213,7 +225,7 @@ export function SessionExportDialog({
 
 function SelectableCard(props: {
   active: boolean;
-  description: string;
+  description: ReactNode;
   disabled?: boolean;
   icon?: ReactNode;
   onClick: () => void;
@@ -226,37 +238,83 @@ function SelectableCard(props: {
       elevation={0}
       onClick={disabled ? undefined : onClick}
       sx={{
+        backgroundColor: active ? "action.selected" : "background.paper",
         border: 1,
         borderColor: active ? "primary.main" : "divider",
         borderRadius: 2.5,
         cursor: disabled ? "not-allowed" : "pointer",
-        flex: 1,
+        height: "100%",
+        minWidth: 0,
         opacity: disabled ? 0.55 : 1,
         p: 1.5,
+        transition: "border-color 140ms ease, background-color 140ms ease, transform 140ms ease",
+        "&:hover": disabled ? undefined : {
+          borderColor: "primary.main",
+          transform: "translateY(-1px)",
+        },
       }}
     >
-      <Stack spacing={0.75}>
+      <Stack spacing={0.75} sx={{ minWidth: 0 }}>
         <Stack direction="row" spacing={1} alignItems="center">
           {icon ? <Box sx={{ display: "flex" }}>{icon}</Box> : null}
           <Typography sx={{ fontWeight: 600 }}>{title}</Typography>
         </Stack>
-        <Typography color="text.secondary" variant="body2">
+        <Box
+          sx={{
+            color: "text.secondary",
+            minWidth: 0,
+            overflowWrap: "anywhere",
+            typography: "body2",
+          }}
+        >
           {description}
-        </Typography>
+        </Box>
       </Stack>
     </Paper>
+  );
+}
+
+function SessionScopePreview({ session }: { session: SessionSummary }) {
+  return (
+    <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+        <Chip label={session.method} size="small" sx={{ fontWeight: 700 }} />
+        <Typography sx={{ fontWeight: 600, minWidth: 0 }} variant="body2">
+          {session.host}
+        </Typography>
+      </Stack>
+      <Typography
+        color="text.primary"
+        sx={{ fontFamily: "ui-monospace, monospace", minWidth: 0, overflowWrap: "anywhere" }}
+        variant="body2"
+      >
+        {session.path}
+      </Typography>
+      <Typography color="text.secondary" sx={{ minWidth: 0, overflowWrap: "anywhere" }} variant="caption">
+        {session.url}
+      </Typography>
+    </Stack>
   );
 }
 
 async function loadDetailsForScope(props: {
   allSessions: SessionSummary[];
   filteredSessions: SessionSummary[];
+  hostScope?: SessionExportHostScope;
   queryClient: QueryClient;
-  scope: ExportScope;
+  scope: SessionExportDialogScope;
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
 }) {
-  const { allSessions, filteredSessions, queryClient, scope, selectedSession, selectedSessionDetail } = props;
+  const {
+    allSessions,
+    filteredSessions,
+    hostScope,
+    queryClient,
+    scope,
+    selectedSession,
+    selectedSessionDetail,
+  } = props;
 
   if (scope === "selected") {
     if (!selectedSession) {
@@ -277,7 +335,11 @@ async function loadDetailsForScope(props: {
     })];
   }
 
-  const summaries = scope === "filtered" ? filteredSessions : allSessions;
+  const summaries = scope === "host"
+    ? (hostScope?.sessions ?? [])
+    : scope === "filtered"
+      ? filteredSessions
+      : allSessions;
 
   const BATCH_SIZE = 10;
   const details: SessionDetail[] = [];

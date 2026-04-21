@@ -113,6 +113,8 @@ pub fn run() {
             commands::stop_proxy,
             commands::enable_system_proxy,
             commands::disable_system_proxy,
+            commands::save_text_file,
+            commands::read_har_file,
             commands::get_certificate_status,
             commands::generate_root_certificate,
             commands::open_certificate_install_guide,

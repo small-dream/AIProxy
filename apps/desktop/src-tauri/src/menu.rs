@@ -8,8 +8,6 @@ pub mod ids {
     pub const PREFERENCES: &str = "preferences";
     pub const IMPORT_HAR: &str = "import_har";
     pub const EXPORT_HAR: &str = "export_har";
-    pub const EXPORT_CURL: &str = "export_curl";
-    pub const EXPORT_SNAPSHOT: &str = "export_snapshot";
     pub const CLEAR_ALL_SESSIONS: &str = "clear_all_sessions";
     pub const FIND: &str = "find";
     pub const REFRESH: &str = "refresh";
@@ -57,12 +55,6 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .separator()
         .item(&MenuItemBuilder::new("Export as HAR...")
             .id(ids::EXPORT_HAR)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Export as cURL...")
-            .id(ids::EXPORT_CURL)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Export as Snapshot...")
-            .id(ids::EXPORT_SNAPSHOT)
             .build(handle)?)
         .separator()
         .item(&MenuItemBuilder::new("Clear All Sessions")
