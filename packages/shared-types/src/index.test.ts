@@ -56,6 +56,35 @@ describe("coerceAppError", () => {
     });
   });
 
+  it("preserves string messages from command failures", () => {
+    const actual = coerceAppError("Port 8888 is already in use.");
+
+    expect(actual).toEqual({
+      code: "UNKNOWN_ERROR",
+      message: "Port 8888 is already in use.",
+    });
+  });
+
+  it("parses app errors serialized as JSON strings", () => {
+    const actual = coerceAppError(
+      JSON.stringify({
+        code: "PORT_IN_USE",
+        message: "The selected port is already in use.",
+        details: {
+          port: 8888,
+        },
+      }),
+    );
+
+    expect(actual).toEqual({
+      code: "PORT_IN_USE",
+      message: "The selected port is already in use.",
+      details: {
+        port: 8888,
+      },
+    });
+  });
+
   it("returns a default message for non-error values", () => {
     const actual = coerceAppError(undefined);
 

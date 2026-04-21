@@ -118,6 +118,7 @@ export const zhCNMessages: Messages = {
     portChangesStartOnNewPort: "修改端口后，会在新端口上启动代理。",
     portChangesRestartImmediately: "修改端口会立即重启代理并重新绑定监听。",
     portStatus: ":{{port}}",
+    proxyPortInUse: "端口 {{port}} 已被占用，请更换端口后重试。",
     proxyPortValidation: "请输入 1 到 65535 之间的有效 TCP 端口。",
     settings: "设置",
     sslOn: "SSL 已开启",

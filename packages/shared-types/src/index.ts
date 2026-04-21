@@ -579,6 +579,32 @@ export function coerceAppError(error: unknown): AppError {
     return error;
   }
 
+  if (typeof error === "string") {
+    const trimmedError = error.trim();
+
+    if (trimmedError.length === 0) {
+      return {
+        code: UNKNOWN_ERROR_CODE,
+        message: UNKNOWN_ERROR_MESSAGE,
+      };
+    }
+
+    try {
+      const parsedError = JSON.parse(trimmedError);
+
+      if (isAppError(parsedError)) {
+        return parsedError;
+      }
+    } catch {
+      // Fall back to the raw string when the payload is not JSON.
+    }
+
+    return {
+      code: UNKNOWN_ERROR_CODE,
+      message: trimmedError,
+    };
+  }
+
   if (error instanceof Error) {
     return {
       code: UNKNOWN_ERROR_CODE,

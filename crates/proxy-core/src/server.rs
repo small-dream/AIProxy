@@ -18,7 +18,7 @@ pub async fn start_proxy_server(
     let bind_addr: &str = DEFAULT_BIND_ADDRESS;
     let listener = TcpListener::bind((bind_addr, config.port))
         .await
-        .map_err(|error| format!("failed to bind proxy listener on {bind_addr}:{}: {error}", config.port))?;
+        .map_err(|error| format_listener_bind_error(bind_addr, config.port, &error))?;
     let bound_port = listener
         .local_addr()
         .map_err(|error| format!("failed to read proxy listener address: {error}"))?
@@ -143,6 +143,38 @@ pub async fn start_proxy_server(
         session_receiver,
         ws_message_receiver,
     })
+}
+
+fn format_listener_bind_error(bind_addr: &str, port: u16, error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::AddrInUse {
+        return serde_json::json!({
+            "code": "PORT_IN_USE",
+            "message": format!("Port {port} is already in use."),
+            "details": {
+                "host": bind_addr,
+                "port": port,
+            }
+        })
+        .to_string();
+    }
+
+    format!("failed to bind proxy listener on {bind_addr}:{port}: {error}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_listener_bind_error;
+
+    #[test]
+    fn serializes_port_in_use_bind_failures_as_app_errors() {
+        let error = std::io::Error::new(std::io::ErrorKind::AddrInUse, "Address already in use");
+        let actual = format_listener_bind_error("127.0.0.1", 8888, &error);
+        let parsed: serde_json::Value = serde_json::from_str(&actual).expect("valid json");
+
+        assert_eq!(parsed["code"], "PORT_IN_USE");
+        assert_eq!(parsed["details"]["port"], 8888);
+        assert_eq!(parsed["details"]["host"], "127.0.0.1");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

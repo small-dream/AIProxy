@@ -1,5 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  DEFAULT_PROXY_PORT,
+  DEFAULT_WORKSPACE_ID,
+} from "@aiproxy/shared-types";
 import { Box, Snackbar } from "@mui/material";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,12 +44,10 @@ export type AppShellOutletContext = {
 };
 
 function getErrorMessage(error: unknown, fallbackMessage: string) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
+  const normalizedError = coerceAppError(error);
 
-  if (typeof error === "string" && error.length > 0) {
-    return error;
+  if (normalizedError.message.trim().length > 0) {
+    return normalizedError.message;
   }
 
   return fallbackMessage;
@@ -185,6 +187,59 @@ export function AppShell() {
     setPortDialogOpen(true);
   }
 
+  function isPortInUseError(error: unknown) {
+    const normalizedError = coerceAppError(error);
+    const normalizedMessage = normalizedError.message.toLowerCase();
+
+    return (
+      normalizedError.code === "PORT_IN_USE" ||
+      normalizedMessage.includes("already in use") ||
+      normalizedMessage.includes("address already in use")
+    );
+  }
+
+  function getProxyStartErrorMessage(error: unknown, requestedPort: number) {
+    const normalizedError = coerceAppError(error);
+    const errorPort =
+      typeof normalizedError.details?.port === "number"
+        ? normalizedError.details.port
+        : requestedPort;
+
+    if (isPortInUseError(normalizedError)) {
+      return t("appShell.proxyPortInUse", {
+        port: errorPort,
+      });
+    }
+
+    return getErrorMessage(normalizedError, t("common.errors.generic"));
+  }
+
+  async function handleStartProxy(input = initialStartProxyInput) {
+    try {
+      await startProxyMutation.mutateAsync(input);
+    } catch (error) {
+      const requestedPort = input.port ?? port;
+      const message = getProxyStartErrorMessage(error, requestedPort);
+
+      if (isPortInUseError(error)) {
+        setPortDraft(String(requestedPort));
+        setPortDialogError(message);
+        setPortDialogOpen(true);
+        return;
+      }
+
+      setMenuSnackbarMessage(message);
+    }
+  }
+
+  async function handleStopProxy() {
+    try {
+      await stopProxyMutation.mutateAsync(workspaceId);
+    } catch (error) {
+      setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
+    }
+  }
+
   async function handleWorkspaceSwitch(nextWorkspaceId: string) {
     if (nextWorkspaceId === workspaceId) {
       setWorkspaceDialogOpen(false);
@@ -203,7 +258,7 @@ export function AppShell() {
       await loadWorkspaceMutation.mutateAsync(nextWorkspaceId);
       setWorkspaceDialogOpen(false);
     } catch (error) {
-      setWorkspaceDialogError(getErrorMessage(error, t("common.errors.generic")));
+      setWorkspaceDialogError(getProxyStartErrorMessage(error, port));
     }
   }
 
@@ -229,7 +284,7 @@ export function AppShell() {
 
       setPortDialogOpen(false);
     } catch (error) {
-      setPortDialogError(getErrorMessage(error, t("common.errors.generic")));
+      setPortDialogError(getProxyStartErrorMessage(error, nextPort));
     }
   }
 
@@ -238,12 +293,16 @@ export function AppShell() {
       return;
     }
 
-    if (proxyStatus?.systemProxyEnabled) {
-      await disableSystemProxyMutation.mutateAsync(undefined);
-      return;
-    }
+    try {
+      if (proxyStatus?.systemProxyEnabled) {
+        await disableSystemProxyMutation.mutateAsync(undefined);
+        return;
+      }
 
-    await enableSystemProxyMutation.mutateAsync(undefined);
+      await enableSystemProxyMutation.mutateAsync(undefined);
+    } catch (error) {
+      setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
+    }
   }
 
   async function handleAdbSetProxy() {
@@ -334,12 +393,10 @@ export function AppShell() {
   const menuHandlerRef = useRef({
     handleAdbClearProxy,
     handleAdbSetProxy,
+    handleStartProxy,
+    handleStopProxy,
     navigate,
     proxyStatus,
-    initialStartProxyInput,
-    workspaceId,
-    startProxyMutation,
-    stopProxyMutation,
     handleSystemProxyToggle,
     setThemePreference,
   });
@@ -348,12 +405,10 @@ export function AppShell() {
     menuHandlerRef.current = {
       handleAdbClearProxy,
       handleAdbSetProxy,
+      handleStartProxy,
+      handleStopProxy,
       navigate,
       proxyStatus,
-      initialStartProxyInput,
-      workspaceId,
-      startProxyMutation,
-      stopProxyMutation,
       handleSystemProxyToggle,
       setThemePreference,
     };
@@ -397,12 +452,12 @@ export function AppShell() {
           break;
         case "start_proxy":
           if (!h.proxyStatus?.running) {
-            h.startProxyMutation.mutate(h.initialStartProxyInput);
+            void h.handleStartProxy();
           }
           break;
         case "stop_proxy":
           if (h.proxyStatus?.running) {
-            h.stopProxyMutation.mutate(h.workspaceId);
+            void h.handleStopProxy();
           }
           break;
         case "toggle_system_proxy":
@@ -520,8 +575,12 @@ export function AppShell() {
         headerActions={headerActions}
         isProxyBusy={isProxyBusy}
         macosTitlebarEnabled={macosTitlebarEnabled}
-        onStartProxy={() => startProxyMutation.mutate(initialStartProxyInput)}
-        onStopProxy={() => stopProxyMutation.mutate(workspaceId)}
+        onStartProxy={() => {
+          void handleStartProxy();
+        }}
+        onStopProxy={() => {
+          void handleStopProxy();
+        }}
         onSystemProxyToggle={() => {
           void handleSystemProxyToggle();
         }}

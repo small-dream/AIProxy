@@ -116,6 +116,7 @@ export const enMessages = {
     portChangesStartOnNewPort: "Port changes are applied by starting the proxy on the new port.",
     portChangesRestartImmediately: "Port changes restart the proxy and rebind the listener immediately.",
     portStatus: ":{{port}}",
+    proxyPortInUse: "Port {{port}} is already in use. Choose another port and try again.",
     proxyPortValidation: "Enter a valid TCP port between 1 and 65535.",
     settings: "Settings",
     sslOn: "SSL On",
