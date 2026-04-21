@@ -923,7 +923,7 @@ async fn start_proxy_impl(
 ) -> Result<BootstrapStatus, String> {
     let should_reapply_system_proxy = state.read_status().system_proxy_enabled;
     let port = input.port.unwrap_or(DEFAULT_PROXY_PORT);
-    let enable_ssl = input.enable_ssl.unwrap_or(false);
+    let enable_ssl = input.enable_ssl.unwrap_or(true);
 
     ProxyRuntimeConfig {
         port,
@@ -3089,7 +3089,7 @@ pub fn create_workspace(
     input: CreateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> WorkspaceData {
-    let ssl_enabled = input.ssl_enabled.unwrap_or(false);
+    let ssl_enabled = input.ssl_enabled.unwrap_or(true);
 
     log_info(
         "desktop.commands",

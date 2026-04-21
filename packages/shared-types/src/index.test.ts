@@ -160,7 +160,7 @@ describe("normalizeStartProxyInput", () => {
     });
 
     expect(actual).toEqual({
-      enableSsl: false,
+      enableSsl: true,
       port: DEFAULT_PROXY_PORT,
       workspaceId: "default-workspace",
     });

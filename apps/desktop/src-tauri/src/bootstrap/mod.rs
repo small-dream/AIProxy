@@ -52,7 +52,7 @@ impl Default for BootstrapStatus {
             active_workspace_id: Some("default".to_string()),
             port: 8888,
             running: false,
-            ssl_enabled: false,
+            ssl_enabled: true,
             system_proxy_enabled: false,
             started_at: None,
         }

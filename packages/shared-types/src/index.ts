@@ -554,7 +554,7 @@ export function createDefaultProxyStatus(): ProxyStatus {
     activeWorkspaceId: DEFAULT_WORKSPACE_ID,
     port: DEFAULT_PROXY_PORT,
     running: false,
-    sslEnabled: false,
+    sslEnabled: true,
     systemProxyEnabled: false,
   };
 }
@@ -698,7 +698,7 @@ export function normalizeStartProxyInput(input: StartProxyInput): StartProxyInpu
   const normalizedPort = input.port ?? DEFAULT_PROXY_PORT;
 
   return {
-    enableSsl: input.enableSsl ?? false,
+    enableSsl: input.enableSsl ?? true,
     port: normalizedPort,
     workspaceId: input.workspaceId.trim(),
   };

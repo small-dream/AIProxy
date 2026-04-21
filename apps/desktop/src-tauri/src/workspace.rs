@@ -29,7 +29,7 @@ impl WorkspaceManager {
             id: "default".to_string(),
             name: "Default".to_string(),
             proxy_port: 8888,
-            ssl_enabled: false,
+            ssl_enabled: true,
             system_proxy_enabled: false,
             storage_path: String::new(),
             created_at: now.clone(),

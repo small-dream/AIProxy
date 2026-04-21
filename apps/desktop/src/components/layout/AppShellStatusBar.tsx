@@ -1,4 +1,3 @@
-import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
@@ -21,14 +20,12 @@ type StatusItemProps = {
 };
 
 type AppShellStatusBarProps = {
-  activeWorkspaceName: string;
   certificateStatus: CertificateStatus | undefined;
   locale: string;
   onCertificatesClick: () => void;
   onPortClick: () => void;
   onRulesClick: () => void;
   onSystemProxyToggle: () => void;
-  onWorkspaceClick: () => void;
   pendingBreakpointCount: number;
   port: number;
   proxyStatus: ProxyStatus | undefined;
@@ -127,14 +124,12 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
 }
 
 export function AppShellStatusBar({
-  activeWorkspaceName,
   certificateStatus,
   locale,
   onCertificatesClick,
   onPortClick,
   onRulesClick,
   onSystemProxyToggle,
-  onWorkspaceClick,
   pendingBreakpointCount,
   port,
   proxyStatus,
@@ -168,15 +163,6 @@ export function AppShellStatusBar({
           active={proxyStatus?.running ?? false}
           icon={<FiberManualRecordRoundedIcon />}
           label={proxyStatus?.running ? t("common.states.recording") : t("common.states.idle")}
-        />
-
-        <StatusSeparator />
-
-        <StatusItem
-          icon={<BoltRoundedIcon />}
-          label={activeWorkspaceName}
-          onClick={onWorkspaceClick}
-          title={t("appShell.switchProxyPreset")}
         />
 
         <StatusSeparator />

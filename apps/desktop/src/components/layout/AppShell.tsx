@@ -14,7 +14,6 @@ import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
 import { AppShellTopControls } from "@/components/layout/AppShellTopControls";
-import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
@@ -26,8 +25,7 @@ import {
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
 import type { SessionsMenuAction } from "@/features/sessions/session-menu-actions";
-import { useLoadWorkspace } from "@/features/workspace-manager/use-workspaces";
-import { useWorkspaces } from "@/features/workspace-manager/use-workspaces";
+import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 import { onMenuEvent } from "@/services/events";
@@ -85,13 +83,19 @@ export function AppShell() {
   const stopProxyMutation = useStopProxy();
   const enableSystemProxyMutation = useEnableSystemProxy();
   const disableSystemProxyMutation = useDisableSystemProxy();
+  const updateWorkspaceMutation = useUpdateWorkspace();
   const { data: workspaces = [] } = useWorkspaces();
-  const loadWorkspaceMutation = useLoadWorkspace();
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
-  const port = proxyStatus?.port ?? DEFAULT_PROXY_PORT;
-  const activeWorkspaceName = workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId;
-  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
-  const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null);
+  const currentWorkspace = useMemo(
+    () =>
+      workspaces.find((workspace) => workspace.id === workspaceId) ??
+      workspaces.find((workspace) => workspace.id === DEFAULT_WORKSPACE_ID) ??
+      null,
+    [workspaceId, workspaces],
+  );
+  const configuredPort = currentWorkspace?.proxyPort ?? DEFAULT_PROXY_PORT;
+  const configuredSslEnabled = currentWorkspace?.sslEnabled ?? false;
+  const port = proxyStatus?.running ? proxyStatus.port : configuredPort;
   const [portDialogOpen, setPortDialogOpen] = useState(false);
   const [portDraft, setPortDraft] = useState(String(port));
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
@@ -108,15 +112,15 @@ export function AppShell() {
   const isSystemProxyBusy =
     enableSystemProxyMutation.isPending ||
     disableSystemProxyMutation.isPending;
-  const isBusy = isProxyBusy || isSystemProxyBusy;
+  const isBusy = isProxyBusy || isSystemProxyBusy || updateWorkspaceMutation.isPending;
   const systemProxyActionDisabled = isSystemProxyBusy || isProxyBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
   const initialStartProxyInput = useMemo(
     () => ({
-      enableSsl: certificateStatus?.trusted ?? false,
-      port,
+      enableSsl: configuredSslEnabled,
+      port: configuredPort,
       workspaceId,
     }),
-    [certificateStatus?.trusted, port, workspaceId],
+    [configuredPort, configuredSslEnabled, workspaceId],
   );
 
   useEffect(() => {
@@ -167,17 +171,11 @@ export function AppShell() {
     certificateStatus,
     enableSystemProxyMutation,
     initialStartProxyInput,
-    port,
     proxyStatus,
     startProxyMutation,
     workspaceId,
     workspaces.length,
   ]);
-
-  function openWorkspaceDialog() {
-    setWorkspaceDialogError(null);
-    setWorkspaceDialogOpen(true);
-  }
 
   function openPortDialog() {
     setPortDraft(String(port));
@@ -238,28 +236,6 @@ export function AppShell() {
     }
   }
 
-  async function handleWorkspaceSwitch(nextWorkspaceId: string) {
-    if (nextWorkspaceId === workspaceId) {
-      setWorkspaceDialogOpen(false);
-      return;
-    }
-
-    try {
-      if (proxyStatus?.running) {
-        await startProxyMutation.mutateAsync({
-          enableSsl: proxyStatus.sslEnabled,
-          port,
-          workspaceId: nextWorkspaceId,
-        });
-      }
-
-      await loadWorkspaceMutation.mutateAsync(nextWorkspaceId);
-      setWorkspaceDialogOpen(false);
-    } catch (error) {
-      setWorkspaceDialogError(getProxyStartErrorMessage(error, port));
-    }
-  }
-
   async function handlePortApply() {
     const nextPort = Number.parseInt(portDraft.trim(), 10);
 
@@ -268,14 +244,16 @@ export function AppShell() {
       return;
     }
 
-    if (nextPort === port) {
-      setPortDialogOpen(false);
-      return;
-    }
-
     try {
+      if (nextPort !== configuredPort) {
+        await updateWorkspaceMutation.mutateAsync({
+          proxyPort: nextPort,
+          workspaceId,
+        });
+      }
+
       await startProxyMutation.mutateAsync({
-        enableSsl: proxyStatus?.running ? proxyStatus.sslEnabled : (certificateStatus?.trusted ?? false),
+        enableSsl: proxyStatus?.running ? proxyStatus.sslEnabled : configuredSslEnabled,
         port: nextPort,
         workspaceId,
       });
@@ -632,7 +610,6 @@ export function AppShell() {
         {pendingBreakpointCount > 0 && <BreakpointInterceptPanel />}
 
         <AppShellStatusBar
-          activeWorkspaceName={activeWorkspaceName}
           certificateStatus={certificateStatus}
           locale={locale}
           onCertificatesClick={() => navigate("/certificates")}
@@ -641,7 +618,6 @@ export function AppShell() {
           onSystemProxyToggle={() => {
             void handleSystemProxyToggle();
           }}
-          onWorkspaceClick={openWorkspaceDialog}
           pendingBreakpointCount={pendingBreakpointCount}
           port={port}
           proxyStatus={proxyStatus}
@@ -651,9 +627,7 @@ export function AppShell() {
       <AppShellDialogs
         isBusy={isBusy}
         isRunning={proxyStatus?.running ?? false}
-        loadWorkspacePending={loadWorkspaceMutation.isPending}
         onClosePortDialog={() => setPortDialogOpen(false)}
-        onCloseWorkspaceDialog={() => setWorkspaceDialogOpen(false)}
         onPortApply={handlePortApply}
         onPortDraftChange={(value) => {
           setPortDraft(value);
@@ -661,18 +635,9 @@ export function AppShell() {
             setPortDialogError(null);
           }
         }}
-        onWorkspaceSwitch={handleWorkspaceSwitch}
         portDialogError={portDialogError}
         portDialogOpen={portDialogOpen}
         portDraft={portDraft}
-        workspaceDialogError={workspaceDialogError}
-        workspaceDialogOpen={workspaceDialogOpen}
-        workspaceId={workspaceId}
-        workspaces={workspaces.map((workspace) => ({
-          id: workspace.id,
-          name: workspace.name,
-          proxyPort: workspace.proxyPort,
-        }))}
       />
 
       <Snackbar
