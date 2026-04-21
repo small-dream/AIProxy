@@ -321,20 +321,20 @@ export async function deleteSessionsExcept(keepSessionId: string): Promise<void>
   }
 }
 
-export async function setFocusedHost(host: string | null): Promise<void> {
+export async function setFocusedHosts(hosts: string[]): Promise<void> {
   if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "set_focused_host_bypassed_non_tauri_runtime", { host });
+    logDevDebug("ui.commands", "set_focused_hosts_bypassed_non_tauri_runtime", { hosts });
     return;
   }
 
   try {
-    logDevDebug("ui.commands", "set_focused_host_requested", { host });
-    await invoke("set_focused_host", {
-      input: { host },
+    logDevDebug("ui.commands", "set_focused_hosts_requested", { hosts });
+    await invoke("set_focused_hosts", {
+      input: { hosts },
     });
-    logDevDebug("ui.commands", "set_focused_host_succeeded", { host });
+    logDevDebug("ui.commands", "set_focused_hosts_succeeded", { hosts });
   } catch (error) {
-    reportCommandFailure("set_focused_host", error);
+    reportCommandFailure("set_focused_hosts", error);
     throw coerceAppError(error);
   }
 }

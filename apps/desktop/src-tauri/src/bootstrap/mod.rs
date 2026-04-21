@@ -15,7 +15,7 @@ use aiproxy_proxy_core::{
 };
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -82,7 +82,7 @@ pub struct AppState {
     dns_manager: Arc<DnsManager>,
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
-    focused_host: Mutex<Option<String>>,
+    focused_hosts: Mutex<HashSet<String>>,
     db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
     body_store: Arc<BodyStore>,
 }
@@ -105,7 +105,7 @@ impl AppState {
             dns_manager: Arc::new(DnsManager::new()),
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
-            focused_host: Mutex::new(None),
+            focused_hosts: Mutex::new(HashSet::new()),
             db,
             body_store,
         };
@@ -384,12 +384,12 @@ impl AppState {
             sessions.push(session_summary.clone());
         }
 
-        let focused_host = self.read_focused_host();
+        let focused_hosts = self.read_focused_hosts();
 
         while sessions.len() > 15_000 {
             let eviction_index = select_session_eviction_index(
                 &sessions,
-                focused_host.as_deref(),
+                &focused_hosts,
             );
             let removed_session = sessions.remove(eviction_index);
 
@@ -572,18 +572,18 @@ impl AppState {
             .clone()
     }
 
-    pub fn set_focused_host(&self, host: Option<String>) {
-        let mut focused = self
-            .focused_host
+    pub fn set_focused_hosts(&self, hosts: Vec<String>) {
+        let mut focused_hosts = self
+            .focused_hosts
             .lock()
-            .expect("focused_host mutex should not be poisoned");
-        *focused = normalize_optional_host(host);
+            .expect("focused_hosts mutex should not be poisoned");
+        *focused_hosts = normalize_hosts(hosts);
     }
 
-    pub fn read_focused_host(&self) -> Option<String> {
-        self.focused_host
+    pub fn read_focused_hosts(&self) -> HashSet<String> {
+        self.focused_hosts
             .lock()
-            .expect("focused_host mutex should not be poisoned")
+            .expect("focused_hosts mutex should not be poisoned")
             .clone()
     }
 }
@@ -697,17 +697,23 @@ fn normalize_optional_host(host: Option<String>) -> Option<String> {
     })
 }
 
+fn normalize_hosts(hosts: Vec<String>) -> HashSet<String> {
+    hosts.into_iter()
+        .filter_map(|host| normalize_optional_host(Some(host)))
+        .collect()
+}
+
 fn select_session_eviction_index(
     sessions: &[ProxySessionSummary],
-    focused_host: Option<&str>,
+    focused_hosts: &HashSet<String>,
 ) -> usize {
-    let Some(focused_host) = focused_host else {
+    if focused_hosts.is_empty() {
         return 0;
-    };
+    }
 
     sessions
         .iter()
-        .position(|session| session.host != focused_host)
+        .position(|session| !focused_hosts.contains(session.host.as_str()))
         .unwrap_or(0)
 }
 

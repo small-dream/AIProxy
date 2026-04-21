@@ -36,6 +36,7 @@ export type SessionPathNode = SessionPathLeaf | SessionPathBranch;
 
 export type SessionHostGroup = {
   host: string | null;
+  isFocused: boolean;
   key: string;
   kind: "aggregate" | "host";
   label: string;
@@ -47,7 +48,7 @@ export type SessionHostGroup = {
 };
 
 type BuildSessionHostGroupsOptions = {
-  focusedHost?: string | null;
+  focusedHosts?: Iterable<string>;
   unfocusedLabel?: string;
 };
 
@@ -77,30 +78,33 @@ export function buildSessionHostGroups(
     groupsByHost.set(host, existingGroup);
   }
 
+  const normalizedFocusedHosts = normalizeOptionalHosts(options.focusedHosts);
   const hostGroups = Array.from(groupsByHost.entries()).map(([host, groupedSessions]) =>
-    createHostGroup(host, groupedSessions),
+    createHostGroup(host, groupedSessions, normalizedFocusedHosts.has(host)),
   );
 
-  const normalizedFocusedHost = normalizeOptionalHost(options.focusedHost);
-
-  if (!normalizedFocusedHost) {
+  if (normalizedFocusedHosts.size === 0) {
     return hostGroups;
   }
 
-  const focusedGroup = hostGroups.find((group) => group.host === normalizedFocusedHost);
+  const focusedGroups = hostGroups.filter(
+    (group) => group.host !== null && normalizedFocusedHosts.has(group.host),
+  );
 
-  if (!focusedGroup) {
+  if (focusedGroups.length === 0) {
     return hostGroups;
   }
 
-  const unfocusedGroups = hostGroups.filter((group) => group.host !== normalizedFocusedHost);
+  const unfocusedGroups = hostGroups.filter(
+    (group) => group.host === null || !normalizedFocusedHosts.has(group.host),
+  );
 
   if (unfocusedGroups.length === 0) {
-    return [focusedGroup];
+    return focusedGroups;
   }
 
   return [
-    focusedGroup,
+    ...focusedGroups,
     createAggregateGroup(unfocusedGroups, options.unfocusedLabel ?? "Unfocused"),
   ];
 }
@@ -242,11 +246,34 @@ function normalizeOptionalHost(host?: string | null): string | null {
   return normalizedHost.length > 0 ? normalizedHost : null;
 }
 
-function createHostGroup(host: string, groupedSessions: SessionSummary[]): SessionHostGroup {
+function normalizeOptionalHosts(hosts?: Iterable<string>): Set<string> {
+  if (!hosts) {
+    return new Set();
+  }
+
+  const normalizedHosts = new Set<string>();
+
+  for (const host of hosts) {
+    const normalizedHost = normalizeOptionalHost(host);
+
+    if (normalizedHost) {
+      normalizedHosts.add(normalizedHost);
+    }
+  }
+
+  return normalizedHosts;
+}
+
+function createHostGroup(
+  host: string,
+  groupedSessions: SessionSummary[],
+  isFocused: boolean,
+): SessionHostGroup {
   const orderedSessions = [...groupedSessions];
 
   return {
     host,
+    isFocused,
     key: host,
     kind: "host",
     label: host,
@@ -263,6 +290,7 @@ function createAggregateGroup(groups: SessionHostGroup[], label: string): Sessio
 
   return {
     host: null,
+    isFocused: false,
     key: "__unfocused__",
     kind: "aggregate",
     label,

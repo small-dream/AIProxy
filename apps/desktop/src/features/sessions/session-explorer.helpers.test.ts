@@ -117,7 +117,7 @@ describe("buildSessionHostGroups", () => {
       ],
       "",
       {
-        focusedHost: "api.example.com",
+        focusedHosts: ["api.example.com"],
         unfocusedLabel: "UnFocus",
       },
     );
@@ -130,6 +130,53 @@ describe("buildSessionHostGroups", () => {
       tree: [
         { branchType: "host", host: "assets.example.com", segmentLabel: "assets.example.com" },
         { branchType: "host", host: "cdn.example.com", segmentLabel: "cdn.example.com" },
+      ],
+    });
+  });
+
+  it("keeps multiple focused hosts visible before the unfocused aggregate", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-16",
+          path: "/users",
+          startedAt: "2026-04-11T10:00:08.000Z",
+          url: "http://api.example.com/users",
+        }),
+        createSessionSummary({
+          host: "assets.example.com",
+          id: "session-17",
+          path: "/logo.svg",
+          startedAt: "2026-04-11T10:00:09.000Z",
+          url: "http://assets.example.com/logo.svg",
+        }),
+        createSessionSummary({
+          host: "cdn.example.com",
+          id: "session-18",
+          path: "/app.js",
+          startedAt: "2026-04-11T10:00:10.000Z",
+          url: "http://cdn.example.com/app.js",
+        }),
+      ],
+      "",
+      {
+        focusedHosts: ["api.example.com", "cdn.example.com"],
+        unfocusedLabel: "UnFocus",
+      },
+    );
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "api.example.com",
+      "cdn.example.com",
+      "UnFocus",
+    ]);
+    expect(groups[2]).toMatchObject({
+      host: null,
+      key: "__unfocused__",
+      kind: "aggregate",
+      tree: [
+        { branchType: "host", host: "assets.example.com", segmentLabel: "assets.example.com" },
       ],
     });
   });

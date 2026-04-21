@@ -1,7 +1,9 @@
+import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
 import CableRoundedIcon from "@mui/icons-material/CableRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import FilterCenterFocusRoundedIcon from "@mui/icons-material/FilterCenterFocusRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
@@ -293,6 +295,18 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
       <Box
+        sx={(theme) => ({
+          alignItems: "center",
+          color: getHostGroupIconColor(theme, group),
+          display: "flex",
+          flex: "0 0 auto",
+          ml: 0.125,
+          mr: 0.5,
+        })}
+      >
+        {renderHostGroupIcon(group)}
+      </Box>
+      <Box
         component="span"
         sx={(theme) => ({
           backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
@@ -387,14 +401,14 @@ function SessionTreeNode({
         <Box
           sx={{
             alignItems: "center",
-            color: "info.main",
+            color: (theme) => getBranchIconColor(theme, node.branchType),
             display: "flex",
             flex: "0 0 auto",
             ml: 0.125,
             mr: 0.5,
           }}
         >
-          {expanded ? <FolderOpenRoundedIcon sx={{ fontSize: 16 }} /> : <FolderRoundedIcon sx={{ fontSize: 16 }} />}
+          {renderBranchIcon(node.branchType, expanded)}
         </Box>
         <Typography
           noWrap
@@ -532,6 +546,48 @@ function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, on
 }
 
 const SessionLeafNode = memo(SessionLeafNodeImpl);
+
+function renderHostGroupIcon(group: SessionHostGroup) {
+  const sx = { fontSize: 17 };
+
+  if (group.kind === "aggregate") {
+    return <AccountTreeRoundedIcon data-testid="unfocused-group-icon" sx={sx} />;
+  }
+
+  if (group.isFocused) {
+    return <FilterCenterFocusRoundedIcon data-testid="focused-host-icon" sx={sx} />;
+  }
+
+  return <LanguageRoundedIcon data-testid="host-icon" sx={sx} />;
+}
+
+function getHostGroupIconColor(theme: Theme, group: SessionHostGroup): string {
+  if (group.kind === "aggregate") {
+    return theme.palette.secondary.main;
+  }
+
+  if (group.isFocused) {
+    return theme.palette.primary.main;
+  }
+
+  return theme.palette.text.secondary;
+}
+
+function renderBranchIcon(branchType: SessionPathNode extends infer _ ? "host" | "path" : never, expanded: boolean) {
+  if (branchType === "host") {
+    return <LanguageRoundedIcon data-testid="aggregate-host-icon" sx={{ fontSize: 16 }} />;
+  }
+
+  return expanded ? <FolderOpenRoundedIcon sx={{ fontSize: 16 }} /> : <FolderRoundedIcon sx={{ fontSize: 16 }} />;
+}
+
+function getBranchIconColor(theme: Theme, branchType: "host" | "path"): string {
+  if (branchType === "host") {
+    return theme.palette.text.secondary;
+  }
+
+  return theme.palette.info.main;
+}
 
 function buildLeafTooltip(
   session: SessionSummary,

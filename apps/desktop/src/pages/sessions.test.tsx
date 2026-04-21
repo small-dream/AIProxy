@@ -60,6 +60,7 @@ vi.mock("@/features/sessions/use-session-context-actions", () => ({
     handleSnackbarClose: vi.fn(),
     handleStopIgnoringDomain: vi.fn(),
     handleStopIgnoringHost: vi.fn(),
+    handleUnfocusDomain: vi.fn(),
     handleUnfocusHost: vi.fn(),
     saveToCollectionSession: null,
     snackbarMessage: null,
@@ -84,7 +85,7 @@ vi.mock("@/services/events", () => ({
 }));
 
 vi.mock("@/services/commands", () => ({
-  setFocusedHost: () => Promise.resolve(),
+  setFocusedHosts: () => Promise.resolve(),
 }));
 
 vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({

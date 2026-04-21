@@ -222,8 +222,8 @@ pub struct DeleteSessionsExceptInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SetFocusedHostInput {
-    pub host: Option<String>,
+pub struct SetFocusedHostsInput {
+    pub hosts: Vec<String>,
 }
 
 #[tauri::command]
@@ -235,11 +235,11 @@ pub fn delete_sessions_except(
 }
 
 #[tauri::command]
-pub fn set_focused_host(
-    input: SetFocusedHostInput,
+pub fn set_focused_hosts(
+    input: SetFocusedHostsInput,
     state: State<'_, Arc<AppState>>,
 ) {
-    state.set_focused_host(input.host);
+    state.set_focused_hosts(input.hosts);
 }
 
 #[derive(Debug, Deserialize)]

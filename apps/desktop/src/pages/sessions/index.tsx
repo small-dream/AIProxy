@@ -45,7 +45,6 @@ import {
   reconcileExpandedKeys,
 } from "@/features/sessions/session-explorer.helpers";
 import {
-  normalizeStoredHost,
   readStorageValue,
   readStoredHosts,
   removeStorageValue,
@@ -57,12 +56,12 @@ import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { onSessionRemove, onSessionUpsert } from "@/services/events";
-import { setFocusedHost as syncFocusedHost } from "@/services/commands";
+import { setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
 const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
-const FOCUSED_HOST_STORAGE_KEY = "aiproxy.sessions.focusedHost";
+const FOCUSED_HOSTS_STORAGE_KEY = "aiproxy.sessions.focusedHosts";
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 
 export function SessionsPage() {
@@ -102,8 +101,8 @@ export function SessionsPage() {
     return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 360;
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [focusedHost, setFocusedHost] = useState<string | null>(() =>
-    normalizeStoredHost(readStorageValue(FOCUSED_HOST_STORAGE_KEY)),
+  const [focusedHosts, setFocusedHosts] = useState<Set<string>>(() =>
+    readFocusedHostsFromStorage(),
   );
   const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(
     () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
@@ -154,12 +153,13 @@ export function SessionsPage() {
     handleSnackbarClose,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
+    handleUnfocusDomain,
     handleUnfocusHost,
     saveToCollectionSession,
   } = useSessionContextActions({
     loadFromSession,
     navigate,
-    setFocusedHost,
+    setFocusedHosts,
     setIgnoredHosts,
     sendComposedRequest: sendComposedRequestMutation,
   });
@@ -176,10 +176,10 @@ export function SessionsPage() {
   );
   const hostGroups = useMemo(
     () => buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
-      focusedHost,
+      focusedHosts,
       unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
     }),
-    [activeContainer?.searchValue, domainFilteredSessions, focusedHost, t],
+    [activeContainer?.searchValue, domainFilteredSessions, focusedHosts, t],
   );
   const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
   const selectedSession = useMemo(
@@ -282,19 +282,19 @@ export function SessionsPage() {
   }, [activeContainer?.requestCollapsed]);
 
   useEffect(() => {
-    if (focusedHost) {
-      writeStorageValue(FOCUSED_HOST_STORAGE_KEY, focusedHost);
+    if (focusedHosts.size > 0) {
+      writeStorageValue(FOCUSED_HOSTS_STORAGE_KEY, JSON.stringify(Array.from(focusedHosts)));
       return;
     }
 
-    removeStorageValue(FOCUSED_HOST_STORAGE_KEY);
-  }, [focusedHost]);
+    removeStorageValue(FOCUSED_HOSTS_STORAGE_KEY);
+  }, [focusedHosts]);
 
   useEffect(() => {
-    void syncFocusedHost(focusedHost).catch(() => {
+    void syncFocusedHosts(Array.from(focusedHosts)).catch(() => {
       // Session focus is a best-effort optimization for Rust-side eviction.
     });
-  }, [focusedHost]);
+  }, [focusedHosts]);
 
   useEffect(() => {
     if (ignoredHosts.size === 0) {
@@ -663,7 +663,7 @@ export function SessionsPage() {
 
       <SessionContextMenu
         anchorPosition={contextMenuAnchor}
-        isHostFocused={contextMenuSession?.host === focusedHost}
+        isHostFocused={contextMenuSession ? focusedHosts.has(contextMenuSession.host) : false}
         isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
@@ -695,13 +695,13 @@ export function SessionsPage() {
       <DomainContextMenu
         anchorPosition={domainContextMenuAnchor}
         host={contextMenuHost}
-        isHostFocused={contextMenuHost === focusedHost}
+        isHostFocused={contextMenuHost ? focusedHosts.has(contextMenuHost) : false}
         isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
         onClose={handleHostContextMenuClose}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}
         onStopIgnoringHost={handleStopIgnoringDomain}
-        onUnfocusHost={handleUnfocusHost}
+        onUnfocusHost={handleUnfocusDomain}
       />
 
       <Snackbar
@@ -743,4 +743,8 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
 
 function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
+}
+
+function readFocusedHostsFromStorage(): Set<string> {
+  return new Set(readStoredHosts(FOCUSED_HOSTS_STORAGE_KEY));
 }

@@ -47,6 +47,40 @@ describe("SessionExplorerPane", () => {
     expect(screen.getByTestId("json-file-icon")).toBeInTheDocument();
   });
 
+  it("renders a focus icon for focused hosts and a separate icon for the unfocused aggregate", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({ host: "api.example.com", id: "session-1", url: "http://api.example.com/users" }),
+        createSessionSummary({ host: "cdn.example.com", id: "session-2", url: "http://cdn.example.com/app.js", path: "/app.js" }),
+      ],
+      "",
+      {
+        focusedHosts: ["api.example.com"],
+        unfocusedLabel: "Unfocused",
+      },
+    );
+
+    render(
+      <AppProviders>
+        <SessionExplorerPane
+          domainFilterValue=""
+          errorMessage={undefined}
+          expandedHosts={groups.map((group) => group.key)}
+          groups={groups}
+          isLoading={false}
+          onDomainFilterChange={() => {}}
+          onSelectSession={() => {}}
+          onToggleHost={() => {}}
+          selectedSessionId={undefined}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.getByTestId("focused-host-icon")).toBeInTheDocument();
+    expect(screen.getByTestId("unfocused-group-icon")).toBeInTheDocument();
+    expect(screen.getByTestId("aggregate-host-icon")).toBeInTheDocument();
+  });
+
   it("renders the bottom domain filter and forwards changes", () => {
     const handleDomainFilterChange = vi.fn();
 

@@ -1,5 +1,6 @@
+import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
+import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import { ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
@@ -20,7 +21,7 @@ type DomainContextMenuProps = {
   onFocusHost: (host: string) => void;
   onIgnoreHost: (host: string) => void;
   onStopIgnoringHost: (host: string) => void;
-  onUnfocusHost: () => void;
+  onUnfocusHost: (host: string) => void;
 };
 
 export function DomainContextMenu({
@@ -50,18 +51,18 @@ export function DomainContextMenu({
       anchorReference="anchorPosition"
       onClose={onClose}
       open={anchorPosition !== undefined}
-      slotProps={buildContextMenuSlotProps(196)}
+      slotProps={buildContextMenuSlotProps(220)}
     >
       {isHostFocused ? (
         <MenuItem
           onClick={() => {
-            onUnfocusHost();
+            onUnfocusHost(host);
             onClose();
           }}
           sx={menuItemSx}
         >
           <ListItemIcon sx={iconSx}>
-            <VisibilityRoundedIcon fontSize="small" />
+            <RemoveCircleOutlineRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.unfocusHost")}</ListItemText>
         </MenuItem>
@@ -74,7 +75,7 @@ export function DomainContextMenu({
           sx={menuItemSx}
         >
           <ListItemIcon sx={iconSx}>
-            <VisibilityRoundedIcon fontSize="small" />
+            <AddCircleOutlineRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.focusHost")}</ListItemText>
         </MenuItem>

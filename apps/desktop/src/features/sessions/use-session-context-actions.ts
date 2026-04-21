@@ -29,7 +29,7 @@ type LoadFromSessionInput = {
 type UseSessionContextActionsParams = {
   loadFromSession: (input: LoadFromSessionInput) => void;
   navigate: (path: string) => void;
-  setFocusedHost: Dispatch<SetStateAction<string | null>>;
+  setFocusedHosts: Dispatch<SetStateAction<Set<string>>>;
   setIgnoredHosts: Dispatch<SetStateAction<Set<string>>>;
   sendComposedRequest: {
     mutateAsync: (input: ComposedRequestInput) => Promise<unknown>;
@@ -39,7 +39,7 @@ type UseSessionContextActionsParams = {
 export function useSessionContextActions({
   loadFromSession,
   navigate,
-  setFocusedHost,
+  setFocusedHosts,
   setIgnoredHosts,
   sendComposedRequest,
 }: UseSessionContextActionsParams) {
@@ -222,21 +222,47 @@ export function useSessionContextActions({
   }, [queryClient, sendComposedRequest]);
 
   const handleFocusDomain = useCallback((host: string) => {
-    setFocusedHost((currentHost) => (currentHost === host ? null : host));
-  }, [setFocusedHost]);
+    setFocusedHosts((currentHosts) => {
+      const nextHosts = new Set(currentHosts);
 
-  const handleUnfocusHost = useCallback(() => {
-    setFocusedHost(null);
-  }, [setFocusedHost]);
+      if (nextHosts.has(host)) {
+        nextHosts.delete(host);
+      } else {
+        nextHosts.add(host);
+      }
+
+      return nextHosts;
+    });
+  }, [setFocusedHosts]);
+
+  const handleUnfocusDomain = useCallback((host: string) => {
+    setFocusedHosts((currentHosts) => {
+      if (!currentHosts.has(host)) {
+        return currentHosts;
+      }
+
+      const nextHosts = new Set(currentHosts);
+      nextHosts.delete(host);
+      return nextHosts;
+    });
+  }, [setFocusedHosts]);
 
   const handleIgnoreDomain = useCallback((host: string) => {
-    setFocusedHost((currentHost) => (currentHost === host ? null : currentHost));
+    setFocusedHosts((currentHosts) => {
+      if (!currentHosts.has(host)) {
+        return currentHosts;
+      }
+
+      const nextHosts = new Set(currentHosts);
+      nextHosts.delete(host);
+      return nextHosts;
+    });
     setIgnoredHosts((currentHosts) => {
       const nextHosts = new Set(currentHosts);
       nextHosts.add(host);
       return nextHosts;
     });
-  }, [setFocusedHost, setIgnoredHosts]);
+  }, [setFocusedHosts, setIgnoredHosts]);
 
   const handleStopIgnoringDomain = useCallback((host: string) => {
     setIgnoredHosts((currentHosts) => {
@@ -249,6 +275,10 @@ export function useSessionContextActions({
   const handleFocusHost = useCallback((session: SessionSummary) => {
     handleFocusDomain(session.host);
   }, [handleFocusDomain]);
+
+  const handleUnfocusHost = useCallback((session: SessionSummary) => {
+    handleUnfocusDomain(session.host);
+  }, [handleUnfocusDomain]);
 
   const handleIgnoreHost = useCallback((session: SessionSummary) => {
     handleIgnoreDomain(session.host);
@@ -307,6 +337,7 @@ export function useSessionContextActions({
     handleSnackbarClose,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
+    handleUnfocusDomain,
     handleUnfocusHost,
     saveToCollectionSession,
     snackbarMessage,

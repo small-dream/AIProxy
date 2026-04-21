@@ -1,5 +1,6 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 
+import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
@@ -7,10 +8,10 @@ import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
+import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
@@ -44,7 +45,7 @@ type SessionContextMenuProps = {
   onSaveResponse: (session: SessionSummary) => void;
   onSaveToCollection: (session: SessionSummary) => void;
   onStopIgnoringHost: (session: SessionSummary) => void;
-  onUnfocusHost: () => void;
+  onUnfocusHost: (session: SessionSummary) => void;
 };
 
 export function SessionContextMenu({
@@ -92,7 +93,7 @@ export function SessionContextMenu({
       anchorReference="anchorPosition"
       onClose={onClose}
       open={anchorPosition !== undefined}
-      slotProps={buildContextMenuSlotProps(220)}
+      slotProps={buildContextMenuSlotProps(236)}
     >
       <MenuItem onClick={handleClick(onCopyUrl)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
@@ -173,16 +174,16 @@ export function SessionContextMenu({
       <Divider sx={dividerSx} />
 
       {isHostFocused ? (
-        <MenuItem onClick={() => { onUnfocusHost(); onClose(); }} sx={menuItemSx}>
+        <MenuItem onClick={() => { onUnfocusHost(session); onClose(); }} sx={menuItemSx}>
           <ListItemIcon sx={iconSx}>
-            <VisibilityRoundedIcon fontSize="small" />
+            <RemoveCircleOutlineRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.unfocusHost")}</ListItemText>
         </MenuItem>
       ) : (
         <MenuItem onClick={handleClick(onFocusHost)} sx={menuItemSx}>
           <ListItemIcon sx={iconSx}>
-            <VisibilityRoundedIcon fontSize="small" />
+            <AddCircleOutlineRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.focusHost")}</ListItemText>
         </MenuItem>
