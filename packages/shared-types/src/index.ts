@@ -46,10 +46,12 @@ export type HeaderEntry = {
 
 export type BodyReference = {
   base64Text?: string;
+  base64Deferred?: boolean;
   encoding?: string;
   inlineText?: string;
   mimeType?: string;
   sizeBytes: number;
+  textDeferred?: boolean;
   truncated?: boolean;
 };
 
@@ -67,8 +69,12 @@ export type SessionDetail = {
   cookies: HeaderEntry[];
   id: string;
   queryParams: HeaderEntry[];
+  rawRequestHead?: string;
   rawRequest?: string;
+  rawRequestDeferred?: boolean;
+  rawResponseHead?: string;
   rawResponse?: string;
+  rawResponseDeferred?: boolean;
   requestBody?: BodyReference;
   requestHeaders: HeaderEntry[];
   responseBody?: BodyReference;
@@ -76,6 +82,33 @@ export type SessionDetail = {
   serverIp?: string;
   summary: SessionSummary;
   timing?: TimingBreakdown;
+};
+
+export type SessionDetailContentRequest = {
+  sessionId: string;
+  includeRawRequest?: boolean;
+  includeRawResponse?: boolean;
+  includeRequestBodyText?: boolean;
+  includeResponseBodyText?: boolean;
+  includeRequestBodyBase64?: boolean;
+  includeResponseBodyBase64?: boolean;
+};
+
+export type SessionBodyContentPatch = {
+  base64Deferred?: boolean;
+  base64Text?: string;
+  inlineText?: string;
+  textDeferred?: boolean;
+};
+
+export type SessionDetailContentPatch = {
+  sessionId: string;
+  rawRequest?: string;
+  rawRequestDeferred?: boolean;
+  rawResponse?: string;
+  rawResponseDeferred?: boolean;
+  requestBody?: SessionBodyContentPatch;
+  responseBody?: SessionBodyContentPatch;
 };
 
 export type SessionUpsertEvent = SessionSummary;
@@ -722,10 +755,12 @@ export function isBodyReference(value: unknown): value is BodyReference {
   }
 
   const candidate = value as Partial<BodyReference> & {
+    base64Deferred?: boolean | null;
     base64Text?: string | null;
     encoding?: string | null;
     inlineText?: string | null;
     mimeType?: string | null;
+    textDeferred?: boolean | null;
     truncated?: boolean | null;
   };
 
@@ -733,6 +768,8 @@ export function isBodyReference(value: unknown): value is BodyReference {
     typeof candidate.sizeBytes === "number" &&
     isNullableString(candidate.inlineText) &&
     isNullableString(candidate.base64Text) &&
+    isNullableBoolean(candidate.textDeferred) &&
+    isNullableBoolean(candidate.base64Deferred) &&
     isNullableString(candidate.mimeType) &&
     isNullableString(candidate.encoding) &&
     isNullableBoolean(candidate.truncated)
@@ -764,8 +801,12 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
   }
 
   const candidate = value as Partial<SessionDetail> & {
+    rawRequestHead?: string | null;
     rawRequest?: string | null;
+    rawRequestDeferred?: boolean | null;
+    rawResponseHead?: string | null;
     rawResponse?: string | null;
+    rawResponseDeferred?: boolean | null;
     requestBody?: BodyReference | null;
     responseBody?: BodyReference | null;
     serverIp?: string | null;
@@ -786,8 +827,12 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
     (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
     (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
+    isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
+    isNullableBoolean(candidate.rawRequestDeferred) &&
+    isNullableString(candidate.rawResponseHead) &&
     isNullableString(candidate.rawResponse) &&
+    isNullableBoolean(candidate.rawResponseDeferred) &&
     isNullableString(candidate.serverIp)
   );
 }
@@ -795,8 +840,12 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
 export function parseSessionDetail(value: unknown): SessionDetail {
   if (isSessionDetail(value)) {
     const candidate = value as SessionDetail & {
+      rawRequestHead?: string | null;
       rawRequest?: string | null;
+      rawRequestDeferred?: boolean | null;
+      rawResponseHead?: string | null;
       rawResponse?: string | null;
+      rawResponseDeferred?: boolean | null;
       requestBody?: BodyReference | null;
       responseBody?: BodyReference | null;
       serverIp?: string | null;
@@ -807,14 +856,26 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       cookies: candidate.cookies,
       id: candidate.id,
       queryParams: candidate.queryParams,
+      ...(candidate.rawRequestHead !== null && candidate.rawRequestHead !== undefined
+        ? { rawRequestHead: candidate.rawRequestHead }
+        : {}),
       requestHeaders: candidate.requestHeaders,
+      ...(candidate.rawResponseHead !== null && candidate.rawResponseHead !== undefined
+        ? { rawResponseHead: candidate.rawResponseHead }
+        : {}),
       responseHeaders: candidate.responseHeaders,
       summary: candidate.summary,
       ...(candidate.rawRequest !== null && candidate.rawRequest !== undefined
         ? { rawRequest: candidate.rawRequest }
         : {}),
+      ...(candidate.rawRequestDeferred !== null && candidate.rawRequestDeferred !== undefined
+        ? { rawRequestDeferred: candidate.rawRequestDeferred }
+        : {}),
       ...(candidate.rawResponse !== null && candidate.rawResponse !== undefined
         ? { rawResponse: candidate.rawResponse }
+        : {}),
+      ...(candidate.rawResponseDeferred !== null && candidate.rawResponseDeferred !== undefined
+        ? { rawResponseDeferred: candidate.rawResponseDeferred }
         : {}),
       ...(candidate.requestBody !== null && candidate.requestBody !== undefined
         ? { requestBody: normalizeBodyReference(candidate.requestBody) }
@@ -841,14 +902,19 @@ export function parseSessionDetail(value: unknown): SessionDetail {
 }
 
 function normalizeBodyReference(bodyReference: BodyReference & {
+  base64Deferred?: boolean | null;
   base64Text?: string | null;
   encoding?: string | null;
   inlineText?: string | null;
   mimeType?: string | null;
+  textDeferred?: boolean | null;
   truncated?: boolean | null;
 }): BodyReference {
   return {
     sizeBytes: bodyReference.sizeBytes,
+    ...(bodyReference.base64Deferred !== null && bodyReference.base64Deferred !== undefined
+      ? { base64Deferred: bodyReference.base64Deferred }
+      : {}),
     ...(bodyReference.base64Text !== null && bodyReference.base64Text !== undefined
       ? { base64Text: bodyReference.base64Text }
       : {}),
@@ -861,10 +927,191 @@ function normalizeBodyReference(bodyReference: BodyReference & {
     ...(bodyReference.mimeType !== null && bodyReference.mimeType !== undefined
       ? { mimeType: bodyReference.mimeType }
       : {}),
+    ...(bodyReference.textDeferred !== null && bodyReference.textDeferred !== undefined
+      ? { textDeferred: bodyReference.textDeferred }
+      : {}),
     ...(bodyReference.truncated !== null && bodyReference.truncated !== undefined
       ? { truncated: bodyReference.truncated }
       : {}),
   };
+}
+
+function isSessionBodyContentPatch(value: unknown): value is SessionBodyContentPatch {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<SessionBodyContentPatch> & {
+    base64Deferred?: boolean | null;
+    base64Text?: string | null;
+    inlineText?: string | null;
+    textDeferred?: boolean | null;
+  };
+
+  return (
+    isNullableString(candidate.inlineText) &&
+    isNullableString(candidate.base64Text) &&
+    isNullableBoolean(candidate.textDeferred) &&
+    isNullableBoolean(candidate.base64Deferred)
+  );
+}
+
+export function isSessionDetailContentPatch(value: unknown): value is SessionDetailContentPatch {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<SessionDetailContentPatch> & {
+    rawRequest?: string | null;
+    rawRequestDeferred?: boolean | null;
+    rawResponse?: string | null;
+    rawResponseDeferred?: boolean | null;
+    requestBody?: SessionBodyContentPatch | null;
+    responseBody?: SessionBodyContentPatch | null;
+  };
+
+  return (
+    typeof candidate.sessionId === "string" &&
+    isNullableString(candidate.rawRequest) &&
+    isNullableBoolean(candidate.rawRequestDeferred) &&
+    isNullableString(candidate.rawResponse) &&
+    isNullableBoolean(candidate.rawResponseDeferred) &&
+    (candidate.requestBody === undefined || candidate.requestBody === null || isSessionBodyContentPatch(candidate.requestBody)) &&
+    (candidate.responseBody === undefined || candidate.responseBody === null || isSessionBodyContentPatch(candidate.responseBody))
+  );
+}
+
+export function parseSessionDetailContentPatch(value: unknown): SessionDetailContentPatch {
+  if (!isSessionDetailContentPatch(value)) {
+    throw {
+      code: "INVALID_SESSION_DETAIL_CONTENT_PATCH",
+      message: "The session detail content patch payload does not match the shared contract.",
+      details: {
+        payload: value,
+      },
+    } satisfies AppError;
+  }
+
+  const candidate = value as SessionDetailContentPatch & {
+    rawRequest?: string | null;
+    rawRequestDeferred?: boolean | null;
+    rawResponse?: string | null;
+    rawResponseDeferred?: boolean | null;
+    requestBody?: SessionBodyContentPatch | null;
+    responseBody?: SessionBodyContentPatch | null;
+  };
+
+  return {
+    sessionId: candidate.sessionId,
+    ...(candidate.rawRequest !== null && candidate.rawRequest !== undefined
+      ? { rawRequest: candidate.rawRequest }
+      : {}),
+    ...(candidate.rawRequestDeferred !== null && candidate.rawRequestDeferred !== undefined
+      ? { rawRequestDeferred: candidate.rawRequestDeferred }
+      : {}),
+    ...(candidate.rawResponse !== null && candidate.rawResponse !== undefined
+      ? { rawResponse: candidate.rawResponse }
+      : {}),
+    ...(candidate.rawResponseDeferred !== null && candidate.rawResponseDeferred !== undefined
+      ? { rawResponseDeferred: candidate.rawResponseDeferred }
+      : {}),
+    ...(candidate.requestBody !== null && candidate.requestBody !== undefined
+      ? { requestBody: normalizeSessionBodyContentPatch(candidate.requestBody) }
+      : {}),
+    ...(candidate.responseBody !== null && candidate.responseBody !== undefined
+      ? { responseBody: normalizeSessionBodyContentPatch(candidate.responseBody) }
+      : {}),
+  };
+}
+
+function normalizeSessionBodyContentPatch(
+  patch: SessionBodyContentPatch & {
+    base64Deferred?: boolean | null;
+    base64Text?: string | null;
+    inlineText?: string | null;
+    textDeferred?: boolean | null;
+  },
+): SessionBodyContentPatch {
+  return {
+    ...(patch.inlineText !== null && patch.inlineText !== undefined ? { inlineText: patch.inlineText } : {}),
+    ...(patch.base64Text !== null && patch.base64Text !== undefined ? { base64Text: patch.base64Text } : {}),
+    ...(patch.textDeferred !== null && patch.textDeferred !== undefined ? { textDeferred: patch.textDeferred } : {}),
+    ...(patch.base64Deferred !== null && patch.base64Deferred !== undefined ? { base64Deferred: patch.base64Deferred } : {}),
+  };
+}
+
+export function mergeSessionDetailContent(
+  detail: SessionDetail,
+  patch: SessionDetailContentPatch,
+): SessionDetail {
+  if (patch.sessionId !== detail.id) {
+    throw {
+      code: "SESSION_DETAIL_CONTENT_PATCH_MISMATCH",
+      message: "The session detail content patch does not match the target session.",
+      details: {
+        detailId: detail.id,
+        patchSessionId: patch.sessionId,
+      },
+    } satisfies AppError;
+  }
+
+  const nextRequestBody = mergeBodyReferenceContent(detail.requestBody, patch.requestBody);
+  const nextResponseBody = mergeBodyReferenceContent(detail.responseBody, patch.responseBody);
+
+  const nextDetail: SessionDetail = {
+    ...detail,
+    ...(patch.rawRequest !== undefined ? { rawRequest: patch.rawRequest } : {}),
+    ...(patch.rawResponse !== undefined ? { rawResponse: patch.rawResponse } : {}),
+    ...(nextRequestBody ? { requestBody: nextRequestBody } : {}),
+    ...(nextResponseBody ? { responseBody: nextResponseBody } : {}),
+  };
+
+  if (patch.rawRequestDeferred === true) {
+    nextDetail.rawRequestDeferred = true;
+  } else if (patch.rawRequestDeferred === false) {
+    delete nextDetail.rawRequestDeferred;
+  }
+
+  if (patch.rawResponseDeferred === true) {
+    nextDetail.rawResponseDeferred = true;
+  } else if (patch.rawResponseDeferred === false) {
+    delete nextDetail.rawResponseDeferred;
+  }
+
+  return nextDetail;
+}
+
+function mergeBodyReferenceContent(
+  body: BodyReference | undefined,
+  patch: SessionBodyContentPatch | undefined,
+): BodyReference | undefined {
+  if (!body) {
+    return body;
+  }
+
+  if (!patch) {
+    return body;
+  }
+
+  const nextBody: BodyReference = {
+    ...body,
+    ...(patch.inlineText !== undefined ? { inlineText: patch.inlineText } : {}),
+    ...(patch.base64Text !== undefined ? { base64Text: patch.base64Text } : {}),
+  };
+
+  if (patch.textDeferred === true) {
+    nextBody.textDeferred = true;
+  } else if (patch.textDeferred === false) {
+    delete nextBody.textDeferred;
+  }
+
+  if (patch.base64Deferred === true) {
+    nextBody.base64Deferred = true;
+  } else if (patch.base64Deferred === false) {
+    delete nextBody.base64Deferred;
+  }
+
+  return nextBody;
 }
 
 function normalizeTimingBreakdown(timing: TimingBreakdown & {

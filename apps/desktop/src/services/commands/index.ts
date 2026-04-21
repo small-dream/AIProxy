@@ -14,11 +14,13 @@ import {
   parseBreakpointRules,
   parseCertificateStatus,
   parseCertificateInstallGuide,
+  parseSessionDetailContentPatch,
   parseRewriteRules,
   parseScriptRules,
   parseScriptSessionTrace,
   parseScriptSourceFile,
   parseSessionDetail,
+  mergeSessionDetailContent,
   normalizeStartProxyInput,
   parseSessionSummaries,
   parseProxyStatus,
@@ -48,6 +50,8 @@ import {
   type ScriptSessionTrace,
   type ScriptSourceFile,
   type SessionDetail,
+  type SessionDetailContentPatch,
+  type SessionDetailContentRequest,
   type SessionSummary,
   type SetAndroidProxyViaAdbInput,
   type StartProxyInput,
@@ -218,6 +222,47 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
     reportCommandFailure("get_session_detail", error);
     throw coerceAppError(error);
   }
+}
+
+export async function getSessionDetailContent(
+  input: SessionDetailContentRequest,
+): Promise<SessionDetailContentPatch> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Session detail content requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    logDevDebug("ui.commands", "get_session_detail_content_requested", input);
+    const payload = await invoke<unknown>("get_session_detail_content", {
+      input,
+    });
+    const patch = parseSessionDetailContentPatch(payload);
+
+    logDevDebug("ui.commands", "get_session_detail_content_succeeded", {
+      sessionId: patch.sessionId,
+    });
+
+    return patch;
+  } catch (error) {
+    reportCommandFailure("get_session_detail_content", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function getSessionDetailWithContent(
+  sessionId: string,
+  contentRequest: Omit<SessionDetailContentRequest, "sessionId">,
+): Promise<SessionDetail> {
+  const detail = await getSessionDetail(sessionId);
+  const patch = await getSessionDetailContent({
+    sessionId,
+    ...contentRequest,
+  });
+
+  return mergeSessionDetailContent(detail, patch);
 }
 
 export async function clearSessions(): Promise<void> {

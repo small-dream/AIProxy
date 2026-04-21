@@ -1,14 +1,17 @@
 import { Alert, Box, Divider, Typography } from "@mui/material";
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
+import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
 import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
 import { type ResponsePaneHandle, SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
 import {
   formatJsonText,
   getBodyText,
+  getRawMessageText,
   parseFormEntries,
   parseJsonBody,
   type JsonParseResult,
@@ -59,7 +62,9 @@ function SessionInspectorWorkspace({
   selectedSessionDetail,
 }, ref) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [activePane, setActivePane] = useState<"request" | "response">("response");
+  const [contentLoading, setContentLoading] = useState<Record<string, boolean>>({});
   const requestPaneRef = useRef<RequestPaneHandle>(null);
   const responsePaneRef = useRef<ResponsePaneHandle>(null);
 
@@ -67,6 +72,10 @@ function SessionInspectorWorkspace({
     selectedSessionDetail && selectedSession && selectedSessionDetail.id === selectedSession.id
       ? selectedSessionDetail
       : undefined;
+
+  useEffect(() => {
+    setContentLoading({});
+  }, [selectedSession?.id]);
 
   const requestBodyText = getBodyText(detail?.requestBody);
   const responseBodyText = getBodyText(detail?.responseBody);
@@ -119,6 +128,110 @@ function SessionInspectorWorkspace({
       responsePaneRef.current?.activateSearch();
     }
   }, [activePane]);
+
+  const loadDeferredContent = useCallback(async (
+    key: "requestBodyText" | "requestRaw" | "responseBodyText" | "responseRaw",
+    request: {
+      includeRequestBodyText?: boolean;
+      includeRawRequest?: boolean;
+      includeResponseBodyText?: boolean;
+      includeRawResponse?: boolean;
+    },
+  ) => {
+    if (!selectedSession) {
+      return;
+    }
+
+    setContentLoading((current) => {
+      if (current[key]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: true,
+      };
+    });
+
+    try {
+      await ensureSessionDetailContent(queryClient, selectedSession.id, request);
+    } finally {
+      setContentLoading((current) => {
+        if (!current[key]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }, [queryClient, selectedSession]);
+
+  useEffect(() => {
+    if (!selectedSession || !detail) {
+      return;
+    }
+
+    if ((requestTab === "body" || requestTab === "form")
+      && detail.requestBody?.textDeferred
+      && detail.requestBody.inlineText === undefined
+      && !contentLoading.requestBodyText
+      && !contentLoading.requestRaw) {
+      void loadDeferredContent("requestBodyText", { includeRequestBodyText: true });
+    }
+
+    if (requestTab === "raw"
+      && detail.rawRequestDeferred
+      && getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody) === undefined
+      && !contentLoading.requestRaw
+      && !(detail.requestBody?.textDeferred && contentLoading.requestBodyText)) {
+      void loadDeferredContent(
+        "requestRaw",
+        detail.requestBody?.textDeferred && detail.rawRequestHead
+          ? { includeRequestBodyText: true }
+          : { includeRawRequest: true },
+      );
+    }
+
+    if ((responseTab === "text" || responseTab === "json" || responseTab === "jsonText")
+      && detail.responseBody?.textDeferred
+      && detail.responseBody.inlineText === undefined
+      && !contentLoading.responseBodyText
+      && !contentLoading.responseRaw) {
+      void loadDeferredContent("responseBodyText", { includeResponseBodyText: true });
+    }
+
+    if (responseTab === "raw"
+      && detail.rawResponseDeferred
+      && getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody) === undefined
+      && !contentLoading.responseRaw
+      && !(detail.responseBody?.textDeferred && contentLoading.responseBodyText)) {
+      void loadDeferredContent(
+        "responseRaw",
+        detail.responseBody?.textDeferred && detail.rawResponseHead
+          ? { includeResponseBodyText: true }
+          : { includeRawResponse: true },
+      );
+    }
+  }, [
+    contentLoading.requestBodyText,
+    contentLoading.requestRaw,
+    contentLoading.responseBodyText,
+    contentLoading.responseRaw,
+    detail,
+    loadDeferredContent,
+    requestBodyText,
+    requestTab,
+    responseBodyText,
+    responseTab,
+    selectedSession,
+  ]);
+
+  const isRequestBodyLoading = Boolean(contentLoading.requestBodyText);
+  const isRequestRawLoading = Boolean(contentLoading.requestRaw);
+  const isResponseBodyLoading = Boolean(contentLoading.responseBodyText);
+  const isResponseRawLoading = Boolean(contentLoading.responseRaw);
 
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
@@ -199,6 +312,8 @@ function SessionInspectorWorkspace({
             ref={requestPaneRef}
             onRequestCollapsedChange={onRequestCollapsedChange}
             onRequestTabChange={onRequestTabChange}
+            isRequestBodyLoading={isRequestBodyLoading}
+            isRequestRawLoading={isRequestRawLoading}
             requestBodyDisplayText={requestBodyDisplayText}
             requestCollapsed={requestCollapsed}
             requestFormEntries={requestFormEntries}
@@ -220,6 +335,8 @@ function SessionInspectorWorkspace({
             key={`${selectedSession.id}:${sessionSelectionNonce}:response`}
             detail={detail}
             ref={responsePaneRef}
+            isResponseBodyLoading={isResponseBodyLoading}
+            isResponseRawLoading={isResponseRawLoading}
             onResponseTabChange={onResponseTabChange}
             responseJsonDisplayText={responseJsonDisplayText}
             responseJsonResult={responseJsonResult}

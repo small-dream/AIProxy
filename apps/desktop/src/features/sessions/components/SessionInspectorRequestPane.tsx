@@ -9,6 +9,7 @@ import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, S
 import {
   buildCountTabLabel,
   describeBody,
+  getRawMessageText,
   type RequestInspectorTab,
   type SearchMatcher,
 } from "./session-inspector.helpers";
@@ -21,6 +22,8 @@ export type RequestPaneHandle = {
 
 export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   detail: SessionDetail | undefined;
+  isRequestBodyLoading: boolean;
+  isRequestRawLoading: boolean;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
   requestBodyDisplayText: string;
@@ -30,6 +33,8 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   session: SessionSummary;
 }>(function SessionInspectorRequestPane({
   detail,
+  isRequestBodyLoading,
+  isRequestRawLoading,
   onRequestCollapsedChange,
   onRequestTabChange,
   requestBodyDisplayText,
@@ -100,6 +105,8 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
         <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2.5 }}>
           <RequestTabContent
             detail={detail}
+            isRequestBodyLoading={isRequestBodyLoading}
+            isRequestRawLoading={isRequestRawLoading}
             requestBodyDisplayText={requestBodyDisplayText}
             requestFormEntries={requestFormEntries}
             requestTab={requestTab}
@@ -141,6 +148,8 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
 
 function RequestTabContent({
   detail,
+  isRequestBodyLoading,
+  isRequestRawLoading,
   requestBodyDisplayText,
   requestFormEntries,
   requestTab,
@@ -149,6 +158,8 @@ function RequestTabContent({
   onMatchCountChange,
 }: {
   detail: SessionDetail | undefined;
+  isRequestBodyLoading: boolean;
+  isRequestRawLoading: boolean;
   requestBodyDisplayText: string;
   requestFormEntries: Array<[string, string]>;
   requestTab: RequestInspectorTab;
@@ -186,6 +197,16 @@ function RequestTabContent({
   }
 
   if (requestTab === "form") {
+    if (isRequestBodyLoading && detail?.requestBody?.textDeferred) {
+      return (
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.workspace.loading")}
+          </Typography>
+        </InspectorScrollArea>
+      );
+    }
+
     return (
       <InspectorScrollArea>
         <Stack spacing={1}>
@@ -202,9 +223,21 @@ function RequestTabContent({
   }
 
   if (requestTab === "raw") {
+    const rawRequestText = getRawMessageText(detail?.rawRequest, detail?.rawRequestHead, detail?.requestBody);
+
+    if (isRequestRawLoading && detail?.rawRequestDeferred) {
+      return (
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.workspace.loading")}
+          </Typography>
+        </InspectorScrollArea>
+      );
+    }
+
     return (
       <SearchableCodeBlock
-        code={detail?.rawRequest ?? t("inspector.request.rawUnavailable")}
+        code={rawRequestText ?? t("inspector.request.rawUnavailable")}
         currentMatchIndex={currentMatchIndex}
         matcher={searchMatcher}
         onMatchCountChange={onMatchCountChange}
@@ -218,13 +251,19 @@ function RequestTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock
-        code={requestBodyDisplayText}
-        currentMatchIndex={currentMatchIndex}
-        matcher={searchMatcher}
-        onMatchCountChange={onMatchCountChange}
-        searchQuery=""
-      />
+      {isRequestBodyLoading && detail?.requestBody?.textDeferred ? (
+        <Typography color="text.secondary" variant="body2">
+          {t("inspector.workspace.loading")}
+        </Typography>
+      ) : (
+        <SearchableCodeBlock
+          code={requestBodyDisplayText}
+          currentMatchIndex={currentMatchIndex}
+          matcher={searchMatcher}
+          onMatchCountChange={onMatchCountChange}
+          searchQuery=""
+        />
+      )}
     </Stack>
   );
 }

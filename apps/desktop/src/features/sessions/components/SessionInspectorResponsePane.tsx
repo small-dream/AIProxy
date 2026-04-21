@@ -14,6 +14,7 @@ import {
   buildCountTabLabel,
   describeBody,
   getBodyText,
+  getRawMessageText,
   type JsonParseResult,
   type ResponseInspectorTab,
   type SearchMatcher,
@@ -30,6 +31,8 @@ const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set(["json", "jso
 
 export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   detail: SessionDetail | undefined;
+  isResponseBodyLoading: boolean;
+  isResponseRawLoading: boolean;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
   responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
@@ -37,6 +40,8 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   session: SessionSummary;
 }>(function SessionInspectorResponsePane({
   detail,
+  isResponseBodyLoading,
+  isResponseRawLoading,
   onResponseTabChange,
   responseJsonDisplayText,
   responseJsonResult,
@@ -88,7 +93,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     }
 
     if (responseTab === "raw") {
-      return detail?.rawResponse ?? "";
+      return getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody) ?? "";
     }
 
     if (responseTab === "text") {
@@ -96,7 +101,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     }
 
     return "";
-  }, [detail?.rawResponse, detail?.responseBody, responseJsonDisplayText, responseTab]);
+  }, [detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody, responseJsonDisplayText, responseTab]);
 
   const handleCopy = useCallback(async () => {
     if (!copyValue) return;
@@ -178,6 +183,8 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
       <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2.5 }}>
         <ResponseTabContent
           detail={detail}
+          isResponseBodyLoading={isResponseBodyLoading}
+          isResponseRawLoading={isResponseRawLoading}
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={responseTab}
@@ -226,6 +233,8 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
 function ResponseTabContent({
   detail,
+  isResponseBodyLoading,
+  isResponseRawLoading,
   responseJsonDisplayText,
   responseJsonResult,
   responseTab,
@@ -235,6 +244,8 @@ function ResponseTabContent({
   session,
 }: {
   detail: SessionDetail | undefined;
+  isResponseBodyLoading: boolean;
+  isResponseRawLoading: boolean;
   responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
@@ -279,9 +290,21 @@ function ResponseTabContent({
   }
 
   if (responseTab === "raw") {
+    const rawResponseText = getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody);
+
+    if (isResponseRawLoading && detail?.rawResponseDeferred) {
+      return (
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.workspace.loading")}
+          </Typography>
+        </InspectorScrollArea>
+      );
+    }
+
     return (
       <SearchableCodeBlock
-        code={detail?.rawResponse ?? t("inspector.response.rawUnavailable")}
+        code={rawResponseText ?? t("inspector.response.rawUnavailable")}
         currentMatchIndex={currentMatchIndex}
         matcher={searchMatcher}
         onMatchCountChange={onMatchCountChange}
@@ -291,6 +314,16 @@ function ResponseTabContent({
   }
 
   if (responseTab === "json") {
+    if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
+      return (
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.workspace.loading")}
+          </Typography>
+        </InspectorScrollArea>
+      );
+    }
+
     if (responseJsonResult.status === "tooLarge") {
       return <Alert severity="info">{responseJsonResult.message}</Alert>;
     }
@@ -321,6 +354,16 @@ function ResponseTabContent({
   }
 
   if (responseTab === "jsonText") {
+    if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
+      return (
+        <InspectorScrollArea>
+          <Typography color="text.secondary" variant="body2">
+            {t("inspector.workspace.loading")}
+          </Typography>
+        </InspectorScrollArea>
+      );
+    }
+
     if (responseJsonResult.status === "tooLarge") {
       return (
         <Stack spacing={1.5}>
@@ -358,13 +401,19 @@ function ResponseTabContent({
       <Typography color="text.secondary" variant="caption">
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      <SearchableCodeBlock
-        code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")}
-        currentMatchIndex={currentMatchIndex}
-        matcher={searchMatcher}
-        onMatchCountChange={onMatchCountChange}
-        searchQuery=""
-      />
+      {isResponseBodyLoading && detail?.responseBody?.textDeferred ? (
+        <Typography color="text.secondary" variant="body2">
+          {t("inspector.workspace.loading")}
+        </Typography>
+      ) : (
+        <SearchableCodeBlock
+          code={getBodyText(detail?.responseBody) ?? t("inspector.response.noTextBody")}
+          currentMatchIndex={currentMatchIndex}
+          matcher={searchMatcher}
+          onMatchCountChange={onMatchCountChange}
+          searchQuery=""
+        />
+      )}
     </Stack>
   );
 }

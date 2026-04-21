@@ -105,6 +105,7 @@ pub fn run() {
             commands::get_bootstrap_status,
             commands::list_sessions,
             commands::get_session_detail,
+            commands::get_session_detail_content,
             commands::clear_sessions,
             commands::delete_sessions_except,
             commands::set_focused_host,

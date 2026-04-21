@@ -143,6 +143,30 @@ export function getBodyText(body: BodyReference | undefined) {
   return body?.inlineText;
 }
 
+export function getRawMessageText(
+  rawText: string | undefined,
+  rawHead: string | undefined,
+  body: BodyReference | undefined,
+) {
+  if (rawText !== undefined) {
+    return rawText;
+  }
+
+  if (!rawHead) {
+    return undefined;
+  }
+
+  if (!body) {
+    return rawHead;
+  }
+
+  if (body.inlineText !== undefined) {
+    return `${rawHead}${body.inlineText}`;
+  }
+
+  return undefined;
+}
+
 export function parseFormEntries(body: BodyReference | undefined): Array<[string, string]> {
   const text = getBodyText(body);
   const mimeType = body?.mimeType?.toLowerCase() ?? "";

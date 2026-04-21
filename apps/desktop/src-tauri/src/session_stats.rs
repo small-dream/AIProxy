@@ -19,10 +19,13 @@ static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static SESSION_STATS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn initialize() -> Result<Option<PathBuf>, String> {
-    let enabled = env_flag_enabled(SESSION_STATS_ENV_VAR)
-        || env::var(SESSION_STATS_FILE_ENV_VAR)
-            .ok()
-            .is_some_and(|value| !value.trim().is_empty());
+    let explicit_flag = env_flag_state(SESSION_STATS_ENV_VAR);
+    let explicit_file_path = env::var(SESSION_STATS_FILE_ENV_VAR)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let enabled = explicit_flag.unwrap_or_else(|| {
+        explicit_file_path.is_some() || cfg!(debug_assertions)
+    });
 
     SESSION_STATS_ENABLED.store(enabled, Ordering::Relaxed);
 
@@ -132,10 +135,15 @@ fn discover_workspace_root_from_current_exe() -> Option<PathBuf> {
     None
 }
 
-fn env_flag_enabled(name: &str) -> bool {
-    env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+fn env_flag_state(name: &str) -> Option<bool> {
+    let value = env::var(name).ok()?;
+    let normalized = value.trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn quote_value(value: &str) -> String {

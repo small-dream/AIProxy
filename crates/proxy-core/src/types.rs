@@ -288,6 +288,10 @@ impl ProxyBodyReference {
         self.storage = ProxyBodyStorage::FilePath(file_path);
     }
 
+    pub fn can_render_as_text(&self) -> bool {
+        self.render_as_text
+    }
+
     pub fn inline_text(&self) -> Option<String> {
         if !self.render_as_text {
             return None;

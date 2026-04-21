@@ -12,6 +12,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { downloadTextFile } from "@/lib/download";
 import type {
   ExportFormat,
@@ -21,8 +22,9 @@ import type {
 } from "@aiproxy/shared-types";
 import { type ReactNode, useMemo, useState } from "react";
 
-import { getSessionDetail } from "@/services/commands";
 import { useI18n } from "@/i18n";
+import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
+import { SESSION_DETAIL_QUERY_KEY } from "@/features/sessions/use-session-detail";
 import {
   buildCurlBundle,
   buildHarArchive,
@@ -47,6 +49,7 @@ export function SessionExportDialog({
   selectedSessionDetail,
 }: Props) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [scope, setScope] = useState<ExportScope>(selectedSession ? "selected" : "filtered");
   const [format, setFormat] = useState<ExportFormat>("json");
   const [isExporting, setIsExporting] = useState(false);
@@ -74,6 +77,7 @@ export function SessionExportDialog({
       const details = await loadDetailsForScope({
         allSessions,
         filteredSessions,
+        queryClient,
         scope,
         selectedSession,
         selectedSessionDetail,
@@ -247,11 +251,12 @@ function SelectableCard(props: {
 async function loadDetailsForScope(props: {
   allSessions: SessionSummary[];
   filteredSessions: SessionSummary[];
+  queryClient: QueryClient;
   scope: ExportScope;
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
 }) {
-  const { allSessions, filteredSessions, scope, selectedSession, selectedSessionDetail } = props;
+  const { allSessions, filteredSessions, queryClient, scope, selectedSession, selectedSessionDetail } = props;
 
   if (scope === "selected") {
     if (!selectedSession) {
@@ -259,10 +264,17 @@ async function loadDetailsForScope(props: {
     }
 
     if (selectedSessionDetail && selectedSessionDetail.id === selectedSession.id) {
-      return [selectedSessionDetail];
+      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, selectedSession.id], selectedSessionDetail);
     }
 
-    return [await getSessionDetail(selectedSession.id)];
+    return [await ensureSessionDetailContent(queryClient, selectedSession.id, {
+      includeRawRequest: true,
+      includeRawResponse: true,
+      includeRequestBodyText: true,
+      includeResponseBodyText: true,
+      includeRequestBodyBase64: true,
+      includeResponseBodyBase64: true,
+    })];
   }
 
   const summaries = scope === "filtered" ? filteredSessions : allSessions;
@@ -272,7 +284,14 @@ async function loadDetailsForScope(props: {
 
   for (let i = 0; i < summaries.length; i += BATCH_SIZE) {
     const batch = summaries.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(batch.map((session) => getSessionDetail(session.id)));
+    const batchResults = await Promise.all(batch.map((session) => ensureSessionDetailContent(queryClient, session.id, {
+      includeRawRequest: true,
+      includeRawResponse: true,
+      includeRequestBodyText: true,
+      includeResponseBodyText: true,
+      includeRequestBodyBase64: true,
+      includeResponseBodyBase64: true,
+    })));
     details.push(...batchResults);
   }
 

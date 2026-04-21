@@ -319,8 +319,8 @@ function buildOverviewSections({
   const requestContentType = getHeaderValue(detail?.requestHeaders, "content-type") ?? fallback;
   const requestContentEncoding = getHeaderValue(detail?.requestHeaders, "content-encoding");
   const responseContentEncoding = getHeaderValue(detail?.responseHeaders, "content-encoding");
-  const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest);
-  const responseHeaderBytes = estimateHeaderBytes(detail?.rawResponse);
+  const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest, detail?.requestHeaders, session.method, session.path, session.protocol);
+  const responseHeaderBytes = estimateHeaderBytes(detail?.rawResponse, detail?.responseHeaders, undefined, undefined, session.protocol, session.statusCode);
   const requestBodyBytes = detail?.requestBody?.sizeBytes ?? 0;
   const responseBodyBytes = detail?.responseBody?.sizeBytes ?? 0;
   const requestTotalBytes = requestHeaderBytes + requestBodyBytes;
@@ -526,9 +526,25 @@ function formatCompression(
   return `${savedRatio.toFixed(1)}% (${encoding})`;
 }
 
-function estimateHeaderBytes(rawMessage: string | undefined) {
+function estimateHeaderBytes(
+  rawMessage: string | undefined,
+  headers: HeaderEntry[] | undefined,
+  method?: string,
+  path?: string,
+  protocol?: string,
+  statusCode?: number,
+) {
   if (!rawMessage) {
-    return 0;
+    if (!headers || headers.length === 0) {
+      return 0;
+    }
+
+    const startLine = statusCode != null && statusCode > 0
+      ? `HTTP/${normalizeProtocolVersion(protocol)} ${statusCode}\r\n`
+      : `${method ?? "GET"} ${path ?? "/"} HTTP/${normalizeProtocolVersion(protocol)}\r\n`;
+    const headerText = `${startLine}${headers.map((header) => `${header.name}: ${header.value}\r\n`).join("")}\r\n`;
+
+    return new TextEncoder().encode(headerText).length;
   }
 
   const separatorIndex = rawMessage.indexOf("\r\n\r\n");
@@ -541,7 +557,11 @@ function estimateDecodedBodyBytes(body: BodyReference | undefined) {
   const base64Text = body?.base64Text;
 
   if (!base64Text) {
-    return body?.inlineText ? new TextEncoder().encode(body.inlineText).length : undefined;
+    if (body?.inlineText) {
+      return new TextEncoder().encode(body.inlineText).length;
+    }
+
+    return undefined;
   }
 
   const paddingLength = base64Text.endsWith("==") ? 2 : base64Text.endsWith("=") ? 1 : 0;
@@ -575,6 +595,30 @@ function estimateCookieBytes(headers: HeaderEntry[] | undefined, headerName: str
 
 function formatProtocol(protocol: string) {
   return protocol.toUpperCase();
+}
+
+function normalizeProtocolVersion(protocol: string | undefined) {
+  if (!protocol) {
+    return "1.1";
+  }
+
+  if (protocol.startsWith("HTTP/")) {
+    return protocol.slice("HTTP/".length);
+  }
+
+  if (/^\d(?:\.\d)?$/.test(protocol)) {
+    return protocol;
+  }
+
+  if (protocol.toLowerCase() === "http2") {
+    return "2";
+  }
+
+  if (protocol.toLowerCase() === "h2") {
+    return "2";
+  }
+
+  return "1.1";
 }
 
 function buildRemoteAddress(urlValue: string, host: string, serverIp: string | undefined) {

@@ -1,8 +1,8 @@
 import type {
   ComposedRequestInput,
-  SessionDetail,
   SessionSummary,
 } from "@aiproxy/shared-types";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type {
   Dispatch,
@@ -12,8 +12,10 @@ import type {
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { getSessionDetail, saveSessionToCollection } from "@/services/commands";
+import { saveSessionToCollection } from "@/services/commands";
 
+import { getRawMessageText } from "@/features/sessions/components/session-inspector.helpers";
+import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
 import { buildCurlCommand, getBodyText } from "@/features/sessions/session-export.helpers";
 import { guessExtension } from "@/features/sessions/session-ui.helpers";
 
@@ -42,6 +44,7 @@ export function useSessionContextActions({
   sendComposedRequest,
 }: UseSessionContextActionsParams) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
   const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
   const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{ left: number; top: number }>();
@@ -94,52 +97,76 @@ export function useSessionContextActions({
     showSnackbar(message);
   }, [showSnackbar]);
 
-  const fetchDetailOnDemand = useCallback(async (session: SessionSummary): Promise<SessionDetail | undefined> => {
-    try {
-      return await getSessionDetail(session.id);
-    } catch {
-      return undefined;
-    }
-  }, []);
-
   const handleCopyUrl = useCallback((session: SessionSummary) => {
     void copyToClipboard(session.url, t("contextMenu.copiedToClipboard"));
   }, [copyToClipboard, t]);
 
   const handleCopyRequest = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const rawRequest = detail?.rawRequest;
+    let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+    let rawRequest = getRawMessageText(detail?.rawRequest, detail?.rawRequestHead, detail?.requestBody);
+
+    if (!rawRequest && detail?.requestBody?.textDeferred && detail.rawRequestHead) {
+      detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeRequestBodyText: true,
+      });
+      rawRequest = getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody);
+    }
+
+    if (!rawRequest && detail?.rawRequestDeferred) {
+      detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeRawRequest: true,
+      });
+      rawRequest = getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody);
+    }
 
     if (!rawRequest) {
       return;
     }
 
     await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
+  }, [copyToClipboard, queryClient, t]);
 
   const handleCopyCurl = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
+    const detail = await ensureSessionDetailContent(queryClient, session.id, {
+      includeRequestBodyText: true,
+    });
 
     if (!detail) {
       return;
     }
 
     await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
+  }, [copyToClipboard, queryClient, t]);
 
   const handleCopyResponse = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
-    const rawResponse = detail?.rawResponse;
+    let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+    let rawResponse = getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody);
+
+    if (!rawResponse && detail?.responseBody?.textDeferred && detail.rawResponseHead) {
+      detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeResponseBodyText: true,
+      });
+      rawResponse = getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody);
+    }
+
+    if (!rawResponse && detail?.rawResponseDeferred) {
+      detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeRawResponse: true,
+      });
+      rawResponse = getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody);
+    }
 
     if (!rawResponse) {
       return;
     }
 
     await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, fetchDetailOnDemand, t]);
+  }, [copyToClipboard, queryClient, t]);
 
   const handleSaveResponse = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
+    const detail = await ensureSessionDetailContent(queryClient, session.id, {
+      includeResponseBodyText: true,
+    });
     const bodyText = getBodyText(detail?.responseBody);
 
     if (!bodyText) {
@@ -150,10 +177,12 @@ export function useSessionContextActions({
     const extension = guessExtension(mimeType);
     const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
     downloadTextFile(filename, bodyText, mimeType);
-  }, [fetchDetailOnDemand]);
+  }, [queryClient]);
 
   const handleCompose = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
+    const detail = await ensureSessionDetailContent(queryClient, session.id, {
+      includeRequestBodyText: true,
+    });
     const bodyText = detail?.requestBody?.inlineText;
 
     loadFromSession({
@@ -163,10 +192,12 @@ export function useSessionContextActions({
       ...(bodyText ? { body: bodyText } : {}),
     });
     navigate("/compose");
-  }, [fetchDetailOnDemand, loadFromSession, navigate]);
+  }, [loadFromSession, navigate, queryClient]);
 
   const handleRepeatDirect = useCallback(async (session: SessionSummary) => {
-    const detail = await fetchDetailOnDemand(session);
+    const detail = await ensureSessionDetailContent(queryClient, session.id, {
+      includeRequestBodyText: true,
+    });
 
     if (!detail) {
       return;
@@ -188,7 +219,7 @@ export function useSessionContextActions({
     } catch {
       // Silent fail; the new session will appear via polling.
     }
-  }, [fetchDetailOnDemand, sendComposedRequest]);
+  }, [queryClient, sendComposedRequest]);
 
   const handleFocusDomain = useCallback((host: string) => {
     setFocusedHost((currentHost) => (currentHost === host ? null : host));
