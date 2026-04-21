@@ -1,9 +1,7 @@
-import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
 import CableRoundedIcon from "@mui/icons-material/CableRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import FilterCenterFocusRoundedIcon from "@mui/icons-material/FilterCenterFocusRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
@@ -199,7 +197,7 @@ export function SessionExplorerPane({
           bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.common.white, 0.02) : alpha(theme.palette.common.black, 0.015),
           boxShadow: `inset 0 1px 0 ${alpha(theme.palette.common.white, theme.palette.mode === "dark" ? 0.03 : 0.55)}`,
           flex: "0 0 auto",
-          minHeight: 34,
+          minHeight: 30,
           px: 0,
           py: 0,
         })}
@@ -219,9 +217,9 @@ export function SessionExplorerPane({
             fontSize: getScaledFontSize(theme, 13.5),
             fontWeight: 400,
             lineHeight: 1.25,
-            minHeight: 34,
+            minHeight: 30,
             px: 1.5,
-            py: 0.25,
+            py: 0.125,
             width: "100%",
             "& input": {
               padding: 0,
@@ -301,7 +299,7 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
           display: "flex",
           flex: "0 0 auto",
           ml: 0.125,
-          mr: 0.5,
+          mr: 0.25,
         })}
       >
         {renderHostGroupIcon(group)}
@@ -311,7 +309,7 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
         sx={(theme) => ({
           backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
           display: "inline-flex",
-          marginLeft: 0.5,
+          marginLeft: 0.2,
           maxWidth: "calc(100% - 24px)",
           minWidth: 0,
           transition: "background-color 1800ms ease",
@@ -405,7 +403,7 @@ function SessionTreeNode({
             display: "flex",
             flex: "0 0 auto",
             ml: 0.125,
-            mr: 0.5,
+            mr: 0.25,
           }}
         >
           {renderBranchIcon(node.branchType, expanded)}
@@ -548,17 +546,17 @@ function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, on
 const SessionLeafNode = memo(SessionLeafNodeImpl);
 
 function renderHostGroupIcon(group: SessionHostGroup) {
-  const sx = { fontSize: 17 };
+  const sx = { fontSize: 18.5 };
 
   if (group.kind === "aggregate") {
-    return <AccountTreeRoundedIcon data-testid="unfocused-group-icon" sx={sx} />;
+    return <UnfocusedGroupIcon data-testid="unfocused-group-icon" sx={sx} />;
   }
 
   if (group.isFocused) {
-    return <FilterCenterFocusRoundedIcon data-testid="focused-host-icon" sx={sx} />;
+    return <FocusedDomainIcon data-testid="focused-host-icon" sx={sx} />;
   }
 
-  return <LanguageRoundedIcon data-testid="host-icon" sx={sx} />;
+  return <DomainHostIcon data-testid="host-icon" sx={sx} />;
 }
 
 function getHostGroupIconColor(theme: Theme, group: SessionHostGroup): string {
@@ -575,7 +573,7 @@ function getHostGroupIconColor(theme: Theme, group: SessionHostGroup): string {
 
 function renderBranchIcon(branchType: SessionPathNode extends infer _ ? "host" | "path" : never, expanded: boolean) {
   if (branchType === "host") {
-    return <LanguageRoundedIcon data-testid="aggregate-host-icon" sx={{ fontSize: 16 }} />;
+    return <DomainHostIcon data-testid="aggregate-host-icon" sx={{ fontSize: 17 }} />;
   }
 
   return expanded ? <FolderOpenRoundedIcon sx={{ fontSize: 16 }} /> : <FolderRoundedIcon sx={{ fontSize: 16 }} />;
@@ -787,6 +785,119 @@ function JsonFileIcon(props: SvgIconProps) {
         strokeLinejoin="round"
         strokeWidth="1.15"
       />
+    </SvgIcon>
+  );
+}
+
+const explorerIconStrokeSx = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function DomainHostIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props} viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="5.75" strokeWidth="1.5" {...explorerIconStrokeSx} />
+      <path
+        d="M10 4.4c-1.85 1.42-3 3.52-3 5.6s1.15 4.18 3 5.6"
+        strokeWidth="1.35"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M10 4.4c1.85 1.42 3 3.52 3 5.6s-1.15 4.18-3 5.6"
+        strokeWidth="1.35"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M4.25 10h11.5"
+        strokeWidth="1.35"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M5.5 7.15c1.25.68 2.86 1.02 4.5 1.02s3.25-.34 4.5-1.02"
+        strokeWidth="1.2"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M5.5 12.85c1.25-.68 2.86-1.02 4.5-1.02s3.25.34 4.5 1.02"
+        strokeWidth="1.2"
+        {...explorerIconStrokeSx}
+      />
+    </SvgIcon>
+  );
+}
+
+function FocusedDomainIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props} viewBox="0 0 20 20">
+      <path
+        d="M5.15 7.25V5.8c0-.36.29-.65.65-.65h1.45"
+        strokeWidth="1.5"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M12.75 5.15h1.45c.36 0 .65.29.65.65v1.45"
+        strokeWidth="1.5"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M14.85 12.75v1.45c0 .36-.29.65-.65.65h-1.45"
+        strokeWidth="1.5"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M7.25 14.85H5.8a.65.65 0 0 1-.65-.65v-1.45"
+        strokeWidth="1.5"
+        {...explorerIconStrokeSx}
+      />
+      <circle
+        cx="10"
+        cy="10"
+        r="3.05"
+        strokeWidth="1.45"
+        {...explorerIconStrokeSx}
+      />
+      <path
+        d="M10 8.65v2.7M8.65 10h2.7"
+        strokeWidth="1.35"
+        {...explorerIconStrokeSx}
+      />
+    </SvgIcon>
+  );
+}
+
+function UnfocusedGroupIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props} viewBox="0 0 20 20">
+      <path
+        d="M7.75 7.95 10 9.95m2.25-2 0 0M12.25 7.95 10 9.95M10 12.2v1.55"
+        strokeWidth="1.35"
+        {...explorerIconStrokeSx}
+      />
+      <circle
+        cx="6.2"
+        cy="6.2"
+        r="2.1"
+        strokeWidth="1.4"
+        {...explorerIconStrokeSx}
+      />
+      <circle
+        cx="13.8"
+        cy="6.2"
+        r="2.1"
+        strokeWidth="1.4"
+        {...explorerIconStrokeSx}
+      />
+      <circle
+        cx="10"
+        cy="14.15"
+        r="2.1"
+        strokeWidth="1.4"
+        {...explorerIconStrokeSx}
+      />
+      <circle cx="10" cy="10" r="1.05" fill="currentColor" />
     </SvgIcon>
   );
 }
