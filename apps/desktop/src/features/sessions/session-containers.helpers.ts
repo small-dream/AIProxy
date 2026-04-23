@@ -332,7 +332,7 @@ function createSessionContainer({
   inspectorSplitRatio = DEFAULT_REQUEST_SPLIT_RATIO,
   labelNumber,
   requestCollapsed = false,
-  requestTab = "headers",
+  requestTab = "query",
   responseTab = "overview",
 }: CreateSessionContainerOptions): SessionContainer {
   return {

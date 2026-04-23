@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { describe, expect, it, vi } from "vitest";
 
@@ -73,7 +73,253 @@ function createMultipartRequestBody() {
   };
 }
 
+function createWebSocketSessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return createSessionSummary({
+    protocol: "wss",
+    responseMimeType: "websocket",
+    statusCode: 101,
+    ...overrides,
+  });
+}
+
+function createWebSocketSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
+  return createSessionDetail({
+    responseBody: undefined,
+    summary: createWebSocketSessionSummary(),
+    ...overrides,
+  });
+}
+
 describe("SessionInspectorWorkspace", () => {
+  it("renders websocket response tabs in the preferred order", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createWebSocketSessionSummary()}
+          selectedSessionDetail={createWebSocketSessionDetail()}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Messages",
+      "Headers (1)",
+      "Raw",
+    ]);
+  });
+
+  it("renders JSON response tabs in the preferred order", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail()}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "JSON",
+      "JSON Text",
+      "Headers (1)",
+      "Raw",
+      "Automation",
+    ]);
+  });
+
+  it("renders text response tabs in the preferred order", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "text/plain" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              inlineText: "hello world",
+              mimeType: "text/plain",
+              sizeBytes: 11,
+            },
+            summary: createSessionSummary({ responseMimeType: "text/plain" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Text",
+      "Headers (1)",
+      "Raw",
+      "Automation",
+    ]);
+  });
+
+  it("renders binary response tabs in the preferred order", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "application/octet-stream" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              base64Text: "AAEC",
+              mimeType: "application/octet-stream",
+              sizeBytes: 3,
+            },
+            summary: createSessionSummary({ responseMimeType: "application/octet-stream" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Headers (1)",
+      "Raw",
+      "Automation",
+    ]);
+  });
+
+  it("falls back to overview when the current response tab is hidden for the session", () => {
+    const handleResponseTabChange = vi.fn();
+
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={handleResponseTabChange}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="json"
+          selectedSession={createSessionSummary({ responseMimeType: "application/octet-stream" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              base64Text: "AAEC",
+              mimeType: "application/octet-stream",
+              sizeBytes: 3,
+            },
+            summary: createSessionSummary({ responseMimeType: "application/octet-stream" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    expect(handleResponseTabChange).toHaveBeenCalledWith("overview");
+  });
+
+  it("renders request tabs in the preferred order", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail()}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const requestTabList = screen.getAllByRole("tablist")[0];
+    const requestTabs = within(requestTabList as HTMLElement).getAllByRole("tab");
+
+    expect(requestTabs.map((tab) => tab.textContent)).toEqual([
+      "Query (1)",
+      "Form",
+      "Headers (1)",
+      "Body",
+      "Raw",
+    ]);
+  });
+
   it("renders the draggable splitter and forwards pointer down events", () => {
     const handleInspectorResizeStart = vi.fn();
 
@@ -170,5 +416,44 @@ describe("SessionInspectorWorkspace", () => {
     expect(screen.getByText("submit.gz")).toBeInTheDocument();
     expect(screen.getByText("application/gzip")).toBeInTheDocument();
     expect(screen.getByText("4 B (4 bytes)")).toBeInTheDocument();
+    expect(screen.queryByText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByText("Content Type")).not.toBeInTheDocument();
+    expect(screen.queryByText("Filename")).not.toBeInTheDocument();
+    expect(screen.queryByText("Value")).not.toBeInTheDocument();
+  });
+
+  it("does not show request body metadata in the form tab", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="form"
+          responseTab="overview"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail({
+            requestBody: {
+              inlineText: "name=pharles&mode=debug",
+              mimeType: "application/x-www-form-urlencoded",
+              sizeBytes: 23,
+            },
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.queryByText(/application\/x-www-form-urlencoded/)).not.toBeInTheDocument();
+    expect(screen.getByText("name")).toBeInTheDocument();
+    expect(screen.getByText("pharles")).toBeInTheDocument();
   });
 });

@@ -7,7 +7,6 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import {
   EllipsizedCell,
-  InspectorDefinitionList,
   InspectorFlatTable,
   InspectorFlatTableRow,
   InspectorKeyValueTable,
@@ -94,9 +93,9 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
           variant="scrollable"
         >
           <Tab label={buildCountTabLabel(t("inspector.request.tabs.query"), detail?.queryParams.length ?? 0)} value="query" />
+          <Tab label={buildCountTabLabel(t("inspector.request.tabs.form"), requestFormEntries.length)} value="form" />
           <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
           <Tab label={t("inspector.request.tabs.body")} value="body" />
-          <Tab label={buildCountTabLabel(t("inspector.request.tabs.form"), requestFormEntries.length)} value="form" />
           <Tab label={t("inspector.request.tabs.raw")} value="raw" />
         </Tabs>
         <Button
@@ -113,7 +112,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       <Divider />
 
       {requestCollapsed ? null : (
-        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", p: 2.5 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", px: 2.5, pb: 2.5, pt: 1.25 }}>
           <RequestTabContent
             detail={detail}
             isRequestBodyLoading={isRequestBodyLoading}
@@ -226,16 +225,13 @@ function RequestTabContent({
     return (
       <InspectorScrollArea>
         <Stack spacing={1}>
-          <Typography color="text.secondary" variant="caption">
-            {bodyDescription ?? t("common.tech.noBodyCaptured")}
-          </Typography>
           {isMultipartForm ? (
             <MultipartFormTable
               emptyMessage={t("inspector.request.emptyForm")}
               entries={requestFormEntries}
             />
           ) : (
-            <InspectorDefinitionList
+            <InspectorKeyValueTable
               emptyMessage={t("inspector.request.emptyForm")}
               items={requestFormEntries
                 .filter((entry): entry is Extract<RequestFormEntry, { kind: "field" }> => entry.kind === "field")
@@ -315,12 +311,6 @@ function MultipartFormTable({
   return (
     <InspectorFlatTable
       columnTemplate={columnTemplate}
-      headers={[
-        t("common.placeholders.name"),
-        t("inspector.request.overview.fields.contentType"),
-        t("inspector.request.form.filename"),
-        t("common.placeholders.value"),
-      ]}
     >
       {entries.map((entry, index) => (
         <InspectorFlatTableRow

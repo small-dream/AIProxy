@@ -31,6 +31,12 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
 }
 
 describe("session-containers.helpers", () => {
+  it("defaults the request inspector tab to query", () => {
+    const state = createInitialSessionContainerState();
+
+    expect(state.containers[0]?.requestTab).toBe("query");
+  });
+
   it("stores the initial inspector split ratio when provided", () => {
     const state = createInitialSessionContainerState({ inspectorSplitRatio: 0.61 });
 

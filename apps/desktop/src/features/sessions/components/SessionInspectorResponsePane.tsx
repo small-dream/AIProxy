@@ -28,6 +28,54 @@ export type ResponsePaneHandle = {
 };
 
 const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set(["json", "jsonText", "raw", "text"]);
+type ResponseContentKind = "binary" | "json" | "text";
+
+function getResponseContentKind(
+  detail: SessionDetail | undefined,
+  session: SessionSummary,
+): ResponseContentKind {
+  const mimeType = (detail?.responseBody?.mimeType ?? session.responseMimeType ?? "").toLowerCase();
+
+  if (mimeType.includes("application/json") || mimeType.includes("+json")) {
+    return "json";
+  }
+
+  if (
+    mimeType.startsWith("text/")
+    || mimeType.includes("xml")
+    || mimeType.includes("javascript")
+    || mimeType.includes("ecmascript")
+    || mimeType.includes("svg")
+    || mimeType.includes("x-www-form-urlencoded")
+    || detail?.responseBody?.inlineText !== undefined
+    || detail?.responseBody?.textDeferred
+  ) {
+    return "text";
+  }
+
+  return "binary";
+}
+
+function getVisibleResponseTabs(
+  detail: SessionDetail | undefined,
+  session: SessionSummary,
+): ResponseInspectorTab[] {
+  if (isWebSocketSession(session)) {
+    return ["overview", "messages", "headers", "raw"];
+  }
+
+  const responseContentKind = getResponseContentKind(detail, session);
+
+  if (responseContentKind === "json") {
+    return ["overview", "json", "jsonText", "headers", "raw", "automation"];
+  }
+
+  if (responseContentKind === "text") {
+    return ["overview", "text", "headers", "raw", "automation"];
+  }
+
+  return ["overview", "headers", "raw", "automation"];
+}
 
 export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   detail: SessionDetail | undefined;
@@ -52,22 +100,22 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const searchController = useSearchController();
-  const isSearchable = SEARCHABLE_TABS.has(responseTab);
+  const visibleTabs = useMemo(() => getVisibleResponseTabs(detail, session), [detail, session]);
+  const activeResponseTab = visibleTabs.includes(responseTab) ? responseTab : "overview";
+  const isSearchable = SEARCHABLE_TABS.has(activeResponseTab);
 
   useEffect(() => {
     setIsSearchOpen(false);
     setSnackbarOpen(false);
-
-    if (isWebSocketSession(session)) {
-      if (responseTab === "text" || responseTab === "json" || responseTab === "jsonText" || responseTab === "automation") {
-        onResponseTabChange("overview");
-      }
-    } else if (responseTab === "messages") {
-      onResponseTabChange("overview");
-    }
     // Only reset when the session itself changes, not on every render of responseTab/session
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+
+  useEffect(() => {
+    if (!visibleTabs.includes(responseTab)) {
+      onResponseTabChange("overview");
+    }
+  }, [onResponseTabChange, responseTab, visibleTabs]);
 
   useEffect(() => {
     if (!isSearchable) {
@@ -83,25 +131,25 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
   const searchPlaceholder =
-    responseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") :
-    responseTab === "jsonText" ? t("inspector.response.jsonTextSearchPlaceholder") :
-    responseTab === "raw" ? t("inspector.response.rawSearchPlaceholder") :
+    activeResponseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") :
+    activeResponseTab === "jsonText" ? t("inspector.response.jsonTextSearchPlaceholder") :
+    activeResponseTab === "raw" ? t("inspector.response.rawSearchPlaceholder") :
     t("inspector.response.rawSearchPlaceholder");
   const copyValue = useMemo(() => {
-    if (responseTab === "json" || responseTab === "jsonText") {
+    if (activeResponseTab === "json" || activeResponseTab === "jsonText") {
       return responseJsonDisplayText ?? getBodyText(detail?.responseBody) ?? "";
     }
 
-    if (responseTab === "raw") {
+    if (activeResponseTab === "raw") {
       return getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody) ?? "";
     }
 
-    if (responseTab === "text") {
+    if (activeResponseTab === "text") {
       return getBodyText(detail?.responseBody) ?? "";
     }
 
     return "";
-  }, [detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody, responseJsonDisplayText, responseTab]);
+  }, [activeResponseTab, detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody, responseJsonDisplayText]);
 
   const handleCopy = useCallback(async () => {
     if (!copyValue) return;
@@ -122,23 +170,31 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           onChange={(_event, nextTab) => onResponseTabChange(nextTab as ResponseInspectorTab)}
           scrollButtons="auto"
           sx={{ flex: 1, minHeight: 32, minWidth: 0, px: 0.5 }}
-          value={responseTab}
+          value={activeResponseTab}
           variant="scrollable"
         >
           <Tab label={t("inspector.response.tabs.overview")} value="overview" />
-          {!isWebSocketSession(session) && (
-            <Tab label={t("inspector.response.tabs.automation")} value="automation" />
-          )}
-          <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
-          {isWebSocketSession(session) && (
+          {visibleTabs.includes("json") ? (
+            <Tab label={t("inspector.response.tabs.json")} value="json" />
+          ) : null}
+          {visibleTabs.includes("jsonText") ? (
+            <Tab label={t("inspector.response.tabs.jsonText")} value="jsonText" />
+          ) : null}
+          {visibleTabs.includes("text") ? (
+            <Tab label={t("inspector.response.tabs.text")} value="text" />
+          ) : null}
+          {visibleTabs.includes("messages") ? (
             <Tab label={t("websocket.messagesTab")} value="messages" />
-          )}
-          {!isWebSocketSession(session) && [
-            <Tab key="text" label={t("inspector.response.tabs.text")} value="text" />,
-            <Tab key="json" label={t("inspector.response.tabs.json")} value="json" />,
-            <Tab key="jsonText" label={t("inspector.response.tabs.jsonText")} value="jsonText" />,
-          ]}
-          <Tab label={t("inspector.response.tabs.raw")} value="raw" />
+          ) : null}
+          {visibleTabs.includes("headers") ? (
+            <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
+          ) : null}
+          {visibleTabs.includes("raw") ? (
+            <Tab label={t("inspector.response.tabs.raw")} value="raw" />
+          ) : null}
+          {visibleTabs.includes("automation") ? (
+            <Tab label={t("inspector.response.tabs.automation")} value="automation" />
+          ) : null}
         </Tabs>
 
         {isSearchable ? (
@@ -187,7 +243,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           isResponseRawLoading={isResponseRawLoading}
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
-          responseTab={responseTab}
+          responseTab={activeResponseTab}
           searchMatcher={isSearchOpen ? searchController.matcher : null}
           currentMatchIndex={isSearchOpen ? searchController.currentMatchIndex : undefined}
           onMatchCountChange={isSearchOpen ? searchController.setMatchCount : undefined}
