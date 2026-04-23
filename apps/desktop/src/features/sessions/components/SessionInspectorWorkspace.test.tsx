@@ -83,11 +83,14 @@ function createWebSocketSessionSummary(overrides: Partial<SessionSummary> = {}):
 }
 
 function createWebSocketSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
-  return createSessionDetail({
-    responseBody: undefined,
+  const detail = createSessionDetail({
     summary: createWebSocketSessionSummary(),
     ...overrides,
   });
+
+  delete detail.responseBody;
+
+  return detail;
 }
 
 describe("SessionInspectorWorkspace", () => {
