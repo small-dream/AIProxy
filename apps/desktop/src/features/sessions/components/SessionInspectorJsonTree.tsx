@@ -334,6 +334,10 @@ function serializeJsonNode(value: JsonValue) {
     return formatJsonText(value);
   }
 
+  if (typeof value === "string") {
+    return value;
+  }
+
   return JSON.stringify(value);
 }
 

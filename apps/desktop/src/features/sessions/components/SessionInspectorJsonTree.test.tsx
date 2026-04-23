@@ -56,4 +56,37 @@ describe("SessionInspectorJsonTree", () => {
     expect(screen.getByText("https://example.com/demo")).toBeInTheDocument();
     expect(screen.queryByText('"https://example.com/demo"')).not.toBeInTheDocument();
   });
+
+  it("copies string leaf values without wrapping quotes", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText,
+      },
+    });
+
+    render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          searchQuery=""
+          value={{
+            note: "hello world",
+          }}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("hello world"), {
+      clientX: 80,
+      clientY: 120,
+    });
+
+    fireEvent.click(await screen.findByText("Copy Node"));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("hello world");
+    });
+  });
 });
