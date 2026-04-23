@@ -769,6 +769,9 @@ export const enMessages = {
       emptyForm: "No form fields detected in the request body.",
       emptyHeaders: "No request headers captured.",
       emptyQuery: "No query parameters.",
+      form: {
+        filename: "Filename",
+      },
       noBodyCaptured: "No request body captured",
       overview: {
         complete: "Complete",

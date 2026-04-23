@@ -48,6 +48,31 @@ function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDet
   };
 }
 
+function createMultipartRequestBody() {
+  const encoder = new TextEncoder();
+  const head = encoder.encode(
+    "--boundary\r\n"
+      + "Content-Disposition: form-data; name=\"email\"\r\n\r\n"
+      + "user@example.com\r\n"
+      + "--boundary\r\n"
+      + "Content-Disposition: form-data; name=\"Filedata\"; filename=\"submit.gz\"\r\n"
+      + "Content-Type: application/gzip\r\n\r\n",
+  );
+  const fileBytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
+  const tail = encoder.encode("\r\n--boundary--\r\n");
+  const payloadBytes = new Uint8Array(head.length + fileBytes.length + tail.length);
+
+  payloadBytes.set(head, 0);
+  payloadBytes.set(fileBytes, head.length);
+  payloadBytes.set(tail, head.length + fileBytes.length);
+
+  return {
+    base64Text: Buffer.from(payloadBytes).toString("base64"),
+    mimeType: "multipart/form-data",
+    sizeBytes: payloadBytes.length,
+  };
+}
+
 describe("SessionInspectorWorkspace", () => {
   it("renders the draggable splitter and forwards pointer down events", () => {
     const handleInspectorResizeStart = vi.fn();
@@ -113,5 +138,37 @@ describe("SessionInspectorWorkspace", () => {
     expect(screen.getByTestId("session-inspector-grid")).toHaveStyle({
       gridTemplateRows: "auto 1px minmax(0, 1fr)",
     });
+  });
+
+  it("shows multipart file entries as file metadata in the form tab", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="form"
+          responseTab="overview"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail({
+            requestBody: createMultipartRequestBody(),
+            requestHeaders: [{ name: "content-type", value: "multipart/form-data; boundary=boundary" }],
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.getByText("submit.gz")).toBeInTheDocument();
+    expect(screen.getByText("application/gzip")).toBeInTheDocument();
+    expect(screen.getByText("4 B (4 bytes)")).toBeInTheDocument();
   });
 });

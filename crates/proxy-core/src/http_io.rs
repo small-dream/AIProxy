@@ -334,6 +334,7 @@ fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
             || lowered.contains("javascript")
             || lowered.contains("yaml")
             || lowered.contains("x-www-form-urlencoded")
+            || lowered.contains("multipart/form-data")
         {
             return true;
         }

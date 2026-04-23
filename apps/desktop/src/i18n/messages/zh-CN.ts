@@ -771,6 +771,9 @@ export const zhCNMessages: Messages = {
       emptyForm: "请求 Body 中未检测到表单字段。",
       emptyHeaders: "没有捕获到请求头。",
       emptyQuery: "没有 Query 参数。",
+      form: {
+        filename: "文件名",
+      },
       noBodyCaptured: "未捕获请求 Body",
       overview: {
         complete: "完成",

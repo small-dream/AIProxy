@@ -206,7 +206,7 @@ export function InspectorFlatTable({
 }: {
   children: React.ReactNode;
   columnTemplate: string;
-  headers?: [string, string] | [string, string, string];
+  headers?: [string, string] | [string, string, string] | [string, string, string, string];
 }) {
   return (
     <Box

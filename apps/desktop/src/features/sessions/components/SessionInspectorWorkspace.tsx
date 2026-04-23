@@ -80,6 +80,7 @@ function SessionInspectorWorkspace({
 
   const requestBodyText = getBodyText(detail?.requestBody);
   const responseBodyText = getBodyText(detail?.responseBody);
+  const isMultipartRequestBody = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes("multipart/form-data");
   const requestFormEntries = useMemo(() => parseFormEntries(detail?.requestBody), [detail?.requestBody]);
 
   const responseJsonResult = useMemo<JsonParseResult>(() => {
@@ -131,9 +132,10 @@ function SessionInspectorWorkspace({
   }, [activePane]);
 
   const loadDeferredContent = useCallback(async (
-    key: "requestBodyText" | "requestRaw" | "responseBodyText" | "responseRaw",
+    key: "requestBodyText" | "requestBodyBase64" | "requestRaw" | "responseBodyText" | "responseRaw",
     request: {
       includeRequestBodyText?: boolean;
+      includeRequestBodyBase64?: boolean;
       includeRawRequest?: boolean;
       includeResponseBodyText?: boolean;
       includeRawResponse?: boolean;
@@ -175,11 +177,20 @@ function SessionInspectorWorkspace({
     }
 
     if ((requestTab === "body" || requestTab === "form")
+      && !isMultipartRequestBody
       && detail.requestBody?.textDeferred
       && detail.requestBody.inlineText === undefined
       && !contentLoading.requestBodyText
       && !contentLoading.requestRaw) {
       void loadDeferredContent("requestBodyText", { includeRequestBodyText: true });
+    }
+
+    if (requestTab === "form"
+      && isMultipartRequestBody
+      && detail.requestBody?.base64Deferred
+      && detail.requestBody.base64Text === undefined
+      && !contentLoading.requestBodyBase64) {
+      void loadDeferredContent("requestBodyBase64", { includeRequestBodyBase64: true });
     }
 
     if (requestTab === "raw"
@@ -217,10 +228,12 @@ function SessionInspectorWorkspace({
     }
   }, [
     contentLoading.requestBodyText,
+    contentLoading.requestBodyBase64,
     contentLoading.requestRaw,
     contentLoading.responseBodyText,
     contentLoading.responseRaw,
     detail,
+    isMultipartRequestBody,
     loadDeferredContent,
     requestBodyText,
     requestTab,
@@ -230,6 +243,9 @@ function SessionInspectorWorkspace({
   ]);
 
   const isRequestBodyLoading = Boolean(contentLoading.requestBodyText);
+  const isRequestFormLoading = isMultipartRequestBody
+    ? Boolean(contentLoading.requestBodyBase64)
+    : Boolean(contentLoading.requestBodyText);
   const isRequestRawLoading = Boolean(contentLoading.requestRaw);
   const isResponseBodyLoading = Boolean(contentLoading.responseBodyText);
   const isResponseRawLoading = Boolean(contentLoading.responseRaw);
@@ -314,6 +330,7 @@ function SessionInspectorWorkspace({
             onRequestCollapsedChange={onRequestCollapsedChange}
             onRequestTabChange={onRequestTabChange}
             isRequestBodyLoading={isRequestBodyLoading}
+            isRequestFormLoading={isRequestFormLoading}
             isRequestRawLoading={isRequestRawLoading}
             requestBodyDisplayText={requestBodyDisplayText}
             requestCollapsed={requestCollapsed}

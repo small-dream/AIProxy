@@ -6,6 +6,7 @@ import {
   findNormalizedMatchIndex,
   formatJsonText,
   getRequestOperationLabel,
+  parseFormEntries,
   parseJsonBody,
 } from "./session-inspector.helpers";
 
@@ -109,6 +110,47 @@ describe("parseJsonBody", () => {
       message: "show raw",
       status: "error",
     });
+  });
+});
+
+describe("parseFormEntries", () => {
+  it("parses multipart file parts from base64 without rendering binary payload as text", () => {
+    const encoder = new TextEncoder();
+    const head = encoder.encode(
+      "--boundary\r\n"
+        + "Content-Disposition: form-data; name=\"email\"\r\n\r\n"
+        + "user@example.com\r\n"
+        + "--boundary\r\n"
+        + "Content-Disposition: form-data; name=\"Filedata\"; filename=\"submit.gz\"\r\n"
+        + "Content-Type: application/gzip\r\n\r\n",
+    );
+    const fileBytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
+    const tail = encoder.encode("\r\n--boundary--\r\n");
+    const payloadBytes = new Uint8Array(head.length + fileBytes.length + tail.length);
+
+    payloadBytes.set(head, 0);
+    payloadBytes.set(fileBytes, head.length);
+    payloadBytes.set(tail, head.length + fileBytes.length);
+
+    expect(parseFormEntries({
+      base64Text: Buffer.from(payloadBytes).toString("base64"),
+      mimeType: "multipart/form-data",
+      sizeBytes: payloadBytes.length,
+    })).toEqual([
+      {
+        contentType: "text/plain; charset=utf-8",
+        kind: "field",
+        name: "email",
+        value: "user@example.com",
+      },
+      {
+        contentType: "application/gzip",
+        filename: "submit.gz",
+        kind: "file",
+        name: "Filedata",
+        sizeBytes: 4,
+      },
+    ]);
   });
 });
 

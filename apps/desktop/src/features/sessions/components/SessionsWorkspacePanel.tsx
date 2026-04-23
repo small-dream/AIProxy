@@ -128,7 +128,7 @@ export function SessionsWorkspacePanel({
             flex: 1,
             gap: 0,
             gridTemplateColumns: {
-              lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
+              lg: `${explorerWidth}px 8px minmax(0, 1fr)`,
               xs: "1fr",
             },
             minHeight: 0,
@@ -152,7 +152,7 @@ export function SessionsWorkspacePanel({
             aria-hidden
             onPointerDown={onResizeStart}
             sx={{
-              bgcolor: "background.paper",
+              alignItems: "center",
               cursor: "col-resize",
               display: { lg: "flex", xs: "none" },
               justifyContent: "center",
@@ -162,11 +162,12 @@ export function SessionsWorkspacePanel({
               userSelect: "none",
               "&::before": {
                 bgcolor: "divider",
+                borderRadius: 999,
                 content: '""',
                 height: "100%",
                 opacity: 0.7,
                 transition: "background-color 120ms ease, opacity 120ms ease",
-                width: 1,
+                width: 2,
               },
               "&:hover::before": {
                 bgcolor: "primary.main",

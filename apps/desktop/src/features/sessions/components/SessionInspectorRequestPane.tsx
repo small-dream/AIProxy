@@ -5,11 +5,20 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } fro
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { InspectorDefinitionList, InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
+import {
+  EllipsizedCell,
+  InspectorDefinitionList,
+  InspectorFlatTable,
+  InspectorFlatTableRow,
+  InspectorKeyValueTable,
+  InspectorScrollArea,
+  SearchableCodeBlock,
+} from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
   getRawMessageText,
+  type RequestFormEntry,
   type RequestInspectorTab,
   type SearchMatcher,
 } from "./session-inspector.helpers";
@@ -23,17 +32,19 @@ export type RequestPaneHandle = {
 export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
   detail: SessionDetail | undefined;
   isRequestBodyLoading: boolean;
+  isRequestFormLoading: boolean;
   isRequestRawLoading: boolean;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
   requestBodyDisplayText: string;
   requestCollapsed: boolean;
-  requestFormEntries: Array<[string, string]>;
+  requestFormEntries: RequestFormEntry[];
   requestTab: RequestInspectorTab;
   session: SessionSummary;
 }>(function SessionInspectorRequestPane({
   detail,
   isRequestBodyLoading,
+  isRequestFormLoading,
   isRequestRawLoading,
   onRequestCollapsedChange,
   onRequestTabChange,
@@ -106,6 +117,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
           <RequestTabContent
             detail={detail}
             isRequestBodyLoading={isRequestBodyLoading}
+            isRequestFormLoading={isRequestFormLoading}
             isRequestRawLoading={isRequestRawLoading}
             requestBodyDisplayText={requestBodyDisplayText}
             requestFormEntries={requestFormEntries}
@@ -149,6 +161,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
 function RequestTabContent({
   detail,
   isRequestBodyLoading,
+  isRequestFormLoading,
   isRequestRawLoading,
   requestBodyDisplayText,
   requestFormEntries,
@@ -159,9 +172,10 @@ function RequestTabContent({
 }: {
   detail: SessionDetail | undefined;
   isRequestBodyLoading: boolean;
+  isRequestFormLoading: boolean;
   isRequestRawLoading: boolean;
   requestBodyDisplayText: string;
-  requestFormEntries: Array<[string, string]>;
+  requestFormEntries: RequestFormEntry[];
   requestTab: RequestInspectorTab;
   searchMatcher: SearchMatcher | null;
   currentMatchIndex: number | undefined;
@@ -197,7 +211,9 @@ function RequestTabContent({
   }
 
   if (requestTab === "form") {
-    if (isRequestBodyLoading && detail?.requestBody?.textDeferred) {
+    const isMultipartForm = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes("multipart/form-data");
+
+    if (isRequestFormLoading && (detail?.requestBody?.textDeferred || detail?.requestBody?.base64Deferred)) {
       return (
         <InspectorScrollArea>
           <Typography color="text.secondary" variant="body2">
@@ -213,10 +229,19 @@ function RequestTabContent({
           <Typography color="text.secondary" variant="caption">
             {bodyDescription ?? t("common.tech.noBodyCaptured")}
           </Typography>
-          <InspectorDefinitionList
-            emptyMessage={t("inspector.request.emptyForm")}
-            items={requestFormEntries}
-          />
+          {isMultipartForm ? (
+            <MultipartFormTable
+              emptyMessage={t("inspector.request.emptyForm")}
+              entries={requestFormEntries}
+            />
+          ) : (
+            <InspectorDefinitionList
+              emptyMessage={t("inspector.request.emptyForm")}
+              items={requestFormEntries
+                .filter((entry): entry is Extract<RequestFormEntry, { kind: "field" }> => entry.kind === "field")
+                .map((entry) => [entry.name, entry.value])}
+            />
+          )}
         </Stack>
       </InspectorScrollArea>
     );
@@ -266,4 +291,72 @@ function RequestTabContent({
       )}
     </Stack>
   );
+}
+
+function MultipartFormTable({
+  emptyMessage,
+  entries,
+}: {
+  emptyMessage: string;
+  entries: RequestFormEntry[];
+}) {
+  const { t } = useI18n();
+
+  if (entries.length === 0) {
+    return (
+      <Typography color="text.secondary" variant="body2">
+        {emptyMessage}
+      </Typography>
+    );
+  }
+
+  const columnTemplate = "minmax(156px, 0.95fr) minmax(180px, 1.2fr) minmax(180px, 1.1fr) minmax(180px, 1.15fr)";
+
+  return (
+    <InspectorFlatTable
+      columnTemplate={columnTemplate}
+      headers={[
+        t("common.placeholders.name"),
+        t("inspector.request.overview.fields.contentType"),
+        t("inspector.request.form.filename"),
+        t("common.placeholders.value"),
+      ]}
+    >
+      {entries.map((entry, index) => (
+        <InspectorFlatTableRow
+          cells={[
+            <EllipsizedCell key="name" text={entry.name} />,
+            <EllipsizedCell key="contentType" text={entry.contentType ?? ""} />,
+            <EllipsizedCell key="filename" text={entry.kind === "file" ? entry.filename : ""} />,
+            <EllipsizedCell
+              key="value"
+              text={entry.kind === "file"
+                ? formatMultipartFileSize(entry.sizeBytes, t)
+                : entry.value}
+            />,
+          ]}
+          columnTemplate={columnTemplate}
+          dense
+          hoverable
+          key={`${entry.kind}:${entry.name}:${index}`}
+        />
+      ))}
+    </InspectorFlatTable>
+  );
+}
+
+function formatMultipartFileSize(sizeBytes: number, t: ReturnType<typeof useI18n>["t"]) {
+  return `${formatCompactBytes(sizeBytes)} (${t("common.tech.bytes", { value: sizeBytes })})`;
+}
+
+function formatCompactBytes(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(2)} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }

@@ -111,6 +111,21 @@ export type JsonParseResult =
   | { status: "error"; message: string }
   | { status: "success"; value: JsonValue };
 
+export type RequestFormEntry =
+  | {
+      kind: "field";
+      name: string;
+      value: string;
+      contentType?: string;
+    }
+  | {
+      kind: "file";
+      name: string;
+      filename: string;
+      sizeBytes: number;
+      contentType?: string;
+    };
+
 export const INSPECTOR_SPLIT_MIN = 0.15;
 export const INSPECTOR_SPLIT_MAX = 0.85;
 export const DEFAULT_REQUEST_SPLIT_RATIO = 0.38;
@@ -173,20 +188,30 @@ export function getRawMessageText(
   return undefined;
 }
 
-export function parseFormEntries(body: BodyReference | undefined): Array<[string, string]> {
-  const text = getBodyText(body);
-  const mimeType = body?.mimeType?.toLowerCase() ?? "";
-
-  if (!text) {
+export function parseFormEntries(body: BodyReference | undefined): RequestFormEntry[] {
+  if (!body) {
     return [];
   }
 
+  const mimeType = body?.mimeType?.toLowerCase() ?? "";
+
   if (mimeType.includes("application/x-www-form-urlencoded")) {
-    return Array.from(new URLSearchParams(text).entries());
+    const text = getBodyText(body);
+
+    if (!text) {
+      return [];
+    }
+
+    return Array.from(new URLSearchParams(text).entries()).map(([name, value]) => ({
+      contentType: "text/plain; charset=utf-8",
+      kind: "field",
+      name,
+      value,
+    }));
   }
 
   if (mimeType.includes("multipart/form-data")) {
-    return parseMultipartFormEntries(text);
+    return parseMultipartFormEntries(body);
   }
 
   return [];
@@ -561,22 +586,271 @@ function looksLikeJson(mimeType: string | undefined, bodyText: string) {
   );
 }
 
-function parseMultipartFormEntries(text: string): Array<[string, string]> {
-  const lines = text.split(/\r?\n/);
-  const boundary = lines.find((line) => line.startsWith("--"));
+const DEFAULT_MULTIPART_FIELD_CONTENT_TYPE = "text/plain; charset=utf-8";
+const CRLF_BYTES = new Uint8Array([13, 10]);
+const DOUBLE_CRLF_BYTES = new Uint8Array([13, 10, 13, 10]);
+const DOUBLE_LF_BYTES = new Uint8Array([10, 10]);
+const DASH_DASH_BYTES = new Uint8Array([45, 45]);
+const textEncoder = new TextEncoder();
 
-  if (!boundary) {
+function parseMultipartFormEntries(body: BodyReference): RequestFormEntry[] {
+  const bytes = getBodyBytes(body);
+
+  if (!bytes || bytes.length === 0) {
     return [];
   }
 
-  return text
-    .split(boundary)
-    .map((part) => part.trim())
-    .filter((part) => part && part !== "--")
-    .map((part) => {
-      const dispositionMatch = part.match(/name="([^"]+)"/i);
-      const value = part.split(/\r?\n\r?\n/).slice(1).join("\n\n").replace(/\r?\n--$/, "").trim();
+  const boundaryLine = readMultipartBoundaryLine(bytes);
 
-      return [dispositionMatch?.[1] ?? "field", value || "(empty)"] as [string, string];
-    });
+  if (!boundaryLine) {
+    return [];
+  }
+
+  const boundaryBytes = textEncoder.encode(boundaryLine);
+  const entries: RequestFormEntry[] = [];
+  let cursor = 0;
+
+  while (cursor < bytes.length) {
+    const boundaryStart = findSequence(bytes, boundaryBytes, cursor);
+
+    if (boundaryStart === -1) {
+      break;
+    }
+
+    let partStart = boundaryStart + boundaryBytes.length;
+
+    if (matchesAt(bytes, DASH_DASH_BYTES, partStart)) {
+      break;
+    }
+
+    if (matchesAt(bytes, CRLF_BYTES, partStart)) {
+      partStart += CRLF_BYTES.length;
+    } else if (bytes[partStart] === 10) {
+      partStart += 1;
+    }
+
+    const headerSeparator = findHeaderSeparator(bytes, partStart);
+
+    if (!headerSeparator) {
+      break;
+    }
+
+    const headersText = decodeMultipartText(bytes.slice(partStart, headerSeparator.index));
+    const nextBoundary = findNextMultipartBoundary(bytes, boundaryBytes, headerSeparator.index + headerSeparator.length);
+
+    if (!nextBoundary) {
+      break;
+    }
+
+    const contentBytes = bytes.slice(headerSeparator.index + headerSeparator.length, nextBoundary.contentEnd);
+    const parsedEntry = buildMultipartFormEntry(headersText, contentBytes);
+
+    if (parsedEntry) {
+      entries.push(parsedEntry);
+    }
+
+    cursor = nextBoundary.boundaryIndex;
+  }
+
+  return entries;
+}
+
+function getBodyBytes(body: BodyReference): Uint8Array | undefined {
+  if (body.base64Text) {
+    try {
+      const decoded = atob(body.base64Text);
+      return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (body.inlineText !== undefined) {
+    return textEncoder.encode(body.inlineText);
+  }
+
+  return undefined;
+}
+
+function readMultipartBoundaryLine(bytes: Uint8Array): string | undefined {
+  const lineEndIndex = bytes.indexOf(10);
+  const boundarySlice = lineEndIndex === -1 ? bytes : bytes.slice(0, lineEndIndex);
+  const normalizedSlice = boundarySlice[boundarySlice.length - 1] === 13
+    ? boundarySlice.slice(0, -1)
+    : boundarySlice;
+  const boundary = decodeMultipartText(normalizedSlice);
+
+  return boundary.startsWith("--") ? boundary : undefined;
+}
+
+function findHeaderSeparator(bytes: Uint8Array, start: number): { index: number; length: number } | undefined {
+  const crlfIndex = findSequence(bytes, DOUBLE_CRLF_BYTES, start);
+
+  if (crlfIndex !== -1) {
+    return { index: crlfIndex, length: DOUBLE_CRLF_BYTES.length };
+  }
+
+  const lfIndex = findSequence(bytes, DOUBLE_LF_BYTES, start);
+
+  if (lfIndex !== -1) {
+    return { index: lfIndex, length: DOUBLE_LF_BYTES.length };
+  }
+
+  return undefined;
+}
+
+function findNextMultipartBoundary(
+  bytes: Uint8Array,
+  boundaryBytes: Uint8Array,
+  start: number,
+): { boundaryIndex: number; contentEnd: number } | undefined {
+  const crlfBoundary = concatBytes(CRLF_BYTES, boundaryBytes);
+  const crlfBoundaryIndex = findSequence(bytes, crlfBoundary, start);
+
+  if (crlfBoundaryIndex !== -1) {
+    return {
+      boundaryIndex: crlfBoundaryIndex + CRLF_BYTES.length,
+      contentEnd: crlfBoundaryIndex,
+    };
+  }
+
+  const boundaryIndex = findSequence(bytes, boundaryBytes, start);
+
+  if (boundaryIndex !== -1) {
+    return {
+      boundaryIndex,
+      contentEnd: boundaryIndex,
+    };
+  }
+
+  return undefined;
+}
+
+function buildMultipartFormEntry(headersText: string, contentBytes: Uint8Array): RequestFormEntry | undefined {
+  const headerMap = parseMultipartHeaders(headersText);
+  const disposition = headerMap.get("content-disposition");
+
+  if (!disposition) {
+    return undefined;
+  }
+
+  const name = extractDispositionParameter(disposition, "name") ?? "field";
+  const filename = extractDispositionParameter(disposition, "filename");
+  const contentType = headerMap.get("content-type")?.trim();
+
+  if (filename !== undefined) {
+    return {
+      filename,
+      kind: "file",
+      name,
+      sizeBytes: contentBytes.length,
+      ...(contentType ? { contentType } : {}),
+    };
+  }
+
+  return {
+    contentType: contentType ?? DEFAULT_MULTIPART_FIELD_CONTENT_TYPE,
+    kind: "field",
+    name,
+    value: decodeMultipartText(contentBytes, extractCharset(contentType)) || "(empty)",
+  };
+}
+
+function parseMultipartHeaders(headersText: string): Map<string, string> {
+  const headerMap = new Map<string, string>();
+
+  for (const line of headersText.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const name = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+
+    if (name) {
+      headerMap.set(name, value);
+    }
+  }
+
+  return headerMap;
+}
+
+function extractDispositionParameter(disposition: string, key: string): string | undefined {
+  const quotedMatch = disposition.match(new RegExp(`${key}=\"([^\"]*)\"`, "i"));
+
+  if (quotedMatch?.[1] !== undefined) {
+    return quotedMatch[1];
+  }
+
+  const bareMatch = disposition.match(new RegExp(`${key}=([^;]+)`, "i"));
+
+  return bareMatch?.[1]?.trim();
+}
+
+function extractCharset(contentType: string | undefined): string | undefined {
+  if (!contentType) {
+    return undefined;
+  }
+
+  const match = contentType.match(/charset=([^;]+)/i);
+
+  return match?.[1]?.trim();
+}
+
+function decodeMultipartText(bytes: Uint8Array, charset = "utf-8"): string {
+  try {
+    return new TextDecoder(charset).decode(bytes);
+  } catch {
+    return new TextDecoder().decode(bytes);
+  }
+}
+
+function findSequence(bytes: Uint8Array, sequence: Uint8Array, start: number): number {
+  if (sequence.length === 0 || start >= bytes.length) {
+    return -1;
+  }
+
+  const maxIndex = bytes.length - sequence.length;
+
+  for (let index = Math.max(0, start); index <= maxIndex; index += 1) {
+    let matched = true;
+
+    for (let offset = 0; offset < sequence.length; offset += 1) {
+      if (bytes[index + offset] !== sequence[offset]) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function matchesAt(bytes: Uint8Array, sequence: Uint8Array, start: number): boolean {
+  if (start < 0 || start + sequence.length > bytes.length) {
+    return false;
+  }
+
+  for (let offset = 0; offset < sequence.length; offset += 1) {
+    if (bytes[start + offset] !== sequence[offset]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const merged = new Uint8Array(left.length + right.length);
+
+  merged.set(left, 0);
+  merged.set(right, left.length);
+
+  return merged;
 }
