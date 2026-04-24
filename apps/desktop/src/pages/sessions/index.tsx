@@ -70,7 +70,7 @@ import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { onSessionRemove, onSessionUpsert } from "@/services/events";
+import { onSessionRemove, onSessionsCleared, onSessionsRemoved, onSessionUpsert } from "@/services/events";
 import { readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
@@ -267,6 +267,47 @@ export function SessionsPage() {
     onSessionRemove((sessionId) => {
       if (cancelled) return;
       setContainerState((currentState) => removeSessionContainerSummary(currentState, sessionId));
+    }).then((fn) => {
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
+    });
+
+    onSessionsCleared(() => {
+      if (cancelled) return;
+      setContainerState((currentState) =>
+        createInitialSessionContainerState({
+          inspectorSplitRatio:
+            getSessionContainerById(currentState, currentState.activeContainerId)?.inspectorSplitRatio
+            ?? defaultInspectorSplitRatio,
+          requestCollapsed:
+            getSessionContainerById(currentState, currentState.activeContainerId)?.requestCollapsed
+            ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+          requestTab:
+            getSessionContainerById(currentState, currentState.activeContainerId)?.requestTab ?? "headers",
+          responseTab:
+            getSessionContainerById(currentState, currentState.activeContainerId)?.responseTab ?? "overview",
+        }),
+      );
+    }).then((fn) => {
+      if (!cancelled) {
+        unlistenFns.push(fn);
+      } else {
+        fn();
+      }
+    });
+
+    onSessionsRemoved((ids) => {
+      if (cancelled) return;
+      setContainerState((currentState) => {
+        let nextState = currentState;
+        for (const id of ids) {
+          nextState = removeSessionContainerSummary(nextState, id);
+        }
+        return nextState;
+      });
     }).then((fn) => {
       if (!cancelled) {
         unlistenFns.push(fn);

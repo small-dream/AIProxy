@@ -265,9 +265,7 @@ impl AppState {
             .clear();
 
         if let Some(handle) = self.read_app_handle() {
-            for id in &ids_to_remove {
-                let _ = handle.emit("session-remove", id);
-            }
+            let _ = handle.emit("sessions-cleared", ids_to_remove);
         }
     }
 
@@ -308,9 +306,7 @@ impl AppState {
         }
 
         if let Some(handle) = self.read_app_handle() {
-            for id in &ids_to_remove {
-                let _ = handle.emit("session-remove", id);
-            }
+            let _ = handle.emit("sessions-removed", ids_to_remove);
         }
     }
 

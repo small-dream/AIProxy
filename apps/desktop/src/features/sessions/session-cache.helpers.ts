@@ -27,6 +27,14 @@ export function removeSessionSummary(
   return sessions.filter((session) => session.id !== sessionId);
 }
 
+export function removeSessionSummaries(
+  sessions: SessionSummary[],
+  sessionIds: string[],
+): SessionSummary[] {
+  const idsSet = new Set(sessionIds);
+  return sessions.filter((session) => !idsSet.has(session.id));
+}
+
 export function replaceSessionSummary(
   sessions: SessionSummary[],
   previousSessionId: string,

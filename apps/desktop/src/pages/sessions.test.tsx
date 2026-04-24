@@ -83,6 +83,8 @@ vi.mock("@/features/sessions/use-sessions", () => ({
 
 vi.mock("@/services/events", () => ({
   onSessionRemove: () => Promise.resolve(() => {}),
+  onSessionsCleared: () => Promise.resolve(() => {}),
+  onSessionsRemoved: () => Promise.resolve(() => {}),
   onSessionUpsert: () => Promise.resolve(() => {}),
 }));
 

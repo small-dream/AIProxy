@@ -8,13 +8,17 @@ import { useSessionEvents } from "./use-session-events";
 import { SESSION_DETAIL_QUERY_KEY } from "./use-session-detail";
 import { SESSIONS_QUERY_KEY } from "./use-sessions";
 
-const { onSessionUpsertMock, onSessionRemoveMock } = vi.hoisted(() => ({
+const { onSessionUpsertMock, onSessionRemoveMock, onSessionsClearedMock, onSessionsRemovedMock } = vi.hoisted(() => ({
   onSessionRemoveMock: vi.fn(),
+  onSessionsRemovedMock: vi.fn(),
+  onSessionsClearedMock: vi.fn(),
   onSessionUpsertMock: vi.fn(),
 }));
 
 vi.mock("@/services/events", () => ({
   onSessionRemove: onSessionRemoveMock,
+  onSessionsCleared: onSessionsClearedMock,
+  onSessionsRemoved: onSessionsRemovedMock,
   onSessionUpsert: onSessionUpsertMock,
 }));
 
@@ -56,6 +60,8 @@ describe("useSessionEvents", () => {
     removeCallback = undefined;
     onSessionUpsertMock.mockReset();
     onSessionRemoveMock.mockReset();
+    onSessionsClearedMock.mockReset();
+    onSessionsRemovedMock.mockReset();
     onSessionUpsertMock.mockImplementation((callback: (summary: SessionSummary) => void) => {
       upsertCallback = callback;
       return Promise.resolve(() => undefined);
@@ -64,6 +70,8 @@ describe("useSessionEvents", () => {
       removeCallback = callback;
       return Promise.resolve(() => undefined);
     });
+    onSessionsClearedMock.mockReturnValue(Promise.resolve(() => undefined));
+    onSessionsRemovedMock.mockReturnValue(Promise.resolve(() => undefined));
   });
 
   it("updates session summaries and invalidates the matching detail query on upsert", async () => {
