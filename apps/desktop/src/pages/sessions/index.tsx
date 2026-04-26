@@ -325,7 +325,7 @@ export function SessionsPage() {
         fn();
       }
     };
-  }, []);
+  }, [defaultInspectorSplitRatio]);
 
   useEffect(() => {
     writeStorageValue(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));

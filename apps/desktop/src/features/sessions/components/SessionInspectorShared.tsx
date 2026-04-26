@@ -386,7 +386,7 @@ export function InspectorKeyValueTable({
     );
   }
 
-  const columnTemplate = "minmax(156px, 0.84fr) minmax(0, 1.9fr)";
+  const columnTemplate = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
 
   return (
     <InspectorFlatTable columnTemplate={columnTemplate}>

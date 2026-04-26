@@ -5,6 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 const MAX_WS_FRAME_SIZE: u64 = 16 * 1024 * 1024;
+const WS_MASK_CHUNK_BYTES: usize = 16 * 1024;
 
 // ---------------------------------------------------------------------------
 // WebSocket frame types
@@ -188,16 +189,20 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
             .write_all(&mask_key)
             .await
             .map_err(|e| format!("ws frame write mask: {e}"))?;
-        let masked: Vec<u8> = frame
-            .payload
-            .iter()
-            .enumerate()
-            .map(|(i, byte)| byte ^ mask_key[i % 4])
-            .collect();
-        writer
-            .write_all(&masked)
-            .await
-            .map_err(|e| format!("ws frame write payload: {e}"))?;
+        let mut offset = 0;
+        let mut masked_chunk = vec![0u8; WS_MASK_CHUNK_BYTES.min(frame.payload.len().max(1))];
+        while offset < frame.payload.len() {
+            let end = (offset + masked_chunk.len()).min(frame.payload.len());
+            let chunk = &frame.payload[offset..end];
+            for (i, byte) in chunk.iter().enumerate() {
+                masked_chunk[i] = *byte ^ mask_key[(offset + i) % 4];
+            }
+            writer
+                .write_all(&masked_chunk[..chunk.len()])
+                .await
+                .map_err(|e| format!("ws frame write payload: {e}"))?;
+            offset = end;
+        }
     } else {
         writer
             .write_all(&frame.payload)
@@ -328,7 +333,14 @@ impl WsConnectionRegistry {
     }
 
     pub fn register(&self, session_id: String, sender: mpsc::UnboundedSender<WsInjectRequest>) {
-        let mut map = self.connections.lock().expect("ws registry mutex");
+        let mut map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
+        if map.contains_key(&session_id) {
+            crate::logging::emit_log(
+                "WARN",
+                "ws_registry_duplicate_session",
+                &[("session_id", session_id.clone())],
+            );
+        }
         map.insert(
             session_id,
             WsConnectionEntry {
@@ -339,26 +351,26 @@ impl WsConnectionRegistry {
     }
 
     pub fn mark_closed(&self, session_id: &str) {
-        let mut map = self.connections.lock().expect("ws registry mutex");
+        let mut map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = map.get_mut(session_id) {
             entry.status = WsConnectionStatus::Closed;
         }
     }
 
     pub fn unregister(&self, session_id: &str) {
-        let mut map = self.connections.lock().expect("ws registry mutex");
+        let mut map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(session_id);
     }
 
     pub fn get_status(&self, session_id: &str) -> WsConnectionStatus {
-        let map = self.connections.lock().expect("ws registry mutex");
+        let map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         map.get(session_id)
             .map(|e| e.status)
             .unwrap_or(WsConnectionStatus::Closed)
     }
 
     pub fn inject(&self, session_id: &str, request: WsInjectRequest) -> Result<(), String> {
-        let map = self.connections.lock().expect("ws registry mutex");
+        let map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map.get(session_id).ok_or_else(|| {
             format!("WebSocket session {} is not active or does not exist", session_id)
         })?;

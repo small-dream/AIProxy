@@ -168,7 +168,7 @@ export function SessionInspectorJsonTree({
 
   const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
   const visibleRows = rows.slice(startIndex, endIndex);
-  const columnTemplate = "minmax(220px, 1.02fr) minmax(112px, 0.68fr) minmax(260px, 1.3fr)";
+  const columnTemplate = "minmax(220px, 0.9fr) minmax(112px, 0.5fr) minmax(260px, 1.6fr)";
 
   return (
     <Box

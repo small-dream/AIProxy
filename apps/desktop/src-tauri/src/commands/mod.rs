@@ -1149,9 +1149,9 @@ pub(crate) async fn shutdown_proxy_runtime(state: Arc<AppState>) -> bool {
     };
 
     state.read_breakpoint_manager().cancel_all();
-    runtime_handles.proxy_server_handle.shutdown().await;
     runtime_handles.collector_handle.abort();
     let _ = runtime_handles.collector_handle.await;
+    runtime_handles.proxy_server_handle.shutdown().await;
 
     true
 }

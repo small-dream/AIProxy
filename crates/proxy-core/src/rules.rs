@@ -298,13 +298,11 @@ pub(crate) fn resolve_dns_override(
     hostname: &str,
 ) -> Option<std::net::IpAddr> {
     let manager = dns_manager.as_ref()?;
-    let rules = manager.list_rules();
-    let mut matched: Vec<&DnsMappingRule> = rules
+    let rules = manager.rules.lock().unwrap_or_else(|e| e.into_inner());
+    let rule = rules
         .iter()
         .filter(|r| r.enabled && r.workspace_id == workspace_id && pattern_matches(&r.host_pattern, hostname))
-        .collect();
-    matched.sort_by(|a, b| b.priority.cmp(&a.priority));
-    let rule = matched.first()?;
+        .max_by_key(|r| r.priority)?;
     rule.target_ip.parse().ok()
 }
 
@@ -1099,13 +1097,7 @@ fn should_drop_for_packet_loss(profile: &ThrottleProfileData) -> bool {
         return false;
     }
 
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let sample = (nanos % 10_000) as f32 / 10_000.0;
-
-    sample < normalized
+    rand::random::<f32>() < normalized
 }
 
 fn transfer_delay_ms(byte_count: usize, kbps: u32) -> u64 {
@@ -1145,12 +1137,8 @@ pub(crate) async fn apply_request_throttle(
 }
 
 pub(crate) async fn apply_response_throttle(profile: &ThrottleProfileData, body_len: usize) {
-    let latency_ms = profile.latency_ms as u64;
     let download_delay_ms = transfer_delay_ms(body_len, profile.download_kbps);
 
-    if latency_ms > 0 {
-        sleep(Duration::from_millis(latency_ms)).await;
-    }
     if download_delay_ms > 0 {
         sleep(Duration::from_millis(download_delay_ms)).await;
     }

@@ -339,8 +339,17 @@ impl Serialize for ProxyBodyReference {
     where
         S: serde::Serializer,
     {
-        let inline_text = self.inline_text();
-        let base64_text = self.base64_text();
+        let loaded_bytes = self.load_bytes().ok();
+        let inline_text = if self.render_as_text {
+            loaded_bytes
+                .as_deref()
+                .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+        } else {
+            None
+        };
+        let base64_text = loaded_bytes
+            .as_deref()
+            .map(|bytes| BASE64_STANDARD.encode(bytes));
         let field_count = 2
             + usize::from(self.encoding.is_some())
             + usize::from(self.mime_type.is_some())

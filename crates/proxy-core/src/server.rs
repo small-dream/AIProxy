@@ -797,32 +797,41 @@ async fn forward_request(
         ],
     );
 
-    let mut request_builder = client.request(request.method.clone(), request.url.clone());
-    request_builder = request_builder.headers(request.headers.clone());
+    let mut upstream_url = request.url.clone();
+    let mut upstream_headers = request.headers.clone();
 
-    if !request.body.is_empty() {
-        request_builder = request_builder.body(request.body.clone());
-    }
-
-    // Apply DNS override if configured for this host.
-    // reqwest does not expose a per-request resolve() in this version, so we
-    // rebuild the URL with the override IP and explicitly set the Host header
-    // to the original hostname so upstream virtual-hosting still works.
     if let Some(ip) = resolve_dns_override(dns_manager, workspace_id, &request.host) {
         emit_log("INFO", "dns_override_applied", &[
             ("host", request.host.clone()),
             ("override_ip", ip.to_string()),
         ]);
 
-        let mut override_url = request.url.clone();
-        let port = override_url.port().unwrap_or(if override_url.scheme() == "https" { 443 } else { 80 });
-        let authority = format!("{ip}:{port}");
-        override_url.set_host(Some(&authority)).ok();
-        request_builder = client.request(request.method.clone(), override_url);
-        request_builder = request_builder.headers(request.headers.clone());
-        if !request.body.is_empty() {
-            request_builder = request_builder.body(request.body.clone());
-        }
+        let port = upstream_url
+            .port()
+            .unwrap_or(if upstream_url.scheme() == "https" { 443 } else { 80 });
+        upstream_url
+            .set_host(Some(&ip.to_string()))
+            .map_err(|_| format!("failed to apply DNS override host: {ip}"))?;
+        upstream_url
+            .set_port(Some(port))
+            .map_err(|_| format!("failed to apply DNS override port: {port}"))?;
+        let host_header = match request.url.port() {
+            Some(port) => format!("{}:{port}", request.host),
+            None => request.host.clone(),
+        };
+        upstream_headers.insert(
+            HOST,
+            HeaderValue::from_str(&host_header)
+                .map_err(|error| format!("invalid DNS override Host header: {error}"))?,
+        );
+    }
+
+    let mut request_builder = client
+        .request(request.method.clone(), upstream_url)
+        .headers(upstream_headers);
+
+    if !request.body.is_empty() {
+        request_builder = request_builder.body(request.body.clone());
     }
 
     let waiting_started_at = Instant::now();
@@ -905,7 +914,7 @@ async fn read_response_body_with_limit(
     let mut response_body_size_bytes = 0usize;
     let mut body_truncated = false;
     let mut spooled_response_path = None;
-    let mut spooled_file: Option<fs::File> = None;
+    let mut spooled_file: Option<tokio::fs::File> = None;
 
     if let Some(content_length) = response.content_length() {
         response_body.reserve((content_length as usize).min(MAX_CAPTURED_BODY_BYTES));
@@ -920,15 +929,18 @@ async fn read_response_body_with_limit(
             if body_truncated {
                 if let Some(file) = spooled_file.as_mut() {
                     file.write_all(&chunk)
+                        .await
                         .map_err(|error| format!("write spooled response chunk: {error}"))?;
                 }
             } else if response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
-                let (mut file, path) = create_response_spool_file(request_id)?;
+                let (mut file, path) = create_response_spool_file(request_id).await?;
                 if !response_body.is_empty() {
                     file.write_all(&response_body)
+                        .await
                         .map_err(|error| format!("seed spooled response body: {error}"))?;
                 }
                 file.write_all(&chunk)
+                    .await
                     .map_err(|error| format!("write spooled response chunk: {error}"))?;
                 spooled_response_path = Some(path);
                 spooled_file = Some(file);
@@ -948,6 +960,7 @@ async fn read_response_body_with_limit(
 
     if let Some(file) = spooled_file.as_mut() {
         file.flush()
+            .await
             .map_err(|error| format!("flush spooled response body: {error}"))?;
     }
 
@@ -972,16 +985,18 @@ async fn read_response_body_with_limit(
     ))
 }
 
-fn create_response_spool_file(request_id: &str) -> Result<(fs::File, PathBuf), String> {
+async fn create_response_spool_file(request_id: &str) -> Result<(tokio::fs::File, PathBuf), String> {
     let dir = env::temp_dir().join("aiproxy-response-spool");
-    fs::create_dir_all(&dir)
+    tokio::fs::create_dir_all(&dir)
+        .await
         .map_err(|error| format!("create response spool directory '{}': {error}", dir.display()))?;
 
     let path = dir.join(format!("{request_id}-{}.body", Uuid::new_v4()));
-    let file = OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&path)
+        .await
         .map_err(|error| format!("create spooled response file '{}': {error}", path.display()))?;
 
     Ok((file, path))
@@ -1020,17 +1035,18 @@ async fn write_spooled_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin
         .await
         .map_err(map_io_error)?;
 
-    let mut file = fs::File::open(spooled_response_path).map_err(|error| {
+    let mut file = tokio::fs::File::open(spooled_response_path).await.map_err(|error| {
         format!(
             "open spooled response file '{}': {error}",
             spooled_response_path.display()
         )
     })?;
-    let mut buffer = vec![0_u8; READ_BUFFER_BYTES];
+    let mut buffer = vec![0_u8; 64 * 1024];
 
     loop {
         let bytes_read = file
             .read(&mut buffer)
+            .await
             .map_err(|error| format!("read spooled response file: {error}"))?;
 
         if bytes_read == 0 {
@@ -1100,6 +1116,8 @@ async fn tunnel_blind_relay(
 }
 
 fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
+    static CONFIG: OnceLock<Arc<tokio_rustls::rustls::ClientConfig>> = OnceLock::new();
+
     use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
     use tokio_rustls::rustls::crypto::CryptoProvider;
     use tokio_rustls::rustls::DigitallySignedStruct;
@@ -1145,12 +1163,14 @@ fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig
         }
     }
 
-    let config = tokio_rustls::rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoVerifier))
-        .with_no_client_auth();
-
-    Arc::new(config)
+    Arc::clone(CONFIG.get_or_init(|| {
+        Arc::new(
+            tokio_rustls::rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(NoVerifier))
+                .with_no_client_auth(),
+        )
+    }))
 }
 
 /// Handle WebSocket upgrade for plain HTTP (ws://) connections.

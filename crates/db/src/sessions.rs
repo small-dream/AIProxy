@@ -38,6 +38,10 @@ pub struct SessionDetailRow {
     pub timing: Option<String>,            // nullable JSON
 }
 
+fn u128_to_i64_saturating(value: u128) -> i64 {
+    value.min(i64::MAX as u128) as i64
+}
+
 // ---------------------------------------------------------------------------
 // CRUD operations
 // ---------------------------------------------------------------------------
@@ -60,7 +64,7 @@ pub fn upsert_session(
         params![
             summary.id, summary.method, summary.host, summary.path,
             summary.protocol, summary.started_at, summary.finished_at,
-            summary.duration_ms as i64, summary.size_bytes as i64,
+            u128_to_i64_saturating(summary.duration_ms), summary.size_bytes as i64,
             summary.status_code as i32, summary.url, summary.response_mime_type,
         ],
     )
@@ -175,30 +179,48 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
     let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
     let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin delete sessions transaction: {e}"))?;
 
     let delete_script_entries_sql = format!(
         "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
         placeholders.join(",")
     );
-    conn.execute(&delete_script_entries_sql, params.as_slice())
+    tx.execute(&delete_script_entries_sql, params.as_slice())
         .map_err(|e| format!("delete script run entries for sessions: {e}"))?;
 
     let delete_script_runs_sql = format!(
         "DELETE FROM script_runs WHERE session_id IN ({})",
         placeholders.join(",")
     );
-    conn.execute(&delete_script_runs_sql, params.as_slice())
+    tx.execute(&delete_script_runs_sql, params.as_slice())
         .map_err(|e| format!("delete script runs for sessions: {e}"))?;
 
-    let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let delete_ws_messages_sql = format!(
+        "DELETE FROM ws_messages WHERE session_id IN ({})",
+        placeholders.join(",")
+    );
+    tx.execute(&delete_ws_messages_sql, params.as_slice())
+        .map_err(|e| format!("delete ws messages for sessions: {e}"))?;
+
+    let delete_session_details_sql = format!(
+        "DELETE FROM session_details WHERE session_summary_id IN ({})",
+        placeholders.join(",")
+    );
+    tx.execute(&delete_session_details_sql, params.as_slice())
+        .map_err(|e| format!("delete session details: {e}"))?;
+
     let sql = format!(
         "DELETE FROM session_summaries WHERE id IN ({})",
         placeholders.join(",")
     );
 
-    let count = conn
+    let count = tx
         .execute(&sql, params.as_slice())
         .map_err(|e| format!("delete sessions: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("commit delete sessions transaction: {e}"))?;
 
     Ok(count)
 }

@@ -112,7 +112,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       <Divider />
 
       {requestCollapsed ? null : (
-        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", px: 2.5, pb: 2.5, pt: 1.25 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", pl: 2, pr: 0.5, pb: 2, pt: 1.25 }}>
           <RequestTabContent
             detail={detail}
             isRequestBodyLoading={isRequestBodyLoading}

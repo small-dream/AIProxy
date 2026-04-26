@@ -323,6 +323,10 @@ impl AppState {
     pub fn upsert_session(&self, mut session_detail: ProxySessionDetail) {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
+        let active_workspace_id = self
+            .read_status()
+            .active_workspace_id
+            .unwrap_or_else(|| "default".to_string());
 
         let spill_started_at = Instant::now();
         if let Err(error) = spill_session_bodies_to_disk(&mut session_detail, &self.body_store) {
@@ -334,19 +338,20 @@ impl AppState {
         }
         let spill_elapsed_us = spill_started_at.elapsed().as_micros();
 
+        let summary_row = proxy_summary_to_row(&session_summary);
+        let row_build_started_at = Instant::now();
+        let detail_row = proxy_detail_to_row(&session_detail, &self.body_store);
+        let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
+        log_session_storage_stats(
+            &session_detail,
+            &detail_row,
+            spill_elapsed_us,
+            row_build_elapsed_us,
+        );
+
         // Persist to DB
         {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
-            let summary_row = proxy_summary_to_row(&session_summary);
-            let row_build_started_at = Instant::now();
-            let detail_row = proxy_detail_to_row(&session_detail, &self.body_store);
-            let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
-            log_session_storage_stats(
-                &session_detail,
-                &detail_row,
-                spill_elapsed_us,
-                row_build_elapsed_us,
-            );
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
             {
                 crate::dev_logger::log_error(
@@ -359,10 +364,7 @@ impl AppState {
             if let Err(e) = persist_script_traces(
                 &conn,
                 &session_detail.id,
-                self.read_status()
-                    .active_workspace_id
-                    .as_deref()
-                    .unwrap_or("default"),
+                &active_workspace_id,
                 &session_detail.summary,
                 &session_detail.script_traces,
             ) {
@@ -376,46 +378,56 @@ impl AppState {
 
         self.insert_session_detail_cache(session_id.clone(), session_detail.clone());
 
-        let mut sessions = self
-            .sessions
-            .lock()
-            .expect("session list mutex should not be poisoned");
-
-        if let Some(existing_index) = sessions.iter().position(|session| session.id == session_id) {
-            sessions[existing_index] = session_summary.clone();
-        } else {
-            sessions.push(session_summary.clone());
-        }
-
         let focused_hosts = self.read_focused_hosts();
+        let removed_session_ids = {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("session list mutex should not be poisoned");
 
-        while sessions.len() > 15_000 {
-            let eviction_index = select_session_eviction_index(
-                &sessions,
-                &focused_hosts,
-            );
-            let removed_session = sessions.remove(eviction_index);
+            if let Some(existing_index) = sessions.iter().position(|session| session.id == session_id) {
+                sessions[existing_index] = session_summary.clone();
+            } else {
+                sessions.push(session_summary.clone());
+            }
 
-            // Remove from DB and body files
+            let mut removed_session_ids = Vec::new();
+            while sessions.len() > 15_000 {
+                let eviction_index = select_session_eviction_index(
+                    &sessions,
+                    &focused_hosts,
+                );
+                removed_session_ids.push(sessions.remove(eviction_index).id);
+            }
+
+            removed_session_ids
+        };
+
+        if !removed_session_ids.is_empty() {
             {
                 let conn = self.db.lock().expect("db mutex should not be poisoned");
-                let _ = aiproxy_db::sessions::delete_sessions_by_ids(
-                    &conn,
-                    &[removed_session.id.clone()],
-                );
+                let _ = aiproxy_db::sessions::delete_sessions_by_ids(&conn, &removed_session_ids);
             }
-            let _ = self.body_store.remove_bodies(&removed_session.id);
 
-            self.session_details
-                .lock()
-                .expect("session detail mutex should not be poisoned")
-                .remove(&removed_session.id);
+            {
+                let mut details = self
+                    .session_details
+                    .lock()
+                    .expect("session detail mutex should not be poisoned");
+                for removed_session_id in &removed_session_ids {
+                    details.remove(removed_session_id);
+                }
+            }
             self.session_detail_order
                 .lock()
                 .expect("session detail order mutex should not be poisoned")
-                .retain(|id| id != &removed_session.id);
-            if let Some(handle) = self.read_app_handle() {
-                let _ = handle.emit("session-remove", &removed_session.id);
+                .retain(|id| !removed_session_ids.iter().any(|removed_id| removed_id == id));
+
+            for removed_session_id in &removed_session_ids {
+                let _ = self.body_store.remove_bodies(removed_session_id);
+                if let Some(handle) = self.read_app_handle() {
+                    let _ = handle.emit("session-remove", removed_session_id);
+                }
             }
         }
 
