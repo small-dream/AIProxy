@@ -195,7 +195,19 @@ pub struct ThrottleProfileRow {
 }
 
 pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Result<(), String> {
-    conn.execute(
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin save throttle profile transaction: {e}"))?;
+
+    if p.enabled {
+        tx.execute(
+            "UPDATE throttle_profiles SET enabled = 0 WHERE workspace_id = ?1 AND id != ?2",
+            params![p.workspace_id, p.id],
+        )
+        .map_err(|e| format!("deactivate other throttle profiles: {e}"))?;
+    }
+
+    tx.execute(
         "INSERT OR REPLACE INTO throttle_profiles
             (id, workspace_id, name, note, enabled, preset, latency_ms,
              upload_kbps, download_kbps, packet_loss_ratio)
@@ -207,6 +219,43 @@ pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Resul
         ],
     )
     .map_err(|e| format!("save throttle profile: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("commit save throttle profile transaction: {e}"))?;
+
+    Ok(())
+}
+
+pub fn set_active_throttle_profile(
+    conn: &Connection,
+    workspace_id: &str,
+    profile_id: Option<&str>,
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin set active throttle profile transaction: {e}"))?;
+
+    tx.execute(
+        "UPDATE throttle_profiles SET enabled = 0 WHERE workspace_id = ?1",
+        params![workspace_id],
+    )
+    .map_err(|e| format!("deactivate throttle profiles: {e}"))?;
+
+    if let Some(profile_id) = profile_id {
+        let updated = tx
+            .execute(
+                "UPDATE throttle_profiles SET enabled = 1 WHERE workspace_id = ?1 AND id = ?2",
+                params![workspace_id, profile_id],
+            )
+            .map_err(|e| format!("activate throttle profile: {e}"))?;
+        if updated == 0 {
+            return Err(format!("throttle profile not found: {profile_id}"));
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| format!("commit set active throttle profile transaction: {e}"))?;
+
     Ok(())
 }
 
@@ -255,17 +304,24 @@ pub struct BreakpointRuleRow {
 
 /// Replace all breakpoint rules atomically.
 pub fn replace_breakpoint_rules(conn: &Connection, rules: &[BreakpointRuleRow]) -> Result<(), String> {
-    conn.execute("DELETE FROM breakpoint_rules", [])
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin replace breakpoint rules transaction: {e}"))?;
+
+    tx.execute("DELETE FROM breakpoint_rules", [])
         .map_err(|e| format!("clear breakpoint rules: {e}"))?;
 
     for r in rules {
-        conn.execute(
+        tx.execute(
             "INSERT INTO breakpoint_rules (id, enabled, url_pattern, methods, stage)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![r.id, r.enabled as i32, r.url_pattern, r.methods, r.stage],
         )
         .map_err(|e| format!("insert breakpoint rule: {e}"))?;
     }
+
+    tx.commit()
+        .map_err(|e| format!("commit replace breakpoint rules transaction: {e}"))?;
 
     Ok(())
 }
@@ -483,17 +539,21 @@ pub fn replace_script_runs_for_session(
     runs: &[ScriptRunRow],
     entries: &[ScriptRunEntryRow],
 ) -> Result<(), String> {
-    conn.execute(
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin replace script runs transaction: {e}"))?;
+
+    tx.execute(
         "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id = ?1)",
         params![session_id],
     )
     .map_err(|e| format!("delete script run entries for session: {e}"))?;
 
-    conn.execute("DELETE FROM script_runs WHERE session_id = ?1", params![session_id])
+    tx.execute("DELETE FROM script_runs WHERE session_id = ?1", params![session_id])
         .map_err(|e| format!("delete script runs for session: {e}"))?;
 
     for run in runs {
-        conn.execute(
+        tx.execute(
             "INSERT INTO script_runs
                 (id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -512,7 +572,7 @@ pub fn replace_script_runs_for_session(
     }
 
     for entry in entries {
-        conn.execute(
+        tx.execute(
             "INSERT INTO script_run_entries
                 (id, run_id, kind, level, key, message, payload_json, seq)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -529,6 +589,9 @@ pub fn replace_script_runs_for_session(
         )
         .map_err(|e| format!("insert script run entry: {e}"))?;
     }
+
+    tx.commit()
+        .map_err(|e| format!("commit replace script runs transaction: {e}"))?;
 
     Ok(())
 }
@@ -715,6 +778,56 @@ mod tests {
         let loaded = load_all_throttle_profiles(&conn).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].download_kbps, 500);
+    }
+
+    #[test]
+    fn active_throttle_profile_is_unique_per_workspace() {
+        let conn = test_conn();
+        let mut first = ThrottleProfileRow {
+            id: "t1".into(),
+            workspace_id: "default".into(),
+            name: "Slow".into(),
+            note: None,
+            enabled: true,
+            preset: false,
+            latency_ms: 100,
+            upload_kbps: 300,
+            download_kbps: 500,
+            packet_loss_ratio: 0.0,
+        };
+        let second = ThrottleProfileRow {
+            id: "t2".into(),
+            workspace_id: "default".into(),
+            name: "Fast".into(),
+            note: None,
+            enabled: true,
+            preset: false,
+            latency_ms: 10,
+            upload_kbps: 3000,
+            download_kbps: 5000,
+            packet_loss_ratio: 0.0,
+        };
+
+        save_throttle_profile(&conn, &first).unwrap();
+        save_throttle_profile(&conn, &second).unwrap();
+
+        let loaded = load_all_throttle_profiles(&conn).unwrap();
+        assert!(!loaded.iter().find(|p| p.id == "t1").unwrap().enabled);
+        assert!(loaded.iter().find(|p| p.id == "t2").unwrap().enabled);
+
+        set_active_throttle_profile(&conn, "default", Some("t1")).unwrap();
+        let loaded = load_all_throttle_profiles(&conn).unwrap();
+        assert!(loaded.iter().find(|p| p.id == "t1").unwrap().enabled);
+        assert!(!loaded.iter().find(|p| p.id == "t2").unwrap().enabled);
+
+        first.enabled = false;
+        save_throttle_profile(&conn, &first).unwrap();
+        assert!(!load_all_throttle_profiles(&conn)
+            .unwrap()
+            .iter()
+            .find(|p| p.id == "t1")
+            .unwrap()
+            .enabled);
     }
 
     #[test]

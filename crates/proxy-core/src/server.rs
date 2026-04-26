@@ -1,4 +1,81 @@
 use super::*;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+struct PrefixedStream<'a, S> {
+    prefix: Cursor<Vec<u8>>,
+    inner: &'a mut S,
+}
+
+impl<'a, S> PrefixedStream<'a, S> {
+    fn new(prefix: Vec<u8>, inner: &'a mut S) -> Self {
+        Self {
+            prefix: Cursor::new(prefix),
+            inner,
+        }
+    }
+}
+
+static DIRECT_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn direct_http_client() -> Result<Client, String> {
+    if let Some(client) = DIRECT_HTTP_CLIENT.get() {
+        return Ok(client.clone());
+    }
+
+    let client = Client::builder()
+        .redirect(Policy::none())
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("failed to create HTTP client: {e}"))?;
+    let _ = DIRECT_HTTP_CLIENT.set(client);
+
+    DIRECT_HTTP_CLIENT
+        .get()
+        .cloned()
+        .ok_or_else(|| "failed to initialize HTTP client".to_string())
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for PrefixedStream<'_, S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let position = self.prefix.position() as usize;
+        let prefix = self.prefix.get_ref();
+        if position < prefix.len() {
+            let bytes_to_copy = std::cmp::min(buf.remaining(), prefix.len() - position);
+            buf.put_slice(&prefix[position..position + bytes_to_copy]);
+            self.prefix.set_position((position + bytes_to_copy) as u64);
+            return Poll::Ready(Ok(()));
+        }
+
+        Pin::new(&mut *self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<'_, S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut *self.inner).poll_write(cx, bytes)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut *self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut *self.inner).poll_shutdown(cx)
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn start_proxy_server(
@@ -32,8 +109,8 @@ pub async fn start_proxy_server(
     let client = Arc::new(client);
 
     let (shutdown_sender, mut shutdown_receiver) = oneshot::channel::<()>();
-    let (session_sender, session_receiver) = mpsc::unbounded_channel();
-    let (ws_message_sender, ws_message_receiver) = mpsc::unbounded_channel();
+    let (session_sender, session_receiver) = mpsc::channel(4096);
+    let (ws_message_sender, ws_message_receiver) = mpsc::channel(4096);
     let connection_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
 
     emit_log(
@@ -126,7 +203,7 @@ pub async fn start_proxy_server(
                                 "listener_accept_failed",
                                 &[("error", error.to_string())],
                             );
-                            break;
+                            continue;
                         }
                     }
                 }
@@ -182,8 +259,8 @@ async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
     client: Arc<Client>,
-    session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
-    ws_message_sender: mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    session_sender: mpsc::Sender<ProxySessionDetail>,
+    ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
     tls_manager: Option<Arc<TlsManager>>,
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
@@ -418,7 +495,7 @@ async fn handle_connection(
                         mock_response.body_truncated,
                     );
                     detail.script_traces = script_traces;
-                    if session_sender.send(detail).is_err() {
+                    if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
                     return Ok(());
@@ -431,7 +508,7 @@ async fn handle_connection(
     }
 
     let pending_detail = build_pending_session_detail(&request, started_at);
-    if session_sender.send(pending_detail).is_err() {
+    if session_sender.send(pending_detail).await.is_err() {
         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
     }
 
@@ -540,7 +617,7 @@ async fn handle_connection(
                 {
                     Ok(resolution) => resolution,
                     Err(error) => {
-                        let _ = session_sender.send(session_detail);
+                        let _ = session_sender.send(session_detail).await;
                         return Err(error);
                     }
                 }
@@ -549,7 +626,7 @@ async fn handle_connection(
             if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
-                        let _ = session_sender.send(session_detail);
+                        let _ = session_sender.send(session_detail).await;
                         let _ = stream.shutdown().await;
                         return Ok(());
                     }
@@ -630,13 +707,13 @@ async fn handle_connection(
             };
 
             if let Err(error) = write_result {
-                let _ = session_sender.send(session_detail);
+                let _ = session_sender.send(session_detail).await;
                 return Err(error);
             }
 
             session_detail.script_traces = script_traces;
 
-            if session_sender.send(session_detail).is_err() {
+            if session_sender.send(session_detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 
@@ -683,7 +760,7 @@ async fn handle_connection(
                 },
                 false,
             );
-            if session_sender.send(detail).is_err() {
+            if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
             emit_log(
@@ -1082,8 +1159,8 @@ fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig
 async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     client_stream: &mut S,
     request: &ParsedProxyRequest,
-    session_sender: &mpsc::UnboundedSender<ProxySessionDetail>,
-    ws_message_sender: &mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    session_sender: &mpsc::Sender<ProxySessionDetail>,
+    ws_message_sender: &mpsc::Sender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     dns_manager: &Option<Arc<DnsManager>>,
@@ -1142,7 +1219,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     })?;
 
     // Read the upstream 101 response and relay it to the client
-    let response_head = read_http_response_head(&mut upstream).await.map_err(|e| {
+    let (response_head, response_prefix) = read_http_response_head(&mut upstream).await.map_err(|e| {
         emit_log("ERROR", "ws_http_read_response_head_failed", &[
             ("request_id", request.request_id.clone()),
             ("error", e.clone()),
@@ -1208,7 +1285,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     detail.summary.protocol = "ws".to_string();
     detail.summary.response_mime_type = Some("websocket".to_string());
     let session_id_for_relay = detail.id.clone();
-    if session_sender.send(detail).is_err() {
+    if session_sender.send(detail).await.is_err() {
         return Ok(());
     }
 
@@ -1216,6 +1293,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
 
+    let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
     crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
 
     registry.mark_closed(&session_id_for_relay);
@@ -1229,8 +1307,8 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
 async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     client_stream: &mut S,
     request: &ParsedProxyRequest,
-    session_sender: &mpsc::UnboundedSender<ProxySessionDetail>,
-    ws_message_sender: &mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    session_sender: &mpsc::Sender<ProxySessionDetail>,
+    ws_message_sender: &mpsc::Sender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     tls_ms: u128,
@@ -1319,7 +1397,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     })?;
 
     // Read the upstream 101 response and relay it to the client
-    let response_head = read_http_response_head(&mut upstream).await.map_err(|e| {
+    let (response_head, response_prefix) = read_http_response_head(&mut upstream).await.map_err(|e| {
         emit_log("ERROR", "wss_read_response_head_failed", &[
             ("request_id", request.request_id.clone()),
             ("error", e.clone()),
@@ -1383,7 +1461,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     detail.summary.protocol = "wss".to_string();
     detail.summary.response_mime_type = Some("websocket".to_string());
     let session_id_for_relay = detail.id.clone();
-    if session_sender.send(detail).is_err() {
+    if session_sender.send(detail).await.is_err() {
         return Ok(());
     }
 
@@ -1391,6 +1469,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
 
+    let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
     crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
 
     registry.mark_closed(&session_id_for_relay);
@@ -1400,19 +1479,34 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
 
 /// Read a complete HTTP response head (status line + headers) from a stream.
 /// Returns the full text including the trailing \r\n\r\n.
-async fn read_http_response_head<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<String, String> {
-    let mut buf = Vec::new();
-    let mut byte = [0u8; 1];
+async fn read_http_response_head<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+) -> Result<(String, Vec<u8>), String> {
+    let mut buf = Vec::with_capacity(READ_BUFFER_BYTES);
+    let mut chunk = [0u8; READ_BUFFER_BYTES];
 
     loop {
-        reader
-            .read_exact(&mut byte)
+        let bytes_read = reader
+            .read(&mut chunk)
             .await
             .map_err(|e| format!("read response head: {e}"))?;
-        buf.push(byte[0]);
+        if bytes_read == 0 {
+            return Err("upstream closed before response head completed".to_string());
+        }
 
-        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
-            return String::from_utf8(buf).map_err(|e| format!("response head utf8: {e}"));
+        buf.extend_from_slice(&chunk[..bytes_read]);
+        if buf.len() > MAX_HEADER_BYTES {
+            return Err(format!(
+                "response head exceeded maximum size of {MAX_HEADER_BYTES} bytes"
+            ));
+        }
+
+        if let Some(header_end) = buf.windows(4).position(|window| window == b"\r\n\r\n") {
+            let body_start = header_end + 4;
+            let head = buf[..body_start].to_vec();
+            let prefix = buf[body_start..].to_vec();
+            let head = String::from_utf8(head).map_err(|e| format!("response head utf8: {e}"))?;
+            return Ok((head, prefix));
         }
     }
 }
@@ -1455,8 +1549,8 @@ async fn handle_connect_mitm(
     port: u16,
     tls_manager: Arc<TlsManager>,
     client: Arc<Client>,
-    session_sender: mpsc::UnboundedSender<ProxySessionDetail>,
-    ws_message_sender: mpsc::UnboundedSender<crate::ws::WsMessageData>,
+    session_sender: mpsc::Sender<ProxySessionDetail>,
+    ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     breakpoint_manager: Option<Arc<BreakpointManager>>,
@@ -1635,7 +1729,7 @@ async fn handle_connect_mitm(
                         mock_response.body_truncated,
                     );
                     detail.script_traces = script_traces;
-                    if session_sender.send(detail).is_err() {
+                    if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
                     return Ok(());
@@ -1646,7 +1740,7 @@ async fn handle_connect_mitm(
     }
 
     let pending_detail = build_pending_session_detail(&https_request, started_at);
-    let _ = session_sender.send(pending_detail);
+    let _ = session_sender.send(pending_detail).await;
 
     if let Some(profile) = throttle_profile.as_ref() {
         if let Err(error) = apply_request_throttle(profile, https_request.body.len()).await {
@@ -1758,7 +1852,7 @@ async fn handle_connect_mitm(
                 {
                     Ok(resolution) => resolution,
                     Err(error) => {
-                        let _ = session_sender.send(session_detail);
+                        let _ = session_sender.send(session_detail).await;
                         return Err(error);
                     }
                 }
@@ -1767,7 +1861,7 @@ async fn handle_connect_mitm(
             if let Some(resolution) = breakpoint_resolution {
                 match resolution.action {
                     BreakpointActionKind::Drop => {
-                        let _ = session_sender.send(session_detail);
+                        let _ = session_sender.send(session_detail).await;
                         let _ = tls_stream.shutdown().await;
                         return Ok(());
                     }
@@ -1848,13 +1942,13 @@ async fn handle_connect_mitm(
             };
 
             if let Err(error) = write_result {
-                let _ = session_sender.send(session_detail);
+                let _ = session_sender.send(session_detail).await;
                 return Err(error);
             }
 
             session_detail.script_traces = script_traces;
 
-            if session_sender.send(session_detail).is_err() {
+            if session_sender.send(session_detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 
@@ -1901,7 +1995,7 @@ async fn handle_connect_mitm(
                 },
                 false,
             );
-            if session_sender.send(detail).is_err() {
+            if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 
@@ -2112,11 +2206,7 @@ pub async fn send_direct_request(
         &headers,
     );
 
-    let client = Client::builder()
-        .redirect(Policy::none())
-        .no_proxy()
-        .build()
-        .map_err(|e| format!("failed to create HTTP client: {e}"))?;
+    let client = direct_http_client()?;
 
     let mut request_builder = client.request(request_method.clone(), request_url.clone());
     request_builder = request_builder.headers(header_map.clone());
@@ -2227,7 +2317,7 @@ pub async fn send_direct_request(
 async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     stream: &mut S,
     request: &ParsedProxyRequest,
-    session_sender: &mpsc::UnboundedSender<ProxySessionDetail>,
+    session_sender: &mpsc::Sender<ProxySessionDetail>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
     tls_ms: Option<u128>,
@@ -2256,7 +2346,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         },
         false,
     );
-    if session_sender.send(detail).is_err() {
+    if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
 

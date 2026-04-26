@@ -18,7 +18,7 @@ pub struct CertStorage {
     root_cert_path: PathBuf,
     root_key_path: PathBuf,
     /// In-memory cache: hostname → CertifiedKey (for dynamic host certs)
-    pub(crate) host_cache: Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>,
+    pub(crate) host_cache: Arc<Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>,
 }
 
 impl std::clone::Clone for CertStorage {
@@ -28,7 +28,7 @@ impl std::clone::Clone for CertStorage {
             root_cert_install_path: self.root_cert_install_path.clone(),
             root_cert_path: self.root_cert_path.clone(),
             root_key_path: self.root_key_path.clone(),
-            host_cache: Mutex::new(HashMap::new()), // fresh cache for clone
+            host_cache: Arc::clone(&self.host_cache),
         }
     }
 }
@@ -45,7 +45,7 @@ impl CertStorage {
             root_cert_path: cert_dir.join(ROOT_CERT_FILE),
             root_key_path: cert_dir.join(ROOT_KEY_FILE),
             cert_dir,
-            host_cache: Mutex::new(HashMap::new()),
+            host_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -62,7 +62,7 @@ impl CertStorage {
             root_cert_path: temp_dir.join(ROOT_CERT_FILE),
             root_key_path: temp_dir.join(ROOT_KEY_FILE),
             cert_dir: temp_dir,
-            host_cache: Mutex::new(HashMap::new()),
+            host_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -151,11 +151,9 @@ impl CertStorage {
         root_ca: &RootCaPair,
         hostname: &str,
     ) -> Result<Arc<rustls::sign::CertifiedKey>, TlsManagerError> {
-        {
-            let cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(cached) = cache.get(hostname) {
-                return Ok(Arc::clone(cached));
-            }
+        let mut cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(hostname) {
+            return Ok(Arc::clone(cached));
         }
 
         let (cert_der, key_der) = generator::sign_host_certificate(root_ca, hostname)?;
@@ -168,17 +166,14 @@ impl CertStorage {
             signing_key,
         ));
 
-        {
-            let mut cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
-            cache.insert(hostname.to_string(), Arc::clone(&certified_key));
-        }
+        cache.insert(hostname.to_string(), Arc::clone(&certified_key));
 
         Ok(certified_key)
     }
 
     /// Clear the in-memory host certificate cache.
     pub fn clear_host_cache(&self) {
-        let mut cache = self.host_cache.lock().unwrap();
+        let mut cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.clear();
     }
 }
@@ -212,5 +207,21 @@ mod tests {
 
         let loaded_pem = storage.load_root_cert_pem().unwrap();
         assert!(loaded_pem.contains("BEGIN CERTIFICATE"));
+    }
+
+    #[test]
+    fn cloned_storage_shares_host_cache() {
+        let storage = CertStorage::new_in_temp_dir();
+        let cloned = storage.clone();
+        let root_ca = RootCaPair::generate().unwrap();
+
+        let original_key = storage
+            .get_or_create_host_certified_key(&root_ca, "example.com")
+            .unwrap();
+        let cloned_key = cloned
+            .get_or_create_host_certified_key(&root_ca, "example.com")
+            .unwrap();
+
+        assert!(Arc::ptr_eq(&original_key, &cloned_key));
     }
 }

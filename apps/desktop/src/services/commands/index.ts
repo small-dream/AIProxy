@@ -1239,7 +1239,9 @@ export async function saveThrottleProfile(
   };
   const nextProfiles = upsertStoredEntity(profiles, nextProfile).map((profile) => ({
     ...profile,
-    enabled: nextProfile.enabled ? profile.id === nextProfile.id : profile.enabled,
+    enabled: nextProfile.enabled && profile.workspaceId === nextProfile.workspaceId
+      ? profile.id === nextProfile.id
+      : profile.enabled,
   }));
 
   writeStoredRules(THROTTLE_PROFILES_STORAGE_KEY, nextProfiles);

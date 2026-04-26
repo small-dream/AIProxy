@@ -344,30 +344,42 @@ fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
 }
 
 pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> Option<Vec<u8>> {
-    let encoding = content_encoding?;
-
-    if encoding.contains("gzip") {
-        let mut decoder = GzDecoder::new(Cursor::new(body));
-        let mut decoded = Vec::new();
-        decoder.read_to_end(&mut decoded).ok()?;
-        return Some(decoded);
+    let encodings: Vec<String> = content_encoding?
+        .split(',')
+        .map(|encoding| encoding.trim().to_ascii_lowercase())
+        .filter(|encoding| !encoding.is_empty() && encoding != "identity")
+        .collect();
+    if encodings.is_empty() {
+        return None;
     }
 
-    if encoding.contains("deflate") {
-        let mut decoder = ZlibDecoder::new(Cursor::new(body));
-        let mut decoded = Vec::new();
-        decoder.read_to_end(&mut decoded).ok()?;
-        return Some(decoded);
+    let mut decoded = body.to_vec();
+
+    for encoding in encodings.iter().rev() {
+        decoded = match encoding.as_str() {
+            "gzip" | "x-gzip" => {
+                let mut decoder = GzDecoder::new(Cursor::new(decoded));
+                let mut output = Vec::new();
+                decoder.read_to_end(&mut output).ok()?;
+                output
+            }
+            "deflate" => {
+                let mut decoder = ZlibDecoder::new(Cursor::new(decoded));
+                let mut output = Vec::new();
+                decoder.read_to_end(&mut output).ok()?;
+                output
+            }
+            "br" => {
+                let mut decoder = Decompressor::new(Cursor::new(decoded), BROTLI_BUFFER_SIZE);
+                let mut output = Vec::new();
+                decoder.read_to_end(&mut output).ok()?;
+                output
+            }
+            _ => return None,
+        };
     }
 
-    if encoding.contains("br") {
-        let mut decoder = Decompressor::new(Cursor::new(body), BROTLI_BUFFER_SIZE);
-        let mut decoded = Vec::new();
-        decoder.read_to_end(&mut decoded).ok()?;
-        return Some(decoded);
-    }
-
-    None
+    Some(decoded)
 }
 
 pub(crate) fn build_raw_http_head(

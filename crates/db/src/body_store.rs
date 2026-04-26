@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Manages session body files on disk.
 #[derive(Debug)]
@@ -26,6 +26,9 @@ impl BodyStore {
         kind: &str,
         data: &[u8],
     ) -> Result<String, String> {
+        validate_safe_segment(session_id, "session id")?;
+        validate_safe_segment(kind, "body kind")?;
+
         let dir = self.base_dir.join(session_id);
         fs::create_dir_all(&dir)
             .map_err(|e| format!("failed to create body directory: {e}"))?;
@@ -39,13 +42,14 @@ impl BodyStore {
 
     /// Read a body file given its relative path.
     pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, String> {
-        let full_path = self.resolve_body_path(relative_path);
+        let full_path = self.checked_resolve_body_path(relative_path)?;
         fs::read(&full_path)
             .map_err(|e| format!("failed to read body file {}: {e}", full_path.display()))
     }
 
     /// Remove all body files for a session.
     pub fn remove_bodies(&self, session_id: &str) -> Result<(), String> {
+        validate_safe_segment(session_id, "session id")?;
         let dir = self.base_dir.join(session_id);
         if dir.exists() {
             fs::remove_dir_all(&dir)
@@ -67,21 +71,54 @@ impl BodyStore {
 
     /// Check whether a relative body path points to an existing file.
     pub fn exists(&self, relative_path: &str) -> bool {
-        self.resolve_body_path(relative_path).exists()
+        self.checked_resolve_body_path(relative_path)
+            .map(|path| path.exists())
+            .unwrap_or(false)
     }
 
     /// Resolve a stored relative body path into an absolute path under the store directory.
     pub fn resolve_body_path(&self, relative_path: &str) -> PathBuf {
-        self.base_dir.join(relative_path)
+        self.checked_resolve_body_path(relative_path)
+            .unwrap_or_else(|_| self.base_dir.join("__invalid_body_path__"))
     }
 
     /// Convert an absolute body path back into the relative path persisted in SQLite.
     pub fn relative_body_path(&self, full_path: &Path) -> Option<String> {
+        let base_dir = self.base_dir.canonicalize().ok()?;
+        let full_path = full_path.canonicalize().ok()?;
+
         full_path
-            .strip_prefix(&self.base_dir)
+            .strip_prefix(base_dir)
             .ok()
             .map(|path| path.to_string_lossy().into_owned())
     }
+
+    fn checked_resolve_body_path(&self, relative_path: &str) -> Result<PathBuf, String> {
+        let path = Path::new(relative_path);
+        if path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!("invalid body path: {relative_path}"));
+        }
+
+        Ok(self.base_dir.join(path))
+    }
+}
+
+fn validate_safe_segment(value: &str, label: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || !value.bytes().any(|byte| byte.is_ascii_alphanumeric())
+        || value
+            .bytes()
+            .any(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(format!("invalid {label}: {value}"));
+    }
+
+    Ok(())
 }
 
 /// Minimum body size (bytes) to store on disk instead of inline in the DB.
@@ -119,5 +156,16 @@ mod tests {
 
         assert!(!dir.join("sess-1").exists());
         assert!(dir.join("sess-2/request.body").exists());
+    }
+
+    #[test]
+    fn rejects_paths_that_escape_base_dir() {
+        let dir = std::env::temp_dir().join("aiproxy_body_test_traversal");
+        let store = BodyStore::new(dir);
+
+        assert!(store.read_body("../../etc/passwd").is_err());
+        assert!(!store.exists("../../etc/passwd"));
+        assert!(store.write_body("../bad", "request", b"x").is_err());
+        assert!(store.write_body("..", "request", b"x").is_err());
     }
 }

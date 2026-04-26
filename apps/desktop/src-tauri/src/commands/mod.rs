@@ -1982,7 +1982,7 @@ pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointR
 }
 
 #[tauri::command]
-pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<AppState>>) {
+pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -1999,12 +1999,12 @@ pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<App
                 },
             })
             .collect();
-        if let Err(error) = aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows) {
-            log_error("desktop.commands", "set_breakpoint_rules_db_failed", &[("error", error)]);
-        }
+        aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows)
+            .map_err(|error| format!("set breakpoint rules: {error}"))?;
     }
 
     state.read_breakpoint_manager().set_rules(rules);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2041,7 +2041,7 @@ pub fn list_rewrite_rules(
 pub fn save_rewrite_rule(
     input: RewriteRule,
     state: State<'_, Arc<AppState>>,
-) -> RewriteRule {
+) -> Result<RewriteRule, String> {
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -2058,12 +2058,11 @@ pub fn save_rewrite_rule(
             rewrite_type: input.rewrite_type.clone(),
             payload: input.payload.to_string(),
         };
-        if let Err(error) = aiproxy_db::rules::save_rewrite_rule(&conn, &row) {
-            log_error("desktop.commands", "save_rewrite_rule_db_failed", &[("error", error)]);
-        }
+        aiproxy_db::rules::save_rewrite_rule(&conn, &row)
+            .map_err(|error| format!("save rewrite rule: {error}"))?;
     }
 
-    state.read_rewrite_manager().save_rule(input)
+    Ok(state.read_rewrite_manager().save_rule(input))
 }
 
 // --- Map commands ---
@@ -2142,7 +2141,7 @@ pub fn list_map_rules(
 pub fn save_map_rule(
     input: MapRule,
     state: State<'_, Arc<AppState>>,
-) -> MapRule {
+) -> Result<MapRule, String> {
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -2159,12 +2158,11 @@ pub fn save_map_rule(
             source_pattern: input.source_pattern.clone(),
             target_value: input.target_value.clone(),
         };
-        if let Err(error) = aiproxy_db::rules::save_map_rule(&conn, &row) {
-            log_error("desktop.commands", "save_map_rule_db_failed", &[("error", error)]);
-        }
+        aiproxy_db::rules::save_map_rule(&conn, &row)
+            .map_err(|error| format!("save map rule: {error}"))?;
     }
 
-    state.read_map_manager().save_rule(input)
+    Ok(state.read_map_manager().save_rule(input))
 }
 
 // --- Script rule commands ---
@@ -2278,7 +2276,7 @@ pub struct DeleteRuleInput {
 pub fn delete_rule(
     input: DeleteRuleInput,
     state: State<'_, Arc<AppState>>,
-) {
+) -> Result<(), String> {
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -2287,11 +2285,9 @@ pub fn delete_rule(
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
             "dns" => aiproxy_db::rules::delete_dns_mapping(&conn, &input.rule_id),
             "script" => aiproxy_db::rules::delete_script_rule(&conn, &input.rule_id),
-            _ => Ok(()),
+            _ => Err(format!("unknown rule type: {}", input.rule_type)),
         };
-        if let Err(error) = db_result {
-            log_error("desktop.commands", "delete_rule_db_failed", &[("error", error)]);
-        }
+        db_result.map_err(|error| format!("delete rule: {error}"))?;
     }
 
     match input.rule_type.as_str() {
@@ -2299,8 +2295,10 @@ pub fn delete_rule(
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         "script" => state.read_script_manager().delete_rule(&input.rule_id),
-        _ => {}
+        _ => return Err(format!("unknown rule type: {}", input.rule_type)),
     }
+
+    Ok(())
 }
 
 // --- DNS mapping commands ---
@@ -2318,7 +2316,7 @@ pub fn list_dns_mappings(input: ListDnsMappingsInput, state: State<'_, Arc<AppSt
 }
 
 #[tauri::command]
-pub fn save_dns_mapping(input: DnsMappingRule, state: State<'_, Arc<AppState>>) -> DnsMappingRule {
+pub fn save_dns_mapping(input: DnsMappingRule, state: State<'_, Arc<AppState>>) -> Result<DnsMappingRule, String> {
     let rule = input;
 
     // Persist to DB
@@ -2334,14 +2332,13 @@ pub fn save_dns_mapping(input: DnsMappingRule, state: State<'_, Arc<AppState>>) 
             host_pattern: rule.host_pattern.clone(),
             target_ip: rule.target_ip.clone(),
         };
-        if let Err(error) = aiproxy_db::rules::save_dns_mapping(&conn, &row) {
-            log_error("desktop.commands", "save_dns_mapping_db_failed", &[("error", error)]);
-        }
+        aiproxy_db::rules::save_dns_mapping(&conn, &row)
+            .map_err(|error| format!("save dns mapping: {error}"))?;
     }
 
     // Update in-memory manager
     state.read_dns_manager().save_rule(rule.clone());
-    rule
+    Ok(rule)
 }
 
 // --- Throttle commands ---
@@ -2367,7 +2364,7 @@ pub fn list_throttle_profiles(
 pub fn save_throttle_profile(
     input: ThrottleProfileData,
     state: State<'_, Arc<AppState>>,
-) -> ThrottleProfileData {
+) -> Result<ThrottleProfileData, String> {
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -2383,12 +2380,18 @@ pub fn save_throttle_profile(
             download_kbps: input.download_kbps,
             packet_loss_ratio: input.packet_loss_ratio,
         };
-        if let Err(error) = aiproxy_db::rules::save_throttle_profile(&conn, &row) {
-            log_error("desktop.commands", "save_throttle_profile_db_failed", &[("error", error)]);
-        }
+        aiproxy_db::rules::save_throttle_profile(&conn, &row)
+            .map_err(|error| format!("save throttle profile: {error}"))?;
     }
 
-    state.read_throttle_manager().save_profile(input)
+    let saved = state.read_throttle_manager().save_profile(input);
+    if saved.enabled {
+        state
+            .read_throttle_manager()
+            .set_active_profile(&saved.workspace_id, Some(&saved.id));
+    }
+
+    Ok(saved)
 }
 
 #[derive(Debug, Deserialize)]
@@ -2402,34 +2405,23 @@ pub struct SetActiveThrottleProfileInput {
 pub fn set_active_throttle_profile(
     input: SetActiveThrottleProfileInput,
     state: State<'_, Arc<AppState>>,
-) {
+) -> Result<(), String> {
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        aiproxy_db::rules::set_active_throttle_profile(
+            &conn,
+            &input.workspace_id,
+            input.profile_id.as_deref(),
+        )
+        .map_err(|error| format!("set active throttle profile: {error}"))?;
+    }
+
     state.read_throttle_manager().set_active_profile(
         &input.workspace_id,
         input.profile_id.as_deref(),
     );
 
-    // Persist all profiles for this workspace (enabled flag changed)
-    {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
-        let profiles = state.read_throttle_manager().list_profiles();
-        for p in profiles.iter().filter(|p| p.workspace_id == input.workspace_id) {
-            let row = aiproxy_db::rules::ThrottleProfileRow {
-                id: p.id.clone(),
-                workspace_id: p.workspace_id.clone(),
-                name: p.name.clone(),
-                note: p.note.clone(),
-                enabled: p.enabled,
-                preset: p.preset,
-                latency_ms: p.latency_ms,
-                upload_kbps: p.upload_kbps,
-                download_kbps: p.download_kbps,
-                packet_loss_ratio: p.packet_loss_ratio,
-            };
-            if let Err(error) = aiproxy_db::rules::save_throttle_profile(&conn, &row) {
-                log_error("desktop.commands", "set_active_throttle_profile_db_failed", &[("error", error)]);
-            }
-        }
-    }
+    Ok(())
 }
 
 // --- Workspace commands ---

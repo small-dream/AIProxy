@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::Datelike;
 use rcgen::{
-    BasicConstraints, CertificateParams, DnType, Ia5String, IsCa, KeyPair, KeyUsagePurpose,
+    BasicConstraints, Certificate, CertificateParams, DnType, Ia5String, IsCa, KeyPair, KeyUsagePurpose,
     SanType,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -17,6 +17,7 @@ const ROOT_CA_CN: &str = "AIProxy Root CA";
 pub struct RootCaPair {
     cert_params: CertificateParams,
     key_pair: Arc<KeyPair>,
+    issuer_cert: Arc<Certificate>,
     cert_pem: String,
     key_pem: String,
     cert_der: Vec<u8>,
@@ -49,6 +50,7 @@ impl RootCaPair {
         let key_pem = key_pair.serialize_pem();
         let cert_der = cert.der().to_vec();
         let key_der = key_pair.serialize_der();
+        let issuer_cert = Arc::new(cert);
 
         let fingerprint = compute_fingerprint(&cert_der);
 
@@ -57,6 +59,7 @@ impl RootCaPair {
         Ok(Self {
             cert_params: params,
             key_pair,
+            issuer_cert,
             cert_pem,
             key_pem,
             cert_der,
@@ -73,10 +76,12 @@ impl RootCaPair {
         let cert_der = cert.der().to_vec();
         let key_der = key_pair.serialize_der();
         let fingerprint = compute_fingerprint(&cert_der);
+        let issuer_cert = Arc::new(cert);
 
         Ok(Self {
             cert_params: params,
             key_pair,
+            issuer_cert,
             cert_pem: cert_pem.to_string(),
             key_pem: key_pem.to_string(),
             cert_der,
@@ -133,6 +138,7 @@ impl RootCaPair {
         RootCaSignData {
             cert_params: self.cert_params.clone(),
             key_pair: Arc::clone(&self.key_pair),
+            issuer_cert: Arc::clone(&self.issuer_cert),
         }
     }
 
@@ -161,6 +167,7 @@ impl RootCaPair {
 pub struct RootCaSignData {
     pub cert_params: CertificateParams,
     pub key_pair: Arc<KeyPair>,
+    pub issuer_cert: Arc<Certificate>,
 }
 
 /// Build a SAN DNS name, converting the hostname to Ia5String.
@@ -195,8 +202,7 @@ pub fn sign_host_certificate(
     );
 
     let host_key_pair = KeyPair::generate()?;
-    let issuer_cert = root_ca.cert_params.clone().self_signed(&root_ca.key_pair)?;
-    let cert = params.signed_by(&host_key_pair, &issuer_cert, &root_ca.key_pair)?;
+    let cert = params.signed_by(&host_key_pair, &root_ca.issuer_cert, &root_ca.key_pair)?;
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
     let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(
@@ -231,8 +237,7 @@ pub fn sign_host_certificate_from_data(
     );
 
     let host_key_pair = KeyPair::generate()?;
-    let issuer_cert = sign_data.cert_params.clone().self_signed(&sign_data.key_pair)?;
-    let cert = params.signed_by(&host_key_pair, &issuer_cert, &sign_data.key_pair)?;
+    let cert = params.signed_by(&host_key_pair, &sign_data.issuer_cert, &sign_data.key_pair)?;
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
     let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(

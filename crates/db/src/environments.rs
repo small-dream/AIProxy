@@ -112,15 +112,22 @@ pub fn set_environment_variables(
     environment_id: &str,
     vars: &[EnvironmentVariableRow],
 ) -> Result<(), String> {
-    conn.execute(
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin set environment variables transaction: {e}"))?;
+
+    tx.execute(
         "DELETE FROM api_environment_variables WHERE environment_id=?1",
         params![environment_id],
     )
     .map_err(|e| format!("clear env vars: {e}"))?;
 
     for v in vars {
-        upsert_environment_variable(conn, v)?;
+        upsert_environment_variable(&tx, v)?;
     }
+
+    tx.commit()
+        .map_err(|e| format!("commit set environment variables transaction: {e}"))?;
 
     Ok(())
 }

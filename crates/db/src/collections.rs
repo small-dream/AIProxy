@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // Collection row (collection or folder)
@@ -108,34 +109,50 @@ pub fn list_collections_by_parent(
 }
 
 pub fn delete_collection(conn: &Connection, id: &str) -> Result<(), String> {
-    // CASCADE will delete child items and sub-collections' items.
-    // But self-referencing parent_id does NOT cascade, so we must delete recursively.
-    delete_collection_tree(conn, id)?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin delete collection transaction: {e}"))?;
+    delete_collection_tree(&tx, id)?;
+    tx.commit()
+        .map_err(|e| format!("commit delete collection transaction: {e}"))?;
     Ok(())
 }
 
 fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
-    // Find direct children (sub-collections / folders)
-    let children: Vec<String> = conn
-        .prepare("SELECT id FROM api_collections WHERE parent_id=?1")
-        .map_err(|e| format!("prepare find children: {e}"))?
-        .query_map(params![id], |row| row.get(0))
-        .map_err(|e| format!("query children: {e}"))?
-        .filter_map(|r| r.ok())
-        .collect();
+    let mut visited = HashSet::new();
+    let mut stack = vec![id.to_string()];
 
-    // Recurse into children first
-    for child_id in children {
-        delete_collection_tree(conn, &child_id)?;
+    while let Some(current_id) = stack.pop() {
+        if !visited.insert(current_id.clone()) {
+            continue;
+        }
+
+        let children: Vec<String> = conn
+            .prepare("SELECT id FROM api_collections WHERE parent_id=?1")
+            .map_err(|e| format!("prepare find children: {e}"))?
+            .query_map(params![current_id], |row| row.get(0))
+            .map_err(|e| format!("query children: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        stack.extend(children);
     }
 
-    // Delete items in this collection (explicit, since CASCADE may not cover self-ref)
-    conn.execute("DELETE FROM api_collection_items WHERE collection_id=?1", params![id])
+    for collection_id in &visited {
+        conn.execute(
+            "DELETE FROM api_collection_items WHERE collection_id=?1",
+            params![collection_id],
+        )
         .map_err(|e| format!("delete collection items: {e}"))?;
+    }
 
-    // Delete the collection itself
-    conn.execute("DELETE FROM api_collections WHERE id=?1", params![id])
+    for collection_id in &visited {
+        conn.execute(
+            "DELETE FROM api_collections WHERE id=?1",
+            params![collection_id],
+        )
         .map_err(|e| format!("delete collection: {e}"))?;
+    }
 
     Ok(())
 }

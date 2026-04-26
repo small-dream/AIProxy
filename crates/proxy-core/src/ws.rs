@@ -4,6 +4,8 @@ use std::sync::{Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+const MAX_WS_FRAME_SIZE: u64 = 16 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // WebSocket frame types
 // ---------------------------------------------------------------------------
@@ -92,6 +94,12 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
         payload_len = u64::from_be_bytes(ext);
     }
 
+    if payload_len > MAX_WS_FRAME_SIZE {
+        return Err(format!(
+            "ws payload length {payload_len} exceeds limit {MAX_WS_FRAME_SIZE}"
+        ));
+    }
+
     let mut mask_key = [0u8; 4];
     if mask {
         reader
@@ -100,7 +108,9 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
             .map_err(|e| format!("ws mask key read: {e}"))?;
     }
 
-    let mut payload = vec![0u8; payload_len as usize];
+    let payload_len = usize::try_from(payload_len)
+        .map_err(|_| "ws payload length does not fit in usize".to_string())?;
+    let mut payload = vec![0u8; payload_len];
     if payload_len > 0 {
         reader
             .read_exact(&mut payload)
@@ -379,7 +389,7 @@ pub async fn relay_websocket_frames<C, U>(
     client_stream: &mut C,
     upstream_stream: &mut U,
     session_id: &str,
-    ws_sender: &mpsc::UnboundedSender<WsMessageData>,
+    ws_sender: &mpsc::Sender<WsMessageData>,
     inject_rx: &mut mpsc::UnboundedReceiver<WsInjectRequest>,
 ) where
     C: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -402,7 +412,7 @@ pub async fn relay_websocket_frames<C, U>(
                 match client_result {
                     Some(frame) => {
                         let msg = build_ws_message(session_id, WsDirection::ClientToServer, &frame);
-                        let _ = ws_sender.send(msg);
+                        let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
                             let _ = forward_raw_frame(upstream_stream, &frame).await;
@@ -430,7 +440,7 @@ pub async fn relay_websocket_frames<C, U>(
                 match upstream_result {
                     Some(frame) => {
                         let msg = build_ws_message(session_id, WsDirection::ServerToClient, &frame);
-                        let _ = ws_sender.send(msg);
+                        let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
                             let _ = forward_raw_frame(client_stream, &frame).await;
@@ -469,7 +479,7 @@ pub async fn relay_websocket_frames<C, U>(
                             break;
                         }
                         let msg = build_ws_message(session_id, req.direction, &frame);
-                        let _ = ws_sender.send(msg);
+                        let _ = ws_sender.send(msg).await;
                     }
                     None => {
                         // Injection channel closed; stop listening for injects.

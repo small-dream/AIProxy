@@ -107,7 +107,7 @@ export function SessionsPage() {
     createInitialSessionContainerState({
       inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
-      requestTab: "headers",
+      requestTab: "query",
       responseTab: "overview",
     }),
   );

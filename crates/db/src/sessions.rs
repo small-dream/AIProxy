@@ -48,7 +48,11 @@ pub fn upsert_session(
     summary: &SessionSummaryRow,
     detail: &SessionDetailRow,
 ) -> Result<(), String> {
-    conn.execute(
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin upsert session transaction: {e}"))?;
+
+    tx.execute(
         "INSERT OR REPLACE INTO session_summaries
             (id, method, host, path, protocol, started_at, finished_at,
              duration_ms, size_bytes, status_code, url, response_mime_type)
@@ -62,7 +66,7 @@ pub fn upsert_session(
     )
     .map_err(|e| format!("upsert session summary: {e}"))?;
 
-    conn.execute(
+    tx.execute(
         "INSERT OR REPLACE INTO session_details
             (id, session_summary_id, query_params, cookies,
              request_headers, response_headers, raw_request, raw_response,
@@ -78,6 +82,9 @@ pub fn upsert_session(
         ],
     )
     .map_err(|e| format!("upsert session detail: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("commit upsert session transaction: {e}"))?;
 
     Ok(())
 }

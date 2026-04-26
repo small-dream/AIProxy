@@ -25,6 +25,40 @@ The most critical issues are:
 
 ---
 
+## Remediation Status (2026-04-26)
+
+Verified and fixed in this pass:
+
+- [x] H1 Unbounded proxy session/WebSocket event channels: replaced the main proxy event channels with bounded `mpsc::channel(4096)` and awaited sends for backpressure.
+- [x] H2/H3 HTTP response head reader: replaced byte-at-a-time reading with chunked reads, added `MAX_HEADER_BYTES`, and preserved any over-read WebSocket bytes for the relay.
+- [x] H4 Accept loop: changed transient `listener.accept()` failures to log and continue instead of stopping the proxy.
+- [x] H5 WebSocket frame allocation: added `MAX_WS_FRAME_SIZE` and checked `u64 -> usize` conversion before allocation.
+- [x] H6 Direct request HTTP client: reused a process-wide `reqwest::Client` instead of creating one per direct request.
+- [x] H8/H9/H10/M24/M28 DB atomicity: wrapped session upsert, breakpoint replacement, script-run replacement, environment variable replacement, and collection-tree deletion in transactions.
+- [x] H11 Collection deletion recursion: replaced recursive deletion with an iterative visited-set traversal to avoid cycles/stack overflow.
+- [x] H12 Body store path traversal: validated body path segments and made reads/existence checks reject paths outside the body store.
+- [x] H13/M30/L15 TLS host cert cache: shared `CertStorage` cache across clones, avoided check-then-insert races by holding the cache lock through insertion, and made cache clearing poison-tolerant.
+- [x] H14 Issuer certificate re-signing: cached the root issuer certificate in `RootCaPair`/`RootCaSignData` and reused it for host cert signing.
+- [x] H17/M42 Command DB failures and active throttle writes: changed rule/throttle/DNS/breakpoint command handlers to return DB errors before mutating in-memory managers, and made active throttle profile persistence transactional.
+- [x] M18/M19 Content-Encoding decode: parsed comma-separated encodings exactly and decoded stacked encodings in reverse order.
+- [x] M36 Delete rule unknown type: now returns an error for unknown rule types.
+- [x] F3 Throttle profile fallback logic: limited local fallback deactivation to profiles in the same workspace.
+
+Verified but not completed in this pass:
+
+- [ ] H7 Script timeout thread cancellation requires a cooperative interrupt/cancellation design for the JS runtime; the current report item is valid, but it was left for a separate focused change.
+- [ ] H15/H16 and frontend virtualization items require broader cache/UI architecture changes; they were not changed in this patch.
+- [ ] Medium/low performance cleanups not listed above remain open unless separately addressed.
+
+Validation:
+
+- [x] `cargo check`
+- [x] `cargo test -p aiproxy-db -p aiproxy-tls-manager -p aiproxy-proxy-core` (passed outside sandbox; sandbox run cannot bind local test ports)
+- [x] `pnpm --filter @aiproxy/desktop typecheck`
+- [ ] `cargo fmt` could not run because `rustfmt` is not installed for the active stable toolchain.
+
+---
+
 ## High Severity Issues
 
 ### 1. Unbounded channels — OOM risk under load

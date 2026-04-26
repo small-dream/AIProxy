@@ -518,8 +518,8 @@ impl ProxyServerHandle {
 pub struct StartedProxyServer {
     pub bound_port: u16,
     pub server_handle: ProxyServerHandle,
-    pub session_receiver: mpsc::UnboundedReceiver<ProxySessionDetail>,
-    pub ws_message_receiver: mpsc::UnboundedReceiver<crate::ws::WsMessageData>,
+    pub session_receiver: mpsc::Receiver<ProxySessionDetail>,
+    pub ws_message_receiver: mpsc::Receiver<crate::ws::WsMessageData>,
 }
 
 /// TLS manager for HTTPS MITM interception.
