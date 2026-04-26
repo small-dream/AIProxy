@@ -72,18 +72,24 @@ fn is_trusted_windows(cert_path: &Path) -> bool {
         .map(|byte| format!("{byte:02X}"))
         .collect();
 
+    if !thumbprint
+        .bytes()
+        .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return false;
+    }
+
     // Query both Current User and Local Machine Root stores via PowerShell.
-    // This uses native Windows certificate store APIs and is locale-independent.
-    let script = format!(
-        "$t = '{thumbprint}'; \
-         ($null -ne (Get-ChildItem Cert:\\CurrentUser\\Root | \
-           Where-Object {{ $_.Thumbprint -eq $t }})) -or \
-         ($null -ne (Get-ChildItem Cert:\\LocalMachine\\Root | \
-           Where-Object {{ $_.Thumbprint -eq $t }}))"
-    );
+    // Pass the thumbprint as an argument so it is not interpolated into the script.
+    let script = "param([string]$Thumbprint) \
+        ($null -ne (Get-ChildItem Cert:\\CurrentUser\\Root | \
+          Where-Object { $_.Thumbprint -eq $Thumbprint })) -or \
+        ($null -ne (Get-ChildItem Cert:\\LocalMachine\\Root | \
+          Where-Object { $_.Thumbprint -eq $Thumbprint }))";
 
     let output = match Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .arg(&thumbprint)
         .output()
     {
         Ok(o) => o,

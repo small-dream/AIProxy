@@ -632,26 +632,25 @@ pub struct WsMessageOutput {
 pub fn list_ws_messages(
     input: ListWsMessagesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<WsMessageOutput> {
+) -> Result<Vec<WsMessageOutput>, String> {
     let limit = input.limit.unwrap_or(500);
     let offset = input.offset.unwrap_or(0);
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset) {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|r| WsMessageOutput {
-                id: r.id,
-                session_id: r.session_id,
-                direction: r.direction,
-                timestamp: r.timestamp,
-                opcode: r.opcode,
-                payload_text: r.payload_text,
-                payload_size: r.payload_size,
-                fin: r.fin,
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    }
+    let rows = aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset)
+        .map_err(|error| format!("list ws messages: {error}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|r| WsMessageOutput {
+            id: r.id,
+            session_id: r.session_id,
+            direction: r.direction,
+            timestamp: r.timestamp,
+            opcode: r.opcode,
+            payload_text: r.payload_text,
+            payload_size: r.payload_size,
+            fin: r.fin,
+        })
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -730,26 +729,31 @@ pub struct SearchWsMessagesInput {
 pub fn search_ws_messages(
     input: SearchWsMessagesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<WsMessageOutput> {
+) -> Result<Vec<WsMessageOutput>, String> {
     let limit = input.limit.unwrap_or(500);
     let offset = input.offset.unwrap_or(0);
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::sessions::search_ws_messages(&conn, &input.session_id, &input.query, limit, offset) {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|r| WsMessageOutput {
-                id: r.id,
-                session_id: r.session_id,
-                direction: r.direction,
-                timestamp: r.timestamp,
-                opcode: r.opcode,
-                payload_text: r.payload_text,
-                payload_size: r.payload_size,
-                fin: r.fin,
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    }
+    let rows = aiproxy_db::sessions::search_ws_messages(
+        &conn,
+        &input.session_id,
+        &input.query,
+        limit,
+        offset,
+    )
+    .map_err(|error| format!("search ws messages: {error}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|r| WsMessageOutput {
+            id: r.id,
+            session_id: r.session_id,
+            direction: r.direction,
+            timestamp: r.timestamp,
+            opcode: r.opcode,
+            payload_text: r.payload_text,
+            payload_size: r.payload_size,
+            fin: r.fin,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -953,8 +957,6 @@ async fn start_proxy_impl(
             &[("workspace_id", input.workspace_id.clone())],
         );
     }
-
-    state.clear_sessions();
 
     // Resolve TLS manager for SSL interception
     let tls_manager = if enable_ssl {
@@ -2565,10 +2567,11 @@ pub struct SaveSessionToCollectionInput {
 }
 
 #[tauri::command]
-pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Vec<ApiCollectionOutput> {
+pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiCollectionOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::collections::list_all_collections(&conn) {
-        Ok(rows) => rows.into_iter().map(|r| ApiCollectionOutput {
+    let rows = aiproxy_db::collections::list_all_collections(&conn)
+        .map_err(|error| format!("list collections: {error}"))?;
+    Ok(rows.into_iter().map(|r| ApiCollectionOutput {
             id: r.id,
             parent_id: r.parent_id,
             name: r.name,
@@ -2576,9 +2579,7 @@ pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Vec<ApiCollectio
             sort_order: r.sort_order,
             created_at: r.created_at,
             updated_at: r.updated_at,
-        }).collect(),
-        Err(_) => Vec::new(),
-    }
+        }).collect())
 }
 
 #[tauri::command]
@@ -2631,15 +2632,14 @@ pub fn delete_api_collection(
 pub fn list_api_collection_items(
     input: ListApiCollectionItemsInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<ApiCollectionItemOutput> {
+) -> Result<Vec<ApiCollectionItemOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::collections::list_collection_items(&conn, &input.collection_id) {
-        Ok(rows) => rows
-            .into_iter()
-            .map(collection_item_output_from_row)
-            .collect(),
-        Err(_) => Vec::new(),
-    }
+    let rows = aiproxy_db::collections::list_collection_items(&conn, &input.collection_id)
+        .map_err(|error| format!("list collection items: {error}"))?;
+    Ok(rows
+        .into_iter()
+        .map(collection_item_output_from_row)
+        .collect())
 }
 
 #[tauri::command]
@@ -2852,18 +2852,17 @@ pub struct ApiEnvironmentVariableInput {
 }
 
 #[tauri::command]
-pub fn list_api_environments(state: State<'_, Arc<AppState>>) -> Vec<ApiEnvironmentOutput> {
+pub fn list_api_environments(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiEnvironmentOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::environments::list_environments(&conn) {
-        Ok(rows) => rows.into_iter().map(|r| ApiEnvironmentOutput {
+    let rows = aiproxy_db::environments::list_environments(&conn)
+        .map_err(|error| format!("list environments: {error}"))?;
+    Ok(rows.into_iter().map(|r| ApiEnvironmentOutput {
             id: r.id,
             name: r.name,
             sort_order: r.sort_order,
             created_at: r.created_at,
             updated_at: r.updated_at,
-        }).collect(),
-        Err(_) => Vec::new(),
-    }
+        }).collect())
 }
 
 #[tauri::command]
@@ -2912,19 +2911,18 @@ pub fn delete_api_environment(
 pub fn list_api_environment_variables(
     input: ListApiEnvironmentVariablesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<ApiEnvironmentVariableOutput> {
+) -> Result<Vec<ApiEnvironmentVariableOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
-    match aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id) {
-        Ok(rows) => rows.into_iter().map(|r| ApiEnvironmentVariableOutput {
+    let rows = aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id)
+        .map_err(|error| format!("list environment variables: {error}"))?;
+    Ok(rows.into_iter().map(|r| ApiEnvironmentVariableOutput {
             id: r.id,
             environment_id: r.environment_id,
             key: r.key,
             value: r.value,
             enabled: r.enabled,
             sort_order: r.sort_order,
-        }).collect(),
-        Err(_) => Vec::new(),
-    }
+        }).collect())
 }
 
 #[tauri::command]

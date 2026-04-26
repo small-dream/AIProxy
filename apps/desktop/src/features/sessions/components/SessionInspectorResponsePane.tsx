@@ -107,8 +107,6 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   useEffect(() => {
     setIsSearchOpen(false);
     setSnackbarOpen(false);
-    // Only reset when the session itself changes, not on every render of responseTab/session
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
 
   useEffect(() => {

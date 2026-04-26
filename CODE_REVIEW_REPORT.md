@@ -40,21 +40,27 @@ Verified and fixed in this pass:
 - [x] H13/M30/L15 TLS host cert cache: shared `CertStorage` cache across clones, avoided check-then-insert races by holding the cache lock through insertion, and made cache clearing poison-tolerant.
 - [x] H14 Issuer certificate re-signing: cached the root issuer certificate in `RootCaPair`/`RootCaSignData` and reused it for host cert signing.
 - [x] H17/M42 Command DB failures and active throttle writes: changed rule/throttle/DNS/breakpoint command handlers to return DB errors before mutating in-memory managers, and made active throttle profile persistence transactional.
+- [x] H7 Script timeout handling: added a QuickJS interrupt handler and timeout test so infinite-loop scripts return `TimedOut` instead of continuing indefinitely.
+- [x] H16/F1/F2 Long-list memory/rendering: capped in-memory WebSocket messages, added an LRU cap for session detail cache, and virtualized the Session Explorer and WebSocket message list.
+- [x] M6 Request body DoS guard: added request body read timeout and `Content-Length` upper bound.
+- [x] M31 Windows PowerShell thumbprint handling: passed thumbprints as PowerShell arguments instead of interpolating them into scripts.
+- [x] M37 List command DB errors: changed DB-backed list commands to return errors instead of silently returning empty arrays.
+- [x] M41 Proxy restart behavior: removed the unconditional session clear during proxy start/restart.
 - [x] M18/M19 Content-Encoding decode: parsed comma-separated encodings exactly and decoded stacked encodings in reverse order.
 - [x] M36 Delete rule unknown type: now returns an error for unknown rule types.
 - [x] F3 Throttle profile fallback logic: limited local fallback deactivation to profiles in the same workspace.
 
 Verified but not completed in this pass:
 
-- [ ] H7 Script timeout thread cancellation requires a cooperative interrupt/cancellation design for the JS runtime; the current report item is valid, but it was left for a separate focused change.
-- [ ] H15/H16 and frontend virtualization items require broader cache/UI architecture changes; they were not changed in this patch.
+- [ ] H15 Lock contention in Tauri session persistence remains open; the highest-impact cache/virtualization pieces were addressed first.
 - [ ] Medium/low performance cleanups not listed above remain open unless separately addressed.
 
 Validation:
 
 - [x] `cargo check`
-- [x] `cargo test -p aiproxy-db -p aiproxy-tls-manager -p aiproxy-proxy-core` (passed outside sandbox; sandbox run cannot bind local test ports)
+- [x] `cargo test -p aiproxy-db -p aiproxy-tls-manager -p aiproxy-rule-engine -p aiproxy-proxy-core` (passed outside sandbox; sandbox run cannot bind local test ports)
 - [x] `pnpm --filter @aiproxy/desktop typecheck`
+- [x] `pnpm --filter @aiproxy/desktop lint` (passes with one pre-existing hook dependency warning)
 - [ ] `cargo fmt` could not run because `rustfmt` is not installed for the active stable toolchain.
 
 ---

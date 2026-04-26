@@ -2089,6 +2089,11 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         let url = Url::parse(&target_url)
             .map_err(|error| format!("invalid proxy target URL: {error}"))?;
         let body_length = read_content_length(request.headers)?;
+        if body_length > MAX_REQUEST_BODY_BYTES {
+            return Err(format!(
+                "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
+            ));
+        }
         let headers = build_upstream_headers(request.headers)?;
         let request_headers = build_header_entries_from_httparse_headers(request.headers);
         let host = url
@@ -2124,9 +2129,11 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
     };
 
     while buffer.len() < header_end + body_length {
-        let bytes_read = stream
-            .read(&mut chunk)
+        let read_result = timeout(CLIENT_BODY_READ_TIMEOUT, stream.read(&mut chunk))
             .await
+            .map_err(|_| "timed out waiting for client request body".to_string())?;
+
+        let bytes_read = read_result
             .map_err(|error| format!("failed to read request body: {error}"))?;
 
         if bytes_read == 0 {

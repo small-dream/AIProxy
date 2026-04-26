@@ -778,7 +778,7 @@ function parseMultipartHeaders(headersText: string): Map<string, string> {
 }
 
 function extractDispositionParameter(disposition: string, key: string): string | undefined {
-  const quotedMatch = disposition.match(new RegExp(`${key}=\"([^\"]*)\"`, "i"));
+  const quotedMatch = disposition.match(new RegExp(`${key}="([^"]*)"`, "i"));
 
   if (quotedMatch?.[1] !== undefined) {
     return quotedMatch[1];

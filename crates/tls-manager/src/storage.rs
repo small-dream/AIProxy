@@ -54,9 +54,14 @@ impl CertStorage {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
         let temp_dir = std::env::temp_dir()
             .join("aiproxy-test-certs")
-            .join(format!("session-{id}"));
+            .join(format!("session-{pid}-{nanos}-{id}"));
         Self {
             root_cert_install_path: temp_dir.join(ROOT_CERT_INSTALL_FILE),
             root_cert_path: temp_dir.join(ROOT_CERT_FILE),

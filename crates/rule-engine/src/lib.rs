@@ -6,7 +6,10 @@ use regex::Regex;
 use rquickjs::{Context, Function, Runtime};
 use serde::{Deserialize, Serialize};
 use std::{
-    sync::{mpsc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex, OnceLock,
+    },
     time::{Duration, Instant},
 };
 
@@ -333,13 +336,21 @@ fn execute_hook(
 
     let compiled_code = rule.compiled_code.clone();
     let (sender, receiver) = mpsc::channel();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let thread_cancel_flag = Arc::clone(&cancel_flag);
 
     std::thread::spawn(move || {
-        let execution = run_script_in_thread(&compiled_code, hook_name, &payload_json);
+        let execution = run_script_in_thread(
+            &compiled_code,
+            hook_name,
+            &payload_json,
+            thread_cancel_flag,
+            SCRIPT_EXECUTION_TIMEOUT,
+        );
         let _ = sender.send(execution);
     });
 
-    match receiver.recv_timeout(SCRIPT_EXECUTION_TIMEOUT) {
+    match receiver.recv_timeout(SCRIPT_EXECUTION_TIMEOUT + Duration::from_millis(10)) {
         Ok(Ok(result)) => {
             let mut entries = sanitize_entries(result.entries);
             let outcome = if result.skipped {
@@ -365,20 +376,60 @@ fn execute_hook(
         Ok(Err(error)) => runtime_failure_trace(
             rule,
             stage,
-            ScriptRunOutcome::RuntimeError,
+            if start.elapsed() >= SCRIPT_EXECUTION_TIMEOUT {
+                ScriptRunOutcome::TimedOut
+            } else {
+                ScriptRunOutcome::RuntimeError
+            },
             error,
             start.elapsed().as_millis(),
         ),
-        Err(_) => runtime_failure_trace(
-            rule,
-            stage,
-            ScriptRunOutcome::TimedOut,
-            format!(
-                "script exceeded the {}ms execution limit",
-                SCRIPT_EXECUTION_TIMEOUT.as_millis()
-            ),
-            start.elapsed().as_millis(),
-        ),
+        Err(_) => {
+            cancel_flag.store(true, Ordering::Relaxed);
+            match receiver.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(result)) => {
+                    let mut entries = sanitize_entries(result.entries);
+                    ScriptHookResult {
+                        request: result.request,
+                        response: result.response,
+                        response_override: result.response_override,
+                        trace: ScriptTrace {
+                            duration_ms: start.elapsed().as_millis(),
+                            entries: std::mem::take(&mut entries),
+                            outcome: if result.skipped {
+                                ScriptRunOutcome::Skipped
+                            } else {
+                                ScriptRunOutcome::Success
+                            },
+                            rule_id: rule.rule.id.clone(),
+                            rule_name: rule.rule.name.clone(),
+                            stage,
+                        },
+                    }
+                }
+                Ok(Err(error)) => runtime_failure_trace(
+                    rule,
+                    stage,
+                    if error.contains("interrupted") {
+                        ScriptRunOutcome::TimedOut
+                    } else {
+                        ScriptRunOutcome::RuntimeError
+                    },
+                    error,
+                    start.elapsed().as_millis(),
+                ),
+                Err(_) => runtime_failure_trace(
+                    rule,
+                    stage,
+                    ScriptRunOutcome::TimedOut,
+                    format!(
+                        "script exceeded the {}ms execution limit",
+                        SCRIPT_EXECUTION_TIMEOUT.as_millis()
+                    ),
+                    start.elapsed().as_millis(),
+                ),
+            }
+        }
     }
 }
 
@@ -415,8 +466,14 @@ fn run_script_in_thread(
     compiled_code: &str,
     hook_name: &str,
     payload_json: &str,
+    cancel_flag: Arc<AtomicBool>,
+    timeout: Duration,
 ) -> Result<ScriptInvocationResult, String> {
     let runtime = Runtime::new().map_err(|error| format!("create runtime: {error}"))?;
+    let started_at = Instant::now();
+    runtime.set_interrupt_handler(Some(Box::new(move || {
+        cancel_flag.load(Ordering::Relaxed) || started_at.elapsed() >= timeout
+    })));
     let context = Context::full(&runtime).map_err(|error| format!("create context: {error}"))?;
 
     context.with(|ctx| -> Result<ScriptInvocationResult, String> {
@@ -970,6 +1027,20 @@ export function onRequest(ctx) {
         let result = execute_request_hook(&compiled, payload());
 
         assert_eq!(result.trace.outcome, ScriptRunOutcome::RuntimeError);
+        assert!(result.request.is_none());
+    }
+
+    #[test]
+    fn times_out_infinite_loops() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function onRequest() { while (true) {} }",
+        ))
+        .unwrap();
+
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::TimedOut);
         assert!(result.request.is_none());
     }
 }

@@ -23,7 +23,7 @@ import {
 import { alpha, type Theme } from "@mui/material/styles";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
@@ -50,6 +50,13 @@ type SessionExplorerPaneProps = {
   onToggleHost: (host: string) => void;
   selectedSessionId: string | undefined;
 };
+
+const SESSION_EXPLORER_ROW_HEIGHT = 26;
+const SESSION_EXPLORER_OVERSCAN = 12;
+
+type SessionExplorerVisibleRow =
+  | { kind: "host"; group: SessionHostGroup }
+  | { depth: number; groupKey: string; kind: "node"; node: SessionPathNode };
 
 function getScaledFontSize(theme: Theme, basePx: number): string {
   return `${(theme.typography.fontSize / defaultAppFontSize) * basePx}px`;
@@ -79,6 +86,57 @@ export function SessionExplorerPane({
   selectedSessionId,
 }: SessionExplorerPaneProps) {
   const { t } = useI18n();
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const expandedHostSet = useMemo(() => new Set(expandedHosts), [expandedHosts]);
+
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element) return undefined;
+
+    const updateSize = () => setViewportHeight(element.clientHeight);
+    updateSize();
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const visibleRows = useMemo(() => {
+    const rows: SessionExplorerVisibleRow[] = [];
+
+    const appendNode = (groupKey: string, node: SessionPathNode, depth: number) => {
+      rows.push({ depth, groupKey, kind: "node", node });
+      if (node.kind === "branch" && expandedHostSet.has(`${groupKey}::${node.pathKey}`)) {
+        for (const child of node.children) {
+          appendNode(groupKey, child, depth + 1);
+        }
+      }
+    };
+
+    for (const group of groups) {
+      rows.push({ group, kind: "host" });
+      if (expandedHostSet.has(group.key)) {
+        for (const node of group.tree) {
+          appendNode(group.key, node, 0);
+        }
+      }
+    }
+
+    return rows;
+  }, [expandedHostSet, groups]);
+
+  const virtualRows = useMemo(() => {
+    const visibleCount = Math.ceil(viewportHeight / SESSION_EXPLORER_ROW_HEIGHT);
+    const start = Math.max(0, Math.floor(scrollTop / SESSION_EXPLORER_ROW_HEIGHT) - SESSION_EXPLORER_OVERSCAN);
+    const end = Math.min(visibleRows.length, start + visibleCount + SESSION_EXPLORER_OVERSCAN * 2);
+    return {
+      items: visibleRows.slice(start, end),
+      start,
+      totalHeight: visibleRows.length * SESSION_EXPLORER_ROW_HEIGHT,
+    };
+  }, [scrollTop, viewportHeight, visibleRows]);
 
   return (
     <Box
@@ -92,7 +150,11 @@ export function SessionExplorerPane({
         overflow: "hidden",
       }}
     >
-      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+      <Box
+        ref={scrollContainerRef}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        sx={{ flex: 1, minHeight: 0, overflow: "auto" }}
+      >
         {isLoading ? (
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
             <CircularProgress size={22} />
@@ -147,45 +209,54 @@ export function SessionExplorerPane({
             </Typography>
           </Stack>
         ) : (
-          <List disablePadding sx={{ minWidth: "100%", width: "max-content" }}>
-            {groups.map((group) => {
-              const expanded = expandedHosts.includes(group.key);
-              const hostContextMenu = group.host
-                ? (event: React.MouseEvent) => onContextMenuHost?.(group.host!, event)
-                : undefined;
+          <List
+            disablePadding
+            sx={{ height: virtualRows.totalHeight, minWidth: "100%", position: "relative", width: "max-content" }}
+          >
+            <Box
+              sx={{
+                left: 0,
+                minWidth: "100%",
+                position: "absolute",
+                top: virtualRows.start * SESSION_EXPLORER_ROW_HEIGHT,
+                width: "max-content",
+              }}
+            >
+              {virtualRows.items.map((row) => {
+                if (row.kind === "host") {
+                  const expanded = expandedHostSet.has(row.group.key);
+                  const hostContextMenu = row.group.host
+                    ? (event: React.MouseEvent) => onContextMenuHost?.(row.group.host!, event)
+                    : undefined;
 
-              return (
-                <Box key={group.key} sx={{ minWidth: "100%", width: "max-content" }}>
-                  <HostRow
-                    expanded={expanded}
-                    group={group}
-                    onContextMenu={hostContextMenu}
-                    onToggle={() => onToggleHost(group.key)}
+                  return (
+                    <HostRow
+                      expanded={expanded}
+                      group={row.group}
+                      key={`host:${row.group.key}`}
+                      onContextMenu={hostContextMenu}
+                      onToggle={() => onToggleHost(row.group.key)}
+                    />
+                  );
+                }
+
+                return (
+                  <SessionTreeFlatNode
+                    depth={row.depth}
+                    expanded={row.node.kind === "branch" && expandedHostSet.has(`${row.groupKey}::${row.node.pathKey}`)}
+                    getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
+                    groupKey={row.groupKey}
+                    key={row.node.kind === "branch" ? `branch:${row.node.pathKey}` : `leaf:${row.node.session.id}`}
+                    node={row.node}
+                    onContextMenuHost={onContextMenuHost}
+                    onContextMenuSession={onContextMenuSession}
+                    onSelectSession={onSelectSession}
+                    onToggleHost={onToggleHost}
+                    selectedSessionId={selectedSessionId}
                   />
-
-                  {expanded ? (
-                    <List disablePadding sx={{ minWidth: "100%", pb: 0.25, width: "max-content" }}>
-                      {group.tree.map((node) => (
-                        <SessionTreeNode
-                          depth={0}
-                          getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
-                          groupKey={group.key}
-                          key={node.kind === "branch" ? `branch:${node.pathKey}` : `leaf:${node.session.id}`}
-                          node={node}
-                          onContextMenuHost={onContextMenuHost}
-                          onContextMenuSession={onContextMenuSession}
-                          onSelectSession={onSelectSession}
-                          onToggleHost={onToggleHost}
-                          selectedSessionId={selectedSessionId}
-                          expandedHosts={expandedHosts}
-                        />
-                      ))}
-                    </List>
-                  ) : null}
-
-                </Box>
-              );
-            })}
+                );
+              })}
+            </Box>
           </List>
         )}
       </Box>
@@ -323,9 +394,9 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
   );
 }
 
-type SessionTreeNodeProps = {
+type SessionTreeFlatNodeProps = {
   depth: number;
-  expandedHosts: string[];
+  expanded: boolean;
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   groupKey: string;
   node: SessionPathNode;
@@ -336,9 +407,9 @@ type SessionTreeNodeProps = {
   selectedSessionId: string | undefined;
 };
 
-function SessionTreeNode({
+function SessionTreeFlatNode({
   depth,
-  expandedHosts,
+  expanded,
   getResourceTooltip,
   groupKey,
   node,
@@ -347,7 +418,7 @@ function SessionTreeNode({
   onSelectSession,
   onToggleHost,
   selectedSessionId,
-}: SessionTreeNodeProps) {
+}: SessionTreeFlatNodeProps) {
   if (node.kind === "leaf") {
     return (
       <SessionLeafNode
@@ -363,80 +434,57 @@ function SessionTreeNode({
   }
 
   const expandedKey = `${groupKey}::${node.pathKey}`;
-  const expanded = expandedHosts.includes(expandedKey);
   const branchHost = node.branchType === "host" ? node.host : undefined;
 
   return (
-    <Box sx={{ minWidth: "100%", width: "max-content" }}>
-      <ListItemButton
-        dense
-        onClick={() => onToggleHost(expandedKey)}
-        onContextMenu={branchHost
-          ? (event) => {
-              event.preventDefault();
-              onContextMenuHost?.(branchHost, event);
-            }
-          : undefined}
+    <ListItemButton
+      dense
+      onClick={() => onToggleHost(expandedKey)}
+      onContextMenu={branchHost
+        ? (event) => {
+            event.preventDefault();
+            onContextMenuHost?.(branchHost, event);
+          }
+        : undefined}
+      sx={{
+        borderRadius: 0,
+        minHeight: 24,
+        minWidth: "100%",
+        pl: 1.75 + depth * 1.25,
+        pr: 1,
+        py: 0.125,
+        transition: "background-color 140ms ease, box-shadow 140ms ease",
+        width: "100%",
+        "&:hover": {
+          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
+        },
+      }}
+    >
+      {expanded ? (
+        <ExpandMoreRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
+      ) : (
+        <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
+      )}
+      <Box
         sx={{
-          borderRadius: 0,
-          minHeight: 24,
-          minWidth: "100%",
-          pl: 1.75 + depth * 1.25,
-          pr: 1,
-          py: 0.125,
-          transition: "background-color 140ms ease, box-shadow 140ms ease",
-          width: "100%",
-          "&:hover": {
-            boxShadow: (theme) => getHoverShadow(theme.palette.mode),
-          },
+          alignItems: "center",
+          color: (theme) => getBranchIconColor(theme, node.branchType),
+          display: "flex",
+          flex: "0 0 auto",
+          ml: 0.125,
+          mr: 0.25,
         }}
       >
-        {expanded ? (
-          <ExpandMoreRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-        ) : (
-          <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-        )}
-        <Box
-          sx={{
-            alignItems: "center",
-            color: (theme) => getBranchIconColor(theme, node.branchType),
-            display: "flex",
-            flex: "0 0 auto",
-            ml: 0.125,
-            mr: 0.25,
-          }}
-        >
-          {renderBranchIcon(node.branchType, expanded)}
-        </Box>
-        <Typography
-          noWrap
-          sx={(theme) => getSessionTreeTextSx(theme)}
-          variant="body2"
-        >
-          {node.segmentLabel}
-        </Typography>
-      </ListItemButton>
-
-      {expanded ? (
-        <Box sx={{ minWidth: "100%", width: "max-content" }}>
-          {node.children.map((childNode) => (
-            <SessionTreeNode
-              depth={depth + 1}
-              expandedHosts={expandedHosts}
-              getResourceTooltip={getResourceTooltip}
-              groupKey={groupKey}
-              key={childNode.kind === "branch" ? `branch:${childNode.pathKey}` : `leaf:${childNode.session.id}`}
-              node={childNode}
-              onContextMenuHost={onContextMenuHost}
-              onContextMenuSession={onContextMenuSession}
-              onSelectSession={onSelectSession}
-              onToggleHost={onToggleHost}
-              selectedSessionId={selectedSessionId}
-            />
-          ))}
-        </Box>
-      ) : null}
-    </Box>
+        {renderBranchIcon(node.branchType, expanded)}
+      </Box>
+      <Typography
+        noWrap
+        sx={(theme) => getSessionTreeTextSx(theme)}
+        variant="body2"
+      >
+        {node.segmentLabel}
+      </Typography>
+    </ListItemButton>
   );
 }
 
@@ -571,7 +619,7 @@ function getHostGroupIconColor(theme: Theme, group: SessionHostGroup): string {
   return theme.palette.text.secondary;
 }
 
-function renderBranchIcon(branchType: SessionPathNode extends infer _ ? "host" | "path" : never, expanded: boolean) {
+function renderBranchIcon(branchType: "host" | "path", expanded: boolean) {
   if (branchType === "host") {
     return <DomainHostIcon data-testid="aggregate-host-icon" sx={{ fontSize: 17 }} />;
   }

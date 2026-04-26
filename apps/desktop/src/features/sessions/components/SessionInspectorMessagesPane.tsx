@@ -20,7 +20,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WsConnectionStatusValue,
   WsMessage,
@@ -43,6 +43,17 @@ type PayloadFormat = "text" | "json" | "hex";
 type ComposeOpcode = "text" | "ping" | "pong";
 
 const CONTROL_OPCODES = new Set<WsOpcode>(["close", "ping", "pong"]);
+const MAX_WS_MESSAGES_IN_MEMORY = 10_000;
+const MESSAGE_ROW_HEIGHT = 42;
+const MESSAGE_ROW_OVERSCAN = 8;
+
+function trimWsMessages(messages: WsMessage[]): WsMessage[] {
+  if (messages.length <= MAX_WS_MESSAGES_IN_MEMORY) {
+    return messages;
+  }
+
+  return messages.slice(messages.length - MAX_WS_MESSAGES_IN_MEMORY);
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -110,6 +121,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState("");
+  const listContainerRef = useRef<HTMLDivElement | null>(null);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const [listViewportHeight, setListViewportHeight] = useState(0);
 
   // Connection status
   const [connectionStatus, setConnectionStatus] = useState<WsConnectionStatusValue>("closed");
@@ -128,7 +142,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     setSelectedId(null);
     setComposeOpen(false);
     listWsMessages(sessionId).then((loaded) => {
-      if (!cancelled) setMessages(loaded);
+      if (!cancelled) setMessages(trimWsMessages(loaded));
     });
     return () => { cancelled = true; };
   }, [sessionId]);
@@ -137,11 +151,23 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   useEffect(() => {
     const unlisten = onWsMessage((msg) => {
       if (msg.sessionId === sessionId) {
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => trimWsMessages([...prev, msg]));
       }
     });
     return () => { void unlisten.then((fn) => fn()); };
   }, [sessionId]);
+
+  useEffect(() => {
+    const element = listContainerRef.current;
+    if (!element) return undefined;
+
+    const updateSize = () => setListViewportHeight(element.clientHeight);
+    updateSize();
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   // Connection status
   useEffect(() => {
@@ -175,6 +201,18 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     () => messages.find((m) => m.id === selectedId),
     [messages, selectedId],
   );
+
+  const virtualWindow = useMemo(() => {
+    const visibleCount = Math.ceil(listViewportHeight / MESSAGE_ROW_HEIGHT);
+    const start = Math.max(0, Math.floor(listScrollTop / MESSAGE_ROW_HEIGHT) - MESSAGE_ROW_OVERSCAN);
+    const end = Math.min(filtered.length, start + visibleCount + MESSAGE_ROW_OVERSCAN * 2);
+    return {
+      end,
+      items: filtered.slice(start, end),
+      start,
+      totalHeight: filtered.length * MESSAGE_ROW_HEIGHT,
+    };
+  }, [filtered, listScrollTop, listViewportHeight]);
 
   const handleDirectionChange = useCallback((_: unknown, val: string) => {
     setDirectionFilter(val as DirectionFilter);
@@ -291,19 +329,33 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
 
       {/* Message list + detail */}
       <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <Box sx={{ flex: 1, borderRight: 1, borderColor: "divider", overflow: "auto" }}>
-          <Stack spacing={0}>
-            {filtered.map((msg) => (
-              <MessageRow
-                key={msg.id}
-                message={msg}
-                selected={msg.id === selectedId}
-                isActive={isActive}
-                onClick={() => setSelectedId(msg.id)}
-                onReplay={handleEditReplay}
-              />
-            ))}
-          </Stack>
+        <Box
+          ref={listContainerRef}
+          onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}
+          sx={{ flex: 1, borderRight: 1, borderColor: "divider", overflow: "auto" }}
+        >
+          <Box sx={{ height: virtualWindow.totalHeight, position: "relative" }}>
+            <Stack
+              spacing={0}
+              sx={{
+                left: 0,
+                position: "absolute",
+                right: 0,
+                top: virtualWindow.start * MESSAGE_ROW_HEIGHT,
+              }}
+            >
+              {virtualWindow.items.map((msg) => (
+                <MessageRow
+                  key={msg.id}
+                  message={msg}
+                  selected={msg.id === selectedId}
+                  isActive={isActive}
+                  onClick={() => setSelectedId(msg.id)}
+                  onReplay={handleEditReplay}
+                />
+              ))}
+            </Stack>
+          </Box>
         </Box>
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>

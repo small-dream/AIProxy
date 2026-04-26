@@ -45,7 +45,7 @@ export function useSessionEvents() {
       }
     });
 
-    onSessionsCleared((ids) => {
+    onSessionsCleared(() => {
       if (cancelled) return;
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });

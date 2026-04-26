@@ -15,7 +15,7 @@ use aiproxy_proxy_core::{
 };
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -24,6 +24,8 @@ use tauri::{async_runtime::JoinHandle, Emitter};
 use crate::session_stats;
 use crate::system_proxy::SystemProxySnapshot;
 use crate::workspace::{WorkspaceData, WorkspaceManager};
+
+const SESSION_DETAIL_CACHE_CAPACITY: usize = 1_000;
 
 /// Snapshot of the certificate state for the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +71,7 @@ pub struct RuntimeHandles {
 pub struct AppState {
     runtime: Mutex<Option<RuntimeHandles>>,
     session_details: Arc<Mutex<HashMap<String, ProxySessionDetail>>>,
+    session_detail_order: Arc<Mutex<VecDeque<String>>>,
     sessions: Arc<Mutex<Vec<ProxySessionSummary>>>,
     status: Mutex<BootstrapStatus>,
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
@@ -92,6 +95,7 @@ impl AppState {
         let state = Self {
             runtime: Mutex::new(None),
             session_details: Arc::new(Mutex::new(HashMap::new())),
+            session_detail_order: Arc::new(Mutex::new(VecDeque::new())),
             sessions: Arc::new(Mutex::new(Vec::new())),
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
@@ -203,6 +207,7 @@ impl AppState {
             .get(session_id)
             .cloned()
         {
+            self.touch_session_detail_cache(session_id);
             return Some(detail);
         }
 
@@ -230,10 +235,7 @@ impl AppState {
             detail_row_to_proxy(&row, summary, &self.body_store)
         };
 
-        self.session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .insert(session_id.to_string(), detail.clone());
+        self.insert_session_detail_cache(session_id.to_string(), detail.clone());
 
         Some(detail)
     }
@@ -257,6 +259,10 @@ impl AppState {
         self.session_details
             .lock()
             .expect("session detail mutex should not be poisoned")
+            .clear();
+        self.session_detail_order
+            .lock()
+            .expect("session detail order mutex should not be poisoned")
             .clear();
 
         self.sessions
@@ -304,6 +310,10 @@ impl AppState {
         for id in &ids_to_remove {
             details.remove(id);
         }
+        self.session_detail_order
+            .lock()
+            .expect("session detail order mutex should not be poisoned")
+            .retain(|id| id == keep_session_id);
 
         if let Some(handle) = self.read_app_handle() {
             let _ = handle.emit("sessions-removed", ids_to_remove);
@@ -364,10 +374,7 @@ impl AppState {
             }
         }
 
-        self.session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .insert(session_id.clone(), session_detail.clone());
+        self.insert_session_detail_cache(session_id.clone(), session_detail.clone());
 
         let mut sessions = self
             .sessions
@@ -403,6 +410,10 @@ impl AppState {
                 .lock()
                 .expect("session detail mutex should not be poisoned")
                 .remove(&removed_session.id);
+            self.session_detail_order
+                .lock()
+                .expect("session detail order mutex should not be poisoned")
+                .retain(|id| id != &removed_session.id);
             if let Some(handle) = self.read_app_handle() {
                 let _ = handle.emit("session-remove", &removed_session.id);
             }
@@ -415,6 +426,52 @@ impl AppState {
 
     pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
         &self.db
+    }
+
+    fn touch_session_detail_cache(&self, session_id: &str) {
+        let mut order = self
+            .session_detail_order
+            .lock()
+            .expect("session detail order mutex should not be poisoned");
+        if let Some(index) = order.iter().position(|id| id == session_id) {
+            order.remove(index);
+        }
+        order.push_back(session_id.to_string());
+    }
+
+    fn insert_session_detail_cache(&self, session_id: String, detail: ProxySessionDetail) {
+        self.session_details
+            .lock()
+            .expect("session detail mutex should not be poisoned")
+            .insert(session_id.clone(), detail);
+
+        let mut evicted_ids = Vec::new();
+        {
+            let mut order = self
+                .session_detail_order
+                .lock()
+                .expect("session detail order mutex should not be poisoned");
+            if let Some(index) = order.iter().position(|id| id == &session_id) {
+                order.remove(index);
+            }
+            order.push_back(session_id);
+
+            while order.len() > SESSION_DETAIL_CACHE_CAPACITY {
+                if let Some(evicted_id) = order.pop_front() {
+                    evicted_ids.push(evicted_id);
+                }
+            }
+        }
+
+        if !evicted_ids.is_empty() {
+            let mut details = self
+                .session_details
+                .lock()
+                .expect("session detail mutex should not be poisoned");
+            for evicted_id in evicted_ids {
+                details.remove(&evicted_id);
+            }
+        }
     }
 
     pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {

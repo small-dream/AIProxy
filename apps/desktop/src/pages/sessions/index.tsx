@@ -1,7 +1,6 @@
 import {
   coerceAppError,
   isAppError,
-  type ExportFormat,
   type SessionDetail,
 } from "@aiproxy/shared-types";
 import type { SessionSummary } from "@aiproxy/shared-types";
