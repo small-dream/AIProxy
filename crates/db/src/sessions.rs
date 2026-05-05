@@ -227,16 +227,21 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
 /// Delete all sessions (summaries cascade to details and ws_messages).
 pub fn clear_all_sessions(conn: &Connection) -> Result<(), String> {
-    conn.execute("DELETE FROM script_run_entries", [])
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin clear sessions transaction: {e}"))?;
+    tx.execute("DELETE FROM script_run_entries", [])
         .map_err(|e| format!("clear script run entries: {e}"))?;
-    conn.execute("DELETE FROM script_runs", [])
+    tx.execute("DELETE FROM script_runs", [])
         .map_err(|e| format!("clear script runs: {e}"))?;
-    conn.execute("DELETE FROM session_details", [])
+    tx.execute("DELETE FROM session_details", [])
         .map_err(|e| format!("clear session details: {e}"))?;
-    conn.execute("DELETE FROM ws_messages", [])
+    tx.execute("DELETE FROM ws_messages", [])
         .map_err(|e| format!("clear ws messages: {e}"))?;
-    conn.execute("DELETE FROM session_summaries", [])
+    tx.execute("DELETE FROM session_summaries", [])
         .map_err(|e| format!("clear session summaries: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("commit clear sessions transaction: {e}"))?;
     Ok(())
 }
 

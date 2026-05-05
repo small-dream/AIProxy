@@ -241,38 +241,67 @@ impl AppState {
     }
 
     pub fn clear_sessions(&self) {
-        // Clear from DB and body files
-        {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
-            let _ = aiproxy_db::sessions::clear_all_sessions(&conn);
-        }
-        let _ = self.body_store.clear_all();
-
-        let ids_to_remove: Vec<String> = {
-            let sessions = self
+        let ids_to_clear: Vec<String> = {
+            let mut sessions = self
                 .sessions
                 .lock()
                 .expect("session list mutex should not be poisoned");
-            sessions.iter().map(|session| session.id.clone()).collect()
+            let ids = sessions.iter().map(|s| s.id.clone()).collect();
+            sessions.clear();
+            ids
         };
-
-        self.session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .clear();
-        self.session_detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned")
-            .clear();
-
-        self.sessions
-            .lock()
-            .expect("session list mutex should not be poisoned")
-            .clear();
+        {
+            let mut details = self
+                .session_details
+                .lock()
+                .expect("session detail mutex should not be poisoned");
+            for id in &ids_to_clear {
+                details.remove(id);
+            }
+        }
+        {
+            let ids_set: std::collections::HashSet<&String> = ids_to_clear.iter().collect();
+            let mut order = self
+                .session_detail_order
+                .lock()
+                .expect("session detail order mutex should not be poisoned");
+            order.retain(|id| !ids_set.contains(id));
+        }
 
         if let Some(handle) = self.read_app_handle() {
-            let _ = handle.emit("sessions-cleared", ids_to_remove);
+            let _ = handle.emit("sessions-cleared", ());
         }
+
+        if ids_to_clear.is_empty() {
+            return;
+        }
+
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        tauri::async_runtime::spawn_blocking(move || {
+            {
+                let conn = db.lock().expect("db mutex should not be poisoned");
+                if let Err(error) =
+                    aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_clear)
+                {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "clear_sessions_db_failed",
+                        &[("error", error)],
+                    );
+                }
+            }
+
+            for id in &ids_to_clear {
+                if let Err(error) = body_store.remove_bodies(id) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "clear_sessions_body_remove_failed",
+                        &[("session_id", id.clone()), ("error", error)],
+                    );
+                }
+            }
+        });
     }
 
     pub fn delete_sessions_except(&self, keep_session_id: &str) {

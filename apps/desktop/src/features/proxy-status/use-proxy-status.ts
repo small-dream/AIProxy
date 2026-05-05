@@ -106,10 +106,9 @@ export function useClearSessions() {
       });
     },
     onSuccess: () => {
-      logDevInfo("ui.sessions", "clear_sessions_mutation_succeeded");
       queryClient.setQueryData(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+      logDevInfo("ui.sessions", "clear_sessions_mutation_succeeded");
     },
   });
 }

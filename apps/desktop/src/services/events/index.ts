@@ -79,15 +79,13 @@ export function onSessionRemove(callback: (sessionId: SessionRemoveEvent) => voi
   });
 }
 
-export function onSessionsCleared(callback: (ids: string[]) => void): Promise<Unlisten> {
+export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});
   }
 
-  return listen<string[]>("sessions-cleared", (event) => {
-    if (Array.isArray(event.payload)) {
-      callback(event.payload);
-    }
+  return listen<unknown>("sessions-cleared", () => {
+    callback();
   });
 }
 

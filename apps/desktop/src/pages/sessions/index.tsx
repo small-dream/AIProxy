@@ -276,6 +276,11 @@ export function SessionsPage() {
 
     onSessionsCleared(() => {
       if (cancelled) return;
+      upsertBuffer = [];
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
       setContainerState((currentState) =>
         createInitialSessionContainerState({
           inspectorSplitRatio:
