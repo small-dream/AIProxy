@@ -2,7 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
+import { buildSearchMatcher, DEFAULT_SEARCH_OPTIONS, type JsonValue } from "./session-inspector.helpers";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
+
+function createLargeJsonTree(): JsonValue {
+  return Object.fromEntries(
+    Array.from({ length: 400 }, (_value, index) => [
+      `field${index}`,
+      index === 399 ? "needle value" : `value ${index}`,
+    ]),
+  );
+}
 
 describe("SessionInspectorJsonTree", () => {
   it("copies the selected parent node data from the context menu", async () => {
@@ -88,5 +98,27 @@ describe("SessionInspectorJsonTree", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("hello world");
     });
+  });
+
+  it("keeps large JSON trees virtualized while scrolling to the current off-screen match", async () => {
+    const matcher = buildSearchMatcher("needle", DEFAULT_SEARCH_OPTIONS);
+    const { container } = render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          currentMatchIndex={0}
+          matcher={matcher}
+          searchQuery="needle"
+          value={createLargeJsonTree()}
+        />
+      </AppProviders>,
+    );
+    const scrollContainer = container.firstChild as HTMLDivElement | null;
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent("needle value");
+      expect(scrollContainer?.scrollTop ?? 0).toBeGreaterThan(0);
+    });
+
+    expect(container).not.toHaveTextContent("value 0");
   });
 });

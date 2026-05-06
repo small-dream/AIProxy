@@ -158,15 +158,35 @@ export function SessionInspectorJsonTree({
     }
   }, [matchingRowPaths.length, matcher, onMatchCountChange]);
 
+  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
+
   useEffect(() => {
     if (!matcher || matchingRowPaths.length === 0 || currentMatchIndex === undefined) return;
     const targetPath = matchingRowPaths[currentMatchIndex];
+    const targetRowIndex = targetPath ? rows.findIndex((row) => row.path === targetPath) : -1;
+
     if (targetPath) {
       setSelectedPath(targetPath);
     }
-  }, [currentMatchIndex, matcher, matchingRowPaths]);
 
-  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
+    const container = containerRef.current;
+    if (!container || targetRowIndex === -1) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const centeredScrollTop = Math.max(
+        0,
+        targetRowIndex * JSON_TREE_ROW_HEIGHT - Math.max(0, container.clientHeight - JSON_TREE_ROW_HEIGHT) / 2,
+      );
+
+      container.scrollTop = centeredScrollTop;
+      container.dispatchEvent(new Event("scroll"));
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [containerRef, currentMatchIndex, matcher, matchingRowPaths, rows]);
+
   const visibleRows = rows.slice(startIndex, endIndex);
   const columnTemplate = "minmax(220px, 0.9fr) minmax(112px, 0.5fr) minmax(260px, 1.6fr)";
 
