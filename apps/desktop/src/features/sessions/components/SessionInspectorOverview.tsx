@@ -1,12 +1,12 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import { Box, ButtonBase, Divider, Stack, Typography } from "@mui/material";
+import { Box, ButtonBase, Stack, Tooltip, Typography } from "@mui/material";
 import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useI18n } from "@/i18n";
-import { InspectorDefinitionList, InspectorScrollArea } from "./SessionInspectorShared";
+import { InspectorScrollArea } from "./SessionInspectorShared";
 import { formatTiming } from "./session-inspector.helpers";
 
 type OverviewSection = {
@@ -53,7 +53,7 @@ export function SessionInspectorOverview({
     ...sections.map((section) => ({
       key: section.key,
       title: section.title,
-      content: <InspectorDefinitionList items={section.items} />,
+      content: <OverviewDefinitionList items={section.items} />,
     })),
     {
       key: "size",
@@ -62,7 +62,7 @@ export function SessionInspectorOverview({
     },
   ], [sections, session.id, sizeBreakdown]);
   const initialExpandedBlocks = useMemo(
-    () => buildExpandedState(["general", "connection", "timing", "size"]),
+    () => ({ ...buildExpandedState(["general", "timing", "size"]), connection: false }),
     [],
   );
   const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>(initialExpandedBlocks);
@@ -73,72 +73,34 @@ export function SessionInspectorOverview({
 
   return (
     <InspectorScrollArea>
-      <Stack spacing={1.5}>
+      <Stack spacing={0} sx={{ pb: 1, pt: 0.25 }}>
         {leading ? <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>{leading}</Stack> : null}
-        <Stack
-          divider={<Divider />}
-          spacing={0}
-          sx={{
-            bgcolor: "background.paper",
-            border: 1,
-            borderColor: "divider",
-            borderRadius: 0.5,
-            overflow: "hidden",
-          }}
-        >
+        <Stack spacing={0}>
           {overviewBlocks.map((block) => {
             const isExpanded = expandedBlocks[block.key] ?? true;
+            const isGeneral = block.key === "general";
 
             return (
               <Stack key={block.key} spacing={0}>
-                <ButtonBase
-                  aria-expanded={isExpanded}
-                  disableRipple
-                  onClick={() => {
-                    setExpandedBlocks((current) => ({
-                      ...current,
-                      [block.key]: !isExpanded,
-                    }));
-                  }}
-                  sx={{
-                    display: "block",
-                    textAlign: "left",
-                    width: "100%",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      alignItems: "center",
-                      display: "grid",
-                      gridTemplateColumns: "1fr",
-                      minHeight: 36,
-                      px: 1.5,
-                      py: 0,
-                      "&:hover": {
-                        bgcolor: "action.hover",
-                      },
+                {isGeneral ? null : (
+                  <OverviewTreeHeader
+                    expanded={isExpanded}
+                    onClick={() => {
+                      setExpandedBlocks((current) => ({
+                        ...current,
+                        [block.key]: !isExpanded,
+                      }));
                     }}
-                  >
-                    <Stack alignItems="center" direction="row" spacing={0.5}>
-                      {isExpanded ? (
-                        <ExpandMoreRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-                      ) : (
-                        <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-                      )}
-                      <Typography sx={{ fontSize: 13, fontWeight: 600 }} variant="body2">
-                        {block.title}
-                      </Typography>
-                    </Stack>
-                  </Box>
-                </ButtonBase>
+                    title={block.title}
+                  />
+                )}
 
                 {isExpanded ? (
                   <Box
                     sx={{
-                      bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "background.paper",
-                      pb: 1,
-                      px: 1.5,
-                      pt: 1,
+                      pb: isGeneral ? 0.5 : 0.75,
+                      pl: isGeneral ? 0 : 3.25,
+                      pt: isGeneral ? 0.25 : 0.25,
                     }}
                   >
                     {block.content}
@@ -150,6 +112,145 @@ export function SessionInspectorOverview({
         </Stack>
       </Stack>
     </InspectorScrollArea>
+  );
+}
+
+function OverviewTreeHeader({
+  expanded,
+  indent = 0,
+  onClick,
+  title,
+  value,
+}: {
+  expanded: boolean;
+  indent?: number;
+  onClick: () => void;
+  title: string;
+  value?: string | undefined;
+}) {
+  return (
+    <ButtonBase
+      aria-expanded={expanded}
+      disableRipple
+      onClick={onClick}
+      sx={{
+        display: "block",
+        textAlign: "left",
+        width: "100%",
+      }}
+    >
+      <OverviewGridRow
+        label={(
+          <Stack alignItems="center" direction="row" spacing={0.5}>
+            {expanded ? (
+              <ExpandMoreRoundedIcon sx={{ color: "text.disabled", fontSize: 18 }} />
+            ) : (
+              <ChevronRightRoundedIcon sx={{ color: "text.disabled", fontSize: 18 }} />
+            )}
+            <Typography sx={{ color: "text.primary", fontSize: 14, fontWeight: 700 }} variant="body2">
+              {title}
+            </Typography>
+          </Stack>
+        )}
+        labelIndent={indent}
+        value={value}
+      />
+    </ButtonBase>
+  );
+}
+
+function OverviewDefinitionList({
+  indent = 0,
+  items,
+}: {
+  indent?: number;
+  items: Array<[string, string]>;
+}) {
+  const { t } = useI18n();
+
+  if (items.length === 0) {
+    return (
+      <Typography color="text.secondary" sx={{ fontSize: 13.5 }} variant="body2">
+        {t("common.empty.noData")}
+      </Typography>
+    );
+  }
+
+  return (
+    <Stack spacing={0}>
+      {items.map(([label, value]) => (
+        <OverviewGridRow
+          key={`${label}:${value}`}
+          label={(
+            <Typography color="text.secondary" sx={{ fontSize: 13.5, fontWeight: 500 }} variant="body2">
+              {label}
+            </Typography>
+          )}
+          labelIndent={indent}
+          value={value}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+function OverviewGridRow({
+  label,
+  labelIndent = 0,
+  value,
+}: {
+  label: ReactNode;
+  labelIndent?: number;
+  value?: string | undefined;
+}) {
+  return (
+    <Box
+      sx={{
+        alignItems: "center",
+        columnGap: 3,
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "minmax(132px, 36%) minmax(0, 1fr)",
+          md: "minmax(220px, 42%) minmax(0, 1fr)",
+        },
+        minHeight: 28,
+      }}
+    >
+      <Box sx={{ minWidth: 0, pl: labelIndent }}>
+        {label}
+      </Box>
+      {value !== undefined ? (
+        <Tooltip
+          arrow
+          enterDelay={350}
+          placement="top-start"
+          slotProps={{
+            tooltip: {
+              sx: {
+                maxWidth: 760,
+                overflowWrap: "anywhere",
+              },
+            },
+          }}
+          title={value}
+        >
+          <Typography
+            sx={{
+              color: "text.primary",
+              fontSize: 13.5,
+              fontWeight: 500,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            variant="body2"
+          >
+            {value}
+          </Typography>
+        </Tooltip>
+      ) : <Box />}
+    </Box>
   );
 }
 
@@ -173,127 +274,41 @@ function OverviewSizeTree({
   }, [initialExpandedGroups, sessionId]);
 
   return (
-    <Stack spacing={0.75}>
+    <Stack spacing={0}>
       {showTitle ? <Typography variant="subtitle2">{sizeBreakdown.title}</Typography> : null}
-      <Stack
-        divider={<Divider />}
-        spacing={0}
-        sx={{
-          bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "background.paper",
-          border: 1,
-          borderColor: "divider",
-          borderRadius: 0.5,
-          overflow: "hidden",
-        }}
-      >
+      <Stack spacing={0}>
         {sizeBreakdown.groups.map((group) => {
           const isExpanded = expandedGroups[group.key] ?? true;
 
           return (
             <Stack key={group.title} spacing={0}>
-              <ButtonBase
-                aria-expanded={isExpanded}
-                disableRipple
+              <OverviewTreeHeader
+                expanded={isExpanded}
+                indent={0}
                 onClick={() => {
-                    setExpandedGroups((current) => ({
-                      ...current,
-                      [group.key]: !isExpanded,
-                    }));
-                  }}
-                sx={{
-                  display: "block",
-                  textAlign: "left",
-                  width: "100%",
+                  setExpandedGroups((current) => ({
+                    ...current,
+                    [group.key]: !isExpanded,
+                  }));
                 }}
-              >
-                <Box
-                  sx={{
-                    alignItems: "center",
-                    bgcolor: "transparent",
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    minHeight: 36,
-                    px: 1.5,
-                    py: 0,
-                    transition: "background-color 120ms ease",
-                    "&:hover": {
-                      bgcolor: "action.hover",
-                    },
-                  }}
-                >
-                  <Stack alignItems="center" direction="row" spacing={0.75}>
-                    {isExpanded ? (
-                      <ExpandMoreRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-                    ) : (
-                      <ChevronRightRoundedIcon fontSize="small" sx={{ color: "text.secondary", fontSize: 16 }} />
-                    )}
-                    <Typography
-                      sx={{ color: "text.primary", fontSize: 13, fontWeight: 600 }}
-                      variant="body2"
-                    >
-                      {group.title}
-                    </Typography>
-                  </Stack>
-                  <Typography sx={{ color: "text.primary", fontSize: 13 }} variant="body2">
-                    {group.total}
-                  </Typography>
-                </Box>
-              </ButtonBase>
+                title={group.title}
+                value={group.total}
+              />
 
               {isExpanded ? (
-                <Stack
-                  spacing={0}
-                  sx={{
-                    bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-                    pb: 1,
-                    pl: 5,
-                    pr: 1.5,
-                    pt: 1,
-                  }}
-                >
-                  {group.items.map(([label, value]) => (
-                    <Box
-                      key={`${group.title}:${label}:${value}`}
-                      sx={{
-                        bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-                        columnGap: 3,
-                        display: "grid",
-                        gridTemplateColumns: "180px minmax(0, 1fr)",
-                        minHeight: 28,
-                        py: 0,
-                      }}
-                    >
-                      <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 500, minWidth: 0 }} variant="body2">
-                        {label}
-                      </Typography>
-                      <Typography sx={{ fontSize: 13, minWidth: 0, wordBreak: "break-all" }} variant="body2">
-                        {value}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Stack>
+                <OverviewDefinitionList indent={3.25} items={group.items} />
               ) : null}
             </Stack>
           );
         })}
-
-        <Box
-          sx={{
-            alignItems: "center",
-            bgcolor: (theme) => theme.palette.mode === "light" ? theme.palette.common.white : "transparent",
-            columnGap: 3,
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            minHeight: 34,
-            px: 1.5,
-            py: 0,
-          }}
-        >
-          <Typography sx={{ fontSize: 13, fontWeight: 600 }} variant="body2">
-            {sizeBreakdown.total[0]}
-          </Typography>
-          <Typography sx={{ fontSize: 13 }} variant="body2">{sizeBreakdown.total[1]}</Typography>
-        </Box>
+        <OverviewGridRow
+          label={(
+            <Typography sx={{ color: "text.primary", fontSize: 14, fontWeight: 700 }} variant="body2">
+              {sizeBreakdown.total[0]}
+            </Typography>
+          )}
+          value={sizeBreakdown.total[1]}
+        />
       </Stack>
     </Stack>
   );
@@ -316,7 +331,10 @@ function buildOverviewSections({
   sizeBreakdown: OverviewSizeBreakdown;
 } {
   const fallback = t("common.states.notCaptured");
-  const requestContentType = getHeaderValue(detail?.requestHeaders, "content-type") ?? fallback;
+  const responseContentType = getHeaderValue(detail?.responseHeaders, "content-type")
+    ?? detail?.responseBody?.mimeType
+    ?? session.responseMimeType
+    ?? fallback;
   const requestContentEncoding = getHeaderValue(detail?.requestHeaders, "content-encoding");
   const responseContentEncoding = getHeaderValue(detail?.responseHeaders, "content-encoding");
   const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest, detail?.requestHeaders, session.method, session.path, session.protocol);
@@ -355,7 +373,7 @@ function buildOverviewSections({
           [t("common.labels.method"), session.method],
           [t("inspector.request.overview.fields.status"), session.statusCode > 0 ? t("inspector.request.overview.complete") : t("common.states.pending")],
           [t("inspector.request.overview.fields.responseCode"), session.statusCode > 0 ? String(session.statusCode) : fallback],
-          [t("inspector.request.overview.fields.contentType"), requestContentType],
+          [t("inspector.request.overview.fields.contentType"), responseContentType],
           [t("inspector.request.overview.fields.clientAddress"), fallback],
           [t("inspector.request.overview.fields.remoteAddress"), buildRemoteAddress(session.url, session.host, detail?.serverIp)],
           [t("common.labels.protocol"), formatProtocol(session.protocol)],
