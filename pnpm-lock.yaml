@@ -10,6 +10,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@aiproxy/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@aiproxy/ui-tokens':
+        specifier: workspace:*
+        version: link:../../packages/ui-tokens
       '@emotion/react':
         specifier: ^11.14.0
         version: 11.14.0(@types/react@19.2.14)(react@19.2.5)
@@ -22,18 +28,12 @@ importers:
       '@mui/material':
         specifier: ^7.0.0
         version: 7.3.10(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.5))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.5))(@types/react@19.2.14)(react@19.2.5))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      '@aiproxy/shared-types':
-        specifier: workspace:*
-        version: link:../../packages/shared-types
-      '@aiproxy/ui-tokens':
-        specifier: workspace:*
-        version: link:../../packages/ui-tokens
       '@tanstack/react-query':
         specifier: ^5.71.10
         version: 5.97.0(react@19.2.5)
       '@tauri-apps/api':
-        specifier: ^2.5.0
-        version: 2.10.1
+        specifier: ^2.11.0
+        version: 2.11.0
       '@tauri-apps/plugin-dialog':
         specifier: ^2.7.0
         version: 2.7.0
@@ -789,8 +789,8 @@ packages:
     peerDependencies:
       react: ^18 || ^19
 
-  '@tauri-apps/api@2.10.1':
-    resolution: {integrity: sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw==}
+  '@tauri-apps/api@2.11.0':
+    resolution: {integrity: sha512-7CinYODhky9lmO23xHnUFv0Xt43fbtWMyxZcLcRBlFkcgXKuEirBvHpmtJ89YMhyeGcq20Wuc47Fa4XjyniywA==}
 
   '@tauri-apps/plugin-dialog@2.7.0':
     resolution: {integrity: sha512-4nS/hfGMGCXiAS3LtVjH9AgsSAPJeG/7R+q8agTFqytjnMa4Zq95Bq8WzVDkckpanX+yyRHXnRtrKXkANKDHvw==}
@@ -2521,11 +2521,11 @@ snapshots:
       '@tanstack/query-core': 5.97.0
       react: 19.2.5
 
-  '@tauri-apps/api@2.10.1': {}
+  '@tauri-apps/api@2.11.0': {}
 
   '@tauri-apps/plugin-dialog@2.7.0':
     dependencies:
-      '@tauri-apps/api': 2.10.1
+      '@tauri-apps/api': 2.11.0
 
   '@testing-library/dom@10.4.1':
     dependencies:
