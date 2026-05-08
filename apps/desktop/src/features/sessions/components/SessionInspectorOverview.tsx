@@ -6,7 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useI18n } from "@/i18n";
-import { InspectorScrollArea } from "./SessionInspectorShared";
+import {
+  INSPECTOR_KEY_VALUE_GRID_TEMPLATE,
+  InspectorScrollArea,
+  inspectorKeyTypographySx,
+  inspectorValueTypographySx,
+} from "./SessionInspectorShared";
 import { formatTiming } from "./session-inspector.helpers";
 
 type OverviewSection = {
@@ -142,11 +147,11 @@ function OverviewTreeHeader({
         label={(
           <Stack alignItems="center" direction="row" spacing={0.5}>
             {expanded ? (
-              <ExpandMoreRoundedIcon sx={{ color: "text.disabled", fontSize: 18 }} />
+              <ExpandMoreRoundedIcon sx={{ color: "text.disabled", fontSize: 17 }} />
             ) : (
-              <ChevronRightRoundedIcon sx={{ color: "text.disabled", fontSize: 18 }} />
+              <ChevronRightRoundedIcon sx={{ color: "text.disabled", fontSize: 17 }} />
             )}
-            <Typography sx={{ color: "text.primary", fontSize: 14, fontWeight: 700 }} variant="body2">
+            <Typography sx={{ ...inspectorValueTypographySx, fontWeight: 600 }} variant="body2">
               {title}
             </Typography>
           </Stack>
@@ -169,7 +174,7 @@ function OverviewDefinitionList({
 
   if (items.length === 0) {
     return (
-      <Typography color="text.secondary" sx={{ fontSize: 13.5 }} variant="body2">
+      <Typography sx={inspectorKeyTypographySx} variant="body2">
         {t("common.empty.noData")}
       </Typography>
     );
@@ -181,7 +186,7 @@ function OverviewDefinitionList({
         <OverviewGridRow
           key={`${label}:${value}`}
           label={(
-            <Typography color="text.secondary" sx={{ fontSize: 13.5, fontWeight: 500 }} variant="body2">
+            <Typography sx={inspectorKeyTypographySx} variant="body2">
               {label}
             </Typography>
           )}
@@ -208,11 +213,8 @@ function OverviewGridRow({
         alignItems: "center",
         columnGap: 3,
         display: "grid",
-        gridTemplateColumns: {
-          xs: "minmax(132px, 36%) minmax(0, 1fr)",
-          md: "minmax(220px, 42%) minmax(0, 1fr)",
-        },
-        minHeight: 28,
+        gridTemplateColumns: INSPECTOR_KEY_VALUE_GRID_TEMPLATE,
+        minHeight: 30,
       }}
     >
       <Box sx={{ minWidth: 0, pl: labelIndent }}>
@@ -271,8 +273,9 @@ function OverviewValueCell({ value }: { value: string }) {
         ref={textRef}
         sx={{
           color: "text.primary",
-          fontSize: 13.5,
+          fontSize: 13,
           fontWeight: 500,
+          lineHeight: 1.45,
           minWidth: 0,
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -335,7 +338,7 @@ function OverviewSizeTree({
         })}
         <OverviewGridRow
           label={(
-            <Typography sx={{ color: "text.primary", fontSize: 14, fontWeight: 700 }} variant="body2">
+            <Typography sx={{ ...inspectorValueTypographySx, fontWeight: 600 }} variant="body2">
               {sizeBreakdown.total[0]}
             </Typography>
           )}

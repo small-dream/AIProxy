@@ -16,6 +16,59 @@ const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
 const DEFAULT_VIRTUAL_VIEWPORT_HEIGHT = 420;
 const VIRTUAL_WINDOW_OVERSCAN = 12;
+export const INSPECTOR_KEY_VALUE_GRID_TEMPLATE = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
+export const inspectorTabsSx = {
+  flex: 1,
+  minHeight: 34,
+  minWidth: 0,
+  px: 0.5,
+  "& .MuiTab-root": {
+    color: "text.secondary",
+    fontSize: 13,
+    fontWeight: 600,
+    letterSpacing: 0,
+    lineHeight: 1.25,
+    minHeight: 34,
+    px: 1.25,
+    py: 0.75,
+  },
+  "& .MuiTab-root.Mui-selected": {
+    color: "primary.main",
+  },
+  "& .MuiTabs-indicator": {
+    borderRadius: 1,
+    height: 2,
+  },
+} as const;
+export const inspectorPaneActionButtonSx = {
+  color: "primary.main",
+  fontSize: 13,
+  fontWeight: 600,
+  lineHeight: 1.25,
+  minHeight: 30,
+  minWidth: 0,
+  px: 1.25,
+  "& .MuiButton-startIcon": {
+    mr: 0.5,
+    "& > *:nth-of-type(1)": {
+      fontSize: 18,
+    },
+  },
+} as const;
+export const inspectorKeyTypographySx = {
+  color: "text.secondary",
+  fontSize: 13,
+  fontWeight: 500,
+  lineHeight: 1.45,
+  minWidth: 0,
+} as const;
+export const inspectorValueTypographySx = {
+  color: "text.primary",
+  fontSize: 13,
+  fontWeight: 500,
+  lineHeight: 1.45,
+  minWidth: 0,
+} as const;
 
 export function InspectorSummaryBar({
   detail,
@@ -170,13 +223,13 @@ export function InspectorDefinitionList({
         >
           <Typography
             color="text.secondary"
-            sx={{ flex: "0 0 180px", fontSize: 12, fontWeight: 500, minWidth: 0, pr: 1 }}
+            sx={{ ...inspectorKeyTypographySx, flex: "0 0 180px", pr: 1 }}
             variant="body2"
           >
             {label}
           </Typography>
           <Typography
-            sx={{ flex: 1, fontSize: 13, minWidth: 0, wordBreak: "break-all" }}
+            sx={{ ...inspectorValueTypographySx, flex: 1, wordBreak: "break-all" }}
             variant="body2"
           >
             {value}
@@ -229,11 +282,12 @@ export function InspectorFlatTable({
               color="text.secondary"
               key={header}
               sx={{
-                fontSize: 11,
-                fontWeight: 400,
-                lineHeight: 1.2,
+                ...inspectorKeyTypographySx,
+                fontSize: 12,
+                fontWeight: 600,
+                lineHeight: 1.25,
                 px: 0.75,
-                py: 0.25,
+                py: 0.375,
               }}
               variant="caption"
             >
@@ -263,7 +317,7 @@ export function InspectorFlatTableRow({
       sx={{
         display: "grid",
         gridTemplateColumns: columnTemplate,
-        minHeight: dense ? 26 : 28,
+        minHeight: dense ? 30 : 32,
         ...(hoverable
           ? {
               borderRadius: 0.5,
@@ -336,9 +390,8 @@ export function EllipsizedCell({
           <Typography
             ref={textRef}
             sx={{
+              ...inspectorValueTypographySx,
               flex: 1,
-              fontSize: 13,
-              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -414,23 +467,21 @@ export function InspectorKeyValueTable({
     );
   }
 
-  const columnTemplate = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
-
   return (
-    <InspectorFlatTable columnTemplate={columnTemplate}>
+    <InspectorFlatTable columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}>
       {items.map(([label, value], index) => (
         <InspectorFlatTableRow
           cells={[
             <Typography
               key="label"
-              sx={{ fontSize: 12, fontWeight: 500, minWidth: 0, wordBreak: "break-all" }}
+              sx={{ ...inspectorKeyTypographySx, wordBreak: "break-all" }}
               variant="body2"
             >
               {label}
             </Typography>,
             <EllipsizedCell key="value" text={value} />,
           ]}
-          columnTemplate={columnTemplate}
+          columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
           dense
           hoverable
           key={`${label}:${value}:${index}`}

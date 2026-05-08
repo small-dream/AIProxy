@@ -9,7 +9,7 @@ import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
 import { SessionInspectorAutomationPane } from "./SessionInspectorAutomationPane";
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
-import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock, inspectorTabsSx } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
   describeBody,
@@ -167,7 +167,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
         <Tabs
           onChange={(_event, nextTab) => onResponseTabChange(nextTab as ResponseInspectorTab)}
           scrollButtons="auto"
-          sx={{ flex: 1, minHeight: 32, minWidth: 0, px: 0.5 }}
+          sx={inspectorTabsSx}
           value={activeResponseTab}
           variant="scrollable"
         >

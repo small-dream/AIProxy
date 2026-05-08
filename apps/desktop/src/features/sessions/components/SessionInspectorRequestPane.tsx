@@ -12,6 +12,8 @@ import {
   InspectorKeyValueTable,
   InspectorScrollArea,
   SearchableCodeBlock,
+  inspectorPaneActionButtonSx,
+  inspectorTabsSx,
 } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
@@ -88,7 +90,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
         <Tabs
           onChange={(_event, nextTab) => onRequestTabChange(nextTab as RequestInspectorTab)}
           scrollButtons="auto"
-          sx={{ flex: 1, minHeight: 32, minWidth: 0, px: 0.5 }}
+          sx={inspectorTabsSx}
           value={requestTab}
           variant="scrollable"
         >
@@ -102,7 +104,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
           onClick={() => onRequestCollapsedChange(!requestCollapsed)}
           size="small"
           startIcon={requestCollapsed ? <ExpandMoreRoundedIcon /> : <ExpandLessRoundedIcon />}
-          sx={{ minWidth: 0, px: 1.25 }}
+          sx={inspectorPaneActionButtonSx}
           variant="text"
         >
           {requestCollapsed ? t("common.actions.expand") : t("common.actions.collapse")}
