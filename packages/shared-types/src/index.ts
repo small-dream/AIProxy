@@ -513,10 +513,11 @@ export function isComposedRequestInput(value: unknown): value is ComposedRequest
 
 export function createMockComposeSessionDetail(input: ComposedRequestInput): SessionDetail {
   const now = new Date().toISOString();
+  const id = "mock-compose-" + Math.random().toString(36).slice(2, 10);
   return {
-    id: "mock-compose-" + Math.random().toString(36).slice(2, 10),
+    id,
     summary: {
-      id: "mock-compose-" + Math.random().toString(36).slice(2, 10),
+      id,
       method: input.method,
       host: new URL(input.url).host,
       path: new URL(input.url).pathname,

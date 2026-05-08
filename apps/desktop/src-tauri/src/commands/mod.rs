@@ -2479,6 +2479,124 @@ fn parse_urlencoded_entries(value: &str) -> Vec<ProxyHeaderEntry> {
         .collect()
 }
 
+fn substitute_header_entries(
+    entries: Vec<ProxyHeaderEntry>,
+    vars: &std::collections::HashMap<String, String>,
+) -> Vec<ProxyHeaderEntry> {
+    entries
+        .into_iter()
+        .map(|entry| ProxyHeaderEntry {
+            name: substitute_vars(&entry.name, vars),
+            value: substitute_vars(&entry.value, vars),
+        })
+        .collect()
+}
+
+fn ensure_content_type_header(headers: &mut Vec<ProxyHeaderEntry>, content_type: &str) {
+    if headers
+        .iter()
+        .any(|header| header.name.eq_ignore_ascii_case("content-type"))
+    {
+        return;
+    }
+
+    headers.push(ProxyHeaderEntry {
+        name: "Content-Type".to_string(),
+        value: content_type.to_string(),
+    });
+}
+
+fn build_urlencoded_body(entries: Vec<ProxyHeaderEntry>) -> Option<String> {
+    let active_entries: Vec<ProxyHeaderEntry> = entries
+        .into_iter()
+        .filter(|entry| !entry.name.trim().is_empty())
+        .collect();
+
+    if active_entries.is_empty() {
+        return None;
+    }
+
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for entry in active_entries {
+        serializer.append_pair(&entry.name, &entry.value);
+    }
+
+    Some(serializer.finish())
+}
+
+fn build_multipart_body(entries: Vec<ProxyHeaderEntry>, boundary: &str) -> Option<String> {
+    let active_entries: Vec<ProxyHeaderEntry> = entries
+        .into_iter()
+        .filter(|entry| !entry.name.trim().is_empty())
+        .collect();
+
+    if active_entries.is_empty() {
+        return None;
+    }
+
+    let mut body = String::new();
+    for entry in active_entries {
+        body.push_str("--");
+        body.push_str(boundary);
+        body.push_str("\r\nContent-Disposition: form-data; name=\"");
+        body.push_str(&entry.name);
+        body.push_str("\"\r\n\r\n");
+        body.push_str(&entry.value);
+        body.push_str("\r\n");
+    }
+    body.push_str("--");
+    body.push_str(boundary);
+    body.push_str("--");
+
+    Some(body)
+}
+
+fn build_collection_item_request(
+    item: &aiproxy_db::collections::CollectionItemRow,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<(String, Vec<ProxyHeaderEntry>, Option<String>), String> {
+    let url = substitute_vars(&item.url, vars);
+    let headers_str = substitute_vars(&item.headers, vars);
+    let mut headers: Vec<ProxyHeaderEntry> =
+        serde_json::from_str(&headers_str).unwrap_or_default();
+
+    let body = match item.body_type.as_str() {
+        "formdata" => {
+            let entries =
+                substitute_header_entries(parse_collection_header_entries(&item.form_data), vars);
+            let boundary = format!("----AIProxyBoundary{}", uuid::Uuid::new_v4().simple());
+            let body = build_multipart_body(entries, &boundary);
+            if body.is_some() {
+                ensure_content_type_header(
+                    &mut headers,
+                    &format!("multipart/form-data; boundary={boundary}"),
+                );
+            }
+            body
+        }
+        "urlencoded" => {
+            let entries =
+                substitute_header_entries(parse_collection_header_entries(&item.url_encoded), vars);
+            let body = build_urlencoded_body(entries);
+            if body.is_some() {
+                ensure_content_type_header(&mut headers, "application/x-www-form-urlencoded");
+            }
+            body
+        }
+        "raw" => {
+            let body = substitute_vars(&item.body, vars);
+            if body.trim().is_empty() {
+                None
+            } else {
+                Some(body)
+            }
+        }
+        _ => None,
+    };
+
+    Ok((url, headers, body))
+}
+
 fn collection_item_output_from_row(
     row: aiproxy_db::collections::CollectionItemRow,
 ) -> ApiCollectionItemOutput {
@@ -2723,30 +2841,19 @@ pub fn save_session_to_collection(
     input: SaveSessionToCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
-    // Load session summary and detail from DB
-    let (method, url, headers_json, body_text) = {
-        let conn = state.read_db_connection().lock().expect("db mutex");
-
-        let summary = aiproxy_db::sessions::load_session_summary(&conn, &input.session_id)
-            .map_err(|e| format!("load session summary: {e}"))?
-            .ok_or_else(|| format!("session {} not found", input.session_id))?;
-
-        let detail = aiproxy_db::sessions::load_session_detail(&conn, &input.session_id)
-            .map_err(|e| format!("load session detail: {e}"))?
-            .ok_or_else(|| format!("session detail {} not found", input.session_id))?;
-
-        let body_text = detail.request_body_ref
-            .and_then(|ref_json| {
-                let parsed: serde_json::Value = serde_json::from_str(&ref_json).ok()?;
-                parsed.get("inlineText")?.as_str().map(String::from)
-            })
-            .unwrap_or_default();
-
-        (summary.method, summary.url, detail.request_headers, body_text)
-    };
+    let detail = state
+        .read_session_detail(&input.session_id)
+        .ok_or_else(|| format!("session detail {} not found", input.session_id))?;
+    let method = detail.summary.method.clone();
+    let url = detail.summary.url.clone();
+    let headers = detail.request_headers.clone();
+    let body_text = detail
+        .request_body
+        .as_ref()
+        .and_then(|body| body.inline_text())
+        .unwrap_or_default();
 
     // Determine body type from Content-Type header
-    let headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_json).unwrap_or_default();
     let content_type = headers.iter()
         .find(|h| h.name.eq_ignore_ascii_case("content-type"))
         .map(|h| h.value.to_lowercase())
@@ -2994,13 +3101,9 @@ pub async fn batch_execute_collection_items(
 
     let mut results = Vec::new();
     for item in items {
-        let url = substitute_vars(&item.url, &env_vars);
-        let headers_str = substitute_vars(&item.headers, &env_vars);
-        let body = substitute_vars(&item.body, &env_vars);
+        let (url, headers, body) = build_collection_item_request(&item, &env_vars)?;
 
-        let headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_str).unwrap_or_default();
-
-        match send_direct_request(item.method, url, headers, Some(body)).await {
+        match send_direct_request(item.method, url, headers, body).await {
             Ok(detail) => {
                 let session_id = detail.id.clone();
                 state.upsert_session(detail.clone());
@@ -3212,10 +3315,11 @@ pub fn update_workspace(
 #[cfg(test)]
 mod tests {
     use super::{
-        collection_item_output_from_row, parse_collection_header_entries,
-        parse_urlencoded_entries,
+        build_collection_item_request, collection_item_output_from_row,
+        parse_collection_header_entries, parse_urlencoded_entries,
     };
     use aiproxy_db::collections::CollectionItemRow;
+    use std::collections::HashMap;
 
     #[test]
     fn collection_item_output_decodes_json_fields() {
@@ -3257,5 +3361,40 @@ mod tests {
         assert_eq!(entries[0].value, "alice smith");
         assert_eq!(entries[1].name, "city");
         assert_eq!(entries[1].value, "New York");
+    }
+
+    #[test]
+    fn collection_item_request_encodes_structured_urlencoded_body() {
+        let item = CollectionItemRow {
+            id: "item-1".into(),
+            collection_id: "collection-1".into(),
+            name: "Search".into(),
+            description: String::new(),
+            sort_order: 0,
+            method: "POST".into(),
+            url: "https://api.example.com/search?q={{query}}".into(),
+            headers: "[]".into(),
+            body: String::new(),
+            body_type: "urlencoded".into(),
+            raw_language: "json".into(),
+            form_data: "[]".into(),
+            url_encoded: r#"[{"name":"query","value":"{{query}}"},{"name":"","value":"ignored"}]"#
+                .into(),
+            created_at: "2026-04-20T00:00:00Z".into(),
+            updated_at: "2026-04-20T00:00:00Z".into(),
+        };
+        let vars = HashMap::from([("query".to_string(), "alice smith".to_string())]);
+
+        let (url, headers, body) = build_collection_item_request(&item, &vars).unwrap();
+
+        assert_eq!(url, "https://api.example.com/search?q=alice smith");
+        assert_eq!(
+            headers,
+            vec![aiproxy_proxy_core::ProxyHeaderEntry {
+                name: "Content-Type".into(),
+                value: "application/x-www-form-urlencoded".into(),
+            }]
+        );
+        assert_eq!(body.as_deref(), Some("query=alice+smith"));
     }
 }

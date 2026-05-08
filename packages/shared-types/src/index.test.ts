@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   coerceAppError,
   createDefaultProxyStatus,
+  createMockComposeSessionDetail,
   DEFAULT_PROXY_PORT,
   isAppError,
   isSessionDetail,
@@ -164,6 +165,20 @@ describe("normalizeStartProxyInput", () => {
       port: DEFAULT_PROXY_PORT,
       workspaceId: "default-workspace",
     });
+  });
+});
+
+describe("createMockComposeSessionDetail", () => {
+  it("uses one id for the detail and summary", () => {
+    const detail = createMockComposeSessionDetail({
+      body: "{\"ok\":true}",
+      headers: [{ name: "Content-Type", value: "application/json" }],
+      method: "POST",
+      url: "https://api.example.com/orders",
+      workspaceId: "default",
+    });
+
+    expect(detail.summary.id).toBe(detail.id);
   });
 });
 

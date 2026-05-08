@@ -1199,6 +1199,7 @@ mod tests {
     use super::{proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState};
     use aiproxy_db::body_store::BodyStore;
     use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
+    use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
@@ -1209,9 +1210,10 @@ mod tests {
             build_summary("2", "static.example.com"),
             build_summary("3", "api.example.com"),
         ];
+        let focused_hosts = build_focused_hosts(&["api.example.com"]);
 
         assert_eq!(
-            select_session_eviction_index(&sessions, Some("api.example.com")),
+            select_session_eviction_index(&sessions, &focused_hosts),
             1
         );
     }
@@ -1222,9 +1224,10 @@ mod tests {
             build_summary("1", "api.example.com"),
             build_summary("2", "api.example.com"),
         ];
+        let focused_hosts = build_focused_hosts(&["api.example.com"]);
 
         assert_eq!(
-            select_session_eviction_index(&sessions, Some("api.example.com")),
+            select_session_eviction_index(&sessions, &focused_hosts),
             0
         );
     }
@@ -1235,8 +1238,9 @@ mod tests {
             build_summary("1", "api.example.com"),
             build_summary("2", "static.example.com"),
         ];
+        let focused_hosts = HashSet::new();
 
-        assert_eq!(select_session_eviction_index(&sessions, None), 0);
+        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 0);
     }
 
     #[test]
@@ -1290,6 +1294,10 @@ mod tests {
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".to_string()),
         }
+    }
+
+    fn build_focused_hosts(hosts: &[&str]) -> HashSet<String> {
+        hosts.iter().map(|host| host.to_string()).collect()
     }
 
     fn build_detail(summary: &ProxySessionSummary) -> ProxySessionDetail {
