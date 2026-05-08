@@ -379,6 +379,7 @@ impl Serialize for ProxyBodyReference {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyTimingBreakdown {
     pub connect_ms: Option<u128>,
     pub dns_ms: Option<u128>,
@@ -391,6 +392,7 @@ pub struct ProxyTimingBreakdown {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProxySessionDetail {
+    pub client_address: Option<String>,
     pub cookies: Vec<ProxyHeaderEntry>,
     pub id: String,
     pub query_params: Vec<ProxyHeaderEntry>,
@@ -401,6 +403,8 @@ pub struct ProxySessionDetail {
     pub response_body: Option<ProxyBodyReference>,
     pub response_headers: Vec<ProxyHeaderEntry>,
     pub server_ip: Option<String>,
+    pub tls_cipher_suite: Option<String>,
+    pub tls_protocol: Option<String>,
     pub summary: ProxySessionSummary,
     pub script_traces: Vec<ScriptTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
@@ -417,6 +421,9 @@ impl ProxySessionDetail {
 
     pub fn resident_memory_bytes_estimate(&self) -> usize {
         size_of::<Self>()
+            + self.client_address.as_ref().map_or(0, String::capacity)
+            + self.tls_cipher_suite.as_ref().map_or(0, String::capacity)
+            + self.tls_protocol.as_ref().map_or(0, String::capacity)
             + estimate_header_entries_memory(&self.cookies)
             + self.id.capacity()
             + estimate_header_entries_memory(&self.query_params)
@@ -444,7 +451,10 @@ impl Serialize for ProxySessionDetail {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ProxySessionDetail", 12)?;
+        let mut state = serializer.serialize_struct("ProxySessionDetail", 15)?;
+        if let Some(client_address) = &self.client_address {
+            state.serialize_field("clientAddress", client_address)?;
+        }
         state.serialize_field("cookies", &self.cookies)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("queryParams", &self.query_params)?;
@@ -464,6 +474,12 @@ impl Serialize for ProxySessionDetail {
         state.serialize_field("responseHeaders", &self.response_headers)?;
         if let Some(server_ip) = &self.server_ip {
             state.serialize_field("serverIp", server_ip)?;
+        }
+        if let Some(tls_cipher_suite) = &self.tls_cipher_suite {
+            state.serialize_field("tlsCipherSuite", tls_cipher_suite)?;
+        }
+        if let Some(tls_protocol) = &self.tls_protocol {
+            state.serialize_field("tlsProtocol", tls_protocol)?;
         }
         state.serialize_field("summary", &self.summary)?;
         if let Some(timing) = &self.timing {
@@ -547,6 +563,7 @@ impl std::fmt::Debug for TlsManager {
 #[derive(Debug)]
 pub(crate) struct ParsedProxyRequest {
     pub(crate) body: Vec<u8>,
+    pub(crate) client_address: Option<String>,
     pub(crate) headers: HeaderMap,
     pub(crate) host: String,
     pub(crate) method: Method,
@@ -557,6 +574,8 @@ pub(crate) struct ParsedProxyRequest {
     pub(crate) request_headers: Vec<ProxyHeaderEntry>,
     pub(crate) request_id: String,
     pub(crate) url: Url,
+    pub(crate) tls_cipher_suite: Option<String>,
+    pub(crate) tls_protocol: Option<String>,
 }
 
 #[derive(Debug)]

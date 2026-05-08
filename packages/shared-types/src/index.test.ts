@@ -402,6 +402,42 @@ describe("parseSessionDetail", () => {
     });
   });
 
+  it("normalizes legacy snake_case timing fields from older command payloads", () => {
+    const actual = parseSessionDetail({
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+      timing: {
+        request_send_ms: 1,
+        response_read_ms: 2,
+        total_ms: 3,
+        waiting_ms: 0,
+      },
+    });
+
+    expect(actual.timing).toEqual({
+      requestSendMs: 1,
+      responseReadMs: 2,
+      totalMs: 3,
+      waitingMs: 0,
+    });
+  });
+
   it("throws when the payload is invalid", () => {
     expect(() => parseSessionDetail({ id: "session-1" })).toThrow();
   });

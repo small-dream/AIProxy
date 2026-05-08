@@ -19,6 +19,24 @@ impl<'a, S> PrefixedStream<'a, S> {
 
 static DIRECT_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
+fn format_tls_protocol_version(version: tokio_rustls::rustls::ProtocolVersion) -> String {
+    match version {
+        tokio_rustls::rustls::ProtocolVersion::TLSv1_2 => "TLSv1.2".to_string(),
+        tokio_rustls::rustls::ProtocolVersion::TLSv1_3 => "TLSv1.3".to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn format_tls_cipher_suite(suite: tokio_rustls::rustls::CipherSuite) -> String {
+    let suite_name = format!("{suite:?}");
+
+    suite_name
+        .strip_prefix("TLS13_")
+        .or_else(|| suite_name.strip_prefix("TLS12_"))
+        .unwrap_or(&suite_name)
+        .to_string()
+}
+
 fn direct_http_client() -> Result<Client, String> {
     if let Some(client) = DIRECT_HTTP_CLIENT.get() {
         return Ok(client.clone());
@@ -296,6 +314,7 @@ async fn handle_connection(
             return Ok(());
         }
     };
+    request.client_address = Some(client_addr.to_string());
 
     // Serve root CA certificate for mobile device download.
     // Mobile browsers hit http://<local-ip>:<port>/aiproxy-ca.crt directly (no proxy config yet).
@@ -385,6 +404,7 @@ async fn handle_connection(
                     port,
                     mgr,
                     client,
+                    client_addr,
                     session_sender,
                     ws_message_sender,
                     started_at,
@@ -486,7 +506,7 @@ async fn handle_connection(
                         ProxyTimingBreakdown {
                             connect_ms: None,
                             dns_ms: None,
-                            request_send_ms: Some(0),
+                            request_send_ms: None,
                             response_read_ms: Some(0),
                             tls_ms: None,
                             total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -591,7 +611,7 @@ async fn handle_connection(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     dns_ms: None,
-                    request_send_ms: Some(0),
+                    request_send_ms: None,
                     response_read_ms: Some(upstream_response.response_read_ms),
                     tls_ms: None,
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -644,7 +664,7 @@ async fn handle_connection(
                                 ProxyTimingBreakdown {
                                     connect_ms: None,
                                     dns_ms: None,
-                                    request_send_ms: Some(0),
+                                    request_send_ms: None,
                                     response_read_ms: Some(upstream_response.response_read_ms),
                                     tls_ms: None,
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -668,7 +688,7 @@ async fn handle_connection(
                             ProxyTimingBreakdown {
                                 connect_ms: None,
                                 dns_ms: None,
-                                request_send_ms: Some(0),
+                                request_send_ms: None,
                                 response_read_ms: Some(upstream_response.response_read_ms),
                                 tls_ms: None,
                                 total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -752,7 +772,7 @@ async fn handle_connection(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     dns_ms: None,
-                    request_send_ms: Some(0),
+                    request_send_ms: None,
                     response_read_ms: Some(0),
                     tls_ms: None,
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1294,7 +1314,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         ProxyTimingBreakdown {
             connect_ms: None,
             dns_ms: None,
-            request_send_ms: Some(0),
+            request_send_ms: None,
             response_read_ms: Some(0),
             tls_ms: None,
             total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1470,7 +1490,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         ProxyTimingBreakdown {
             connect_ms: None,
             dns_ms: None,
-            request_send_ms: Some(0),
+            request_send_ms: None,
             response_read_ms: Some(0),
             tls_ms: Some(tls_ms),
             total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1569,6 +1589,7 @@ async fn handle_connect_mitm(
     port: u16,
     tls_manager: Arc<TlsManager>,
     client: Arc<Client>,
+    client_addr: SocketAddr,
     session_sender: mpsc::Sender<ProxySessionDetail>,
     ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
     started_at: DateTime<Utc>,
@@ -1588,8 +1609,8 @@ async fn handle_connect_mitm(
         .await
         .map_err(map_io_error)?;
 
-    // TLS handshake
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
+    let tls_instant = Instant::now();
     let tls_stream = match tls_acceptor.accept(stream).await {
         Ok(stream) => stream,
         Err(error) => {
@@ -1605,6 +1626,17 @@ async fn handle_connect_mitm(
             return Err(format!("TLS handshake failed for {host}:{port}: {error}"));
         }
     };
+    let tls_ms = tls_instant.elapsed().as_millis();
+    let tls_protocol = tls_stream
+        .get_ref()
+        .1
+        .protocol_version()
+        .map(format_tls_protocol_version);
+    let tls_cipher_suite = tls_stream
+        .get_ref()
+        .1
+        .negotiated_cipher_suite()
+        .map(|suite| format_tls_cipher_suite(suite.suite()));
 
     emit_log(
         "DEBUG",
@@ -1615,11 +1647,10 @@ async fn handle_connect_mitm(
         ],
     );
 
-    let tls_instant = Instant::now();
     let mut tls_stream = tls_stream;
 
     // Read the decrypted HTTP request from the TLS stream
-    let request = match read_proxy_request_from_stream(&mut tls_stream).await {
+    let mut request = match read_proxy_request_from_stream(&mut tls_stream).await {
         Ok(r) => r,
         Err(error) => {
             emit_log(
@@ -1633,8 +1664,9 @@ async fn handle_connect_mitm(
             return Ok(());
         }
     };
-
-    let tls_ms = tls_instant.elapsed().as_millis();
+    request.client_address = Some(client_addr.to_string());
+    request.tls_cipher_suite = tls_cipher_suite;
+    request.tls_protocol = tls_protocol;
 
     // Rewrite URL to https://
     let https_url = if request.url.scheme() == "http" {
@@ -1740,7 +1772,7 @@ async fn handle_connect_mitm(
                         ProxyTimingBreakdown {
                             connect_ms: None,
                             dns_ms: None,
-                            request_send_ms: Some(0),
+                            request_send_ms: None,
                             response_read_ms: Some(0),
                             tls_ms: Some(tls_ms),
                             total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1846,7 +1878,7 @@ async fn handle_connect_mitm(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     dns_ms: None,
-                    request_send_ms: Some(0),
+                    request_send_ms: None,
                     response_read_ms: Some(upstream_response.response_read_ms),
                     tls_ms: Some(tls_ms),
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1899,7 +1931,7 @@ async fn handle_connect_mitm(
                                 ProxyTimingBreakdown {
                                     connect_ms: None,
                                     dns_ms: None,
-                                    request_send_ms: Some(0),
+                                    request_send_ms: None,
                                     response_read_ms: Some(upstream_response.response_read_ms),
                                     tls_ms: Some(tls_ms),
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -1923,7 +1955,7 @@ async fn handle_connect_mitm(
                             ProxyTimingBreakdown {
                                 connect_ms: None,
                                 dns_ms: None,
-                                request_send_ms: Some(0),
+                                request_send_ms: None,
                                 response_read_ms: Some(upstream_response.response_read_ms),
                                 tls_ms: Some(tls_ms),
                                 total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -2007,7 +2039,7 @@ async fn handle_connect_mitm(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     dns_ms: None,
-                    request_send_ms: Some(0),
+                    request_send_ms: None,
                     response_read_ms: Some(0),
                     tls_ms: Some(tls_ms),
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
@@ -2175,6 +2207,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
 
     Ok(ParsedProxyRequest {
         body,
+        client_address: None,
         headers,
         host,
         method,
@@ -2185,6 +2218,8 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         request_headers,
         request_id: Uuid::new_v4().to_string(),
         url,
+        tls_cipher_suite: None,
+        tls_protocol: None,
     })
 }
 
@@ -2306,6 +2341,7 @@ pub async fn send_direct_request(
     });
 
     Ok(ProxySessionDetail {
+        client_address: None,
         cookies: build_cookie_entries(&headers, &response_header_entries),
         id,
         query_params,
@@ -2337,6 +2373,8 @@ pub async fn send_direct_request(
         server_ip: None,
         script_traces: Vec::new(),
         summary,
+        tls_cipher_suite: None,
+        tls_protocol: None,
         timing: Some(timing),
     })
 }
@@ -2365,7 +2403,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         ProxyTimingBreakdown {
             connect_ms: None,
             dns_ms: None,
-            request_send_ms: Some(0),
+            request_send_ms: None,
             response_read_ms: Some(0),
             tls_ms,
             total_ms: Some(started_at_instant.elapsed().as_millis()),

@@ -774,7 +774,10 @@ fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> usize {
         + row.response_headers.len()
         + row.raw_request.as_ref().map_or(0, |value| value.len())
         + row.raw_response.as_ref().map_or(0, |value| value.len())
+        + row.client_address.as_ref().map_or(0, |value| value.len())
         + row.server_ip.as_ref().map_or(0, |value| value.len())
+        + row.tls_cipher_suite.as_ref().map_or(0, |value| value.len())
+        + row.tls_protocol.as_ref().map_or(0, |value| value.len())
         + row.request_body_ref.as_ref().map_or(0, |value| value.len())
         + row.response_body_ref.as_ref().map_or(0, |value| value.len())
         + row.timing.as_ref().map_or(0, |value| value.len())
@@ -952,6 +955,7 @@ fn detail_row_to_proxy(
     });
 
     ProxySessionDetail {
+        client_address: row.client_address.clone(),
         id: row.session_summary_id.clone(),
         query_params: headers_from_json(&row.query_params),
         cookies: headers_from_json(&row.cookies),
@@ -964,6 +968,8 @@ fn detail_row_to_proxy(
         server_ip: row.server_ip.clone(),
         script_traces: Vec::new(),
         summary,
+        tls_cipher_suite: row.tls_cipher_suite.clone(),
+        tls_protocol: row.tls_protocol.clone(),
         timing,
     }
 }
@@ -1035,7 +1041,10 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
         response_headers: serde_json::to_string(&detail.response_headers).unwrap_or_else(|_| "[]".into()),
         raw_request: detail.raw_request_head.clone(),
         raw_response: detail.raw_response_head.clone(),
+        client_address: detail.client_address.clone(),
         server_ip: detail.server_ip.clone(),
+        tls_cipher_suite: detail.tls_cipher_suite.clone(),
+        tls_protocol: detail.tls_protocol.clone(),
         request_body_ref: body_to_json(&detail.request_body),
         response_body_ref: body_to_json(&detail.response_body),
         timing: timing_json,
@@ -1302,6 +1311,7 @@ mod tests {
 
     fn build_detail(summary: &ProxySessionSummary) -> ProxySessionDetail {
         ProxySessionDetail {
+            client_address: Some("127.0.0.1:54321".to_string()),
             id: summary.id.clone(),
             query_params: Vec::new(),
             cookies: Vec::new(),
@@ -1314,6 +1324,8 @@ mod tests {
             server_ip: Some("1.2.3.4".to_string()),
             script_traces: Vec::new(),
             summary: summary.clone(),
+            tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
+            tls_protocol: Some("TLSv1.3".to_string()),
             timing: None,
         }
     }

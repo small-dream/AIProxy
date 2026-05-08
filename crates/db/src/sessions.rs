@@ -32,7 +32,10 @@ pub struct SessionDetailRow {
     pub response_headers: String,  // JSON array
     pub raw_request: Option<String>,
     pub raw_response: Option<String>,
+    pub client_address: Option<String>,
     pub server_ip: Option<String>,
+    pub tls_cipher_suite: Option<String>,
+    pub tls_protocol: Option<String>,
     pub request_body_ref: Option<String>,  // nullable JSON
     pub response_body_ref: Option<String>, // nullable JSON
     pub timing: Option<String>,            // nullable JSON
@@ -74,15 +77,16 @@ pub fn upsert_session(
         "INSERT OR REPLACE INTO session_details
             (id, session_summary_id, query_params, cookies,
              request_headers, response_headers, raw_request, raw_response,
-             server_ip, request_body_ref, response_body_ref, timing)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             client_address, server_ip, tls_cipher_suite, tls_protocol,
+             request_body_ref, response_body_ref, timing)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             detail.id, detail.session_summary_id,
             detail.query_params, detail.cookies,
             detail.request_headers, detail.response_headers,
             detail.raw_request, detail.raw_response,
-            detail.server_ip, detail.request_body_ref,
-            detail.response_body_ref, detail.timing,
+            detail.client_address, detail.server_ip, detail.tls_cipher_suite, detail.tls_protocol,
+            detail.request_body_ref, detail.response_body_ref, detail.timing,
         ],
     )
     .map_err(|e| format!("upsert session detail: {e}"))?;
@@ -143,7 +147,8 @@ pub fn load_session_detail(conn: &Connection, id: &str) -> Result<Option<Session
     let result = conn.query_row(
         "SELECT id, session_summary_id, query_params, cookies,
                 request_headers, response_headers, raw_request, raw_response,
-                server_ip, request_body_ref, response_body_ref, timing
+                client_address, server_ip, tls_cipher_suite, tls_protocol,
+                request_body_ref, response_body_ref, timing
          FROM session_details WHERE session_summary_id=?1",
         params![id],
         |row| {
@@ -156,10 +161,13 @@ pub fn load_session_detail(conn: &Connection, id: &str) -> Result<Option<Session
                 response_headers: row.get(5)?,
                 raw_request: row.get(6)?,
                 raw_response: row.get(7)?,
-                server_ip: row.get(8)?,
-                request_body_ref: row.get(9)?,
-                response_body_ref: row.get(10)?,
-                timing: row.get(11)?,
+                client_address: row.get(8)?,
+                server_ip: row.get(9)?,
+                tls_cipher_suite: row.get(10)?,
+                tls_protocol: row.get(11)?,
+                request_body_ref: row.get(12)?,
+                response_body_ref: row.get(13)?,
+                timing: row.get(14)?,
             })
         },
     );
@@ -414,7 +422,10 @@ mod tests {
             response_headers: "[]".into(),
             raw_request: None,
             raw_response: None,
+            client_address: Some("127.0.0.1:54321".into()),
             server_ip: Some("1.2.3.4".into()),
+            tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".into()),
+            tls_protocol: Some("TLSv1.3".into()),
             request_body_ref: None,
             response_body_ref: None,
             timing: Some("{\"totalMs\":100}".into()),

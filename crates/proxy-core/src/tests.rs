@@ -98,6 +98,7 @@ use tokio::{
     #[test]
     fn serializes_raw_messages_from_heads_and_body_references() {
         let detail = ProxySessionDetail {
+            client_address: Some("127.0.0.1:54321".to_string()),
             cookies: Vec::new(),
             id: "session-1".to_string(),
             query_params: Vec::new(),
@@ -153,6 +154,8 @@ use tokio::{
                 response_mime_type: Some("application/json".to_string()),
             },
             script_traces: Vec::new(),
+            tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
+            tls_protocol: Some("TLSv1.3".to_string()),
             timing: Some(ProxyTimingBreakdown {
                 connect_ms: None,
                 dns_ms: None,
@@ -170,12 +173,17 @@ use tokio::{
             actual["rawRequest"],
             json!("POST /hello HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"hello\":\"world\"}")
         );
+        assert_eq!(actual["clientAddress"], json!("127.0.0.1:54321"));
+        assert_eq!(actual["tlsProtocol"], json!("TLSv1.3"));
+        assert_eq!(actual["tlsCipherSuite"], json!("TLS_AES_128_GCM_SHA256"));
         assert_eq!(
             actual["rawResponse"],
             json!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}")
         );
         assert_eq!(actual["requestBody"]["inlineText"], json!(r#"{"hello":"world"}"#));
         assert_eq!(actual["responseBody"]["inlineText"], json!(r#"{"ok":true}"#));
+        assert_eq!(actual["timing"]["responseReadMs"], json!(1));
+        assert!(actual["timing"].get("response_read_ms").is_none());
     }
 
     #[test]
@@ -558,6 +566,7 @@ use tokio::{
 
         ParsedProxyRequest {
             body: Vec::new(),
+            client_address: Some("127.0.0.1:54321".to_string()),
             headers: build_upstream_headers_from_entries(&request_headers).unwrap_or_else(|_| HeaderMap::new()),
             host: parsed_url.host_str().unwrap().to_string(),
             method: Method::GET,
@@ -572,5 +581,7 @@ use tokio::{
             request_headers,
             request_id: "test-request".to_string(),
             url: parsed_url,
+            tls_cipher_suite: None,
+            tls_protocol: None,
         }
     }

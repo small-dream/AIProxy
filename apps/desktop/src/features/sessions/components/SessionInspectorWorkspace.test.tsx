@@ -166,6 +166,54 @@ describe("SessionInspectorWorkspace", () => {
     ]);
   });
 
+  it("shows captured response timing and marks unsupported proxy timing phases unavailable", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({
+            durationMs: 5200,
+            finishedAt: "2026-04-11T10:00:05.200Z",
+          })}
+          selectedSessionDetail={createSessionDetail({
+            clientAddress: "127.0.0.1:54321",
+            summary: createSessionSummary({
+              durationMs: 5200,
+              finishedAt: "2026-04-11T10:00:05.200Z",
+            }),
+            tlsCipherSuite: "TLS_AES_128_GCM_SHA256",
+            tlsProtocol: "TLSv1.3",
+            timing: {
+              responseReadMs: 0,
+              totalMs: 5200,
+              waitingMs: 5000,
+            },
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.getByText("127.0.0.1:54321")).toBeInTheDocument();
+    expect(screen.getByText("TLSv1.3 (TLS_AES_128_GCM_SHA256)")).toBeInTheDocument();
+    expect(screen.getByText("<1 ms")).toBeInTheDocument();
+    expect(screen.getByText("5000 ms")).toBeInTheDocument();
+    expect(screen.queryByText("Connection")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("renders text response tabs in the preferred order", () => {
     render(
       <AppProviders>

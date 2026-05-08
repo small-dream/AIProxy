@@ -62,7 +62,7 @@ export function SessionInspectorOverview({
     },
   ], [sections, session.id, sizeBreakdown]);
   const initialExpandedBlocks = useMemo(
-    () => ({ ...buildExpandedState(["general", "timing", "size"]), connection: false }),
+    () => buildExpandedState(["general", "timing", "size"]),
     [],
   );
   const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>(initialExpandedBlocks);
@@ -379,20 +379,23 @@ function buildOverviewSections({
   const totalBytes = requestTotalBytes + responseTotalBytes;
   const timing = detail?.timing;
   const startedAt = formatTimestamp(session.startedAt, fallback);
+  const isImportedTiming = isImportedHarSession(session);
+  const unavailable = t("common.states.unavailable");
+  const responseStartOffsetMs = getResponseStartOffsetMs(timing);
   const requestEndTime = formatOffsetTimestamp(
     session.startedAt,
-    sumMilliseconds(timing?.dnsMs, timing?.connectMs, timing?.tlsMs, timing?.requestSendMs),
+    getRequestEndOffsetMs(timing, isImportedTiming),
     fallback,
   );
   const responseStartTime = formatOffsetTimestamp(
     session.startedAt,
-    sumMilliseconds(timing?.dnsMs, timing?.connectMs, timing?.tlsMs, timing?.requestSendMs, timing?.waitingMs),
+    responseStartOffsetMs,
     fallback,
   );
   const responseEndTime = formatTimestamp(session.finishedAt, fallback);
   const requestQueryBytes = estimateQueryStringBytes(session.url);
-  const requestCookieBytes = estimateCookieBytes(detail?.requestHeaders, "cookie");
-  const responseCookieBytes = estimateCookieBytes(detail?.responseHeaders, "set-cookie");
+  const requestCookieBytes = detail ? estimateCookieBytes(detail.requestHeaders, "cookie") : undefined;
+  const responseCookieBytes = detail ? estimateCookieBytes(detail.responseHeaders, "set-cookie") : undefined;
   const requestUncompressedBytes = estimateDecodedBodyBytes(detail?.requestBody);
   const responseUncompressedBytes = estimateDecodedBodyBytes(detail?.responseBody);
 
@@ -407,23 +410,12 @@ function buildOverviewSections({
           [t("inspector.request.overview.fields.status"), session.statusCode > 0 ? t("inspector.request.overview.complete") : t("common.states.pending")],
           [t("inspector.request.overview.fields.responseCode"), session.statusCode > 0 ? String(session.statusCode) : fallback],
           [t("inspector.request.overview.fields.contentType"), responseContentType],
-          [t("inspector.request.overview.fields.clientAddress"), fallback],
+          [t("inspector.request.overview.fields.clientAddress"), detail?.clientAddress ?? fallback],
           [t("inspector.request.overview.fields.remoteAddress"), buildRemoteAddress(session.url, session.host, detail?.serverIp)],
           [t("common.labels.protocol"), formatProtocol(session.protocol)],
           [t("inspector.request.overview.fields.tags"), t("common.states.na")],
           [t("inspector.request.overview.fields.keptAlive"), formatBooleanValue(getKeepAlive(detail?.requestHeaders, session.protocol), fallback, t)],
-          [t("inspector.request.overview.fields.ssl"), formatSslValue(session.protocol, fallback)],
-        ],
-      },
-      {
-        key: "connection",
-        title: t("inspector.request.overview.sections.connection"),
-        items: [
-          [t("inspector.request.overview.fields.clientConnection"), fallback],
-          [t("inspector.request.overview.fields.serverConnection"), fallback],
-          [t("inspector.request.overview.fields.streamId"), fallback],
-          [t("inspector.request.overview.fields.clientSettings"), fallback],
-          [t("inspector.request.overview.fields.serverSettings"), fallback],
+          [t("inspector.request.overview.fields.ssl"), formatSslValue(session.protocol, detail, fallback, t("common.states.na"))],
         ],
       },
       {
@@ -435,14 +427,14 @@ function buildOverviewSections({
           [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
           [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
           [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
-          [t("inspector.request.overview.fields.dns"), formatTiming(timing?.dnsMs, fallback)],
-          [t("inspector.request.overview.fields.connect"), formatTiming(timing?.connectMs, fallback)],
-          [t("inspector.request.overview.fields.tlsHandshake"), formatTiming(timing?.tlsMs, fallback)],
-          [t("inspector.request.overview.fields.request"), formatTiming(timing?.requestSendMs, fallback)],
+          [t("inspector.request.overview.fields.dns"), formatConnectionPhaseTiming(timing?.dnsMs, timing, isImportedTiming, fallback, unavailable)],
+          [t("inspector.request.overview.fields.connect"), formatConnectionPhaseTiming(timing?.connectMs, timing, isImportedTiming, fallback, unavailable)],
+          [t("inspector.request.overview.fields.tlsHandshake"), formatTlsTiming(timing?.tlsMs, timing, session.protocol, isImportedTiming, fallback, unavailable, t)],
+          [t("inspector.request.overview.fields.request"), formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable)],
           [t("inspector.request.overview.fields.response"), formatTiming(timing?.responseReadMs, fallback)],
           [t("inspector.request.overview.fields.latency"), formatTiming(timing?.waitingMs, fallback)],
           [t("inspector.request.overview.fields.speed"), formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t)],
-          [t("inspector.request.overview.fields.requestSpeed"), formatBytesPerSecond(requestTotalBytes, timing?.requestSendMs, fallback, t)],
+          [t("inspector.request.overview.fields.requestSpeed"), formatRequestBytesPerSecond(requestTotalBytes, timing, isImportedTiming, fallback, unavailable, t)],
           [t("inspector.request.overview.fields.responseSpeed"), formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t)],
         ],
       },
@@ -455,13 +447,12 @@ function buildOverviewSections({
           title: t("common.labels.request"),
           total: formatBytes(requestTotalBytes, t),
           items: [
-            [t("inspector.request.overview.fields.tlsHandshake"), fallback],
             [t("inspector.request.overview.fields.header"), formatBytes(requestHeaderBytes, t)],
             [t("inspector.request.overview.fields.queryString"), requestQueryBytes != null ? formatBytes(requestQueryBytes, t) : fallback],
             [t("inspector.request.overview.fields.cookies"), requestCookieBytes != null ? formatBytes(requestCookieBytes, t) : fallback],
             [t("common.labels.body"), formatBytes(requestBodyBytes, t)],
             [t("inspector.request.overview.fields.uncompressedBody"), requestUncompressedBytes != null ? formatBytes(requestUncompressedBytes, t) : fallback],
-            [t("inspector.request.overview.fields.compression"), formatCompression(requestBodyBytes, requestUncompressedBytes, requestContentEncoding, fallback)],
+            [t("inspector.request.overview.fields.compression"), formatCompression(requestBodyBytes, requestUncompressedBytes, requestContentEncoding, fallback, t("common.states.na"))],
           ],
         },
         {
@@ -469,12 +460,11 @@ function buildOverviewSections({
           title: t("common.labels.response"),
           total: formatBytes(responseTotalBytes, t),
           items: [
-            [t("inspector.request.overview.fields.tlsHandshake"), fallback],
             [t("inspector.request.overview.fields.header"), formatBytes(responseHeaderBytes, t)],
             [t("inspector.request.overview.fields.cookies"), responseCookieBytes != null ? formatBytes(responseCookieBytes, t) : fallback],
             [t("common.labels.body"), formatBytes(responseBodyBytes, t)],
             [t("inspector.request.overview.fields.uncompressedBody"), responseUncompressedBytes != null ? formatBytes(responseUncompressedBytes, t) : fallback],
-            [t("inspector.request.overview.fields.compression"), formatCompression(responseBodyBytes, responseUncompressedBytes, responseContentEncoding, fallback)],
+            [t("inspector.request.overview.fields.compression"), formatCompression(responseBodyBytes, responseUncompressedBytes, responseContentEncoding, fallback, t("common.states.na"))],
           ],
         },
       ],
@@ -501,6 +491,99 @@ function sumMilliseconds(...values: Array<number | undefined>) {
   }
 
   return hasValue ? total : undefined;
+}
+
+function isImportedHarSession(session: SessionSummary) {
+  return session.id.startsWith("imported-har-");
+}
+
+function getResponseStartOffsetMs(timing: SessionDetail["timing"] | undefined) {
+  if (!timing) {
+    return undefined;
+  }
+
+  if (timing.totalMs != null && timing.responseReadMs != null) {
+    return Math.max(0, timing.totalMs - timing.responseReadMs);
+  }
+
+  return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs, timing.waitingMs);
+}
+
+function getRequestEndOffsetMs(timing: SessionDetail["timing"] | undefined, isImportedTiming: boolean) {
+  if (!timing) {
+    return undefined;
+  }
+
+  const phaseOffset = isImportedTiming && timing.requestSendMs != null
+    ? sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs)
+    : undefined;
+
+  if (phaseOffset != null) {
+    return phaseOffset;
+  }
+
+  const responseStartOffsetMs = getResponseStartOffsetMs(timing);
+
+  if (responseStartOffsetMs != null && timing.waitingMs != null) {
+    return Math.max(0, responseStartOffsetMs - timing.waitingMs);
+  }
+
+  return undefined;
+}
+
+function formatConnectionPhaseTiming(
+  value: number | undefined,
+  timing: SessionDetail["timing"] | undefined,
+  isImportedTiming: boolean,
+  fallback: string,
+  unavailable: string,
+) {
+  if (value != null) {
+    return formatTiming(value, fallback);
+  }
+
+  return timing && !isImportedTiming ? unavailable : fallback;
+}
+
+function formatTlsTiming(
+  value: number | undefined,
+  timing: SessionDetail["timing"] | undefined,
+  protocol: string,
+  isImportedTiming: boolean,
+  fallback: string,
+  unavailable: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (value != null) {
+    return formatTiming(value, fallback);
+  }
+
+  if (protocol.toLowerCase() === "http") {
+    return t("common.states.na");
+  }
+
+  return timing && !isImportedTiming ? unavailable : fallback;
+}
+
+function hasDetailedRequestSendTiming(timing: SessionDetail["timing"] | undefined, isImportedTiming: boolean) {
+  if (timing?.requestSendMs == null) {
+    return false;
+  }
+
+  return isImportedTiming;
+}
+
+function formatRequestPhaseTiming(
+  timing: SessionDetail["timing"] | undefined,
+  isImportedTiming: boolean,
+  fallback: string,
+  unavailable: string,
+) {
+  if (hasDetailedRequestSendTiming(timing, isImportedTiming)) {
+    return formatTiming(timing?.requestSendMs, fallback);
+  }
+
+  return timing && !isImportedTiming ? unavailable : fallback;
 }
 
 function formatTimestamp(value: string | undefined, fallback: string) {
@@ -546,11 +629,17 @@ function formatBytesPerSecond(
   t: ReturnType<typeof useI18n>["t"],
 ) {
   if (!durationMs || durationMs <= 0) {
+    if (durationMs === 0 && bytes > 0) {
+      return formatBytesPerSecondValue(bytes / 0.001, t);
+    }
+
     return fallback;
   }
 
-  const bytesPerSecond = bytes / (durationMs / 1000);
+  return formatBytesPerSecondValue(bytes / (durationMs / 1000), t);
+}
 
+function formatBytesPerSecondValue(bytesPerSecond: number, t: ReturnType<typeof useI18n>["t"]) {
   if (bytesPerSecond >= 1024 * 1024) {
     return t("common.tech.megabytesPerSecond", { value: (bytesPerSecond / (1024 * 1024)).toFixed(2) });
   }
@@ -562,13 +651,37 @@ function formatBytesPerSecond(
   return t("common.tech.bytesPerSecond", { value: Math.round(bytesPerSecond) });
 }
 
+function formatRequestBytesPerSecond(
+  bytes: number,
+  timing: SessionDetail["timing"] | undefined,
+  isImportedTiming: boolean,
+  fallback: string,
+  unavailable: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (!timing) {
+    return fallback;
+  }
+
+  if (!hasDetailedRequestSendTiming(timing, isImportedTiming)) {
+    return isImportedTiming ? fallback : unavailable;
+  }
+
+  return formatBytesPerSecond(bytes, timing.requestSendMs, fallback, t);
+}
+
 function formatCompression(
   compressedBytes: number,
   uncompressedBytes: number | undefined,
   encoding: string | undefined,
   fallback: string,
+  na: string,
 ) {
-  if (!encoding || !uncompressedBytes || uncompressedBytes <= 0) {
+  if (!encoding) {
+    return na;
+  }
+
+  if (!uncompressedBytes || uncompressedBytes <= 0) {
     return fallback;
   }
 
@@ -638,7 +751,7 @@ function estimateCookieBytes(headers: HeaderEntry[] | undefined, headerName: str
   const matchingHeaders = headers?.filter((header) => header.name.toLowerCase() === headerName.toLowerCase()) ?? [];
 
   if (matchingHeaders.length === 0) {
-    return undefined;
+    return headers ? 0 : undefined;
   }
 
   return matchingHeaders.reduce((total, header) => total + new TextEncoder().encode(`${header.name}: ${header.value}\r\n`).length, 0);
@@ -710,13 +823,26 @@ function formatBooleanValue(
   return value ? t("inspector.request.overview.yes") : t("inspector.request.overview.no");
 }
 
-function formatSslValue(protocol: string, fallback: string) {
-  if (protocol.toLowerCase() === "https") {
-    return "HTTPS";
+function formatSslValue(
+  protocol: string,
+  detail: SessionDetail | undefined,
+  fallback: string,
+  na: string,
+) {
+  if (detail?.tlsProtocol) {
+    return detail.tlsCipherSuite
+      ? `${detail.tlsProtocol} (${detail.tlsCipherSuite})`
+      : detail.tlsProtocol;
   }
 
-  if (protocol.toLowerCase() === "connect") {
-    return "CONNECT";
+  const normalizedProtocol = protocol.toLowerCase();
+
+  if (normalizedProtocol === "http" || normalizedProtocol === "ws") {
+    return na;
+  }
+
+  if (normalizedProtocol === "https" || normalizedProtocol === "connect" || normalizedProtocol === "wss") {
+    return detail ? fallback : "HTTPS";
   }
 
   return fallback;

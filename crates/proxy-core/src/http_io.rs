@@ -154,6 +154,7 @@ pub(crate) fn build_session_detail(
     });
 
     ProxySessionDetail {
+        client_address: request.client_address.clone(),
         cookies: build_cookie_entries(&request.request_headers, &response_header_entries),
         id,
         query_params: request.query_params.clone(),
@@ -188,6 +189,8 @@ pub(crate) fn build_session_detail(
         server_ip: None,
         script_traces: Vec::new(),
         summary,
+        tls_cipher_suite: request.tls_cipher_suite.clone(),
+        tls_protocol: request.tls_protocol.clone(),
         timing: Some(timing),
     }
 }
@@ -199,6 +202,7 @@ pub(crate) fn build_pending_session_detail(
     let started_at_text = started_at.to_rfc3339();
 
     ProxySessionDetail {
+        client_address: request.client_address.clone(),
         cookies: Vec::new(),
         id: request.request_id.clone(),
         query_params: request.query_params.clone(),
@@ -230,6 +234,8 @@ pub(crate) fn build_pending_session_detail(
             url: request.url.to_string(),
             response_mime_type: None,
         },
+        tls_cipher_suite: request.tls_cipher_suite.clone(),
+        tls_protocol: request.tls_protocol.clone(),
         timing: Some(ProxyTimingBreakdown {
             connect_ms: None,
             dns_ms: None,

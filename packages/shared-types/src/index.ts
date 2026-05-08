@@ -66,6 +66,7 @@ export type TimingBreakdown = {
 };
 
 export type SessionDetail = {
+  clientAddress?: string;
   cookies: HeaderEntry[];
   id: string;
   queryParams: HeaderEntry[];
@@ -81,6 +82,8 @@ export type SessionDetail = {
   responseHeaders: HeaderEntry[];
   serverIp?: string;
   summary: SessionSummary;
+  tlsCipherSuite?: string;
+  tlsProtocol?: string;
   timing?: TimingBreakdown;
 };
 
@@ -803,20 +806,37 @@ export function isBodyReference(value: unknown): value is BodyReference {
   );
 }
 
+type WireTimingBreakdown = TimingBreakdown & {
+  connect_ms?: number | null;
+  dns_ms?: number | null;
+  request_send_ms?: number | null;
+  response_read_ms?: number | null;
+  tls_ms?: number | null;
+  total_ms?: number | null;
+  waiting_ms?: number | null;
+};
+
 export function isTimingBreakdown(value: unknown): value is TimingBreakdown {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  const candidate = value as Partial<TimingBreakdown>;
+  const candidate = value as Partial<WireTimingBreakdown>;
   const timingFields = [
     candidate.connectMs,
+    candidate.connect_ms,
     candidate.dnsMs,
+    candidate.dns_ms,
     candidate.requestSendMs,
+    candidate.request_send_ms,
     candidate.responseReadMs,
+    candidate.response_read_ms,
     candidate.tlsMs,
+    candidate.tls_ms,
     candidate.totalMs,
+    candidate.total_ms,
     candidate.waitingMs,
+    candidate.waiting_ms,
   ];
 
   return timingFields.every(isNullableNumber);
@@ -828,6 +848,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
   }
 
   const candidate = value as Partial<SessionDetail> & {
+    clientAddress?: string | null;
     rawRequestHead?: string | null;
     rawRequest?: string | null;
     rawRequestDeferred?: boolean | null;
@@ -837,6 +858,8 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     requestBody?: BodyReference | null;
     responseBody?: BodyReference | null;
     serverIp?: string | null;
+    tlsCipherSuite?: string | null;
+    tlsProtocol?: string | null;
     timing?: TimingBreakdown | null;
   };
 
@@ -851,6 +874,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     candidate.queryParams.every(isHeaderEntry) &&
     Array.isArray(candidate.cookies) &&
     candidate.cookies.every(isHeaderEntry) &&
+    isNullableString(candidate.clientAddress) &&
     (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
     (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
     (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
@@ -860,13 +884,16 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     isNullableString(candidate.rawResponseHead) &&
     isNullableString(candidate.rawResponse) &&
     isNullableBoolean(candidate.rawResponseDeferred) &&
-    isNullableString(candidate.serverIp)
+    isNullableString(candidate.serverIp) &&
+    isNullableString(candidate.tlsCipherSuite) &&
+    isNullableString(candidate.tlsProtocol)
   );
 }
 
 export function parseSessionDetail(value: unknown): SessionDetail {
   if (isSessionDetail(value)) {
     const candidate = value as SessionDetail & {
+      clientAddress?: string | null;
       rawRequestHead?: string | null;
       rawRequest?: string | null;
       rawRequestDeferred?: boolean | null;
@@ -876,11 +903,16 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       requestBody?: BodyReference | null;
       responseBody?: BodyReference | null;
       serverIp?: string | null;
+      tlsCipherSuite?: string | null;
+      tlsProtocol?: string | null;
       timing?: TimingBreakdown | null;
     };
 
     return {
       cookies: candidate.cookies,
+      ...(candidate.clientAddress !== null && candidate.clientAddress !== undefined
+        ? { clientAddress: candidate.clientAddress }
+        : {}),
       id: candidate.id,
       queryParams: candidate.queryParams,
       ...(candidate.rawRequestHead !== null && candidate.rawRequestHead !== undefined
@@ -912,6 +944,12 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.serverIp !== null && candidate.serverIp !== undefined
         ? { serverIp: candidate.serverIp }
+        : {}),
+      ...(candidate.tlsCipherSuite !== null && candidate.tlsCipherSuite !== undefined
+        ? { tlsCipherSuite: candidate.tlsCipherSuite }
+        : {}),
+      ...(candidate.tlsProtocol !== null && candidate.tlsProtocol !== undefined
+        ? { tlsProtocol: candidate.tlsProtocol }
         : {}),
       ...(candidate.timing !== null && candidate.timing !== undefined
         ? { timing: normalizeTimingBreakdown(candidate.timing) }
@@ -1141,27 +1179,27 @@ function mergeBodyReferenceContent(
   return nextBody;
 }
 
-function normalizeTimingBreakdown(timing: TimingBreakdown & {
-  connectMs?: number | null;
-  dnsMs?: number | null;
-  requestSendMs?: number | null;
-  responseReadMs?: number | null;
-  tlsMs?: number | null;
-  totalMs?: number | null;
-  waitingMs?: number | null;
-}): TimingBreakdown {
+function normalizeTimingBreakdown(timing: WireTimingBreakdown): TimingBreakdown {
+  const connectMs = timing.connectMs ?? timing.connect_ms;
+  const dnsMs = timing.dnsMs ?? timing.dns_ms;
+  const requestSendMs = timing.requestSendMs ?? timing.request_send_ms;
+  const responseReadMs = timing.responseReadMs ?? timing.response_read_ms;
+  const tlsMs = timing.tlsMs ?? timing.tls_ms;
+  const totalMs = timing.totalMs ?? timing.total_ms;
+  const waitingMs = timing.waitingMs ?? timing.waiting_ms;
+
   return {
-    ...(timing.connectMs !== null && timing.connectMs !== undefined ? { connectMs: timing.connectMs } : {}),
-    ...(timing.dnsMs !== null && timing.dnsMs !== undefined ? { dnsMs: timing.dnsMs } : {}),
-    ...(timing.requestSendMs !== null && timing.requestSendMs !== undefined
-      ? { requestSendMs: timing.requestSendMs }
+    ...(connectMs !== null && connectMs !== undefined ? { connectMs } : {}),
+    ...(dnsMs !== null && dnsMs !== undefined ? { dnsMs } : {}),
+    ...(requestSendMs !== null && requestSendMs !== undefined
+      ? { requestSendMs }
       : {}),
-    ...(timing.responseReadMs !== null && timing.responseReadMs !== undefined
-      ? { responseReadMs: timing.responseReadMs }
+    ...(responseReadMs !== null && responseReadMs !== undefined
+      ? { responseReadMs }
       : {}),
-    ...(timing.tlsMs !== null && timing.tlsMs !== undefined ? { tlsMs: timing.tlsMs } : {}),
-    ...(timing.totalMs !== null && timing.totalMs !== undefined ? { totalMs: timing.totalMs } : {}),
-    ...(timing.waitingMs !== null && timing.waitingMs !== undefined ? { waitingMs: timing.waitingMs } : {}),
+    ...(tlsMs !== null && tlsMs !== undefined ? { tlsMs } : {}),
+    ...(totalMs !== null && totalMs !== undefined ? { totalMs } : {}),
+    ...(waitingMs !== null && waitingMs !== undefined ? { waitingMs } : {}),
   };
 }
 

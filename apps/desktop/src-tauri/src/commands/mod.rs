@@ -98,6 +98,8 @@ pub struct SessionBodyPayload {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetailPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_address: Option<String>,
     cookies: Vec<ProxyHeaderEntry>,
     id: String,
     query_params: Vec<ProxyHeaderEntry>,
@@ -121,6 +123,10 @@ pub struct SessionDetailPayload {
     response_headers: Vec<ProxyHeaderEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls_cipher_suite: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls_protocol: Option<String>,
     summary: ProxySessionSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     timing: Option<ProxyTimingBreakdown>,
@@ -449,6 +455,7 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
     let include_raw_response = should_inline_raw_by_default(detail.response_body.as_ref());
 
     SessionDetailPayload {
+        client_address: detail.client_address.clone(),
         cookies: detail.cookies.clone(),
         id: detail.id.clone(),
         query_params: detail.query_params.clone(),
@@ -463,6 +470,8 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
         response_body: detail.response_body.as_ref().map(build_lightweight_body_payload),
         response_headers: detail.response_headers.clone(),
         server_ip: detail.server_ip.clone(),
+        tls_cipher_suite: detail.tls_cipher_suite.clone(),
+        tls_protocol: detail.tls_protocol.clone(),
         summary: detail.summary.clone(),
         timing: detail.timing.clone(),
     }

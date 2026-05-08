@@ -318,7 +318,15 @@ export function describeBody(
 }
 
 export function formatTiming(value: number | undefined, fallbackLabel: string = DEFAULT_COMMON_MESSAGES.states.notCaptured) {
-  return value === undefined ? fallbackLabel : DEFAULT_COMMON_MESSAGES.tech.milliseconds.replace("{{value}}", String(value));
+  if (value === undefined) {
+    return fallbackLabel;
+  }
+
+  if (value === 0) {
+    return DEFAULT_COMMON_MESSAGES.tech.lessThanMillisecond;
+  }
+
+  return DEFAULT_COMMON_MESSAGES.tech.milliseconds.replace("{{value}}", String(value));
 }
 
 export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
