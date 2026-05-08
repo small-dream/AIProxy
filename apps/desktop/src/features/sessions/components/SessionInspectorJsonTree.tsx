@@ -6,7 +6,7 @@ import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
@@ -503,6 +503,28 @@ function JsonTreeRowView({
       : typeof value === "boolean" || value === null
         ? syntaxColors.boolean
         : "text.primary";
+  const valueRef = useRef<HTMLSpanElement | null>(null);
+  const [isValueOverflowing, setIsValueOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = valueRef.current;
+    if (!element) return undefined;
+
+    const updateOverflow = () => {
+      setIsValueOverflowing(element.scrollWidth > element.clientWidth);
+    };
+
+    updateOverflow();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(updateOverflow);
+      resizeObserver.observe(element);
+      return () => resizeObserver.disconnect();
+    }
+
+    window.addEventListener("resize", updateOverflow);
+    return () => window.removeEventListener("resize", updateOverflow);
+  }, [rowValue]);
 
   function highlight(text: string) {
     if (matcher) {
@@ -619,8 +641,9 @@ function JsonTreeRowView({
         }}
       >
         {rowValue ? (
-          <Tooltip arrow placement="top-start" title={rowValue}>
+          <Tooltip arrow placement="top-start" title={isValueOverflowing ? rowValue : ""}>
             <Typography
+              ref={valueRef}
               sx={{
                 fontSize: 13,
                 lineHeight: 1.35,

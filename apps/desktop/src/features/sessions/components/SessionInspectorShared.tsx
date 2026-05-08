@@ -301,12 +301,40 @@ export function EllipsizedCell({
   const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = textRef.current;
+
+    if (!element) {
+      return undefined;
+    }
+
+    const updateOverflow = () => {
+      setIsOverflowing(element.scrollWidth > element.clientWidth);
+    };
+
+    updateOverflow();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(updateOverflow);
+      resizeObserver.observe(element);
+
+      return () => resizeObserver.disconnect();
+    }
+
+    window.addEventListener("resize", updateOverflow);
+
+    return () => window.removeEventListener("resize", updateOverflow);
+  }, [text]);
 
   return (
     <>
       <Stack alignItems="center" direction="row" spacing={0.25} sx={{ minWidth: 0, width: "100%" }}>
-        <Tooltip arrow enterDelay={350} placement="top-start" title={text}>
+        <Tooltip arrow enterDelay={350} placement="top-start" title={isOverflowing ? text : ""}>
           <Typography
+            ref={textRef}
             sx={{
               flex: 1,
               fontSize: 13,
