@@ -2,7 +2,7 @@ import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, ButtonBase, Stack, Tooltip, Typography } from "@mui/material";
 import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useI18n } from "@/i18n";
@@ -53,7 +53,7 @@ export function SessionInspectorOverview({
     ...sections.map((section) => ({
       key: section.key,
       title: section.title,
-      content: <OverviewDefinitionList items={section.items} />,
+      content: <OverviewDefinitionList indent={section.key === "general" ? 0 : 3.25} items={section.items} />,
     })),
     {
       key: "size",
@@ -99,7 +99,6 @@ export function SessionInspectorOverview({
                   <Box
                     sx={{
                       pb: isGeneral ? 0.5 : 0.75,
-                      pl: isGeneral ? 0 : 3.25,
                       pt: isGeneral ? 0.25 : 0.25,
                     }}
                   >
@@ -219,38 +218,71 @@ function OverviewGridRow({
       <Box sx={{ minWidth: 0, pl: labelIndent }}>
         {label}
       </Box>
-      {value !== undefined ? (
-        <Tooltip
-          arrow
-          enterDelay={350}
-          placement="top-start"
-          slotProps={{
-            tooltip: {
-              sx: {
-                maxWidth: 760,
-                overflowWrap: "anywhere",
-              },
-            },
-          }}
-          title={value}
-        >
-          <Typography
-            sx={{
-              color: "text.primary",
-              fontSize: 13.5,
-              fontWeight: 500,
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            variant="body2"
-          >
-            {value}
-          </Typography>
-        </Tooltip>
-      ) : <Box />}
+      {value !== undefined ? <OverviewValueCell value={value} /> : <Box />}
     </Box>
+  );
+}
+
+function OverviewValueCell({ value }: { value: string }) {
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = textRef.current;
+
+    if (!element) {
+      return undefined;
+    }
+
+    const updateOverflow = () => {
+      setIsOverflowing(element.scrollWidth > element.clientWidth);
+    };
+
+    updateOverflow();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(updateOverflow);
+      resizeObserver.observe(element);
+
+      return () => resizeObserver.disconnect();
+    }
+
+    window.addEventListener("resize", updateOverflow);
+
+    return () => window.removeEventListener("resize", updateOverflow);
+  }, [value]);
+
+  return (
+    <Tooltip
+      arrow
+      enterDelay={350}
+      placement="top-start"
+      slotProps={{
+        tooltip: {
+          sx: {
+            maxWidth: 760,
+            overflowWrap: "anywhere",
+          },
+        },
+      }}
+      title={isOverflowing ? value : ""}
+    >
+      <Typography
+        ref={textRef}
+        sx={{
+          color: "text.primary",
+          fontSize: 13.5,
+          fontWeight: 500,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        variant="body2"
+      >
+        {value}
+      </Typography>
+    </Tooltip>
   );
 }
 
@@ -284,7 +316,7 @@ function OverviewSizeTree({
             <Stack key={group.title} spacing={0}>
               <OverviewTreeHeader
                 expanded={isExpanded}
-                indent={0}
+                indent={3.25}
                 onClick={() => {
                   setExpandedGroups((current) => ({
                     ...current,
@@ -296,7 +328,7 @@ function OverviewSizeTree({
               />
 
               {isExpanded ? (
-                <OverviewDefinitionList indent={3.25} items={group.items} />
+                <OverviewDefinitionList indent={6.5} items={group.items} />
               ) : null}
             </Stack>
           );
@@ -307,6 +339,7 @@ function OverviewSizeTree({
               {sizeBreakdown.total[0]}
             </Typography>
           )}
+          labelIndent={3.25}
           value={sizeBreakdown.total[1]}
         />
       </Stack>
