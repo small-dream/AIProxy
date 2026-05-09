@@ -614,7 +614,7 @@ export function AppShell() {
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-            p: isSessionsWorkspace ? 1 : 2,
+            p: isSessionsWorkspace || location.pathname === "/compose" ? 1 : 2,
           }}
         >
           <Outlet context={{ setHeaderActions }} />

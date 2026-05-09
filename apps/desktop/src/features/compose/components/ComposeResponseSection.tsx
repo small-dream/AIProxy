@@ -88,7 +88,7 @@ export function ComposeResponseSection({
           session={responseDetail.summary}
         />
       ) : (
-        <Stack alignItems="center" justifyContent="center" spacing={0.75} sx={{ flex: 1, px: 3, textAlign: "center" }}>
+        <Stack alignItems="center" justifyContent="center" spacing={0.75} sx={{ flex: 1, pl: 2, pr: 0.5, py: 2, textAlign: "center" }}>
           <Typography sx={{ fontWeight: 600 }} variant="body2">
             {t("composePage.responsePreviewTitle")}
           </Typography>

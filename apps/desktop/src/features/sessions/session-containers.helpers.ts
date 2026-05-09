@@ -30,19 +30,25 @@ export type SessionContainerState = {
 };
 
 type CreateSessionContainerOptions = {
+  expandedHosts?: string[];
   inspectorSplitRatio?: number;
   labelNumber: number;
   requestCollapsed?: boolean;
   requestTab?: RequestInspectorTab;
   responseTab?: ResponseInspectorTab;
+  selectedSessionId?: string;
 };
 
 export function createInitialSessionContainerState(
-  options?: Pick<CreateSessionContainerOptions, "inspectorSplitRatio" | "requestCollapsed" | "requestTab" | "responseTab">,
+  options?: Pick<CreateSessionContainerOptions, "expandedHosts" | "inspectorSplitRatio" | "requestCollapsed" | "requestTab" | "responseTab" | "selectedSessionId">,
 ): SessionContainerState {
   const initialContainerOptions: CreateSessionContainerOptions = {
     labelNumber: 1,
   };
+
+  if (options?.expandedHosts) {
+    initialContainerOptions.expandedHosts = options.expandedHosts;
+  }
 
   if (typeof options?.inspectorSplitRatio === "number") {
     initialContainerOptions.inspectorSplitRatio = options.inspectorSplitRatio;
@@ -58,6 +64,10 @@ export function createInitialSessionContainerState(
 
   if (options?.responseTab) {
     initialContainerOptions.responseTab = options.responseTab;
+  }
+
+  if (options?.selectedSessionId) {
+    initialContainerOptions.selectedSessionId = options.selectedSessionId;
   }
 
   const initialContainer = createSessionContainer(initialContainerOptions);
@@ -161,17 +171,25 @@ export function seedSessionContainers(
   const nextOwnerById = Object.fromEntries(
     sessions.map((session) => [session.id, state.activeContainerId]),
   );
+  const sessionIds = sessions.map((session) => session.id);
 
   return {
     ...state,
-    containers: state.containers.map((container) =>
-      container.id === state.activeContainerId
-        ? {
-            ...container,
-            sessionIds: sessions.map((session) => session.id),
-          }
-        : container,
-    ),
+    containers: state.containers.map((container) => {
+      if (container.id !== state.activeContainerId) {
+        return container;
+      }
+
+      const isSelectedSessionValid = container.selectedSessionId
+        ? sessionIds.includes(container.selectedSessionId)
+        : false;
+
+      return {
+        ...container,
+        sessionIds,
+        ...(isSelectedSessionValid ? {} : { selectedSessionId: undefined }),
+      };
+    }),
     hydrated: true,
     sessionOwnerById: nextOwnerById,
     sessionSummaryById: nextSummaryById,
@@ -329,15 +347,17 @@ export function getSessionContainerById(
 }
 
 function createSessionContainer({
+  expandedHosts = [],
   inspectorSplitRatio = DEFAULT_REQUEST_SPLIT_RATIO,
   labelNumber,
   requestCollapsed = false,
   requestTab = "query",
   responseTab = "overview",
+  selectedSessionId,
 }: CreateSessionContainerOptions): SessionContainer {
   return {
     domainFilterValue: "",
-    expandedHosts: [],
+    expandedHosts,
     id: `session-container-${labelNumber}`,
     inspectorSplitRatio,
     labelNumber,
@@ -346,6 +366,7 @@ function createSessionContainer({
     responseTab,
     searchValue: "",
     sessionIds: [],
+    ...(selectedSessionId ? { selectedSessionId } : {}),
   };
 }
 

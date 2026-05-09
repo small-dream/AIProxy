@@ -72,8 +72,10 @@ import { onSessionRemove, onSessionsCleared, onSessionsRemoved, onSessionUpsert 
 import { readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
+const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
 const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
+const SELECTED_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.selectedSessionId";
 const FOCUSED_HOSTS_STORAGE_KEY = "aiproxy.sessions.focusedHosts";
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 
@@ -102,10 +104,12 @@ export function SessionsPage() {
   }, []);
   const [containerState, setContainerState] = useState(() =>
     createInitialSessionContainerState({
+      expandedHosts: readStoredHosts(EXPANDED_HOSTS_STORAGE_KEY),
       inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
       requestTab: "query",
       responseTab: "overview",
+      selectedSessionId: readStorageValue(SELECTED_SESSION_ID_STORAGE_KEY) ?? undefined,
     }),
   );
   const [explorerWidth, setExplorerWidth] = useState(() => {
@@ -278,6 +282,7 @@ export function SessionsPage() {
         clearTimeout(flushTimer);
         flushTimer = null;
       }
+      removeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
       setContainerState((currentState) =>
         createInitialSessionContainerState({
           inspectorSplitRatio:
@@ -332,6 +337,17 @@ export function SessionsPage() {
   useEffect(() => {
     writeStorageValue(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));
   }, [explorerWidth]);
+
+  useEffect(() => {
+    const expandedHosts = activeContainer?.expandedHosts ?? [];
+
+    if (expandedHosts.length === 0) {
+      removeStorageValue(EXPANDED_HOSTS_STORAGE_KEY);
+      return;
+    }
+
+    writeStorageValue(EXPANDED_HOSTS_STORAGE_KEY, JSON.stringify(expandedHosts));
+  }, [activeContainer?.expandedHosts]);
 
   useEffect(() => {
     writeStorageValue(
@@ -393,6 +409,10 @@ export function SessionsPage() {
   }, []);
 
   useEffect(() => {
+    if (!containerState.hydrated) {
+      return;
+    }
+
     setContainerState((currentState) => {
       const currentContainer = getSessionContainerById(currentState, currentState.activeContainerId);
 
@@ -411,7 +431,7 @@ export function SessionsPage() {
         expandedHosts: nextExpandedHosts,
       }));
     });
-  }, [hostGroups]);
+  }, [containerState.hydrated, hostGroups]);
 
   function toggleHost(host: string) {
     setContainerState((currentState) =>
@@ -595,6 +615,7 @@ export function SessionsPage() {
         selectedSessionId: sessionId,
       })),
     );
+    writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
   }, []);
 
   const handleRequestTabChange = useCallback((tab: RequestInspectorTab) => {
@@ -645,6 +666,7 @@ export function SessionsPage() {
   const handleClearActiveContainer = useCallback(() => {
     clearSessions(undefined, {
       onSuccess: () => {
+        removeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
         setContainerState((currentState) =>
           createInitialSessionContainerState({
             inspectorSplitRatio:

@@ -185,7 +185,7 @@ export function ComposePage() {
   }
 
   return (
-    <Stack spacing={1.25} sx={{ height: "100%", minHeight: 0 }}>
+    <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <Box
         sx={(theme) => ({
           bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
@@ -292,7 +292,7 @@ export function ComposePage() {
           display: "grid",
           flex: "1 1 0",
           gap: 0,
-          gridTemplateRows: `${splitRatio}fr 10px ${1 - splitRatio}fr`,
+          gridTemplateRows: `${splitRatio}fr 8px ${1 - splitRatio}fr`,
           minHeight: 0,
         }}
       >

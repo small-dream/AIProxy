@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { SessionSummary } from "@aiproxy/shared-types";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +9,12 @@ import { SessionsPage } from "@/pages/sessions";
 
 const mockSetHeaderActions = vi.fn();
 const mockLocation = { key: "default", pathname: "/", state: null };
+const testState = vi.hoisted(() => ({
+  runtimeSessions: [] as SessionSummary[],
+}));
+const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
+const SELECTED_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.selectedSessionId";
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
@@ -78,7 +84,7 @@ vi.mock("@/features/sessions/use-session-events", () => ({
 }));
 
 vi.mock("@/features/sessions/use-sessions", () => ({
-  useSessions: () => ({ data: [], error: null, isLoading: false }),
+  useSessions: () => ({ data: testState.runtimeSessions, error: null, isLoading: false }),
 }));
 
 vi.mock("@/services/events", () => ({
@@ -94,18 +100,31 @@ vi.mock("@/services/commands", () => ({
 
 vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
   SessionsWorkspacePanel: ({
+    expandedHosts,
+    groups,
     inspectorSplitRatio,
     onInspectorResizeStart,
+    onSelectSession,
+    onToggleHost,
+    selectedSessionId,
   }: {
+    expandedHosts: string[];
+    groups: unknown[];
     inspectorSplitRatio: number;
     onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+    onSelectSession: (sessionId: string) => void;
+    onToggleHost: (host: string) => void;
+    selectedSessionId: string | undefined;
   }) => {
     const gridRef = useRef<HTMLDivElement | null>(null);
     const splitterRef = useRef<HTMLDivElement | null>(null);
 
     return (
       <div>
+        <div data-testid="expanded-hosts">{expandedHosts.join("|")}</div>
+        <div data-testid="group-count">{String(groups.length)}</div>
         <div data-testid="inspector-ratio">{String(inspectorSplitRatio)}</div>
+        <div data-testid="selected-session-id">{selectedSessionId ?? "none"}</div>
         <div data-testid="inspector-grid" ref={gridRef}>
           <div
             data-testid="session-inspector-splitter"
@@ -142,6 +161,12 @@ vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
         >
           resize
         </button>
+        <button data-testid="toggle-api-host" onClick={() => onToggleHost("api.example.com")} type="button">
+          toggle host
+        </button>
+        <button data-testid="select-session" onClick={() => onSelectSession("session-1")} type="button">
+          select session
+        </button>
       </div>
     );
   },
@@ -163,9 +188,28 @@ vi.mock("@/features/collections/components/SaveToCollectionDialog", () => ({
   SaveToCollectionDialog: () => null,
 }));
 
+function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
+  return {
+    durationMs: 42,
+    finishedAt: "2026-04-11T10:00:03.000Z",
+    host: "api.example.com",
+    id: "session-1",
+    method: "GET",
+    path: "/users",
+    protocol: "HTTP/1.1",
+    responseMimeType: "application/json; charset=utf-8",
+    sizeBytes: 512,
+    startedAt: "2026-04-11T10:00:00.000Z",
+    statusCode: 200,
+    url: "http://api.example.com/users",
+    ...overrides,
+  };
+}
+
 describe("SessionsPage inspector split ratio", () => {
   beforeEach(() => {
     mockSetHeaderActions.mockReset();
+    testState.runtimeSessions = [];
     const storage = new Map<string, string>();
 
     Object.defineProperty(window, "localStorage", {
@@ -211,6 +255,58 @@ describe("SessionsPage inspector split ratio", () => {
     await waitFor(() => {
       expect(screen.getByTestId("inspector-ratio")).toHaveTextContent("0.7");
       expect(window.localStorage.getItem(INSPECTOR_SPLIT_RATIO_STORAGE_KEY)).toBe("0.7");
+    });
+  });
+
+  it("restores expanded session domains after the sessions page remounts", async () => {
+    testState.runtimeSessions = [createSessionSummary({})];
+    window.localStorage.setItem(EXPANDED_HOSTS_STORAGE_KEY, JSON.stringify(["api.example.com"]));
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("expanded-hosts")).toHaveTextContent("api.example.com");
+      expect(window.localStorage.getItem(EXPANDED_HOSTS_STORAGE_KEY)).toBe(JSON.stringify(["api.example.com"]));
+    });
+  });
+
+  it("persists selectedSessionId to localStorage when a session is selected", async () => {
+    testState.runtimeSessions = [createSessionSummary({})];
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("group-count")).toHaveTextContent("1");
+    });
+
+    fireEvent.click(screen.getByTestId("select-session"));
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(SELECTED_SESSION_ID_STORAGE_KEY)).toBe("session-1");
+    });
+  });
+
+  it("restores selectedSessionId after the sessions page remounts", async () => {
+    testState.runtimeSessions = [createSessionSummary({})];
+    window.localStorage.setItem(SELECTED_SESSION_ID_STORAGE_KEY, "session-1");
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selected-session-id")).toHaveTextContent("session-1");
     });
   });
 });

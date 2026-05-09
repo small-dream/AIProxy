@@ -85,7 +85,7 @@ export function ComposeRequestSection({
           bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.9),
           display: "flex",
           minHeight: 42,
-          px: 0.75,
+          pr: 0.75,
         })}
       >
         <Tabs
@@ -102,7 +102,7 @@ export function ComposeRequestSection({
       </Box>
       <Divider />
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: 2, py: 1.5 }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pl: 2, pr: 0.5, pb: 2, pt: 1.5 }}>
         {activeTab === "headers" && (
           <EditableKeyValueTable
             items={headers}

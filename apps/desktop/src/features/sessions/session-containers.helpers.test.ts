@@ -37,10 +37,24 @@ describe("session-containers.helpers", () => {
     expect(state.containers[0]?.requestTab).toBe("query");
   });
 
+  it("stores the initial selected session id when provided", () => {
+    const state = createInitialSessionContainerState({ selectedSessionId: "session-x" });
+
+    expect(state.containers[0]?.selectedSessionId).toBe("session-x");
+  });
+
   it("stores the initial inspector split ratio when provided", () => {
     const state = createInitialSessionContainerState({ inspectorSplitRatio: 0.61 });
 
     expect(state.containers[0]?.inspectorSplitRatio).toBe(0.61);
+  });
+
+  it("stores the initial expanded hosts when provided", () => {
+    const state = createInitialSessionContainerState({
+      expandedHosts: ["api.example.com", "api.example.com::v1"],
+    });
+
+    expect(state.containers[0]?.expandedHosts).toEqual(["api.example.com", "api.example.com::v1"]);
   });
 
   it("inherits the active container inspector split ratio for new tabs", () => {
@@ -63,6 +77,25 @@ describe("session-containers.helpers", () => {
       "session-a": seededState.activeContainerId,
       "session-b": seededState.activeContainerId,
     });
+  });
+
+  it("preserves selectedSessionId during seed when it exists in runtime sessions", () => {
+    const state = createInitialSessionContainerState({ selectedSessionId: "session-b" });
+    const seededState = seedSessionContainers(state, [
+      createSessionSummary({ id: "session-a", url: "http://example.com/a" }),
+      createSessionSummary({ id: "session-b", url: "http://example.com/b" }),
+    ]);
+
+    expect(seededState.containers[0]?.selectedSessionId).toBe("session-b");
+  });
+
+  it("clears selectedSessionId during seed when it no longer exists in runtime sessions", () => {
+    const state = createInitialSessionContainerState({ selectedSessionId: "session-removed" });
+    const seededState = seedSessionContainers(state, [
+      createSessionSummary({ id: "session-a", url: "http://example.com/a" }),
+    ]);
+
+    expect(seededState.containers[0]?.selectedSessionId).toBeUndefined();
   });
 
   it("routes brand-new sessions into the active container and keeps later updates in the original owner", () => {
