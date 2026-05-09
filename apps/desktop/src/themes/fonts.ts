@@ -24,7 +24,7 @@ export type ContentFontPreference = (typeof contentFontPreferences)[number];
 
 type BuiltInFontPreference = Exclude<AppFontPreference, "custom">;
 
-export const defaultAppFontSize = 14;
+export const defaultAppFontSize = 13;
 export const minAppFontSize = 12;
 export const maxAppFontSize = 18;
 export const appFontSizeOptions = [12, 13, 14, 15, 16, 18] as const;
@@ -203,10 +203,10 @@ const builtInFontCandidates: Record<BuiltInFontPreference, Record<FontLocale, re
 const builtInFontFamilies: Record<BuiltInFontPreference, Record<FontLocale, string>> = {
   system: {
     en: [
-      "\"SF Pro Text\"",
-      "\"SF Pro Display\"",
       "-apple-system",
       "BlinkMacSystemFont",
+      "\"SF Pro Text\"",
+      "\"SF Pro Display\"",
       "\"Segoe UI Variable\"",
       "\"Segoe UI\"",
       "Roboto",

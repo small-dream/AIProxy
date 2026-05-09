@@ -9,7 +9,7 @@ import type { CertificateStatus, ProxyStatus } from "@aiproxy/shared-types";
 import type { ReactNode } from "react";
 
 import { useI18n } from "@/i18n";
-import { fontFamilies } from "@/themes/fonts";
+import { defaultAppFontSize, fontFamilies } from "@/themes/fonts";
 
 type StatusItemProps = {
   active?: boolean;
@@ -48,6 +48,7 @@ function StatusSeparator() {
 }
 
 function StatusItem({ active = true, icon, label, monospaced = false, onClick, title }: StatusItemProps) {
+  const getStatusFontSize = (themeFontSize: number) => `${(themeFontSize / defaultAppFontSize) * 12}px`;
   const content = (
     <Stack
       alignItems="center"
@@ -79,14 +80,14 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
         </Box>
       ) : null}
       <Typography
-        sx={{
+        sx={(theme) => ({
           fontFamily: monospaced ? fontFamilies.mono : "inherit",
-          fontSize: 12.5,
-          fontWeight: onClick ? 600 : 500,
+          fontSize: getStatusFontSize(theme.typography.fontSize),
+          fontWeight: 500,
           minWidth: 0,
           overflow: "hidden",
           textOverflow: "ellipsis",
-        }}
+        })}
       >
         {label}
       </Typography>

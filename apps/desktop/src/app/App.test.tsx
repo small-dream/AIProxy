@@ -47,7 +47,7 @@ describe("AppProviders", () => {
 
     expect(
       screen.getByText(
-        "Current appearance: Light · UI: System Default · Content: System Monospace · 14px",
+        "Current appearance: Light · UI: System Default · Content: System Monospace · 13px",
       ),
     ).toBeInTheDocument();
   });

@@ -6,6 +6,7 @@ import { alpha } from "@mui/material/styles";
 import { memo } from "react";
 
 import { useI18n } from "@/i18n";
+import { getWorkbenchFontSize } from "./SessionInspectorShared";
 
 type SessionContainerTabItem = {
   id: string;
@@ -92,11 +93,11 @@ function SessionContainerTabsImpl({
             >
               <Typography
                 noWrap
-                sx={{
-                  fontSize: 12.5,
-                  fontWeight: container.isActive ? 750 : 600,
+                sx={(theme) => ({
+                  fontSize: getWorkbenchFontSize(theme, 13),
+                  fontWeight: container.isActive ? 600 : 500,
                   lineHeight: 1,
-                }}
+                })}
               >
                 {t("sessionsPage.containers.sessionTitle", { index: container.labelNumber })}
               </Typography>

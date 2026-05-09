@@ -272,10 +272,7 @@ function OverviewValueCell({ value }: { value: string }) {
       <Typography
         ref={textRef}
         sx={{
-          color: "text.primary",
-          fontSize: 13,
-          fontWeight: 500,
-          lineHeight: 1.45,
+          ...inspectorValueTypographySx,
           minWidth: 0,
           overflow: "hidden",
           textOverflow: "ellipsis",

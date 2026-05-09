@@ -10,6 +10,7 @@ import type { Theme } from "@mui/material/styles";
 import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "@/i18n";
+import { getSyntaxColors } from "@/themes/app-theme";
 import {
   buildContextMenuSlotProps,
   contextMenuItemTextProps,
@@ -25,7 +26,14 @@ import {
   type JsonValue,
   type SearchMatcher,
 } from "./session-inspector.helpers";
-import { InspectorFlatTable, renderHighlightedText, useVirtualWindow } from "./SessionInspectorShared";
+import {
+  INSPECTOR_AUX_FONT_SIZE,
+  INSPECTOR_UI_FONT_SIZE,
+  InspectorFlatTable,
+  getWorkbenchFontSize,
+  renderHighlightedText,
+  useVirtualWindow,
+} from "./SessionInspectorShared";
 
 const JSON_TREE_ROW_HEIGHT = 26;
 
@@ -188,7 +196,7 @@ export function SessionInspectorJsonTree({
   }, [containerRef, currentMatchIndex, matcher, matchingRowPaths, rows]);
 
   const visibleRows = rows.slice(startIndex, endIndex);
-  const columnTemplate = "minmax(240px, 0.95fr) minmax(96px, 0.28fr) minmax(320px, 1.85fr)";
+  const columnTemplate = "minmax(252px, 1fr) minmax(80px, 0.2fr) minmax(340px, 1.9fr)";
 
   return (
     <Box
@@ -465,37 +473,7 @@ function collectMatcherExpansionPaths(
   return selfMatches;
 }
 
-function getJsonTypeTone(value: JsonValue, theme: Theme) {
-  if (Array.isArray(value)) {
-    return {
-      color: alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.88 : 0.82),
-    };
-  }
-
-  if (isJsonObject(value)) {
-    return {
-      color: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.88 : 0.82),
-    };
-  }
-
-  if (typeof value === "string") {
-    return {
-      color: theme.palette.text.secondary,
-    };
-  }
-
-  if (typeof value === "number") {
-    return {
-      color: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.9 : 0.82),
-    };
-  }
-
-  if (typeof value === "boolean" || value === null) {
-    return {
-      color: theme.palette.text.secondary,
-    };
-  }
-
+function getJsonTypeTone(theme: Theme) {
   return {
     color: theme.palette.text.secondary,
   };
@@ -523,22 +501,22 @@ function JsonTreeRowView({
   const { t } = useI18n();
   const { depth, hasChildren, isExpanded, name, path, value } = row;
   const theme = useTheme();
+  const syntaxColors = getSyntaxColors(theme.palette.mode);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
   const rowType = getJsonDisplayType(value, t);
   const displayName = name ?? t("inspector.json.root");
   const isSelected = selectedPath === path;
-  const selectedRowBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.07);
-  const selectedRowHoverBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.09);
-  const dividerColor = alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.44 : 0.6);
-  const textColor = "text.primary";
+  const selectedRowBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.055);
+  const selectedRowHoverBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.075);
+  const dividerColor = alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.34 : 0.42);
   const valueColor = typeof value === "string"
-    ? theme.palette.text.primary
+    ? syntaxColors.string
     : typeof value === "number"
-      ? theme.palette.mode === "dark" ? "#EABF65" : "#8A5A00"
+      ? syntaxColors.number
       : typeof value === "boolean" || value === null
-        ? theme.palette.primary.main
+        ? value === null ? syntaxColors.null : syntaxColors.boolean
         : "text.primary";
-  const typeTone = getJsonTypeTone(value, theme);
+  const typeTone = getJsonTypeTone(theme);
   const valueRef = useRef<HTMLSpanElement | null>(null);
   const [isValueOverflowing, setIsValueOverflowing] = useState(false);
 
@@ -625,7 +603,7 @@ function JsonTreeRowView({
             color: isSelected
               ? "primary.main"
               : hasChildren
-                ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.88 : 0.9)
+                ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.82 : 0.78)
                 : alpha(theme.palette.text.secondary, theme.palette.mode === "dark" ? 0.8 : 0.72),
             display: "flex",
             flex: "0 0 auto",
@@ -646,10 +624,10 @@ function JsonTreeRowView({
 
         <Typography
           sx={{
-            color: textColor,
-            fontSize: 12.5,
-            fontWeight: hasChildren ? 650 : 500,
-            lineHeight: 1.35,
+            color: "text.primary",
+            fontSize: getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+            fontWeight: hasChildren ? 500 : 400,
+            lineHeight: 1.36,
             minWidth: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -666,16 +644,16 @@ function JsonTreeRowView({
           borderLeft: `1px solid ${dividerColor}`,
           display: "flex",
           minWidth: 0,
-          px: 0.75,
+          px: 0.625,
           py: 0.125,
         }}
       >
         <Typography
           sx={{
             color: typeTone.color,
-            fontSize: 12,
-            fontWeight: 600,
-            lineHeight: 1.25,
+            fontSize: getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
+            fontWeight: 400,
+            lineHeight: 1.32,
             maxWidth: "100%",
             minWidth: 0,
             overflow: "hidden",
@@ -695,7 +673,7 @@ function JsonTreeRowView({
           color: valueColor,
           display: "flex",
           minWidth: 0,
-          px: 0.875,
+          px: 0.75,
           py: 0.125,
         }}
       >
@@ -704,9 +682,9 @@ function JsonTreeRowView({
             <Typography
               ref={valueRef}
               sx={{
-                fontSize: 12.75,
-                fontWeight: 500,
-                lineHeight: 1.35,
+                fontSize: getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+                fontWeight: 400,
+                lineHeight: 1.36,
                 minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",

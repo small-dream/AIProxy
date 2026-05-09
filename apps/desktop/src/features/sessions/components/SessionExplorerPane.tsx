@@ -27,7 +27,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
-import { defaultAppFontSize } from "@/themes/fonts";
+import { getWorkbenchFontSize } from "./SessionInspectorShared";
 import {
   getSessionQuerySuffix,
   getSessionResourceKind,
@@ -57,15 +57,11 @@ type SessionExplorerVisibleRow =
   | { kind: "host"; group: SessionHostGroup }
   | { depth: number; groupKey: string; kind: "node"; node: SessionPathNode };
 
-function getScaledFontSize(theme: Theme, basePx: number): string {
-  return `${(theme.typography.fontSize / defaultAppFontSize) * basePx}px`;
-}
-
 function getSessionTreeTextSx(theme: Theme) {
   return {
     color: "text.primary",
     fontFamily: theme.typography.fontFamily,
-    fontSize: getScaledFontSize(theme, 13),
+    fontSize: getWorkbenchFontSize(theme, 13),
     fontWeight: 400,
     lineHeight: 1.35,
   } as const;
@@ -189,7 +185,7 @@ export function SessionExplorerPane({
               <Typography
                 sx={(theme) => ({
                   fontFamily: theme.typography.fontFamily,
-                  fontSize: getScaledFontSize(theme, 17),
+                  fontSize: getWorkbenchFontSize(theme, 17),
                   fontWeight: 700,
                 })}
               >
@@ -203,7 +199,7 @@ export function SessionExplorerPane({
               color="text.secondary"
               sx={(theme) => ({
                 fontFamily: theme.typography.fontFamily,
-                fontSize: getScaledFontSize(theme, 12.5),
+                fontSize: getWorkbenchFontSize(theme, 12.5),
               })}
             >
               {t("sessionExplorer.emptyTip")}
@@ -290,7 +286,7 @@ export function SessionExplorerPane({
             borderColor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.5 : 0.7),
             borderRadius: 1.25,
             fontFamily: theme.typography.fontFamily,
-            fontSize: getScaledFontSize(theme, 13.5),
+            fontSize: getWorkbenchFontSize(theme, 13.5),
             fontWeight: 400,
             lineHeight: 1.25,
             minHeight: 30,
@@ -719,7 +715,7 @@ function getResourceTooltipLabel(
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
-  const sx = (theme: Theme) => ({ fontSize: getScaledFontSize(theme, 14) });
+  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, 14) });
 
   if (resourceKind === "api") {
     return <JsonFileIcon sx={sx} />;
@@ -730,7 +726,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
       <Typography
         sx={(theme) => ({
           fontFamily: theme.typography.fontFamily,
-          fontSize: getScaledFontSize(theme, 10),
+          fontSize: getWorkbenchFontSize(theme, 10),
           fontWeight: 700,
           lineHeight: 1,
         })}
@@ -745,7 +741,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
       <Typography
         sx={(theme) => ({
           fontFamily: theme.typography.fontFamily,
-          fontSize: getScaledFontSize(theme, 10),
+          fontSize: getWorkbenchFontSize(theme, 10),
           fontWeight: 700,
           lineHeight: 1,
         })}

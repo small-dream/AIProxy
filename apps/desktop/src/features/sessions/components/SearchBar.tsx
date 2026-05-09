@@ -3,10 +3,12 @@ import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownR
 import KeyboardArrowUpRoundedIcon from "@mui/icons-material/KeyboardArrowUpRounded";
 import { Box, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
 import { useRef } from "react";
 
 import { useI18n } from "@/i18n";
 import type { SearchOptions } from "./session-inspector.helpers";
+import { getWorkbenchFontSize } from "./SessionInspectorShared";
 
 export type SearchBarProps = {
   currentMatchIndex: number;
@@ -114,7 +116,10 @@ export function SearchBar({
                 size="small"
                 sx={buildOptionButtonSx(options.caseSensitive)}
               >
-                <Typography fontSize={11} fontWeight={700} sx={{ letterSpacing: 0.1, lineHeight: 1 }}>
+                <Typography
+                  fontWeight={600}
+                  sx={(theme) => ({ fontSize: getWorkbenchFontSize(theme, 11), letterSpacing: 0, lineHeight: 1 })}
+                >
                   Aa
                 </Typography>
               </IconButton>
@@ -129,7 +134,10 @@ export function SearchBar({
                   size="small"
                   sx={buildOptionButtonSx(options.wholeWord, options.useRegex)}
                 >
-                  <Typography fontSize={11} fontWeight={700} sx={{ letterSpacing: 0.1, lineHeight: 1 }}>
+                  <Typography
+                    fontWeight={600}
+                    sx={(theme) => ({ fontSize: getWorkbenchFontSize(theme, 11), letterSpacing: 0, lineHeight: 1 })}
+                  >
                     ab
                   </Typography>
                 </IconButton>
@@ -143,7 +151,16 @@ export function SearchBar({
                 size="small"
                 sx={buildOptionButtonSx(options.useRegex)}
               >
-                <Box component="span" sx={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, letterSpacing: -0.2, lineHeight: 1 }}>
+                <Box
+                  component="span"
+                  sx={(theme) => ({
+                    fontFamily: "monospace",
+                    fontSize: getWorkbenchFontSize(theme, 12),
+                    fontWeight: 600,
+                    letterSpacing: 0,
+                    lineHeight: 1,
+                  })}
+                >
                   .*
                 </Box>
               </IconButton>
@@ -174,7 +191,7 @@ export function SearchBar({
           flex: "0 1 340px",
           minWidth: 190,
           "& .MuiInputBase-input": {
-            fontSize: 13,
+            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 13),
             px: 1.25,
             py: 0.75,
           },
@@ -195,7 +212,7 @@ export function SearchBar({
       <Typography
         sx={{
           color: regexInvalid ? "error.main" : "text.secondary",
-          fontSize: 12,
+          fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 12),
           lineHeight: 1,
           minWidth: 52,
           textAlign: "left",

@@ -33,22 +33,22 @@ export function getHoverShadow(mode: PaletteMode) {
 export function getSyntaxColors(mode: PaletteMode) {
   return mode === "dark"
     ? {
-        boolean: "#82AAFF",
-        key: "#F78C6C",
-        null: "#82AAFF",
-        number: "#C3E88D",
-        property: "#FFCB6B",
-        string: "#C3E88D",
-        type: "#C792EA",
-        value: "#F07178",
+        boolean: "#569CD6",
+        key: "#9CDCFE",
+        null: "#569CD6",
+        number: "#B5CEA8",
+        property: "#9CDCFE",
+        string: "#CE9178",
+        type: "#4EC9B0",
+        value: "#CE9178",
       }
     : {
         boolean: "#0000FF",
-        key: "#A31515",
+        key: "#0451A5",
         null: "#0000FF",
         number: "#098658",
-        property: "#795E26",
-        string: "#0451A5",
+        property: "#0451A5",
+        string: "#A31515",
         type: "#6F42C1",
         value: "#A31515",
       };
@@ -116,9 +116,25 @@ export function createAppTheme(
     typography: {
       fontFamily,
       fontSize,
+      fontWeightBold: 600,
+      fontWeightMedium: 500,
+      fontWeightRegular: 400,
+      body1: {
+        letterSpacing: 0,
+        lineHeight: 1.42,
+      },
+      body2: {
+        letterSpacing: 0,
+        lineHeight: 1.42,
+      },
       button: {
-        fontWeight: 600,
+        fontWeight: 500,
+        letterSpacing: 0,
         textTransform: "none",
+      },
+      caption: {
+        letterSpacing: 0,
+        lineHeight: 1.35,
       },
     },
     components: {
@@ -140,7 +156,7 @@ export function createAppTheme(
             color: colors.textPrimary,
             fontFamily,
             fontSynthesis: "none",
-            textRendering: "optimizeLegibility",
+            textRendering: "auto",
             WebkitFontSmoothing: "antialiased",
           },
           "*": {
@@ -221,7 +237,7 @@ export function createAppTheme(
         styleOverrides: {
           root: {
             fontSize: 12,
-            fontWeight: 650,
+            fontWeight: 500,
             letterSpacing: 0,
             minHeight: 32,
             minWidth: 0,
@@ -245,7 +261,7 @@ export function createAppTheme(
         styleOverrides: {
           root: {
             borderRadius: 999,
-            fontWeight: 700,
+            fontWeight: 500,
             letterSpacing: 0,
           },
           sizeSmall: {

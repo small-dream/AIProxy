@@ -4,12 +4,13 @@ import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
 import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
-import { appFontCssVars } from "@/themes/fonts";
+import { appFontCssVars, defaultAppFontSize } from "@/themes/fonts";
 import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
@@ -17,6 +18,12 @@ const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
 const DEFAULT_VIRTUAL_VIEWPORT_HEIGHT = 420;
 const VIRTUAL_WINDOW_OVERSCAN = 12;
 export const INSPECTOR_KEY_VALUE_GRID_TEMPLATE = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
+export const INSPECTOR_UI_FONT_SIZE = 13;
+export const INSPECTOR_AUX_FONT_SIZE = 12;
+export const INSPECTOR_CODE_FONT_SIZE = 12.5;
+export function getWorkbenchFontSize(theme: Theme, basePx: number): string {
+  return `${(theme.typography.fontSize / defaultAppFontSize) * basePx}px`;
+}
 export const inspectorTabsSx = {
   flex: 1,
   minHeight: 36,
@@ -25,8 +32,8 @@ export const inspectorTabsSx = {
   "& .MuiTab-root": {
     borderRadius: 1,
     color: "text.secondary",
-    fontSize: 13,
-    fontWeight: 650,
+    fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+    fontWeight: 500,
     letterSpacing: 0,
     lineHeight: 1.25,
     minHeight: 30,
@@ -49,8 +56,8 @@ export const inspectorTabsSx = {
 } as const;
 export const inspectorPaneActionButtonSx = {
   color: "primary.main",
-  fontSize: 13,
-  fontWeight: 600,
+  fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+  fontWeight: 500,
   lineHeight: 1.25,
   minHeight: 30,
   minWidth: 0,
@@ -64,15 +71,15 @@ export const inspectorPaneActionButtonSx = {
 } as const;
 export const inspectorKeyTypographySx = {
   color: "text.secondary",
-  fontSize: 13,
-  fontWeight: 500,
+  fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+  fontWeight: 400,
   lineHeight: 1.45,
   minWidth: 0,
 } as const;
 export const inspectorValueTypographySx = {
   color: "text.primary",
-  fontSize: 13,
-  fontWeight: 500,
+  fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+  fontWeight: 400,
   lineHeight: 1.45,
   minWidth: 0,
 } as const;
@@ -195,10 +202,10 @@ export function InspectorSummaryBar({
           color="text.secondary"
           sx={{
             display: "-webkit-box",
-            fontSize: 13,
-            fontFamily: appFontCssVars.content,
+            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+            fontFamily: "inherit",
             lineClamp: 2,
-            lineHeight: 1.5,
+            lineHeight: 1.45,
             overflow: "hidden",
             WebkitBoxOrient: "vertical",
             WebkitLineClamp: 2,
@@ -301,8 +308,8 @@ export function InspectorFlatTable({
               key={header}
               sx={{
                 ...inspectorKeyTypographySx,
-                fontSize: 12,
-                fontWeight: 600,
+                fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
+                fontWeight: 500,
                 lineHeight: 1.25,
                 px: 0.75,
                 py: 0.375,
@@ -453,7 +460,7 @@ export function EllipsizedCell({
           sx={{
             color: "text.primary",
             fontFamily: appFontCssVars.content,
-            fontSize: 12.5,
+            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_CODE_FONT_SIZE),
             lineHeight: 1.5,
             m: 0,
             overflow: "auto",
@@ -595,8 +602,8 @@ export function SearchableCodeBlock({
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
-        fontSize: language === "json" ? 13.5 : 12.5,
-        lineHeight: language === "json" ? 1.6 : 1.5,
+        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, language === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
+        lineHeight: language === "json" ? 1.55 : 1.5,
         m: 0,
         minHeight: 0,
         overflow: "auto",
@@ -701,7 +708,7 @@ function VirtualizedSearchableCodeBlock({
     }
     return result;
   }, [code]);
-  const lineHeight = language === "json" ? 22 : 20;
+  const lineHeight = language === "json" ? 21 : 20;
   const { containerRef: virtualContainerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);
 
@@ -763,8 +770,8 @@ function VirtualizedSearchableCodeBlock({
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
-        fontSize: language === "json" ? 13.5 : 12.5,
-        lineHeight: language === "json" ? 1.6 : 1.5,
+        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, language === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
+        lineHeight: language === "json" ? 1.55 : 1.5,
         minHeight: 0,
         overflow: "auto",
         px: 0.75,
