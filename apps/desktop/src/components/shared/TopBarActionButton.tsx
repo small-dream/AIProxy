@@ -34,44 +34,60 @@ export function TopBarActionButton({
           onClick={onClick}
           size="small"
           sx={(theme) => {
+            const toneColor =
+              tone === "error"
+                ? theme.palette.error.main
+                : tone === "success"
+                  ? theme.palette.success.main
+                  : tone === "primary"
+                    ? theme.palette.primary.main
+                    : theme.palette.text.primary;
             const filledStyles =
               tone === "error"
                 ? {
-                    bgcolor: theme.palette.error.main,
-                    color: theme.palette.error.contrastText,
+                    bgcolor: alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.24 : 0.12),
+                    borderColor: alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.34 : 0.2),
+                    color: theme.palette.error.main,
                     "&:hover": {
-                      bgcolor: theme.palette.error.dark,
+                      bgcolor: alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.32 : 0.18),
+                      borderColor: alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.48 : 0.32),
                     },
                   }
                 : tone === "success"
                   ? {
-                      bgcolor: theme.palette.success.main,
-                      color: theme.palette.success.contrastText,
+                      bgcolor: alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.24 : 0.12),
+                      borderColor: alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.34 : 0.2),
+                      color: theme.palette.success.main,
                       "&:hover": {
-                        bgcolor: theme.palette.success.dark,
+                        bgcolor: alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.32 : 0.18),
+                        borderColor: alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.48 : 0.32),
                       },
                     }
                   : tone === "primary"
                     ? {
-                        bgcolor: theme.palette.primary.main,
-                        color: theme.palette.primary.contrastText,
+                        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.24 : 0.12),
+                        borderColor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.34 : 0.2),
+                        color: theme.palette.primary.main,
                         "&:hover": {
-                          bgcolor: theme.palette.primary.dark,
+                          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.32 : 0.18),
+                          borderColor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.48 : 0.32),
                         },
                       }
                     : {
-                        bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.18 : 0.1),
+                        bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.16 : 0.08),
+                        borderColor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.22 : 0.12),
                         color: theme.palette.text.primary,
                         "&:hover": {
-                          bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.28 : 0.16),
+                          bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.22 : 0.12),
+                          borderColor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.32 : 0.2),
                         },
                       };
 
             return {
               border: "1px solid",
               borderColor: variant === "outlined"
-                ? alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.86 : 1)
-                : "transparent",
+                ? "transparent"
+                : alpha(toneColor, theme.palette.mode === "dark" ? 0.24 : 0.16),
               borderRadius: 999,
               color: variant === "outlined" ? theme.palette.text.secondary : undefined,
               height: 32,
@@ -82,15 +98,15 @@ export function TopBarActionButton({
               },
               "&:hover": {
                 bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.06),
-                borderColor: theme.palette.text.disabled,
+                borderColor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.2 : 0.12),
                 boxShadow: theme.palette.mode === "dark"
-                  ? "0 8px 20px rgba(0, 0, 0, 0.26)"
-                  : "0 8px 18px rgba(15, 23, 42, 0.10)",
+                  ? "0 8px 18px rgba(0, 0, 0, 0.22)"
+                  : "0 7px 16px rgba(15, 23, 42, 0.08)",
                 color: theme.palette.text.primary,
                 transform: "translateY(-1px)",
               },
               "&.Mui-disabled": {
-                borderColor: theme.palette.divider,
+                borderColor: "transparent",
                 color: theme.palette.action.disabled,
               },
               ...(variant === "filled" ? filledStyles : null),

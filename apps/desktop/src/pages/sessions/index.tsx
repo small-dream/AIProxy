@@ -14,7 +14,6 @@ import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
-import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
@@ -85,7 +84,6 @@ export function SessionsPage() {
   const queryClient = useQueryClient();
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
-  const sendComposedRequestMutation = useSendComposedRequest();
   const { mutate: clearSessions, isPending: isClearingSessions } = useClearSessions();
   const { error, isLoading } = useProxyStatus();
   const {
@@ -181,7 +179,6 @@ export function SessionsPage() {
     navigate,
     setFocusedHosts,
     setIgnoredHosts,
-    sendComposedRequest: sendComposedRequestMutation,
   });
   const filteredByIgnoreSessions = useMemo(() => {
     if (ignoredHosts.size === 0) {
@@ -427,13 +424,58 @@ export function SessionsPage() {
     );
   }
 
+  const handleRepeatSession = useCallback((session: SessionSummary) => {
+    const selectRepeatedSummary = (summary: SessionSummary) => {
+      setContainerState((currentState) =>
+        updateActiveSessionContainer(upsertSessionContainerSummary(currentState, summary), (container) => ({
+          ...container,
+          selectedSessionId: summary.id,
+        })),
+      );
+      setSessionSelectionNonce((currentValue) => currentValue + 1);
+    };
+
+    void handleRepeatDirect(session, {
+      onFailure: (pendingSessionId) => {
+        setContainerState((currentState) =>
+          updateActiveSessionContainer(
+            removeSessionContainerSummary(currentState, pendingSessionId),
+            (container) =>
+              container.selectedSessionId === pendingSessionId
+                ? {
+                    ...container,
+                    selectedSessionId: session.id,
+                  }
+                : container,
+          ),
+        );
+      },
+      onPending: selectRepeatedSummary,
+      onSuccess: (pendingSessionId, summary) => {
+        setContainerState((currentState) =>
+          updateActiveSessionContainer(
+            upsertSessionContainerSummary(
+              removeSessionContainerSummary(currentState, pendingSessionId),
+              summary,
+            ),
+            (container) => ({
+              ...container,
+              selectedSessionId: summary.id,
+            }),
+          ),
+        );
+        setSessionSelectionNonce((currentValue) => currentValue + 1);
+      },
+    });
+  }, [handleRepeatDirect]);
+
   const handleRepeat = useCallback(() => {
     if (!selectedSession) {
       return;
     }
 
-    void handleCompose(selectedSession);
-  }, [handleCompose, selectedSession]);
+    handleRepeatSession(selectedSession);
+  }, [handleRepeatSession, selectedSession]);
 
   const handleExportSession = useCallback((session: SessionSummary) => {
     void exportSessionsAsHar(queryClient, [session], buildHarExportFilename("request", session.host))
@@ -841,7 +883,7 @@ export function SessionsPage() {
         onGoToBreakpoints={handleGoToBreakpoints}
         onGoToRules={handleGoToRules}
         onIgnoreHost={handleIgnoreHost}
-        onRepeat={handleRepeatDirect}
+        onRepeat={handleRepeatSession}
         onSaveResponse={handleSaveResponse}
         onSaveToCollection={handleSaveToCollection}
         onStopIgnoringHost={handleStopIgnoringHost}

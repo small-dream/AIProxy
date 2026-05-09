@@ -877,7 +877,7 @@ export const zhCNMessages: Messages = {
       wholeWord: "全字匹配",
     },
     summary: {
-      repeatInCompose: "在构造请求中重放该请求",
+      repeatInCompose: "重复请求",
     },
     tabs: {
       countLabel: "{{label}} ({{count}})",
@@ -922,6 +922,8 @@ export const zhCNMessages: Messages = {
     goToRules: "映射规则...",
     ignoreHost: "Ignore",
     repeat: "重复请求",
+    repeatFailed: "重复请求失败",
+    repeatSucceeded: "已重复请求",
     saveResponse: "保存响应...",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Remove Focus",

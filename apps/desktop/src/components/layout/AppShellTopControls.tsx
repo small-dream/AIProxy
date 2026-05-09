@@ -49,22 +49,22 @@ export function AppShellTopControls({
       spacing={1.25}
       sx={(theme) => ({
         backdropFilter: "blur(18px)",
-        bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.74 : 0.82),
+        bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.68 : 0.76),
         border: "1px solid",
-        borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.72 : 0.9),
+        borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.58 : 0.78),
         borderRadius: 999,
         boxShadow:
           theme.palette.mode === "dark"
-            ? "0 10px 28px rgba(0, 0, 0, 0.24)"
-            : "0 10px 26px rgba(15, 23, 42, 0.08)",
+            ? "0 8px 22px rgba(0, 0, 0, 0.20)"
+            : "0 8px 22px rgba(15, 23, 42, 0.06)",
         flexWrap: "wrap",
         justifyContent: "center",
-        px: 0.75,
-        py: 0.5,
-        rowGap: 1,
+        px: 0.4,
+        py: 0.25,
+        rowGap: 0.5,
       })}
     >
-      <Stack direction="row" spacing={1.25}>
+      <Stack direction="row" spacing={0.25}>
         {proxyRunning ? (
           <TopBarActionButton
             disabled={isProxyBusy}

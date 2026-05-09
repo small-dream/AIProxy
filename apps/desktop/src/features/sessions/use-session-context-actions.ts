@@ -1,5 +1,6 @@
 import type {
   ComposedRequestInput,
+  HeaderEntry,
   SessionSummary,
 } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,18 +13,32 @@ import type {
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { saveSessionToCollection } from "@/services/commands";
+import { saveSessionToCollection, sendComposedRequest } from "@/services/commands";
 
 import { getRawMessageText } from "@/features/sessions/components/session-inspector.helpers";
+import type { BodyType, RawLanguage } from "@/features/compose/compose-editor.store";
+import { buildComposeLoadInput } from "@/features/sessions/session-compose.helpers";
+import {
+  buildPendingComposedSessionDetail,
+  removeSessionSummary,
+  replaceSessionSummary,
+  upsertSessionSummary,
+} from "@/features/sessions/session-cache.helpers";
 import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
 import { buildCurlCommand, getBodyText } from "@/features/sessions/session-export.helpers";
 import { guessExtension } from "@/features/sessions/session-ui.helpers";
+import { SESSION_DETAIL_QUERY_KEY } from "@/features/sessions/use-session-detail";
+import { SESSIONS_QUERY_KEY } from "@/features/sessions/use-sessions";
 
 type LoadFromSessionInput = {
+  bodyType?: BodyType;
   body?: string;
-  headers: Array<{ name: string; value: string }>;
+  formDataEntries?: HeaderEntry[];
+  headers: HeaderEntry[];
   method: string;
+  rawLanguage?: RawLanguage;
   url: string;
+  urlEncodedEntries?: HeaderEntry[];
 };
 
 type UseSessionContextActionsParams = {
@@ -31,9 +46,12 @@ type UseSessionContextActionsParams = {
   navigate: (path: string) => void;
   setFocusedHosts: Dispatch<SetStateAction<Set<string>>>;
   setIgnoredHosts: Dispatch<SetStateAction<Set<string>>>;
-  sendComposedRequest: {
-    mutateAsync: (input: ComposedRequestInput) => Promise<unknown>;
-  };
+};
+
+type RepeatSessionCallbacks = {
+  onFailure?: (pendingSessionId: string) => void;
+  onPending?: (summary: SessionSummary) => void;
+  onSuccess?: (pendingSessionId: string, summary: SessionSummary) => void;
 };
 
 export function useSessionContextActions({
@@ -41,7 +59,6 @@ export function useSessionContextActions({
   navigate,
   setFocusedHosts,
   setIgnoredHosts,
-  sendComposedRequest,
 }: UseSessionContextActionsParams) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -183,30 +200,46 @@ export function useSessionContextActions({
     const detail = await ensureSessionDetailContent(queryClient, session.id, {
       includeRequestBodyText: true,
     });
-    const bodyText = detail?.requestBody?.inlineText;
 
-    loadFromSession({
-      method: session.method,
-      url: session.url,
-      headers: detail?.requestHeaders ?? [],
-      ...(bodyText ? { body: bodyText } : {}),
-    });
+    loadFromSession(buildComposeLoadInput(session, detail));
     navigate("/compose");
   }, [loadFromSession, navigate, queryClient]);
 
-  const handleRepeatDirect = useCallback(async (session: SessionSummary) => {
-    const detail = await ensureSessionDetailContent(queryClient, session.id, {
-      includeRequestBodyText: true,
-    });
+  const handleRepeatDirect = useCallback(async (
+    session: SessionSummary,
+    callbacks: RepeatSessionCallbacks = {},
+  ): Promise<SessionSummary | null> => {
+    const pendingSessionId = `pending-repeat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pendingInput: ComposedRequestInput = {
+      workspaceId: "default",
+      method: session.method,
+      url: session.url,
+      headers: [],
+    };
+    const pendingDetail = buildPendingComposedSessionDetail(pendingInput, pendingSessionId);
 
-    if (!detail) {
-      return;
+    if (!pendingDetail) {
+      showSnackbar(t("contextMenu.repeatFailed"));
+      return null;
     }
 
-    const bodyText = detail.requestBody?.inlineText;
+    queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+      upsertSessionSummary(currentSessions, pendingDetail.summary),
+    );
+    queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, pendingSessionId], pendingDetail);
+    callbacks.onPending?.(pendingDetail.summary);
 
     try {
-      await sendComposedRequest.mutateAsync({
+      const detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeRequestBodyText: true,
+      });
+
+      if (!detail) {
+        throw new Error("Session detail is unavailable");
+      }
+
+      const bodyText = detail.requestBody?.inlineText;
+      const input: ComposedRequestInput = {
         workspaceId: "default",
         method: session.method,
         url: session.url,
@@ -215,11 +248,33 @@ export function useSessionContextActions({
           value: header.value,
         })),
         ...(bodyText ? { body: bodyText } : {}),
-      });
+      };
+      const hydratedPendingDetail = buildPendingComposedSessionDetail(input, pendingSessionId);
+
+      if (hydratedPendingDetail) {
+        queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, pendingSessionId], hydratedPendingDetail);
+      }
+
+      const repeatedDetail = await sendComposedRequest(input);
+
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+        replaceSessionSummary(currentSessions, pendingSessionId, repeatedDetail.summary),
+      );
+      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
+      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, repeatedDetail.id], repeatedDetail);
+      callbacks.onSuccess?.(pendingSessionId, repeatedDetail.summary);
+      showSnackbar(t("contextMenu.repeatSucceeded"));
+      return repeatedDetail.summary;
     } catch {
-      // Silent fail; the new session will appear via polling.
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+        removeSessionSummary(currentSessions, pendingSessionId),
+      );
+      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
+      callbacks.onFailure?.(pendingSessionId);
+      showSnackbar(t("contextMenu.repeatFailed"));
+      return null;
     }
-  }, [queryClient, sendComposedRequest]);
+  }, [queryClient, showSnackbar, t]);
 
   const handleFocusDomain = useCallback((host: string) => {
     setFocusedHosts((currentHosts) => {

@@ -875,7 +875,7 @@ export const enMessages = {
       wholeWord: "Match Whole Word",
     },
     summary: {
-      repeatInCompose: "Repeat this request in Compose",
+      repeatInCompose: "Repeat this request",
     },
     tabs: {
       countLabel: "{{label}} ({{count}})",
@@ -920,6 +920,8 @@ export const enMessages = {
     goToRules: "Map Rules...",
     ignoreHost: "Ignore",
     repeat: "Repeat",
+    repeatFailed: "Repeat request failed",
+    repeatSucceeded: "Request repeated",
     saveResponse: "Save Response...",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Remove Focus",

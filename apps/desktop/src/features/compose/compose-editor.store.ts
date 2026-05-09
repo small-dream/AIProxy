@@ -57,8 +57,12 @@ type ComposeEditorState = {
   setUrlEncodedEntries: (entries: HeaderEntry[]) => void;
   setActiveTab: (tab: "headers" | "body" | "query") => void;
   loadFromSession: (data: {
+    bodyType?: BodyType;
+    formDataEntries?: HeaderEntry[];
     method: string;
+    rawLanguage?: RawLanguage;
     url: string;
+    urlEncodedEntries?: HeaderEntry[];
     headers: HeaderEntry[];
     body?: string;
   }) => void;
@@ -88,17 +92,21 @@ export const useComposeEditorStore = create<ComposeEditorState>((set) => ({
   setFormDataEntries: (formDataEntries) => set({ formDataEntries }),
   setUrlEncodedEntries: (urlEncodedEntries) => set({ urlEncodedEntries }),
   setActiveTab: (activeTab) => set({ activeTab }),
-  loadFromSession: (data) =>
-    set({
+  loadFromSession: (data) => {
+    const body = data.body ?? "";
+    const bodyType = data.bodyType ?? (body ? "raw" : "none");
+
+    return set({
       method: data.method,
       url: data.url,
       headers: [...data.headers],
-      body: data.body ?? "",
-      bodyType: data.body ? "raw" : "none",
-      rawLanguage: "json",
-      formDataEntries: [],
-      urlEncodedEntries: [],
-      activeTab: "headers",
-    }),
+      body,
+      bodyType,
+      rawLanguage: data.rawLanguage ?? "json",
+      formDataEntries: data.formDataEntries ? [...data.formDataEntries] : [],
+      urlEncodedEntries: data.urlEncodedEntries ? [...data.urlEncodedEntries] : [],
+      activeTab: bodyType === "none" ? "headers" : "body",
+    });
+  },
   reset: () => set(INITIAL_STATE),
 }));
