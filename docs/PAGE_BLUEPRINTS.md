@@ -843,22 +843,21 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 ```text
 CollectionsPage
   ├── CollectionTreePane (左栏)
-  │   ├── CollectionTree
-  │   │   └── CollectionTreeNode (递归)
+  │   ├── DndContext (PointerSensor 4px / KeyboardSensor + autoScroll)
+  │   │   └── CollectionTreeNodeView (递归 folder)
+  │   │       └── ItemRow (selected folder 下的请求项)
   │   ├── CreateCollectionDialog
   │   └── EnvironmentSelector + ManageButton
-  ├── CollectionItemListPane (中栏)
-  │   ├── ItemListHeader
-  │   └── ItemListRows
-  └── CollectionItemEditorPane (右栏)
-      ├── EditorToolbar (name + save + send)
-      ├── URLBar (method select + url input)
-      ├── ComposeRequestSection (复用)
-      └── ComposeResponseSection (复用)
-  └── EnvironmentManagerDialog (全局弹窗)
-      ├── Tabs: Environments | Global Variables
-      ├── EnvironmentList + VariableEditorTable
-      └── GlobalVariableEditorTable
+  ├── CollectionItemEditorPane (右栏，仅当 editor.collectionId 时显示)
+  │   ├── EditorToolbar (name + save + send)
+  │   ├── URLBar (method select + url input)
+  │   ├── ComposeRequestSection (复用)
+  │   └── ComposeResponseSection (复用)
+  ├── EnvironmentManagerDialog (全局弹窗)
+  │   ├── Tabs: Environments | Global Variables
+  │   ├── EnvironmentList + VariableEditorTable
+  │   └── GlobalVariableEditorTable
+  └── Snackbar (移动失败提示)
 ```
 
 ### 10.3 状态模型
@@ -871,6 +870,10 @@ CollectionsPage
 | `editor` | Zustand store | `collection-editor.store.ts` |
 | `requestTab` / `responseTab` | UI state | 用户切换标签 |
 | `manageEnvDialogOpen` | UI state | 用户点击管理按钮 |
+| `collapsedFolders` | `Set<string>` | 用户折叠/展开节点；spring-load 也写入 |
+| `activeDnd` | `{ kind, id, sourceCollectionId? } \| null` | DnD 拖拽开始/结束 |
+| `dropTarget` | `{ overDndId, position } \| null` | onDragOver 计算结果，驱动指示线渲染 |
+| `moveError` | `string \| null` | 移动失败时弹出 Snackbar |
 
 ### 10.4 页面事件流
 
@@ -883,6 +886,8 @@ CollectionsPage
 | 点击环境管理 ⚙ | `setManageEnvDialogOpen(true)` | 弹出 EnvironmentManagerDialog |
 | 在弹窗中新建环境 | `upsertEnvironment.mutate()` | 环境列表刷新，自动选中新建环境 |
 | 在弹窗中修改变量 | `debouncedSave` | 500ms 后自动保存到后端 |
+| 在树中拖动节点 | `DndContext.onDragStart/Over/End` | `computeDropIntent` 计算 25/50/25 区域 + cycle check → `useMoveCollection` / `useMoveCollectionItem` 触发乐观更新 + IPC 调用 |
+| 拖动悬停在折叠的文件夹中部 ≥500ms | spring-load timer | 自动展开该文件夹（写入 `collapsedFolders`） |
 
 ### 10.5 变量替换引擎
 
@@ -897,18 +902,21 @@ CollectionsPage
 
 | 层级 | 文件 | 职责 |
 | --- | --- | --- |
-| 页面 | `pages/collections/index.tsx` — `CollectionsPage` | 三栏布局 + 状态管理 |
+| 页面 | `pages/collections/index.tsx` — `CollectionsPage` | 三栏布局 + 状态管理 + DnD orchestration |
 | Feature Store | `features/collections/collection-editor.store.ts` | Zustand：编辑器表单状态 |
-| Feature Hooks | `features/collections/use-collections.ts` | 集合 React Query hooks |
-| Feature Hooks | `features/collections/use-collection-items.ts` | 请求项 React Query hooks |
+| Feature Hooks | `features/collections/use-collections.ts` | 集合 React Query hooks（含 `useMoveCollection` 乐观更新） |
+| Feature Hooks | `features/collections/use-collection-items.ts` | 请求项 React Query hooks（含 `useMoveCollectionItem` 乐观更新） |
 | Feature Hooks | `features/environments/use-environments.ts` | 环境/全局变量 hooks + 替换引擎 |
+| Feature Components | `features/collections/components/CollectionTreeNodeView.tsx` | 树节点（含 DnD draggable/droppable + 指示线 + 添加菜单） |
+| Feature Components | `features/collections/components/ItemRow.tsx` | 请求项行（含 DnD） |
+| Feature Components | `features/collections/components/dnd-helpers.ts` | `computeDropIntent` + `isFolderCycleViolation` 纯函数 |
 | Feature Components | `features/environments/components/EnvironmentManagerDialog.tsx` | 环境管理弹窗 |
 | Feature Components | `features/environments/components/VariableEditorTable.tsx` | 变量编辑表格（带启用开关） |
-| 服务层 | `services/commands/index.ts` | Collection + Environment 命令包装 |
-| 共享类型 | `packages/shared-types/src/index.ts` | `ApiCollection`, `ApiCollectionItem`, `ApiEnvironment`, `ApiEnvironmentVariable`, `ApiGlobalVariable` |
-| Rust DB | `crates/db/src/collections.rs` | Collection/Item CRUD |
+| 服务层 | `services/commands/index.ts` | Collection + Environment 命令包装（含 `moveApiCollection` / `moveApiCollectionItem`） |
+| 共享类型 | `packages/shared-types/src/index.ts` | `ApiCollection`, `ApiCollectionItem`, `ApiEnvironment`, `ApiEnvironmentVariable`, `ApiGlobalVariable`, `MoveApiCollectionInput`, `MoveApiCollectionItemInput` |
+| Rust DB | `crates/db/src/collections.rs` | Collection/Item CRUD + `move_collection` / `move_collection_item`（dense renumber + cycle check） |
 | Rust DB | `crates/db/src/environments.rs` | Environment/Variable/Global CRUD |
-| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
+| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `move_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `move_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `collectionsPage.*` 文案键 |
 
 ## 11. 页面与模块映射

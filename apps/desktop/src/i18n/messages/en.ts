@@ -977,7 +977,6 @@ export const enMessages = {
     namePlaceholder: "Collection name",
     descriptionPlaceholder: "Description (optional)",
     deleteCollection: "Delete",
-    emptyCollection: "No items in this collection",
     emptyCollections: "No collections yet. Create one to get started.",
     saveRequest: "Save Request",
     saveAsNew: "Save as New",
@@ -1021,6 +1020,8 @@ export const enMessages = {
     requestCount: "{{count}} requests",
     variableCount: "{{count}} vars",
     enabled: "Enabled",
+    moveFailed: "Could not move item.",
+    moveCycleBlocked: "Cannot move a folder into one of its own descendants.",
   },
 } as const;
 

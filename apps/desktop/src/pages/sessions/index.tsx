@@ -102,16 +102,17 @@ export function SessionsPage() {
       ? clampInspectorSplitRatio(savedRatio)
       : DEFAULT_REQUEST_SPLIT_RATIO;
   }, []);
-  const [containerState, setContainerState] = useState(() =>
-    createInitialSessionContainerState({
+  const [containerState, setContainerState] = useState(() => {
+    const storedSessionId = readStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
+    return createInitialSessionContainerState({
       expandedHosts: readStoredHosts(EXPANDED_HOSTS_STORAGE_KEY),
       inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
       requestTab: "query",
       responseTab: "overview",
-      selectedSessionId: readStorageValue(SELECTED_SESSION_ID_STORAGE_KEY) ?? undefined,
-    }),
-  );
+      ...(storedSessionId ? { selectedSessionId: storedSessionId } : {}),
+    });
+  });
   const [explorerWidth, setExplorerWidth] = useState(() => {
     const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
     const parsedWidth = Number(savedWidth);

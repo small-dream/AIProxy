@@ -184,11 +184,11 @@ export function seedSessionContainers(
         ? sessionIds.includes(container.selectedSessionId)
         : false;
 
-      return {
-        ...container,
-        sessionIds,
-        ...(isSelectedSessionValid ? {} : { selectedSessionId: undefined }),
-      };
+      const next = { ...container, sessionIds };
+      if (!isSelectedSessionValid) {
+        delete next.selectedSessionId;
+      }
+      return next;
     }),
     hydrated: true,
     sessionOwnerById: nextOwnerById,

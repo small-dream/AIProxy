@@ -979,7 +979,6 @@ export const zhCNMessages: Messages = {
     namePlaceholder: "集合名称",
     descriptionPlaceholder: "描述（可选）",
     deleteCollection: "删除",
-    emptyCollection: "此集合中没有请求",
     emptyCollections: "暂无集合。创建一个开始使用。",
     saveRequest: "保存请求",
     saveAsNew: "另存为新请求",
@@ -1023,5 +1022,7 @@ export const zhCNMessages: Messages = {
     requestCount: "{{count}} 个请求",
     variableCount: "{{count}} 个变量",
     enabled: "启用",
+    moveFailed: "无法移动该项。",
+    moveCycleBlocked: "无法把文件夹移动到它自己的子级中。",
   },
 };

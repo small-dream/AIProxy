@@ -12,12 +12,14 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
+    "@aiproxy/shared-types": "workspace:*",
+    "@aiproxy/ui-tokens": "workspace:*",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^7.0.0",
     "@mui/material": "^7.0.0",
-    "@aiproxy/shared-types": "workspace:*",
-    "@aiproxy/ui-tokens": "workspace:*",
     "@tanstack/react-query": "^5.71.10",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",

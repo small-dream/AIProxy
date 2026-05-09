@@ -2685,6 +2685,15 @@ pub struct DeleteApiCollectionItemInput {
 pub struct MoveApiCollectionItemInput {
     pub id: String,
     pub target_collection_id: String,
+    pub sort_order: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveApiCollectionInput {
+    pub id: String,
+    pub target_parent_id: Option<String>,
+    pub sort_order: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2839,9 +2848,34 @@ pub fn move_api_collection_item(
     input: MoveApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
     let conn = state.read_db_connection().lock().expect("db mutex");
-    aiproxy_db::collections::move_collection_item(&conn, &input.id, &input.target_collection_id)
-        .map_err(|e| format!("move collection item: {e}"))?;
+    aiproxy_db::collections::move_collection_item(
+        &conn,
+        &input.id,
+        &input.target_collection_id,
+        input.sort_order,
+        &now,
+    )
+    .map_err(|e| format!("move collection item: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_api_collection(
+    input: MoveApiCollectionInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::collections::move_collection(
+        &conn,
+        &input.id,
+        input.target_parent_id.as_deref(),
+        input.sort_order,
+        &now,
+    )
+    .map_err(|e| format!("move collection: {e}"))?;
     Ok(())
 }
 

@@ -4,6 +4,7 @@ import type { ApiCollection } from "@aiproxy/shared-types";
 import {
   deleteApiCollection,
   listApiCollections,
+  moveApiCollection,
   upsertApiCollection,
 } from "@/services/commands";
 
@@ -43,6 +44,39 @@ export function useDeleteCollection() {
   });
 }
 
+export type MoveCollectionInput = {
+  id: string;
+  targetParentId: string | null;
+  sortOrder: number;
+};
+
+export function useMoveCollection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, targetParentId, sortOrder }: MoveCollectionInput) =>
+      moveApiCollection(id, targetParentId, sortOrder),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: COLLECTIONS_KEY });
+      const previous = queryClient.getQueryData<ApiCollection[]>(COLLECTIONS_KEY);
+      if (previous) {
+        queryClient.setQueryData<ApiCollection[]>(
+          COLLECTIONS_KEY,
+          applyOptimisticMoveCollection(previous, variables),
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(COLLECTIONS_KEY, context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: COLLECTIONS_KEY });
+    },
+  });
+}
+
 export function buildCollectionTree(collections: ApiCollection[]): CollectionTreeNode[] {
   const map = new Map<string, CollectionTreeNode>();
   const roots: CollectionTreeNode[] = [];
@@ -64,3 +98,52 @@ export function buildCollectionTree(collections: ApiCollection[]): CollectionTre
 }
 
 export type CollectionTreeNode = ApiCollection & { children: CollectionTreeNode[] };
+
+function applyOptimisticMoveCollection(
+  collections: ApiCollection[],
+  move: MoveCollectionInput,
+): ApiCollection[] {
+  const moved = collections.find((c) => c.id === move.id);
+  if (!moved) return collections;
+
+  const oldParentId = moved.parentId;
+  const sameParent = oldParentId === move.targetParentId;
+
+  const targetSiblings = collections
+    .filter((c) => c.parentId === move.targetParentId && c.id !== move.id)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map((c) => c.id);
+  const targetIdx = Math.max(0, Math.min(move.sortOrder, targetSiblings.length));
+  targetSiblings.splice(targetIdx, 0, move.id);
+
+  const newSortOrders = new Map<string, number>();
+  targetSiblings.forEach((id, i) => {
+    newSortOrders.set(id, i);
+  });
+
+  if (!sameParent) {
+    const oldSiblings = collections
+      .filter((c) => c.parentId === oldParentId && c.id !== move.id)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((c) => c.id);
+    oldSiblings.forEach((id, i) => {
+      newSortOrders.set(id, i);
+    });
+  }
+
+  return collections
+    .map((c) => {
+      if (c.id === move.id) {
+        return {
+          ...c,
+          parentId: move.targetParentId,
+          sortOrder: newSortOrders.get(c.id) ?? c.sortOrder,
+        };
+      }
+      if (newSortOrders.has(c.id)) {
+        return { ...c, sortOrder: newSortOrders.get(c.id)! };
+      }
+      return c;
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}

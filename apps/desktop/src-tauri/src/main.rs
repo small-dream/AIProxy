@@ -164,6 +164,7 @@ pub fn run() {
             commands::upsert_api_collection_item,
             commands::delete_api_collection_item,
             commands::move_api_collection_item,
+            commands::move_api_collection,
             commands::save_session_to_collection,
             commands::list_api_environments,
             commands::upsert_api_environment,

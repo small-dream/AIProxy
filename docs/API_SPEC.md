@@ -1452,8 +1452,9 @@ type ApiCollectionItem = {
 ### Collection CRUD
 
 - `list_api_collections() -> ApiCollection[]`
-- `upsert_api_collection({ id?, parentId?, name, sortOrder? }) -> ApiCollection`
+- `upsert_api_collection({ id?, parentId?, name, sortOrder? }) -> ApiCollection` — 当 `id` 存在且 `parentId` 改变时会进行 cycle check（拒绝把文件夹移到自己的子级）
 - `delete_api_collection({ id }) -> void` — 级联删除子文件夹和请求项
+- `move_api_collection({ id, targetParentId, sortOrder }) -> void` — 在树中移动文件夹；`sortOrder` 是新父级下的目标索引，会触发 dense renumber 和 cycle check
 
 ### Collection Item CRUD
 
@@ -1461,7 +1462,7 @@ type ApiCollectionItem = {
 - `get_api_collection_item({ id }) -> ApiCollectionItem`
 - `upsert_api_collection_item({ id?, collectionId, name, description?, method, url, headers, body, bodyType, rawLanguage, formData, urlEncoded }) -> ApiCollectionItem`
 - `delete_api_collection_item({ id }) -> void`
-- `move_api_collection_item({ id, targetCollectionId }) -> void`
+- `move_api_collection_item({ id, targetCollectionId, sortOrder }) -> void` — 在文件夹之间移动请求项或在同一文件夹内重排，`sortOrder` 是目标列表中的目标索引，触发 dense renumber
 - `save_session_to_collection({ sessionId, collectionId, name? }) -> ApiCollectionItem` — 从抓包流量保存
 
 ### Batch Execute

@@ -502,6 +502,26 @@ Collections Page 是 API 集合管理页面，支持保存、分组、编辑和�
 - URL、Headers、Body 中的 `{{variable}}` 保持原样显示
 - 未匹配的变量不做高亮报错，保持静默（与 Postman 行为一致）
 
+### Collection 树拖拽交互
+
+支持鼠标拖拽重新组织树结构，文件夹和请求项都可以拖动。
+
+- **触发**：鼠标按下后移动 ≥4 px 才进入拖拽（`PointerSensor.activationConstraint.distance = 4`）；点击 ≤4 px 仍然作为选择/展开使用。
+- **拖拽指示**：
+  - **Before / After**：在被悬停行的上/下边缘渲染 2 px primary.main 颜色的指示线，仅覆盖缩进区域（不延伸到左侧 gutter）
+  - **Into**：被悬停文件夹整行高亮（primary 半透明背景）
+  - 被拖拽行 opacity 降到 0.4，提示用户原位置正在被搬移
+- **判定区域**（基于光标 Y 在被悬停行内的相对位置）：
+  - 文件夹行：上 25% = before / 中 50% = into / 下 25% = after
+  - 空且已展开的文件夹：整行 = into（避免用户找不到 into 区）
+  - 请求项行：上 50% = before / 下 50% = after，没有 into
+- **跨类型规则**：
+  - 文件夹拖到请求项行 → 无指示线，禁止（请求项不能与文件夹同级）
+  - 请求项拖到文件夹行 → 始终是 into
+  - 文件夹拖到自己或其后代 → 无指示线，前后端双重 cycle check
+- **Spring-load**：拖动悬停在折叠文件夹的中部 ≥500 ms 自动展开该文件夹；移开或释放则清掉计时器。
+- **后端写入**：松开后调用 `move_api_collection` / `move_api_collection_item`，目标 `sortOrder` 触发 dense renumber；失败时通过底部 Snackbar 反馈。乐观更新先写入 React Query 缓存，失败回滚。
+
 ## 9.4 Rules Page
 
 ### 页面定位

@@ -1674,14 +1674,31 @@ export async function deleteApiCollectionItem(id: string): Promise<void> {
 export async function moveApiCollectionItem(
   id: string,
   targetCollectionId: string,
+  sortOrder: number,
 ): Promise<void> {
   if (!isTauriRuntime()) return;
   try {
     await invoke("move_api_collection_item", {
-      input: { id, targetCollectionId },
+      input: { id, targetCollectionId, sortOrder },
     });
   } catch (error) {
     reportCommandFailure("move_api_collection_item", error, id);
+    throw coerceAppError(error);
+  }
+}
+
+export async function moveApiCollection(
+  id: string,
+  targetParentId: string | null,
+  sortOrder: number,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("move_api_collection", {
+      input: { id, targetParentId, sortOrder },
+    });
+  } catch (error) {
+    reportCommandFailure("move_api_collection", error, id);
     throw coerceAppError(error);
   }
 }

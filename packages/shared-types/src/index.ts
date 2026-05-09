@@ -502,6 +502,18 @@ export type BatchExecuteInput = {
   environmentId?: string;
 };
 
+export type MoveApiCollectionInput = {
+  id: string;
+  targetParentId: string | null;
+  sortOrder: number;
+};
+
+export type MoveApiCollectionItemInput = {
+  id: string;
+  targetCollectionId: string;
+  sortOrder: number;
+};
+
 export type BatchExecuteProgress = {
   completedIndex: number;
   totalCount: number;
