@@ -381,6 +381,9 @@ erDiagram
     WORKSPACE ||--o{ MAP_RULE : owns
     WORKSPACE ||--o{ THROTTLE_PROFILE : owns
     WORKSPACE ||--o{ CERTIFICATE_STATE : references
+    API_COLLECTION ||--o{ API_COLLECTION_ITEM : contains
+    API_COLLECTION ||--o{ API_COLLECTION : parent_of
+    API_ENVIRONMENT ||--o{ API_ENVIRONMENT_VARIABLE : owns
 ```
 
 ## 9.2 核心实体
@@ -481,6 +484,59 @@ erDiagram
 - `fingerprint`
 - `updated_at`
 
+### `api_collection` — 已实现
+
+- `id` — UUID
+- `parent_id` — 自引用，支持树形文件夹结构
+- `name`
+- `description`
+- `sort_order`
+- `created_at`
+- `updated_at`
+
+### `api_collection_item` — 已实现
+
+- `id` — UUID
+- `collection_id` — 外键，级联删除
+- `name`
+- `description`
+- `sort_order`
+- `method`
+- `url`
+- `headers` — JSON: `HeaderEntry[]`
+- `body`
+- `body_type` — `none | formdata | urlencoded | raw`
+- `raw_language`
+- `form_data` — JSON: `HeaderEntry[]`
+- `url_encoded` — JSON: `HeaderEntry[]`
+- `created_at`
+- `updated_at`
+
+### `api_environment` — 已实现
+
+- `id` — UUID
+- `name`
+- `sort_order`
+- `created_at`
+- `updated_at`
+
+### `api_environment_variable` — 已实现
+
+- `id` — UUID
+- `environment_id` — 外键，级联删除
+- `key`
+- `value`
+- `enabled`
+- `sort_order`
+
+### `api_global_variable` — 已实现
+
+- `id` — UUID
+- `key`
+- `value`
+- `enabled`
+- `sort_order`
+
 ## 10. 存储策略
 
 ### 10.1 SQLite 存储内容（计划）
@@ -512,6 +568,7 @@ erDiagram
 
 - `SessionsPage`
 - `ComposePage`
+- `CollectionsPage`
 - `RulesPage`
 - `ThrottlingPage`
 - `CertificatesPage`
@@ -528,6 +585,7 @@ erDiagram
 
 - `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
+- `CollectionsPage`：三栏布局 — `CollectionTreePane`（集合/文件夹树）+ `CollectionItemListPane`（请求列表）+ `CollectionItemEditorPane`（请求编辑器，复用 ComposeRequestSection + ComposeResponseSection）。底部环境选择器支持切换环境，变量替换引擎支持 `{{key}}` 语法
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Map Local / Map Remote / DNS）；`Rewrite / Map / DNS` 采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
@@ -546,6 +604,8 @@ erDiagram
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
+- `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
+- `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层
 
 ## 11.3 组件分层

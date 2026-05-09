@@ -26,6 +26,18 @@ pub struct EnvironmentVariableRow {
 }
 
 // ---------------------------------------------------------------------------
+// Global variable row
+// ---------------------------------------------------------------------------
+
+pub struct GlobalVariableRow {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub sort_order: u32,
+}
+
+// ---------------------------------------------------------------------------
 // Environment CRUD
 // ---------------------------------------------------------------------------
 
@@ -133,6 +145,63 @@ pub fn set_environment_variables(
 }
 
 // ---------------------------------------------------------------------------
+// Global variable CRUD
+// ---------------------------------------------------------------------------
+
+pub fn upsert_global_variable(conn: &Connection, v: &GlobalVariableRow) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO api_global_variables
+            (id, key, value, enabled, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            v.id, v.key, v.value,
+            v.enabled as i32, v.sort_order as i32,
+        ],
+    )
+    .map_err(|e| format!("upsert global variable: {e}"))?;
+    Ok(())
+}
+
+pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, key, value, enabled, sort_order
+             FROM api_global_variables
+             ORDER BY sort_order, key",
+        )
+        .map_err(|e| format!("prepare list global variables: {e}"))?;
+
+    let rows = stmt
+        .query_map([], row_to_global_variable)
+        .map_err(|e| format!("query global variables: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn set_global_variables(
+    conn: &Connection,
+    vars: &[GlobalVariableRow],
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin set global variables transaction: {e}"))?;
+
+    tx.execute("DELETE FROM api_global_variables", [])
+        .map_err(|e| format!("clear global vars: {e}"))?;
+
+    for v in vars {
+        upsert_global_variable(&tx, v)?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("commit set global variables transaction: {e}"))?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Row mappers
 // ---------------------------------------------------------------------------
 
@@ -150,6 +219,16 @@ fn row_to_env_variable(row: &rusqlite::Row<'_>) -> rusqlite::Result<EnvironmentV
     Ok(EnvironmentVariableRow {
         id: row.get("id")?,
         environment_id: row.get("environment_id")?,
+        key: row.get("key")?,
+        value: row.get("value")?,
+        enabled: row.get::<_, i32>("enabled")? != 0,
+        sort_order: row.get::<_, i32>("sort_order")? as u32,
+    })
+}
+
+fn row_to_global_variable(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVariableRow> {
+    Ok(GlobalVariableRow {
+        id: row.get("id")?,
         key: row.get("key")?,
         value: row.get("value")?,
         enabled: row.get::<_, i32>("enabled")? != 0,
@@ -282,5 +361,53 @@ mod tests {
         delete_environment(&conn, "env1").unwrap();
         let vars = list_environment_variables(&conn, "env1").unwrap();
         assert!(vars.is_empty());
+    }
+
+    #[test]
+    fn global_variable_round_trip() {
+        let conn = test_conn();
+
+        let v1 = GlobalVariableRow {
+            id: "gv1".into(), key: "token".into(), value: "global-token".into(),
+            enabled: true, sort_order: 0,
+        };
+        let v2 = GlobalVariableRow {
+            id: "gv2".into(), key: "apiKey".into(), value: "global-key".into(),
+            enabled: false, sort_order: 1,
+        };
+        upsert_global_variable(&conn, &v1).unwrap();
+        upsert_global_variable(&conn, &v2).unwrap();
+
+        let vars = list_global_variables(&conn).unwrap();
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0].key, "token");
+        assert_eq!(vars[0].value, "global-token");
+        assert!(vars[0].enabled);
+        assert_eq!(vars[1].key, "apiKey");
+        assert_eq!(vars[1].value, "global-key");
+        assert!(!vars[1].enabled);
+    }
+
+    #[test]
+    fn set_global_variables_replaces_all() {
+        let conn = test_conn();
+
+        let old = GlobalVariableRow {
+            id: "gv1".into(), key: "old".into(), value: "old-val".into(),
+            enabled: true, sort_order: 0,
+        };
+        upsert_global_variable(&conn, &old).unwrap();
+
+        let new_vars = vec![
+            GlobalVariableRow {
+                id: "gv2".into(), key: "token".into(), value: "new-token".into(),
+                enabled: true, sort_order: 0,
+            },
+        ];
+        set_global_variables(&conn, &new_vars).unwrap();
+
+        let vars = list_global_variables(&conn).unwrap();
+        assert_eq!(vars.len(), 1);
+        assert_eq!(vars[0].key, "token");
     }
 }

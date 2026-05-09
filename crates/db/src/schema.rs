@@ -229,6 +229,15 @@ CREATE TABLE IF NOT EXISTS api_environment_variables (
     FOREIGN KEY (environment_id) REFERENCES api_environments(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_api_env_vars_env ON api_environment_variables(environment_id);
+
+CREATE TABLE IF NOT EXISTS api_global_variables (
+    id          TEXT NOT NULL PRIMARY KEY,
+    key         TEXT NOT NULL,
+    value       TEXT NOT NULL DEFAULT '',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_api_global_vars_key ON api_global_variables(key);
 ";
 
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
@@ -261,6 +270,7 @@ mod tests {
             "api_collections",
             "api_environment_variables",
             "api_environments",
+            "api_global_variables",
             "breakpoint_rules",
             "dns_mappings",
             "map_rules",

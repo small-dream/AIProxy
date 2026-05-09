@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ApiEnvironmentVariable } from "@aiproxy/shared-types";
+import type { ApiEnvironmentVariable, ApiGlobalVariable } from "@aiproxy/shared-types";
 
 import {
   deleteApiEnvironment,
   listApiEnvironmentVariables,
   listApiEnvironments,
+  listApiGlobalVariables,
   setApiEnvironmentVariables,
+  setApiGlobalVariables,
   upsertApiEnvironment,
 } from "@/services/commands";
 
 const ENV_KEY = ["api-environments"];
+const GLOBAL_VARS_KEY = ["api-global-variables"];
 
 export function useEnvironments() {
   return useQuery({
@@ -72,18 +75,67 @@ export function useSetEnvironmentVariables() {
   });
 }
 
+export function useGlobalVariables() {
+  return useQuery({
+    queryKey: GLOBAL_VARS_KEY,
+    queryFn: listApiGlobalVariables,
+  });
+}
+
+export function useSetGlobalVariables() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      variables: Array<{
+        id: string;
+        key: string;
+        value: string;
+        enabled: boolean;
+        sortOrder?: number;
+      }>,
+    ) => setApiGlobalVariables(variables),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: GLOBAL_VARS_KEY });
+    },
+  });
+}
+
+/**
+ * Build a Map of enabled variables, with environment variables
+ * taking precedence over global variables.
+ */
+export function buildMergedVariableMap(
+  envVariables: ApiEnvironmentVariable[],
+  globalVariables: ApiGlobalVariable[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const v of globalVariables) {
+    if (v.enabled) map.set(v.key, v.value);
+  }
+  for (const v of envVariables) {
+    if (v.enabled) map.set(v.key, v.value);
+  }
+  return map;
+}
+
 /**
  * Substitute {{key}} placeholders in a template string.
  */
 export function substituteVariables(
   template: string,
-  variables: ApiEnvironmentVariable[],
+  variables: ApiEnvironmentVariable[] | Map<string, string>,
 ): string {
+  if (variables instanceof Map) {
+    let result = template;
+    for (const [key, value] of variables) {
+      result = result.replaceAll(`{{${key}}}`, value);
+    }
+    return result;
+  }
   const enabled = variables.filter((v) => v.enabled);
   let result = template;
   for (const v of enabled) {
-    const pattern = `{{${v.key}}}`;
-    result = result.replaceAll(pattern, v.value);
+    result = result.replaceAll(`{{${v.key}}}`, v.value);
   }
   return result;
 }

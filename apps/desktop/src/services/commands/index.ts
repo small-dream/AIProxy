@@ -63,11 +63,13 @@ import {
   type ApiCollectionItem,
   type ApiEnvironment,
   type ApiEnvironmentVariable,
+  type ApiGlobalVariable,
   parseApiCollections,
   parseApiCollectionItem,
   parseApiCollectionItems,
   parseApiEnvironments,
   parseApiEnvironmentVariables,
+  parseApiGlobalVariables,
   type CollectionSaveInput,
   type SessionToCollectionInput,
   type BatchExecuteInput,
@@ -1782,6 +1784,37 @@ export async function setApiEnvironmentVariables(
     });
   } catch (error) {
     reportCommandFailure("set_api_environment_variables", error, environmentId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listApiGlobalVariables(): Promise<ApiGlobalVariable[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const payload = await invoke<unknown>("list_api_global_variables");
+    return parseApiGlobalVariables(payload);
+  } catch (error) {
+    reportCommandFailure("list_api_global_variables", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function setApiGlobalVariables(
+  variables: Array<{
+    id: string;
+    key: string;
+    value: string;
+    enabled: boolean;
+    sortOrder?: number;
+  }>,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("set_api_global_variables", {
+      input: { variables },
+    });
+  } catch (error) {
+    reportCommandFailure("set_api_global_variables", error);
     throw coerceAppError(error);
   }
 }

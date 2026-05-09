@@ -998,6 +998,13 @@ export const enMessages = {
     selectCollection: "Select a collection",
     saved: "Saved to collection",
     folderName: "Folder name",
+    globalVariables: "Global Variables",
+    environmentVariables: "Variables",
+    deleteEnvironment: "Delete Environment",
+    deleteEnvironmentConfirm: "Are you sure you want to delete \"{{name}}\"?",
+    environmentDeleted: "Environment deleted",
+    variablesSaved: "Variables saved",
+    enabled: "Enabled",
   },
 } as const;
 

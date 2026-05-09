@@ -468,6 +468,14 @@ export type ApiEnvironmentVariable = {
   sortOrder: number;
 };
 
+export type ApiGlobalVariable = {
+  id: string;
+  key: string;
+  value: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
 export type CollectionSaveInput = {
   id?: string;
   collectionId: string;
@@ -1820,6 +1828,24 @@ export function isApiEnvironmentVariable(value: unknown): value is ApiEnvironmen
 export function parseApiEnvironmentVariables(value: unknown): ApiEnvironmentVariable[] {
   if (!Array.isArray(value)) throw coerceAppError(value);
   if (value.every(isApiEnvironmentVariable)) return value;
+  throw coerceAppError(value);
+}
+
+export function isApiGlobalVariable(value: unknown): value is ApiGlobalVariable {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ApiGlobalVariable>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.key === "string" &&
+    typeof candidate.value === "string" &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.sortOrder === "number"
+  );
+}
+
+export function parseApiGlobalVariables(value: unknown): ApiGlobalVariable[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isApiGlobalVariable)) return value;
   throw coerceAppError(value);
 }
 

@@ -1413,7 +1413,115 @@ type ExportProgressEvent = {
 - 仅支持 `export function onRequest(ctx) {}` 与 `export function onResponse(ctx) {}`
 - 运行时不开放文件系统、网络、模块加载、宿主命令执行
 
-## 11. 实现建议
+## 11. API Collection Commands — 已实现
+
+这些命令由 `Collections` 页面调用，支持保存、分组、编辑和发送 HTTP 请求集合。
+
+### Collection 共享类型
+
+```ts
+type ApiCollection = {
+  id: string;
+  parentId: string | null;
+  name: string;
+  description: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ApiCollectionItem = {
+  id: string;
+  collectionId: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+  method: string;
+  url: string;
+  headers: HeaderEntry[];
+  body: string;
+  bodyType: "none" | "formdata" | "urlencoded" | "raw";
+  rawLanguage: string;
+  formData: HeaderEntry[];
+  urlEncoded: HeaderEntry[];
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+### Collection CRUD
+
+- `list_api_collections() -> ApiCollection[]`
+- `upsert_api_collection({ id?, parentId?, name, sortOrder? }) -> ApiCollection`
+- `delete_api_collection({ id }) -> void` — 级联删除子文件夹和请求项
+
+### Collection Item CRUD
+
+- `list_api_collection_items({ collectionId }) -> ApiCollectionItem[]`
+- `get_api_collection_item({ id }) -> ApiCollectionItem`
+- `upsert_api_collection_item({ id?, collectionId, name, description?, method, url, headers, body, bodyType, rawLanguage, formData, urlEncoded }) -> ApiCollectionItem`
+- `delete_api_collection_item({ id }) -> void`
+- `move_api_collection_item({ id, targetCollectionId }) -> void`
+- `save_session_to_collection({ sessionId, collectionId, name? }) -> ApiCollectionItem` — 从抓包流量保存
+
+### Batch Execute
+
+- `batch_execute_collection_items({ itemIds, environmentId? }) -> SessionDetail[]` — 顺序执行，自动替换环境变量
+
+## 12. Environment Commands — 已实现
+
+这些命令支持多环境管理和变量替换。环境变量与全局变量均支持 `{{key}}` 语法，在请求发送时自动替换 URL、Headers、Body、FormData 和 URL-encoded 值。
+
+### Environment 共享类型
+
+```ts
+type ApiEnvironment = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ApiEnvironmentVariable = {
+  id: string;
+  environmentId: string;
+  key: string;
+  value: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+type ApiGlobalVariable = {
+  id: string;
+  key: string;
+  value: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+```
+
+### Environment CRUD
+
+- `list_api_environments() -> ApiEnvironment[]`
+- `upsert_api_environment({ id?, name, sortOrder? }) -> ApiEnvironment`
+- `delete_api_environment({ id }) -> void` — 级联删除关联变量
+
+### Environment Variables
+
+- `list_api_environment_variables({ environmentId }) -> ApiEnvironmentVariable[]`
+- `set_api_environment_variables({ environmentId, variables }) -> void` — 事务性全量替换
+
+### Global Variables
+
+- `list_api_global_variables() -> ApiGlobalVariable[]`
+- `set_api_global_variables({ variables }) -> void` — 事务性全量替换
+
+### 变量作用域
+
+变量解析优先级：环境变量 > 全局变量。未匹配的 `{{key}}` 保持原样，不报错。
+
+## 13. 实现建议
 
 - 在 `packages/shared-types/` 维护所有接口 DTO
 - 用 Zod 或等价 schema 在前端做运行时校验

@@ -812,12 +812,112 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 | 点击 "Apply" | `loadWorkspaceMutation.mutate()` | 切换当前活跃预设 |
 | AppShell 底部状态栏预设切换 | `handleWorkspaceSwitch(id)` | 从底部状态栏打开预设列表；若代理运行中则以当前配置重启并切换到目标预设 |
 
-## 10. 页面与模块映射
+## 10. Collections Page（集合页面）
+
+### 10.1 页面结构
+
+三栏布局：
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│ CollectionsPage                                             │
+│ ┌─────────────┐ ┌──────────────┐ ┌──────────────────────┐ │
+│ │ Collection  │ │  Item List   │ │   Item Editor        │ │
+│ │   Tree      │ │   Pane       │ │   Pane               │ │
+│ │             │ │              │ │                      │ │
+│ │ ▸ Auth      │ │ GET Login    │ │ [URL Bar]            │ │
+│ │ ▾ User      │ │ POST Create  │ │ [Request Section]    │ │
+│ │   ▸ Profile │ │ GET Profile  │ │ [Response Section]   │ │
+│ │   ▸ Orders  │ │              │ │                      │ │
+│ │             │ │              │ │                      │ │
+│ │ [+ New]     │ │ [+ Save]     │ │ [Send] [Save]        │ │
+│ │             │ │              │ │                      │ │
+│ │ [Env Select │ │              │ │                      │ │
+│ │  ⚙ Manage]  │ │              │ │                      │ │
+│ └─────────────┘ └──────────────┘ └──────────────────────┘ │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 组件树
+
+```text
+CollectionsPage
+  ├── CollectionTreePane (左栏)
+  │   ├── CollectionTree
+  │   │   └── CollectionTreeNode (递归)
+  │   ├── CreateCollectionDialog
+  │   └── EnvironmentSelector + ManageButton
+  ├── CollectionItemListPane (中栏)
+  │   ├── ItemListHeader
+  │   └── ItemListRows
+  └── CollectionItemEditorPane (右栏)
+      ├── EditorToolbar (name + save + send)
+      ├── URLBar (method select + url input)
+      ├── ComposeRequestSection (复用)
+      └── ComposeResponseSection (复用)
+  └── EnvironmentManagerDialog (全局弹窗)
+      ├── Tabs: Environments | Global Variables
+      ├── EnvironmentList + VariableEditorTable
+      └── GlobalVariableEditorTable
+```
+
+### 10.3 状态模型
+
+| 状态 | 类型 | 来源 |
+| --- | --- | --- |
+| `selectedCollectionId` | `string \| null` | 用户点击树节点 |
+| `selectedItemId` | `string \| null` | 用户点击列表行 |
+| `activeEnvironmentId` | `string \| null` | localStorage 恢复 + 用户下拉选择 |
+| `editor` | Zustand store | `collection-editor.store.ts` |
+| `requestTab` / `responseTab` | UI state | 用户切换标签 |
+| `manageEnvDialogOpen` | UI state | 用户点击管理按钮 |
+
+### 10.4 页面事件流
+
+| 用户操作 | 触发 | 结果 |
+| --- | --- | --- |
+| 点击集合树节点 | `setSelectedCollectionId(id)` | 中栏加载该集合的请求列表 |
+| 点击列表请求项 | `handleSelectItem(item)` | 右栏加载请求到编辑器 |
+| 修改编辑器内容 + 点击 Send | `handleSend()` | 合并环境+全局变量 → `substituteVariables` → `sendComposedRequest` |
+| 点击 Save | `handleSave()` | `upsertCollectionItem.mutate()` |
+| 点击环境管理 ⚙ | `setManageEnvDialogOpen(true)` | 弹出 EnvironmentManagerDialog |
+| 在弹窗中新建环境 | `upsertEnvironment.mutate()` | 环境列表刷新，自动选中新建环境 |
+| 在弹窗中修改变量 | `debouncedSave` | 500ms 后自动保存到后端 |
+
+### 10.5 变量替换引擎
+
+发送请求前，按以下优先级合并变量：
+
+1. 全局变量（`api_global_variables`）作为基础层
+2. 当前环境变量（`api_environment_variables`）覆盖同名全局变量
+3. 对 URL、Headers、Body（raw）、FormData（name/value）、URL-encoded（name/value）执行 `{{key}}` → `value` 替换
+4. 未匹配的 `{{key}}` 保持原样
+
+### 10.6 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/collections/index.tsx` — `CollectionsPage` | 三栏布局 + 状态管理 |
+| Feature Store | `features/collections/collection-editor.store.ts` | Zustand：编辑器表单状态 |
+| Feature Hooks | `features/collections/use-collections.ts` | 集合 React Query hooks |
+| Feature Hooks | `features/collections/use-collection-items.ts` | 请求项 React Query hooks |
+| Feature Hooks | `features/environments/use-environments.ts` | 环境/全局变量 hooks + 替换引擎 |
+| Feature Components | `features/environments/components/EnvironmentManagerDialog.tsx` | 环境管理弹窗 |
+| Feature Components | `features/environments/components/VariableEditorTable.tsx` | 变量编辑表格（带启用开关） |
+| 服务层 | `services/commands/index.ts` | Collection + Environment 命令包装 |
+| 共享类型 | `packages/shared-types/src/index.ts` | `ApiCollection`, `ApiCollectionItem`, `ApiEnvironment`, `ApiEnvironmentVariable`, `ApiGlobalVariable` |
+| Rust DB | `crates/db/src/collections.rs` | Collection/Item CRUD |
+| Rust DB | `crates/db/src/environments.rs` | Environment/Variable/Global CRUD |
+| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `collectionsPage.*` 文案键 |
+
+## 11. 页面与模块映射
 
 | 页面 | 主 Feature 模块 | 主要命令/接口 |
 | --- | --- | --- |
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
+| Collections | `collections`, `environments` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
 | Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |

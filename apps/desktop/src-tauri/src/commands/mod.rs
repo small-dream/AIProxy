@@ -3066,6 +3066,71 @@ pub fn set_api_environment_variables(
 }
 
 // ---------------------------------------------------------------------------
+// API Global variable commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiGlobalVariableOutput {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub sort_order: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetApiGlobalVariablesInput {
+    pub variables: Vec<ApiGlobalVariableInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiGlobalVariableInput {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+    pub sort_order: Option<u32>,
+}
+
+#[tauri::command]
+pub fn list_api_global_variables(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiGlobalVariableOutput>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    let rows = aiproxy_db::environments::list_global_variables(&conn)
+        .map_err(|error| format!("list global variables: {error}"))?;
+    Ok(rows.into_iter().map(|r| ApiGlobalVariableOutput {
+            id: r.id,
+            key: r.key,
+            value: r.value,
+            enabled: r.enabled,
+            sort_order: r.sort_order,
+        }).collect())
+}
+
+#[tauri::command]
+pub fn set_api_global_variables(
+    input: SetApiGlobalVariablesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let vars: Vec<aiproxy_db::environments::GlobalVariableRow> = input.variables.into_iter().enumerate().map(|(i, v)| {
+        aiproxy_db::environments::GlobalVariableRow {
+            id: v.id,
+            key: v.key,
+            value: v.value,
+            enabled: v.enabled,
+            sort_order: v.sort_order.unwrap_or(i as u32),
+        }
+    }).collect();
+
+    let conn = state.read_db_connection().lock().expect("db mutex");
+    aiproxy_db::environments::set_global_variables(&conn, &vars)
+        .map_err(|e| format!("set global variables: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Batch execute collection items
 // ---------------------------------------------------------------------------
 

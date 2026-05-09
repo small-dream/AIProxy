@@ -1000,5 +1000,12 @@ export const zhCNMessages: Messages = {
     selectCollection: "选择一个集合",
     saved: "已保存到集合",
     folderName: "文件夹名称",
+    globalVariables: "全局变量",
+    environmentVariables: "变量",
+    deleteEnvironment: "删除环境",
+    deleteEnvironmentConfirm: "确定要删除 \"{{name}}\" 吗？",
+    environmentDeleted: "环境已删除",
+    variablesSaved: "变量已保存",
+    enabled: "启用",
   },
 };

@@ -170,6 +170,8 @@ pub fn run() {
             commands::delete_api_environment,
             commands::list_api_environment_variables,
             commands::set_api_environment_variables,
+            commands::list_api_global_variables,
+            commands::set_api_global_variables,
             commands::batch_execute_collection_items
         ])
         .setup(|app| {

@@ -40,6 +40,9 @@ AIProxy 的界面目标不是“炫”，而是“高效、稳定、可读、专
 - 术语保持稳定：
   - `Sessions` / `会话`
   - `Compose` / `构造请求`
+  - `Collections` / `集合`
+  - `Environment` / `环境`
+  - `Global Variables` / `全局变量`
   - `Certificates` / `证书`
   - `Rules` / `规则`
   - `Settings` / `设置`
@@ -472,7 +475,34 @@ Compose Page
 - Request Presets Pane（模板/历史）
 - Save Template / Duplicate 按钮
 
-## 9.3 Rules Page
+## 9.3 Collections Page — `已实现`
+
+### 页面定位
+
+Collections Page 是 API 集合管理页面，支持保存、分组、编辑和发送 HTTP 请求。核心对标 Postman 的 Collection 功能，亮点是可从抓包流量直接保存到 Collection。
+
+### 页面结构
+
+三栏布局：
+
+- **左栏**：Collection 树（集合/文件夹），支持展开/折叠、新建、删除
+- **中栏**：请求列表，显示 Method Badge + 请求名称
+- **右栏**：请求编辑器（复用 Compose 的 Request/Response Section）
+
+### 环境选择器
+
+位于左栏底部：
+
+- 下拉选择当前环境（`No Environment` 为默认选项）
+- 右侧齿轮按钮打开 `EnvironmentManagerDialog`
+- 当前环境 ID 持久化到 `localStorage`
+
+### 变量替换视觉提示
+
+- URL、Headers、Body 中的 `{{variable}}` 保持原样显示
+- 未匹配的变量不做高亮报错，保持静默（与 Postman 行为一致）
+
+## 9.4 Rules Page
 
 ### 页面定位
 
@@ -715,6 +745,8 @@ Settings Page
 - `MobileSetupCard`
 - `ThrottlePresetPanel`
 - `ProxyPresetSwitcher` — 内嵌于 AppShell 状态栏，点击打开代理预设切换对话框（列表选择）
+- `VariableEditorTable` — 环境变量编辑表格，4 列：启用开关（Switch）、Key（OutlinedInput）、Value（OutlinedInput）、删除（IconButton）。禁用行以 `opacity: 0.5` 降显。底部有"添加变量"按钮
+- `EnvironmentManagerDialog` — 环境管理弹窗，Tabs 切换"环境变量"和"全局变量"。环境变量标签页左侧为环境列表（增删改），右侧为 VariableEditorTable。全局变量标签页直接使用 VariableEditorTable。变量修改后 debounced 自动保存（500ms）
 
 ## 10.3 业务组件
 

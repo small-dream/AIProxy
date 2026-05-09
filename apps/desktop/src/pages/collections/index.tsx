@@ -2,6 +2,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
+import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import {
   Box,
   Button,
@@ -20,7 +21,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
@@ -40,8 +41,14 @@ import {
   buildCollectionTree,
   type CollectionTreeNode,
 } from "@/features/collections/use-collections";
-import { useEnvironments, useEnvironmentVariables } from "@/features/environments/use-environments";
-import { substituteVariables } from "@/features/environments/use-environments";
+import {
+  buildMergedVariableMap,
+  substituteVariables,
+  useEnvironmentVariables,
+  useEnvironments,
+  useGlobalVariables,
+} from "@/features/environments/use-environments";
+import { EnvironmentManagerDialog } from "@/features/environments/components/EnvironmentManagerDialog";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useI18n } from "@/i18n";
 import type { TranslationKey } from "@/i18n";
@@ -90,9 +97,26 @@ export function CollectionsPage() {
   const sendMutation = useSendComposedRequest();
 
   // Environments
+  const ACTIVE_ENV_KEY = "aiproxy.collections.activeEnvironmentId";
   const environmentsQuery = useEnvironments();
-  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(null);
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(ACTIVE_ENV_KEY);
+  });
   const envVarsQuery = useEnvironmentVariables(activeEnvironmentId);
+  const globalVarsQuery = useGlobalVariables();
+  const mergedVarMap = useMemo(
+    () => buildMergedVariableMap(envVarsQuery.data ?? [], globalVarsQuery.data ?? []),
+    [envVarsQuery.data, globalVarsQuery.data],
+  );
+
+  useEffect(() => {
+    if (activeEnvironmentId) {
+      window.localStorage.setItem(ACTIVE_ENV_KEY, activeEnvironmentId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_ENV_KEY);
+    }
+  }, [activeEnvironmentId]);
 
   // Upsert/delete items
   const upsertItemMutation = useUpsertCollectionItem();
@@ -102,6 +126,7 @@ export function CollectionsPage() {
   const [newCollectionDialogOpen, setNewCollectionDialogOpen] = useState(false);
   const [newCollectionParentId, setNewCollectionParentId] = useState<string | null>(null);
   const [newCollectionName, setNewCollectionName] = useState("");
+  const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
 
   // Response display state
   const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
@@ -116,20 +141,23 @@ export function CollectionsPage() {
 
   // Send with variable substitution
   function handleSend() {
-    const vars = envVarsQuery.data ?? [];
-
-    const substitutedUrl = substituteVariables(editor.url, vars);
-    const substitutedBody = substituteVariables(editor.body, vars);
+    const substitutedUrl = substituteVariables(editor.url, mergedVarMap);
+    const substitutedBody = substituteVariables(editor.body, mergedVarMap);
 
     let finalHeaders = editor.headers.map((h) => ({
-      name: h.name,
-      value: substituteVariables(h.value, vars),
+      name: substituteVariables(h.name, mergedVarMap),
+      value: substituteVariables(h.value, mergedVarMap),
     }));
 
     let encodedBody: string | undefined;
     switch (editor.bodyType) {
       case "formdata": {
-        const active = editor.formDataEntries.filter((e) => e.name.trim());
+        const active = editor.formDataEntries
+          .filter((e) => substituteVariables(e.name, mergedVarMap).trim())
+          .map((e) => ({
+            name: substituteVariables(e.name, mergedVarMap),
+            value: substituteVariables(e.value, mergedVarMap),
+          }));
         if (active.length > 0) {
           const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
           encodedBody = buildMultipartBody(active, boundary);
@@ -138,7 +166,12 @@ export function CollectionsPage() {
         break;
       }
       case "urlencoded": {
-        const active = editor.urlEncodedEntries.filter((e) => e.name.trim());
+        const active = editor.urlEncodedEntries
+          .filter((e) => substituteVariables(e.name, mergedVarMap).trim())
+          .map((e) => ({
+            name: substituteVariables(e.name, mergedVarMap),
+            value: substituteVariables(e.value, mergedVarMap),
+          }));
         if (active.length > 0) {
           encodedBody = active
             .map((e) => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
@@ -260,9 +293,16 @@ export function CollectionsPage() {
         {/* Environment selector */}
         <Divider />
         <Box sx={{ p: 1 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
-            {t("collectionsPage.environmentSelector")}
-          </Typography>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+              {t("collectionsPage.environmentSelector")}
+            </Typography>
+            <Tooltip title={t("collectionsPage.manageEnvironments")}>
+              <IconButton size="small" onClick={() => setManageEnvDialogOpen(true)} sx={{ color: "text.secondary" }}>
+                <SettingsRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
           <Select
             size="small"
             fullWidth
@@ -502,6 +542,12 @@ export function CollectionsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Environment Manager Dialog */}
+      <EnvironmentManagerDialog
+        open={manageEnvDialogOpen}
+        onClose={() => setManageEnvDialogOpen(false)}
+      />
     </Stack>
   );
 }
