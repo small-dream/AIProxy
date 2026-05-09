@@ -23,32 +23,4 @@ describe("AppProviders", () => {
     expect(screen.getAllByText("Content & Code Font")).toHaveLength(2);
     expect(screen.getAllByText("Font Size")).toHaveLength(2);
   });
-
-  it("shows the follow-system language hint", () => {
-    render(
-      <AppProviders>
-        <SettingsPage />
-      </AppProviders>,
-    );
-
-    expect(
-      screen.getByText(
-        "Following system language will resolve automatically from the current desktop environment.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the effective appearance summary", () => {
-    render(
-      <AppProviders>
-        <SettingsPage />
-      </AppProviders>,
-    );
-
-    expect(
-      screen.getByText(
-        "Current appearance: Light · UI: System Default · Content: System Monospace · 13px",
-      ),
-    ).toBeInTheDocument();
-  });
 });

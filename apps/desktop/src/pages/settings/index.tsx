@@ -1,9 +1,9 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
-import { useTheme } from "@mui/material/styles";
 import {
   Alert,
   Button,
+  Box,
   FormControl,
   FormControlLabel,
   InputLabel,
@@ -41,6 +41,32 @@ function createProxyDraft(workspace?: Workspace | null) {
     sslEnabled: workspace?.sslEnabled ?? true,
   };
 }
+
+const compactAlertSx = {
+  alignItems: "center",
+  borderRadius: 1.5,
+  px: 1.5,
+  py: 0.75,
+  "& .MuiAlert-icon": {
+    fontSize: 20,
+    mr: 1.25,
+    py: 0,
+  },
+  "& .MuiAlert-message": {
+    fontSize: 13,
+    lineHeight: 1.45,
+    py: 0,
+  },
+};
+
+const compactFieldSx = {
+  "& .MuiInputBase-root": {
+    minHeight: 38,
+  },
+  "& .MuiInputLabel-root": {
+    fontSize: 13,
+  },
+};
 
 function ProxySettingsSection() {
   const { t } = useI18n();
@@ -108,67 +134,77 @@ function ProxySettingsSection() {
     : false;
 
   return (
-    <SectionCard title={t("proxyPresets.title")} description={t("proxyPresets.description")}>
-      <Stack spacing={2}>
-        <Stack direction={{ sm: "row", xs: "column" }} spacing={2} alignItems={{ sm: "center", xs: "stretch" }}>
-          <TextField
-            size="small"
-            type="number"
-            label={t("proxyPresets.proxyPort")}
-            value={draft.proxyPort}
-            onChange={(event) => {
-              setDraft({
-                ...draft,
-                proxyPort: Number(event.target.value) || DEFAULT_PROXY_PORT,
-              });
-              setFeedback(null);
-            }}
-            error={portError}
-            helperText={portError ? t("proxyPresets.portValidation") : undefined}
-            inputProps={{ inputMode: "numeric", min: 1, max: 65535 }}
-            sx={{ width: { sm: 220, xs: "100%" } }}
-          />
+    <SectionCard compact title={t("proxyPresets.title")} description={t("proxyPresets.description")}>
+      <Stack spacing={1.5}>
+        <Stack
+          direction={{ md: "row", xs: "column" }}
+          spacing={1.5}
+          alignItems={{ md: "center", xs: "stretch" }}
+          justifyContent="space-between"
+        >
+          <Stack
+            direction={{ sm: "row", xs: "column" }}
+            spacing={1.5}
+            alignItems={{ sm: "center", xs: "stretch" }}
+          >
+            <TextField
+              size="small"
+              type="number"
+              label={t("proxyPresets.proxyPort")}
+              value={draft.proxyPort}
+              onChange={(event) => {
+                setDraft({
+                  ...draft,
+                  proxyPort: Number(event.target.value) || DEFAULT_PROXY_PORT,
+                });
+                setFeedback(null);
+              }}
+              error={portError}
+              helperText={portError ? t("proxyPresets.portValidation") : undefined}
+              inputProps={{ inputMode: "numeric", min: 1, max: 65535 }}
+              sx={{ ...compactFieldSx, width: { sm: 180, xs: "100%" } }}
+            />
 
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={draft.sslEnabled}
-                onChange={(event) => {
-                  setDraft({ ...draft, sslEnabled: event.target.checked });
-                  setFeedback(null);
-                }}
-              />
-            }
-            label={
-              <Typography color="text.secondary" variant="body2">
-                {t("proxyPresets.sslEnabled")}
-              </Typography>
-            }
-            sx={{ ml: 0 }}
-          />
-        </Stack>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={draft.sslEnabled}
+                  onChange={(event) => {
+                    setDraft({ ...draft, sslEnabled: event.target.checked });
+                    setFeedback(null);
+                  }}
+                />
+              }
+              label={
+                <Typography color="text.secondary" variant="body2">
+                  {t("proxyPresets.sslEnabled")}
+                </Typography>
+              }
+              sx={{ ml: 0 }}
+            />
+          </Stack>
 
-        <Alert severity="info" variant="outlined" icon={<CheckCircleRoundedIcon />}>
-          {proxyStatus?.running
-            ? t("proxyPresets.runningHint")
-            : t("proxyPresets.stoppedHint")}
-        </Alert>
-
-        <Stack direction="row" justifyContent="flex-end">
           <Button
             size="small"
             variant="contained"
             startIcon={<SaveRoundedIcon />}
             onClick={() => void handleSave()}
             disabled={!currentWorkspace || portError || isBusy || !hasChanges}
+            sx={{ minHeight: 34, px: 1.75 }}
           >
             {isBusy ? t("proxyPresets.saving") : t("proxyPresets.save")}
           </Button>
         </Stack>
 
+        <Alert severity="info" variant="outlined" icon={<CheckCircleRoundedIcon />} sx={compactAlertSx}>
+          {proxyStatus?.running
+            ? t("proxyPresets.runningHint")
+            : t("proxyPresets.stoppedHint")}
+        </Alert>
+
         {feedback && (
-          <Alert severity={feedback.severity} variant="outlined">
+          <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
             {feedback.message}
           </Alert>
         )}
@@ -178,8 +214,7 @@ function ProxySettingsSection() {
 }
 
 export function SettingsPage() {
-  const { locale, preference, setPreference, t } = useI18n();
-  const theme = useTheme();
+  const { preference, setPreference, t } = useI18n();
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
   const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
   const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
@@ -192,14 +227,6 @@ export function SettingsPage() {
   const themePreference = useAppPreferencesStore((state) => state.themePreference);
   const setThemePreference = useAppPreferencesStore((state) => state.setThemePreference);
   const setUiCustomFontFamily = useAppPreferencesStore((state) => state.setUiCustomFontFamily);
-  const resolvedLanguageLabel =
-    locale === "zh-CN"
-      ? t("settingsPage.languageOptionZhCN")
-      : t("settingsPage.languageOptionEn");
-  const resolvedThemeLabel =
-    theme.palette.mode === "dark"
-      ? t("settingsPage.themeOptionDark")
-      : t("settingsPage.themeOptionLight");
   const fontOptionLabels: Record<AppFontPreference, string> = {
     system: t("settingsPage.fontOptionSystem"),
     pingfang: t("settingsPage.fontOptionPingFang"),
@@ -218,67 +245,49 @@ export function SettingsPage() {
     serif: t("settingsPage.fontOptionSerif"),
     custom: t("settingsPage.fontOptionCustom"),
   };
-  const resolvedUiFontLabel =
-    fontFamilyPreference === "custom" && uiCustomFontFamily.trim()
-      ? `${t("settingsPage.fontOptionCustom")} (${uiCustomFontFamily.trim()})`
-      : fontOptionLabels[fontFamilyPreference];
-  const resolvedContentFontLabel =
-    contentFontPreference === "custom" && contentCustomFontFamily.trim()
-      ? `${t("settingsPage.fontOptionCustom")} (${contentCustomFontFamily.trim()})`
-      : contentFontOptionLabels[contentFontPreference];
-
   return (
-    <Stack spacing={3}>
-      <Stack spacing={0.75}>
-        <Typography variant="h4">{t("settingsPage.title")}</Typography>
-        <Typography color="text.secondary" variant="body1">
+    <Stack spacing={2} sx={{ maxWidth: 1180, mx: "auto", width: "100%" }}>
+      <Stack spacing={0.25}>
+        <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
+          {t("settingsPage.title")}
+        </Typography>
+        <Typography color="text.secondary" variant="body2">
           {t("settingsPage.description")}
         </Typography>
       </Stack>
 
       <ProxySettingsSection />
 
-      <SectionCard
-        description={t("settingsPage.languageSectionDescription")}
-        title={t("settingsPage.languageSectionTitle")}
-      >
-        <Stack spacing={2.5}>
-          <Typography color="text.secondary" variant="body2">
-            {t("settingsPage.languageDescription")}
-          </Typography>
-
-          <FormControl size="small" sx={{ maxWidth: 280 }}>
-            <InputLabel>{t("settingsPage.languageLabel")}</InputLabel>
-            <Select
-              label={t("settingsPage.languageLabel")}
-              value={preference}
-              onChange={(event) => setPreference(event.target.value as typeof preference)}
-            >
-              <MenuItem value="system">{t("settingsPage.languageOptionSystem")}</MenuItem>
-              <MenuItem value="zh-CN">{t("settingsPage.languageOptionZhCN")}</MenuItem>
-              <MenuItem value="en">{t("settingsPage.languageOptionEn")}</MenuItem>
-            </Select>
-          </FormControl>
-
-          <Alert severity="info" variant="outlined">
-            {preference === "system"
-              ? t("settingsPage.followSystemHint")
-              : t("settingsPage.effectiveLanguage", { language: resolvedLanguageLabel })}
-          </Alert>
-        </Stack>
+      <SectionCard compact title={t("settingsPage.languageSectionTitle")}>
+        <FormControl size="small" sx={{ ...compactFieldSx, width: { sm: 260, xs: "100%" } }}>
+          <InputLabel>{t("settingsPage.languageLabel")}</InputLabel>
+          <Select
+            label={t("settingsPage.languageLabel")}
+            value={preference}
+            onChange={(event) => setPreference(event.target.value as typeof preference)}
+          >
+            <MenuItem value="system">{t("settingsPage.languageOptionSystem")}</MenuItem>
+            <MenuItem value="zh-CN">{t("settingsPage.languageOptionZhCN")}</MenuItem>
+            <MenuItem value="en">{t("settingsPage.languageOptionEn")}</MenuItem>
+          </Select>
+        </FormControl>
       </SectionCard>
 
-      <SectionCard
-        description={t("settingsPage.themeSectionDescription")}
-        title={t("settingsPage.themeSectionTitle")}
-      >
-        <Stack spacing={2.5}>
-          <Typography color="text.secondary" variant="body2">
-            {t("settingsPage.themeDescription")}
-          </Typography>
-
-          <Stack direction={{ sm: "row", xs: "column" }} spacing={2}>
-            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+      <SectionCard compact title={t("settingsPage.themeSectionTitle")}>
+        <Stack spacing={1.5}>
+          <Box
+            sx={{
+              display: "grid",
+              gap: 1.5,
+              gridTemplateColumns: {
+                md: "repeat(4, minmax(160px, 1fr))",
+                sm: "repeat(2, minmax(180px, 1fr))",
+                xs: "1fr",
+              },
+              maxWidth: 980,
+            }}
+          >
+            <FormControl size="small" sx={compactFieldSx}>
               <InputLabel>{t("settingsPage.themeLabel")}</InputLabel>
               <Select
                 label={t("settingsPage.themeLabel")}
@@ -291,7 +300,7 @@ export function SettingsPage() {
               </Select>
             </FormControl>
 
-            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+            <FormControl size="small" sx={compactFieldSx}>
               <InputLabel>{t("settingsPage.fontLabel")}</InputLabel>
               <Select
                 label={t("settingsPage.fontLabel")}
@@ -308,7 +317,7 @@ export function SettingsPage() {
               </Select>
             </FormControl>
 
-            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+            <FormControl size="small" sx={compactFieldSx}>
               <InputLabel>{t("settingsPage.contentFontLabel")}</InputLabel>
               <Select
                 label={t("settingsPage.contentFontLabel")}
@@ -324,28 +333,11 @@ export function SettingsPage() {
                 ))}
               </Select>
             </FormControl>
-          </Stack>
 
-          <Typography color="text.secondary" variant="body2">
-            {t("settingsPage.fontDescription")}
-          </Typography>
-
-          {fontFamilyPreference === "custom" ? (
-            <TextField
-              fullWidth
-              label={t("settingsPage.customFontLabel")}
-              placeholder={t("settingsPage.customFontPlaceholder")}
-              size="small"
-              sx={{ maxWidth: 420 }}
-              value={uiCustomFontFamily}
-              onChange={(event) => setUiCustomFontFamily(event.target.value)}
-            />
-          ) : null}
-
-          <Stack direction={{ sm: "row", xs: "column" }} spacing={2}>
-            <FormControl size="small" sx={{ flex: 1, maxWidth: 280 }}>
+            <FormControl size="small" sx={compactFieldSx}>
               <InputLabel>{t("settingsPage.fontSizeLabel")}</InputLabel>
               <Select
+                size="small"
                 label={t("settingsPage.fontSizeLabel")}
                 value={fontSizePreference}
                 onChange={(event) => setFontSizePreference(Number(event.target.value))}
@@ -357,15 +349,19 @@ export function SettingsPage() {
                 ))}
               </Select>
             </FormControl>
+          </Box>
 
-            <Typography color="text.secondary" variant="body2">
-              {t("settingsPage.fontSizeDescription")}
-            </Typography>
-          </Stack>
-
-          <Typography color="text.secondary" variant="body2">
-            {t("settingsPage.contentFontDescription")}
-          </Typography>
+          {fontFamilyPreference === "custom" ? (
+            <TextField
+              fullWidth
+              label={t("settingsPage.customFontLabel")}
+              placeholder={t("settingsPage.customFontPlaceholder")}
+              size="small"
+              sx={{ ...compactFieldSx, maxWidth: 420 }}
+              value={uiCustomFontFamily}
+              onChange={(event) => setUiCustomFontFamily(event.target.value)}
+            />
+          ) : null}
 
           {contentFontPreference === "custom" ? (
             <TextField
@@ -373,20 +369,11 @@ export function SettingsPage() {
               label={t("settingsPage.customContentFontLabel")}
               placeholder={t("settingsPage.customFontPlaceholder")}
               size="small"
-              sx={{ maxWidth: 420 }}
+              sx={{ ...compactFieldSx, maxWidth: 420 }}
               value={contentCustomFontFamily}
               onChange={(event) => setContentCustomFontFamily(event.target.value)}
             />
           ) : null}
-
-          <Alert severity="info" variant="outlined">
-            {t("settingsPage.effectiveAppearance", {
-              contentFont: resolvedContentFontLabel,
-              size: fontSizePreference,
-              theme: resolvedThemeLabel,
-              uiFont: resolvedUiFontLabel,
-            })}
-          </Alert>
         </Stack>
       </SectionCard>
     </Stack>
