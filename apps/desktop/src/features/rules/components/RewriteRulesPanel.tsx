@@ -8,7 +8,6 @@ import {
   InputLabel,
   MenuItem,
   OutlinedInput,
-  Paper,
   Select,
   Stack,
   Switch,
@@ -26,7 +25,7 @@ import {
   getRewriteValidationErrors,
   HTTP_METHODS,
 } from "@/features/rules/rules.helpers";
-import { FieldGroup, InlineSwitch, ManagedRuleList, ManagedRulesWorkbench } from "@/features/rules/components/RulesSharedUi";
+import { FieldGroup, InlineSwitch, ManagedRuleList, ManagedRulesWorkbench, RuleSection } from "@/features/rules/components/RulesSharedUi";
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -103,10 +102,18 @@ export function RewriteRulesPanel() {
       editor={(
         <Stack spacing={2}>
           {/* Top bar */}
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={1.25}
+            alignItems={{ xs: "stretch", md: "center" }}
+            sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
+          >
             <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
-            <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
-            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: 110 }} />
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
+              <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
+              <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+            </Stack>
+            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: { xs: "100%", md: 116 } }} />
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
               {t("common.actions.remove")}
             </Button>
@@ -125,7 +132,7 @@ export function RewriteRulesPanel() {
           )}
 
           {/* Match conditions */}
-          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+          <RuleSection>
             <FieldGroup title={t("rulesPage.editor.matchTitle")}>
               <TextField
                 size="small"
@@ -162,10 +169,10 @@ export function RewriteRulesPanel() {
                 </FormControl>
               </Stack>
             </FieldGroup>
-          </Paper>
+          </RuleSection>
 
           {/* Action config */}
-          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+          <RuleSection>
             <FieldGroup title={t("rulesPage.editor.actionTitle")}>
               <FormControl size="small" sx={{ minWidth: 180 }}>
                 <InputLabel>{t("rulesPage.editor.ruleType")}</InputLabel>
@@ -187,7 +194,7 @@ export function RewriteRulesPanel() {
               <Divider sx={{ my: 0.5 }} />
               <RewriteActionFields rule={draft} onChange={setDraft} />
             </FieldGroup>
-          </Paper>
+          </RuleSection>
         </Stack>
       )}
     />

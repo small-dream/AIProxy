@@ -1,8 +1,9 @@
 import { type ReactNode } from "react";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Box,
   Chip,
-  Divider,
+  InputAdornment,
   List,
   ListItemButton,
   ListItemText,
@@ -12,16 +13,26 @@ import {
   Switch,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
-import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
+import { fontFamilies } from "@/themes/fonts";
 
 /* ── FieldGroup ───────────────────────────────────────────────────── */
 
 export function FieldGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Stack spacing={1.5}>
-      <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11 }}>
+      <Typography
+        variant="subtitle2"
+        color="text.secondary"
+        sx={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0,
+          textTransform: "uppercase",
+        }}
+      >
         {title}
       </Typography>
       {children}
@@ -33,10 +44,43 @@ export function FieldGroup({ title, children }: { title: string; children: React
 
 export function InlineSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ minHeight: 40 }}>
-      <Typography variant="body2">{label}</Typography>
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="center"
+      sx={{
+        bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        minHeight: 36,
+        px: 1,
+      }}
+    >
+      <Typography variant="body2" sx={{ fontSize: 13 }}>
+        {label}
+      </Typography>
       <Switch size="small" checked={checked} onChange={(e) => onChange(e.target.checked)} />
     </Stack>
+  );
+}
+
+/* ── RuleSection ─────────────────────────────────────────────────── */
+
+export function RuleSection({ children }: { children: ReactNode }) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        p: 2,
+      }}
+    >
+      {children}
+    </Paper>
   );
 }
 
@@ -53,20 +97,72 @@ export function ManagedRulesWorkbench(props: {
   const { createActions, editor, list, onSearchChange, searchPlaceholder, searchValue } = props;
 
   return (
-    <Stack spacing={2}>
-      {/* Toolbar: create + search */}
-      <Stack direction="row" spacing={1} alignItems="center">
-        {createActions}
-        <Box sx={{ flex: 1 }} />
-        <OutlinedInput size="small" placeholder={searchPlaceholder} value={searchValue} onChange={(e) => onSearchChange(e.target.value)} sx={{ maxWidth: 200 }} />
-      </Stack>
+    <Box
+      sx={{
+        display: "grid",
+        gap: 2,
+        gridTemplateColumns: {
+          xs: "minmax(0, 1fr)",
+          lg: "340px minmax(0, 1fr)",
+          xl: "380px minmax(0, 1fr)",
+        },
+        minHeight: 560,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          alignSelf: "start",
+          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.88),
+          border: 1,
+          borderColor: "divider",
+          borderRadius: "8px",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <Stack spacing={1.25} sx={{ borderBottom: 1, borderColor: "divider", p: 1.5 }}>
+          <OutlinedInput
+            size="small"
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            startAdornment={(
+              <InputAdornment position="start">
+                <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
+              </InputAdornment>
+            )}
+            sx={{
+              bgcolor: "background.paper",
+              fontSize: 13,
+              height: 36,
+            }}
+          />
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            {createActions}
+          </Stack>
+        </Stack>
 
-      {/* Rule list */}
-      {list}
+        <Box sx={{ maxHeight: { lg: "calc(100vh - 270px)" }, minHeight: 220, overflow: "auto", p: 1 }}>
+          {list}
+        </Box>
+      </Paper>
 
-      {/* Editor */}
-      {editor}
-    </Stack>
+      <Paper
+        elevation={0}
+        sx={{
+          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.76 : 0.92),
+          border: 1,
+          borderColor: "divider",
+          borderRadius: "8px",
+          minWidth: 0,
+          p: 2,
+        }}
+      >
+        {editor}
+      </Paper>
+    </Box>
   );
 }
 
@@ -89,53 +185,79 @@ export function ManagedRuleList(props: {
 
   if (items.length === 0) {
     return (
-      <Typography color="text.secondary" variant="body2" sx={{ py: 3, textAlign: "center" }}>
-        {emptyDescription}
-      </Typography>
+      <Box
+        sx={{
+          alignItems: "center",
+          border: 1,
+          borderColor: "divider",
+          borderRadius: "8px",
+          color: "text.secondary",
+          display: "flex",
+          minHeight: 180,
+          px: 2,
+          textAlign: "center",
+        }}
+      >
+        <Typography variant="body2" sx={{ fontSize: 13 }}>
+          {emptyDescription}
+        </Typography>
+      </Box>
     );
   }
 
   return (
-    <Paper
-      elevation={0}
-      sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden", boxShadow: (theme) => getSurfaceShadow(theme.palette.mode) }}
-    >
-      <List disablePadding dense>
-        {items.map((item, index) => (
-          <Box key={item.id}>
-            <ListItemButton
-              selected={item.active}
-              onClick={item.onClick}
-              sx={{
-                px: 1.5,
-                py: 1,
-                transition: "background-color 140ms ease",
-                "&:hover": { boxShadow: (theme) => getHoverShadow(theme.palette.mode) },
-              }}
-            >
-              <ListItemText
-                primary={(
-                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }} noWrap>
-                      {item.name}
-                    </Typography>
-                    <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
-                      {!item.enabled && <Chip size="small" label={t("rulesPage.off")} variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
-                      <Chip size="small" label={item.chipLabel} sx={{ height: 20, fontSize: 11 }} />
-                    </Stack>
-                  </Stack>
-                )}
-                secondary={(
-                  <Typography sx={{ mt: 0.25 }} variant="caption" color="text.secondary" noWrap component="p">
-                    {item.subtitle}
-                  </Typography>
-                )}
-              />
-            </ListItemButton>
-            {index < items.length - 1 && <Divider />}
-          </Box>
-        ))}
-      </List>
-    </Paper>
+    <List disablePadding dense sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+      {items.map((item) => (
+        <ListItemButton
+          key={item.id}
+          selected={item.active}
+          onClick={item.onClick}
+          sx={{
+            border: 1,
+            borderColor: item.active ? "primary.main" : "divider",
+            borderRadius: "8px",
+            overflow: "hidden",
+            px: 1.25,
+            py: 1,
+            transition: "border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease",
+            "&.Mui-selected": {
+              bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+            },
+            "&:hover": {
+              bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
+              borderColor: (theme) => alpha(theme.palette.primary.main, 0.45),
+            },
+          }}
+        >
+          <ListItemText
+            primary={(
+              <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
+                  {item.name}
+                </Typography>
+                <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
+                  {!item.enabled && <Chip size="small" label={t("rulesPage.off")} variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+                  <Chip
+                    size="small"
+                    label={item.chipLabel}
+                    variant={item.active ? "filled" : "outlined"}
+                    sx={{
+                      fontFamily: fontFamilies.mono,
+                      fontSize: 11,
+                      height: 20,
+                    }}
+                  />
+                </Stack>
+              </Stack>
+            )}
+            secondary={(
+              <Typography sx={{ mt: 0.35 }} variant="caption" color="text.secondary" noWrap component="p">
+                {item.subtitle}
+              </Typography>
+            )}
+          />
+        </ListItemButton>
+      ))}
+    </List>
   );
 }

@@ -1,7 +1,6 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import {
-  Box,
   Button,
   Chip,
   Dialog,
@@ -21,13 +20,13 @@ import {
   Switch,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { BreakpointRule, BreakpointStage } from "@aiproxy/shared-types";
 import { useState } from "react";
 
 import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
 import { createCatchAllRule, createEmptyBreakpointRule, HTTP_METHODS } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
-import { getSurfaceShadow } from "@/themes/app-theme";
 import { fontFamilies } from "@/themes/fonts";
 
 export function BreakpointRulesPanel() {
@@ -60,27 +59,69 @@ export function BreakpointRulesPanel() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Button size="small" variant="outlined" disabled={hasRequestCatchAll} onClick={() => handleAddCatchAll("request")}>
-          {t("rulesPage.breakOnAllRequests")}
-        </Button>
-        <Button size="small" variant="outlined" disabled={hasResponseCatchAll} onClick={() => handleAddCatchAll("response")}>
-          {t("rulesPage.breakOnAllResponses")}
-        </Button>
-        <Box sx={{ flex: 1 }} />
-        <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setDraft(createEmptyBreakpointRule()); setDialogOpen(true); }}>
-          {t("rulesPage.addRule")}
-        </Button>
-      </Stack>
+      <Paper
+        elevation={0}
+        sx={{
+          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          border: 1,
+          borderColor: "divider",
+          borderRadius: "8px",
+          p: 1.5,
+        }}
+      >
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "stretch", md: "center" }}>
+          <Stack spacing={0.25} sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
+              {t("rulesPage.quickBreakpointTitle")}
+            </Typography>
+            <Typography color="text.secondary" variant="caption">
+              {t("rulesPage.quickBreakpointDescription")}
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            <Button size="small" variant="outlined" disabled={hasRequestCatchAll} onClick={() => handleAddCatchAll("request")}>
+              {t("rulesPage.breakOnAllRequests")}
+            </Button>
+            <Button size="small" variant="outlined" disabled={hasResponseCatchAll} onClick={() => handleAddCatchAll("response")}>
+              {t("rulesPage.breakOnAllResponses")}
+            </Button>
+            <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setDraft(createEmptyBreakpointRule()); setDialogOpen(true); }}>
+              {t("rulesPage.addRule")}
+            </Button>
+          </Stack>
+        </Stack>
+      </Paper>
 
       {rules.length === 0 ? (
-        <Typography color="text.secondary" variant="body2" sx={{ py: 4, textAlign: "center" }}>
-          {t("rulesPage.empty")}
-        </Typography>
+        <Paper
+          elevation={0}
+          sx={{
+            alignItems: "center",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            color: "text.secondary",
+            display: "flex",
+            justifyContent: "center",
+            minHeight: 260,
+            px: 2,
+            textAlign: "center",
+          }}
+        >
+          <Typography variant="body2">
+            {t("rulesPage.empty")}
+          </Typography>
+        </Paper>
       ) : (
         <Paper
           elevation={0}
-          sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden", boxShadow: (theme) => getSurfaceShadow(theme.palette.mode) }}
+          sx={{
+            bgcolor: "background.paper",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            overflow: "hidden",
+          }}
         >
           <List disablePadding dense>
             {rules.map((rule) => (
@@ -89,7 +130,12 @@ export function BreakpointRulesPanel() {
                 direction="row"
                 spacing={1.5}
                 alignItems="center"
-                sx={{ px: 2, py: 1, "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" } }}
+                sx={{
+                  bgcolor: rule.enabled ? "transparent" : (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.025 : 0.02),
+                  px: 2,
+                  py: 1,
+                  "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" },
+                }}
               >
                 <Switch size="small" checked={rule.enabled} onChange={() => handleToggle(rule.id)} />
                 <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 13, flex: 1 }} noWrap>

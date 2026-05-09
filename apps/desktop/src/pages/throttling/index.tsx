@@ -1,5 +1,9 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
+import CloudUploadRoundedIcon from "@mui/icons-material/CloudUploadRounded";
+import PowerSettingsNewRoundedIcon from "@mui/icons-material/PowerSettingsNewRounded";
 import SignalCellularAltRoundedIcon from "@mui/icons-material/SignalCellularAltRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import WifiTetheringRoundedIcon from "@mui/icons-material/WifiTetheringRounded";
 import {
   Alert,
@@ -11,12 +15,15 @@ import {
   ListItemButton,
   ListItemText,
   Paper,
+  Slider,
   Stack,
   Switch,
   TextField,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { ThrottleProfile } from "@aiproxy/shared-types";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -25,7 +32,7 @@ import {
   useThrottleProfiles,
 } from "@/features/throttling/use-throttle-profiles";
 import { useI18n } from "@/i18n";
-import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
+import { fontFamilies } from "@/themes/fonts";
 
 const DEFAULT_WORKSPACE_ID = "default";
 
@@ -55,6 +62,7 @@ export function ThrottlingPage() {
   const activeProfile = useMemo(() => profiles.find((p) => p.enabled), [profiles]);
   const presetProfiles = useMemo(() => profiles.filter((p) => p.preset), [profiles]);
   const customProfiles = useMemo(() => profiles.filter((p) => !p.preset), [profiles]);
+  const selectedProfileExists = Boolean(selectedProfileId && profiles.some((profile) => profile.id === selectedProfileId));
 
   useEffect(() => {
     if (selectedProfileId && profiles.some((p) => p.id === selectedProfileId)) return;
@@ -84,141 +92,196 @@ export function ThrottlingPage() {
     );
   }
 
+  function handleGlobalToggle(checked: boolean) {
+    if (!checked) {
+      setActiveMutation.mutate(undefined);
+      return;
+    }
+
+    if (selectedProfileExists && selectedProfileId) {
+      setActiveMutation.mutate(selectedProfileId);
+      return;
+    }
+
+    handleSave(true);
+  }
+
   const errors = getThrottleValidationErrors(draft, t);
+  const canSave = errors.length === 0 && !saveMutation.isPending;
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.25} sx={{ minHeight: "100%" }}>
       {/* Header */}
-      <Stack spacing={0.5}>
-        <Typography variant="h4">{t("throttlingPage.title")}</Typography>
-        <Typography color="text.secondary" variant="body2">
-          {t("throttlingPage.description")}
-        </Typography>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ borderBottom: 1, borderColor: "divider", pb: 1.75 }}
+      >
+        <Stack spacing={0.5} sx={{ maxWidth: 820 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="h4" sx={{ fontSize: 28, fontWeight: 600, lineHeight: 1.15 }}>
+              {t("throttlingPage.title")}
+            </Typography>
+            <Chip
+              size="small"
+              label={activeProfile ? t("throttlingPage.on") : t("throttlingPage.off")}
+              color={activeProfile ? "success" : "default"}
+              variant={activeProfile ? "filled" : "outlined"}
+              sx={{ fontSize: 11, height: 22 }}
+            />
+          </Stack>
+          <Typography color="text.secondary" variant="body2">
+            {t("throttlingPage.description")}
+          </Typography>
+        </Stack>
       </Stack>
 
-      {/* Global control — compact bar */}
+      {/* Global control */}
       <Paper
         elevation={0}
         sx={{
+          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
           border: 1,
           borderColor: "divider",
-          borderRadius: 2,
-          px: 2,
-          py: 1.5,
-          boxShadow: (theme) => getSurfaceShadow(theme.palette.mode),
+          borderRadius: "8px",
+          p: 1.5,
         }}
       >
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            {t("throttlingPage.globalTitle")}
-          </Typography>
-          <Alert
-            severity={activeProfile ? "success" : "info"}
-            variant="outlined"
-            sx={{ flex: 1, py: 0, "& .MuiAlert-message": { py: 0.25 } }}
-          >
-            {activeProfile
-              ? t("throttlingPage.activeSummary", { name: activeProfile.name })
-              : t("throttlingPage.inactiveSummary")}
-          </Alert>
-          <Button size="small" variant="outlined" onClick={() => setActiveMutation.mutate(undefined)}>
-            {t("throttlingPage.disableGlobal")}
-          </Button>
-          <Switch
-            size="small"
-            checked={Boolean(activeProfile)}
-            onChange={(e) => setActiveMutation.mutate(e.target.checked ? draft.id : undefined)}
-          />
+        <Stack direction={{ xs: "column", lg: "row" }} spacing={1.5} alignItems={{ xs: "stretch", lg: "center" }}>
+          <Stack spacing={0.35} sx={{ minWidth: { lg: 220 } }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
+              {t("throttlingPage.globalTitle")}
+            </Typography>
+            <Typography color="text.secondary" variant="caption">
+              {activeProfile
+                ? t("throttlingPage.activeSummary", { name: activeProfile.name })
+                : t("throttlingPage.inactiveSummary")}
+            </Typography>
+          </Stack>
+
+          <Box sx={{ display: "grid", flex: 1, gap: 1, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, minmax(0, 1fr))" } }}>
+            <MetricCard icon={<SpeedRoundedIcon />} label={t("throttlingPage.fields.latency")} value={`${activeProfile?.latencyMs ?? draft.latencyMs} ms`} />
+            <MetricCard icon={<CloudDownloadRoundedIcon />} label={t("throttlingPage.fields.download")} value={`${activeProfile?.downloadKbps ?? draft.downloadKbps} kbps`} />
+            <MetricCard icon={<CloudUploadRoundedIcon />} label={t("throttlingPage.fields.upload")} value={`${activeProfile?.uploadKbps ?? draft.uploadKbps} kbps`} />
+            <MetricCard icon={<SignalCellularAltRoundedIcon />} label={t("throttlingPage.fields.loss")} value={`${activeProfile?.packetLossRatio ?? draft.packetLossRatio}%`} />
+          </Box>
+
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent={{ xs: "space-between", lg: "flex-end" }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PowerSettingsNewRoundedIcon />}
+              onClick={() => setActiveMutation.mutate(undefined)}
+              disabled={!activeProfile || setActiveMutation.isPending}
+            >
+              {t("throttlingPage.disableGlobal")}
+            </Button>
+            <Switch
+              size="small"
+              checked={Boolean(activeProfile)}
+              onChange={(e) => handleGlobalToggle(e.target.checked)}
+              disabled={setActiveMutation.isPending || saveMutation.isPending}
+            />
+          </Stack>
         </Stack>
       </Paper>
 
       {/* Main split */}
-      <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { lg: "minmax(280px, 320px) minmax(0, 1fr)", xs: "1fr" } }}>
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { lg: "360px minmax(0, 1fr)", xs: "1fr" }, minHeight: 560 }}>
         {/* Left: profile list */}
-        <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              {t("throttlingPage.presetsTitle")}
-            </Typography>
-            <Box sx={{ flex: 1 }} />
+        <Paper
+          elevation={0}
+          sx={{
+            alignSelf: "start",
+            bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.88),
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            overflow: "hidden",
+          }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ borderBottom: 1, borderColor: "divider", p: 1.5 }}>
+            <Stack spacing={0.2} sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
+                {t("throttlingPage.presetsTitle")}
+              </Typography>
+              <Typography color="text.secondary" variant="caption" noWrap>
+                {t("throttlingPage.presetsDescription")}
+              </Typography>
+            </Stack>
             <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={handleNewProfile}>
               {t("throttlingPage.newProfile")}
             </Button>
           </Stack>
 
-          <Paper
-            elevation={0}
-            sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden", boxShadow: (theme) => getSurfaceShadow(theme.palette.mode) }}
-          >
-            <List disablePadding dense>
-              {presetProfiles.map((profile, index) => (
-                <Box key={profile.id}>
-                  <ListItemButton
-                    selected={profile.id === selectedProfileId}
-                    onClick={() => selectProfile(profile)}
-                    sx={{ px: 1.5, py: 1, transition: "background-color 140ms ease", "&:hover": { boxShadow: (theme) => getHoverShadow(theme.palette.mode) } }}
-                  >
-                    <Stack spacing={0.25} sx={{ flex: 1, minWidth: 0 }}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {profile.name.toLowerCase().includes("wifi") ? <WifiTetheringRoundedIcon sx={{ fontSize: 16 }} /> : <SignalCellularAltRoundedIcon sx={{ fontSize: 16 }} />}
-                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }} noWrap>{profile.name}</Typography>
-                        {profile.enabled && <Chip size="small" label={t("throttlingPage.activeChip")} color="success" sx={{ height: 18, fontSize: 10 }} />}
-                      </Stack>
-                      <Stack direction="row" spacing={0.5}>
-                        <Chip size="small" label={t("throttlingPage.latencyChip", { value: profile.latencyMs })} sx={{ height: 18, fontSize: 10 }} />
-                        <Chip size="small" label={t("throttlingPage.downloadChip", { value: profile.downloadKbps })} sx={{ height: 18, fontSize: 10 }} />
-                        <Chip size="small" label={t("throttlingPage.lossChip", { value: profile.packetLossRatio })} sx={{ height: 18, fontSize: 10 }} />
-                      </Stack>
-                    </Stack>
-                    <Button size="small" variant="outlined" sx={{ flexShrink: 0, minWidth: "auto", px: 1 }} onClick={(e) => { e.stopPropagation(); setActiveMutation.mutate(profile.id); }}>
-                      {t("throttlingPage.applyPreset")}
-                    </Button>
-                  </ListItemButton>
-                  {index < presetProfiles.length - 1 && <Divider />}
-                </Box>
-              ))}
+          <List disablePadding dense sx={{ display: "flex", flexDirection: "column", gap: 0.75, maxHeight: { lg: "calc(100vh - 360px)" }, minHeight: 300, overflow: "auto", p: 1 }}>
+            <ProfileListLabel label={t("throttlingPage.presetsTitle")} />
+            {presetProfiles.map((profile) => (
+              <ProfileListItem
+                key={profile.id}
+                active={profile.id === selectedProfileId}
+                activeChip={t("throttlingPage.activeChip")}
+                applyLabel={t("throttlingPage.applyPreset")}
+                icon={profile.name.toLowerCase().includes("wifi") ? <WifiTetheringRoundedIcon /> : <SignalCellularAltRoundedIcon />}
+                isApplied={profile.enabled}
+                name={profile.name}
+                onApply={() => setActiveMutation.mutate(profile.id)}
+                onSelect={() => selectProfile(profile)}
+                summary={formatProfileSummary(profile, t)}
+              />
+            ))}
 
-              {customProfiles.length > 0 && presetProfiles.length > 0 && <Divider />}
-
-              {customProfiles.map((profile, index) => (
-                <Box key={profile.id}>
-                  <ListItemButton
-                    selected={profile.id === selectedProfileId}
-                    onClick={() => selectProfile(profile)}
-                    sx={{ px: 1.5, py: 1, transition: "background-color 140ms ease", "&:hover": { boxShadow: (theme) => getHoverShadow(theme.palette.mode) } }}
-                  >
-                    <ListItemText
-                      primary={(
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 13 }} noWrap>{profile.name || t("throttlingPage.customUntitled")}</Typography>
-                          {profile.enabled && <Chip size="small" label={t("throttlingPage.activeChip")} color="success" sx={{ height: 18, fontSize: 10 }} />}
-                        </Stack>
-                      )}
-                      secondary={t("throttlingPage.customSummary", {
-                        latency: profile.latencyMs,
-                        download: profile.downloadKbps,
-                        upload: profile.uploadKbps,
-                      })}
-                      secondaryTypographyProps={{ variant: "caption", noWrap: true }}
-                    />
-                  </ListItemButton>
-                  {index < customProfiles.length - 1 && <Divider />}
-                </Box>
-              ))}
-            </List>
-          </Paper>
-        </Stack>
+            <Divider sx={{ my: 0.25 }} />
+            <ProfileListLabel label={t("throttlingPage.customTitle")} />
+            {customProfiles.length === 0 ? (
+              <Typography color="text.secondary" variant="body2" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", fontSize: 13, px: 1.25, py: 1.5 }}>
+                {t("throttlingPage.customEmpty")}
+              </Typography>
+            ) : customProfiles.map((profile) => (
+              <ProfileListItem
+                key={profile.id}
+                active={profile.id === selectedProfileId}
+                activeChip={t("throttlingPage.activeChip")}
+                icon={<SignalCellularAltRoundedIcon />}
+                isApplied={profile.enabled}
+                name={profile.name || t("throttlingPage.customUntitled")}
+                onSelect={() => selectProfile(profile)}
+                summary={formatProfileSummary(profile, t)}
+              />
+            ))}
+          </List>
+        </Paper>
 
         {/* Right: editor */}
-        <Stack spacing={2}>
+        <Paper
+          elevation={0}
+          sx={{
+            bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.76 : 0.92),
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            minWidth: 0,
+            p: 2,
+          }}
+        >
+          <Stack spacing={2}>
           {/* Top bar: name + actions */}
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={1.25}
+            alignItems={{ xs: "stretch", md: "center" }}
+            sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
+          >
             <TextField size="small" label={t("throttlingPage.fields.name")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
-            <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
-            <Button size="small" variant="outlined" onClick={() => handleSave(false)} disabled={errors.length > 0 || saveMutation.isPending}>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
+              <Typography color="text.secondary" variant="caption">{t("throttlingPage.fields.enableImmediately")}</Typography>
+              <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+            </Stack>
+            <Button size="small" variant="outlined" onClick={() => handleSave(false)} disabled={!canSave}>
               {t("throttlingPage.saveProfile")}
             </Button>
-            <Button size="small" variant="contained" onClick={() => handleSave(true)} disabled={errors.length > 0 || saveMutation.isPending}>
+            <Button size="small" variant="contained" onClick={() => handleSave(true)} disabled={!canSave || setActiveMutation.isPending}>
               {t("throttlingPage.saveAndApply")}
             </Button>
           </Stack>
@@ -233,25 +296,256 @@ export function ThrottlingPage() {
           )}
 
           {/* Parameters */}
-          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11, mb: 1.5 }}>
-              {t("throttlingPage.editorTitle")}
-            </Typography>
-            <Stack spacing={1.5}>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                <TextField size="small" type="number" label={t("throttlingPage.fields.latency")} value={draft.latencyMs} onChange={(e) => setDraft({ ...draft, latencyMs: Number(e.target.value) || 0 })} fullWidth />
-                <TextField size="small" type="number" label={t("throttlingPage.fields.loss")} value={draft.packetLossRatio} onChange={(e) => setDraft({ ...draft, packetLossRatio: Number(e.target.value) || 0 })} fullWidth />
-              </Stack>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                <TextField size="small" type="number" label={t("throttlingPage.fields.download")} value={draft.downloadKbps} onChange={(e) => setDraft({ ...draft, downloadKbps: Number(e.target.value) || 0 })} fullWidth />
-                <TextField size="small" type="number" label={t("throttlingPage.fields.upload")} value={draft.uploadKbps} onChange={(e) => setDraft({ ...draft, uploadKbps: Number(e.target.value) || 0 })} fullWidth />
-              </Stack>
+          <Paper elevation={0} sx={{ bgcolor: "background.paper", border: 1, borderColor: "divider", borderRadius: "8px", p: 2 }}>
+            <Stack spacing={0.35} sx={{ mb: 1.5 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" }}>
+                {t("throttlingPage.editorTitle")}
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {t("throttlingPage.editorDescription")}
+              </Typography>
             </Stack>
+
+            <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" } }}>
+              <ThrottleParameter
+                icon={<SpeedRoundedIcon />}
+                label={t("throttlingPage.fields.latency")}
+                max={2000}
+                min={0}
+                step={10}
+                unit="ms"
+                value={draft.latencyMs}
+                onChange={(value) => setDraft({ ...draft, latencyMs: value })}
+              />
+              <ThrottleParameter
+                icon={<SignalCellularAltRoundedIcon />}
+                label={t("throttlingPage.fields.loss")}
+                max={100}
+                min={0}
+                step={1}
+                unit="%"
+                value={draft.packetLossRatio}
+                onChange={(value) => setDraft({ ...draft, packetLossRatio: value })}
+              />
+              <ThrottleParameter
+                icon={<CloudDownloadRoundedIcon />}
+                label={t("throttlingPage.fields.download")}
+                max={100000}
+                min={1}
+                step={100}
+                unit="kbps"
+                value={draft.downloadKbps}
+                onChange={(value) => setDraft({ ...draft, downloadKbps: value })}
+              />
+              <ThrottleParameter
+                icon={<CloudUploadRoundedIcon />}
+                label={t("throttlingPage.fields.upload")}
+                max={50000}
+                min={1}
+                step={100}
+                unit="kbps"
+                value={draft.uploadKbps}
+                onChange={(value) => setDraft({ ...draft, uploadKbps: value })}
+              />
+            </Box>
           </Paper>
-        </Stack>
+
+          <Alert severity={errors.length > 0 ? "warning" : "success"} variant="outlined" sx={{ py: 0 }}>
+            <Stack spacing={0.25}>
+              <Typography variant="body2">
+                {errors.length > 0
+                  ? t("throttlingPage.previewTitle")
+                  : t("throttlingPage.previewReady")}
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {t("throttlingPage.previewLineOne", {
+                  download: draft.downloadKbps,
+                  latency: draft.latencyMs,
+                  upload: draft.uploadKbps,
+                })}
+              </Typography>
+              <Typography color="text.secondary" variant="caption">
+                {t("throttlingPage.previewLineTwo", {
+                  enabled: draft.enabled ? t("throttlingPage.on") : t("throttlingPage.off"),
+                  loss: draft.packetLossRatio,
+                })}
+              </Typography>
+            </Stack>
+          </Alert>
+          </Stack>
+        </Paper>
       </Box>
     </Stack>
   );
+}
+
+function MetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="center"
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        minWidth: 0,
+        px: 1.25,
+        py: 0.9,
+      }}
+    >
+      <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>
+        {icon}
+      </Box>
+      <Stack sx={{ minWidth: 0 }}>
+        <Typography color="text.secondary" variant="caption" noWrap>
+          {label}
+        </Typography>
+        <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 13, fontWeight: 650 }} noWrap>
+          {value}
+        </Typography>
+      </Stack>
+    </Stack>
+  );
+}
+
+function ProfileListLabel({ label }: { label: string }) {
+  return (
+    <Typography color="text.secondary" variant="caption" sx={{ fontSize: 11, fontWeight: 700, px: 0.5, textTransform: "uppercase" }}>
+      {label}
+    </Typography>
+  );
+}
+
+function ProfileListItem(props: {
+  active: boolean;
+  activeChip: string;
+  applyLabel?: string;
+  icon: ReactNode;
+  isApplied: boolean;
+  name: string;
+  onApply?: () => void;
+  onSelect: () => void;
+  summary: string;
+}) {
+  const { active, activeChip, applyLabel, icon, isApplied, name, onApply, onSelect, summary } = props;
+
+  return (
+    <ListItemButton
+      selected={active}
+      onClick={onSelect}
+      sx={{
+        border: 1,
+        borderColor: active ? "primary.main" : "divider",
+        borderRadius: "8px",
+        gap: 1,
+        px: 1.25,
+        py: 1,
+        transition: "border-color 140ms ease, background-color 140ms ease",
+        "&.Mui-selected": {
+          bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+        },
+        "&:hover": {
+          bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
+          borderColor: (theme) => alpha(theme.palette.primary.main, 0.45),
+        },
+      }}
+    >
+      <Box sx={{ color: active ? "primary.main" : "text.secondary", display: "flex", flexShrink: 0, "& svg": { fontSize: 18 } }}>
+        {icon}
+      </Box>
+      <ListItemText
+        primary={(
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
+              {name}
+            </Typography>
+            {isApplied && <Chip size="small" label={activeChip} color="success" sx={{ fontSize: 10, height: 18 }} />}
+          </Stack>
+        )}
+        secondary={summary}
+        secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
+        sx={{ minWidth: 0 }}
+      />
+      {onApply && (
+        <Button
+          size="small"
+          variant={isApplied ? "contained" : "outlined"}
+          sx={{ flexShrink: 0, minWidth: "auto", px: 1 }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onApply();
+          }}
+        >
+          {applyLabel}
+        </Button>
+      )}
+    </ListItemButton>
+  );
+}
+
+function ThrottleParameter(props: {
+  icon: ReactNode;
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  step: number;
+  unit: string;
+  value: number;
+}) {
+  const { icon, label, max, min, onChange, step, unit, value } = props;
+  const sliderValue = Math.min(max, Math.max(min, value));
+
+  return (
+    <Stack
+      spacing={1}
+      sx={{
+        bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.025),
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        p: 1.5,
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>
+          {icon}
+        </Box>
+        <Typography variant="body2" sx={{ flex: 1, fontWeight: 650 }}>
+          {label}
+        </Typography>
+        <Typography color="text.secondary" sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}>
+          {value} {unit}
+        </Typography>
+      </Stack>
+      <Slider
+        size="small"
+        min={min}
+        max={max}
+        step={step}
+        value={sliderValue}
+        onChange={(_, nextValue) => onChange(Array.isArray(nextValue) ? nextValue[0] : nextValue)}
+      />
+      <TextField
+        size="small"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        inputProps={{ min, step }}
+        fullWidth
+      />
+    </Stack>
+  );
+}
+
+function formatProfileSummary(profile: ThrottleProfile, t: ReturnType<typeof useI18n>["t"]) {
+  return t("throttlingPage.customSummary", {
+    download: profile.downloadKbps,
+    latency: profile.latencyMs,
+    upload: profile.uploadKbps,
+  });
 }
 
 function getThrottleValidationErrors(profile: ThrottleProfile, t: ReturnType<typeof useI18n>["t"]): string[] {

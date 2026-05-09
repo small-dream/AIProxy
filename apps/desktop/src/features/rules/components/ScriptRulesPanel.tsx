@@ -8,7 +8,6 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Paper,
   Select,
   Stack,
   Switch,
@@ -19,7 +18,7 @@ import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
 
-import { FieldGroup, ManagedRuleList, ManagedRulesWorkbench } from "@/features/rules/components/RulesSharedUi";
+import { FieldGroup, ManagedRuleList, ManagedRulesWorkbench, RuleSection } from "@/features/rules/components/RulesSharedUi";
 import {
   createEmptyScriptRule,
   formatRuleMatch,
@@ -212,10 +211,18 @@ export function ScriptRulesPanel() {
       )}
       editor={(
         <Stack spacing={2}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={1.25}
+            alignItems={{ xs: "stretch", md: "center" }}
+            sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
+          >
             <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
-            <Switch size="small" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
-            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) || 0 })} sx={{ width: 110 }} />
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
+              <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
+              <Switch size="small" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
+            </Stack>
+            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) || 0 })} sx={{ width: { xs: "100%", md: 116 } }} />
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
               {t("common.actions.remove")}
             </Button>
@@ -238,7 +245,7 @@ export function ScriptRulesPanel() {
             </Alert>
           )}
 
-          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+          <RuleSection>
             <FieldGroup title={t("rulesPage.editor.matchTitle")}>
               <TextField
                 size="small"
@@ -293,9 +300,9 @@ export function ScriptRulesPanel() {
                 </Typography>
               )}
             </FieldGroup>
-          </Paper>
+          </RuleSection>
 
-          <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+          <RuleSection>
             <FieldGroup title={t("rulesPage.script.sourceTitle")}>
               <TextField
                 size="small"
@@ -307,7 +314,7 @@ export function ScriptRulesPanel() {
                 sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
               />
             </FieldGroup>
-          </Paper>
+          </RuleSection>
         </Stack>
       )}
     />
