@@ -1,4 +1,5 @@
 import { Alert, Box, Paper, Stack } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
@@ -99,17 +100,21 @@ export function SessionsWorkspacePanel({
 
       <Paper
         elevation={0}
-        sx={{
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
           flex: 1,
-          border: 1,
-          borderColor: "divider",
-          borderRadius: 0,
-          boxShadow: "none",
+          border: "1px solid",
+          borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          borderRadius: 1.25,
+          boxShadow:
+            theme.palette.mode === "dark"
+              ? "0 16px 44px rgba(0, 0, 0, 0.28)"
+              : "0 16px 40px rgba(15, 23, 42, 0.08)",
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
           overflow: "hidden",
-        }}
+        })}
         variant="outlined"
       >
         <SessionContainerTabs
@@ -128,7 +133,7 @@ export function SessionsWorkspacePanel({
             flex: 1,
             gap: 0,
             gridTemplateColumns: {
-              lg: `${explorerWidth}px 8px minmax(0, 1fr)`,
+              lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
               xs: "1fr",
             },
             minHeight: 0,
@@ -161,13 +166,13 @@ export function SessionsWorkspacePanel({
               touchAction: "none",
               userSelect: "none",
               "&::before": {
-                bgcolor: "divider",
+                bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
                 borderRadius: 999,
                 content: '""',
                 height: "100%",
-                opacity: 0.7,
+                opacity: 1,
                 transition: "background-color 120ms ease, opacity 120ms ease",
-                width: 2,
+                width: 1,
               },
               "&:hover::before": {
                 bgcolor: "primary.main",

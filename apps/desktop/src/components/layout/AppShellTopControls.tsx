@@ -2,6 +2,7 @@ import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import { Box, Stack } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
@@ -46,11 +47,22 @@ export function AppShellTopControls({
       alignItems="center"
       direction="row"
       spacing={1.25}
-      sx={{
+      sx={(theme) => ({
+        backdropFilter: "blur(18px)",
+        bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.74 : 0.82),
+        border: "1px solid",
+        borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.72 : 0.9),
+        borderRadius: 999,
+        boxShadow:
+          theme.palette.mode === "dark"
+            ? "0 10px 28px rgba(0, 0, 0, 0.24)"
+            : "0 10px 26px rgba(15, 23, 42, 0.08)",
         flexWrap: "wrap",
         justifyContent: "center",
+        px: 0.75,
+        py: 0.5,
         rowGap: 1,
-      }}
+      })}
     >
       <Stack direction="row" spacing={1.25}>
         {proxyRunning ? (

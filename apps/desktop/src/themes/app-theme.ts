@@ -19,11 +19,15 @@ export function resolveThemeMode(preference: ThemePreference, systemPrefersDark:
 }
 
 export function getSurfaceShadow(mode: PaletteMode) {
-  return mode === "dark" ? "0 10px 30px rgba(0, 0, 0, 0.22)" : "0 1px 2px rgba(15, 23, 42, 0.04)";
+  return mode === "dark"
+    ? "0 14px 40px rgba(0, 0, 0, 0.28)"
+    : "0 10px 30px rgba(15, 23, 42, 0.06)";
 }
 
 export function getHoverShadow(mode: PaletteMode) {
-  return mode === "dark" ? "0 14px 34px rgba(0, 0, 0, 0.3)" : "0 1px 3px rgba(0, 0, 0, 0.08)";
+  return mode === "dark"
+    ? "0 10px 26px rgba(0, 0, 0, 0.32)"
+    : "0 8px 20px rgba(15, 23, 42, 0.08)";
 }
 
 export function getSyntaxColors(mode: PaletteMode) {
@@ -135,6 +139,26 @@ export function createAppTheme(
           body: {
             color: colors.textPrimary,
             fontFamily,
+            fontSynthesis: "none",
+            textRendering: "optimizeLegibility",
+            WebkitFontSmoothing: "antialiased",
+          },
+          "*": {
+            scrollbarColor: `${alpha(colors.textSecondary, mode === "dark" ? 0.42 : 0.32)} transparent`,
+            scrollbarWidth: "thin",
+          },
+          "*::-webkit-scrollbar": {
+            height: 10,
+            width: 10,
+          },
+          "*::-webkit-scrollbar-thumb": {
+            backgroundClip: "padding-box",
+            backgroundColor: alpha(colors.textSecondary, mode === "dark" ? 0.42 : 0.28),
+            border: "3px solid transparent",
+            borderRadius: 999,
+          },
+          "*::-webkit-scrollbar-thumb:hover": {
+            backgroundColor: alpha(colors.textSecondary, mode === "dark" ? 0.58 : 0.42),
           },
           "::selection": {
             backgroundColor: alpha(colors.primary, mode === "dark" ? 0.34 : 0.2),
@@ -157,7 +181,7 @@ export function createAppTheme(
           },
           outlined: {
             backgroundColor: colors.surface,
-            borderColor: alpha(colors.outline, mode === "dark" ? 0.55 : 1),
+            borderColor: alpha(colors.outline, mode === "dark" ? 0.72 : 0.88),
             borderRadius: radiusTokens.card,
             boxShadow: getSurfaceShadow(mode),
           },
@@ -197,7 +221,8 @@ export function createAppTheme(
         styleOverrides: {
           root: {
             fontSize: 12,
-            fontWeight: 500,
+            fontWeight: 650,
+            letterSpacing: 0,
             minHeight: 32,
             minWidth: 0,
             padding: "6px 10px",
@@ -211,7 +236,27 @@ export function createAppTheme(
             minHeight: 32,
           },
           indicator: {
+            borderRadius: 999,
             height: 2,
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            borderRadius: 999,
+            fontWeight: 700,
+            letterSpacing: 0,
+          },
+          sizeSmall: {
+            height: 24,
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: radiusTokens.control,
           },
         },
       },

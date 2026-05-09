@@ -555,7 +555,19 @@ export function AppShell() {
   }, []);
 
   return (
-    <Box sx={{ display: "flex", height: "100vh", overflow: "hidden", bgcolor: "background.default" }}>
+    <Box
+      sx={(theme) => ({
+        bgcolor: "background.default",
+        display: "flex",
+        height: "100vh",
+        overflow: "hidden",
+        position: "relative",
+        backgroundImage:
+          theme.palette.mode === "dark"
+            ? "linear-gradient(180deg, rgba(96, 165, 250, 0.06), rgba(13, 17, 23, 0) 220px)"
+            : "linear-gradient(180deg, rgba(37, 99, 235, 0.045), rgba(244, 247, 251, 0) 220px)",
+      })}
+    >
       <AppShellTopControls
         headerActions={headerActions}
         isProxyBusy={isProxyBusy}
@@ -594,6 +606,7 @@ export function AppShell() {
           minHeight: 0,
           minWidth: 0,
           overflow: "hidden",
+          position: "relative",
         }}
       >
         <Box
@@ -601,7 +614,7 @@ export function AppShell() {
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-            p: isSessionsWorkspace ? 0.5 : 2,
+            p: isSessionsWorkspace ? 1 : 2,
           }}
         >
           <Outlet context={{ setHeaderActions }} />

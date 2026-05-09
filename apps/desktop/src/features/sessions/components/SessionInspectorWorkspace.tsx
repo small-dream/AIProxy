@@ -1,4 +1,5 @@
 import { Alert, Box, Divider, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
@@ -258,10 +259,12 @@ function SessionInspectorWorkspace({
         sx={{
           bgcolor: "background.paper",
           display: "flex",
+          flex: 1,
+          justifyContent: "center",
           minHeight: 0,
         }}
       >
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ maxWidth: 460, p: 4 }}>
           <Typography variant="h6">{t("inspector.workspace.emptyTitle")}</Typography>
           <Typography color="text.secondary" variant="body2">
             {t("inspector.workspace.emptyDescription")}
@@ -357,10 +360,10 @@ function SessionInspectorWorkspace({
               touchAction: "none",
               userSelect: "none",
               "&::before": {
-                bgcolor: "divider",
+                bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
                 borderRadius: 999,
                 content: '""',
-                height: 2,
+                height: 1,
                 opacity: 0.7,
                 transition: "background-color 120ms ease, opacity 120ms ease",
                 width: "100%",

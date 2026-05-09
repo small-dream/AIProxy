@@ -31,7 +31,9 @@ function SessionContainerTabsImpl({
   return (
     <Box
       sx={{
-        bgcolor: "background.paper",
+        bgcolor: (theme) => theme.palette.mode === "dark"
+          ? alpha(theme.palette.background.default, 0.28)
+          : alpha(theme.palette.background.default, 0.62),
         borderBottom: 1,
         borderColor: "divider",
         minWidth: 0,
@@ -42,11 +44,11 @@ function SessionContainerTabsImpl({
         direction="row"
         justifyContent="space-between"
         spacing={1}
-        sx={{
-          minHeight: 36,
-          px: 0.5,
-          py: 0.25,
-        }}
+          sx={{
+            minHeight: 42,
+            px: 0.75,
+            py: 0.5,
+          }}
       >
         <Stack
           direction="row"
@@ -63,19 +65,27 @@ function SessionContainerTabsImpl({
               onClick={() => onSelectContainer(container.id)}
               sx={(theme) => ({
                 alignItems: "center",
-                borderBottom: "2px solid",
-                borderColor: container.isActive ? theme.palette.primary.main : "transparent",
-                borderRadius: 0,
+                bgcolor: container.isActive
+                  ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.10)
+                  : "transparent",
+                border: "1px solid",
+                borderColor: container.isActive
+                  ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.38 : 0.22)
+                  : "transparent",
+                borderRadius: 1.25,
                 color: container.isActive ? "text.primary" : "text.secondary",
                 cursor: "pointer",
                 display: "inline-flex",
                 flex: "0 0 auto",
-                height: 28,
+                height: 30,
                 justifyContent: "center",
                 minWidth: 0,
-                px: 0.75,
-                transition: "border-color 140ms ease, color 140ms ease",
+                px: 1.1,
+                transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
                 "&:hover": {
+                  bgcolor: container.isActive
+                    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.13)
+                    : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                   color: "text.primary",
                 },
               })}
@@ -84,7 +94,7 @@ function SessionContainerTabsImpl({
                 noWrap
                 sx={{
                   fontSize: 12.5,
-                  fontWeight: container.isActive ? 700 : 500,
+                  fontWeight: container.isActive ? 750 : 600,
                   lineHeight: 1,
                 }}
               >
@@ -119,8 +129,8 @@ function SessionContainerTabsImpl({
                 sx={{
                   borderRadius: 0.75,
                   color: "text.secondary",
-                  height: 24,
-                  width: 24,
+                  height: 28,
+                  width: 28,
                   "&:hover": {
                     bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                     color: "text.primary",
@@ -140,8 +150,8 @@ function SessionContainerTabsImpl({
               sx={{
                 borderRadius: 0.75,
                 color: "text.secondary",
-                height: 24,
-                width: 24,
+                height: 28,
+                width: 28,
                 "&:hover": {
                   bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                   color: "text.primary",

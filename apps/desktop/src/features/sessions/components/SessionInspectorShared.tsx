@@ -3,7 +3,7 @@ import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
@@ -19,25 +19,32 @@ const VIRTUAL_WINDOW_OVERSCAN = 12;
 export const INSPECTOR_KEY_VALUE_GRID_TEMPLATE = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
 export const inspectorTabsSx = {
   flex: 1,
-  minHeight: 34,
+  minHeight: 36,
   minWidth: 0,
-  px: 0.5,
+  px: 0.75,
   "& .MuiTab-root": {
+    borderRadius: 1,
     color: "text.secondary",
     fontSize: 13,
-    fontWeight: 600,
+    fontWeight: 650,
     letterSpacing: 0,
     lineHeight: 1.25,
-    minHeight: 34,
-    px: 1.25,
+    minHeight: 30,
+    mx: 0.125,
+    px: 1.15,
     py: 0.75,
+    transition: "background-color 140ms ease, color 140ms ease",
+    "&:hover": {
+      bgcolor: "action.hover",
+      color: "text.primary",
+    },
   },
   "& .MuiTab-root.Mui-selected": {
     color: "primary.main",
+    bgcolor: "action.selected",
   },
   "& .MuiTabs-indicator": {
-    borderRadius: 1,
-    height: 2,
+    display: "none",
   },
 } as const;
 export const inspectorPaneActionButtonSx = {
@@ -88,7 +95,16 @@ export function InspectorSummaryBar({
   const requestOperationLabel = getRequestOperationLabel(detail, session);
 
   return (
-    <Stack spacing={0.75} sx={{ px: 1.5, py: 1 }}>
+    <Stack
+      spacing={0.75}
+      sx={(theme) => ({
+        bgcolor: theme.palette.mode === "dark"
+          ? alpha(theme.palette.background.default, 0.26)
+          : alpha(theme.palette.background.default, 0.45),
+        px: 2,
+        py: 1.25,
+      })}
+    >
       <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
         <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
           <Chip
@@ -180,6 +196,7 @@ export function InspectorSummaryBar({
           sx={{
             display: "-webkit-box",
             fontSize: 13,
+            fontFamily: appFontCssVars.content,
             lineClamp: 2,
             lineHeight: 1.5,
             overflow: "hidden",
@@ -246,7 +263,7 @@ export function InspectorScrollArea({
   children: React.ReactNode;
 }) {
   return (
-    <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+    <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pr: 1 }}>
       {children}
     </Box>
   );
@@ -264,14 +281,15 @@ export function InspectorFlatTable({
   return (
     <Box
       sx={{
-        bgcolor: "background.paper",
+        bgcolor: "transparent",
         overflow: "hidden",
       }}
     >
       {headers ? (
         <Box
           sx={{
-            bgcolor: "background.paper",
+            bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+            borderRadius: 1,
             display: "grid",
             gridTemplateColumns: columnTemplate,
             minHeight: 20,
@@ -320,7 +338,7 @@ export function InspectorFlatTableRow({
         minHeight: dense ? 30 : 32,
         ...(hoverable
           ? {
-              borderRadius: 0.5,
+              borderRadius: 1,
               transition: "background-color 120ms ease",
               "&:hover": {
                 bgcolor: "action.hover",
@@ -573,7 +591,7 @@ export function SearchableCodeBlock({
       component="pre"
       ref={containerRef}
       sx={{
-        bgcolor: "background.paper",
+        bgcolor: "transparent",
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
@@ -583,7 +601,7 @@ export function SearchableCodeBlock({
         minHeight: 0,
         overflow: "auto",
         overflowX: "auto",
-        px: 0.5,
+        px: 0.75,
         py: 0.25,
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
@@ -741,7 +759,7 @@ function VirtualizedSearchableCodeBlock({
     <Box
       ref={virtualContainerRef}
       sx={{
-        bgcolor: "background.paper",
+        bgcolor: "transparent",
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
@@ -749,7 +767,7 @@ function VirtualizedSearchableCodeBlock({
         lineHeight: language === "json" ? 1.6 : 1.5,
         minHeight: 0,
         overflow: "auto",
-        px: 0.5,
+        px: 0.75,
         py: 0.25,
         whiteSpace: "pre",
       }}

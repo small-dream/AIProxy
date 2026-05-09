@@ -4,11 +4,11 @@ import { NavLink } from "react-router-dom";
 import { navigationItems } from "@/features/navigation/navigation-items";
 import { useI18n } from "@/i18n";
 
-const ACTIVITY_BAR_WIDTH = 48;
-const ACTIVITY_BAR_BG = "#2c2c2c";
-const ACTIVITY_BAR_ICON = "rgba(255, 255, 255, 0.42)";
+const ACTIVITY_BAR_WIDTH = 56;
+const ACTIVITY_BAR_BG = "#111827";
+const ACTIVITY_BAR_ICON = "rgba(226, 232, 240, 0.58)";
 const ACTIVITY_BAR_ICON_ACTIVE = "#f5f5f5";
-const ACTIVITY_BAR_DIVIDER = "rgba(255, 255, 255, 0.1)";
+const ACTIVITY_BAR_DIVIDER = "rgba(148, 163, 184, 0.18)";
 
 type AppShellActivityBarProps = {
   locationPathname: string;
@@ -38,19 +38,21 @@ export function AppShellActivityBar({
           to={item.to}
           sx={{
             alignItems: "center",
-            borderRadius: 0,
+            borderRadius: 1.5,
             color: selected ? ACTIVITY_BAR_ICON_ACTIVE : ACTIVITY_BAR_ICON,
             justifyContent: "center",
-            minHeight: 52,
+            minHeight: 44,
+            mx: 0.75,
+            my: 0.25,
             px: 0,
             position: "relative",
-            transition: "background-color 140ms ease, color 140ms ease",
+            transition: "background-color 140ms ease, color 140ms ease, transform 140ms ease",
             "&::before": {
-              bgcolor: ACTIVITY_BAR_ICON_ACTIVE,
+              bgcolor: selected ? "primary.main" : "transparent",
               borderRadius: 999,
               content: '""',
-              height: 30,
-              left: 0,
+              height: 22,
+              left: -5,
               opacity: selected ? 1 : 0,
               position: "absolute",
               top: "50%",
@@ -65,16 +67,18 @@ export function AppShellActivityBar({
               minWidth: 0,
             },
             "& .MuiSvgIcon-root": {
-              fontSize: 32,
+              fontSize: 26,
             },
             "&.Mui-selected": {
-              backgroundColor: "transparent",
+              backgroundColor: "rgba(255, 255, 255, 0.10)",
             },
             "&.Mui-selected:hover": {
-              backgroundColor: "rgba(255, 255, 255, 0.04)",
+              backgroundColor: "rgba(255, 255, 255, 0.13)",
             },
             "&:hover": {
-              backgroundColor: "rgba(255, 255, 255, 0.04)",
+              backgroundColor: "rgba(255, 255, 255, 0.08)",
+              color: ACTIVITY_BAR_ICON_ACTIVE,
+              transform: "translateY(-1px)",
             },
           }}
         >
@@ -124,7 +128,7 @@ export function AppShellActivityBar({
           mt: `${topLayoutHeight}px`,
           overflow: "hidden",
           px: 0,
-          py: 0,
+          py: 0.75,
           width: ACTIVITY_BAR_WIDTH,
         },
         flexShrink: 0,

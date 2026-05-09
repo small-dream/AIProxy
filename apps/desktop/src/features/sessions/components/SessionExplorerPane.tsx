@@ -27,7 +27,6 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
-import { getHoverShadow } from "@/themes/app-theme";
 import { defaultAppFontSize } from "@/themes/fonts";
 import {
   getSessionQuerySuffix,
@@ -141,7 +140,9 @@ export function SessionExplorerPane({
   return (
     <Box
       sx={{
-        bgcolor: "background.paper",
+        bgcolor: (theme) => theme.palette.mode === "dark"
+          ? alpha(theme.palette.background.default, 0.22)
+          : alpha(theme.palette.background.default, 0.42),
         borderBottom: { lg: 0, xs: 1 },
         borderColor: "divider",
         display: "flex",
@@ -153,7 +154,7 @@ export function SessionExplorerPane({
       <Box
         ref={scrollContainerRef}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-        sx={{ flex: 1, minHeight: 0, overflow: "auto" }}
+        sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}
       >
         {isLoading ? (
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
@@ -264,13 +265,13 @@ export function SessionExplorerPane({
       <Box
         sx={(theme) => ({
           borderTop: "1px solid",
-          borderColor: alpha(theme.palette.common.black, theme.palette.mode === "dark" ? 0.28 : 0.12),
-          bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.common.white, 0.02) : alpha(theme.palette.common.black, 0.015),
+          borderColor: "divider",
+          bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.common.white, 0.025) : alpha(theme.palette.common.white, 0.72),
           boxShadow: `inset 0 1px 0 ${alpha(theme.palette.common.white, theme.palette.mode === "dark" ? 0.03 : 0.55)}`,
           flex: "0 0 auto",
-          minHeight: 30,
-          px: 0,
-          py: 0,
+          minHeight: 42,
+          px: 1,
+          py: 0.75,
         })}
       >
         <InputBase
@@ -284,6 +285,10 @@ export function SessionExplorerPane({
           value={domainFilterValue}
           sx={(theme) => ({
             color: "text.primary",
+            bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+            border: "1px solid",
+            borderColor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.5 : 0.7),
+            borderRadius: 1.25,
             fontFamily: theme.typography.fontFamily,
             fontSize: getScaledFontSize(theme, 13.5),
             fontWeight: 400,
@@ -350,15 +355,15 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
       onClick={onToggle}
       onContextMenu={onContextMenu}
       sx={{
-        borderRadius: 0,
+        borderRadius: 1,
         minHeight: 26,
         minWidth: "100%",
         px: 1,
         py: 0.25,
-        transition: "box-shadow 140ms ease",
+        transition: "background-color 140ms ease",
         width: "100%",
         "&:hover": {
-          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
+          bgcolor: "action.hover",
         },
       }}
     >
@@ -447,16 +452,16 @@ function SessionTreeFlatNode({
           }
         : undefined}
       sx={{
-        borderRadius: 0,
+        borderRadius: 1,
         minHeight: 24,
         minWidth: "100%",
         pl: 1.75 + depth * 1.25,
         pr: 1,
         py: 0.125,
-        transition: "background-color 140ms ease, box-shadow 140ms ease",
+        transition: "background-color 140ms ease",
         width: "100%",
         "&:hover": {
-          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
+          bgcolor: "action.hover",
         },
       }}
     >
@@ -513,24 +518,35 @@ function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, on
       onContextMenu={onContextMenu}
       selected={selected}
       sx={(theme) => ({
-        borderRadius: 0,
+        borderRadius: 1,
         minHeight: 22,
         minWidth: "100%",
         pl: 1.75 + depth * 1.25 + 2,
+        position: "relative",
         pr: 1,
         py: 0.125,
-        transition: "background-color 140ms ease, box-shadow 140ms ease",
+        transition: "background-color 140ms ease, color 140ms ease",
         width: "max-content",
         "&:hover": {
-          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
+          bgcolor: "action.hover",
         },
         "&.Mui-selected": {
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.32 : 0.18),
-          borderRadius: 0,
-          boxShadow: (theme) => getHoverShadow(theme.palette.mode),
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.24 : 0.12),
+          color: "text.primary",
+        },
+        "&.Mui-selected::before": {
+          bgcolor: "primary.main",
+          borderRadius: 999,
+          content: '""',
+          height: 16,
+          left: 2,
+          position: "absolute",
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 3,
         },
         "&.Mui-selected:hover": {
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.36 : 0.22),
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.30 : 0.16),
         },
       })}
     >

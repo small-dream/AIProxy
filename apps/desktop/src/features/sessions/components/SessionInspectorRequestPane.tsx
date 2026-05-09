@@ -1,6 +1,7 @@
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, Button, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
@@ -86,7 +87,15 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
 
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
-      <Box sx={{ alignItems: "center", bgcolor: "background.paper", display: "flex", minHeight: 32, pr: 0.5 }}>
+      <Box
+        sx={(theme) => ({
+          alignItems: "center",
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
+          display: "flex",
+          minHeight: 40,
+          pr: 0.75,
+        })}
+      >
         <Tabs
           onChange={(_event, nextTab) => onRequestTabChange(nextTab as RequestInspectorTab)}
           scrollButtons="auto"
@@ -114,7 +123,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       <Divider />
 
       {requestCollapsed ? null : (
-        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", pl: 2, pr: 0.5, pb: 2, pt: 1.25 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", pl: 2, pr: 0.5, pb: 2, pt: 1.5 }}>
           <RequestTabContent
             detail={detail}
             isRequestBodyLoading={isRequestBodyLoading}

@@ -69,18 +69,23 @@ export function TopBarActionButton({
 
             return {
               border: "1px solid",
-              borderColor: variant === "outlined" ? theme.palette.divider : "transparent",
+              borderColor: variant === "outlined"
+                ? alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.86 : 1)
+                : "transparent",
               borderRadius: 999,
               color: variant === "outlined" ? theme.palette.text.secondary : undefined,
-              height: 30,
-              transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease",
-              width: 30,
+              height: 32,
+              transition: "background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 140ms ease",
+              width: 32,
               "& .MuiSvgIcon-root": {
-                fontSize: 17,
+                fontSize: 18,
               },
               "&:hover": {
                 bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.06),
                 borderColor: theme.palette.text.disabled,
+                boxShadow: theme.palette.mode === "dark"
+                  ? "0 8px 20px rgba(0, 0, 0, 0.26)"
+                  : "0 8px 18px rgba(15, 23, 42, 0.10)",
                 color: theme.palette.text.primary,
                 transform: "translateY(-1px)",
               },
