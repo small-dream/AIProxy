@@ -75,6 +75,10 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const isSessionsWorkspace = location.pathname === "/";
+  const isCompactWorkspace =
+    isSessionsWorkspace ||
+    location.pathname === "/compose" ||
+    location.pathname === "/collections";
   useBreakpointEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();
@@ -614,7 +618,7 @@ export function AppShell() {
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-            p: isSessionsWorkspace || location.pathname === "/compose" ? 1 : 2,
+            p: isCompactWorkspace ? 1 : 2,
           }}
         >
           <Outlet context={{ setHeaderActions }} />

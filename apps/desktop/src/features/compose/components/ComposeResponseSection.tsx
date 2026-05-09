@@ -1,6 +1,6 @@
 import { Alert, Box, CircularProgress, Stack, Typography } from "@mui/material";
 import type { SessionDetail } from "@aiproxy/shared-types";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { SessionInspectorResponsePane } from "@/features/sessions/components/SessionInspectorResponsePane";
 import {
@@ -15,20 +15,24 @@ import { useI18n } from "@/i18n";
 export type ComposeResponseTab = ResponseInspectorTab;
 
 type ComposeResponseSectionProps = {
+  chromeless?: boolean;
   errorMessage: string | undefined;
   isError: boolean;
   isPending: boolean;
   onResponseTabChange: (tab: ComposeResponseTab) => void;
   responseDetail: SessionDetail | undefined;
+  responseMeta?: ReactNode;
   responseTab: ComposeResponseTab;
 };
 
 export function ComposeResponseSection({
+  chromeless = false,
   errorMessage,
   isError,
   isPending,
   onResponseTabChange,
   responseDetail,
+  responseMeta,
   responseTab,
 }: ComposeResponseSectionProps) {
   const { t } = useI18n();
@@ -53,11 +57,12 @@ export function ComposeResponseSection({
     <Box
       sx={{
         bgcolor: "background.paper",
-        border: 1,
-        borderColor: "divider",
-        borderRadius: 1,
+        border: chromeless ? 0 : 1,
+        borderColor: chromeless ? "transparent" : "divider",
+        borderRadius: chromeless ? 0 : 1,
         display: "flex",
         flexDirection: "column",
+        height: "100%",
         minHeight: 0,
         overflow: "hidden",
       }}
@@ -82,6 +87,7 @@ export function ComposeResponseSection({
           isResponseBodyLoading={false}
           isResponseRawLoading={false}
           onResponseTabChange={onResponseTabChange}
+          responseMeta={responseMeta}
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={responseTab}

@@ -7,7 +7,7 @@ import type { HeaderEntry } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 
-const EDITOR_GRID_TEMPLATE = "minmax(180px, 0.85fr) minmax(0, 1.7fr) 40px";
+const EDITOR_GRID_TEMPLATE = "minmax(160px, 0.78fr) minmax(0, 1.72fr) 36px";
 
 export function EditableKeyValueTable({
   items,
@@ -56,7 +56,7 @@ export function EditableKeyValueTable({
               borderRadius: 1,
               display: "grid",
               gridTemplateColumns: EDITOR_GRID_TEMPLATE,
-              minHeight: 24,
+              minHeight: 22,
             })}
           >
             {[namePlaceholder, valuePlaceholder, ""].map((label, index) => (
@@ -66,7 +66,7 @@ export function EditableKeyValueTable({
                 sx={{
                   alignItems: "center",
                   display: "flex",
-                  fontSize: 12,
+                  fontSize: 11.5,
                   fontWeight: 600,
                   letterSpacing: 0,
                   minWidth: 0,
@@ -86,7 +86,7 @@ export function EditableKeyValueTable({
                 display: "grid",
                 gap: 0.5,
                 gridTemplateColumns: EDITOR_GRID_TEMPLATE,
-                minHeight: 38,
+                minHeight: 34,
               }}
             >
               <OutlinedInput
@@ -95,10 +95,10 @@ export function EditableKeyValueTable({
                 size="small"
                 sx={{
                   fontFamily: appFontCssVars.content,
-                  fontSize: 13,
+                  fontSize: 12.75,
                   minWidth: 0,
                   "& .MuiOutlinedInput-input": {
-                    py: 1,
+                    py: 0.75,
                   },
                 }}
                 value={item.name}
@@ -109,10 +109,10 @@ export function EditableKeyValueTable({
                 size="small"
                 sx={{
                   fontFamily: appFontCssVars.content,
-                  fontSize: 13,
+                  fontSize: 12.75,
                   minWidth: 0,
                   "& .MuiOutlinedInput-input": {
-                    py: 1,
+                    py: 0.75,
                   },
                 }}
                 value={item.value}
@@ -121,7 +121,7 @@ export function EditableKeyValueTable({
                 <IconButton
                   onClick={() => handleRemove(index)}
                   size="small"
-                  sx={{ color: "text.secondary", flex: "0 0 auto" }}
+                  sx={{ color: "text.secondary", flex: "0 0 auto", p: 0.65 }}
                 >
                   <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
                 </IconButton>
@@ -136,7 +136,7 @@ export function EditableKeyValueTable({
           startIcon={<AddRoundedIcon sx={{ fontSize: 18 }} />}
           onClick={handleAdd}
           size="small"
-          sx={{ minHeight: 30, px: 1.25 }}
+          sx={{ minHeight: 28, px: 1.125 }}
           variant="text"
         >
           {t("common.actions.add")}

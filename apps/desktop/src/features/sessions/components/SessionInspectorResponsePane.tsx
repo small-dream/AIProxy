@@ -2,7 +2,7 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { Alert, Box, Divider, IconButton, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState, type ReactNode } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -83,6 +83,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   isResponseBodyLoading: boolean;
   isResponseRawLoading: boolean;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
+  responseMeta?: ReactNode;
   responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
@@ -92,6 +93,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   isResponseBodyLoading,
   isResponseRawLoading,
   onResponseTabChange,
+  responseMeta,
   responseJsonDisplayText,
   responseJsonResult,
   responseTab,
@@ -203,6 +205,12 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
             <Tab label={t("inspector.response.tabs.automation")} value="automation" />
           ) : null}
         </Tabs>
+
+        {responseMeta ? (
+          <Box sx={{ flex: "0 0 auto", mr: 0.5 }}>
+            {responseMeta}
+          </Box>
+        ) : null}
 
         {isSearchable ? (
           <Stack alignItems="center" direction="row" spacing={0.25}>

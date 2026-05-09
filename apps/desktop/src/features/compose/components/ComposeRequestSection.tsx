@@ -1,5 +1,8 @@
+import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import {
   Box,
+  Button,
   Divider,
   MenuItem,
   Select,
@@ -15,7 +18,7 @@ import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { type BodyType, RAW_LANGUAGES, type RawLanguage } from "@/features/compose/compose-editor.store";
-import { inspectorTabsSx } from "@/features/sessions/components/SessionInspectorShared";
+import { inspectorPaneActionButtonSx, inspectorTabsSx } from "@/features/sessions/components/SessionInspectorShared";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 import { EditableKeyValueTable } from "./EditableKeyValueTable";
@@ -31,6 +34,7 @@ type ComposeRequestSectionProps = {
   activeTab: "headers" | "body" | "query";
   body: string;
   bodyType: BodyType;
+  chromeless?: boolean;
   formDataEntries: HeaderEntry[];
   headers: HeaderEntry[];
   onActiveTabChange: (tab: "headers" | "body" | "query") => void;
@@ -38,10 +42,12 @@ type ComposeRequestSectionProps = {
   onBodyTypeChange: (bodyType: BodyType) => void;
   onFormDataEntriesChange: (entries: HeaderEntry[]) => void;
   onHeadersChange: (entries: HeaderEntry[]) => void;
+  onRequestCollapsedChange?: (collapsed: boolean) => void;
   onRawLanguageChange: (rawLanguage: RawLanguage) => void;
   onUrlChange: (url: string) => void;
   onUrlEncodedEntriesChange: (entries: HeaderEntry[]) => void;
   rawLanguage: RawLanguage;
+  requestCollapsed?: boolean;
   url: string;
   urlEncodedEntries: HeaderEntry[];
 };
@@ -50,6 +56,7 @@ export function ComposeRequestSection({
   activeTab,
   body,
   bodyType,
+  chromeless = false,
   formDataEntries,
   headers,
   onActiveTabChange,
@@ -57,10 +64,12 @@ export function ComposeRequestSection({
   onBodyTypeChange,
   onFormDataEntriesChange,
   onHeadersChange,
+  onRequestCollapsedChange,
   onRawLanguageChange,
   onUrlChange,
   onUrlEncodedEntriesChange,
   rawLanguage,
+  requestCollapsed = false,
   url,
   urlEncodedEntries,
 }: ComposeRequestSectionProps) {
@@ -70,11 +79,12 @@ export function ComposeRequestSection({
     <Box
       sx={{
         bgcolor: "background.paper",
-        border: 1,
-        borderColor: "divider",
-        borderRadius: 1,
+        border: chromeless ? 0 : 1,
+        borderColor: chromeless ? "transparent" : "divider",
+        borderRadius: chromeless ? 0 : 1,
         display: "flex",
         flexDirection: "column",
+        height: "100%",
         minHeight: 0,
         overflow: "hidden",
       }}
@@ -99,9 +109,21 @@ export function ComposeRequestSection({
           <Tab label={t("composePage.tabs.body")} value="body" />
           <Tab label={t("composePage.tabs.query")} value="query" />
         </Tabs>
+        {onRequestCollapsedChange ? (
+          <Button
+            onClick={() => onRequestCollapsedChange(!requestCollapsed)}
+            size="small"
+            startIcon={requestCollapsed ? <ExpandMoreRoundedIcon /> : <ExpandLessRoundedIcon />}
+            sx={inspectorPaneActionButtonSx}
+            variant="text"
+          >
+            {requestCollapsed ? t("common.actions.expand") : t("common.actions.collapse")}
+          </Button>
+        ) : null}
       </Box>
       <Divider />
 
+      {requestCollapsed ? null : (
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pl: 2, pr: 0.5, pb: 2, pt: 1.5 }}>
         {activeTab === "headers" && (
           <EditableKeyValueTable
@@ -245,6 +267,7 @@ export function ComposeRequestSection({
           />
         )}
       </Box>
+      )}
     </Box>
   );
 }
