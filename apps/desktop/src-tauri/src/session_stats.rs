@@ -1,3 +1,4 @@
+use crate::dev_logger::write_stderr_line;
 use chrono::Utc;
 use std::{
     env,
@@ -86,13 +87,13 @@ pub fn record(event: &str, fields: &[(&str, String)]) {
         line.push_str(&quote_value(value));
     }
 
-    eprintln!("{line}");
+    write_stderr_line(&line);
     append_to_log_file(&line);
 }
 
 fn append_to_log_file(line: &str) {
     let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().expect("stats write mutex should not be poisoned");
+    let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
 
     let log_file_path = resolve_log_file_path();
 

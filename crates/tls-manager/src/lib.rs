@@ -16,7 +16,8 @@ fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
         line.push('=');
         line.push_str(&value.replace('\\', "\\\\").replace('"', "\\\""));
     }
-    eprintln!("{line}");
+    let mut stderr = std::io::stderr().lock();
+    let _ = std::io::Write::write_fmt(&mut stderr, format_args!("{line}\n"));
 }
 
 use serde::Serialize;

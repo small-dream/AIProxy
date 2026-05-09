@@ -8,7 +8,7 @@ mod window_state;
 mod workspace;
 
 use bootstrap::AppState;
-use dev_logger::{log_error, log_info, log_warn};
+use dev_logger::{log_error, log_info, log_warn, write_stderr_line};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -27,7 +27,9 @@ static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(error) = dev_logger::initialize() {
-        eprintln!("level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\"");
+        write_stderr_line(&format!(
+            "level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\""
+        ));
     }
 
     match session_stats::initialize() {
@@ -56,7 +58,9 @@ pub fn run() {
         }
         Err(error) => {
             log_error("desktop.app", "database_open_failed", &[("error", error.clone())]);
-            eprintln!("level=ERROR component=desktop.app event=database_open_failed error=\"{error}\"");
+            write_stderr_line(&format!(
+                "level=ERROR component=desktop.app event=database_open_failed error=\"{error}\""
+            ));
             std::process::exit(1);
         }
     };

@@ -4,7 +4,7 @@ use std::{
     ffi::OsStr,
     fs::{self, OpenOptions},
     io::Write,
-    panic,
+    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -66,6 +66,11 @@ pub fn log_error(component: &str, event: &str, fields: &[(&str, String)]) {
     emit_log("ERROR", component, event, fields);
 }
 
+pub fn write_stderr_line(line: &str) {
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "{line}");
+}
+
 fn emit_log(level: &str, component: &str, event: &str, fields: &[(&str, String)]) {
     let timestamp = Utc::now().to_rfc3339();
     let mut line = format!("timestamp={timestamp} level={level} component={component} event={event}");
@@ -77,13 +82,13 @@ fn emit_log(level: &str, component: &str, event: &str, fields: &[(&str, String)]
         line.push_str(&quote_value(value));
     }
 
-    eprintln!("{line}");
+    write_stderr_line(&line);
     append_to_log_file(&line);
 }
 
 fn append_to_log_file(line: &str) {
     let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().expect("log write mutex should not be poisoned");
+    let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
 
     let log_file_path = resolve_log_file_path();
 
@@ -123,14 +128,14 @@ fn install_panic_hook(log_file_path: PathBuf) {
         );
 
         append_specific_log_file(&log_file_path, &panic_line);
-        eprintln!("{panic_line}");
-        previous_hook(panic_info);
+        write_stderr_line(&panic_line);
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| previous_hook(panic_info)));
     }));
 }
 
 fn append_specific_log_file(log_file_path: &Path, line: &str) {
     let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().expect("log write mutex should not be poisoned");
+    let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
 
     if let Some(parent) = log_file_path.parent() {
         let _ = fs::create_dir_all(parent);

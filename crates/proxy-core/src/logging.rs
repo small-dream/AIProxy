@@ -11,7 +11,8 @@ pub(crate) fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
         line.push_str(&quote_value(value));
     }
 
-    eprintln!("{line}");
+    let mut stderr = std::io::stderr().lock();
+    let _ = std::io::Write::write_fmt(&mut stderr, format_args!("{line}\n"));
     append_to_log_file(&line);
 }
 

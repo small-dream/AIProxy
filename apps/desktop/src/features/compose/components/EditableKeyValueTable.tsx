@@ -1,10 +1,13 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
-import { Box, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
+
+const EDITOR_GRID_TEMPLATE = "minmax(180px, 0.85fr) minmax(0, 1.7fr) 40px";
 
 export function EditableKeyValueTable({
   items,
@@ -40,27 +43,78 @@ export function EditableKeyValueTable({
   }
 
   return (
-    <Box>
+    <Box sx={{ minWidth: 0 }}>
       {items.length === 0 ? (
-        <Typography color="text.secondary" sx={{ py: 1 }} variant="body2">
+        <Typography color="text.secondary" sx={{ px: 1, py: 1.25 }} variant="body2">
           {t("common.empty.noData")}
         </Typography>
       ) : (
         <Stack spacing={0.5}>
+          <Box
+            sx={(theme) => ({
+              bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
+              borderRadius: 1,
+              display: "grid",
+              gridTemplateColumns: EDITOR_GRID_TEMPLATE,
+              minHeight: 24,
+            })}
+          >
+            {[namePlaceholder, valuePlaceholder, ""].map((label, index) => (
+              <Typography
+                color="text.secondary"
+                key={`${label}:${index}`}
+                sx={{
+                  alignItems: "center",
+                  display: "flex",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: 0,
+                  minWidth: 0,
+                  px: 1,
+                }}
+                variant="caption"
+              >
+                {label}
+              </Typography>
+            ))}
+          </Box>
           {items.map((item, index) => (
-            <Stack direction="row" key={index} spacing={0.5} sx={{ alignItems: "center" }}>
+            <Box
+              key={index}
+              sx={{
+                alignItems: "center",
+                display: "grid",
+                gap: 0.5,
+                gridTemplateColumns: EDITOR_GRID_TEMPLATE,
+                minHeight: 38,
+              }}
+            >
               <OutlinedInput
                 onChange={(event) => handleUpdate(index, "name", event.target.value)}
                 placeholder={namePlaceholder}
                 size="small"
-                sx={{ flex: 1, fontFamily: appFontCssVars.content, fontSize: 13 }}
+                sx={{
+                  fontFamily: appFontCssVars.content,
+                  fontSize: 13,
+                  minWidth: 0,
+                  "& .MuiOutlinedInput-input": {
+                    py: 1,
+                  },
+                }}
                 value={item.name}
               />
               <OutlinedInput
                 onChange={(event) => handleUpdate(index, "value", event.target.value)}
                 placeholder={valuePlaceholder}
                 size="small"
-                sx={{ flex: 1.8, fontFamily: appFontCssVars.content, fontSize: 13 }}
+                sx={{
+                  fontFamily: appFontCssVars.content,
+                  fontSize: 13,
+                  minWidth: 0,
+                  "& .MuiOutlinedInput-input": {
+                    py: 1,
+                  },
+                }}
                 value={item.value}
               />
               <Tooltip title={t("common.actions.remove")}>
@@ -72,23 +126,21 @@ export function EditableKeyValueTable({
                   <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
                 </IconButton>
               </Tooltip>
-            </Stack>
+            </Box>
           ))}
         </Stack>
       )}
 
-      <Box sx={{ mt: 0.5 }}>
-        <IconButton
-          color="primary"
+      <Box sx={{ mt: 1 }}>
+        <Button
+          startIcon={<AddRoundedIcon sx={{ fontSize: 18 }} />}
           onClick={handleAdd}
           size="small"
-          sx={{ borderRadius: 1, px: 1 }}
+          sx={{ minHeight: 30, px: 1.25 }}
+          variant="text"
         >
-          <AddRoundedIcon sx={{ fontSize: 18 }} />
-          <Typography sx={{ fontSize: 12, ml: 0.25 }} variant="caption">
-            {t("common.actions.add")}
-          </Typography>
-        </IconButton>
+          {t("common.actions.add")}
+        </Button>
       </Box>
     </Box>
   );

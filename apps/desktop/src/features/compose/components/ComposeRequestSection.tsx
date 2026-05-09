@@ -1,7 +1,21 @@
-import { Box, Divider, FormControlLabel, MenuItem, Radio, RadioGroup, Select, Stack, Tab, Tabs, TextField, Typography } from "@mui/material";
+import {
+  Box,
+  Divider,
+  MenuItem,
+  Select,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+} from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
 import { type BodyType, RAW_LANGUAGES, type RawLanguage } from "@/features/compose/compose-editor.store";
+import { inspectorTabsSx } from "@/features/sessions/components/SessionInspectorShared";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 import { EditableKeyValueTable } from "./EditableKeyValueTable";
@@ -53,21 +67,42 @@ export function ComposeRequestSection({
   const { t } = useI18n();
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-      <Tabs
-        onChange={(_, value) => onActiveTabChange(value)}
-        sx={{ minHeight: 32, borderBottom: 1, borderColor: "divider", flexShrink: 0 }}
-        TabIndicatorProps={{ sx: { height: 2 } }}
-        value={activeTab}
-        variant="scrollable"
-        scrollButtons="auto"
+    <Box
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      <Box
+        sx={(theme) => ({
+          alignItems: "center",
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.9),
+          display: "flex",
+          minHeight: 42,
+          px: 0.75,
+        })}
       >
-        <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="headers" />
-        <Tab label={t("composePage.tabs.body")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="body" />
-        <Tab label={t("composePage.tabs.query")} sx={{ minHeight: 32, minWidth: 80, py: 0 }} value="query" />
-      </Tabs>
+        <Tabs
+          onChange={(_, value) => onActiveTabChange(value)}
+          sx={inspectorTabsSx}
+          value={activeTab}
+          variant="scrollable"
+          scrollButtons="auto"
+        >
+          <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} value="headers" />
+          <Tab label={t("composePage.tabs.body")} value="body" />
+          <Tab label={t("composePage.tabs.query")} value="query" />
+        </Tabs>
+      </Box>
+      <Divider />
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pt: 1.5, px: 0.5 }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: 2, py: 1.5 }}>
         {activeTab === "headers" && (
           <EditableKeyValueTable
             items={headers}
@@ -78,28 +113,66 @@ export function ComposeRequestSection({
         )}
 
         {activeTab === "body" && (
-          <Stack spacing={1}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <RadioGroup
-                row
-                sx={{ gap: 1.5, flexWrap: "nowrap" }}
+          <Stack spacing={1.25}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 1 }}
+            >
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                sx={(theme) => ({
+                  bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
+                  borderRadius: 1,
+                  gap: 0.25,
+                  p: 0.25,
+                  "& .MuiToggleButton-root": {
+                    border: 0,
+                    borderRadius: 0.75,
+                    color: "text.secondary",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: 0,
+                    minHeight: 28,
+                    px: 1.25,
+                    textTransform: "none",
+                    whiteSpace: "nowrap",
+                    "&.Mui-selected": {
+                      bgcolor: "background.paper",
+                      color: "primary.main",
+                      boxShadow: theme.palette.mode === "dark"
+                        ? "0 1px 8px rgba(0,0,0,0.24)"
+                        : "0 1px 8px rgba(15,23,42,0.08)",
+                    },
+                  },
+                })}
                 value={bodyType}
-                onChange={(event) => onBodyTypeChange(event.target.value as BodyType)}
+                onChange={(_, value: BodyType | null) => {
+                  if (value) {
+                    onBodyTypeChange(value);
+                  }
+                }}
               >
                 {(["none", "formdata", "urlencoded", "raw"] as const).map((type) => (
-                  <FormControlLabel
+                  <ToggleButton
                     key={type}
                     value={type}
-                    control={<Radio size="small" sx={{ py: 0, px: 0.5 }} />}
-                    label={<Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>{t(BODY_TYPE_KEYS[type])}</Typography>}
-                    sx={{ mr: 0, gap: 0.25, "& .MuiFormControlLabel-label": { fontSize: 12 } }}
-                  />
+                  >
+                    {t(BODY_TYPE_KEYS[type])}
+                  </ToggleButton>
                 ))}
-              </RadioGroup>
+              </ToggleButtonGroup>
               {bodyType === "raw" && (
                 <Select
                   size="small"
-                  sx={{ height: 26, fontFamily: appFontCssVars.content, fontSize: 11, "& .MuiSelect-select": { py: 0.25, pr: 3 } }}
+                  sx={{
+                    height: 30,
+                    fontFamily: appFontCssVars.content,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    "& .MuiSelect-select": { py: 0.5, pr: 3 },
+                  }}
                   value={rawLanguage}
                   onChange={(event) => onRawLanguageChange(event.target.value as RawLanguage)}
                 >
@@ -112,10 +185,10 @@ export function ComposeRequestSection({
               )}
             </Stack>
 
-            <Divider sx={{ mt: 0 }} />
+            <Divider />
 
             {bodyType === "none" && (
-              <Typography color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: "center" }}>
+              <Typography color="text.secondary" sx={{ fontSize: 13, px: 1, py: 2 }}>
                 {t("composePage.noBody")}
               </Typography>
             )}
@@ -141,12 +214,15 @@ export function ComposeRequestSection({
             {bodyType === "raw" && (
               <TextField
                 fullWidth
-                minRows={6}
+                minRows={8}
                 multiline
                 placeholder={t("composePage.bodyPlaceholder")}
                 size="small"
                 sx={{
                   fontFamily: appFontCssVars.content,
+                  "& .MuiOutlinedInput-root": {
+                    alignItems: "flex-start",
+                  },
                   "& .MuiInputBase-input": {
                     fontFamily: appFontCssVars.content,
                     fontSize: 13,

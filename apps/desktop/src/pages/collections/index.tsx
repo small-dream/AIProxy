@@ -106,8 +106,6 @@ export function CollectionsPage() {
   // Response display state
   const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
   const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
-  const [searchValue, setSearchValue] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
 
   // When selecting an item, load it into the editor
   function handleSelectItem(item: { id: string; collectionId: string; name: string; description: string; method: string; url: string; headers: HeaderEntry[]; body: string; bodyType: string; rawLanguage: string; formData: HeaderEntry[]; urlEncoded: HeaderEntry[] }) {
@@ -445,18 +443,9 @@ export function CollectionsPage() {
                   errorMessage={sendMutation.error?.message}
                   isError={sendMutation.isError}
                   isPending={sendMutation.isPending}
-                  onCopyResponse={() => {
-                    void navigator.clipboard.writeText(
-                      responseDetail?.responseBody?.inlineText ?? "",
-                    );
-                  }}
                   onResponseTabChange={setResponseTab}
-                  onSearchOpenChange={setSearchOpen}
-                  onSearchValueChange={setSearchValue}
                   responseDetail={responseDetail}
                   responseTab={responseTab}
-                  searchOpen={searchOpen}
-                  searchValue={searchValue}
                 />
               </Box>
             </Box>

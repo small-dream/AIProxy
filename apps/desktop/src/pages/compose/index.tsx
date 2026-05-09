@@ -1,6 +1,7 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Box, CircularProgress, Divider, IconButton, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tooltip } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tooltip } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
@@ -9,7 +10,6 @@ import { ComposeRequestSection } from "@/features/compose/components/ComposeRequ
 import { ComposeResponseSection, type ComposeResponseTab } from "@/features/compose/components/ComposeResponseSection";
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
-import { getBodyText } from "@/features/sessions/components/session-inspector.helpers";
 import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 
@@ -63,8 +63,6 @@ export function ComposePage() {
 
   const responseDetail = sendMutation.data;
   const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
-  const [searchValue, setSearchValue] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(COMPOSE_SPLIT_DEFAULT);
   const dragFrameRef = useRef<number | null>(null);
@@ -186,72 +184,116 @@ export function ComposePage() {
     window.addEventListener("pointercancel", stopResize);
   }
 
-  const responseBodyText = getBodyText(responseDetail?.responseBody);
-
   return (
-    <Stack sx={{ height: "100%", minHeight: 0 }}>
-      {/* URL Bar Row */}
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center", pb: 1.5 }}>
-        <Select
-          size="small"
-          sx={{ flex: "0 0 120px", fontFamily: appFontCssVars.content, fontSize: 13, fontWeight: 600 }}
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-        >
-          {HTTP_METHODS.map((m) => (
-            <MenuItem key={m} sx={{ fontFamily: appFontCssVars.content, fontSize: 13 }} value={m}>
-              {m}
-            </MenuItem>
-          ))}
-        </Select>
-        <OutlinedInput
-          fullWidth
-          placeholder={t("composePage.urlPlaceholder")}
-          size="small"
-          sx={{ fontFamily: appFontCssVars.content, fontSize: 13 }}
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && url.trim()) handleSend();
-          }}
-        />
-        <Tooltip title={t("common.actions.send")}>
-          <span>
-            <IconButton
-              color="primary"
-              disabled={!url.trim() || sendMutation.isPending}
-              onClick={handleSend}
-              size="small"
-            >
-              {sendMutation.isPending ? <CircularProgress size={20} color="inherit" /> : <SendRoundedIcon />}
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title={t("composePage.copyAsCurl")}>
-          <span>
-            <IconButton
-              color="primary"
-              disabled={!url.trim()}
-              onClick={handleExportCurl}
-              size="small"
-            >
-              <ContentCopyRoundedIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Stack>
+    <Stack spacing={1.25} sx={{ height: "100%", minHeight: 0 }}>
+      <Box
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 1,
+          boxShadow: theme.palette.mode === "dark"
+            ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+            : "0 12px 28px rgba(15, 23, 42, 0.05)",
+          flexShrink: 0,
+          p: 0.75,
+        })}
+      >
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0 }}>
+          <Select
+            size="small"
+            sx={{
+              flex: "0 0 112px",
+              fontFamily: appFontCssVars.content,
+              fontSize: 13,
+              fontWeight: 700,
+              "& .MuiSelect-select": {
+                alignItems: "center",
+                display: "flex",
+                minHeight: 22,
+                py: 0.875,
+              },
+            }}
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+          >
+            {HTTP_METHODS.map((m) => (
+              <MenuItem key={m} sx={{ fontFamily: appFontCssVars.content, fontSize: 13 }} value={m}>
+                {m}
+              </MenuItem>
+            ))}
+          </Select>
+          <OutlinedInput
+            fullWidth
+            placeholder={t("composePage.urlPlaceholder")}
+            size="small"
+            sx={{
+              bgcolor: (theme) => alpha(theme.palette.background.default, theme.palette.mode === "dark" ? 0.34 : 0.52),
+              fontFamily: appFontCssVars.content,
+              fontSize: 13,
+              minWidth: 0,
+              "& .MuiOutlinedInput-input": {
+                py: 1.05,
+              },
+            }}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && url.trim()) handleSend();
+            }}
+          />
+          <Tooltip title={t("common.actions.send")}>
+            <span>
+              <Button
+                disabled={!url.trim() || sendMutation.isPending}
+                onClick={handleSend}
+                size="small"
+                startIcon={sendMutation.isPending ? undefined : <SendRoundedIcon />}
+                sx={{
+                  flex: "0 0 auto",
+                  minHeight: 38,
+                  minWidth: 92,
+                  px: 1.75,
+                  "& .MuiButton-startIcon": {
+                    mr: 0.5,
+                  },
+                }}
+                variant="contained"
+              >
+                {sendMutation.isPending ? <CircularProgress size={18} color="inherit" /> : t("common.actions.send")}
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={t("composePage.copyAsCurl")}>
+            <span>
+              <IconButton
+                color="primary"
+                disabled={!url.trim()}
+                onClick={handleExportCurl}
+                size="small"
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  flex: "0 0 auto",
+                  height: 38,
+                  width: 38,
+                }}
+              >
+                <ContentCopyRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Box>
 
-      <Divider />
-
-      {/* Main Split: Request / Response */}
       <Box
         ref={gridRef}
         sx={{
           display: "grid",
-          flex: 1,
-          gridTemplateRows: `${splitRatio}fr 8px ${1 - splitRatio}fr`,
+          flex: "1 1 0",
+          gap: 0,
+          gridTemplateRows: `${splitRatio}fr 10px ${1 - splitRatio}fr`,
           minHeight: 0,
-          mt: 0.5,
         }}
       >
         <ComposeRequestSection
@@ -287,17 +329,18 @@ export function ComposePage() {
             touchAction: "none",
             userSelect: "none",
             "&::before": {
-              bgcolor: "divider",
+              bgcolor: (theme) => alpha(theme.palette.text.secondary, theme.palette.mode === "dark" ? 0.3 : 0.22),
               borderRadius: 999,
               content: '""',
-              height: 2,
-              width: "100%",
+              height: 3,
+              width: 44,
               opacity: 0.7,
-              transition: "background-color 120ms ease, opacity 120ms ease",
+              transition: "background-color 120ms ease, opacity 120ms ease, width 120ms ease",
             },
             "&:hover::before": {
               bgcolor: "primary.main",
               opacity: 1,
+              width: 72,
             },
           }}
         />
@@ -306,17 +349,9 @@ export function ComposePage() {
           errorMessage={sendMutation.error?.message}
           isError={sendMutation.isError}
           isPending={sendMutation.isPending}
-          onCopyResponse={() => {
-            void navigator.clipboard.writeText(responseBodyText ?? "");
-            setSnackbarOpen(true);
-          }}
           onResponseTabChange={setResponseTab}
-          onSearchOpenChange={setSearchOpen}
-          onSearchValueChange={setSearchValue}
           responseDetail={responseDetail}
           responseTab={responseTab}
-          searchOpen={searchOpen}
-          searchValue={searchValue}
         />
       </Box>
 
