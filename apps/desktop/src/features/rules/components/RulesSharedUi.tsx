@@ -86,6 +86,10 @@ export function RuleSection({ children }: { children: ReactNode }) {
         borderColor: "divider",
         borderRadius: "8px",
         p: 2,
+        "& .MuiInputLabel-root.MuiInputLabel-shrink": {
+          bgcolor: "background.paper",
+          px: 0.5,
+        },
       }}
     >
       {children}

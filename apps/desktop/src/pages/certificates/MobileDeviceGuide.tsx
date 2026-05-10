@@ -21,8 +21,8 @@ export function MobileDeviceGuide() {
       : tList("certificatesPage.mobile.androidSteps");
 
   return (
-    <SectionCard title={t("certificatesPage.mobile.setupGuide")} description={t("certificatesPage.mobile.sectionDescription")}>
-      <Stack spacing={2}>
+    <SectionCard compact title={t("certificatesPage.mobile.setupGuide")} description={t("certificatesPage.mobile.sectionDescription")}>
+      <Stack spacing={1.25}>
         <Tabs
           value={activeTab}
           onChange={(_, v: MobileTab) => setActiveTab(v)}
@@ -32,10 +32,10 @@ export function MobileDeviceGuide() {
           <Tab label={t("certificatesPage.mobile.android")} value="android" />
         </Tabs>
 
-        <Box component="ol" sx={{ pl: 2, m: 0 }}>
+        <Box component="ol" sx={{ maxHeight: { xl: 300 }, overflow: "auto", pl: 2.25, pr: 1, m: 0 }}>
           {guideSteps.map((step, index) => (
             <li key={`${activeTab}-${index}`}>
-              <Typography variant="body2" sx={{ mb: 1 }}>{step}</Typography>
+              <Typography variant="body2" sx={{ fontSize: 13, mb: 0.85 }}>{step}</Typography>
             </li>
           ))}
         </Box>

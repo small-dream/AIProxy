@@ -530,6 +530,12 @@ function RewriteEditorHeader({
         borderColor: alpha(theme.palette.primary.main, 0.18),
         borderRadius: "8px",
         p: 1.5,
+        "& .MuiInputLabel-root.MuiInputLabel-shrink": {
+          bgcolor: theme.palette.mode === "dark"
+            ? theme.palette.background.paper
+            : theme.palette.background.default,
+          px: 0.5,
+        },
       })}
     >
       <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} alignItems={{ xs: "stretch", md: "center" }}>

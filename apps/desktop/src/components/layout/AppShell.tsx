@@ -79,7 +79,9 @@ export function AppShell() {
     isSessionsWorkspace ||
     location.pathname === "/compose" ||
     location.pathname === "/collections" ||
-    location.pathname === "/rules";
+    location.pathname === "/rules" ||
+    location.pathname === "/throttling" ||
+    location.pathname === "/certificates";
   useBreakpointEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();

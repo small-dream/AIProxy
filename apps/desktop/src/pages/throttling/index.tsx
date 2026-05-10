@@ -58,6 +58,7 @@ export function ThrottlingPage() {
   const setActiveMutation = useSetActiveThrottleProfile();
   const [selectedProfileId, setSelectedProfileId] = useState<string>();
   const [draft, setDraft] = useState<ThrottleProfile>(createEmptyThrottleProfile());
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
   const activeProfile = useMemo(() => profiles.find((p) => p.enabled), [profiles]);
   const presetProfiles = useMemo(() => profiles.filter((p) => p.preset), [profiles]);
@@ -67,25 +68,34 @@ export function ThrottlingPage() {
   useEffect(() => {
     if (selectedProfileId && profiles.some((p) => p.id === selectedProfileId)) return;
     const next = activeProfile ?? presetProfiles[0] ?? customProfiles[0];
-    if (next) { setSelectedProfileId(next.id); setDraft(next); return; }
+    if (next) { setSelectedProfileId(next.id); setDraft(next); setValidationAttempted(false); return; }
     setSelectedProfileId(undefined);
+    setValidationAttempted(false);
   }, [activeProfile, customProfiles, presetProfiles, profiles, selectedProfileId]);
 
-  function selectProfile(profile: ThrottleProfile) { setSelectedProfileId(profile.id); setDraft(profile); }
+  function selectProfile(profile: ThrottleProfile) {
+    setSelectedProfileId(profile.id);
+    setDraft(profile);
+    setValidationAttempted(false);
+  }
 
   function handleNewProfile() {
     const d = createEmptyThrottleProfile();
     setSelectedProfileId(d.id);
     setDraft(d);
+    setValidationAttempted(false);
   }
 
   function handleSave(enableAfterSave = false) {
+    setValidationAttempted(true);
+    if (errors.length > 0) return;
     saveMutation.mutate(
       { ...draft, enabled: enableAfterSave ? true : draft.enabled },
       {
         onSuccess: (saved) => {
           setSelectedProfileId(saved.id);
           setDraft(saved);
+          setValidationAttempted(false);
           if (enableAfterSave) setActiveMutation.mutate(saved.id);
         },
       },
@@ -107,59 +117,80 @@ export function ThrottlingPage() {
   }
 
   const errors = getThrottleValidationErrors(draft, t);
-  const canSave = errors.length === 0 && !saveMutation.isPending;
+  const canSave = !saveMutation.isPending;
 
   return (
-    <Stack spacing={2.25} sx={{ minHeight: "100%" }}>
-      {/* Header */}
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        justifyContent="space-between"
-        spacing={1.5}
-        sx={{ borderBottom: 1, borderColor: "divider", pb: 1.75 }}
-      >
-        <Stack spacing={0.5} sx={{ maxWidth: 820 }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="h4" sx={{ fontSize: 28, fontWeight: 600, lineHeight: 1.15 }}>
-              {t("throttlingPage.title")}
-            </Typography>
-            <Chip
-              size="small"
-              label={activeProfile ? t("throttlingPage.on") : t("throttlingPage.off")}
-              color={activeProfile ? "success" : "default"}
-              variant={activeProfile ? "filled" : "outlined"}
-              sx={{ fontSize: 11, height: 22 }}
-            />
-          </Stack>
-          <Typography color="text.secondary" variant="body2">
-            {t("throttlingPage.description")}
-          </Typography>
-        </Stack>
-      </Stack>
-
-      {/* Global control */}
+    <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <Paper
         elevation={0}
-        sx={{
-          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
-          border: 1,
-          borderColor: "divider",
-          borderRadius: "8px",
-          p: 1.5,
-        }}
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+          border: "1px solid",
+          borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          borderRadius: 1.25,
+          boxShadow:
+            theme.palette.mode === "dark"
+              ? "0 16px 44px rgba(0, 0, 0, 0.28)"
+              : "0 16px 40px rgba(15, 23, 42, 0.08)",
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        })}
+        variant="outlined"
       >
-        <Stack direction={{ xs: "column", lg: "row" }} spacing={1.5} alignItems={{ xs: "stretch", lg: "center" }}>
-          <Stack spacing={0.35} sx={{ minWidth: { lg: 220 } }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
-              {t("throttlingPage.globalTitle")}
-            </Typography>
-            <Typography color="text.secondary" variant="caption">
-              {activeProfile
-                ? t("throttlingPage.activeSummary", { name: activeProfile.name })
-                : t("throttlingPage.inactiveSummary")}
-            </Typography>
+        <Box
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === "dark"
+              ? alpha(theme.palette.background.default, 0.28)
+              : alpha(theme.palette.background.default, 0.62),
+            borderBottom: 1,
+            borderColor: "divider",
+            minWidth: 0,
+            px: 1.25,
+            py: 0.75,
+          }}
+        >
+          <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "center" }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
+                {t("throttlingPage.title")}
+              </Typography>
+              <Chip
+                size="small"
+                label={activeProfile ? t("throttlingPage.on") : t("throttlingPage.off")}
+                color={activeProfile ? "success" : "default"}
+                variant={activeProfile ? "filled" : "outlined"}
+                sx={{ fontSize: 11, height: 22 }}
+              />
+              <Typography color="text.secondary" variant="caption" noWrap sx={{ display: { xs: "none", lg: "block" } }}>
+                {activeProfile
+                  ? t("throttlingPage.activeSummary", { name: activeProfile.name })
+                  : t("throttlingPage.inactiveSummary")}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent={{ xs: "space-between", md: "flex-end" }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<PowerSettingsNewRoundedIcon />}
+                onClick={() => setActiveMutation.mutate(undefined)}
+                disabled={!activeProfile || setActiveMutation.isPending}
+              >
+                {t("throttlingPage.disableGlobal")}
+              </Button>
+              <Switch
+                size="small"
+                checked={Boolean(activeProfile)}
+                onChange={(e) => handleGlobalToggle(e.target.checked)}
+                disabled={setActiveMutation.isPending || saveMutation.isPending}
+              />
+            </Stack>
           </Stack>
+        </Box>
 
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
           <Box sx={{ display: "grid", flex: 1, gap: 1, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, minmax(0, 1fr))" } }}>
             <MetricCard icon={<SpeedRoundedIcon />} label={t("throttlingPage.fields.latency")} value={`${activeProfile?.latencyMs ?? draft.latencyMs} ms`} />
             <MetricCard icon={<CloudDownloadRoundedIcon />} label={t("throttlingPage.fields.download")} value={`${activeProfile?.downloadKbps ?? draft.downloadKbps} kbps`} />
@@ -167,28 +198,8 @@ export function ThrottlingPage() {
             <MetricCard icon={<SignalCellularAltRoundedIcon />} label={t("throttlingPage.fields.loss")} value={`${activeProfile?.packetLossRatio ?? draft.packetLossRatio}%`} />
           </Box>
 
-          <Stack direction="row" spacing={1} alignItems="center" justifyContent={{ xs: "space-between", lg: "flex-end" }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<PowerSettingsNewRoundedIcon />}
-              onClick={() => setActiveMutation.mutate(undefined)}
-              disabled={!activeProfile || setActiveMutation.isPending}
-            >
-              {t("throttlingPage.disableGlobal")}
-            </Button>
-            <Switch
-              size="small"
-              checked={Boolean(activeProfile)}
-              onChange={(e) => handleGlobalToggle(e.target.checked)}
-              disabled={setActiveMutation.isPending || saveMutation.isPending}
-            />
-          </Stack>
-        </Stack>
-      </Paper>
-
       {/* Main split */}
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { lg: "360px minmax(0, 1fr)", xs: "1fr" }, minHeight: 560 }}>
+      <Box sx={{ display: "grid", gap: 0, gridTemplateColumns: { lg: "360px 6px minmax(0, 1fr)", xs: "1fr" }, mt: 1.5, minHeight: 560 }}>
         {/* Left: profile list */}
         <Paper
           elevation={0}
@@ -253,6 +264,23 @@ export function ThrottlingPage() {
           </List>
         </Paper>
 
+        <Box
+          aria-hidden
+          sx={{
+            alignItems: "center",
+            display: { lg: "flex", xs: "none" },
+            justifyContent: "center",
+            minHeight: 0,
+            "&::before": {
+              bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+              borderRadius: 999,
+              content: '""',
+              height: "100%",
+              width: 1,
+            },
+          }}
+        />
+
         {/* Right: editor */}
         <Paper
           elevation={0}
@@ -287,7 +315,7 @@ export function ThrottlingPage() {
           </Stack>
 
           {/* Validation */}
-          {errors.length > 0 && (
+          {validationAttempted && errors.length > 0 && (
             <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
               <Stack spacing={0.25}>
                 {errors.map((err) => <Typography key={err} variant="body2">{err}</Typography>)}
@@ -350,12 +378,10 @@ export function ThrottlingPage() {
             </Box>
           </Paper>
 
-          <Alert severity={errors.length > 0 ? "warning" : "success"} variant="outlined" sx={{ py: 0 }}>
+          <Alert severity="info" variant="outlined" sx={{ py: 0 }}>
             <Stack spacing={0.25}>
               <Typography variant="body2">
-                {errors.length > 0
-                  ? t("throttlingPage.previewTitle")
-                  : t("throttlingPage.previewReady")}
+                {t("throttlingPage.previewTitle")}
               </Typography>
               <Typography color="text.secondary" variant="caption">
                 {t("throttlingPage.previewLineOne", {
@@ -375,6 +401,8 @@ export function ThrottlingPage() {
           </Stack>
         </Paper>
       </Box>
+        </Box>
+      </Paper>
     </Stack>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Paper, Stack, Tab, Tabs } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { useLocation, useSearchParams } from "react-router-dom";
 
 import {
@@ -77,52 +78,110 @@ export function CertificatesPage() {
   };
 
   return (
-    <Stack spacing={2}>
-      <Stack spacing={0.5}>
-        <Typography variant="h4">{t("certificatesPage.title")}</Typography>
-        <Typography color="text.secondary" variant="body2">
-          {t("certificatesPage.description")}
-        </Typography>
-      </Stack>
-
-      {/* Top-level Tabs */}
-      <Tabs
-        value={tab}
-        onChange={(_, v: CertTab) => setTab(v)}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{ borderBottom: 1, borderColor: "divider" }}
+    <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
+      <Paper
+        elevation={0}
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+          border: "1px solid",
+          borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          borderRadius: 1.25,
+          boxShadow:
+            theme.palette.mode === "dark"
+              ? "0 16px 44px rgba(0, 0, 0, 0.28)"
+              : "0 16px 40px rgba(15, 23, 42, 0.08)",
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        })}
+        variant="outlined"
       >
-        <Tab label={t("certificatesPage.tabs.desktop")} value="desktop" />
-        <Tab label={t("certificatesPage.tabs.mobile")} value="mobile" />
-      </Tabs>
+        <Box
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === "dark"
+              ? alpha(theme.palette.background.default, 0.28)
+              : alpha(theme.palette.background.default, 0.62),
+            borderBottom: 1,
+            borderColor: "divider",
+            minWidth: 0,
+          }}
+        >
+          <Tabs
+            value={tab}
+            onChange={(_, v: CertTab) => setTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              minHeight: 42,
+              px: 0.75,
+              py: 0.5,
+              "& .MuiTabs-flexContainer": {
+                gap: 0.5,
+              },
+              "& .MuiTabs-indicator": {
+                display: "none",
+              },
+              "& .MuiTab-root": {
+                border: "1px solid transparent",
+                borderRadius: 1.25,
+                color: "text.secondary",
+                fontSize: 13,
+                fontWeight: 500,
+                height: 30,
+                minHeight: 30,
+                minWidth: 0,
+                px: 1.1,
+                py: 0,
+                textTransform: "none",
+                transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
+                "&:hover": {
+                  bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                  color: "text.primary",
+                },
+              },
+              "& .Mui-selected": {
+                bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.1),
+                borderColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.38 : 0.22),
+                color: "text.primary",
+                fontWeight: 600,
+              },
+            }}
+          >
+            <Tab label={t("certificatesPage.tabs.desktop")} value="desktop" />
+            <Tab label={t("certificatesPage.tabs.mobile")} value="mobile" />
+          </Tabs>
+        </Box>
 
-      {/* Tab panels */}
-      {tab === "desktop" && (
-        <Stack spacing={2}>
-          <DesktopCertificateTab
-            status={status}
-            loading={isLoading}
-            generating={generateMutation.isPending}
-            installing={installMutation.isPending}
-            onGenerate={handleGenerate}
-            onInstall={handleInstall}
-            onRefresh={handleRefresh}
-          />
-          <PlatformTrustGuide currentPlatform={status?.platform ?? "windows"} />
-        </Stack>
-      )}
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
+          {tab === "desktop" && (
+            <Stack spacing={1.5}>
+              <DesktopCertificateTab
+                status={status}
+                loading={isLoading}
+                generating={generateMutation.isPending}
+                installing={installMutation.isPending}
+                onGenerate={handleGenerate}
+                onInstall={handleInstall}
+                onRefresh={handleRefresh}
+              />
+              <PlatformTrustGuide currentPlatform={status?.platform ?? "windows"} />
+            </Stack>
+          )}
 
-      {tab === "mobile" && (
-        <MobileSetupTab
-          androidQuickActionsRef={androidQuickActionsRef}
-          proxyPort={proxyStatus?.port ?? 8888}
-          proxyRunning={proxyStatus?.running ?? false}
-          sslEnabled={proxyStatus?.sslEnabled ?? false}
-          hasCert={!!status?.certPath}
-          iosQuickActionsRef={iosQuickActionsRef}
-        />
-      )}
+          {tab === "mobile" && (
+            <MobileSetupTab
+              androidQuickActionsRef={androidQuickActionsRef}
+              proxyPort={proxyStatus?.port ?? 8888}
+              proxyRunning={proxyStatus?.running ?? false}
+              sslEnabled={proxyStatus?.sslEnabled ?? false}
+              hasCert={!!status?.certPath}
+              iosQuickActionsRef={iosQuickActionsRef}
+            />
+          )}
+        </Box>
+      </Paper>
     </Stack>
   );
 }

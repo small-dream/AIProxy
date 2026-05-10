@@ -36,51 +36,69 @@ export function MobileSetupTab({
   const showProxyQr = !sslEnabled && Boolean(proxyAddress);
 
   return (
-    <Stack spacing={2}>
-      {!proxyRunning && (
-        <Alert severity="warning">
-          <AlertTitle>{t("certificatesPage.mobile.proxyNotRunningTitle")}</AlertTitle>
-          {t("certificatesPage.mobile.proxyNotRunningBody")}
-        </Alert>
-      )}
+    <Stack spacing={1.5}>
+      <Stack spacing={1}>
+        {!proxyRunning && (
+          <Alert severity="warning">
+            <AlertTitle>{t("certificatesPage.mobile.proxyNotRunningTitle")}</AlertTitle>
+            {t("certificatesPage.mobile.proxyNotRunningBody")}
+          </Alert>
+        )}
 
-      {proxyRunning && !sslEnabled && (
-        <Alert severity="info">
-          <AlertTitle>{t("certificatesPage.mobile.httpOnlyTitle")}</AlertTitle>
-          {t("certificatesPage.mobile.httpOnlyBody")}
-        </Alert>
-      )}
+        {proxyRunning && !sslEnabled && (
+          <Alert severity="info">
+            <AlertTitle>{t("certificatesPage.mobile.httpOnlyTitle")}</AlertTitle>
+            {t("certificatesPage.mobile.httpOnlyBody")}
+          </Alert>
+        )}
+      </Stack>
 
-      <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
-        <IosQuickActionsPanel hasCert={hasCert} />
+      <Box
+        sx={{
+          alignItems: "start",
+          display: "grid",
+          gap: 1.5,
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            md: "minmax(0, 1.08fr) minmax(340px, 0.92fr)",
+          },
+        }}
+      >
+        <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+          <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
+            <IosQuickActionsPanel hasCert={hasCert} />
+          </Box>
+
+          <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
+            <AndroidQuickActionsPanel
+              hasCert={hasCert}
+              localIp={localIp ?? null}
+              proxyPort={proxyPort}
+              proxyRunning={proxyRunning}
+            />
+          </Box>
+        </Stack>
+
+        <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+          <NetworkInfoPanel
+            localIp={localIp ?? null}
+            ipsLoading={ipsLoading}
+            proxyPort={proxyPort}
+            proxyAddress={proxyAddress}
+          />
+
+          {(showCertQr || showProxyQr) && (
+            <QrCodePanel
+              certDownloadUrl={certDownloadUrl}
+              proxyAddress={proxyAddress}
+              sslEnabled={sslEnabled}
+              hasCert={hasCert}
+            />
+          )}
+
+          <MobileDeviceGuide />
+        </Stack>
       </Box>
-
-      <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
-        <AndroidQuickActionsPanel
-          hasCert={hasCert}
-          localIp={localIp ?? null}
-          proxyPort={proxyPort}
-          proxyRunning={proxyRunning}
-        />
-      </Box>
-
-      <NetworkInfoPanel
-        localIp={localIp ?? null}
-        ipsLoading={ipsLoading}
-        proxyPort={proxyPort}
-        proxyAddress={proxyAddress}
-      />
-
-      {(showCertQr || showProxyQr) && (
-        <QrCodePanel
-          certDownloadUrl={certDownloadUrl}
-          proxyAddress={proxyAddress}
-          sslEnabled={sslEnabled}
-          hasCert={hasCert}
-        />
-      )}
-
-      <MobileDeviceGuide />
     </Stack>
   );
 }
