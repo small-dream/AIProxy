@@ -39,6 +39,7 @@
 ### 5. 请求 / 响应 Diff 对比
 
 - **内容**：选择两个 session 逐字段对比——Headers diff、Body JSON diff，高亮差异行。
+- **相关进展**：Rewrite P0 已落地会话级改写 before / after diff，可复用部分 diff 展示经验，但尚未支持任意两个 session 对比。
 - **竞品对标**：Fiddler 有基础的请求对比，Charles 不支持。Proxyman 无此功能。
 - **价值**：排查「同样接口为何返回不同」是日常最高频的调试场景之一，目前只能肉眼比对或外部工具。
 - **受益用户**：全部。
@@ -94,6 +95,7 @@
 - **价值**：降低规则配置门槛，让 QA 和初级开发者更容易上手。
 - **受益用户**：QA 工程师、初级开发者。
 - **预估工作量**：大。
+- **相关进展**：Sessions 右键已支持基于当前请求创建 Rewrite 草稿，后续可在此基础上扩展 Header / Query / Body 字段级推荐。
 
 ### 10. 自动 Mock / Mock Server
 

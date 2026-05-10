@@ -235,24 +235,74 @@ type BreakpointResolution = {
   modifiedResponseBodyBase64?: string;
 };
 
-// 以下为未来规划模型，尚未实现
-type MatchExpression = {
-  hostContains?: string;
-  pathContains?: string;
-  methodIn?: string[];
-  statusCodeIn?: number[];
-  urlRegex?: string;
+type RuleMatchStage = "request" | "response" | "either";
+
+type RuleMatch = {
+  urlPattern: string;
+  methods: string[];
+  stage: RuleMatchStage;
+};
+
+type RewriteRuleType = "header" | "query" | "body" | "redirect";
+type RewriteTarget = "request" | "response";
+
+type RewriteHeaderPayload = {
+  headerName: string;
+  operation: "set" | "remove";
+  target: RewriteTarget;
+  value?: string;
+};
+
+type RewriteQueryPayload = {
+  operation: "set" | "remove";
+  paramName: string;
+  value?: string;
+};
+
+type RewriteBodyPayload = {
+  contentType: string;
+  target: RewriteTarget;
+  text: string;
+};
+
+type RewriteRedirectPayload = {
+  preservePath: boolean;
+  preserveQuery: boolean;
+  targetUrl: string;
 };
 
 type RewriteRule = {
   id: string;
   workspaceId: string;
   name: string;
+  note?: string;
   enabled: boolean;
-  matchExpression: MatchExpression;
-  rewriteType: "header" | "query" | "body" | "redirect";
-  rewritePayload: Record<string, unknown>;
+  match: RuleMatch;
   priority: number;
+} & (
+  | { rewriteType: "header"; payload: RewriteHeaderPayload }
+  | { rewriteType: "query"; payload: RewriteQueryPayload }
+  | { rewriteType: "body"; payload: RewriteBodyPayload }
+  | { rewriteType: "redirect"; payload: RewriteRedirectPayload }
+);
+
+type RewriteRunEntry = {
+  after?: string;
+  before?: string;
+  kind: "header" | "query" | "body" | "redirect" | "skip" | "error";
+  key?: string;
+  message?: string;
+  sequence: number;
+};
+
+type RewriteSessionTrace = {
+  durationMs: number;
+  entries: RewriteRunEntry[];
+  outcome: "success" | "skipped" | "failed";
+  rewriteType: RewriteRuleType;
+  ruleId: string;
+  ruleName: string;
+  stage: "request" | "response";
 };
 
 type MapRule = {
@@ -821,6 +871,8 @@ type DeleteBreakpointRuleOutput = {
 
 ### `list_rewrite_rules`
 
+状态：`已实现`
+
 请求：
 
 ```ts
@@ -837,6 +889,8 @@ type ListRewriteRulesOutput = RewriteRule[];
 
 ### `save_rewrite_rule`
 
+状态：`已实现`
+
 请求：
 
 ```ts
@@ -850,6 +904,30 @@ type SaveRewriteRuleInput = Omit<RewriteRule, "id"> & {
 ```ts
 type SaveRewriteRuleOutput = RewriteRule;
 ```
+
+### `list_rewrite_session_trace`
+
+状态：`已实现`
+
+请求：
+
+```ts
+type ListRewriteSessionTraceInput = {
+  sessionId: string;
+};
+```
+
+响应：
+
+```ts
+type ListRewriteSessionTraceOutput = RewriteSessionTrace[];
+```
+
+说明：
+
+- 返回指定 Session 的 Rewrite 命中记录
+- 每条 trace 包含执行阶段、结果、耗时、规则信息和 before / after entries
+- 前端在 Session Inspector 的 `Automation` 标签页懒加载该数据
 
 ### `list_map_rules`
 

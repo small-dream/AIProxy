@@ -940,6 +940,7 @@ export const zhCNMessages: Messages = {
     copyRequest: "复制请求",
     copyResponse: "复制响应",
     copyUrl: "复制 URL",
+    createRewrite: "创建 Rewrite 规则",
     exportHost: "导出 Host",
     exportSession: "导出请求",
     focusHost: "Add Focus",

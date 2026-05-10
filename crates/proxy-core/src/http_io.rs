@@ -186,6 +186,7 @@ pub(crate) fn build_session_detail(
             response_body_truncated,
         ),
         response_headers: response_header_entries,
+        rewrite_traces: Vec::new(),
         server_ip: None,
         script_traces: Vec::new(),
         summary,
@@ -218,6 +219,7 @@ pub(crate) fn build_pending_session_detail(
         request_headers: request.request_headers.clone(),
         response_body: None,
         response_headers: Vec::new(),
+        rewrite_traces: Vec::new(),
         server_ip: None,
         script_traces: Vec::new(),
         summary: ProxySessionSummary {

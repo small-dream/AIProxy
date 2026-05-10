@@ -596,6 +596,19 @@ export function SessionsPage() {
     navigate("/rules");
   }, [navigate]);
 
+  const handleCreateRewrite = useCallback((session: SessionSummary) => {
+    navigate("/rules", {
+      state: {
+        rewriteSeed: {
+          host: session.host,
+          method: session.method,
+          path: session.path,
+          url: session.url,
+        },
+      },
+    });
+  }, [navigate]);
+
   const handleAddContainer = useCallback(() => {
     setContainerState((currentState) => createAdditionalSessionContainer(currentState));
   }, []);
@@ -901,6 +914,7 @@ export function SessionsPage() {
         onCopyRequest={handleCopyRequest}
         onCopyResponse={handleCopyResponse}
         onCopyUrl={handleCopyUrl}
+        onCreateRewrite={handleCreateRewrite}
         onExportSession={handleExportSession}
         onFocusHost={handleFocusHost}
         onGoToBreakpoints={handleGoToBreakpoints}

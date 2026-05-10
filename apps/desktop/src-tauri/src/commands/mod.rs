@@ -612,6 +612,43 @@ pub fn list_script_session_trace(
 }
 
 #[tauri::command]
+pub fn list_rewrite_session_trace(
+    input: ListRewriteSessionTraceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<RewriteSessionTraceOutput>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn, &input.session_id)
+        .map_err(|error| format!("load rewrite runs: {error}"))?;
+    let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+    let entries = aiproxy_db::rules::load_rewrite_run_entries(&conn, &run_ids)
+        .map_err(|error| format!("load rewrite run entries: {error}"))?;
+
+    Ok(runs
+        .into_iter()
+        .map(|run| RewriteSessionTraceOutput {
+            duration_ms: run.duration_ms,
+            entries: entries
+                .iter()
+                .filter(|entry| entry.run_id == run.id)
+                .map(|entry| RewriteRunEntryOutput {
+                    after: entry.after_value.clone(),
+                    before: entry.before_value.clone(),
+                    kind: entry.kind.clone(),
+                    key: entry.key.clone(),
+                    message: entry.message.clone(),
+                    sequence: entry.seq,
+                })
+                .collect(),
+            outcome: run.outcome,
+            rule_id: run.rule_id,
+            rule_name: run.rule_name,
+            rewrite_type: run.rewrite_type,
+            stage: run.stage,
+        })
+        .collect())
+}
+
+#[tauri::command]
 pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     state.clear_sessions();
@@ -2114,6 +2151,12 @@ pub struct ListScriptSessionTraceInput {
     pub session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListRewriteSessionTraceInput {
+    pub session_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptRunEntryOutput {
@@ -2132,6 +2175,29 @@ pub struct ScriptSessionTraceOutput {
     pub entries: Vec<ScriptRunEntryOutput>,
     pub outcome: String,
     pub rule_id: String,
+    pub stage: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewriteRunEntryOutput {
+    pub after: Option<String>,
+    pub before: Option<String>,
+    pub kind: String,
+    pub key: Option<String>,
+    pub message: Option<String>,
+    pub sequence: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RewriteSessionTraceOutput {
+    pub duration_ms: u128,
+    pub entries: Vec<RewriteRunEntryOutput>,
+    pub outcome: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub rewrite_type: String,
     pub stage: String,
 }
 

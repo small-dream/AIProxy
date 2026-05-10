@@ -1,4 +1,5 @@
 use super::*;
+use crate::RewriteTrace;
 use aiproxy_rule_engine::ScriptTrace;
 use serde::ser::SerializeStruct;
 use std::mem::size_of;
@@ -402,6 +403,7 @@ pub struct ProxySessionDetail {
     pub request_headers: Vec<ProxyHeaderEntry>,
     pub response_body: Option<ProxyBodyReference>,
     pub response_headers: Vec<ProxyHeaderEntry>,
+    pub rewrite_traces: Vec<RewriteTrace>,
     pub server_ip: Option<String>,
     pub tls_cipher_suite: Option<String>,
     pub tls_protocol: Option<String>,
@@ -437,6 +439,7 @@ impl ProxySessionDetail {
                 .as_ref()
                 .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
             + estimate_header_entries_memory(&self.response_headers)
+            + self.rewrite_traces.capacity() * size_of::<RewriteTrace>()
             + self.server_ip.as_ref().map_or(0, String::capacity)
             + self.summary.resident_memory_bytes_estimate()
             + self.timing

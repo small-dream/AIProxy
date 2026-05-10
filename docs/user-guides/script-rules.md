@@ -20,7 +20,7 @@
 - 单文件 `JS / TS`
 - 应用内编辑
 - 从本地 `.js / .mjs / .ts / .mts` 文件一次性导入
-- 会话级日志与提取结果查看
+- 会话级日志与提取结果查看；Automation 标签页会同时展示 Rewrite 命中记录和 Script trace
 
 `v1` 不支持：
 
@@ -327,6 +327,7 @@ export function onResponse(ctx) {
 - 脚本超时时，请求继续按原始链路执行
 - 返回结果非法时，该次修改会被丢弃
 - 错误信息会记录到 **Automation** 标签页，便于回看
+- 如果同一条请求也命中了 Rewrite，Automation 标签页会先展示 Rewrite 的 before / after diff，再展示 Script 日志
 
 这样可以避免一条脚本规则把整条代理链路卡死。
 

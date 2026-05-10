@@ -532,7 +532,8 @@ Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite
 
 - 顶部使用 `Tabs` 固定承载规则类型切换
 - Breakpoint 使用”快捷断点 + 规则列表 + 新增对话框”的轻量流
-- Rewrite / Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
+- Rewrite 使用”左侧模板 + 规则列表，右侧 When / Then / Test”的桌面工作台流
+- Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
 - 规则创建优先提供快捷模板，降低首次配置门槛
 
 ### 页面结构树
@@ -545,15 +546,15 @@ Rules Page
 │  ├─ Rule List Pane
 │  │  ├─ Create Rule
 │  │  ├─ Search Rule
-│  │  ├─ Rule Groups
-│  │  └─ Sort / Priority Controls
+│  │  ├─ Templates / Quick Actions
+│  │  └─ Rule Cards
 │  └─ Rule Editor Pane
 │     ├─ Basic Information
-│     ├─ Match Conditions
-│     ├─ Action Configuration
+│     ├─ When / Match Conditions
+│     ├─ Then / Action Configuration
 │     ├─ Priority Settings
 │     ├─ Enable Toggle
-│     └─ Match Preview / Validation Result
+│     └─ Test / Validation Result
 └─ Bottom Status Strip
 ```
 
@@ -562,6 +563,8 @@ Rules Page
 - 左侧规则列表用于查找与切换
 - 右侧编辑区必须能完整容纳复杂表单
 - 顶部规则类型切换必须常驻可见
+- Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中
+- Rewrite 无效组合必须在编辑器内直接提示，并阻止保存明显不会生效的配置
 
 ### 编辑区结构
 

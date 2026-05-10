@@ -234,6 +234,7 @@ use tokio::{
                 name: "Content-Type".to_string(),
                 value: "application/json".to_string(),
             }],
+            rewrite_traces: Vec::new(),
             server_ip: None,
             summary: ProxySessionSummary {
                 id: "session-1".to_string(),
@@ -346,7 +347,7 @@ use tokio::{
 
         let mut request = build_test_request("http://example.com/api/users?lang=en");
 
-        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+        let traces = apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
 
         assert_eq!(request.url.as_str(), "https://staging.example.com/api/users?lang=en&env=staging");
         assert_eq!(request.protocol, "https");
@@ -355,6 +356,8 @@ use tokio::{
             .request_headers
             .iter()
             .any(|header| header.name.eq_ignore_ascii_case("x-debug-mode") && header.value == "true"));
+        assert_eq!(traces.len(), 3);
+        assert!(traces.iter().any(|trace| trace.rewrite_type == "redirect"));
     }
 
     #[test]

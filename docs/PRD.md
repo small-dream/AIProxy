@@ -294,13 +294,17 @@ flowchart LR
 
 ### 9.6 Rewrite / Map
 
-- Header 改写
-- Query 改写
-- Body 改写
-- Redirect
+- Header 改写：支持 request / response 的 set / remove
+- Query 改写：支持 request 阶段 set / remove
+- Body 改写：支持 request / response 整段替换并设置 Content-Type
+- Redirect：支持 request 阶段目标 URL 改写，并可保留 path / query
 - 本地文件映射
 - 远程地址映射
 - 优先级与启停控制
+- Rewrite 命中日志与 before / after diff
+- 从 Session 右键创建 Rewrite 规则草稿
+- Rewrite 规则测试器：保存前验证 URL / Method / Stage 是否命中
+- 无效组合保护：例如 response 阶段禁止 Query / Redirect
 
 ### 9.7 DNS 映射 — `已实现`
 
@@ -323,8 +327,9 @@ flowchart LR
 
 - 统一收敛到 `Rules` 页面中的 `Rule Center`
 - 通过 `Tabs` 切换 `Breakpoint / Rewrite / Map Local / Map Remote`
-- `Rewrite / Map` 采用“左侧规则列表 + 右侧编辑器 + 即时预览”的桌面工作台结构
-- 新建 `Rewrite` 时优先提供 `Header / Query / Body / Redirect` 快捷模板
+- `Rewrite` 采用“左侧规则列表 + 模板区 + 右侧 When / Then / Test 编辑器”的桌面工作台结构
+- 新建 `Rewrite` 时优先提供面向场景的快捷模板，例如 Debug Header、Disable Cache、Env Query、Staging Redirect、Mock JSON
+- Session Inspector 的 `Automation` 标签页统一展示 Rewrite trace / Script trace，Rewrite trace 优先展示结构化 diff
 - `Map Local / Map Remote` 在同一编辑模型中强调来源模式、目标地址、保留路径、保留 Query
 - 保存前使用自然语言预览最终效果，降低误配置风险
 

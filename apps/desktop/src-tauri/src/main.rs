@@ -145,6 +145,7 @@ pub fn run() {
             commands::list_dns_mappings,
             commands::save_dns_mapping,
             commands::list_script_session_trace,
+            commands::list_rewrite_session_trace,
             commands::list_throttle_profiles,
             commands::save_throttle_profile,
             commands::set_active_throttle_profile,

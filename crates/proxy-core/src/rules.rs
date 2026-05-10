@@ -27,6 +27,29 @@ pub struct RewriteRule {
     pub payload: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RewriteTraceEntry {
+    pub after: Option<String>,
+    pub before: Option<String>,
+    pub kind: String,
+    pub key: Option<String>,
+    pub message: Option<String>,
+    pub sequence: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RewriteTrace {
+    pub duration_ms: u128,
+    pub entries: Vec<RewriteTraceEntry>,
+    pub outcome: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub rewrite_type: String,
+    pub stage: String,
+}
+
 /// A map rule (local or remote) matching on source URL pattern.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -342,6 +365,7 @@ struct RewriteRedirectPayload {
 #[derive(Debug)]
 pub(crate) struct RequestRuntimeOutcome {
     pub(crate) local_response: Option<UpstreamResponse>,
+    pub(crate) rewrite_traces: Vec<RewriteTrace>,
     pub(crate) throttle_profile: Option<ThrottleProfileData>,
 }
 
@@ -710,6 +734,99 @@ fn remove_header_entry(headers: &mut Vec<ProxyHeaderEntry>, name: &str) {
     headers.retain(|entry| !entry.name.eq_ignore_ascii_case(name));
 }
 
+fn header_entry_value(headers: &[ProxyHeaderEntry], name: &str) -> Option<String> {
+    let values: Vec<String> = headers
+        .iter()
+        .filter(|entry| entry.name.eq_ignore_ascii_case(name))
+        .map(|entry| entry.value.clone())
+        .collect();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(", "))
+    }
+}
+
+fn header_map_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let name = HeaderName::from_bytes(name.as_bytes()).ok()?;
+    let values: Vec<String> = headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(", "))
+    }
+}
+
+fn query_param_value(url: &Url, name: &str) -> Option<String> {
+    let values: Vec<String> = url
+        .query_pairs()
+        .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.into_owned())
+        .collect();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(", "))
+    }
+}
+
+fn body_preview(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    const PREVIEW_LIMIT: usize = 2048;
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(PREVIEW_LIMIT)]).to_string();
+    if bytes.len() > PREVIEW_LIMIT {
+        Some(format!("{text}..."))
+    } else {
+        Some(text)
+    }
+}
+
+fn trace_entry(
+    sequence: u32,
+    kind: &str,
+    key: Option<String>,
+    before: Option<String>,
+    after: Option<String>,
+    message: Option<String>,
+) -> RewriteTraceEntry {
+    RewriteTraceEntry {
+        after,
+        before,
+        kind: kind.to_string(),
+        key,
+        message,
+        sequence,
+    }
+}
+
+fn build_rewrite_trace(
+    rule: &RewriteRule,
+    stage: &str,
+    started_at: Instant,
+    outcome: &str,
+    entries: Vec<RewriteTraceEntry>,
+) -> RewriteTrace {
+    RewriteTrace {
+        duration_ms: started_at.elapsed().as_millis(),
+        entries,
+        outcome: outcome.to_string(),
+        rule_id: rule.id.clone(),
+        rule_name: rule.name.clone(),
+        rewrite_type: rule.rewrite_type.clone(),
+        stage: stage.to_string(),
+    }
+}
+
 fn rebuild_request_runtime_state(request: &mut ParsedProxyRequest) -> Result<(), String> {
     request.headers = build_upstream_headers_from_entries(&request.request_headers)?;
     request.host = request
@@ -733,35 +850,62 @@ pub(crate) fn apply_request_rewrite_rules(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
-) -> Result<(), String> {
+) -> Result<Vec<RewriteTrace>, String> {
+    let mut traces = Vec::new();
+
     for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "request", request) {
+        let started_at = Instant::now();
+        let mut entries = Vec::new();
+        let mut outcome = "success";
+
         match rule.rewrite_type.as_str() {
             "header" => {
                 let payload: RewriteHeaderPayload = parse_rewrite_payload(&rule)?;
 
                 if !payload.target.eq_ignore_ascii_case("request") {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some(payload.header_name),
+                        None,
+                        None,
+                        Some("header target does not apply to request stage".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(&rule, "request", started_at, "skipped", entries));
                     continue;
                 }
 
+                let before = header_entry_value(&request.request_headers, &payload.header_name);
                 if payload.operation.eq_ignore_ascii_case("remove") {
                     remove_header_entry(&mut request.request_headers, &payload.header_name);
                 } else if let Some(value) = payload.value.as_deref() {
                     set_header_entry(&mut request.request_headers, &payload.header_name, value);
                 }
+                let after = header_entry_value(&request.request_headers, &payload.header_name);
+                entries.push(trace_entry(
+                    0,
+                    "header",
+                    Some(payload.header_name),
+                    before,
+                    after,
+                    Some(payload.operation),
+                ));
             }
             "query" => {
                 let payload: RewriteQueryPayload = parse_rewrite_payload(&rule)?;
+                let param_name = payload.param_name;
+                let before = query_param_value(&request.url, &param_name);
                 let mut query_pairs: Vec<(String, String)> = request
                     .url
                     .query_pairs()
                     .map(|(name, value)| (name.into_owned(), value.into_owned()))
                     .collect();
 
-                query_pairs.retain(|(name, _)| !name.eq_ignore_ascii_case(&payload.param_name));
+                query_pairs.retain(|(name, _)| !name.eq_ignore_ascii_case(&param_name));
 
                 if !payload.operation.eq_ignore_ascii_case("remove") {
                     query_pairs.push((
-                        payload.param_name,
+                        param_name.clone(),
                         payload.value.unwrap_or_default(),
                     ));
                 }
@@ -773,23 +917,51 @@ pub(crate) fn apply_request_rewrite_rules(
                         pairs.append_pair(name, value);
                     }
                 }
+                let after = query_param_value(&request.url, &param_name);
+                entries.push(trace_entry(
+                    0,
+                    "query",
+                    Some(param_name),
+                    before,
+                    after,
+                    Some(payload.operation),
+                ));
             }
             "body" => {
                 let payload: RewriteBodyPayload = parse_rewrite_payload(&rule)?;
 
                 if !payload.target.eq_ignore_ascii_case("request") {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some("body".to_string()),
+                        None,
+                        None,
+                        Some("body target does not apply to request stage".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(&rule, "request", started_at, "skipped", entries));
                     continue;
                 }
 
+                let before = body_preview(&request.body);
                 request.body = payload.text.into_bytes();
                 set_header_entry(
                     &mut request.request_headers,
                     CONTENT_TYPE.as_str(),
                     &payload.content_type,
                 );
+                entries.push(trace_entry(
+                    0,
+                    "body",
+                    Some(CONTENT_TYPE.as_str().to_string()),
+                    before,
+                    body_preview(&request.body),
+                    Some(payload.content_type),
+                ));
             }
             "redirect" => {
                 let payload: RewriteRedirectPayload = parse_rewrite_payload(&rule)?;
+                let before = request.url.to_string();
                 let original_path = request.url.path().to_string();
                 let original_query = request.url.query().map(str::to_string);
                 let mut redirected_url = Url::parse(&payload.target_url).map_err(|error| {
@@ -807,14 +979,33 @@ pub(crate) fn apply_request_rewrite_rules(
                 }
 
                 request.url = redirected_url;
+                entries.push(trace_entry(
+                    0,
+                    "redirect",
+                    Some("url".to_string()),
+                    Some(before),
+                    Some(request.url.to_string()),
+                    None,
+                ));
             }
-            _ => {}
+            _ => {
+                outcome = "skipped";
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some(rule.rewrite_type.clone()),
+                    None,
+                    None,
+                    Some("unsupported rewrite type".to_string()),
+                ));
+            }
         }
 
         rebuild_request_runtime_state(request)?;
+        traces.push(build_rewrite_trace(&rule, "request", started_at, outcome, entries));
     }
 
-    Ok(())
+    Ok(traces)
 }
 
 pub(crate) fn apply_response_rewrite_rules(
@@ -822,16 +1013,32 @@ pub(crate) fn apply_response_rewrite_rules(
     workspace_id: &str,
     request: &ParsedProxyRequest,
     response: &mut UpstreamResponse,
-) -> Result<(), String> {
+) -> Result<Vec<RewriteTrace>, String> {
+    let mut traces = Vec::new();
+
     for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "response", request) {
+        let started_at = Instant::now();
+        let mut entries = Vec::new();
+        let mut outcome = "success";
+
         match rule.rewrite_type.as_str() {
             "header" => {
                 let payload: RewriteHeaderPayload = parse_rewrite_payload(&rule)?;
 
                 if !payload.target.eq_ignore_ascii_case("response") {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some(payload.header_name),
+                        None,
+                        None,
+                        Some("header target does not apply to response stage".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(&rule, "response", started_at, "skipped", entries));
                     continue;
                 }
 
+                let before = header_map_value(&response.response_headers, &payload.header_name);
                 if let Ok(name) = HeaderName::from_bytes(payload.header_name.as_bytes()) {
                     response.response_headers.remove(&name);
 
@@ -843,25 +1050,63 @@ pub(crate) fn apply_response_rewrite_rules(
                         }
                     }
                 }
+                let after = header_map_value(&response.response_headers, &payload.header_name);
+                entries.push(trace_entry(
+                    0,
+                    "header",
+                    Some(payload.header_name),
+                    before,
+                    after,
+                    Some(payload.operation),
+                ));
             }
             "body" => {
                 let payload: RewriteBodyPayload = parse_rewrite_payload(&rule)?;
 
                 if !payload.target.eq_ignore_ascii_case("response") {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some("body".to_string()),
+                        None,
+                        None,
+                        Some("body target does not apply to response stage".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(&rule, "response", started_at, "skipped", entries));
                     continue;
                 }
 
+                let before = body_preview(&response.response_body);
                 response.replace_response_body(payload.text.into_bytes());
 
                 if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
                     response.response_headers.insert(CONTENT_TYPE, content_type);
                 }
+                entries.push(trace_entry(
+                    0,
+                    "body",
+                    Some(CONTENT_TYPE.as_str().to_string()),
+                    before,
+                    body_preview(&response.response_body),
+                    Some(payload.content_type),
+                ));
             }
-            _ => {}
+            _ => {
+                outcome = "skipped";
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some(rule.rewrite_type.clone()),
+                    None,
+                    None,
+                    Some("rewrite type does not apply to response stage".to_string()),
+                ));
+            }
         }
+        traces.push(build_rewrite_trace(&rule, "response", started_at, outcome, entries));
     }
 
-    Ok(())
+    Ok(traces)
 }
 
 pub(crate) fn apply_request_script_rules(
@@ -1151,12 +1396,13 @@ pub(crate) fn apply_request_runtime_rules(
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
 ) -> Result<RequestRuntimeOutcome, String> {
-    apply_request_rewrite_rules(rewrite_manager, workspace_id, request)?;
+    let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request)?;
     let local_response = apply_map_rules(map_manager, workspace_id, request)?;
     let throttle_profile = active_throttle_profile_for_workspace(throttle_manager, workspace_id);
 
     Ok(RequestRuntimeOutcome {
         local_response,
+        rewrite_traces,
         throttle_profile,
     })
 }

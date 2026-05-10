@@ -198,6 +198,7 @@ flowchart LR
 - 默认绑定到 `0.0.0.0`（所有网络接口），支持局域网设备连接
 - 内建 `BreakpointManager`，在请求转发前和响应返回前支持断点拦截与暂停 — `已实现`
 - 内建 `DnsManager`，在代理管道的 5 个连接路径中提供 DNS 覆盖能力 — `已实现`
+- 内建 `RewriteManager`，支持 Header / Query / Body / Redirect 改写，并记录会话级 rewrite trace — `已实现`
 - 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
 
@@ -210,6 +211,16 @@ DNS 覆盖实现机制：
 - TLS SNI 始终使用原始 hostname，不受 DNS 覆盖影响
 - `send_direct_request`（Compose）不应用 DNS 覆盖，保持直接请求语义
 
+Rewrite 规则实现机制：
+
+- `RewriteManager` 管理运行时 Rewrite 规则列表，按 workspace 隔离
+- 规则匹配条件包括 URL Pattern、HTTP Method、Stage、Enabled、Priority
+- 请求阶段支持 Header、Query、Body、Redirect 改写
+- 响应阶段支持 Header、Body 改写；Query 与 Redirect 在 UI 层做无效组合保护
+- 命中的 Rewrite 会生成 `RewriteTrace`，包含 rule id/name、rewrite type、stage、outcome、duration、before/after entries
+- Rewrite trace 通过 `rewrite_runs / rewrite_run_entries` 落库，并在 Session Inspector 的 `Automation` 标签页懒加载展示
+- 响应体超过捕获限制时跳过响应改写，避免大文件热路径带来性能风险
+
 脚本化规则实现机制：
 
 - `aiproxy-rule-engine` 负责脚本规则模型、TS 转译、导出校验、QuickJS 沙箱执行与 trace 结构定义
@@ -219,6 +230,7 @@ DNS 覆盖实现机制：
 - `Map Local` 命中后跳过 `onRequest`，但仍执行 `onResponse`
 - 脚本运行默认 `fail-open`，异常、超时或结果非法只记录 trace，不中断正常代理链
 - 脚本日志与提取结果通过 `script_runs / script_run_entries` 落库，并在 Session Inspector 的 `Automation` 标签页懒加载展示
+- `Automation` 标签页同时展示 Rewrite trace 与 Script trace；Rewrite trace 优先展示结构化 diff，Script trace 展示日志、提取结果和错误
 
 断点实现机制：
 
@@ -323,6 +335,7 @@ WebSocket 注入（重放）实现机制：
 - `resolve_breakpoint` — `已实现`，发送断点决策（forward/drop/mock）到暂停中的代理 task
 - `save_breakpoint_rule`
 - `save_rewrite_rule`
+- `list_rewrite_session_trace` — `已实现`，返回指定 session 的 Rewrite 命中记录与 diff entries
 - `save_map_rule`
 - `list_dns_mappings` — `已实现`，返回指定 workspace 的 DNS 映射规则列表
 - `save_dns_mapping` — `已实现`，新增或更新单条 DNS 映射规则
@@ -443,6 +456,30 @@ erDiagram
 - `rewrite_type`
 - `rewrite_payload`
 - `priority`
+
+### `rewrite_runs`
+
+- `id`
+- `session_id`
+- `rule_id`
+- `rule_name`
+- `workspace_id`
+- `rewrite_type`
+- `stage`
+- `outcome`
+- `duration_ms`
+- `created_at`
+
+### `rewrite_run_entries`
+
+- `id`
+- `run_id`
+- `kind`
+- `key`
+- `before_value`
+- `after_value`
+- `message`
+- `seq`
 
 ### `map_rule`
 
@@ -599,7 +636,7 @@ erDiagram
 - `session-actions` — `已实现首版`：SessionContextMenu + 按需 detail 拉取 + copy / compose / repeat / focus-ignore host / snackbar 反馈
 - `compose-request` — `已实现`：ComposePage 页面 + use-compose-request hook + compose-editor.store + curl-export + EditableKeyValueTable
 - `breakpoints` — `已实现`：BreakpointManager (Rust) + breakpoint.store + use-breakpoint-events hook + use-breakpoint-rules hook + BreakpointInterceptPanel + Rules 页面断点规则管理
-- `rewrite-rules` — `已实现首版`：Rules 页面 Rewrite 工作台 + use-rule-center hooks + shared rewrite rule types
+- `rewrite-rules` — `已实现 P0/P1`：Rules 页面 Rewrite 工作台 + 场景模板 + 规则测试器 + Session 右键创建规则 + 会话级 rewrite trace/diff
 - `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流

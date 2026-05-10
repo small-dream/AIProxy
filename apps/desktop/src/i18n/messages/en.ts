@@ -938,6 +938,7 @@ export const enMessages = {
     copyRequest: "Copy Request",
     copyResponse: "Copy Response",
     copyUrl: "Copy URL",
+    createRewrite: "Create Rewrite Rule",
     exportHost: "Export Host",
     exportSession: "Export Request",
     focusHost: "Add Focus",

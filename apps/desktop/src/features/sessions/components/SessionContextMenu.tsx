@@ -36,6 +36,7 @@ type SessionContextMenuProps = {
   onCopyRequest: (session: SessionSummary) => void;
   onCopyResponse: (session: SessionSummary) => void;
   onCopyUrl: (session: SessionSummary) => void;
+  onCreateRewrite: (session: SessionSummary) => void;
   onExportSession: (session: SessionSummary) => void;
   onFocusHost: (session: SessionSummary) => void;
   onGoToBreakpoints: () => void;
@@ -60,6 +61,7 @@ export function SessionContextMenu({
   onCopyRequest,
   onCopyResponse,
   onCopyUrl,
+  onCreateRewrite,
   onExportSession,
   onFocusHost,
   onGoToBreakpoints,
@@ -206,6 +208,13 @@ export function SessionContextMenu({
       )}
 
       <Divider sx={dividerSx} />
+
+      <MenuItem onClick={handleClick(onCreateRewrite)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <AltRouteRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.createRewrite")}</ListItemText>
+      </MenuItem>
 
       <MenuItem onClick={() => { onGoToBreakpoints(); onClose(); }} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>

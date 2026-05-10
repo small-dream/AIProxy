@@ -180,6 +180,36 @@ CREATE TABLE IF NOT EXISTS script_run_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_script_run_entries_run ON script_run_entries(run_id);
 
+CREATE TABLE IF NOT EXISTS rewrite_runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    workspace_id    TEXT NOT NULL,
+    rewrite_type    TEXT NOT NULL,
+    stage           TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES rewrite_rules(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_rewrite_runs_session ON rewrite_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_rewrite_runs_rule ON rewrite_runs(rule_id);
+
+CREATE TABLE IF NOT EXISTS rewrite_run_entries (
+    id              TEXT NOT NULL PRIMARY KEY,
+    run_id          TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    key             TEXT,
+    before_value    TEXT,
+    after_value     TEXT,
+    message         TEXT,
+    seq             INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (run_id) REFERENCES rewrite_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_rewrite_run_entries_run ON rewrite_run_entries(run_id);
+
 CREATE TABLE IF NOT EXISTS api_collections (
     id          TEXT NOT NULL PRIMARY KEY,
     parent_id   TEXT,
@@ -278,6 +308,8 @@ mod tests {
             "script_runs",
             "script_rules",
             "rewrite_rules",
+            "rewrite_run_entries",
+            "rewrite_runs",
             "session_details",
             "session_summaries",
             "throttle_profiles",

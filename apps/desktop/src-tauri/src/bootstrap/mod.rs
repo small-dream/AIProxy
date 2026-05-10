@@ -1,14 +1,14 @@
 use aiproxy_db::body_store::{BodyStore, BODY_FILE_THRESHOLD};
 use aiproxy_db::rules::{
     BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ScriptRuleRow,
-    ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
+    RewriteRunEntryRow, RewriteRunRow, ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
 };
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
     BreakpointManager, BreakpointRule, BreakpointStage, DnsManager, DnsMappingRule, MapManager,
     MapRule, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager,
-    RewriteRule, RewriteRuleMatch, ScriptEntrypoints, ScriptManager, ScriptRule,
+    RewriteRule, RewriteRuleMatch, RewriteTrace, ScriptEntrypoints, ScriptManager, ScriptRule,
     ScriptRuleLanguage, ScriptRuleSourceType, ScriptRunEntryKind,
     ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager, ThrottleProfileData,
     TlsManager, CompiledScriptRule,
@@ -400,6 +400,20 @@ impl AppState {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "script_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_rewrite_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.summary,
+                &session_detail.rewrite_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "rewrite_trace_upsert_db_failed",
                     &[("error", e)],
                 );
             }
@@ -965,6 +979,7 @@ fn detail_row_to_proxy(
         request_headers: headers_from_json(&row.request_headers),
         response_body: body_ref_from_json(row.response_body_ref.as_deref()),
         response_headers: headers_from_json(&row.response_headers),
+        rewrite_traces: Vec::new(),
         server_ip: row.server_ip.clone(),
         script_traces: Vec::new(),
         summary,
@@ -1203,6 +1218,51 @@ fn persist_script_traces(
     aiproxy_db::rules::replace_script_runs_for_session(conn, session_id, &runs, &entries)
 }
 
+fn persist_rewrite_traces(
+    conn: &aiproxy_db::rusqlite::Connection,
+    session_id: &str,
+    workspace_id: &str,
+    summary: &ProxySessionSummary,
+    traces: &[RewriteTrace],
+) -> Result<(), String> {
+    let created_at = summary.finished_at.clone();
+    let runs: Vec<RewriteRunRow> = traces
+        .iter()
+        .enumerate()
+        .map(|(index, trace)| RewriteRunRow {
+            id: format!("{session_id}-rewrite-run-{index}"),
+            session_id: session_id.to_string(),
+            rule_id: trace.rule_id.clone(),
+            rule_name: trace.rule_name.clone(),
+            workspace_id: workspace_id.to_string(),
+            rewrite_type: trace.rewrite_type.clone(),
+            stage: trace.stage.clone(),
+            outcome: trace.outcome.clone(),
+            duration_ms: trace.duration_ms,
+            created_at: created_at.clone(),
+        })
+        .collect();
+
+    let entries: Vec<RewriteRunEntryRow> = traces
+        .iter()
+        .enumerate()
+        .flat_map(|(run_index, trace)| {
+            trace.entries.iter().enumerate().map(move |(entry_index, entry)| RewriteRunEntryRow {
+                id: format!("{session_id}-rewrite-run-{run_index}-entry-{entry_index}"),
+                run_id: format!("{session_id}-rewrite-run-{run_index}"),
+                kind: entry.kind.clone(),
+                key: entry.key.clone(),
+                before_value: entry.before.clone(),
+                after_value: entry.after.clone(),
+                message: entry.message.clone(),
+                seq: entry.sequence,
+            })
+        })
+        .collect();
+
+    aiproxy_db::rules::replace_rewrite_runs_for_session(conn, session_id, &runs, &entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState};
@@ -1321,6 +1381,7 @@ mod tests {
             request_headers: Vec::new(),
             response_body: None,
             response_headers: Vec::new(),
+            rewrite_traces: Vec::new(),
             server_ip: Some("1.2.3.4".to_string()),
             script_traces: Vec::new(),
             summary: summary.clone(),

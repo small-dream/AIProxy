@@ -414,6 +414,27 @@ export type ScriptSessionTrace = {
   stage: "request" | "response";
 };
 
+export type RewriteRunOutcome = "success" | "skipped" | "failed";
+
+export type RewriteRunEntry = {
+  after?: string;
+  before?: string;
+  kind: "header" | "query" | "body" | "redirect" | "skip" | "error";
+  key?: string;
+  message?: string;
+  sequence: number;
+};
+
+export type RewriteSessionTrace = {
+  durationMs: number;
+  entries: RewriteRunEntry[];
+  outcome: RewriteRunOutcome;
+  rewriteType: RewriteRuleType;
+  ruleId: string;
+  ruleName: string;
+  stage: "request" | "response";
+};
+
 export type ScriptSourceFile = {
   fileName: string;
   language: ScriptRuleLanguage;
@@ -1729,6 +1750,40 @@ export function isScriptSessionTrace(value: unknown): value is ScriptSessionTrac
 export function parseScriptSessionTrace(value: unknown): ScriptSessionTrace[] {
   if (!Array.isArray(value)) throw coerceAppError(value);
   if (value.every(isScriptSessionTrace)) return value;
+  throw coerceAppError(value);
+}
+
+export function isRewriteRunEntry(value: unknown): value is RewriteRunEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteRunEntry>;
+  return (
+    (candidate.kind === "header" || candidate.kind === "query" || candidate.kind === "body" || candidate.kind === "redirect" || candidate.kind === "skip" || candidate.kind === "error")
+    && isNullableString(candidate.after)
+    && isNullableString(candidate.before)
+    && isNullableString(candidate.key)
+    && isNullableString(candidate.message)
+    && typeof candidate.sequence === "number"
+  );
+}
+
+export function isRewriteSessionTrace(value: unknown): value is RewriteSessionTrace {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteSessionTrace>;
+  return (
+    typeof candidate.durationMs === "number"
+    && Array.isArray(candidate.entries)
+    && candidate.entries.every(isRewriteRunEntry)
+    && (candidate.outcome === "success" || candidate.outcome === "skipped" || candidate.outcome === "failed")
+    && (candidate.rewriteType === "header" || candidate.rewriteType === "query" || candidate.rewriteType === "body" || candidate.rewriteType === "redirect")
+    && typeof candidate.ruleId === "string"
+    && typeof candidate.ruleName === "string"
+    && (candidate.stage === "request" || candidate.stage === "response")
+  );
+}
+
+export function parseRewriteSessionTrace(value: unknown): RewriteSessionTrace[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isRewriteSessionTrace)) return value;
   throw coerceAppError(value);
 }
 

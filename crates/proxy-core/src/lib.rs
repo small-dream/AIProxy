@@ -73,7 +73,7 @@ pub use aiproxy_rule_engine::{
 };
 pub use rules::{
     DnsManager, DnsMappingRule, MapManager, MapRule, RewriteManager, RewriteRule,
-    RewriteRuleMatch, ThrottleManager, ThrottleProfileData,
+    RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
 };
 pub use server::{send_direct_request, start_proxy_server};
 pub use ws::{WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest, WsMessageData, WsOpcode, global_ws_registry};

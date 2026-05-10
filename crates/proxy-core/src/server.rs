@@ -425,6 +425,7 @@ async fn handle_connection(
 
     let RequestRuntimeOutcome {
         mut local_response,
+        rewrite_traces,
         throttle_profile,
     } = apply_request_runtime_rules(
         &rewrite_manager,
@@ -433,6 +434,7 @@ async fn handle_connection(
         &active_workspace_id,
         &mut request,
     )?;
+    let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
 
     if local_response.is_none() {
@@ -470,12 +472,12 @@ async fn handle_connection(
                     }
 
                     let mut mock_response = build_mock_upstream_response(mock);
-                    apply_response_rewrite_rules(
+                    rewrite_traces.extend(apply_response_rewrite_rules(
                         &rewrite_manager,
                         &active_workspace_id,
                         &request,
                         &mut mock_response,
-                    )?;
+                    )?);
                     script_traces.extend(apply_response_script_rules(
                         &script_manager,
                         &active_workspace_id,
@@ -514,6 +516,7 @@ async fn handle_connection(
                         },
                         mock_response.body_truncated,
                     );
+                    detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
                     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -585,12 +588,12 @@ async fn handle_connection(
                     ],
                 );
             } else {
-                apply_response_rewrite_rules(
+                rewrite_traces.extend(apply_response_rewrite_rules(
                     &rewrite_manager,
                     &active_workspace_id,
                     &request,
                     &mut upstream_response,
-                )?;
+                )?);
                 script_traces.extend(apply_response_script_rules(
                     &script_manager,
                     &active_workspace_id,
@@ -619,6 +622,7 @@ async fn handle_connection(
                 },
                 upstream_response.body_truncated,
             );
+            session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
 
             // --- Response-stage breakpoint ---
@@ -672,6 +676,7 @@ async fn handle_connection(
                                 },
                                 upstream_response.body_truncated,
                             );
+                            session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                         }
                     }
@@ -696,6 +701,7 @@ async fn handle_connection(
                             },
                             upstream_response.body_truncated,
                         );
+                        session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
                     }
                 }
@@ -731,6 +737,7 @@ async fn handle_connection(
                 return Err(error);
             }
 
+            session_detail.rewrite_traces = rewrite_traces;
             session_detail.script_traces = script_traces;
 
             if session_sender.send(session_detail).await.is_err() {
@@ -1691,6 +1698,7 @@ async fn handle_connect_mitm(
 
     let RequestRuntimeOutcome {
         mut local_response,
+        rewrite_traces,
         throttle_profile,
     } = apply_request_runtime_rules(
         &rewrite_manager,
@@ -1699,6 +1707,7 @@ async fn handle_connect_mitm(
         &workspace_id,
         &mut https_request,
     )?;
+    let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
 
     if local_response.is_none() {
@@ -1736,12 +1745,12 @@ async fn handle_connect_mitm(
                     }
 
                     let mut mock_response = build_mock_upstream_response(mock);
-                    apply_response_rewrite_rules(
+                    rewrite_traces.extend(apply_response_rewrite_rules(
                         &rewrite_manager,
                         &workspace_id,
                         &https_request,
                         &mut mock_response,
-                    )?;
+                    )?);
                     script_traces.extend(apply_response_script_rules(
                         &script_manager,
                         &workspace_id,
@@ -1780,6 +1789,7 @@ async fn handle_connect_mitm(
                         },
                         mock_response.body_truncated,
                     );
+                    detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
                     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -1852,12 +1862,12 @@ async fn handle_connect_mitm(
                     ],
                 );
             } else {
-                apply_response_rewrite_rules(
+                rewrite_traces.extend(apply_response_rewrite_rules(
                     &rewrite_manager,
                     &workspace_id,
                     &https_request,
                     &mut upstream_response,
-                )?;
+                )?);
                 script_traces.extend(apply_response_script_rules(
                     &script_manager,
                     &workspace_id,
@@ -1886,6 +1896,7 @@ async fn handle_connect_mitm(
                 },
                 upstream_response.body_truncated,
             );
+            session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
 
             // --- Response-stage breakpoint (HTTPS) ---
@@ -1939,6 +1950,7 @@ async fn handle_connect_mitm(
                                 },
                                 upstream_response.body_truncated,
                             );
+                            session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                         }
                     }
@@ -1963,6 +1975,7 @@ async fn handle_connect_mitm(
                             },
                             upstream_response.body_truncated,
                         );
+                        session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
                     }
                 }
@@ -1998,6 +2011,7 @@ async fn handle_connect_mitm(
                 return Err(error);
             }
 
+            session_detail.rewrite_traces = rewrite_traces;
             session_detail.script_traces = script_traces;
 
             if session_sender.send(session_detail).await.is_err() {
@@ -2370,6 +2384,7 @@ pub async fn send_direct_request(
             body_truncated,
         ),
         response_headers: response_header_entries,
+        rewrite_traces: Vec::new(),
         server_ip: None,
         script_traces: Vec::new(),
         summary,

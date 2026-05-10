@@ -205,6 +205,20 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
     tx.execute(&delete_script_runs_sql, params.as_slice())
         .map_err(|e| format!("delete script runs for sessions: {e}"))?;
 
+    let delete_rewrite_entries_sql = format!(
+        "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id IN ({}))",
+        placeholders.join(",")
+    );
+    tx.execute(&delete_rewrite_entries_sql, params.as_slice())
+        .map_err(|e| format!("delete rewrite run entries for sessions: {e}"))?;
+
+    let delete_rewrite_runs_sql = format!(
+        "DELETE FROM rewrite_runs WHERE session_id IN ({})",
+        placeholders.join(",")
+    );
+    tx.execute(&delete_rewrite_runs_sql, params.as_slice())
+        .map_err(|e| format!("delete rewrite runs for sessions: {e}"))?;
+
     let delete_ws_messages_sql = format!(
         "DELETE FROM ws_messages WHERE session_id IN ({})",
         placeholders.join(",")
@@ -242,6 +256,10 @@ pub fn clear_all_sessions(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("clear script run entries: {e}"))?;
     tx.execute("DELETE FROM script_runs", [])
         .map_err(|e| format!("clear script runs: {e}"))?;
+    tx.execute("DELETE FROM rewrite_run_entries", [])
+        .map_err(|e| format!("clear rewrite run entries: {e}"))?;
+    tx.execute("DELETE FROM rewrite_runs", [])
+        .map_err(|e| format!("clear rewrite runs: {e}"))?;
     tx.execute("DELETE FROM session_details", [])
         .map_err(|e| format!("clear session details: {e}"))?;
     tx.execute("DELETE FROM ws_messages", [])

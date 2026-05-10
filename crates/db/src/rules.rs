@@ -457,6 +457,30 @@ pub struct ScriptRunEntryRow {
     pub seq: u32,
 }
 
+pub struct RewriteRunRow {
+    pub id: String,
+    pub session_id: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub workspace_id: String,
+    pub rewrite_type: String,
+    pub stage: String,
+    pub outcome: String,
+    pub duration_ms: u128,
+    pub created_at: String,
+}
+
+pub struct RewriteRunEntryRow {
+    pub id: String,
+    pub run_id: String,
+    pub kind: String,
+    pub key: Option<String>,
+    pub before_value: Option<String>,
+    pub after_value: Option<String>,
+    pub message: Option<String>,
+    pub seq: u32,
+}
+
 pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), String> {
     conn.execute(
         "INSERT OR REPLACE INTO script_rules
@@ -679,6 +703,150 @@ pub fn clear_script_runs(conn: &Connection) -> Result<(), String> {
     conn.execute("DELETE FROM script_runs", [])
         .map_err(|e| format!("clear script runs: {e}"))?;
     Ok(())
+}
+
+pub fn replace_rewrite_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+    runs: &[RewriteRunRow],
+    entries: &[RewriteRunEntryRow],
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin replace rewrite runs transaction: {e}"))?;
+
+    tx.execute(
+        "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id = ?1)",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete rewrite run entries for session: {e}"))?;
+
+    tx.execute("DELETE FROM rewrite_runs WHERE session_id = ?1", params![session_id])
+        .map_err(|e| format!("delete rewrite runs for session: {e}"))?;
+
+    for run in runs {
+        tx.execute(
+            "INSERT INTO rewrite_runs
+                (id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                run.id,
+                run.session_id,
+                run.rule_id,
+                run.rule_name,
+                run.workspace_id,
+                run.rewrite_type,
+                run.stage,
+                run.outcome,
+                run.duration_ms as i64,
+                run.created_at,
+            ],
+        )
+        .map_err(|e| format!("insert rewrite run: {e}"))?;
+    }
+
+    for entry in entries {
+        tx.execute(
+            "INSERT INTO rewrite_run_entries
+                (id, run_id, kind, key, before_value, after_value, message, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                entry.id,
+                entry.run_id,
+                entry.kind,
+                entry.key,
+                entry.before_value,
+                entry.after_value,
+                entry.message,
+                entry.seq,
+            ],
+        )
+        .map_err(|e| format!("insert rewrite run entry: {e}"))?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("commit replace rewrite runs transaction: {e}"))?;
+
+    Ok(())
+}
+
+pub fn load_rewrite_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<RewriteRunRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at
+             FROM rewrite_runs WHERE session_id = ?1 ORDER BY created_at ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare load rewrite runs: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(RewriteRunRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                rule_id: row.get(2)?,
+                rule_name: row.get(3)?,
+                workspace_id: row.get(4)?,
+                rewrite_type: row.get(5)?,
+                stage: row.get(6)?,
+                outcome: row.get(7)?,
+                duration_ms: row.get::<_, i64>(8)? as u128,
+                created_at: row.get(9)?,
+            })
+        })
+        .map_err(|e| format!("query rewrite runs: {e}"))?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn load_rewrite_run_entries(
+    conn: &Connection,
+    run_ids: &[String],
+) -> Result<Vec<RewriteRunEntryRow>, String> {
+    if run_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders: Vec<String> = run_ids
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("?{}", index + 1))
+        .collect();
+    let sql = format!(
+        "SELECT id, run_id, kind, key, before_value, after_value, message, seq
+         FROM rewrite_run_entries
+         WHERE run_id IN ({})
+         ORDER BY seq ASC, id ASC",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = run_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare load rewrite run entries: {e}"))?;
+
+    let rows = stmt
+        .query_map(params.as_slice(), |row| {
+            Ok(RewriteRunEntryRow {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                kind: row.get(2)?,
+                key: row.get(3)?,
+                before_value: row.get(4)?,
+                after_value: row.get(5)?,
+                message: row.get(6)?,
+                seq: row.get::<_, i32>(7)? as u32,
+            })
+        })
+        .map_err(|e| format!("query rewrite run entries: {e}"))?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(rows)
 }
 
 // ---------------------------------------------------------------------------

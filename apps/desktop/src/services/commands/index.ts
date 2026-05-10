@@ -16,6 +16,7 @@ import {
   parseCertificateInstallGuide,
   parseSessionDetailContentPatch,
   parseRewriteRules,
+  parseRewriteSessionTrace,
   parseScriptRules,
   parseScriptSessionTrace,
   parseScriptSourceFile,
@@ -46,6 +47,7 @@ import {
   type MapRule,
   type ProxyStatus,
   type RewriteRule,
+  type RewriteSessionTrace,
   type ScriptRule,
   type ScriptSessionTrace,
   type ScriptSourceFile,
@@ -1084,6 +1086,22 @@ export async function listScriptSessionTrace(sessionId: string): Promise<ScriptS
     return parseScriptSessionTrace(payload);
   } catch (error) {
     reportCommandFailure("list_script_session_trace", error, sessionId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listRewriteSessionTrace(sessionId: string): Promise<RewriteSessionTrace[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("list_rewrite_session_trace", {
+      input: { sessionId },
+    });
+    return parseRewriteSessionTrace(payload);
+  } catch (error) {
+    reportCommandFailure("list_rewrite_session_trace", error, sessionId);
     throw coerceAppError(error);
   }
 }
