@@ -247,7 +247,9 @@ export type BreakpointResolution = {
   action: BreakpointActionKind;
   mock?: MockResponse;
   modifiedRequestHeaders?: HeaderEntry[];
+  modifiedRequestQueryParams?: HeaderEntry[];
   modifiedRequestBodyBase64?: string;
+  modifiedResponseStatusCode?: number;
   modifiedResponseHeaders?: HeaderEntry[];
   modifiedResponseBodyBase64?: string;
 };

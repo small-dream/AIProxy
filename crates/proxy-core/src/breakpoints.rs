@@ -38,7 +38,9 @@ pub struct BreakpointResolution {
     pub action: BreakpointActionKind,
     pub mock: Option<MockResponse>,
     pub modified_request_headers: Option<Vec<ProxyHeaderEntry>>,
+    pub modified_request_query_params: Option<Vec<ProxyHeaderEntry>>,
     pub modified_request_body_base64: Option<String>,
+    pub modified_response_status_code: Option<u16>,
     pub modified_response_headers: Option<Vec<ProxyHeaderEntry>>,
     pub modified_response_body_base64: Option<String>,
 }
@@ -69,6 +71,50 @@ pub struct BreakpointHit {
     pub response_status_code: Option<u16>,
     pub response_headers: Option<Vec<ProxyHeaderEntry>>,
     pub response_body: Option<ProxyBodyReference>,
+}
+
+fn refresh_request_target_from_url(request: &mut ParsedProxyRequest) {
+    request.path = build_request_path(&request.url);
+    request.query_params = build_query_params(&request.url);
+    request.raw_request = build_raw_http_head(
+        &format!("{} {} HTTP/1.1", request.method, request.path),
+        &request.request_headers,
+    );
+}
+
+pub(crate) fn apply_request_resolution(
+    resolution: &BreakpointResolution,
+    request: &mut ParsedProxyRequest,
+) {
+    if let Some(ref query_params) = resolution.modified_request_query_params {
+        request.url.query_pairs_mut().clear().extend_pairs(
+            query_params
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.value.as_str())),
+        );
+        refresh_request_target_from_url(request);
+    }
+
+    if let Some(ref headers) = resolution.modified_request_headers {
+        request.request_headers = headers.clone();
+        let mut new_headers = HeaderMap::new();
+        for entry in headers {
+            if let (Ok(name), Ok(value)) = (
+                HeaderName::from_bytes(entry.name.as_bytes()),
+                HeaderValue::from_str(&entry.value),
+            ) {
+                new_headers.insert(name, value);
+            }
+        }
+        request.headers = new_headers;
+        refresh_request_target_from_url(request);
+    }
+
+    if let Some(ref body_b64) = resolution.modified_request_body_base64 {
+        request.body = BASE64_STANDARD
+            .decode(body_b64)
+            .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
+    }
 }
 
 /// Callback for emitting events from the proxy core to the frontend.
@@ -311,25 +357,7 @@ pub(crate) async fn intercept_request_stage(
 
     match receiver.await {
         Ok(resolution) => {
-            // Apply modifications to the request
-            if let Some(ref headers) = resolution.modified_request_headers {
-                request.request_headers = headers.clone();
-                let mut new_headers = HeaderMap::new();
-                for entry in headers {
-                    if let (Ok(name), Ok(value)) = (
-                        HeaderName::from_bytes(entry.name.as_bytes()),
-                        HeaderValue::from_str(&entry.value),
-                    ) {
-                        new_headers.insert(name, value);
-                    }
-                }
-                request.headers = new_headers;
-            }
-            if let Some(ref body_b64) = resolution.modified_request_body_base64 {
-                request.body = BASE64_STANDARD
-                    .decode(body_b64)
-                    .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
-            }
+            apply_request_resolution(&resolution, request);
             Ok(Some(resolution))
         }
         Err(_) => {
@@ -396,6 +424,11 @@ pub(crate) fn apply_response_resolution(
     resolution: &BreakpointResolution,
     upstream_response: &mut UpstreamResponse,
 ) {
+    if let Some(status_code) = resolution.modified_response_status_code {
+        if let Ok(status_code) = StatusCode::from_u16(status_code) {
+            upstream_response.status_code = status_code;
+        }
+    }
     if let Some(ref headers) = resolution.modified_response_headers {
         let mut new_headers = HeaderMap::new();
         for entry in headers {

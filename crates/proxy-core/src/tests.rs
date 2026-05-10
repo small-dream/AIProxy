@@ -1,16 +1,18 @@
 use super::{
-    build_raw_http_head, build_request_path, build_upstream_headers_from_entries, find_header_end, resolve_target_url,
-    send_direct_request, start_proxy_server, MapManager, MapRule, ParsedProxyRequest,
+    apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
+    build_upstream_headers_from_entries, find_header_end, resolve_target_url,
+    send_direct_request, start_proxy_server, BreakpointActionKind, BreakpointResolution,
+    MapManager, MapRule, ParsedProxyRequest,
     ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, RewriteManager, RewriteRule,
     RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, ProxySessionSummary,
-    ProxyTimingBreakdown, ProxyBodyReference,
+    ProxyTimingBreakdown, ProxyBodyReference, UpstreamResponse,
     MAX_CAPTURED_BODY_BYTES,
 };
 use super::rules::{
     active_throttle_profile_for_workspace, apply_map_rules, apply_request_rewrite_rules,
 };
-use reqwest::header::HeaderMap;
-use reqwest::{Method, Url};
+use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::{Method, StatusCode, Url};
 use serde_json::json;
 use std::{fs, sync::Arc, time::Duration};
 use tokio::{
@@ -74,6 +76,100 @@ use tokio::{
         let actual = build_request_path(&Url::parse("http://example.com/hello?lang=en").unwrap());
 
         assert_eq!(actual, "/hello?lang=en");
+    }
+
+    #[test]
+    fn applies_breakpoint_request_query_edits_to_runtime_request() {
+        let mut request = ParsedProxyRequest {
+            body: Vec::new(),
+            client_address: None,
+            headers: HeaderMap::new(),
+            host: "example.com".to_string(),
+            method: Method::GET,
+            path: "/hello?lang=en".to_string(),
+            protocol: "http".to_string(),
+            query_params: vec![ProxyHeaderEntry {
+                name: "lang".to_string(),
+                value: "en".to_string(),
+            }],
+            raw_request: build_raw_http_head("GET /hello?lang=en HTTP/1.1", &[]),
+            request_headers: Vec::new(),
+            request_id: "request-1".to_string(),
+            url: Url::parse("http://example.com/hello?lang=en").unwrap(),
+            tls_cipher_suite: None,
+            tls_protocol: None,
+        };
+        let resolution = BreakpointResolution {
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_body_base64: None,
+            modified_request_headers: None,
+            modified_request_query_params: Some(vec![
+                ProxyHeaderEntry {
+                    name: "lang".to_string(),
+                    value: "zh".to_string(),
+                },
+                ProxyHeaderEntry {
+                    name: "debug".to_string(),
+                    value: "1".to_string(),
+                },
+            ]),
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: None,
+            session_id: "request-1".to_string(),
+        };
+
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(request.url.as_str(), "http://example.com/hello?lang=zh&debug=1");
+        assert_eq!(request.path, "/hello?lang=zh&debug=1");
+        assert_eq!(
+            request.query_params,
+            vec![
+                ProxyHeaderEntry {
+                    name: "lang".to_string(),
+                    value: "zh".to_string(),
+                },
+                ProxyHeaderEntry {
+                    name: "debug".to_string(),
+                    value: "1".to_string(),
+                },
+            ]
+        );
+        assert!(request.raw_request.starts_with("GET /hello?lang=zh&debug=1 HTTP/1.1"));
+    }
+
+    #[test]
+    fn applies_breakpoint_response_status_edits() {
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            response_body: b"{}".to_vec(),
+            response_body_size_bytes: 2,
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            waiting_ms: 0,
+        };
+        response
+            .response_headers
+            .insert("content-type", HeaderValue::from_static("application/json"));
+        let resolution = BreakpointResolution {
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_body_base64: None,
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: Some(418),
+            session_id: "request-1".to_string(),
+        };
+
+        apply_response_resolution(&resolution, &mut response);
+
+        assert_eq!(response.status_code, StatusCode::IM_A_TEAPOT);
     }
 
     #[test]

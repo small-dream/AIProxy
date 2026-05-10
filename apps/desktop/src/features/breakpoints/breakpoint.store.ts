@@ -21,7 +21,10 @@ export const useBreakpointStore = create<BreakpointState>((set) => ({
 
   addPendingHit: (hit) =>
     set((state) => {
-      const pendingHits = [...state.pendingHits, hit];
+      const existingIdx = state.pendingHits.findIndex((pendingHit) => pendingHit.sessionId === hit.sessionId);
+      const pendingHits = existingIdx >= 0
+        ? state.pendingHits.map((pendingHit, idx) => (idx === existingIdx ? hit : pendingHit))
+        : [...state.pendingHits, hit];
       return {
         pendingHits,
         // Auto-select the first hit if nothing is active

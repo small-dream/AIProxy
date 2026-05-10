@@ -449,11 +449,17 @@ RulesPage
 
 ```text
 BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
-├─ TopBar (Method Chip + Stage Badge + URL + 导航 1/N)
+├─ SummaryBar (Method Chip + Stage Badge + Status / Mock Mode + Host + Path + 导航 1/N)
 ├─ Tabs (Request / Response)
-│  ├─ Request Tab: HeaderEditor + BodyEditor
-│  └─ Response Tab: Status + HeaderEditor + BodyEditor (或 Mock 编辑器)
-└─ Action Buttons (Mock Response / Drop / Forward)
+│  ├─ Request Tab
+│  │  └─ InspectorGrid
+│  │     ├─ HeaderSection (标题 + 数量 + Add Header + 紧凑行编辑)
+│  │     └─ BodySection (标题 + 字符数/空状态 + 固定高度编辑器)
+│  └─ Response Tab
+│     └─ InspectorGrid
+│        ├─ HeaderSection (响应 Header 或 Mock Header)
+│        └─ BodySection (响应 Body 或 Mock Body)
+└─ ActionBar (左侧 Mock 模式控制，右侧 Drop / Forward 或 Send Mock)
 ```
 
 ### 6.3.1 实现文件映射
