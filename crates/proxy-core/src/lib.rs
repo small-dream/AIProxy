@@ -84,9 +84,11 @@ pub use types::{
 };
 
 pub(crate) use breakpoints::{
-    apply_request_resolution, apply_response_resolution, build_mock_upstream_response,
-    intercept_request_stage, intercept_response_stage,
+    apply_response_resolution, build_mock_upstream_response, intercept_request_stage,
+    intercept_response_stage,
 };
+#[cfg(test)]
+pub(crate) use breakpoints::apply_request_resolution;
 pub(crate) use http_io::{
     build_body_reference, build_cookie_entries, build_header_entries_from_httparse_headers,
     build_header_entries_from_map, build_pending_session_detail, build_query_params,
