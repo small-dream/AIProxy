@@ -1,6 +1,7 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import {
+  Alert,
   Button,
   Chip,
   Dialog,
@@ -25,6 +26,7 @@ import type { BreakpointRule, BreakpointStage } from "@aiproxy/shared-types";
 import { useState } from "react";
 
 import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
+import { formatRuleFieldLabel } from "@/features/rules/components/RulesSharedUi";
 import { createCatchAllRule, createEmptyBreakpointRule, HTTP_METHODS } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
@@ -35,11 +37,15 @@ export function BreakpointRulesPanel() {
   const setRulesMutation = useSetBreakpointRules();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [draft, setDraft] = useState<BreakpointRule>(createEmptyBreakpointRule());
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
   function handleSave() {
+    setValidationAttempted(true);
+    if (errors.length > 0) return;
     setRulesMutation.mutate([...rules, draft]);
     setDialogOpen(false);
     setDraft(createEmptyBreakpointRule());
+    setValidationAttempted(false);
   }
 
   function handleToggle(id: string) {
@@ -54,8 +60,17 @@ export function BreakpointRulesPanel() {
     setRulesMutation.mutate([...rules, createCatchAllRule(stage)]);
   }
 
+  function handleDialogClose() {
+    setDialogOpen(false);
+    setValidationAttempted(false);
+  }
+
   const hasRequestCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "request" && r.methods.length === 0);
   const hasResponseCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "response" && r.methods.length === 0);
+  const errors = draft.urlPattern.trim() ? [] : [t("rulesPage.validation.urlPatternRequired")];
+  const urlPatternLabel = formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t);
+  const methodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
+  const stageLabel = formatRuleFieldLabel(t("rulesPage.labels.stage"), "required", t);
 
   return (
     <Stack spacing={2}>
@@ -85,7 +100,7 @@ export function BreakpointRulesPanel() {
             <Button size="small" variant="outlined" disabled={hasResponseCatchAll} onClick={() => handleAddCatchAll("response")}>
               {t("rulesPage.breakOnAllResponses")}
             </Button>
-            <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setDraft(createEmptyBreakpointRule()); setDialogOpen(true); }}>
+            <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setDraft(createEmptyBreakpointRule()); setValidationAttempted(false); setDialogOpen(true); }}>
               {t("rulesPage.addRule")}
             </Button>
           </Stack>
@@ -156,32 +171,45 @@ export function BreakpointRulesPanel() {
         </Paper>
       )}
 
-      <Dialog fullWidth maxWidth="sm" onClose={() => setDialogOpen(false)} open={dialogOpen}>
+      <Dialog fullWidth maxWidth="sm" onClose={handleDialogClose} open={dialogOpen}>
         <DialogTitle>{t("rulesPage.addDialogTitle")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 0.5 }}>
-            <OutlinedInput
-              placeholder={t("rulesPage.urlPatternPlaceholder")}
-              value={draft.urlPattern}
-              onChange={(e) => setDraft({ ...draft, urlPattern: e.target.value })}
-              fullWidth
-              sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }}
-            />
+            {validationAttempted && errors.length > 0 && (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+                <Stack spacing={0.25}>
+                  {errors.map((error) => <Typography key={error} variant="body2">{error}</Typography>)}
+                </Stack>
+              </Alert>
+            )}
             <FormControl size="small" fullWidth>
-              <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>
+              <InputLabel>{urlPatternLabel}</InputLabel>
+              <OutlinedInput
+                label={urlPatternLabel}
+                placeholder={t("rulesPage.urlPatternPlaceholder")}
+                value={draft.urlPattern}
+                onChange={(e) => setDraft({ ...draft, urlPattern: e.target.value })}
+                sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }}
+              />
+            </FormControl>
+            <Stack spacing={0.5}>
+              <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                {methodsLabel}
+              </Typography>
               <Select
+                displayEmpty
                 multiple
+                size="small"
                 value={draft.methods}
                 onChange={(e) => setDraft({ ...draft, methods: e.target.value as string[] })}
-                input={<OutlinedInput label={t("rulesPage.labels.httpMethods")} />}
                 renderValue={(s) => (s.length === 0 ? t("rulesPage.allMethods") : s.join(", "))}
               >
                 {HTTP_METHODS.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
               </Select>
-            </FormControl>
+            </Stack>
             <FormControl size="small" fullWidth>
-              <InputLabel>{t("rulesPage.labels.stage")}</InputLabel>
-              <Select value={draft.stage} label={t("rulesPage.labels.stage")} onChange={(e) => setDraft({ ...draft, stage: e.target.value as BreakpointStage })}>
+              <InputLabel>{stageLabel}</InputLabel>
+              <Select value={draft.stage} label={stageLabel} onChange={(e) => setDraft({ ...draft, stage: e.target.value as BreakpointStage })}>
                 <MenuItem value="request">{t("rulesPage.requestStageOption")}</MenuItem>
                 <MenuItem value="response">{t("rulesPage.responseStageOption")}</MenuItem>
               </Select>
@@ -190,7 +218,7 @@ export function BreakpointRulesPanel() {
         </DialogContent>
         <Divider />
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogOpen(false)}>{t("common.actions.cancel")}</Button>
+          <Button onClick={handleDialogClose}>{t("common.actions.cancel")}</Button>
           <Button variant="contained" onClick={handleSave} disabled={setRulesMutation.isPending}>{t("rulesPage.addRule")}</Button>
         </DialogActions>
       </Dialog>

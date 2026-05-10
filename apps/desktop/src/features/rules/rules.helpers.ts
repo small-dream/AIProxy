@@ -14,7 +14,7 @@ import { useI18n } from "@/i18n";
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const DEFAULT_WORKSPACE_ID = "default";
 
-export type RulesTabValue = "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns" | "script";
+export type RulesTabValue = "breakpoint" | "rewrite" | "mapping" | "script";
 export type TranslationFn = ReturnType<typeof useI18n>["t"];
 
 /* ── Factory helpers ──────────────────────────────────────────────── */

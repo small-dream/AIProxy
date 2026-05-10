@@ -258,6 +258,7 @@ export const enMessages = {
     tabs: {
       breakpoint: "Breakpoint",
       dns: "DNS",
+      mapping: "Mapping",
       mapLocal: "Map Local",
       mapRemote: "Map Remote",
       rewrite: "Rewrite",
@@ -277,6 +278,10 @@ export const enMessages = {
       all: "ALL",
       httpMethods: "HTTP Methods",
       stage: "Stage",
+    },
+    fieldHints: {
+      optional: "optional",
+      required: "required",
     },
     editor: {
       actionDescription: "Configure the actual rewrite or mapping result the user will see once the match succeeds.",
@@ -305,6 +310,8 @@ export const enMessages = {
       title: "Rewrite Rules",
       description: "Handle header, query, body, and redirect rewrites in one workspace without losing the rule list context.",
       searchPlaceholder: "Search rewrite rules",
+      fromTemplate: "From Template",
+      templatesTitle: "Rewrite Templates",
       quickCreateHeader: "Header Rewrite",
       quickCreateQuery: "Query Rewrite",
       quickCreateBody: "Body Rewrite",

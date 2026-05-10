@@ -260,6 +260,7 @@ export const zhCNMessages: Messages = {
     tabs: {
       breakpoint: "断点",
       dns: "DNS",
+      mapping: "映射",
       mapLocal: "本地映射",
       mapRemote: "远程映射",
       rewrite: "改写",
@@ -279,6 +280,10 @@ export const zhCNMessages: Messages = {
       all: "全部",
       httpMethods: "HTTP 方法",
       stage: "阶段",
+    },
+    fieldHints: {
+      optional: "可选",
+      required: "必填",
     },
     editor: {
       actionDescription: "把真正发生的改写或映射动作放在一起配置，保存前就能快速确认结果。",
@@ -307,6 +312,8 @@ export const zhCNMessages: Messages = {
       title: "Rewrite 改写",
       description: "在一个工作台里统一处理 Header、Query、Body 和 Redirect 改写，不会丢失规则列表上下文。",
       searchPlaceholder: "搜索改写规则",
+      fromTemplate: "从模板创建",
+      templatesTitle: "改写模板",
       quickCreateHeader: "Header 改写",
       quickCreateQuery: "Query 改写",
       quickCreateBody: "Body 改写",

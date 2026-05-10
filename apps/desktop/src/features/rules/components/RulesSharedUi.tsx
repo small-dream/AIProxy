@@ -16,7 +16,16 @@ import {
 import { alpha } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
+import type { TranslationFn } from "@/features/rules/rules.helpers";
 import { fontFamilies } from "@/themes/fonts";
+
+export function formatRuleFieldLabel(label: string, requirement: "optional" | "required", t: TranslationFn) {
+  const hint = requirement === "required"
+    ? t("rulesPage.fieldHints.required")
+    : t("rulesPage.fieldHints.optional");
+
+  return `${label} (${hint})`;
+}
 
 /* ── FieldGroup ───────────────────────────────────────────────────── */
 
@@ -100,25 +109,31 @@ export function ManagedRulesWorkbench(props: {
     <Box
       sx={{
         display: "grid",
-        gap: 2,
+        gap: 0,
         gridTemplateColumns: {
           xs: "minmax(0, 1fr)",
-          lg: "340px minmax(0, 1fr)",
-          xl: "380px minmax(0, 1fr)",
+          lg: "340px 6px minmax(0, 1fr)",
+          xl: "360px 6px minmax(0, 1fr)",
         },
-        minHeight: 560,
+        height: "100%",
+        minHeight: 0,
       }}
     >
       <Paper
         elevation={0}
         sx={{
-          alignSelf: "start",
-          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.88),
-          border: 1,
+          alignSelf: "stretch",
+          bgcolor: (theme) => theme.palette.mode === "dark"
+            ? alpha(theme.palette.background.default, 0.18)
+            : alpha(theme.palette.background.default, 0.36),
+          border: 0,
           borderColor: "divider",
-          borderRadius: "8px",
+          borderRadius: 0,
+          borderBottom: { lg: 0, xs: 1 },
           display: "flex",
           flexDirection: "column",
+          height: "100%",
+          minHeight: { xs: 280, lg: 0 },
           overflow: "hidden",
         }}
       >
@@ -144,19 +159,38 @@ export function ManagedRulesWorkbench(props: {
           </Stack>
         </Stack>
 
-        <Box sx={{ maxHeight: { lg: "calc(100vh - 270px)" }, minHeight: 220, overflow: "auto", p: 1 }}>
+        <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>
           {list}
         </Box>
       </Paper>
 
+      <Box
+        aria-hidden
+        sx={{
+          alignItems: "center",
+          display: { lg: "flex", xs: "none" },
+          justifyContent: "center",
+          minHeight: 0,
+          "&::before": {
+            bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+            borderRadius: 999,
+            content: '""',
+            height: "100%",
+            width: 1,
+          },
+        }}
+      />
+
       <Paper
         elevation={0}
         sx={{
-          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.76 : 0.92),
-          border: 1,
+          bgcolor: "transparent",
+          border: 0,
           borderColor: "divider",
-          borderRadius: "8px",
+          borderRadius: 0,
+          height: "100%",
           minWidth: 0,
+          overflow: "auto",
           p: 2,
         }}
       >

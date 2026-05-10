@@ -18,7 +18,14 @@ import type { MapRule } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createEmptyMapRule, getMapValidationErrors } from "@/features/rules/rules.helpers";
-import { FieldGroup, InlineSwitch, ManagedRuleList, ManagedRulesWorkbench, RuleSection } from "@/features/rules/components/RulesSharedUi";
+import {
+  FieldGroup,
+  formatRuleFieldLabel,
+  InlineSwitch,
+  ManagedRuleList,
+  ManagedRulesWorkbench,
+  RuleSection,
+} from "@/features/rules/components/RulesSharedUi";
 import { useDeleteManagedRule, useMapRules, useSaveMapRule } from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
 
@@ -30,6 +37,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
   const [draft, setDraft] = useState<MapRule>(createEmptyMapRule(mode));
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -40,31 +48,45 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }, [rules, searchValue]);
 
   useEffect(() => {
-    if (draft.mode !== mode) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); }
+    if (draft.mode !== mode) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); setValidationAttempted(false); }
   }, [draft.mode, mode]);
 
   useEffect(() => {
     if (selectedRuleId && rules.some((r) => r.id === selectedRuleId)) return;
     const next = filteredRules[0];
-    if (next) { setSelectedRuleId(next.id); setDraft(next); return; }
+    if (next) { setSelectedRuleId(next.id); setDraft(next); setValidationAttempted(false); return; }
     setSelectedRuleId(undefined);
+    setValidationAttempted(false);
   }, [filteredRules, rules, selectedRuleId]);
 
-  function selectRule(rule: MapRule) { setSelectedRuleId(rule.id); setDraft(rule); }
+  function selectRule(rule: MapRule) {
+    setSelectedRuleId(rule.id);
+    setDraft(rule);
+    setValidationAttempted(false);
+  }
 
   function handleCreateRule() {
     const d = createEmptyMapRule(mode);
     setSelectedRuleId(d.id);
     setDraft(d);
+    setValidationAttempted(false);
   }
 
   function handleSave() {
-    saveMutation.mutate(draft, { onSuccess: (saved) => { setSelectedRuleId(saved.id); setDraft(saved); } });
+    setValidationAttempted(true);
+    if (errors.length > 0) return;
+    saveMutation.mutate(draft, {
+      onSuccess: (saved) => {
+        setSelectedRuleId(saved.id);
+        setDraft(saved);
+        setValidationAttempted(false);
+      },
+    });
   }
 
   function handleDelete() {
-    if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); return; }
-    deleteMutation.mutate({ ruleId: selectedRuleId, ruleType: "map" }, { onSuccess: () => { setSelectedRuleId(undefined); setDraft(createEmptyMapRule(mode)); } });
+    if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); setValidationAttempted(false); return; }
+    deleteMutation.mutate({ ruleId: selectedRuleId, ruleType: "map" }, { onSuccess: () => { setSelectedRuleId(undefined); setDraft(createEmptyMapRule(mode)); setValidationAttempted(false); } });
   }
 
   const errors = getMapValidationErrors(draft, t);
@@ -117,22 +139,22 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
             alignItems={{ xs: "stretch", md: "center" }}
             sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
           >
-            <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
+            <TextField size="small" label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
               <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
               <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
             </Stack>
-            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: { xs: "100%", md: 116 } }} />
+            <TextField size="small" type="number" label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: { xs: "100%", md: 136 } }} />
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
               {t("common.actions.remove")}
             </Button>
-            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={errors.length > 0 || saveMutation.isPending}>
+            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={saveMutation.isPending}>
               {t("rulesPage.editor.saveRule")}
             </Button>
           </Stack>
 
           {/* Validation */}
-          {errors.length > 0 && (
+          {validationAttempted && errors.length > 0 && (
             <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
               <Stack spacing={0.25}>
                 {errors.map((err) => <Typography key={err} variant="body2">{err}</Typography>)}
@@ -145,7 +167,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
             <FieldGroup title={t("rulesPage.mapEditor.matchTitle")}>
               <TextField
                 size="small"
-                label={t("rulesPage.mapEditor.sourcePattern")}
+                label={formatRuleFieldLabel(t("rulesPage.mapEditor.sourcePattern"), "required", t)}
                 value={draft.sourcePattern}
                 onChange={(e) => setDraft({ ...draft, sourcePattern: e.target.value })}
                 placeholder={t("rulesPage.mapEditor.sourcePatternExample")}
@@ -153,7 +175,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               />
               <TextField
                 size="small"
-                label={isLocal ? t("rulesPage.mapLocal.targetPath") : t("rulesPage.mapRemote.targetUrl")}
+                label={formatRuleFieldLabel(isLocal ? t("rulesPage.mapLocal.targetPath") : t("rulesPage.mapRemote.targetUrl"), "required", t)}
                 value={draft.targetValue}
                 onChange={(e) => setDraft({ ...draft, targetValue: e.target.value })}
                 placeholder={isLocal ? t("rulesPage.mapLocal.targetPathExample") : t("rulesPage.mapRemote.targetUrlExample")}

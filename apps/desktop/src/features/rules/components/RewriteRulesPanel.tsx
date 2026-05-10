@@ -10,11 +10,12 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   FormControl,
   InputLabel,
   MenuItem,
-  OutlinedInput,
   Paper,
   Select,
   Stack,
@@ -38,7 +39,14 @@ import {
   getRewriteValidationErrors,
   HTTP_METHODS,
 } from "@/features/rules/rules.helpers";
-import { FieldGroup, InlineSwitch, ManagedRuleList, ManagedRulesWorkbench, RuleSection } from "@/features/rules/components/RulesSharedUi";
+import {
+  FieldGroup,
+  formatRuleFieldLabel,
+  InlineSwitch,
+  ManagedRuleList,
+  ManagedRulesWorkbench,
+  RuleSection,
+} from "@/features/rules/components/RulesSharedUi";
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -164,6 +172,8 @@ export function RewriteRulesPanel() {
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
   const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
   const [testInput, setTestInput] = useState<RuleTestInput>({ method: "GET", stage: "request", url: "https://api.example.com/v1/users" });
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
   const templates = useMemo<RewriteTemplate[]>(() => [
     {
@@ -258,6 +268,7 @@ export function RewriteRulesPanel() {
     const seededRule = createSeededRule(state.rewriteSeed);
     setSelectedRuleId(seededRule.id);
     setDraft(seededRule);
+    setValidationAttempted(false);
     setTestInput({
       method: state.rewriteSeed.method,
       stage: "request",
@@ -269,28 +280,44 @@ export function RewriteRulesPanel() {
   useEffect(() => {
     if (selectedRuleId && (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId)) return;
     const next = filteredRules[0];
-    if (next) { setSelectedRuleId(next.id); setDraft(next); return; }
+    if (next) { setSelectedRuleId(next.id); setDraft(next); setValidationAttempted(false); return; }
     if (!selectedRuleId) return;
     setSelectedRuleId(undefined);
+    setValidationAttempted(false);
   }, [draft.id, filteredRules, rules, selectedRuleId]);
 
-  function selectRule(rule: RewriteRule) { setSelectedRuleId(rule.id); setDraft(rule); }
+  function selectRule(rule: RewriteRule) {
+    setSelectedRuleId(rule.id);
+    setDraft(rule);
+    setValidationAttempted(false);
+  }
 
   function handleCreateRule(rewriteType: RewriteRuleType) {
     const d = createEmptyRewriteRule(rewriteType);
     d.name = `${getRewriteTypeLabel(rewriteType, t)} rewrite`;
     setSelectedRuleId(d.id);
     setDraft(d);
+    setValidationAttempted(false);
   }
 
   function applyTemplate(template: RewriteTemplate) {
     const next = template.build();
     setSelectedRuleId(next.id);
     setDraft(next);
+    setTemplateDialogOpen(false);
+    setValidationAttempted(false);
   }
 
   function handleSave() {
-    saveMutation.mutate(draft, { onSuccess: (saved) => { setSelectedRuleId(saved.id); setDraft(saved); } });
+    setValidationAttempted(true);
+    if (errors.length > 0) return;
+    saveMutation.mutate(draft, {
+      onSuccess: (saved) => {
+        setSelectedRuleId(saved.id);
+        setDraft(saved);
+        setValidationAttempted(false);
+      },
+    });
   }
 
   function handleDelete() {
@@ -301,26 +328,149 @@ export function RewriteRulesPanel() {
   const invalidCombination = getInvalidRewriteCombination(draft);
   const errors = [...getRewriteValidationErrors(draft, t), ...(invalidCombination ? [invalidCombination] : [])];
   const testResult = testRuleMatch(draft, testInput);
+  const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
   return (
-    <ManagedRulesWorkbench
-      searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      createActions={(
-        <Stack spacing={1.25} sx={{ width: "100%" }}>
+    <>
+      <ManagedRulesWorkbench
+        searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        createActions={(
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
             {(["header", "query", "body", "redirect"] as const).map((type) => (
               <Button key={type} size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => handleCreateRule(type)}>
                 {getRewriteTypeLabel(type, t)}
               </Button>
             ))}
+            <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => setTemplateDialogOpen(true)}>
+              {t("rulesPage.rewrite.fromTemplate")}
+            </Button>
           </Stack>
-          <Divider />
-          <Stack spacing={0.75}>
-            <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 700 }}>
-              Templates
-            </Typography>
+        )}
+        list={(
+          <ManagedRuleList
+            emptyDescription={t("rulesPage.rewrite.emptyDescription")}
+            items={filteredRules.map((rule) => ({
+              id: rule.id,
+              active: rule.id === selectedRuleId,
+              enabled: rule.enabled,
+              name: rule.name || t("rulesPage.untitledRule"),
+              subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule)}`,
+              chipLabel: `${rule.priority}`,
+              onClick: () => selectRule(rule),
+            }))}
+          />
+        )}
+        editor={(
+          <Stack spacing={2}>
+            <RewriteEditorHeader
+              deletePending={deleteMutation.isPending}
+              draft={draft}
+              onChange={setDraft}
+              onDelete={handleDelete}
+              onSave={handleSave}
+              savePending={saveMutation.isPending}
+            />
+
+            {validationAttempted && errors.length > 0 && (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+                <Stack spacing={0.25}>
+                  {errors.map((err) => <Typography key={err} variant="body2">{err}</Typography>)}
+                </Stack>
+              </Alert>
+            )}
+
+            <Box
+              sx={{
+                display: "grid",
+                gap: 2,
+                gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
+              }}
+            >
+              <Stack spacing={2} minWidth={0}>
+                <RuleSection>
+                  <FieldGroup title="When">
+                    <TextField
+                      size="small"
+                      label={formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t)}
+                      value={draft.match.urlPattern}
+                      onChange={(e) => setDraft({ ...draft, match: { ...draft.match, urlPattern: e.target.value } })}
+                      placeholder={t("rulesPage.editor.urlPatternExample")}
+                      fullWidth
+                    />
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                          {httpMethodsLabel}
+                        </Typography>
+                        <Select
+                          displayEmpty
+                          multiple
+                          size="small"
+                          value={draft.match.methods}
+                          onChange={(e) => setDraft({ ...draft, match: { ...draft.match, methods: e.target.value as string[] } })}
+                          renderValue={(s) => (s.length === 0 ? t("rulesPage.allMethods") : s.join(", "))}
+                        >
+                          {HTTP_METHODS.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+                        </Select>
+                      </Stack>
+                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                          {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
+                        </Typography>
+                        <Select
+                          size="small"
+                          value={draft.match.stage}
+                          onChange={(e) => setDraft({ ...draft, match: { ...draft.match, stage: e.target.value as RuleMatch["stage"] } })}
+                        >
+                          <MenuItem value="either">{t("rulesPage.editor.matchStageEither")}</MenuItem>
+                          <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
+                          <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
+                        </Select>
+                      </Stack>
+                    </Stack>
+                  </FieldGroup>
+                </RuleSection>
+
+                <RuleSection>
+                  <FieldGroup title="Then">
+                    <ToggleButtonGroup
+                      exclusive
+                      fullWidth
+                      onChange={(_, value: RewriteRuleType | null) => {
+                        if (!value) return;
+                        const nextDraft = createEmptyRewriteRule(value);
+                        setDraft({ ...nextDraft, id: draft.id, name: draft.name, enabled: draft.enabled, priority: draft.priority, match: draft.match, ...(draft.note ? { note: draft.note } : {}) });
+                      }}
+                      size="small"
+                      value={draft.rewriteType}
+                    >
+                      <ToggleButton value="header">{getRewriteTypeLabel("header", t)}</ToggleButton>
+                      <ToggleButton value="query">{getRewriteTypeLabel("query", t)}</ToggleButton>
+                      <ToggleButton value="body">{getRewriteTypeLabel("body", t)}</ToggleButton>
+                      <ToggleButton value="redirect">{getRewriteTypeLabel("redirect", t)}</ToggleButton>
+                    </ToggleButtonGroup>
+                    <RewriteActionFields rule={draft} onChange={setDraft} />
+                  </FieldGroup>
+                </RuleSection>
+              </Stack>
+
+              <RewriteRuleTester
+                draft={draft}
+                testInput={testInput}
+                testResult={testResult}
+                onChange={setTestInput}
+              />
+            </Box>
+          </Stack>
+        )}
+      />
+
+      <Dialog fullWidth maxWidth="sm" open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)}>
+        <DialogTitle>{t("rulesPage.rewrite.templatesTitle")}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ pb: 1 }}>
             {templates.map((template) => (
               <Button
                 key={template.label}
@@ -348,129 +498,15 @@ export function RewriteRulesPanel() {
               </Button>
             ))}
           </Stack>
-        </Stack>
-      )}
-      list={(
-        <ManagedRuleList
-          emptyDescription={t("rulesPage.rewrite.emptyDescription")}
-          items={filteredRules.map((rule) => ({
-            id: rule.id,
-            active: rule.id === selectedRuleId,
-            enabled: rule.enabled,
-            name: rule.name || t("rulesPage.untitledRule"),
-            subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule)}`,
-            chipLabel: `${rule.priority}`,
-            onClick: () => selectRule(rule),
-          }))}
-        />
-      )}
-      editor={(
-        <Stack spacing={2}>
-          <RewriteEditorHeader
-            deletePending={deleteMutation.isPending}
-            draft={draft}
-            errors={errors}
-            onChange={setDraft}
-            onDelete={handleDelete}
-            onSave={handleSave}
-            savePending={saveMutation.isPending}
-          />
-
-          {errors.length > 0 && (
-            <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
-              <Stack spacing={0.25}>
-                {errors.map((err) => <Typography key={err} variant="body2">{err}</Typography>)}
-              </Stack>
-            </Alert>
-          )}
-
-          <Box
-            sx={{
-              display: "grid",
-              gap: 2,
-              gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
-            }}
-          >
-            <Stack spacing={2} minWidth={0}>
-              <RuleSection>
-                <FieldGroup title="When">
-                  <TextField
-                    size="small"
-                    label={t("rulesPage.editor.urlPattern")}
-                    value={draft.match.urlPattern}
-                    onChange={(e) => setDraft({ ...draft, match: { ...draft.match, urlPattern: e.target.value } })}
-                    placeholder={t("rulesPage.editor.urlPatternExample")}
-                    fullWidth
-                  />
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                    <FormControl size="small" fullWidth>
-                      <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>
-                      <Select
-                        multiple
-                        value={draft.match.methods}
-                        onChange={(e) => setDraft({ ...draft, match: { ...draft.match, methods: e.target.value as string[] } })}
-                        input={<OutlinedInput label={t("rulesPage.labels.httpMethods")} />}
-                        renderValue={(s) => (s.length === 0 ? t("rulesPage.allMethods") : s.join(", "))}
-                      >
-                        {HTTP_METHODS.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                    <FormControl size="small" sx={{ minWidth: 180 }}>
-                      <InputLabel>{t("rulesPage.editor.matchStage")}</InputLabel>
-                      <Select
-                        label={t("rulesPage.editor.matchStage")}
-                        value={draft.match.stage}
-                        onChange={(e) => setDraft({ ...draft, match: { ...draft.match, stage: e.target.value as RuleMatch["stage"] } })}
-                      >
-                        <MenuItem value="either">{t("rulesPage.editor.matchStageEither")}</MenuItem>
-                        <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
-                        <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Stack>
-                </FieldGroup>
-              </RuleSection>
-
-              <RuleSection>
-                <FieldGroup title="Then">
-                  <ToggleButtonGroup
-                    exclusive
-                    fullWidth
-                    onChange={(_, value: RewriteRuleType | null) => {
-                      if (!value) return;
-                      const nextDraft = createEmptyRewriteRule(value);
-                      setDraft({ ...nextDraft, id: draft.id, name: draft.name, enabled: draft.enabled, priority: draft.priority, match: draft.match, ...(draft.note ? { note: draft.note } : {}) });
-                    }}
-                    size="small"
-                    value={draft.rewriteType}
-                  >
-                    <ToggleButton value="header">{getRewriteTypeLabel("header", t)}</ToggleButton>
-                    <ToggleButton value="query">{getRewriteTypeLabel("query", t)}</ToggleButton>
-                    <ToggleButton value="body">{getRewriteTypeLabel("body", t)}</ToggleButton>
-                    <ToggleButton value="redirect">{getRewriteTypeLabel("redirect", t)}</ToggleButton>
-                  </ToggleButtonGroup>
-                  <RewriteActionFields rule={draft} onChange={setDraft} />
-                </FieldGroup>
-              </RuleSection>
-            </Stack>
-
-            <RewriteRuleTester
-              draft={draft}
-              testInput={testInput}
-              testResult={testResult}
-              onChange={setTestInput}
-            />
-          </Box>
-        </Stack>
-      )}
-    />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 function RewriteEditorHeader({
   deletePending,
   draft,
-  errors,
   onChange,
   onDelete,
   onSave,
@@ -478,7 +514,6 @@ function RewriteEditorHeader({
 }: {
   deletePending: boolean;
   draft: RewriteRule;
-  errors: string[];
   onChange: (rule: RewriteRule) => void;
   onDelete: () => void;
   onSave: () => void;
@@ -498,12 +533,25 @@ function RewriteEditorHeader({
       })}
     >
       <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} alignItems={{ xs: "stretch", md: "center" }}>
-        <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
+        <TextField
+          size="small"
+          label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
+          value={draft.name}
+          onChange={(e) => onChange({ ...draft, name: e.target.value })}
+          sx={{ flex: 1 }}
+        />
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
           <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
           <Switch size="small" checked={draft.enabled} onChange={(e) => onChange({ ...draft, enabled: e.target.checked })} />
         </Stack>
-        <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(e) => onChange({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: { xs: "100%", md: 116 } }} />
+        <TextField
+          size="small"
+          type="number"
+          label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
+          value={draft.priority}
+          onChange={(e) => onChange({ ...draft, priority: Number(e.target.value) || 0 })}
+          sx={{ width: { xs: "100%", md: 136 } }}
+        />
         <Tooltip title={t("common.actions.remove")}>
           <span>
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={onDelete} disabled={deletePending}>
@@ -511,7 +559,7 @@ function RewriteEditorHeader({
             </Button>
           </span>
         </Tooltip>
-        <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={onSave} disabled={errors.length > 0 || savePending}>
+        <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={onSave} disabled={savePending}>
           {t("rulesPage.editor.saveRule")}
         </Button>
       </Stack>
@@ -530,6 +578,11 @@ function RewriteRuleTester({
   testInput: RuleTestInput;
   testResult: { ok: boolean; reason: string };
 }) {
+  const { t } = useI18n();
+  const sampleUrlLabel = formatRuleFieldLabel("Sample URL", "optional", t);
+  const methodLabel = formatRuleFieldLabel("Method", "optional", t);
+  const stageLabel = formatRuleFieldLabel("Stage", "optional", t);
+
   return (
     <RuleSection>
       <FieldGroup title="Test">
@@ -538,21 +591,21 @@ function RewriteRuleTester({
           <Typography variant="body2" sx={{ fontWeight: 700 }}>Rule tester</Typography>
         </Stack>
         <TextField
-          label="Sample URL"
+          label={sampleUrlLabel}
           onChange={(e) => onChange({ ...testInput, url: e.target.value })}
           size="small"
           value={testInput.url}
         />
         <Stack direction="row" spacing={1}>
           <FormControl size="small" fullWidth>
-            <InputLabel>Method</InputLabel>
-            <Select label="Method" value={testInput.method} onChange={(e) => onChange({ ...testInput, method: e.target.value })}>
+            <InputLabel>{methodLabel}</InputLabel>
+            <Select label={methodLabel} value={testInput.method} onChange={(e) => onChange({ ...testInput, method: e.target.value })}>
               {HTTP_METHODS.map((method) => <MenuItem key={method} value={method}>{method}</MenuItem>)}
             </Select>
           </FormControl>
           <FormControl size="small" fullWidth>
-            <InputLabel>Stage</InputLabel>
-            <Select label="Stage" value={testInput.stage} onChange={(e) => onChange({ ...testInput, stage: e.target.value as RuleMatch["stage"] })}>
+            <InputLabel>{stageLabel}</InputLabel>
+            <Select label={stageLabel} value={testInput.stage} onChange={(e) => onChange({ ...testInput, stage: e.target.value as RuleMatch["stage"] })}>
               <MenuItem value="request">Request</MenuItem>
               <MenuItem value="response">Response</MenuItem>
             </Select>
@@ -572,70 +625,76 @@ function RewriteRuleTester({
 function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rule: RewriteRule }) {
   const { t } = useI18n();
   const { onChange, rule } = props;
+  const required = (label: string) => formatRuleFieldLabel(label, "required", t);
+  const optional = (label: string) => formatRuleFieldLabel(label, "optional", t);
 
   if (rule.rewriteType === "header") {
+    const targetLabel = required(t("rulesPage.rewrite.headerTarget"));
+    const operationLabel = required(t("rulesPage.rewrite.operation"));
     return (
       <Stack spacing={1.5}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <FormControl size="small" fullWidth>
-            <InputLabel>{t("rulesPage.rewrite.headerTarget")}</InputLabel>
-            <Select label={t("rulesPage.rewrite.headerTarget")} value={rule.payload.target} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, target: e.target.value as "request" | "response" } })}>
+            <InputLabel>{targetLabel}</InputLabel>
+            <Select label={targetLabel} value={rule.payload.target} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, target: e.target.value as "request" | "response" } })}>
               <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
               <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
             </Select>
           </FormControl>
           <FormControl size="small" fullWidth>
-            <InputLabel>{t("rulesPage.rewrite.operation")}</InputLabel>
-            <Select label={t("rulesPage.rewrite.operation")} value={rule.payload.operation} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, operation: e.target.value as "set" | "remove" } })}>
+            <InputLabel>{operationLabel}</InputLabel>
+            <Select label={operationLabel} value={rule.payload.operation} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, operation: e.target.value as "set" | "remove" } })}>
               <MenuItem value="set">{t("rulesPage.rewrite.operations.set")}</MenuItem>
               <MenuItem value="remove">{t("rulesPage.rewrite.operations.remove")}</MenuItem>
             </Select>
           </FormControl>
         </Stack>
-        <TextField size="small" label={t("rulesPage.rewrite.headerName")} value={rule.payload.headerName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })} placeholder={t("rulesPage.rewrite.headerNameExample")} />
+        <TextField size="small" label={required(t("rulesPage.rewrite.headerName"))} value={rule.payload.headerName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })} placeholder={t("rulesPage.rewrite.headerNameExample")} />
         {rule.payload.operation === "set" && (
-          <TextField size="small" label={t("rulesPage.rewrite.headerValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.headerValueExample")} />
+          <TextField size="small" label={required(t("rulesPage.rewrite.headerValue"))} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.headerValueExample")} />
         )}
       </Stack>
     );
   }
 
   if (rule.rewriteType === "query") {
+    const operationLabel = required(t("rulesPage.rewrite.operation"));
     return (
       <Stack spacing={1.5}>
         <FormControl size="small" fullWidth>
-          <InputLabel>{t("rulesPage.rewrite.operation")}</InputLabel>
-          <Select label={t("rulesPage.rewrite.operation")} value={rule.payload.operation} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, operation: e.target.value as "set" | "remove" } })}>
+          <InputLabel>{operationLabel}</InputLabel>
+          <Select label={operationLabel} value={rule.payload.operation} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, operation: e.target.value as "set" | "remove" } })}>
             <MenuItem value="set">{t("rulesPage.rewrite.operations.set")}</MenuItem>
             <MenuItem value="remove">{t("rulesPage.rewrite.operations.remove")}</MenuItem>
           </Select>
         </FormControl>
-        <TextField size="small" label={t("rulesPage.rewrite.queryName")} value={rule.payload.paramName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })} placeholder={t("rulesPage.rewrite.queryNameExample")} />
+        <TextField size="small" label={required(t("rulesPage.rewrite.queryName"))} value={rule.payload.paramName} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })} placeholder={t("rulesPage.rewrite.queryNameExample")} />
         {rule.payload.operation === "set" && (
-          <TextField size="small" label={t("rulesPage.rewrite.queryValue")} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.queryValueExample")} />
+          <TextField size="small" label={required(t("rulesPage.rewrite.queryValue"))} value={rule.payload.value ?? ""} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })} placeholder={t("rulesPage.rewrite.queryValueExample")} />
         )}
       </Stack>
     );
   }
 
   if (rule.rewriteType === "body") {
+    const targetLabel = required(t("rulesPage.rewrite.bodyTarget"));
     return (
       <Stack spacing={1.5}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <FormControl size="small" fullWidth>
-            <InputLabel>{t("rulesPage.rewrite.bodyTarget")}</InputLabel>
-            <Select label={t("rulesPage.rewrite.bodyTarget")} value={rule.payload.target} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, target: e.target.value as "request" | "response" } })}>
+            <InputLabel>{targetLabel}</InputLabel>
+            <Select label={targetLabel} value={rule.payload.target} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, target: e.target.value as "request" | "response" } })}>
               <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
               <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
             </Select>
           </FormControl>
-          <TextField size="small" label={t("rulesPage.rewrite.contentType")} value={rule.payload.contentType} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, contentType: e.target.value } })} />
+          <TextField size="small" label={optional(t("rulesPage.rewrite.contentType"))} value={rule.payload.contentType} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, contentType: e.target.value } })} />
         </Stack>
         <TextField
           size="small"
           multiline
           minRows={6}
-          label={t("rulesPage.rewrite.bodyText")}
+          label={required(t("rulesPage.rewrite.bodyText"))}
           value={rule.payload.text}
           onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, text: e.target.value } })}
           sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
@@ -646,7 +705,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
 
   return (
     <Stack spacing={1.5}>
-      <TextField size="small" label={t("rulesPage.rewrite.redirectTarget")} value={rule.payload.targetUrl} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })} placeholder={t("rulesPage.rewrite.redirectTargetExample")} />
+      <TextField size="small" label={required(t("rulesPage.rewrite.redirectTarget"))} value={rule.payload.targetUrl} onChange={(e) => onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })} placeholder={t("rulesPage.rewrite.redirectTargetExample")} />
       <Stack direction="row" spacing={2}>
         <InlineSwitch label={t("rulesPage.rewrite.preservePath")} checked={rule.payload.preservePath} onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preservePath: v } })} />
         <InlineSwitch label={t("rulesPage.rewrite.preserveQuery")} checked={rule.payload.preserveQuery} onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preserveQuery: v } })} />

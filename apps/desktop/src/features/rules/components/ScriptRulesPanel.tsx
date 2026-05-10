@@ -5,8 +5,6 @@ import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import {
   Alert,
   Button,
-  FormControl,
-  InputLabel,
   MenuItem,
   Select,
   Stack,
@@ -18,7 +16,13 @@ import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
 
-import { FieldGroup, ManagedRuleList, ManagedRulesWorkbench, RuleSection } from "@/features/rules/components/RulesSharedUi";
+import {
+  FieldGroup,
+  formatRuleFieldLabel,
+  ManagedRuleList,
+  ManagedRulesWorkbench,
+  RuleSection,
+} from "@/features/rules/components/RulesSharedUi";
 import {
   createEmptyScriptRule,
   formatRuleMatch,
@@ -69,6 +73,7 @@ export function ScriptRulesPanel() {
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
   const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
+  const [validationAttempted, setValidationAttempted] = useState(false);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -86,14 +91,17 @@ export function ScriptRulesPanel() {
     if (next) {
       setSelectedRuleId(next.id);
       setDraft(next);
+      setValidationAttempted(false);
       return;
     }
     setSelectedRuleId(undefined);
+    setValidationAttempted(false);
   }, [filteredRules, rules, selectedRuleId]);
 
   function selectRule(rule: ScriptRule) {
     setSelectedRuleId(rule.id);
     setDraft(rule);
+    setValidationAttempted(false);
   }
 
   function handleCreate(template?: "header" | "mock" | "extract") {
@@ -113,6 +121,7 @@ export function ScriptRulesPanel() {
     }
     setSelectedRuleId(next.id);
     setDraft(next);
+    setValidationAttempted(false);
   }
 
   async function handleImportFile() {
@@ -143,10 +152,13 @@ export function ScriptRulesPanel() {
   }
 
   function handleSave() {
+    setValidationAttempted(true);
+    if (errors.length > 0) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
         setSelectedRuleId(saved.id);
         setDraft(saved);
+        setValidationAttempted(false);
       },
     });
   }
@@ -155,6 +167,7 @@ export function ScriptRulesPanel() {
     if (!selectedRuleId || !rules.some((rule) => rule.id === selectedRuleId)) {
       setSelectedRuleId(undefined);
       setDraft(createEmptyScriptRule());
+      setValidationAttempted(false);
       return;
     }
     deleteMutation.mutate(
@@ -163,6 +176,7 @@ export function ScriptRulesPanel() {
         onSuccess: () => {
           setSelectedRuleId(undefined);
           setDraft(createEmptyScriptRule());
+          setValidationAttempted(false);
         },
       },
     );
@@ -217,21 +231,21 @@ export function ScriptRulesPanel() {
             alignItems={{ xs: "stretch", md: "center" }}
             sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
           >
-            <TextField size="small" label={t("rulesPage.editor.ruleName")} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
+            <TextField size="small" label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
               <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
               <Switch size="small" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
             </Stack>
-            <TextField size="small" type="number" label={t("rulesPage.editor.priority")} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) || 0 })} sx={{ width: { xs: "100%", md: 116 } }} />
+            <TextField size="small" type="number" label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) || 0 })} sx={{ width: { xs: "100%", md: 136 } }} />
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
               {t("common.actions.remove")}
             </Button>
-            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={errors.length > 0 || saveMutation.isPending}>
+            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={saveMutation.isPending}>
               {t("rulesPage.editor.saveRule")}
             </Button>
           </Stack>
 
-          {errors.length > 0 && (
+          {validationAttempted && errors.length > 0 && (
             <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
               <Stack spacing={0.25}>
                 {errors.map((error) => <Typography key={error} variant="body2">{error}</Typography>)}
@@ -249,31 +263,36 @@ export function ScriptRulesPanel() {
             <FieldGroup title={t("rulesPage.editor.matchTitle")}>
               <TextField
                 size="small"
-                label={t("rulesPage.editor.urlPattern")}
+                label={formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t)}
                 value={draft.match.urlPattern}
                 onChange={(event) => setDraft({ ...draft, match: { ...draft.match, urlPattern: event.target.value } })}
                 placeholder={t("rulesPage.editor.urlPatternExample")}
                 fullWidth
               />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>{t("rulesPage.labels.httpMethods")}</InputLabel>
+                <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                    {formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t)}
+                  </Typography>
                   <Select
+                    displayEmpty
                     multiple
+                    size="small"
                     value={draft.match.methods}
                     onChange={(event) => setDraft({ ...draft, match: { ...draft.match, methods: event.target.value as string[] } })}
-                    label={t("rulesPage.labels.httpMethods")}
                     renderValue={(selected) => (selected.length === 0 ? t("rulesPage.allMethods") : selected.join(", "))}
                   >
                     {HTTP_METHODS.map((method) => (
                       <MenuItem key={method} value={method}>{method}</MenuItem>
                     ))}
                   </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>{t("rulesPage.editor.matchStage")}</InputLabel>
+                </Stack>
+                <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                    {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
+                  </Typography>
                   <Select
-                    label={t("rulesPage.editor.matchStage")}
+                    size="small"
                     value={draft.match.stage}
                     onChange={(event) => setDraft({ ...draft, match: { ...draft.match, stage: event.target.value as RuleMatch["stage"] } })}
                   >
@@ -281,18 +300,20 @@ export function ScriptRulesPanel() {
                     <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
                     <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
                   </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 180 }}>
-                  <InputLabel>{t("rulesPage.script.language")}</InputLabel>
+                </Stack>
+                <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                    {formatRuleFieldLabel(t("rulesPage.script.language"), "required", t)}
+                  </Typography>
                   <Select
-                    label={t("rulesPage.script.language")}
+                    size="small"
                     value={draft.language}
                     onChange={(event) => setDraft({ ...draft, language: event.target.value as ScriptRule["language"] })}
                   >
                     <MenuItem value="typescript">TypeScript</MenuItem>
                     <MenuItem value="javascript">JavaScript</MenuItem>
                   </Select>
-                </FormControl>
+                </Stack>
               </Stack>
               {draft.sourcePath && (
                 <Typography color="text.secondary" variant="caption">
@@ -308,7 +329,7 @@ export function ScriptRulesPanel() {
                 size="small"
                 multiline
                 minRows={14}
-                label={t("rulesPage.script.sourceCode")}
+                label={formatRuleFieldLabel(t("rulesPage.script.sourceCode"), "required", t)}
                 value={draft.sourceCode}
                 onChange={(event) => setDraft({ ...draft, sourceCode: event.target.value, sourceType: "inline" })}
                 sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
