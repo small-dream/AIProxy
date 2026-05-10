@@ -624,7 +624,22 @@ export function AppShell() {
           <Outlet context={{ setHeaderActions }} />
         </Box>
 
-        {pendingBreakpointCount > 0 && <BreakpointInterceptPanel />}
+        <Box
+          sx={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            height: "calc(100% - 40px)",
+            width: "calc(100% - 420px)",
+            minWidth: 640,
+            zIndex: (theme) => theme.zIndex.drawer,
+            transition: "transform 300ms ease",
+            transform: pendingBreakpointCount > 0 ? "translateX(0)" : "translateX(100%)",
+            pointerEvents: pendingBreakpointCount > 0 ? "auto" : "none",
+          }}
+        >
+          {pendingBreakpointCount > 0 && <BreakpointInterceptPanel />}
+        </Box>
 
         <AppShellStatusBar
           certificateStatus={certificateStatus}

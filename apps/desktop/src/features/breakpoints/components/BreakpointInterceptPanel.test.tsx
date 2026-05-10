@@ -62,12 +62,12 @@ describe("BreakpointInterceptPanel", () => {
     renderPanel();
 
     expect(screen.getByText("POST")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Request" })).toBeInTheDocument();
+    expect(screen.getByText("Request")).toBeInTheDocument();
     expect(screen.getByText("pb.photoaffections.com")).toBeInTheDocument();
     expect(screen.getByText("/api/?_method=app.launch&_app=Android-PBUS-3.14.0")).toBeInTheDocument();
     expect(screen.getByText("1 / 1")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Query" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Query" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Query (2)" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Response Status" })).toBeDisabled();
     expect(screen.getByText("2 params")).toBeInTheDocument();
   });
@@ -110,13 +110,15 @@ describe("BreakpointInterceptPanel", () => {
       stage: "response",
     }));
 
-    fireEvent.click(screen.getByRole("tab", { name: "Response Status" }));
-    fireEvent.change(screen.getByLabelText("Response Status"), { target: { value: "418" } });
-    fireEvent.click(screen.getByRole("tab", { name: "Response Headers (1)" }));
-    fireEvent.change(screen.getByDisplayValue("Content-Type"), { target: { value: "X-Response" } });
-    fireEvent.change(screen.getByDisplayValue("application/json"), { target: { value: "changed" } });
-    fireEvent.click(screen.getByRole("tab", { name: "Response Body" }));
-    fireEvent.change(screen.getByLabelText("Response Body"), { target: { value: "{\"changed\":true}" } });
+    const responsePane = screen.getByTestId("breakpoint-response-pane");
+
+    fireEvent.click(within(responsePane).getByRole("tab", { name: "Response Status" }));
+    fireEvent.change(within(responsePane).getByLabelText("Response Status"), { target: { value: "418" } });
+    fireEvent.click(within(responsePane).getByRole("tab", { name: "Response Headers (1)" }));
+    fireEvent.change(within(responsePane).getByDisplayValue("Content-Type"), { target: { value: "X-Response" } });
+    fireEvent.change(within(responsePane).getByDisplayValue("application/json"), { target: { value: "changed" } });
+    fireEvent.click(within(responsePane).getByRole("tab", { name: "Response Body" }));
+    fireEvent.change(within(responsePane).getByLabelText("Response Body"), { target: { value: "{\"changed\":true}" } });
     fireEvent.click(screen.getByRole("button", { name: "Forward" }));
 
     await waitFor(() => {
@@ -138,8 +140,9 @@ describe("BreakpointInterceptPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mock Response" }));
 
     expect(screen.getByText("Mock mode")).toBeInTheDocument();
-    const responsePanel = screen.getByRole("tabpanel", { name: "Response Body" });
-    fireEvent.change(within(responsePanel).getByLabelText("Response Body"), { target: { value: "{\"ok\":true}" } });
+
+    const responsePane = screen.getByTestId("breakpoint-response-pane");
+    fireEvent.change(within(responsePane).getByLabelText("Response Body"), { target: { value: "{\"ok\":true}" } });
     fireEvent.click(screen.getByRole("button", { name: "Send Mock" }));
 
     await waitFor(() => {

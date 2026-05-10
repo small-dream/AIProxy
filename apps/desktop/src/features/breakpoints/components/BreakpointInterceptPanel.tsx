@@ -1,28 +1,23 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import NavigateBeforeRoundedIcon from "@mui/icons-material/NavigateBeforeRounded";
 import NavigateNextRoundedIcon from "@mui/icons-material/NavigateNextRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import { Box, Button, Chip, Divider, IconButton, OutlinedInput, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import type { BreakpointHit, BreakpointResolution, HeaderEntry } from "@aiproxy/shared-types";
 import { useCallback, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { resolveBreakpoint } from "@/services/commands";
 import { fontFamilies } from "@/themes/fonts";
+import { inspectorTabsSx } from "@/features/sessions/components/SessionInspectorShared";
 
 import { useBreakpointStore } from "../breakpoint.store";
 
-type BreakpointPanelTab =
-  | "requestQuery"
-  | "requestHeaders"
-  | "requestBody"
-  | "responseStatus"
-  | "responseHeaders"
-  | "responseBody"
-  | "raw";
+type BreakpointRequestTab = "query" | "headers" | "body" | "raw";
+type BreakpointResponseTab = "status" | "headers" | "body" | "raw";
 
 function formatCount(count: number, one: string, many: string) {
   return count === 1 ? one : many;
@@ -114,7 +109,7 @@ function HeaderEditor({
           + {addLabel}
         </Button>
       </Stack>
-      <Stack spacing={0.5} sx={{ maxHeight: 214, overflow: "auto", p: 0.75 }}>
+      <Stack spacing={0.5} sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 0.75 }}>
         {headers.length === 0 ? (
           <Typography color="text.secondary" sx={{ px: 0.5, py: 1.25, fontSize: 12 }}>
             {noHeadersLabel}
@@ -164,6 +159,7 @@ function HeaderEditor({
 function BodyEditor({
   metadata,
   label,
+  inputAriaLabel,
   readOnly = false,
   regionLabel,
   text,
@@ -171,6 +167,7 @@ function BodyEditor({
 }: {
   metadata: string;
   label: string;
+  inputAriaLabel?: string;
   readOnly?: boolean;
   regionLabel: string;
   text: string;
@@ -182,36 +179,38 @@ function BodyEditor({
       component="section"
       role="region"
       variant="outlined"
-      sx={{ borderRadius: 1, minHeight: 0, overflow: "hidden" }}
+      sx={{ borderRadius: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1 }}
     >
       <Stack
         alignItems="center"
         direction="row"
         spacing={1}
-        sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover" }}
+        sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover", flexShrink: 0 }}
       >
         <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{label}</Typography>
         <Typography color="text.secondary" sx={{ fontSize: 11 }}>
           {metadata}
         </Typography>
       </Stack>
-      <Box sx={{ p: 0.75 }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 0.75 }}>
         <OutlinedInput
           fullWidth
-          inputProps={{ "aria-label": label, readOnly }}
+          inputProps={{ "aria-label": inputAriaLabel ?? label, readOnly }}
           multiline
-          minRows={10}
-          maxRows={10}
+          minRows={6}
+          maxRows={30}
           value={text}
           onChange={(e) => onChange(e.target.value)}
           sx={{
             alignItems: "flex-start",
             fontFamily: fontFamilies.mono,
             fontSize: 12,
+            height: "100%",
             "& .MuiOutlinedInput-input": {
-              height: "240px !important",
+              height: "100% !important",
               lineHeight: 1.55,
               overflow: "auto !important",
+              resize: "none",
             },
           }}
         />
@@ -246,7 +245,8 @@ export function BreakpointInterceptPanel() {
   const setActiveHitId = useBreakpointStore((s) => s.setActiveHitId);
   const removePendingHit = useBreakpointStore((s) => s.removePendingHit);
 
-  const [tab, setTab] = useState<BreakpointPanelTab>("requestQuery");
+  const [requestTab, setRequestTab] = useState<BreakpointRequestTab>("query");
+  const [responseTab, setResponseTab] = useState<BreakpointResponseTab>("status");
   const [mockMode, setMockMode] = useState(false);
   const [mockStatusCode, setMockStatusCode] = useState("200");
   const [mockHeaders, setMockHeaders] = useState<HeaderEntry[]>([
@@ -283,7 +283,8 @@ export function BreakpointInterceptPanel() {
         setEditedRespStatusCode(null);
         setEditedRespHeaders(null);
         setEditedRespBody(null);
-        setTab("requestQuery");
+        setRequestTab("query");
+        setResponseTab("status");
       }
     },
     [activeIdx, totalCount, pendingHits, setActiveHitId],
@@ -398,28 +399,45 @@ export function BreakpointInterceptPanel() {
       );
   const rawRequestText = buildRawRequestText(activeHit, reqHeaders, reqBody, reqQueryParams);
   const rawResponseText = buildRawResponseText(mockMode ? mockStatusCode : respStatusCode, mockMode ? mockHeaders : respHeaders, mockMode ? mockBody : respBody);
-  const rawText = tab === "raw" && (!isRequestStage || mockMode) ? `${rawRequestText}\r\n\r\n${rawResponseText}` : rawRequestText;
-  const tabSx = { minHeight: 36, fontSize: 12 };
+  const rawRequestOnlyText = !isRequestStage || mockMode
+    ? `${rawRequestText}\r\n\r\n${rawResponseText}`
+    : rawRequestText;
   const responseTabsDisabled = isRequestStage && !mockMode;
+
+  // Request pane tab labels
+  const requestTabLabels = {
+    query: `${t("breakpointPanel.query")} (${reqQueryParams.length})`,
+    headers: `${t("breakpointPanel.requestHeaders")} (${reqHeaders.length})`,
+    body: t("breakpointPanel.requestBody"),
+    raw: t("breakpointPanel.raw"),
+  };
+
+  // Response pane tab labels
+  const responseTabLabels = {
+    status: t("breakpointPanel.responseStatus"),
+    headers: `${t("breakpointPanel.responseHeaders")} (${mockMode ? mockHeaders.length : respHeaders.length})`,
+    body: t("breakpointPanel.responseBody"),
+    raw: t("breakpointPanel.raw"),
+  };
 
   return (
     <Paper
       elevation={8}
       sx={{
-        borderTop: 2,
+        borderLeft: 2,
         borderColor: "warning.main",
         display: "flex",
         flexDirection: "column",
-        maxHeight: "62vh",
-        flexShrink: 0,
+        height: "100%",
         overflow: "hidden",
       }}
     >
+      {/* Top summary bar */}
       <Stack
         alignItems="center"
         direction="row"
         spacing={1}
-        sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: "divider", minWidth: 0 }}
+        sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: "divider", minWidth: 0, flexShrink: 0 }}
       >
         <Chip
           label={activeHit.method}
@@ -476,143 +494,252 @@ export function BreakpointInterceptPanel() {
         </Stack>
       </Stack>
 
-      <Tabs
-        value={tab}
-        onChange={(_, v) => setTab(v)}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{ minHeight: 36, borderBottom: 1, borderColor: "divider", px: 1 }}
+      {/* 2-pane grid: Request (top) + Response (bottom) */}
+      <Box
+        sx={{
+          display: "grid",
+          flex: 1,
+          gridTemplateRows: "1fr 8px 1fr",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
       >
-        <Tab value="requestQuery" label={t("breakpointPanel.query")} icon={<CodeRoundedIcon />} iconPosition="start" sx={tabSx} />
-        <Tab value="requestHeaders" label={`${t("breakpointPanel.requestHeaders")} (${reqHeaders.length})`} sx={tabSx} />
-        <Tab value="requestBody" label={t("breakpointPanel.requestBody")} sx={tabSx} />
-        <Tab value="responseStatus" label={t("breakpointPanel.responseStatus")} icon={<RuleRoundedIcon />} iconPosition="start" sx={tabSx} disabled={responseTabsDisabled} />
-        <Tab
-          value="responseHeaders"
-          label={`${t("breakpointPanel.responseHeaders")} (${mockMode ? mockHeaders.length : respHeaders.length})`}
-          sx={tabSx}
-          disabled={responseTabsDisabled}
-        />
-        <Tab value="responseBody" label={t("breakpointPanel.responseBody")} sx={tabSx} disabled={responseTabsDisabled} />
-        <Tab value="raw" label={t("breakpointPanel.raw")} sx={tabSx} />
-      </Tabs>
+        {/* Request Pane */}
+        <Box
+          sx={{
+            minHeight: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <Box sx={(theme) => ({
+            alignItems: "center",
+            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
+            display: "flex",
+            minHeight: 36,
+            pr: 0.75,
+            borderBottom: 1,
+            borderColor: "divider",
+          })}>
+            <Tabs
+              value={requestTab}
+              onChange={(_, v) => setRequestTab(v as BreakpointRequestTab)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={inspectorTabsSx}
+            >
+              <Tab value="query" label={requestTabLabels.query} />
+              <Tab value="headers" label={requestTabLabels.headers} />
+              <Tab value="body" label={requestTabLabels.body} />
+              <Tab value="raw" label={requestTabLabels.raw} />
+            </Tabs>
+          </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", px: 2, py: 1.5 }}>
-        {tab === "requestQuery" && (
-          <Box aria-label={t("breakpointPanel.query")} role="tabpanel">
-            <HeaderEditor
-              addLabel={t("breakpointPanel.addQuery")}
-              countLabel={queryCount}
-              headers={reqQueryParams}
-              namePlaceholder={t("common.placeholders.name")}
-              noHeadersLabel={t("breakpointPanel.noQueryParams")}
-              onChange={(h) => setEditedReqQueryParams(h)}
-              removeLabel={t("breakpointPanel.removeQuery")}
-              title={t("breakpointPanel.query")}
-              valuePlaceholder={t("common.placeholders.value")}
-            />
-          </Box>
-        )}
-        {tab === "requestHeaders" && (
-          <Box aria-label={t("breakpointPanel.requestHeaders")} role="tabpanel">
-            <HeaderEditor
-              addLabel={t("common.actions.addHeader")}
-              countLabel={requestHeaderCount}
-              headers={reqHeaders}
-              namePlaceholder={t("common.placeholders.name")}
-              noHeadersLabel={t("breakpointPanel.noHeaders")}
-              onChange={(h) => setEditedReqHeaders(h)}
-              removeLabel={t("breakpointPanel.removeHeader")}
-              title={t("breakpointPanel.requestHeaders")}
-              valuePlaceholder={t("common.placeholders.value")}
-            />
-          </Box>
-        )}
-        {tab === "requestBody" && (
-          <Box aria-label={t("breakpointPanel.requestBody")} role="tabpanel">
-            <BodyEditor
-              metadata={requestBodyMeta}
-              label={t("breakpointPanel.requestBody")}
-              regionLabel={t("breakpointPanel.body")}
-              text={reqBody}
-              onChange={(t) => setEditedReqBody(t)}
-            />
-          </Box>
-        )}
-        {tab === "responseStatus" && (
-          <Box aria-label={t("breakpointPanel.responseStatus")} role="tabpanel">
-            <Paper variant="outlined" sx={{ borderRadius: 1, overflow: "hidden" }}>
-              <Stack
-                alignItems="center"
-                direction="row"
-                spacing={1}
-                sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover" }}
-              >
-                <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{t("breakpointPanel.responseStatus")}</Typography>
-              </Stack>
-              <Box sx={{ p: 1.25 }}>
-                <OutlinedInput
-                  inputProps={{ "aria-label": t("breakpointPanel.responseStatus"), min: 100, max: 599 }}
-                  size="small"
-                  type="number"
-                  value={mockMode ? mockStatusCode : respStatusCode}
-                  onChange={(e) => (mockMode ? setMockStatusCode(e.target.value) : setEditedRespStatusCode(e.target.value))}
-                  sx={{ width: 112, fontFamily: fontFamilies.mono, fontSize: 12 }}
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
+            {requestTab === "query" && (
+              <Box aria-label={t("breakpointPanel.query")} role="tabpanel">
+                <HeaderEditor
+                  addLabel={t("breakpointPanel.addQuery")}
+                  countLabel={queryCount}
+                  headers={reqQueryParams}
+                  namePlaceholder={t("common.placeholders.name")}
+                  noHeadersLabel={t("breakpointPanel.noQueryParams")}
+                  onChange={(h) => setEditedReqQueryParams(h)}
+                  removeLabel={t("breakpointPanel.removeQuery")}
+                  title={t("breakpointPanel.query")}
+                  valuePlaceholder={t("common.placeholders.value")}
                 />
               </Box>
-            </Paper>
+            )}
+            {requestTab === "headers" && (
+              <Box aria-label={t("breakpointPanel.requestHeaders")} role="tabpanel">
+                <HeaderEditor
+                  addLabel={t("common.actions.addHeader")}
+                  countLabel={requestHeaderCount}
+                  headers={reqHeaders}
+                  namePlaceholder={t("common.placeholders.name")}
+                  noHeadersLabel={t("breakpointPanel.noHeaders")}
+                  onChange={(h) => setEditedReqHeaders(h)}
+                  removeLabel={t("breakpointPanel.removeHeader")}
+                  title={t("breakpointPanel.requestHeaders")}
+                  valuePlaceholder={t("common.placeholders.value")}
+                />
+              </Box>
+            )}
+            {requestTab === "body" && (
+              <Box role="tabpanel" sx={{ height: "100%" }}>
+                <BodyEditor
+                  metadata={requestBodyMeta}
+                  label={t("breakpointPanel.requestBody")}
+                  regionLabel={t("breakpointPanel.body")}
+                  text={reqBody}
+                  onChange={(t) => setEditedReqBody(t)}
+                />
+              </Box>
+            )}
+            {requestTab === "raw" && (
+              <Box aria-label={t("breakpointPanel.raw")} role="tabpanel" sx={{ height: "100%" }}>
+                <BodyEditor
+                  metadata={formatCount(
+                    rawRequestText.length,
+                    t("breakpointPanel.characterCountOne", { count: rawRequestText.length }),
+                    t("breakpointPanel.characterCountMany", { count: rawRequestText.length }),
+                  )}
+                  label={t("breakpointPanel.rawRequest")}
+                  readOnly
+                  regionLabel={t("breakpointPanel.raw")}
+                  text={rawRequestText}
+                  onChange={() => undefined}
+                />
+              </Box>
+            )}
           </Box>
-        )}
-        {tab === "responseHeaders" && (
-          <Box aria-label={t("breakpointPanel.responseHeaders")} role="tabpanel">
-            <HeaderEditor
-              addLabel={t("common.actions.addHeader")}
-              countLabel={mockMode ? mockHeaderCount : responseHeaderCount}
-              headers={mockMode ? mockHeaders : respHeaders}
-              namePlaceholder={t("common.placeholders.name")}
-              noHeadersLabel={t("breakpointPanel.noHeaders")}
-              onChange={mockMode ? setMockHeaders : (h) => setEditedRespHeaders(h)}
-              removeLabel={t("breakpointPanel.removeHeader")}
-              title={t("breakpointPanel.responseHeaders")}
-              valuePlaceholder={t("common.placeholders.value")}
-            />
+        </Box>
+
+        {/* Horizontal splitter */}
+        <Box
+          aria-hidden
+          sx={{
+            alignItems: "center",
+            cursor: "row-resize",
+            display: "flex",
+            justifyContent: "center",
+            minHeight: 0,
+            position: "relative",
+            touchAction: "none",
+            userSelect: "none",
+            "&::before": {
+              bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
+              borderRadius: 999,
+              content: '""',
+              height: 1,
+              opacity: 0.7,
+              transition: "background-color 120ms ease, opacity 120ms ease",
+              width: "100%",
+            },
+            "&:hover::before": {
+              bgcolor: "primary.main",
+              opacity: 1,
+            },
+          }}
+        />
+
+        {/* Response Pane */}
+        <Box
+          data-testid="breakpoint-response-pane"
+          sx={{
+            minHeight: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            ...(responseTabsDisabled ? {
+              opacity: 0.5,
+              pointerEvents: "none",
+            } : {}),
+          }}
+        >
+          <Box sx={(theme) => ({
+            alignItems: "center",
+            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
+            display: "flex",
+            minHeight: 36,
+            pr: 0.75,
+            borderBottom: 1,
+            borderColor: "divider",
+          })}>
+            <Tabs
+              value={responseTab}
+              onChange={(_, v) => setResponseTab(v as BreakpointResponseTab)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={inspectorTabsSx}
+            >
+              <Tab value="status" label={responseTabLabels.status} icon={<RuleRoundedIcon />} iconPosition="start" disabled={responseTabsDisabled} />
+              <Tab value="headers" label={responseTabLabels.headers} disabled={responseTabsDisabled} />
+              <Tab value="body" label={responseTabLabels.body} disabled={responseTabsDisabled} />
+              <Tab value="raw" label={responseTabLabels.raw} disabled={responseTabsDisabled} />
+            </Tabs>
           </Box>
-        )}
-        {tab === "responseBody" && (
-          <Box aria-label={t("breakpointPanel.responseBody")} role="tabpanel">
-            <BodyEditor
-              metadata={mockMode ? mockBodyMeta : responseBodyMeta}
-              label={t("breakpointPanel.responseBody")}
-              regionLabel={t("breakpointPanel.body")}
-              text={mockMode ? mockBody : respBody}
-              onChange={mockMode ? setMockBody : (t) => setEditedRespBody(t)}
-            />
+
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
+            {responseTab === "status" && (
+              <Box role="tabpanel">
+                <Paper variant="outlined" sx={{ borderRadius: 1, overflow: "hidden" }}>
+                  <Stack
+                    alignItems="center"
+                    direction="row"
+                    spacing={1}
+                    sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover" }}
+                  >
+                    <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{t("breakpointPanel.responseStatus")}</Typography>
+                  </Stack>
+                  <Box sx={{ p: 1.25 }}>
+                    <OutlinedInput
+                      inputProps={{ "aria-label": t("breakpointPanel.responseStatus"), min: 100, max: 599 }}
+                      size="small"
+                      type="number"
+                      value={mockMode ? mockStatusCode : respStatusCode}
+                      onChange={(e) => (mockMode ? setMockStatusCode(e.target.value) : setEditedRespStatusCode(e.target.value))}
+                      sx={{ width: 112, fontFamily: fontFamilies.mono, fontSize: 12 }}
+                    />
+                  </Box>
+                </Paper>
+              </Box>
+            )}
+            {responseTab === "headers" && (
+              <Box aria-label={t("breakpointPanel.responseHeaders")} role="tabpanel">
+                <HeaderEditor
+                  addLabel={t("common.actions.addHeader")}
+                  countLabel={mockMode ? mockHeaderCount : responseHeaderCount}
+                  headers={mockMode ? mockHeaders : respHeaders}
+                  namePlaceholder={t("common.placeholders.name")}
+                  noHeadersLabel={t("breakpointPanel.noHeaders")}
+                  onChange={mockMode ? setMockHeaders : (h) => setEditedRespHeaders(h)}
+                  removeLabel={t("breakpointPanel.removeHeader")}
+                  title={t("breakpointPanel.responseHeaders")}
+                  valuePlaceholder={t("common.placeholders.value")}
+                />
+              </Box>
+            )}
+            {responseTab === "body" && (
+              <Box role="tabpanel" sx={{ height: "100%" }}>
+                <BodyEditor
+                  metadata={mockMode ? mockBodyMeta : responseBodyMeta}
+                  label={t("breakpointPanel.responseBody")}
+                  regionLabel={t("breakpointPanel.body")}
+                  text={mockMode ? mockBody : respBody}
+                  onChange={mockMode ? setMockBody : (t) => setEditedRespBody(t)}
+                />
+              </Box>
+            )}
+            {responseTab === "raw" && (
+              <Box aria-label={t("breakpointPanel.raw")} role="tabpanel" sx={{ height: "100%" }}>
+                <BodyEditor
+                  metadata={formatCount(
+                    rawResponseText.length,
+                    t("breakpointPanel.characterCountOne", { count: rawResponseText.length }),
+                    t("breakpointPanel.characterCountMany", { count: rawResponseText.length }),
+                  )}
+                  label={mockMode || !isRequestStage ? t("breakpointPanel.rawExchange") : t("breakpointPanel.rawRequest")}
+                  readOnly
+                  regionLabel={t("breakpointPanel.raw")}
+                  text={rawRequestOnlyText}
+                  onChange={() => undefined}
+                />
+              </Box>
+            )}
           </Box>
-        )}
-        {tab === "raw" && (
-          <Box aria-label={t("breakpointPanel.raw")} role="tabpanel">
-            <BodyEditor
-              metadata={formatCount(
-                rawText.length,
-                t("breakpointPanel.characterCountOne", { count: rawText.length }),
-                t("breakpointPanel.characterCountMany", { count: rawText.length }),
-              )}
-              label={mockMode || !isRequestStage ? t("breakpointPanel.rawExchange") : t("breakpointPanel.rawRequest")}
-              readOnly
-              regionLabel={t("breakpointPanel.raw")}
-              text={rawText}
-              onChange={() => undefined}
-            />
-          </Box>
-        )}
+        </Box>
       </Box>
 
       <Divider />
 
+      {/* Bottom action bar */}
       <Stack
         direction="row"
         spacing={1}
-        sx={{ px: 2, py: 1, alignItems: "center", justifyContent: "space-between", bgcolor: "action.hover" }}
+        sx={{ px: 2, py: 1, alignItems: "center", justifyContent: "space-between", bgcolor: "action.hover", flexShrink: 0 }}
       >
         <Box>
           {isRequestStage && !mockMode && (
@@ -622,7 +749,7 @@ export function BreakpointInterceptPanel() {
               color="warning"
               onClick={() => {
                 setMockMode(true);
-                setTab("responseBody");
+                setResponseTab("body");
               }}
               sx={{ fontSize: 12 }}
             >
