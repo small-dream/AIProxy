@@ -83,6 +83,59 @@ pub struct ThrottleProfileData {
     pub workspace_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleRuleData {
+    pub id: String,
+    pub enabled: bool,
+    pub methods: Vec<String>,
+    pub name: String,
+    pub note: Option<String>,
+    pub priority: u32,
+    pub profile_id: String,
+    pub stage: String,
+    pub url_pattern: String,
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleTrace {
+    pub body_bytes: usize,
+    pub delay_ms: u64,
+    pub latency_ms: u64,
+    pub message: Option<String>,
+    pub outcome: String,
+    pub profile_id: String,
+    pub profile_name: String,
+    pub rule_id: Option<String>,
+    pub rule_name: Option<String>,
+    pub sequence: u32,
+    pub stage: String,
+    pub transfer_delay_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleRuntimeStats {
+    pub dropped_requests: u64,
+    pub matched_requests: u64,
+    pub request_delay_ms: u64,
+    pub response_delay_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ThrottleRuntimeSelection {
+    pub(crate) profile: ThrottleProfileData,
+    pub(crate) rule: Option<ThrottleRuleData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThrottleFailure {
+    pub(crate) error: String,
+    pub(crate) trace: ThrottleTrace,
+}
+
 /// Manages rewrite rules in memory.
 pub struct RewriteManager {
     rules: Mutex<Vec<RewriteRule>>,
@@ -188,6 +241,8 @@ impl MapManager {
 /// Manages throttle profiles in memory.
 pub struct ThrottleManager {
     profiles: Mutex<Vec<ThrottleProfileData>>,
+    rules: Mutex<Vec<ThrottleRuleData>>,
+    stats: Mutex<ThrottleRuntimeStats>,
 }
 
 impl std::fmt::Debug for ThrottleManager {
@@ -208,6 +263,13 @@ impl ThrottleManager {
     pub fn new() -> Self {
         Self {
             profiles: Mutex::new(Vec::new()),
+            rules: Mutex::new(Vec::new()),
+            stats: Mutex::new(ThrottleRuntimeStats {
+                dropped_requests: 0,
+                matched_requests: 0,
+                request_delay_ms: 0,
+                response_delay_ms: 0,
+            }),
         }
     }
 
@@ -235,6 +297,30 @@ impl ThrottleManager {
         profiles.retain(|p| p.id != profile_id);
     }
 
+    pub fn set_rules(&self, rules: Vec<ThrottleRuleData>) {
+        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = rules;
+    }
+
+    pub fn list_rules(&self) -> Vec<ThrottleRuleData> {
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn save_rule(&self, rule: ThrottleRuleData) -> ThrottleRuleData {
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
+            *existing = rule.clone();
+        } else {
+            rules.push(rule.clone());
+        }
+        rule
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) {
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        rules.retain(|r| r.id != rule_id);
+    }
+
     pub fn set_active_profile(&self, workspace_id: &str, profile_id: Option<&str>) {
         let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
         for profile in profiles.iter_mut() {
@@ -244,6 +330,23 @@ impl ThrottleManager {
                     None => false,
                 };
             }
+        }
+    }
+
+    pub fn runtime_stats(&self) -> ThrottleRuntimeStats {
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(crate) fn record_trace(&self, trace: &ThrottleTrace) {
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
+        if trace.stage == "request" {
+            stats.matched_requests = stats.matched_requests.saturating_add(1);
+            stats.request_delay_ms = stats.request_delay_ms.saturating_add(trace.delay_ms);
+            if trace.outcome == "dropped" {
+                stats.dropped_requests = stats.dropped_requests.saturating_add(1);
+            }
+        } else {
+            stats.response_delay_ms = stats.response_delay_ms.saturating_add(trace.delay_ms);
         }
     }
 }
@@ -366,7 +469,7 @@ struct RewriteRedirectPayload {
 pub(crate) struct RequestRuntimeOutcome {
     pub(crate) local_response: Option<UpstreamResponse>,
     pub(crate) rewrite_traces: Vec<RewriteTrace>,
-    pub(crate) throttle_profile: Option<ThrottleProfileData>,
+    pub(crate) throttle_selection: Option<ThrottleRuntimeSelection>,
 }
 
 #[derive(Debug)]
@@ -511,6 +614,62 @@ pub(crate) fn active_throttle_profile_for_workspace(
         .list_profiles()
         .into_iter()
         .find(|profile| profile.workspace_id == workspace_id && profile.enabled)
+}
+
+fn throttle_stage_matches(rule_stage: &str, current_stage: &str) -> bool {
+    let normalized = rule_stage.trim();
+    normalized.is_empty()
+        || normalized.eq_ignore_ascii_case("both")
+        || normalized.eq_ignore_ascii_case("either")
+        || normalized.eq_ignore_ascii_case(current_stage)
+}
+
+pub(crate) fn throttle_selection_matches_stage(
+    selection: &ThrottleRuntimeSelection,
+    stage: &str,
+) -> bool {
+    selection
+        .rule
+        .as_ref()
+        .map(|rule| throttle_stage_matches(&rule.stage, stage))
+        .unwrap_or(true)
+}
+
+fn active_throttle_selection_for_request(
+    throttle_manager: &Option<Arc<ThrottleManager>>,
+    workspace_id: &str,
+    request: &ParsedProxyRequest,
+) -> Option<ThrottleRuntimeSelection> {
+    let manager = throttle_manager.as_ref()?;
+    let profiles = manager.list_profiles();
+    let mut rules: Vec<ThrottleRuleData> = manager
+        .list_rules()
+        .into_iter()
+        .filter(|rule| rule.enabled)
+        .filter(|rule| rule.workspace_id == workspace_id)
+        .filter(|rule| throttle_stage_matches(&rule.stage, "request") || throttle_stage_matches(&rule.stage, "response"))
+        .filter(|rule| method_matches(&rule.methods, &request.method))
+        .filter(|rule| pattern_matches(&rule.url_pattern, request.url.as_str()) || pattern_matches(&rule.url_pattern, &request.host))
+        .collect();
+
+    rules.sort_by(|left, right| right.priority.cmp(&left.priority));
+
+    for rule in rules {
+        if let Some(profile) = profiles
+            .iter()
+            .find(|profile| profile.workspace_id == workspace_id && profile.id == rule.profile_id)
+            .cloned()
+        {
+            return Some(ThrottleRuntimeSelection {
+                profile,
+                rule: Some(rule),
+            });
+        }
+    }
+
+    active_throttle_profile_for_workspace(throttle_manager, workspace_id).map(|profile| {
+        ThrottleRuntimeSelection { profile, rule: None }
+    })
 }
 
 fn parse_rewrite_payload<T: DeserializeOwned>(rule: &RewriteRule) -> Result<T, String> {
@@ -1358,14 +1517,19 @@ fn transfer_delay_ms(byte_count: usize, kbps: u32) -> u64 {
 }
 
 pub(crate) async fn apply_request_throttle(
-    profile: &ThrottleProfileData,
+    selection: &ThrottleRuntimeSelection,
     body_len: usize,
-) -> Result<(), String> {
+) -> Result<ThrottleTrace, ThrottleFailure> {
+    let profile = &selection.profile;
     if should_drop_for_packet_loss(profile) {
-        return Err(format!(
+        let error = format!(
             "request dropped by throttle profile '{}'",
             profile.name
-        ));
+        );
+        return Err(ThrottleFailure {
+            error: error.clone(),
+            trace: build_throttle_trace(selection, "request", "dropped", body_len, 0, 0, Some(error)),
+        });
     }
 
     let latency_ms = profile.latency_ms as u64;
@@ -1378,14 +1542,62 @@ pub(crate) async fn apply_request_throttle(
         sleep(Duration::from_millis(upload_delay_ms)).await;
     }
 
-    Ok(())
+    Ok(build_throttle_trace(
+        selection,
+        "request",
+        "applied",
+        body_len,
+        latency_ms,
+        upload_delay_ms,
+        None,
+    ))
 }
 
-pub(crate) async fn apply_response_throttle(profile: &ThrottleProfileData, body_len: usize) {
+pub(crate) async fn apply_response_throttle(
+    selection: &ThrottleRuntimeSelection,
+    body_len: usize,
+) -> ThrottleTrace {
+    let profile = &selection.profile;
     let download_delay_ms = transfer_delay_ms(body_len, profile.download_kbps);
 
     if download_delay_ms > 0 {
         sleep(Duration::from_millis(download_delay_ms)).await;
+    }
+
+    build_throttle_trace(
+        selection,
+        "response",
+        "applied",
+        body_len,
+        0,
+        download_delay_ms,
+        None,
+    )
+}
+
+fn build_throttle_trace(
+    selection: &ThrottleRuntimeSelection,
+    stage: &str,
+    outcome: &str,
+    body_bytes: usize,
+    latency_ms: u64,
+    transfer_delay_ms: u64,
+    message: Option<String>,
+) -> ThrottleTrace {
+    let rule = selection.rule.as_ref();
+    ThrottleTrace {
+        body_bytes,
+        delay_ms: latency_ms.saturating_add(transfer_delay_ms),
+        latency_ms,
+        message,
+        outcome: outcome.to_string(),
+        profile_id: selection.profile.id.clone(),
+        profile_name: selection.profile.name.clone(),
+        rule_id: rule.map(|rule| rule.id.clone()),
+        rule_name: rule.map(|rule| rule.name.clone()),
+        sequence: 0,
+        stage: stage.to_string(),
+        transfer_delay_ms,
     }
 }
 
@@ -1398,11 +1610,11 @@ pub(crate) fn apply_request_runtime_rules(
 ) -> Result<RequestRuntimeOutcome, String> {
     let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request)?;
     let local_response = apply_map_rules(map_manager, workspace_id, request)?;
-    let throttle_profile = active_throttle_profile_for_workspace(throttle_manager, workspace_id);
+    let throttle_selection = active_throttle_selection_for_request(throttle_manager, workspace_id, request);
 
     Ok(RequestRuntimeOutcome {
         local_response,
         rewrite_traces,
-        throttle_profile,
+        throttle_selection,
     })
 }

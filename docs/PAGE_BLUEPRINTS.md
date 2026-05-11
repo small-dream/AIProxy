@@ -530,28 +530,32 @@ User switches rule type
 -> save command persists the rule
 -> list refreshes and keeps the saved rule selected
 
-## 6.6 Throttling Page — `已实现`
+## 6.6 Throttling Page — `已实现 P0/P1`
 
 ### 6.6.1 页面目标
 
-让用户能够在“快速套预设”和“精确调参数”两条路径之间自由切换。
+让用户能够在“快速套预设”“精确调参数”和“只影响目标接口”三条路径之间自由切换，并能从 Session 侧确认弱网是否生效。
 
 ### 6.6.2 低保真线框
 
 ```text
 [Throttling Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Throttling                                                           │
+│ Runtime Status: on/off · active profile · hits · drops · total delay         │
+│ [15 min enable] [Disable]                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Global Control]                                     [Global On/Off Switch] │
-├───────────────────────┬──────────────────────────────────────────────────────┤
-│ [Preset Profiles]     │ [Profile Editor]                                    │
-│ Fast 4G               │ Name                                                 │
-│ Slow 3G               │ Latency / Packet Loss                                │
-│ Lossy Wi-Fi           │ Download / Upload                                    │
-│ [Custom Profiles]     │ Note                                                 │
-│ Team Profile A        │ Enable after save                                    │
-│ ...                   │ [Preview / Validation]                               │
+│ [Profiles | Rules]    │ [Editor]                                             │
+│                       │                                                      │
+│ Profiles              │ Profile Editor                                       │
+│ - Fast 4G             │ - Name / Enable after save                           │
+│ - Slow 3G             │ - Latency / Packet Loss                              │
+│ - Custom A            │ - Download / Upload                                  │
+│                       │ - Save / Save & Apply                                │
+│ Rules                 │                                                      │
+│ - GET api.example     │ Rule Scope Editor                                    │
+│ - * checkout *        │ - URL / Host pattern                                 │
+│                       │ - Methods / Stage / Priority                         │
+│                       │ - Profile / Enabled                                  │
 └───────────────────────┴──────────────────────────────────────────────────────┘
 ```
 
@@ -559,18 +563,21 @@ User switches rule type
 
 ```text
 ThrottlingPage
-├─ PageHeader
-├─ SectionCard "Global Control"
+├─ RuntimeStatusBar
+│  ├─ ActiveProfileSummary
+│  ├─ RuntimeStatsPills
+│  ├─ TemporaryEnableButton
+│  └─ DisableButton
 ├─ Main Split Layout
 │  ├─ Left Pane
-│  │  ├─ SectionCard "Preset Profiles"
-│  │  │  ├─ Preset Profile Cards
-│  │  │  └─ New Custom Button
-│  │  └─ Custom Profile List
+│  │  ├─ Mode Toggle: Profiles / Rules
+│  │  ├─ Profile List
+│  │  │  ├─ Preset Profiles
+│  │  │  └─ Custom Profiles
+│  │  └─ Rule List
 │  └─ Right Pane
-│     ├─ SectionCard "Profile Editor"
-│     ├─ SectionCard "Preview & Validation"
-│     └─ Save / Save & Apply Actions
+│     ├─ ProfileEditor
+│     └─ RuleScopeEditor
 ```
 
 ### 6.6.4 页面事件流
@@ -587,6 +594,18 @@ User creates a custom profile
 -> validation and preview update immediately
 -> save persists the profile
 -> save & apply persists then toggles global throttling on with this profile
+
+User creates a targeted throttling rule
+-> user starts from Throttling page or Session context menu
+-> rule draft receives URL / host / method from the captured session when available
+-> user chooses profile, stage, priority, and enabled state
+-> save persists the rule
+-> matching sessions record Throttling trace entries in Automation tab
+
+User wants to inspect impact
+-> Sessions page can filter to throttled sessions
+-> Session Automation tab shows request / response throttle traces
+-> trace explains profile, optional rule, stage, delay, transfer delay, body size, and dropped outcome
 ```
 
 ## 6.7 Sessions Export Dialog — `已实现`

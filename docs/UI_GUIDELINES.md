@@ -593,29 +593,43 @@ Rules Page
 
 ### 页面定位
 
-Throttling Page 负责让用户在“快速套预设”与“精确调参数”之间高效切换。
+Throttling Page 负责让用户在“快速套预设”“精确调参数”与“只影响目标接口”之间高效切换。这里的 Throttling 指弱网 / 链路模拟，不等同于 API QPS / Quota 限流。
 
 ### 页面结构树
 
 ```text
 Throttling Page
-├─ Page Header
-├─ Global Control Card
+├─ Runtime Status Bar
+│  ├─ Active State
+│  ├─ Hits / Drops / Delay Stats
+│  ├─ Temporary Enable
+│  └─ Disable
 ├─ Main Split Layout
-│  ├─ Preset Profiles
-│  ├─ Custom Profile List
-│  └─ Profile Editor
-│     ├─ Basic Fields
-│     ├─ Enable After Save
-│     └─ Preview / Validation
+│  ├─ Left Pane
+│  │  ├─ Segmented Control: Profiles / Rules
+│  │  ├─ Preset Profiles
+│  │  ├─ Custom Profiles
+│  │  └─ Targeted Rules
+│  └─ Right Pane
+│     ├─ Profile Editor
+│     │  ├─ Basic Fields
+│     │  ├─ Enable After Save
+│     │  └─ Latency / Bandwidth / Packet Loss
+│     └─ Rule Scope Editor
+│        ├─ URL / Host Pattern
+│        ├─ Methods / Stage / Priority
+│        └─ Profile / Enabled
 ```
 
 ### 交互要点
 
 - 预设配置必须支持一键启用
 - 自定义配置必须支持“保存”和“保存并启用”两条路径
-- 全局开关始终可见，避免用户误以为编辑即生效
-- 预览区应把延迟、上下行、丢包组合成一句话说明，方便测试同学复核
+- 运行状态栏始终可见，避免用户误以为编辑即生效
+- 全局启用必须提供一键关闭；临时启用需显示剩余时长
+- Rules 模式必须清楚展示作用范围，避免误伤所有请求
+- 从 Session 创建规则时，应自动带入 host / path / method，减少复制粘贴
+- Session Automation tab 应展示 Throttling trace，让用户确认 profile / rule 是否命中
 
 ## 9.5 Sessions Export
 

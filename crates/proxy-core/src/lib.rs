@@ -74,6 +74,7 @@ pub use aiproxy_rule_engine::{
 pub use rules::{
     DnsManager, DnsMappingRule, MapManager, MapRule, RewriteManager, RewriteRule,
     RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
+    ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, start_proxy_server};
 pub use ws::{WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest, WsMessageData, WsOpcode, global_ws_registry};
@@ -103,6 +104,7 @@ pub(crate) use logging::emit_log;
 pub(crate) use rules::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
     apply_response_script_rules, apply_response_rewrite_rules,
-    apply_response_throttle, resolve_dns_override, RequestRuntimeOutcome,
+    apply_response_throttle, resolve_dns_override, throttle_selection_matches_stage,
+    RequestRuntimeOutcome,
 };
 pub(crate) use types::{ParsedProxyRequest, UpstreamResponse};

@@ -1,5 +1,6 @@
 import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
 import DifferenceRoundedIcon from "@mui/icons-material/DifferenceRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import {
   Alert,
@@ -13,10 +14,10 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useQuery } from "@tanstack/react-query";
-import type { RewriteSessionTrace, ScriptSessionTrace } from "@aiproxy/shared-types";
+import type { RewriteSessionTrace, ScriptSessionTrace, ThrottleSessionTrace } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { listRewriteSessionTrace, listScriptSessionTrace } from "@/services/commands";
+import { listRewriteSessionTrace, listScriptSessionTrace, listThrottleSessionTrace } from "@/services/commands";
 import { fontFamilies } from "@/themes/fonts";
 
 function outcomeColor(outcome: string): "default" | "error" | "info" | "success" | "warning" {
@@ -179,6 +180,44 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
   );
 }
 
+function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
+  return (
+    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
+      <Stack spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+            <SpeedRoundedIcon sx={{ color: trace.outcome === "dropped" ? "error.main" : "primary.main", fontSize: 18 }} />
+            <Box minWidth={0}>
+              <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>{trace.ruleName ?? trace.profileName}</Typography>
+              <Typography color="text.secondary" variant="caption" noWrap>{trace.profileName}</Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Chip size="small" label={trace.stage} />
+            <Chip size="small" color={trace.outcome === "dropped" ? "error" : "success"} label={trace.outcome} variant="outlined" />
+            <Chip size="small" label={`${trace.delayMs} ms`} variant="outlined" />
+          </Stack>
+        </Stack>
+        <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" } }}>
+          <Metric label="Latency" value={`${trace.latencyMs} ms`} />
+          <Metric label="Transfer" value={`${trace.transferDelayMs} ms`} />
+          <Metric label="Body" value={`${trace.bodyBytes} B`} />
+        </Box>
+        {trace.message ? <Typography color="text.secondary" variant="body2">{trace.message}</Typography> : null}
+      </Stack>
+    </Paper>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack spacing={0.25} sx={{ bgcolor: "action.hover", borderRadius: "6px", px: 1, py: 0.75 }}>
+      <Typography color="text.secondary" variant="caption">{label}</Typography>
+      <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>{value}</Typography>
+    </Stack>
+  );
+}
+
 export function SessionInspectorAutomationPane({ sessionId }: { sessionId: string }) {
   const { t } = useI18n();
   const rewriteQuery = useQuery({
@@ -191,8 +230,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     queryFn: () => listScriptSessionTrace(sessionId),
     staleTime: 30_000,
   });
+  const throttleQuery = useQuery({
+    queryKey: ["throttle-session-trace", sessionId],
+    queryFn: () => listThrottleSessionTrace(sessionId),
+    staleTime: 30_000,
+  });
 
-  if (rewriteQuery.isLoading || scriptQuery.isLoading) {
+  if (rewriteQuery.isLoading || scriptQuery.isLoading || throttleQuery.isLoading) {
     return (
       <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 160 }}>
         <CircularProgress size={22} />
@@ -200,7 +244,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     );
   }
 
-  if (rewriteQuery.error || scriptQuery.error) {
+  if (rewriteQuery.error || scriptQuery.error || throttleQuery.error) {
     return (
       <Alert severity="error" variant="outlined">
         {t("automationTab.loadFailed")}
@@ -210,8 +254,9 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
 
   const rewriteTraces = rewriteQuery.data ?? [];
   const scriptTraces = scriptQuery.data ?? [];
+  const throttleTraces = throttleQuery.data ?? [];
 
-  if (rewriteTraces.length === 0 && scriptTraces.length === 0) {
+  if (rewriteTraces.length === 0 && scriptTraces.length === 0 && throttleTraces.length === 0) {
     return (
       <Typography color="text.secondary" variant="body2">
         {t("automationTab.emptyDescription")}
@@ -221,6 +266,19 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
 
   return (
     <Stack spacing={2}>
+      {throttleTraces.length > 0 ? (
+        <Stack spacing={1.25}>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <SpeedRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
+            <Typography variant="subtitle2">Throttling</Typography>
+            <Chip size="small" label={throttleTraces.length} sx={{ height: 20 }} />
+          </Stack>
+          {throttleTraces.map((trace) => (
+            <ThrottleTraceCard key={`${trace.profileId}-${trace.stage}-${trace.sequence}`} trace={trace} />
+          ))}
+        </Stack>
+      ) : null}
+
       {rewriteTraces.length > 0 ? (
         <Stack spacing={1.25}>
           <Stack direction="row" spacing={0.75} alignItems="center">

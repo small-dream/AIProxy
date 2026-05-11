@@ -12,7 +12,8 @@ use aiproxy_proxy_core::{
     MapRule, ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
     ProxyTimingBreakdown,
     RewriteRule, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData,
-    TlsManager, WsConnectionStatus, WsDirection, WsOpcode, compile_script_rule,
+    ThrottleRuleData, ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection,
+    WsOpcode, compile_script_rule,
 };
 use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
 use serde::{Deserialize, Serialize};
@@ -646,6 +647,44 @@ pub fn list_rewrite_session_trace(
             stage: run.stage,
         })
         .collect())
+}
+
+#[tauri::command]
+pub fn list_throttle_session_trace(
+    input: ListThrottleSessionTraceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ThrottleSessionTraceOutput>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let runs = aiproxy_db::rules::load_throttle_runs_for_session(&conn, &input.session_id)
+        .map_err(|error| format!("load throttle runs: {error}"))?;
+
+    Ok(runs
+        .into_iter()
+        .map(|run| ThrottleSessionTraceOutput {
+            body_bytes: run.body_bytes,
+            delay_ms: run.delay_ms,
+            latency_ms: run.latency_ms,
+            message: run.message,
+            outcome: run.outcome,
+            profile_id: run.profile_id,
+            profile_name: run.profile_name,
+            rule_id: run.rule_id,
+            rule_name: run.rule_name,
+            sequence: run.sequence,
+            stage: run.stage,
+            transfer_delay_ms: run.transfer_delay_ms,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn list_throttled_session_ids(
+    input: ListThrottledSessionIdsInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<String>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    aiproxy_db::rules::load_throttled_session_ids(&conn, &input.workspace_id)
+        .map_err(|error| format!("load throttled session ids: {error}"))
 }
 
 #[tauri::command]
@@ -2157,6 +2196,18 @@ pub struct ListRewriteSessionTraceInput {
     pub session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListThrottleSessionTraceInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListThrottledSessionIdsInput {
+    pub workspace_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptRunEntryOutput {
@@ -2199,6 +2250,23 @@ pub struct RewriteSessionTraceOutput {
     pub rule_name: String,
     pub rewrite_type: String,
     pub stage: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleSessionTraceOutput {
+    pub body_bytes: usize,
+    pub delay_ms: u64,
+    pub latency_ms: u64,
+    pub message: Option<String>,
+    pub outcome: String,
+    pub profile_id: String,
+    pub profile_name: String,
+    pub rule_id: Option<String>,
+    pub rule_name: Option<String>,
+    pub sequence: u32,
+    pub stage: String,
+    pub transfer_delay_ms: u64,
 }
 
 #[tauri::command]
@@ -2439,6 +2507,23 @@ pub fn list_throttle_profiles(
         .collect()
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListThrottleRulesInput {
+    pub workspace_id: String,
+}
+
+#[tauri::command]
+pub fn list_throttle_rules(
+    input: ListThrottleRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<ThrottleRuleData> {
+    state.read_throttle_manager().list_rules()
+        .into_iter()
+        .filter(|rule| rule.workspace_id == input.workspace_id)
+        .collect()
+}
+
 #[tauri::command]
 pub fn save_throttle_profile(
     input: ThrottleProfileData,
@@ -2473,6 +2558,52 @@ pub fn save_throttle_profile(
     Ok(saved)
 }
 
+#[tauri::command]
+pub fn save_throttle_rule(
+    input: ThrottleRuleData,
+    state: State<'_, Arc<AppState>>,
+) -> Result<ThrottleRuleData, String> {
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let row = aiproxy_db::rules::ThrottleRuleRow {
+            id: input.id.clone(),
+            workspace_id: input.workspace_id.clone(),
+            name: input.name.clone(),
+            note: input.note.clone(),
+            enabled: input.enabled,
+            priority: input.priority,
+            profile_id: input.profile_id.clone(),
+            url_pattern: input.url_pattern.clone(),
+            methods: serde_json::to_string(&input.methods).unwrap_or_else(|_| "[]".to_string()),
+            stage: input.stage.clone(),
+        };
+        aiproxy_db::rules::save_throttle_rule(&conn, &row)
+            .map_err(|error| format!("save throttle rule: {error}"))?;
+    }
+
+    Ok(state.read_throttle_manager().save_rule(input))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteThrottleRuleInput {
+    pub rule_id: String,
+}
+
+#[tauri::command]
+pub fn delete_throttle_rule(
+    input: DeleteThrottleRuleInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        aiproxy_db::rules::delete_throttle_rule(&conn, &input.rule_id)
+            .map_err(|error| format!("delete throttle rule: {error}"))?;
+    }
+    state.read_throttle_manager().delete_rule(&input.rule_id);
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetActiveThrottleProfileInput {
@@ -2501,6 +2632,13 @@ pub fn set_active_throttle_profile(
     );
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_throttle_runtime_stats(
+    state: State<'_, Arc<AppState>>,
+) -> ThrottleRuntimeStats {
+    state.read_throttle_manager().runtime_stats()
 }
 
 // --- Workspace commands ---

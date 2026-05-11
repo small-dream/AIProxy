@@ -82,6 +82,7 @@ export type SessionDetail = {
   responseHeaders: HeaderEntry[];
   serverIp?: string;
   summary: SessionSummary;
+  throttleTraces?: ThrottleSessionTrace[];
   tlsCipherSuite?: string;
   tlsProtocol?: string;
   timing?: TimingBreakdown;
@@ -346,6 +347,41 @@ export type ThrottleProfile = {
   preset: boolean;
   uploadKbps: number;
   workspaceId: string;
+};
+
+export type ThrottleRule = {
+  enabled: boolean;
+  id: string;
+  methods: string[];
+  name: string;
+  note?: string;
+  priority: number;
+  profileId: string;
+  stage: "both" | "request" | "response";
+  urlPattern: string;
+  workspaceId: string;
+};
+
+export type ThrottleRuntimeStats = {
+  droppedRequests: number;
+  matchedRequests: number;
+  requestDelayMs: number;
+  responseDelayMs: number;
+};
+
+export type ThrottleSessionTrace = {
+  bodyBytes: number;
+  delayMs: number;
+  latencyMs: number;
+  message?: string;
+  outcome: "applied" | "dropped" | string;
+  profileId: string;
+  profileName: string;
+  ruleId?: string;
+  ruleName?: string;
+  sequence: number;
+  stage: "request" | "response" | string;
+  transferDelayMs: number;
 };
 
 export type ExportFormat = "har" | "curl" | "json";
@@ -903,6 +939,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     serverIp?: string | null;
     tlsCipherSuite?: string | null;
     tlsProtocol?: string | null;
+    throttleTraces?: ThrottleSessionTrace[] | null;
     timing?: TimingBreakdown | null;
   };
 
@@ -920,6 +957,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     isNullableString(candidate.clientAddress) &&
     (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
     (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
+    (candidate.throttleTraces === undefined || candidate.throttleTraces === null || (Array.isArray(candidate.throttleTraces) && candidate.throttleTraces.every(isThrottleSessionTrace))) &&
     (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
     isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
@@ -948,6 +986,7 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       serverIp?: string | null;
       tlsCipherSuite?: string | null;
       tlsProtocol?: string | null;
+      throttleTraces?: ThrottleSessionTrace[] | null;
       timing?: TimingBreakdown | null;
     };
 
@@ -987,6 +1026,9 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.serverIp !== null && candidate.serverIp !== undefined
         ? { serverIp: candidate.serverIp }
+        : {}),
+      ...(candidate.throttleTraces !== null && candidate.throttleTraces !== undefined
+        ? { throttleTraces: candidate.throttleTraces }
         : {}),
       ...(candidate.tlsCipherSuite !== null && candidate.tlsCipherSuite !== undefined
         ? { tlsCipherSuite: candidate.tlsCipherSuite }
@@ -1651,12 +1693,98 @@ export function isThrottleProfile(value: unknown): value is ThrottleProfile {
   );
 }
 
+export function isThrottleRule(value: unknown): value is ThrottleRule {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<ThrottleRule>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.name === "string" &&
+    isNullableString(candidate.note) &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.priority === "number" &&
+    typeof candidate.profileId === "string" &&
+    typeof candidate.urlPattern === "string" &&
+    Array.isArray(candidate.methods) &&
+    candidate.methods.every((method) => typeof method === "string") &&
+    (candidate.stage === "both" || candidate.stage === "request" || candidate.stage === "response")
+  );
+}
+
+export function isThrottleRuntimeStats(value: unknown): value is ThrottleRuntimeStats {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<ThrottleRuntimeStats>;
+
+  return (
+    typeof candidate.droppedRequests === "number" &&
+    typeof candidate.matchedRequests === "number" &&
+    typeof candidate.requestDelayMs === "number" &&
+    typeof candidate.responseDelayMs === "number"
+  );
+}
+
+export function isThrottleSessionTrace(value: unknown): value is ThrottleSessionTrace {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<ThrottleSessionTrace>;
+
+  return (
+    typeof candidate.bodyBytes === "number" &&
+    typeof candidate.delayMs === "number" &&
+    typeof candidate.latencyMs === "number" &&
+    isNullableString(candidate.message) &&
+    typeof candidate.outcome === "string" &&
+    typeof candidate.profileId === "string" &&
+    typeof candidate.profileName === "string" &&
+    isNullableString(candidate.ruleId) &&
+    isNullableString(candidate.ruleName) &&
+    typeof candidate.sequence === "number" &&
+    typeof candidate.stage === "string" &&
+    typeof candidate.transferDelayMs === "number"
+  );
+}
+
 export function parseThrottleProfiles(value: unknown): ThrottleProfile[] {
   if (!Array.isArray(value)) {
     throw coerceAppError(value);
   }
 
   if (value.every(isThrottleProfile)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function parseThrottleRules(value: unknown): ThrottleRule[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+
+  if (value.every(isThrottleRule)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function parseThrottleRuntimeStats(value: unknown): ThrottleRuntimeStats {
+  if (isThrottleRuntimeStats(value)) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
+export function parseThrottleSessionTrace(value: unknown): ThrottleSessionTrace[] {
+  if (!Array.isArray(value)) {
+    throw coerceAppError(value);
+  }
+
+  if (value.every(isThrottleSessionTrace)) {
     return value;
   }
 

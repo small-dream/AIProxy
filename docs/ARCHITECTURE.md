@@ -298,7 +298,10 @@ WebSocket 注入（重放）实现机制：
 职责：
 
 - 根据带宽、延迟、丢包配置影响请求或响应链路
-- 支持启用、关闭与预设切换
+- 支持全局 Profile 启用、关闭与预设切换
+- 支持按 URL / Host / Method / Stage 命中的 Throttling Rule
+- 生成 Session 级 Throttling Trace，用于解释延迟、传输耗时与丢包结果
+- 维护运行期统计：命中请求数、丢包数、累计 request / response delay
 
 ## 6.6 `exporter`
 
@@ -340,7 +343,9 @@ WebSocket 注入（重放）实现机制：
 - `list_dns_mappings` — `已实现`，返回指定 workspace 的 DNS 映射规则列表
 - `save_dns_mapping` — `已实现`，新增或更新单条 DNS 映射规则
 - `delete_rule` — `已实现`，支持 `ruleType: "rewrite" | "map" | "dns"`
-- `set_throttle_profile`
+- `list_throttle_profiles` / `save_throttle_profile` / `set_active_throttle_profile` — `已实现`，管理全局弱网 Profile
+- `list_throttle_rules` / `save_throttle_rule` / `delete_throttle_rule` — `已实现`，管理定向弱网规则
+- `list_throttle_session_trace` / `list_throttled_session_ids` / `get_throttle_runtime_stats` — `已实现`，提供弱网可解释性与运行统计
 - `export_sessions`
 - `get_certificate_status`
 - `install_certificate_guide`
@@ -506,11 +511,45 @@ erDiagram
 - `id`
 - `workspace_id`
 - `name`
+- `note`
+- `enabled`
+- `preset`
 - `latency_ms`
 - `upload_kbps`
 - `download_kbps`
 - `packet_loss_ratio`
+
+### `throttle_rule`
+
+- `id`
+- `workspace_id`
+- `name`
+- `note`
 - `enabled`
+- `priority`
+- `profile_id`
+- `url_pattern`
+- `methods`
+- `stage`
+
+### `throttle_run`
+
+- `id`
+- `session_id`
+- `workspace_id`
+- `profile_id`
+- `profile_name`
+- `rule_id`
+- `rule_name`
+- `stage`
+- `outcome`
+- `delay_ms`
+- `latency_ms`
+- `transfer_delay_ms`
+- `body_bytes`
+- `message`
+- `sequence`
+- `created_at`
 
 ### `certificate_state`
 
@@ -576,14 +615,15 @@ erDiagram
 
 ## 10. 存储策略
 
-### 10.1 SQLite 存储内容（计划）
+### 10.1 SQLite 存储内容
 
-> **当前状态**：代理预设、规则、弱网配置均为内存实现（`Mutex<Vec>`），重启后不保留。SQLite 持久化将在后续版本引入。
+> **当前状态**：会话元数据、规则配置、弱网 Profile、弱网 Rule、Rewrite / Script / Throttling 执行记录已接入 SQLite；代理运行时仍会在内存中保留最近会话和规则 manager 快照，以保证 Inspector 与代理管线读写效率。
 
 - 代理预设
 - 会话元数据
 - 规则配置
-- 弱网配置
+- 弱网 Profile 与作用范围规则
+- Throttling / Rewrite / Script 执行记录
 - 应用设置
 
 ### 10.2 文件系统存储内容
@@ -624,7 +664,7 @@ erDiagram
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `CollectionsPage`：三栏布局 — `CollectionTreePane`（集合/文件夹树）+ `CollectionItemListPane`（请求列表）+ `CollectionItemEditorPane`（请求编辑器，复用 ComposeRequestSection + ComposeResponseSection）。底部环境选择器支持切换环境，变量替换引擎支持 `{{key}}` 语法
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Map Local / Map Remote / DNS）；`Rewrite / Map / DNS` 采用 `Rule List Pane` + `Rule Editor Pane`
-- `ThrottlingPage`：`Global Control Card` + `Preset Profiles` + `Custom Profile List` + `Profile Editor`
+- `ThrottlingPage`：`Runtime Status Bar` + 左侧 `Profiles / Rules` 切换列表 + 右侧 `Profile Editor / Rule Scope Editor`；支持全局 Profile、临时启用、一键关闭、按 URL / Method / Stage 定向规则
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
 - `SettingsPage`：当前已实现 `Proxy Presets` + `Language & Region` + `Appearance` 三个设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
 
@@ -639,7 +679,7 @@ erDiagram
 - `rewrite-rules` — `已实现 P0/P1`：Rules 页面 Rewrite 工作台 + 场景模板 + 规则测试器 + Session 右键创建规则 + 会话级 rewrite trace/diff
 - `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
-- `throttling` — `已实现首版`：ThrottlingPage + use-throttle-profiles hooks + 预设 / 自定义配置流
+- `throttling` — `已实现 P0/P1`：ThrottlingPage 工作台 + use-throttle-profiles hooks + 预设 / 自定义 Profile + 定向 Throttling Rule + Session 级 Throttling Trace + Runtime Stats + Sessions 过滤 / 右键创建规则
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`

@@ -1,5 +1,5 @@
 use super::*;
-use crate::RewriteTrace;
+use crate::{RewriteTrace, ThrottleTrace};
 use aiproxy_rule_engine::ScriptTrace;
 use serde::ser::SerializeStruct;
 use std::mem::size_of;
@@ -409,6 +409,7 @@ pub struct ProxySessionDetail {
     pub tls_protocol: Option<String>,
     pub summary: ProxySessionSummary,
     pub script_traces: Vec<ScriptTrace>,
+    pub throttle_traces: Vec<ThrottleTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
 }
 
@@ -446,6 +447,7 @@ impl ProxySessionDetail {
                 .as_ref()
                 .map_or(0, |_| size_of::<ProxyTimingBreakdown>())
             + self.script_traces.capacity() * size_of::<ScriptTrace>()
+            + self.throttle_traces.capacity() * size_of::<ThrottleTrace>()
     }
 }
 
@@ -454,7 +456,7 @@ impl Serialize for ProxySessionDetail {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ProxySessionDetail", 15)?;
+        let mut state = serializer.serialize_struct("ProxySessionDetail", 16)?;
         if let Some(client_address) = &self.client_address {
             state.serialize_field("clientAddress", client_address)?;
         }
@@ -485,6 +487,7 @@ impl Serialize for ProxySessionDetail {
             state.serialize_field("tlsProtocol", tls_protocol)?;
         }
         state.serialize_field("summary", &self.summary)?;
+        state.serialize_field("throttleTraces", &self.throttle_traces)?;
         if let Some(timing) = &self.timing {
             state.serialize_field("timing", timing)?;
         }

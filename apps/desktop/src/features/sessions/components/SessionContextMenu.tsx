@@ -10,6 +10,7 @@ import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
@@ -37,6 +38,7 @@ type SessionContextMenuProps = {
   onCopyResponse: (session: SessionSummary) => void;
   onCopyUrl: (session: SessionSummary) => void;
   onCreateRewrite: (session: SessionSummary) => void;
+  onCreateThrottleRule: (session: SessionSummary) => void;
   onExportSession: (session: SessionSummary) => void;
   onFocusHost: (session: SessionSummary) => void;
   onGoToBreakpoints: () => void;
@@ -62,6 +64,7 @@ export function SessionContextMenu({
   onCopyResponse,
   onCopyUrl,
   onCreateRewrite,
+  onCreateThrottleRule,
   onExportSession,
   onFocusHost,
   onGoToBreakpoints,
@@ -214,6 +217,13 @@ export function SessionContextMenu({
           <AltRouteRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.createRewrite")}</ListItemText>
+      </MenuItem>
+
+      <MenuItem onClick={handleClick(onCreateThrottleRule)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <SpeedRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>Create Throttling Rule</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={() => { onGoToBreakpoints(); onClose(); }} sx={menuItemSx}>

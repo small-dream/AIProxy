@@ -7,7 +7,8 @@ import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
@@ -69,7 +70,7 @@ import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
 import { onSessionRemove, onSessionsCleared, onSessionsRemoved, onSessionUpsert } from "@/services/events";
-import { readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
+import { listThrottledSessionIds, readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
 const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
@@ -130,7 +131,14 @@ export function SessionsPage() {
   const [ignoredHosts, setIgnoredHosts] = useState<Set<string>>(
     () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
   );
+  const [showOnlyThrottled, setShowOnlyThrottled] = useState(false);
   const [sessionSelectionNonce, setSessionSelectionNonce] = useState(0);
+  const { data: throttledSessionIds = [] } = useQuery({
+    queryKey: ["throttled-session-ids", "default"],
+    queryFn: () => listThrottledSessionIds(),
+    refetchInterval: 2_000,
+  });
+  const throttledSessionIdSet = useMemo(() => new Set(throttledSessionIds), [throttledSessionIds]);
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
@@ -192,9 +200,16 @@ export function SessionsPage() {
 
     return activeSessions.filter((session) => !ignoredHosts.has(session.host));
   }, [activeSessions, ignoredHosts]);
+  const filteredByThrottleSessions = useMemo(() => {
+    if (!showOnlyThrottled) {
+      return filteredByIgnoreSessions;
+    }
+
+    return filteredByIgnoreSessions.filter((session) => throttledSessionIdSet.has(session.id));
+  }, [filteredByIgnoreSessions, showOnlyThrottled, throttledSessionIdSet]);
   const domainFilteredSessions = useMemo(
-    () => filterSessionsByHostKeyword(filteredByIgnoreSessions, activeContainer?.domainFilterValue ?? ""),
-    [activeContainer?.domainFilterValue, filteredByIgnoreSessions],
+    () => filterSessionsByHostKeyword(filteredByThrottleSessions, activeContainer?.domainFilterValue ?? ""),
+    [activeContainer?.domainFilterValue, filteredByThrottleSessions],
   );
   const hostGroups = useMemo(
     () => buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
@@ -609,6 +624,19 @@ export function SessionsPage() {
     });
   }, [navigate]);
 
+  const handleCreateThrottleRule = useCallback((session: SessionSummary) => {
+    navigate("/throttling", {
+      state: {
+        throttleSeed: {
+          host: session.host,
+          method: session.method,
+          path: session.path,
+          url: session.url,
+        },
+      },
+    });
+  }, [navigate]);
+
   const handleAddContainer = useCallback(() => {
     setContainerState((currentState) => createAdditionalSessionContainer(currentState));
   }, []);
@@ -709,6 +737,12 @@ export function SessionsPage() {
         }}
       >
         <TopBarActionButton
+          onClick={() => setShowOnlyThrottled((value) => !value)}
+          disabled={activeSessions.length === 0}
+          icon={<SpeedRoundedIcon />}
+          label={showOnlyThrottled ? "All Sessions" : "Throttled"}
+        />
+        <TopBarActionButton
           onClick={handleClearActiveContainer}
           disabled={activeSessions.length === 0 || isClearingSessions}
           icon={<DeleteSweepRoundedIcon />}
@@ -722,7 +756,7 @@ export function SessionsPage() {
         />
       </Stack>
     ),
-    [activeSessions.length, handleClearActiveContainer, handleOpenExportDialog, isClearingSessions, t],
+    [activeSessions.length, handleClearActiveContainer, handleOpenExportDialog, isClearingSessions, showOnlyThrottled, t],
   );
 
   useLayoutEffect(() => {
@@ -915,6 +949,7 @@ export function SessionsPage() {
         onCopyResponse={handleCopyResponse}
         onCopyUrl={handleCopyUrl}
         onCreateRewrite={handleCreateRewrite}
+        onCreateThrottleRule={handleCreateThrottleRule}
         onExportSession={handleExportSession}
         onFocusHost={handleFocusHost}
         onGoToBreakpoints={handleGoToBreakpoints}

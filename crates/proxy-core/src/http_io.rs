@@ -190,6 +190,7 @@ pub(crate) fn build_session_detail(
         server_ip: None,
         script_traces: Vec::new(),
         summary,
+        throttle_traces: Vec::new(),
         tls_cipher_suite: request.tls_cipher_suite.clone(),
         tls_protocol: request.tls_protocol.clone(),
         timing: Some(timing),
@@ -236,6 +237,7 @@ pub(crate) fn build_pending_session_detail(
             url: request.url.to_string(),
             response_mime_type: None,
         },
+        throttle_traces: Vec::new(),
         tls_cipher_suite: request.tls_cipher_suite.clone(),
         tls_protocol: request.tls_protocol.clone(),
         timing: Some(ProxyTimingBreakdown {

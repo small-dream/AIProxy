@@ -43,6 +43,7 @@ describe("SessionContextMenu", () => {
           onCopyResponse={vi.fn()}
           onCopyUrl={vi.fn()}
           onCreateRewrite={vi.fn()}
+          onCreateThrottleRule={vi.fn()}
           onExportSession={handleExportSession}
           onFocusHost={vi.fn()}
           onGoToBreakpoints={vi.fn()}

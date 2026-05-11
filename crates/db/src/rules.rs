@@ -290,6 +290,204 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
     Ok(rows)
 }
 
+pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM throttle_profiles WHERE id = ?1", params![id])
+        .map_err(|e| format!("delete throttle profile: {e}"))?;
+    Ok(())
+}
+
+pub struct ThrottleRuleRow {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub note: Option<String>,
+    pub enabled: bool,
+    pub priority: u32,
+    pub profile_id: String,
+    pub url_pattern: String,
+    pub methods: String,
+    pub stage: String,
+}
+
+pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO throttle_rules
+            (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            rule.id,
+            rule.workspace_id,
+            rule.name,
+            rule.note,
+            rule.enabled as i32,
+            rule.priority,
+            rule.profile_id,
+            rule.url_pattern,
+            rule.methods,
+            rule.stage,
+        ],
+    )
+    .map_err(|e| format!("save throttle rule: {e}"))?;
+    Ok(())
+}
+
+pub fn delete_throttle_rule(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM throttle_rules WHERE id = ?1", params![id])
+        .map_err(|e| format!("delete throttle rule: {e}"))?;
+    Ok(())
+}
+
+pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage
+             FROM throttle_rules ORDER BY priority DESC, name ASC",
+        )
+        .map_err(|e| format!("prepare load throttle rules: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ThrottleRuleRow {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                name: row.get(2)?,
+                note: row.get(3)?,
+                enabled: row.get::<_, i32>(4)? != 0,
+                priority: row.get::<_, i32>(5)? as u32,
+                profile_id: row.get(6)?,
+                url_pattern: row.get(7)?,
+                methods: row.get(8)?,
+                stage: row.get(9)?,
+            })
+        })
+        .map_err(|e| format!("query throttle rules: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub struct ThrottleRunRow {
+    pub id: String,
+    pub session_id: String,
+    pub workspace_id: String,
+    pub profile_id: String,
+    pub profile_name: String,
+    pub rule_id: Option<String>,
+    pub rule_name: Option<String>,
+    pub stage: String,
+    pub outcome: String,
+    pub delay_ms: u64,
+    pub latency_ms: u64,
+    pub transfer_delay_ms: u64,
+    pub body_bytes: usize,
+    pub message: Option<String>,
+    pub sequence: u32,
+    pub created_at: String,
+}
+
+pub fn replace_throttle_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+    runs: &[ThrottleRunRow],
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin replace throttle runs transaction: {e}"))?;
+
+    tx.execute("DELETE FROM throttle_runs WHERE session_id = ?1", params![session_id])
+        .map_err(|e| format!("delete throttle runs for session: {e}"))?;
+
+    for run in runs {
+        tx.execute(
+            "INSERT INTO throttle_runs
+                (id, session_id, workspace_id, profile_id, profile_name, rule_id, rule_name,
+                 stage, outcome, delay_ms, latency_ms, transfer_delay_ms, body_bytes, message,
+                 sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                run.id,
+                run.session_id,
+                run.workspace_id,
+                run.profile_id,
+                run.profile_name,
+                run.rule_id,
+                run.rule_name,
+                run.stage,
+                run.outcome,
+                run.delay_ms as i64,
+                run.latency_ms as i64,
+                run.transfer_delay_ms as i64,
+                run.body_bytes as i64,
+                run.message,
+                run.sequence as i64,
+                run.created_at,
+            ],
+        )
+        .map_err(|e| format!("insert throttle run: {e}"))?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("commit replace throttle runs transaction: {e}"))?;
+    Ok(())
+}
+
+pub fn load_throttle_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<ThrottleRunRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, workspace_id, profile_id, profile_name, rule_id, rule_name,
+                    stage, outcome, delay_ms, latency_ms, transfer_delay_ms, body_bytes, message,
+                    sequence, created_at
+             FROM throttle_runs WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
+        )
+        .map_err(|e| format!("prepare load throttle runs: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(ThrottleRunRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                workspace_id: row.get(2)?,
+                profile_id: row.get(3)?,
+                profile_name: row.get(4)?,
+                rule_id: row.get(5)?,
+                rule_name: row.get(6)?,
+                stage: row.get(7)?,
+                outcome: row.get(8)?,
+                delay_ms: row.get::<_, i64>(9)? as u64,
+                latency_ms: row.get::<_, i64>(10)? as u64,
+                transfer_delay_ms: row.get::<_, i64>(11)? as u64,
+                body_bytes: row.get::<_, i64>(12)? as usize,
+                message: row.get(13)?,
+                sequence: row.get::<_, i64>(14)? as u32,
+                created_at: row.get(15)?,
+            })
+        })
+        .map_err(|e| format!("query throttle runs: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+pub fn load_throttled_session_ids(conn: &Connection, workspace_id: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT session_id FROM throttle_runs
+             WHERE workspace_id = ?1
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| format!("prepare load throttled session ids: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![workspace_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query throttled session ids: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 // ---------------------------------------------------------------------------
 // Breakpoint rules
 // ---------------------------------------------------------------------------

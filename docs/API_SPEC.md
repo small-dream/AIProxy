@@ -323,15 +323,64 @@ type ThrottleProfile = {
   id: string;
   workspaceId: string;
   name: string;
+  note?: string;
   latencyMs: number;
   uploadKbps: number;
   downloadKbps: number;
   packetLossRatio: number;
   enabled: boolean;
+  preset: boolean;
 };
 ```
 
-## 5.7 DnsMappingRule
+## 5.7 ThrottleRule
+
+```ts
+type ThrottleRule = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  note?: string;
+  enabled: boolean;
+  priority: number;
+  profileId: string;
+  urlPattern: string;       // "*" / "https://api.example.com/users" / "*://api.example.com/*"
+  methods: string[];        // [] = any method
+  stage: "both" | "request" | "response";
+};
+```
+
+## 5.8 ThrottleRuntimeStats
+
+```ts
+type ThrottleRuntimeStats = {
+  matchedRequests: number;
+  droppedRequests: number;
+  requestDelayMs: number;
+  responseDelayMs: number;
+};
+```
+
+## 5.9 ThrottleSessionTrace
+
+```ts
+type ThrottleSessionTrace = {
+  sequence: number;
+  stage: "request" | "response" | string;
+  outcome: "applied" | "dropped" | string;
+  profileId: string;
+  profileName: string;
+  ruleId?: string;
+  ruleName?: string;
+  bodyBytes: number;
+  latencyMs: number;
+  transferDelayMs: number;
+  delayMs: number;
+  message?: string;
+};
+```
+
+## 5.10 DnsMappingRule
 
 ```ts
 type DnsMappingRule = {
@@ -1070,6 +1119,8 @@ type ResumeBreakpointOutput = {
 
 ## 6.7 Throttling Commands
 
+> Throttling 在当前产品中指弱网 / 链路模拟，不是 API QPS、Quota 或 429 限流。
+
 ### `list_throttle_profiles`
 
 请求：
@@ -1102,6 +1153,54 @@ type SaveThrottleProfileInput = Omit<ThrottleProfile, "id"> & {
 type SaveThrottleProfileOutput = ThrottleProfile;
 ```
 
+### `list_throttle_rules`
+
+请求：
+
+```ts
+type ListThrottleRulesInput = {
+  workspaceId: string;
+};
+```
+
+响应：
+
+```ts
+type ListThrottleRulesOutput = ThrottleRule[];
+```
+
+### `save_throttle_rule`
+
+请求：
+
+```ts
+type SaveThrottleRuleInput = Omit<ThrottleRule, "id"> & {
+  id?: string;
+};
+```
+
+响应：
+
+```ts
+type SaveThrottleRuleOutput = ThrottleRule;
+```
+
+### `delete_throttle_rule`
+
+请求：
+
+```ts
+type DeleteThrottleRuleInput = {
+  ruleId: string;
+};
+```
+
+响应：
+
+```ts
+type DeleteThrottleRuleOutput = void;
+```
+
 ### `set_active_throttle_profile`
 
 请求：
@@ -1116,9 +1215,53 @@ type SetActiveThrottleProfileInput = {
 响应：
 
 ```ts
-type SetActiveThrottleProfileOutput = {
-  success: boolean;
+type SetActiveThrottleProfileOutput = void;
+```
+
+### `get_throttle_runtime_stats`
+
+请求：
+
+```ts
+type GetThrottleRuntimeStatsInput = void;
+```
+
+响应：
+
+```ts
+type GetThrottleRuntimeStatsOutput = ThrottleRuntimeStats;
+```
+
+### `list_throttle_session_trace`
+
+请求：
+
+```ts
+type ListThrottleSessionTraceInput = {
+  sessionId: string;
 };
+```
+
+响应：
+
+```ts
+type ListThrottleSessionTraceOutput = ThrottleSessionTrace[];
+```
+
+### `list_throttled_session_ids`
+
+请求：
+
+```ts
+type ListThrottledSessionIdsInput = {
+  workspaceId: string;
+};
+```
+
+响应：
+
+```ts
+type ListThrottledSessionIdsOutput = string[];
 ```
 
 ## 6.8 Certificate Commands

@@ -2,6 +2,7 @@ use aiproxy_db::body_store::{BodyStore, BODY_FILE_THRESHOLD};
 use aiproxy_db::rules::{
     BreakpointRuleRow, DnsMappingRow, MapRuleRow, RewriteRuleRow, ScriptRuleRow,
     RewriteRunEntryRow, RewriteRunRow, ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
+    ThrottleRuleRow, ThrottleRunRow,
 };
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
@@ -11,6 +12,7 @@ use aiproxy_proxy_core::{
     RewriteRule, RewriteRuleMatch, RewriteTrace, ScriptEntrypoints, ScriptManager, ScriptRule,
     ScriptRuleLanguage, ScriptRuleSourceType, ScriptRunEntryKind,
     ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager, ThrottleProfileData,
+    ThrottleRuleData, ThrottleTrace,
     TlsManager, CompiledScriptRule,
 };
 use serde::Serialize;
@@ -156,6 +158,12 @@ impl AppState {
         if let Ok(rows) = aiproxy_db::rules::load_all_throttle_profiles(&conn) {
             self.throttle_manager.set_profiles(
                 rows.into_iter().map(throttle_row_to_profile).collect(),
+            );
+        }
+
+        if let Ok(rows) = aiproxy_db::rules::load_all_throttle_rules(&conn) {
+            self.throttle_manager.set_rules(
+                rows.into_iter().map(throttle_row_to_rule).collect(),
             );
         }
 
@@ -414,6 +422,19 @@ impl AppState {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "rewrite_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_throttle_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.throttle_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "throttle_trace_upsert_db_failed",
                     &[("error", e)],
                 );
             }
@@ -894,6 +915,21 @@ fn throttle_row_to_profile(row: ThrottleProfileRow) -> ThrottleProfileData {
     }
 }
 
+fn throttle_row_to_rule(row: ThrottleRuleRow) -> ThrottleRuleData {
+    ThrottleRuleData {
+        id: row.id,
+        enabled: row.enabled,
+        methods: serde_json::from_str(&row.methods).unwrap_or_default(),
+        name: row.name,
+        note: row.note,
+        priority: row.priority,
+        profile_id: row.profile_id,
+        stage: row.stage,
+        url_pattern: row.url_pattern,
+        workspace_id: row.workspace_id,
+    }
+}
+
 fn breakpoint_row_to_rule(row: BreakpointRuleRow) -> BreakpointRule {
     BreakpointRule {
         id: row.id,
@@ -983,6 +1019,7 @@ fn detail_row_to_proxy(
         server_ip: row.server_ip.clone(),
         script_traces: Vec::new(),
         summary,
+        throttle_traces: Vec::new(),
         tls_cipher_suite: row.tls_cipher_suite.clone(),
         tls_protocol: row.tls_protocol.clone(),
         timing,
@@ -1263,6 +1300,39 @@ fn persist_rewrite_traces(
     aiproxy_db::rules::replace_rewrite_runs_for_session(conn, session_id, &runs, &entries)
 }
 
+fn persist_throttle_traces(
+    conn: &aiproxy_db::rusqlite::Connection,
+    session_id: &str,
+    workspace_id: &str,
+    traces: &[ThrottleTrace],
+) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let runs: Vec<ThrottleRunRow> = traces
+        .iter()
+        .enumerate()
+        .map(|(index, trace)| ThrottleRunRow {
+            id: format!("{session_id}-throttle-{index}"),
+            session_id: session_id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            profile_id: trace.profile_id.clone(),
+            profile_name: trace.profile_name.clone(),
+            rule_id: trace.rule_id.clone(),
+            rule_name: trace.rule_name.clone(),
+            stage: trace.stage.clone(),
+            outcome: trace.outcome.clone(),
+            delay_ms: trace.delay_ms,
+            latency_ms: trace.latency_ms,
+            transfer_delay_ms: trace.transfer_delay_ms,
+            body_bytes: trace.body_bytes,
+            message: trace.message.clone(),
+            sequence: index as u32,
+            created_at: now.clone(),
+        })
+        .collect();
+
+    aiproxy_db::rules::replace_throttle_runs_for_session(conn, session_id, &runs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState};
@@ -1385,6 +1455,7 @@ mod tests {
             server_ip: Some("1.2.3.4".to_string()),
             script_traces: Vec::new(),
             summary: summary.clone(),
+            throttle_traces: Vec::new(),
             tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
             tls_protocol: Some("TLSv1.3".to_string()),
             timing: None,

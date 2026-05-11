@@ -59,6 +59,45 @@ CREATE TABLE IF NOT EXISTS throttle_profiles (
 );
 CREATE INDEX IF NOT EXISTS idx_throttle_profiles_workspace ON throttle_profiles(workspace_id);
 
+CREATE TABLE IF NOT EXISTS throttle_rules (
+    id                TEXT NOT NULL PRIMARY KEY,
+    workspace_id      TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    note              TEXT,
+    enabled           INTEGER NOT NULL DEFAULT 1,
+    priority          INTEGER NOT NULL DEFAULT 0,
+    profile_id        TEXT NOT NULL,
+    url_pattern       TEXT NOT NULL DEFAULT '*',
+    methods           TEXT NOT NULL DEFAULT '[]',
+    stage             TEXT NOT NULL DEFAULT 'both',
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+    FOREIGN KEY (profile_id) REFERENCES throttle_profiles(id)
+);
+CREATE INDEX IF NOT EXISTS idx_throttle_rules_workspace ON throttle_rules(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_throttle_rules_profile ON throttle_rules(profile_id);
+
+CREATE TABLE IF NOT EXISTS throttle_runs (
+    id                TEXT NOT NULL PRIMARY KEY,
+    session_id        TEXT NOT NULL,
+    workspace_id      TEXT NOT NULL,
+    profile_id        TEXT NOT NULL,
+    profile_name      TEXT NOT NULL,
+    rule_id           TEXT,
+    rule_name         TEXT,
+    stage             TEXT NOT NULL,
+    outcome           TEXT NOT NULL,
+    delay_ms          INTEGER NOT NULL DEFAULT 0,
+    latency_ms        INTEGER NOT NULL DEFAULT 0,
+    transfer_delay_ms INTEGER NOT NULL DEFAULT 0,
+    body_bytes        INTEGER NOT NULL DEFAULT 0,
+    message           TEXT,
+    sequence          INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_throttle_runs_session ON throttle_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_throttle_runs_workspace ON throttle_runs(workspace_id);
+
 CREATE TABLE IF NOT EXISTS breakpoint_rules (
     id          TEXT NOT NULL PRIMARY KEY,
     enabled     INTEGER NOT NULL DEFAULT 1,
@@ -313,6 +352,8 @@ mod tests {
             "session_details",
             "session_summaries",
             "throttle_profiles",
+            "throttle_rules",
+            "throttle_runs",
             "ws_messages",
             "workspaces",
         ];

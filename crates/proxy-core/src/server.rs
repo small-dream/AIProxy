@@ -426,7 +426,7 @@ async fn handle_connection(
     let RequestRuntimeOutcome {
         mut local_response,
         rewrite_traces,
-        throttle_profile,
+        throttle_selection,
     } = apply_request_runtime_rules(
         &rewrite_manager,
         &map_manager,
@@ -436,6 +436,7 @@ async fn handle_connection(
     )?;
     let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
+    let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
         let script_outcome = apply_request_script_rules(
@@ -456,8 +457,19 @@ async fn handle_connection(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(profile) = throttle_profile.as_ref() {
-                        if let Err(error) = apply_request_throttle(profile, request.body.len()).await {
+                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+                        match apply_request_throttle(selection, request.body.len()).await {
+                            Ok(trace) => {
+                                if let Some(manager) = throttle_manager.as_ref() {
+                                    manager.record_trace(&trace);
+                                }
+                                throttle_traces.push(trace);
+                            }
+                            Err(failure) => {
+                                if let Some(manager) = throttle_manager.as_ref() {
+                                    manager.record_trace(&failure.trace);
+                                }
+                                throttle_traces.push(failure.trace);
                             return respond_with_throttle_failure(
                                 &mut stream,
                                 &request,
@@ -465,9 +477,11 @@ async fn handle_connection(
                                 started_at,
                                 started_at_instant,
                                 None,
-                                &error,
+                                &failure.error,
+                                throttle_traces,
                             )
                             .await;
+                            }
                         }
                     }
 
@@ -485,8 +499,12 @@ async fn handle_connection(
                         &mut mock_response,
                     ));
 
-                    if let Some(profile) = throttle_profile.as_ref() {
-                        apply_response_throttle(profile, mock_response.response_body.len()).await;
+                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
+                        let trace = apply_response_throttle(selection, mock_response.response_body.len()).await;
+                        if let Some(manager) = throttle_manager.as_ref() {
+                            manager.record_trace(&trace);
+                        }
+                        throttle_traces.push(trace);
                     }
 
                     write_upstream_response(
@@ -518,6 +536,7 @@ async fn handle_connection(
                     );
                     detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
+                    detail.throttle_traces = throttle_traces;
                     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -535,8 +554,19 @@ async fn handle_connection(
         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
     }
 
-    if let Some(profile) = throttle_profile.as_ref() {
-        if let Err(error) = apply_request_throttle(profile, request.body.len()).await {
+    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+        match apply_request_throttle(selection, request.body.len()).await {
+            Ok(trace) => {
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+            }
+            Err(failure) => {
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&failure.trace);
+                }
+                throttle_traces.push(failure.trace);
             return respond_with_throttle_failure(
                 &mut stream,
                 &request,
@@ -544,9 +574,11 @@ async fn handle_connection(
                 started_at,
                 started_at_instant,
                 None,
-                &error,
+                &failure.error,
+                throttle_traces,
             )
             .await;
+            }
         }
     }
 
@@ -624,6 +656,7 @@ async fn handle_connection(
             );
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
+            session_detail.throttle_traces = throttle_traces.clone();
 
             // --- Response-stage breakpoint ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -678,6 +711,7 @@ async fn handle_connection(
                             );
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
+                            session_detail.throttle_traces = throttle_traces.clone();
                         }
                     }
                     BreakpointActionKind::Forward => {
@@ -703,12 +737,18 @@ async fn handle_connection(
                         );
                         session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
+                        session_detail.throttle_traces = throttle_traces.clone();
                     }
                 }
             }
 
-            if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body_size_bytes).await;
+            if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
+                let trace = apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+                session_detail.throttle_traces = throttle_traces.clone();
             }
 
             let write_result = if let Some(spooled_response_path) =
@@ -1699,7 +1739,7 @@ async fn handle_connect_mitm(
     let RequestRuntimeOutcome {
         mut local_response,
         rewrite_traces,
-        throttle_profile,
+        throttle_selection,
     } = apply_request_runtime_rules(
         &rewrite_manager,
         &map_manager,
@@ -1709,6 +1749,7 @@ async fn handle_connect_mitm(
     )?;
     let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
+    let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
         let script_outcome = apply_request_script_rules(
@@ -1729,8 +1770,19 @@ async fn handle_connect_mitm(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(profile) = throttle_profile.as_ref() {
-                        if let Err(error) = apply_request_throttle(profile, https_request.body.len()).await {
+                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+                        match apply_request_throttle(selection, https_request.body.len()).await {
+                            Ok(trace) => {
+                                if let Some(manager) = throttle_manager.as_ref() {
+                                    manager.record_trace(&trace);
+                                }
+                                throttle_traces.push(trace);
+                            }
+                            Err(failure) => {
+                                if let Some(manager) = throttle_manager.as_ref() {
+                                    manager.record_trace(&failure.trace);
+                                }
+                                throttle_traces.push(failure.trace);
                             return respond_with_throttle_failure(
                                 &mut tls_stream,
                                 &https_request,
@@ -1738,9 +1790,11 @@ async fn handle_connect_mitm(
                                 started_at,
                                 started_at_instant,
                                 Some(tls_ms),
-                                &error,
+                                &failure.error,
+                                throttle_traces,
                             )
                             .await;
+                            }
                         }
                     }
 
@@ -1758,8 +1812,12 @@ async fn handle_connect_mitm(
                         &mut mock_response,
                     ));
 
-                    if let Some(profile) = throttle_profile.as_ref() {
-                        apply_response_throttle(profile, mock_response.response_body.len()).await;
+                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
+                        let trace = apply_response_throttle(selection, mock_response.response_body.len()).await;
+                        if let Some(manager) = throttle_manager.as_ref() {
+                            manager.record_trace(&trace);
+                        }
+                        throttle_traces.push(trace);
                     }
 
                     write_upstream_response(
@@ -1791,6 +1849,7 @@ async fn handle_connect_mitm(
                     );
                     detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
+                    detail.throttle_traces = throttle_traces;
                     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
@@ -1804,8 +1863,19 @@ async fn handle_connect_mitm(
     let pending_detail = build_pending_session_detail(&https_request, started_at);
     let _ = session_sender.send(pending_detail).await;
 
-    if let Some(profile) = throttle_profile.as_ref() {
-        if let Err(error) = apply_request_throttle(profile, https_request.body.len()).await {
+    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+        match apply_request_throttle(selection, https_request.body.len()).await {
+            Ok(trace) => {
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+            }
+            Err(failure) => {
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&failure.trace);
+                }
+                throttle_traces.push(failure.trace);
             return respond_with_throttle_failure(
                 &mut tls_stream,
                 &https_request,
@@ -1813,9 +1883,11 @@ async fn handle_connect_mitm(
                 started_at,
                 started_at_instant,
                 Some(tls_ms),
-                &error,
+                &failure.error,
+                throttle_traces,
             )
             .await;
+            }
         }
     }
 
@@ -1898,6 +1970,7 @@ async fn handle_connect_mitm(
             );
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
+            session_detail.throttle_traces = throttle_traces.clone();
 
             // --- Response-stage breakpoint (HTTPS) ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -1952,6 +2025,7 @@ async fn handle_connect_mitm(
                             );
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
+                            session_detail.throttle_traces = throttle_traces.clone();
                         }
                     }
                     BreakpointActionKind::Forward => {
@@ -1977,12 +2051,18 @@ async fn handle_connect_mitm(
                         );
                         session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
+                        session_detail.throttle_traces = throttle_traces.clone();
                     }
                 }
             }
 
-            if let Some(profile) = throttle_profile.as_ref() {
-                apply_response_throttle(profile, upstream_response.response_body_size_bytes).await;
+            if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
+                let trace = apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
+                if let Some(manager) = throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+                session_detail.throttle_traces = throttle_traces.clone();
             }
 
             let write_result = if let Some(spooled_response_path) =
@@ -2388,6 +2468,7 @@ pub async fn send_direct_request(
         server_ip: None,
         script_traces: Vec::new(),
         summary,
+        throttle_traces: Vec::new(),
         tls_cipher_suite: None,
         tls_protocol: None,
         timing: Some(timing),
@@ -2402,12 +2483,13 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     started_at_instant: Instant,
     tls_ms: Option<u128>,
     error: &str,
+    throttle_traces: Vec<ThrottleTrace>,
 ) -> Result<(), String> {
     let response_message = "The request was dropped by the active throttle profile.";
 
     write_plain_text_response(stream, StatusCode::GATEWAY_TIMEOUT, response_message).await?;
 
-    let detail = build_session_detail(
+    let mut detail = build_session_detail(
         request,
         StatusCode::GATEWAY_TIMEOUT.as_u16(),
         &HeaderMap::new(),
@@ -2426,6 +2508,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         },
         false,
     );
+    detail.throttle_traces = throttle_traces;
     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
                     }
