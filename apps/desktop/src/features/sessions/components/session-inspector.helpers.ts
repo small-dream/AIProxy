@@ -188,6 +188,17 @@ export function getRawMessageText(
   return undefined;
 }
 
+export function getBodyCodeLanguage(
+  body: BodyReference | undefined,
+  bodyText: string | undefined,
+): "json" | "plain" {
+  if (!body || !bodyText) {
+    return "plain";
+  }
+
+  return looksLikeJson(body.mimeType, bodyText) ? "json" : "plain";
+}
+
 export function parseFormEntries(body: BodyReference | undefined): RequestFormEntry[] {
   if (!body) {
     return [];

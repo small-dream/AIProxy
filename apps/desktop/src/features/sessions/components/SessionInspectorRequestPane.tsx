@@ -18,7 +18,7 @@ import {
 } from "./SessionInspectorShared";
 import {
   buildCountTabLabel,
-  describeBody,
+  getBodyCodeLanguage,
   getRawMessageText,
   type RequestFormEntry,
   type RequestInspectorTab,
@@ -105,8 +105,8 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
         >
           <Tab label={buildCountTabLabel(t("inspector.request.tabs.query"), detail?.queryParams.length ?? 0)} value="query" />
           <Tab label={buildCountTabLabel(t("inspector.request.tabs.form"), requestFormEntries.length)} value="form" />
-          <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
           <Tab label={t("inspector.request.tabs.body")} value="body" />
+          <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
           <Tab label={t("inspector.request.tabs.raw")} value="raw" />
         </Tabs>
         <Button
@@ -192,11 +192,7 @@ function RequestTabContent({
   onMatchCountChange: ((count: number) => void) | undefined;
 }) {
   const { t } = useI18n();
-  const bodyDescription = describeBody(detail?.requestBody, {
-    formatBytes: (value) => t("common.tech.bytes", { value }),
-    truncatedPreviewLabel: t("common.tech.truncatedPreview"),
-    unknownMimeTypeLabel: t("common.tech.unknownMimeType"),
-  });
+  const requestBodyLanguage = getBodyCodeLanguage(detail?.requestBody, requestBodyDisplayText);
 
   if (requestTab === "query") {
     return (
@@ -280,9 +276,6 @@ function RequestTabContent({
 
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
-      <Typography color="text.secondary" variant="caption">
-        {bodyDescription ?? t("common.tech.noBodyCaptured")}
-      </Typography>
       {isRequestBodyLoading && detail?.requestBody?.textDeferred ? (
         <Typography color="text.secondary" variant="body2">
           {t("inspector.workspace.loading")}
@@ -291,6 +284,7 @@ function RequestTabContent({
         <SearchableCodeBlock
           code={requestBodyDisplayText}
           currentMatchIndex={currentMatchIndex}
+          language={requestBodyLanguage}
           matcher={searchMatcher}
           onMatchCountChange={onMatchCountChange}
           searchQuery=""

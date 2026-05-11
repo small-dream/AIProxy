@@ -95,7 +95,7 @@ function createWebSocketSessionDetail(overrides: Partial<SessionDetail> = {}): S
 
 describe("SessionInspectorWorkspace", () => {
   it("renders websocket response tabs in the preferred order", () => {
-    render(
+    const { container } = render(
       <AppProviders>
         <SessionInspectorWorkspace
           detailErrorMessage={undefined}
@@ -365,10 +365,89 @@ describe("SessionInspectorWorkspace", () => {
     expect(requestTabs.map((tab) => tab.textContent)).toEqual([
       "Query (1)",
       "Form",
-      "Headers (1)",
       "Body",
+      "Headers (1)",
       "Raw",
     ]);
+  });
+
+  it("syntax highlights JSON request bodies", () => {
+    const { container } = render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="body"
+          responseTab="overview"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail({
+            requestBody: {
+              inlineText: "{\"title\":\"AI\",\"published\":true}",
+              mimeType: "application/json; charset=utf-8",
+              sizeBytes: 31,
+            },
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const codeBlock = container.querySelector("pre");
+
+    expect(codeBlock).toHaveTextContent('"title"');
+    expect(codeBlock?.querySelectorAll("span").length).toBeGreaterThan(0);
+  });
+
+  it("does not show request body metadata in the body tab", () => {
+    const { container } = render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="body"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "text/plain" })}
+          selectedSessionDetail={createSessionDetail({
+            requestBody: {
+              inlineText: "{\"title\":\"AI\"}",
+              mimeType: "application/json",
+              sizeBytes: 14,
+            },
+            responseBody: {
+              inlineText: "ok",
+              mimeType: "text/plain",
+              sizeBytes: 2,
+            },
+            responseHeaders: [{ name: "content-type", value: "text/plain" }],
+            summary: createSessionSummary({ responseMimeType: "text/plain" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+    const codeBlock = container.querySelector("pre");
+    const requestBodyContent = codeBlock?.parentElement;
+
+    expect(requestBodyContent).not.toHaveTextContent("application/json - 14 bytes");
+    expect(screen.getByText(/"title"/)).toBeInTheDocument();
   });
 
   it("renders the draggable splitter and forwards pointer down events", () => {

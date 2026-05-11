@@ -5,6 +5,7 @@ import {
   clampInspectorSplitRatio,
   findNormalizedMatchIndex,
   formatJsonText,
+  getBodyCodeLanguage,
   getRequestOperationLabel,
   parseFormEntries,
   parseJsonBody,
@@ -157,6 +158,24 @@ describe("parseFormEntries", () => {
 describe("formatJsonText", () => {
   it("pretty prints JSON values on demand", () => {
     expect(formatJsonText({ ok: true, items: [1, 2] })).toBe('{\n    "ok": true,\n    "items": [\n        1,\n        2\n    ]\n}');
+  });
+});
+
+describe("getBodyCodeLanguage", () => {
+  it("detects JSON bodies from content type", () => {
+    expect(getBodyCodeLanguage(createBodyReference(), "{\"ok\":true}")).toBe("json");
+  });
+
+  it("detects JSON bodies from visible text when content type is missing", () => {
+    const body = createBodyReference();
+
+    delete body.mimeType;
+
+    expect(getBodyCodeLanguage(body, "[1,2,3]")).toBe("json");
+  });
+
+  it("uses plain text for non-JSON bodies", () => {
+    expect(getBodyCodeLanguage(createBodyReference({ mimeType: "text/plain" }), "hello")).toBe("plain");
   });
 });
 
