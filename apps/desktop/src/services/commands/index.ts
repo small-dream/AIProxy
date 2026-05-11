@@ -101,12 +101,32 @@ const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 const THROTTLE_RULES_STORAGE_KEY = "aiproxy.throttle.rules";
 const DNS_MAPPINGS_STORAGE_KEY = "aiproxy.rules.dns";
 const SCRIPT_RULES_STORAGE_KEY = "aiproxy.rules.script";
+const MOBILE_DEVICE_SCAN_TIMEOUT_MS = 8_000;
 
 export {
   getWsConnectionStatus,
   injectWsMessage,
   listWsMessages,
 } from "./ws";
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {
@@ -617,7 +637,11 @@ export async function listAndroidAdbDevices(): Promise<AndroidAdbDevice[]> {
 
   try {
     logDevInfo("ui.commands", "list_android_adb_devices_requested");
-    const payload = await invoke<unknown>("list_android_adb_devices");
+    const payload = await withTimeout(
+      invoke<unknown>("list_android_adb_devices"),
+      MOBILE_DEVICE_SCAN_TIMEOUT_MS,
+      "Timed out while scanning Android devices via adb. Check that adb is responsive, then refresh devices.",
+    );
     const devices = parseAndroidAdbDevices(payload);
 
     logDevInfo("ui.commands", "list_android_adb_devices_succeeded", {
@@ -677,7 +701,11 @@ export async function listIosSimulators(): Promise<IOSSimulatorDevice[]> {
 
   try {
     logDevInfo("ui.commands", "list_ios_simulators_requested");
-    const payload = await invoke<unknown>("list_ios_simulators");
+    const payload = await withTimeout(
+      invoke<unknown>("list_ios_simulators"),
+      MOBILE_DEVICE_SCAN_TIMEOUT_MS,
+      "Timed out while scanning iOS Simulators. Check Xcode Simulator services, then refresh simulators.",
+    );
     const simulators = parseIOSSimulatorDevices(payload);
 
     logDevInfo("ui.commands", "list_ios_simulators_succeeded", {

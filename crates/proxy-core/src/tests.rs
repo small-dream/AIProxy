@@ -251,6 +251,7 @@ use tokio::{
                 response_mime_type: Some("application/json".to_string()),
             },
             script_traces: Vec::new(),
+            throttle_traces: Vec::new(),
             tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
             tls_protocol: Some("TLSv1.3".to_string()),
             timing: Some(ProxyTimingBreakdown {

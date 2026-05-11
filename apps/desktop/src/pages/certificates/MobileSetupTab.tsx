@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { Alert, AlertTitle, Box, Stack } from "@mui/material";
 import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n } from "@/i18n";
@@ -27,6 +27,7 @@ export function MobileSetupTab({
   androidQuickActionsRef,
 }: Props) {
   const { t } = useI18n();
+  const [devicesQueryEnabled, setDevicesQueryEnabled] = useState(false);
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const localIp = localIps?.[0];
   const certDownloadUrl = localIp && proxyRunning ? `http://${localIp}:${proxyPort}/aiproxy-ca.crt` : null;
@@ -34,6 +35,16 @@ export function MobileSetupTab({
 
   const showCertQr = sslEnabled && hasCert && Boolean(certDownloadUrl);
   const showProxyQr = !sslEnabled && Boolean(proxyAddress);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDevicesQueryEnabled(true);
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
 
   return (
     <Stack spacing={1.5}>
@@ -66,11 +77,15 @@ export function MobileSetupTab({
       >
         <Stack spacing={1.5} sx={{ minWidth: 0 }}>
           <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
-            <IosQuickActionsPanel hasCert={hasCert} />
+            <IosQuickActionsPanel
+              devicesQueryEnabled={devicesQueryEnabled}
+              hasCert={hasCert}
+            />
           </Box>
 
           <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
             <AndroidQuickActionsPanel
+              devicesQueryEnabled={devicesQueryEnabled}
               hasCert={hasCert}
               localIp={localIp ?? null}
               proxyPort={proxyPort}

@@ -30,6 +30,16 @@ const DEFAULT_PROXY_PORT: u16 = 8888;
 const EAGER_SESSION_DETAIL_BODY_LIMIT_BYTES: usize = 64 * 1024;
 const MAX_IMPORTED_SCRIPT_BYTES: usize = 128 * 1024;
 
+async fn run_blocking_command<T, F>(command_name: &'static str, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("{command_name} blocking task failed: {error}"))?
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartProxyInput {
@@ -873,43 +883,57 @@ pub fn launch_certificate_installer(
 }
 
 #[tauri::command]
-pub fn list_android_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
-    list_android_adb_devices_impl()
+pub async fn list_android_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
+    run_blocking_command("list_android_adb_devices", list_android_adb_devices_impl).await
 }
 
 #[tauri::command]
-pub fn install_android_certificate_via_adb(
+pub async fn install_android_certificate_via_adb(
     input: InstallAndroidCertificateViaAdbInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<AndroidAdbInstallResult, String> {
-    install_android_certificate_via_adb_impl(input, Arc::clone(state.inner()))
+    let state = Arc::clone(state.inner());
+    run_blocking_command("install_android_certificate_via_adb", move || {
+        install_android_certificate_via_adb_impl(input, state)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
-    list_ios_simulators_impl()
+pub async fn list_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
+    run_blocking_command("list_ios_simulators", list_ios_simulators_impl).await
 }
 
 #[tauri::command]
-pub fn install_ios_certificate_via_simulator(
+pub async fn install_ios_certificate_via_simulator(
     input: InstallIosCertificateViaSimulatorInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<IosSimulatorInstallResult, String> {
-    install_ios_certificate_via_simulator_impl(input, Arc::clone(state.inner()))
+    let state = Arc::clone(state.inner());
+    run_blocking_command("install_ios_certificate_via_simulator", move || {
+        install_ios_certificate_via_simulator_impl(input, state)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_android_proxy_via_adb(
+pub async fn set_android_proxy_via_adb(
     input: SetAndroidProxyViaAdbInput,
 ) -> Result<AndroidAdbProxyResult, String> {
-    set_android_proxy_via_adb_impl(input)
+    run_blocking_command("set_android_proxy_via_adb", move || {
+        set_android_proxy_via_adb_impl(input)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn clear_android_proxy_via_adb(
+pub async fn clear_android_proxy_via_adb(
     input: ClearAndroidProxyViaAdbInput,
 ) -> Result<AndroidAdbProxyResult, String> {
-    clear_android_proxy_via_adb_impl(input)
+    run_blocking_command("clear_android_proxy_via_adb", move || {
+        clear_android_proxy_via_adb_impl(input)
+    })
+    .await
 }
 
 #[tauri::command]

@@ -29,6 +29,7 @@ type Props = {
   localIp: string | null;
   proxyPort: number;
   proxyRunning: boolean;
+  devicesQueryEnabled?: boolean;
 };
 
 function formatAdbDeviceLabel(device: {
@@ -47,12 +48,13 @@ export function AndroidQuickActionsPanel({
   localIp,
   proxyPort,
   proxyRunning,
+  devicesQueryEnabled = true,
 }: Props) {
   const { t } = useI18n();
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
 
-  const adbDevicesQuery = useAndroidAdbDevices();
+  const adbDevicesQuery = useAndroidAdbDevices({ enabled: devicesQueryEnabled });
   const adbInstallMutation = useInstallAndroidCertificateViaAdb();
   const adbSetProxyMutation = useSetAndroidProxyViaAdb();
   const adbClearProxyMutation = useClearAndroidProxyViaAdb();

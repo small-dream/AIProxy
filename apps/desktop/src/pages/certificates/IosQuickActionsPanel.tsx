@@ -25,6 +25,7 @@ import { useI18n } from "@/i18n";
 
 type Props = {
   hasCert: boolean;
+  devicesQueryEnabled?: boolean;
 };
 
 function formatSimulatorLabel(simulator: {
@@ -35,13 +36,13 @@ function formatSimulatorLabel(simulator: {
   return `${simulator.name} · ${simulator.runtime} · ${simulator.state}`;
 }
 
-export function IosQuickActionsPanel({ hasCert }: Props) {
+export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Props) {
   const { t, tList } = useI18n();
   const [selectedSimulatorUdid, setSelectedSimulatorUdid] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showTrustSteps, setShowTrustSteps] = useState(false);
 
-  const simulatorsQuery = useIosSimulators();
+  const simulatorsQuery = useIosSimulators({ enabled: devicesQueryEnabled });
   const installMutation = useInstallIosCertificateViaSimulator();
 
   const simulators = simulatorsQuery.data;

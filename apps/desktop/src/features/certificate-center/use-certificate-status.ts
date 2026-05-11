@@ -61,11 +61,16 @@ export function useLaunchCertificateInstaller() {
   });
 }
 
-export function useAndroidAdbDevices() {
+type DeviceQueryOptions = {
+  enabled?: boolean;
+};
+
+export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
   return useQuery<AndroidAdbDevice[]>({
     queryKey: ANDROID_ADB_DEVICES_QUERY_KEY,
     queryFn: listAndroidAdbDevices,
-    staleTime: 5_000,
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
   });
 }
 
@@ -75,11 +80,12 @@ export function useInstallAndroidCertificateViaAdb() {
   });
 }
 
-export function useIosSimulators() {
+export function useIosSimulators(options?: DeviceQueryOptions) {
   return useQuery<IOSSimulatorDevice[]>({
     queryKey: IOS_SIMULATORS_QUERY_KEY,
     queryFn: listIosSimulators,
-    staleTime: 5_000,
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
   });
 }
 
