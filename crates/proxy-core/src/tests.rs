@@ -234,6 +234,7 @@ use tokio::{
                 name: "Content-Type".to_string(),
                 value: "application/json".to_string(),
             }],
+            map_traces: Vec::new(),
             rewrite_traces: Vec::new(),
             server_ip: None,
             summary: ProxySessionSummary {
@@ -382,17 +383,85 @@ use tokio::{
         });
 
         let mut request = build_test_request("http://example.com/asset.txt");
-        let response = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
-            .unwrap()
+        let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
             .unwrap();
+        let response = response.unwrap();
 
         assert_eq!(response.status_code, reqwest::StatusCode::OK);
         assert_eq!(
             String::from_utf8(response.response_body.clone()).unwrap(),
             "mapped body"
         );
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].mode, "local");
 
         let _ = fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn applies_map_local_rules_by_resolving_a_directory_path() {
+        let dir_path = std::env::temp_dir().join(format!("aiproxy-map-local-dir-{}", std::process::id()));
+        let asset_dir = dir_path.join("assets");
+        fs::create_dir_all(&asset_dir).unwrap();
+        fs::write(asset_dir.join("app.json"), r#"{"mapped":true}"#).unwrap();
+
+        let manager = MapManager::new();
+        manager.save_rule(MapRule {
+            id: "map-local-dir".to_string(),
+            enabled: true,
+            mode: "local".to_string(),
+            name: "Map local dir".to_string(),
+            note: None,
+            preserve_path: true,
+            preserve_query: true,
+            priority: 100,
+            source_pattern: "example.com".to_string(),
+            target_value: dir_path.display().to_string(),
+            workspace_id: "default".to_string(),
+        });
+
+        let mut request = build_test_request("http://example.com/assets/app.json?cache=1");
+        let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+            .unwrap();
+        let response = response.unwrap();
+
+        assert_eq!(response.status_code, reqwest::StatusCode::OK);
+        assert_eq!(
+            String::from_utf8(response.response_body.clone()).unwrap(),
+            r#"{"mapped":true}"#
+        );
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].local_path.as_deref().unwrap_or_default().ends_with("assets/app.json"));
+
+        let _ = fs::remove_dir_all(dir_path);
+    }
+
+    #[test]
+    fn applies_map_remote_rules_by_rewriting_the_request_url() {
+        let manager = MapManager::new();
+        manager.save_rule(MapRule {
+            id: "map-remote".to_string(),
+            enabled: true,
+            mode: "remote".to_string(),
+            name: "Map remote".to_string(),
+            note: None,
+            preserve_path: true,
+            preserve_query: true,
+            priority: 100,
+            source_pattern: "api.example.com".to_string(),
+            target_value: "https://staging.example.com/base?target=1".to_string(),
+            workspace_id: "default".to_string(),
+        });
+
+        let mut request = build_test_request("http://api.example.com/v1/users?debug=true");
+        let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+        assert!(response.is_none());
+        assert_eq!(request.url.as_str(), "https://staging.example.com/v1/users?debug=true");
+        assert_eq!(request.protocol, "https");
+        assert_eq!(request.host, "staging.example.com");
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].mapped_url.as_deref(), Some("https://staging.example.com/v1/users?debug=true"));
     }
 
     #[test]

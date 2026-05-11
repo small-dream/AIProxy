@@ -119,6 +119,15 @@ function isValidIpAddress(ip: string): boolean {
   return ipv6.test(ip);
 }
 
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function getDnsMappingValidationErrors(rule: DnsMappingRule, t: TranslationFn): string[] {
   const errors: string[] = [];
   if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
@@ -156,7 +165,11 @@ export function getMapValidationErrors(rule: MapRule, t: TranslationFn): string[
   const errors: string[] = [];
   if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
   if (!rule.sourcePattern.trim()) errors.push(t("rulesPage.validation.mapSourceRequired"));
-  if (!rule.targetValue.trim()) errors.push(rule.mode === "local" ? t("rulesPage.validation.localTargetRequired") : t("rulesPage.validation.remoteTargetRequired"));
+  if (!rule.targetValue.trim()) {
+    errors.push(rule.mode === "local" ? t("rulesPage.validation.localTargetRequired") : t("rulesPage.validation.remoteTargetRequired"));
+  } else if (rule.mode === "remote" && !isValidHttpUrl(rule.targetValue.trim())) {
+    errors.push(t("rulesPage.validation.remoteTargetInvalid"));
+  }
   return errors;
 }
 

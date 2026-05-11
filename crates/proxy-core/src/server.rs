@@ -425,6 +425,7 @@ async fn handle_connection(
 
     let RequestRuntimeOutcome {
         mut local_response,
+        map_traces,
         rewrite_traces,
         throttle_selection,
     } = apply_request_runtime_rules(
@@ -434,6 +435,7 @@ async fn handle_connection(
         &active_workspace_id,
         &mut request,
     )?;
+    let map_traces = map_traces;
     let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
     let mut throttle_traces = Vec::new();
@@ -478,6 +480,7 @@ async fn handle_connection(
                                 started_at_instant,
                                 None,
                                 &failure.error,
+                                map_traces.clone(),
                                 throttle_traces,
                             )
                             .await;
@@ -534,6 +537,7 @@ async fn handle_connection(
                         },
                         mock_response.body_truncated,
                     );
+                    detail.map_traces = map_traces;
                     detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
                     detail.throttle_traces = throttle_traces;
@@ -549,7 +553,8 @@ async fn handle_connection(
         }
     }
 
-    let pending_detail = build_pending_session_detail(&request, started_at);
+    let mut pending_detail = build_pending_session_detail(&request, started_at);
+    pending_detail.map_traces = map_traces.clone();
     if session_sender.send(pending_detail).await.is_err() {
         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
     }
@@ -575,6 +580,7 @@ async fn handle_connection(
                 started_at_instant,
                 None,
                 &failure.error,
+                map_traces.clone(),
                 throttle_traces,
             )
             .await;
@@ -654,6 +660,7 @@ async fn handle_connection(
                 },
                 upstream_response.body_truncated,
             );
+            session_detail.map_traces = map_traces.clone();
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
@@ -709,6 +716,7 @@ async fn handle_connection(
                                 },
                                 upstream_response.body_truncated,
                             );
+                            session_detail.map_traces = map_traces.clone();
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                             session_detail.throttle_traces = throttle_traces.clone();
@@ -735,6 +743,7 @@ async fn handle_connection(
                             },
                             upstream_response.body_truncated,
                         );
+                        session_detail.map_traces = map_traces.clone();
                         session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
                         session_detail.throttle_traces = throttle_traces.clone();
@@ -779,6 +788,7 @@ async fn handle_connection(
 
             session_detail.rewrite_traces = rewrite_traces;
             session_detail.script_traces = script_traces;
+            session_detail.map_traces = map_traces;
 
             if session_sender.send(session_detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -1738,6 +1748,7 @@ async fn handle_connect_mitm(
 
     let RequestRuntimeOutcome {
         mut local_response,
+        map_traces,
         rewrite_traces,
         throttle_selection,
     } = apply_request_runtime_rules(
@@ -1747,6 +1758,7 @@ async fn handle_connect_mitm(
         &workspace_id,
         &mut https_request,
     )?;
+    let map_traces = map_traces;
     let mut rewrite_traces = rewrite_traces;
     let mut script_traces = Vec::new();
     let mut throttle_traces = Vec::new();
@@ -1791,6 +1803,7 @@ async fn handle_connect_mitm(
                                 started_at_instant,
                                 Some(tls_ms),
                                 &failure.error,
+                                map_traces.clone(),
                                 throttle_traces,
                             )
                             .await;
@@ -1847,6 +1860,7 @@ async fn handle_connect_mitm(
                         },
                         mock_response.body_truncated,
                     );
+                    detail.map_traces = map_traces;
                     detail.rewrite_traces = rewrite_traces;
                     detail.script_traces = script_traces;
                     detail.throttle_traces = throttle_traces;
@@ -1860,7 +1874,8 @@ async fn handle_connect_mitm(
         }
     }
 
-    let pending_detail = build_pending_session_detail(&https_request, started_at);
+    let mut pending_detail = build_pending_session_detail(&https_request, started_at);
+    pending_detail.map_traces = map_traces.clone();
     let _ = session_sender.send(pending_detail).await;
 
     if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
@@ -1884,6 +1899,7 @@ async fn handle_connect_mitm(
                 started_at_instant,
                 Some(tls_ms),
                 &failure.error,
+                map_traces.clone(),
                 throttle_traces,
             )
             .await;
@@ -1968,6 +1984,7 @@ async fn handle_connect_mitm(
                 },
                 upstream_response.body_truncated,
             );
+            session_detail.map_traces = map_traces.clone();
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
@@ -2023,6 +2040,7 @@ async fn handle_connect_mitm(
                                 },
                                 upstream_response.body_truncated,
                             );
+                            session_detail.map_traces = map_traces.clone();
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                             session_detail.throttle_traces = throttle_traces.clone();
@@ -2049,6 +2067,7 @@ async fn handle_connect_mitm(
                             },
                             upstream_response.body_truncated,
                         );
+                        session_detail.map_traces = map_traces.clone();
                         session_detail.rewrite_traces = rewrite_traces.clone();
                         session_detail.script_traces = script_traces.clone();
                         session_detail.throttle_traces = throttle_traces.clone();
@@ -2093,6 +2112,7 @@ async fn handle_connect_mitm(
 
             session_detail.rewrite_traces = rewrite_traces;
             session_detail.script_traces = script_traces;
+            session_detail.map_traces = map_traces;
 
             if session_sender.send(session_detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
@@ -2464,6 +2484,7 @@ pub async fn send_direct_request(
             body_truncated,
         ),
         response_headers: response_header_entries,
+        map_traces: Vec::new(),
         rewrite_traces: Vec::new(),
         server_ip: None,
         script_traces: Vec::new(),
@@ -2483,6 +2504,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     started_at_instant: Instant,
     tls_ms: Option<u128>,
     error: &str,
+    map_traces: Vec<MapTrace>,
     throttle_traces: Vec<ThrottleTrace>,
 ) -> Result<(), String> {
     let response_message = "The request was dropped by the active throttle profile.";
@@ -2508,6 +2530,7 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         },
         false,
     );
+    detail.map_traces = map_traces;
     detail.throttle_traces = throttle_traces;
     if session_sender.send(detail).await.is_err() {
                         emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);

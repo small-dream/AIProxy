@@ -82,6 +82,7 @@ export type SessionDetail = {
   responseHeaders: HeaderEntry[];
   serverIp?: string;
   summary: SessionSummary;
+  mapTraces?: MapSessionTrace[];
   throttleTraces?: ThrottleSessionTrace[];
   tlsCipherSuite?: string;
   tlsProtocol?: string;
@@ -382,6 +383,19 @@ export type ThrottleSessionTrace = {
   sequence: number;
   stage: "request" | "response" | string;
   transferDelayMs: number;
+};
+
+export type MapSessionTrace = {
+  durationMs: number;
+  localPath?: string;
+  mappedUrl?: string;
+  mode: MapRuleMode;
+  originalUrl: string;
+  outcome: "success" | "failed" | string;
+  ruleId: string;
+  ruleName: string;
+  sourcePattern: string;
+  targetValue: string;
 };
 
 export type ExportFormat = "har" | "curl" | "json";
@@ -939,6 +953,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     serverIp?: string | null;
     tlsCipherSuite?: string | null;
     tlsProtocol?: string | null;
+    mapTraces?: MapSessionTrace[] | null;
     throttleTraces?: ThrottleSessionTrace[] | null;
     timing?: TimingBreakdown | null;
   };
@@ -957,6 +972,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     isNullableString(candidate.clientAddress) &&
     (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
     (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
+    (candidate.mapTraces === undefined || candidate.mapTraces === null || (Array.isArray(candidate.mapTraces) && candidate.mapTraces.every(isMapSessionTrace))) &&
     (candidate.throttleTraces === undefined || candidate.throttleTraces === null || (Array.isArray(candidate.throttleTraces) && candidate.throttleTraces.every(isThrottleSessionTrace))) &&
     (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
     isNullableString(candidate.rawRequestHead) &&
@@ -986,6 +1002,7 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       serverIp?: string | null;
       tlsCipherSuite?: string | null;
       tlsProtocol?: string | null;
+      mapTraces?: MapSessionTrace[] | null;
       throttleTraces?: ThrottleSessionTrace[] | null;
       timing?: TimingBreakdown | null;
     };
@@ -1026,6 +1043,9 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.serverIp !== null && candidate.serverIp !== undefined
         ? { serverIp: candidate.serverIp }
+        : {}),
+      ...(candidate.mapTraces !== null && candidate.mapTraces !== undefined
+        ? { mapTraces: candidate.mapTraces }
         : {}),
       ...(candidate.throttleTraces !== null && candidate.throttleTraces !== undefined
         ? { throttleTraces: candidate.throttleTraces }
@@ -1912,6 +1932,29 @@ export function isRewriteSessionTrace(value: unknown): value is RewriteSessionTr
 export function parseRewriteSessionTrace(value: unknown): RewriteSessionTrace[] {
   if (!Array.isArray(value)) throw coerceAppError(value);
   if (value.every(isRewriteSessionTrace)) return value;
+  throw coerceAppError(value);
+}
+
+export function isMapSessionTrace(value: unknown): value is MapSessionTrace {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<MapSessionTrace>;
+  return (
+    typeof candidate.durationMs === "number"
+    && isNullableString(candidate.localPath)
+    && isNullableString(candidate.mappedUrl)
+    && (candidate.mode === "local" || candidate.mode === "remote")
+    && typeof candidate.originalUrl === "string"
+    && typeof candidate.outcome === "string"
+    && typeof candidate.ruleId === "string"
+    && typeof candidate.ruleName === "string"
+    && typeof candidate.sourcePattern === "string"
+    && typeof candidate.targetValue === "string"
+  );
+}
+
+export function parseMapSessionTrace(value: unknown): MapSessionTrace[] {
+  if (!Array.isArray(value)) throw coerceAppError(value);
+  if (value.every(isMapSessionTrace)) return value;
   throw coerceAppError(value);
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{RewriteTrace, ThrottleTrace};
+use crate::{MapTrace, RewriteTrace, ThrottleTrace};
 use aiproxy_rule_engine::ScriptTrace;
 use serde::ser::SerializeStruct;
 use std::mem::size_of;
@@ -403,6 +403,7 @@ pub struct ProxySessionDetail {
     pub request_headers: Vec<ProxyHeaderEntry>,
     pub response_body: Option<ProxyBodyReference>,
     pub response_headers: Vec<ProxyHeaderEntry>,
+    pub map_traces: Vec<MapTrace>,
     pub rewrite_traces: Vec<RewriteTrace>,
     pub server_ip: Option<String>,
     pub tls_cipher_suite: Option<String>,
@@ -440,6 +441,7 @@ impl ProxySessionDetail {
                 .as_ref()
                 .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
             + estimate_header_entries_memory(&self.response_headers)
+            + self.map_traces.capacity() * size_of::<MapTrace>()
             + self.rewrite_traces.capacity() * size_of::<RewriteTrace>()
             + self.server_ip.as_ref().map_or(0, String::capacity)
             + self.summary.resident_memory_bytes_estimate()
@@ -456,7 +458,7 @@ impl Serialize for ProxySessionDetail {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ProxySessionDetail", 16)?;
+        let mut state = serializer.serialize_struct("ProxySessionDetail", 17)?;
         if let Some(client_address) = &self.client_address {
             state.serialize_field("clientAddress", client_address)?;
         }
@@ -477,6 +479,7 @@ impl Serialize for ProxySessionDetail {
             state.serialize_field("responseBody", response_body)?;
         }
         state.serialize_field("responseHeaders", &self.response_headers)?;
+        state.serialize_field("mapTraces", &self.map_traces)?;
         if let Some(server_ip) = &self.server_ip {
             state.serialize_field("serverIp", server_ip)?;
         }

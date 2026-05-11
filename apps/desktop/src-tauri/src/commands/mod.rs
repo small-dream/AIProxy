@@ -24,7 +24,7 @@ use std::{
 };
 use tauri::{Emitter, State};
 use tauri_plugin_opener::OpenerExt;
-use url::form_urlencoded;
+use url::{form_urlencoded, Url};
 
 const DEFAULT_PROXY_PORT: u16 = 8888;
 const EAGER_SESSION_DETAIL_BODY_LIMIT_BYTES: usize = 64 * 1024;
@@ -132,6 +132,8 @@ pub struct SessionDetailPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     response_body: Option<SessionBodyPayload>,
     response_headers: Vec<ProxyHeaderEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    map_traces: Vec<aiproxy_proxy_core::MapTrace>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -480,6 +482,7 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
         request_headers: detail.request_headers.clone(),
         response_body: detail.response_body.as_ref().map(build_lightweight_body_payload),
         response_headers: detail.response_headers.clone(),
+        map_traces: detail.map_traces.clone(),
         server_ip: detail.server_ip.clone(),
         tls_cipher_suite: detail.tls_cipher_suite.clone(),
         tls_protocol: detail.tls_protocol.clone(),
@@ -655,6 +658,32 @@ pub fn list_rewrite_session_trace(
             rule_name: run.rule_name,
             rewrite_type: run.rewrite_type,
             stage: run.stage,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn list_map_session_trace(
+    input: ListMapSessionTraceInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<MapSessionTraceOutput>, String> {
+    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let runs = aiproxy_db::rules::load_map_runs_for_session(&conn, &input.session_id)
+        .map_err(|error| format!("load map runs: {error}"))?;
+
+    Ok(runs
+        .into_iter()
+        .map(|run| MapSessionTraceOutput {
+            duration_ms: run.duration_ms,
+            local_path: run.local_path,
+            mapped_url: run.mapped_url,
+            mode: run.mode,
+            original_url: run.original_url,
+            outcome: run.outcome,
+            rule_id: run.rule_id,
+            rule_name: run.rule_name,
+            source_pattern: run.source_pattern,
+            target_value: run.target_value,
         })
         .collect())
 }
@@ -2222,6 +2251,12 @@ pub struct ListRewriteSessionTraceInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ListMapSessionTraceInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListThrottleSessionTraceInput {
     pub session_id: String,
 }
@@ -2278,6 +2313,21 @@ pub struct RewriteSessionTraceOutput {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MapSessionTraceOutput {
+    pub duration_ms: u128,
+    pub local_path: Option<String>,
+    pub mapped_url: Option<String>,
+    pub mode: String,
+    pub original_url: String,
+    pub outcome: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub source_pattern: String,
+    pub target_value: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThrottleSessionTraceOutput {
     pub body_bytes: usize,
     pub delay_ms: u64,
@@ -2313,6 +2363,8 @@ pub fn save_map_rule(
     input: MapRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<MapRule, String> {
+    validate_map_rule(&input)?;
+
     // Persist to DB first
     {
         let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
@@ -2334,6 +2386,40 @@ pub fn save_map_rule(
     }
 
     Ok(state.read_map_manager().save_rule(input))
+}
+
+fn validate_map_rule(input: &MapRule) -> Result<(), String> {
+    if input.name.trim().is_empty() {
+        return Err("map rule name is required".to_string());
+    }
+    if input.source_pattern.trim().is_empty() {
+        return Err("map rule source pattern is required".to_string());
+    }
+    if input.target_value.trim().is_empty() {
+        return Err("map rule target value is required".to_string());
+    }
+
+    match input.mode.as_str() {
+        "remote" => {
+            let url = Url::parse(input.target_value.trim())
+                .map_err(|error| format!("map remote target URL is invalid: {error}"))?;
+            if url.scheme() != "http" && url.scheme() != "https" {
+                return Err("map remote target URL must start with http:// or https://".to_string());
+            }
+        }
+        "local" => {
+            let path = Path::new(input.target_value.trim());
+            if !path.exists() {
+                return Err(format!("map local target path does not exist: {}", path.display()));
+            }
+            if !path.is_file() && !path.is_dir() {
+                return Err(format!("map local target path must be a file or folder: {}", path.display()));
+            }
+        }
+        other => return Err(format!("unsupported map rule mode: {other}")),
+    }
+
+    Ok(())
 }
 
 // --- Script rule commands ---

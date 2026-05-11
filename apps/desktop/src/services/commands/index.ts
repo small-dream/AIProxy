@@ -10,6 +10,7 @@ import {
   parseDnsMappings,
   parseIOSSimulatorCertificateInstallResult,
   parseIOSSimulatorDevices,
+  parseMapSessionTrace,
   parseMapRules,
   parseBreakpointRules,
   parseCertificateStatus,
@@ -47,6 +48,7 @@ import {
   type InstallIosCertificateViaSimulatorInput,
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
+  type MapSessionTrace,
   type MapRule,
   type ProxyStatus,
   type RewriteRule,
@@ -1137,6 +1139,27 @@ export async function listRewriteSessionTrace(sessionId: string): Promise<Rewrit
     return parseRewriteSessionTrace(payload);
   } catch (error) {
     reportCommandFailure("list_rewrite_session_trace", error, sessionId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listMapSessionTrace(sessionId: string): Promise<MapSessionTrace[]> {
+  const importedDetail = getImportedSessionDetail(sessionId);
+  if (importedDetail?.mapTraces) {
+    return importedDetail.mapTraces;
+  }
+
+  if (!isTauriRuntime()) {
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("list_map_session_trace", {
+      input: { sessionId },
+    });
+    return parseMapSessionTrace(payload);
+  } catch (error) {
+    reportCommandFailure("list_map_session_trace", error, sessionId);
     throw coerceAppError(error);
   }
 }

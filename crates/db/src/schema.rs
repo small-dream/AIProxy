@@ -249,6 +249,28 @@ CREATE TABLE IF NOT EXISTS rewrite_run_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_rewrite_run_entries_run ON rewrite_run_entries(run_id);
 
+CREATE TABLE IF NOT EXISTS map_runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    mode            TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    source_pattern  TEXT NOT NULL,
+    target_value    TEXT NOT NULL,
+    original_url    TEXT NOT NULL,
+    mapped_url      TEXT,
+    local_path      TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    sequence        INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES map_rules(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_map_runs_session ON map_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_map_runs_rule ON map_runs(rule_id);
+
 CREATE TABLE IF NOT EXISTS api_collections (
     id          TEXT NOT NULL PRIMARY KEY,
     parent_id   TEXT,
@@ -343,6 +365,7 @@ mod tests {
             "breakpoint_rules",
             "dns_mappings",
             "map_rules",
+            "map_runs",
             "script_run_entries",
             "script_runs",
             "script_rules",

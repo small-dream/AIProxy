@@ -422,6 +422,7 @@ export const enMessages = {
       queryNameRequired: "Enter a query parameter name.",
       queryValueRequired: "Enter a query parameter value.",
       redirectTargetRequired: "Enter a redirect target URL.",
+      remoteTargetInvalid: "Enter an http:// or https:// target URL.",
       remoteTargetRequired: "Enter the remote target URL.",
       ruleNameRequired: "Enter a rule name.",
       scriptSourceRequired: "Enter script source code.",

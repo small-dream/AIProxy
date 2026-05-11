@@ -1,5 +1,6 @@
 import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
 import DifferenceRoundedIcon from "@mui/icons-material/DifferenceRounded";
+import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import {
@@ -14,10 +15,10 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useQuery } from "@tanstack/react-query";
-import type { RewriteSessionTrace, ScriptSessionTrace, ThrottleSessionTrace } from "@aiproxy/shared-types";
+import type { MapSessionTrace, RewriteSessionTrace, ScriptSessionTrace, ThrottleSessionTrace } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { listRewriteSessionTrace, listScriptSessionTrace, listThrottleSessionTrace } from "@/services/commands";
+import { listMapSessionTrace, listRewriteSessionTrace, listScriptSessionTrace, listThrottleSessionTrace } from "@/services/commands";
 import { fontFamilies } from "@/themes/fonts";
 
 function outcomeColor(outcome: string): "default" | "error" | "info" | "success" | "warning" {
@@ -180,6 +181,36 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
   );
 }
 
+function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
+  return (
+    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
+      <Stack spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+            <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
+            <Box minWidth={0}>
+              <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>{trace.ruleName || trace.ruleId}</Typography>
+              <Typography color="text.secondary" variant="caption" noWrap>{trace.ruleId}</Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Chip size="small" label={trace.mode} />
+            <Chip size="small" color={outcomeColor(trace.outcome)} label={trace.outcome} variant="outlined" />
+            <Chip size="small" label={`${trace.durationMs} ms`} variant="outlined" />
+          </Stack>
+        </Stack>
+        <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
+          <DiffValue label="Original" value={trace.originalUrl} />
+          <DiffValue label={trace.mode === "local" ? "Local Path" : "Mapped URL"} value={trace.localPath ?? trace.mappedUrl} />
+        </Box>
+        <Typography color="text.secondary" variant="caption" noWrap>
+          {`${trace.sourcePattern} -> ${trace.targetValue}`}
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
@@ -235,8 +266,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     queryFn: () => listThrottleSessionTrace(sessionId),
     staleTime: 30_000,
   });
+  const mapQuery = useQuery({
+    queryKey: ["map-session-trace", sessionId],
+    queryFn: () => listMapSessionTrace(sessionId),
+    staleTime: 30_000,
+  });
 
-  if (rewriteQuery.isLoading || scriptQuery.isLoading || throttleQuery.isLoading) {
+  if (rewriteQuery.isLoading || scriptQuery.isLoading || throttleQuery.isLoading || mapQuery.isLoading) {
     return (
       <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 160 }}>
         <CircularProgress size={22} />
@@ -244,7 +280,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     );
   }
 
-  if (rewriteQuery.error || scriptQuery.error || throttleQuery.error) {
+  if (rewriteQuery.error || scriptQuery.error || throttleQuery.error || mapQuery.error) {
     return (
       <Alert severity="error" variant="outlined">
         {t("automationTab.loadFailed")}
@@ -255,8 +291,9 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
   const rewriteTraces = rewriteQuery.data ?? [];
   const scriptTraces = scriptQuery.data ?? [];
   const throttleTraces = throttleQuery.data ?? [];
+  const mapTraces = mapQuery.data ?? [];
 
-  if (rewriteTraces.length === 0 && scriptTraces.length === 0 && throttleTraces.length === 0) {
+  if (rewriteTraces.length === 0 && scriptTraces.length === 0 && throttleTraces.length === 0 && mapTraces.length === 0) {
     return (
       <Typography color="text.secondary" variant="body2">
         {t("automationTab.emptyDescription")}
@@ -275,6 +312,19 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
           </Stack>
           {throttleTraces.map((trace) => (
             <ThrottleTraceCard key={`${trace.profileId}-${trace.stage}-${trace.sequence}`} trace={trace} />
+          ))}
+        </Stack>
+      ) : null}
+
+      {mapTraces.length > 0 ? (
+        <Stack spacing={1.25}>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
+            <Typography variant="subtitle2">Map</Typography>
+            <Chip size="small" label={mapTraces.length} sx={{ height: 20 }} />
+          </Stack>
+          {mapTraces.map((trace, index) => (
+            <MapTraceCard key={`${trace.ruleId}-${trace.mode}-${index}`} trace={trace} />
           ))}
         </Stack>
       ) : null}

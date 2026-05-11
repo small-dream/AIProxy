@@ -72,7 +72,7 @@ pub use aiproxy_rule_engine::{
     ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
 };
 pub use rules::{
-    DnsManager, DnsMappingRule, MapManager, MapRule, RewriteManager, RewriteRule,
+    DnsManager, DnsMappingRule, MapManager, MapRule, MapTrace, RewriteManager, RewriteRule,
     RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };

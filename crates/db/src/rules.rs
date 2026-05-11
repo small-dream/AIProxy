@@ -177,6 +177,106 @@ pub fn delete_map_rule(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub struct MapRunRow {
+    pub id: String,
+    pub session_id: String,
+    pub workspace_id: String,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub mode: String,
+    pub outcome: String,
+    pub source_pattern: String,
+    pub target_value: String,
+    pub original_url: String,
+    pub mapped_url: Option<String>,
+    pub local_path: Option<String>,
+    pub duration_ms: u128,
+    pub sequence: u32,
+    pub created_at: String,
+}
+
+pub fn replace_map_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+    runs: &[MapRunRow],
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin replace map runs transaction: {e}"))?;
+
+    tx.execute("DELETE FROM map_runs WHERE session_id = ?1", params![session_id])
+        .map_err(|e| format!("delete map runs for session: {e}"))?;
+
+    for run in runs {
+        tx.execute(
+            "INSERT INTO map_runs
+                (id, session_id, workspace_id, rule_id, rule_name, mode, outcome,
+                 source_pattern, target_value, original_url, mapped_url, local_path,
+                 duration_ms, sequence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                run.id,
+                run.session_id,
+                run.workspace_id,
+                run.rule_id,
+                run.rule_name,
+                run.mode,
+                run.outcome,
+                run.source_pattern,
+                run.target_value,
+                run.original_url,
+                run.mapped_url,
+                run.local_path,
+                run.duration_ms as i64,
+                run.sequence as i64,
+                run.created_at,
+            ],
+        )
+        .map_err(|e| format!("insert map run: {e}"))?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("commit replace map runs transaction: {e}"))?;
+    Ok(())
+}
+
+pub fn load_map_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<MapRunRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, workspace_id, rule_id, rule_name, mode, outcome,
+                    source_pattern, target_value, original_url, mapped_url, local_path,
+                    duration_ms, sequence, created_at
+             FROM map_runs WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
+        )
+        .map_err(|e| format!("prepare load map runs: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(MapRunRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                workspace_id: row.get(2)?,
+                rule_id: row.get(3)?,
+                rule_name: row.get(4)?,
+                mode: row.get(5)?,
+                outcome: row.get(6)?,
+                source_pattern: row.get(7)?,
+                target_value: row.get(8)?,
+                original_url: row.get(9)?,
+                mapped_url: row.get(10)?,
+                local_path: row.get(11)?,
+                duration_ms: row.get::<_, i64>(12)? as u128,
+                sequence: row.get::<_, i64>(13)? as u32,
+                created_at: row.get(14)?,
+            })
+        })
+        .map_err(|e| format!("query map runs: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 // ---------------------------------------------------------------------------
 // Throttle profiles
 // ---------------------------------------------------------------------------

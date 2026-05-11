@@ -424,6 +424,7 @@ export const zhCNMessages: Messages = {
       queryNameRequired: "请填写 Query 参数名。",
       queryValueRequired: "请填写 Query 参数值。",
       redirectTargetRequired: "请填写重定向目标 URL。",
+      remoteTargetInvalid: "请输入 http:// 或 https:// 开头的目标 URL。",
       remoteTargetRequired: "请填写远程目标 URL。",
       ruleNameRequired: "请填写规则名称。",
       scriptSourceRequired: "请填写脚本源码。",
