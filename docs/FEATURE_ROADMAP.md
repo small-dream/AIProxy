@@ -73,13 +73,13 @@
 
 ## Tier 3：扩展用户场景（打开新用户群）
 
-### 8. API Collection（类 Postman 轻量版）
+### 8. ~~API Collection（类 Postman 轻量版）~~ ✅ 已完成首版
 
-- **内容**：在现有 Compose 基础上增加：
-  - 请求集合管理（保存、分组、排序）
-  - 环境变量（baseUrl、token 等变量替换）
-  - 批量执行
-  - **从抓包流量直接保存到 Collection**（这是 Postman 做不到的）
+- **现状**：已完成首版。Collections 页面支持文件夹树、请求项编辑、拖拽排序、环境变量 / 全局变量、`{{key}}` 替换、批量执行，以及从 Sessions 右键保存请求到集合。
+- **后续增量方向**：
+  - Collection 导入 / 导出
+  - Postman 格式兼容
+  - 批量执行结果断言与报告
 - **竞品对标**：Postman 的核心功能，但无代理抓包能力。Charles 有 Compose 但无 Collection 管理。
 - **价值**：将「调试工具」延伸为「轻量 API 测试工具」，消除用户同时开 Charles + Postman 的痛点。
 - **受益用户**：前端工程师、后端工程师。

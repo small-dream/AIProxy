@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：接口规范文档
-- 当前阶段：`Phase 1 / 初始化设计`
-- 文档状态：`Draft v1.0`
+- 当前阶段：`Phase 1 / 实现同步`
+- 文档状态：`Draft v1.1`
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -36,17 +36,16 @@ AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 - 增删改查规则
 - 查询与导出会话
 - 构造并发送请求
+- 管理 API Collections 与环境变量
 
 ### 3.2 Event Layer
 
 用于：
 
-- 代理状态变化
 - 会话创建 / 更新
 - 断点暂停
-- 证书状态变化
-- 规则命中反馈
-- 导出进度
+- 会话清空 / 批量移除
+- WebSocket 消息与连接状态变化
 
 ## 4. 通用约定
 
@@ -127,19 +126,17 @@ type ProxyStatus = {
 ```ts
 type SessionSummary = {
   id: string;
-  workspaceId: string;
-  protocol: "http" | "https" | "ws" | "wss";
   method: string;
   host: string;
   path: string;
-  url: string;
-  statusCode?: number;
-  durationMs?: number;
-  sizeBytes?: number;
+  protocol: string;
   startedAt: string;
-  finishedAt?: string;
-  pinned: boolean;
-  tags: string[];
+  finishedAt: string;
+  durationMs: number;
+  sizeBytes: number;
+  statusCode: number;
+  url: string;
+  responseMimeType?: string;
 };
 ```
 
@@ -152,11 +149,12 @@ type HeaderEntry = {
 };
 
 type BodyReference = {
-  inlineText?: string;
   base64Text?: string;
-  fileRef?: string;
-  mimeType?: string;
+  base64Deferred?: boolean;
   encoding?: string;
+  inlineText?: string;
+  mimeType?: string;
+  textDeferred?: boolean;
   truncated?: boolean;
   sizeBytes: number;
 };
@@ -172,20 +170,47 @@ type TimingBreakdown = {
 };
 
 type SessionDetail = {
+  clientAddress?: string;
+  cookies: HeaderEntry[];
   id: string;
   summary: SessionSummary;
-  requestHeaders: HeaderEntry[];
-  responseHeaders: HeaderEntry[];
-  requestBody?: BodyReference;
-  responseBody?: BodyReference;
   queryParams: HeaderEntry[];
-  cookies: HeaderEntry[];
-  timing?: TimingBreakdown;
+  rawRequestHead?: string;
   rawRequest?: string;
+  rawRequestDeferred?: boolean;
+  rawResponseHead?: string;
   rawResponse?: string;
-  clientIp?: string;
+  rawResponseDeferred?: boolean;
+  requestBody?: BodyReference;
+  requestHeaders: HeaderEntry[];
+  responseBody?: BodyReference;
+  responseHeaders: HeaderEntry[];
   serverIp?: string;
-  notes?: string;
+  mapTraces?: MapSessionTrace[];
+  throttleTraces?: ThrottleSessionTrace[];
+  tlsCipherSuite?: string;
+  tlsProtocol?: string;
+  timing?: TimingBreakdown;
+};
+
+type SessionDetailContentRequest = {
+  sessionId: string;
+  includeRawRequest?: boolean;
+  includeRawResponse?: boolean;
+  includeRequestBodyText?: boolean;
+  includeResponseBodyText?: boolean;
+  includeRequestBodyBase64?: boolean;
+  includeResponseBodyBase64?: boolean;
+};
+
+type SessionDetailContentPatch = {
+  sessionId: string;
+  rawRequest?: string;
+  rawRequestDeferred?: boolean;
+  rawResponse?: string;
+  rawResponseDeferred?: boolean;
+  requestBody?: Pick<BodyReference, "inlineText" | "textDeferred" | "base64Text" | "base64Deferred">;
+  responseBody?: Pick<BodyReference, "inlineText" | "textDeferred" | "base64Text" | "base64Deferred">;
 };
 ```
 
@@ -308,11 +333,28 @@ type RewriteSessionTrace = {
 type MapRule = {
   id: string;
   workspaceId: string;
+  name: string;
+  note?: string;
   mode: "local" | "remote";
   sourcePattern: string;
   targetValue: string;
   enabled: boolean;
+  preservePath: boolean;
+  preserveQuery: boolean;
   priority: number;
+};
+
+type MapSessionTrace = {
+  durationMs: number;
+  localPath?: string;
+  mappedUrl?: string;
+  mode: "local" | "remote";
+  originalUrl: string;
+  outcome: "success" | "failed" | string;
+  ruleId: string;
+  ruleName: string;
+  sourcePattern: string;
+  targetValue: string;
 };
 ```
 
@@ -395,6 +437,50 @@ type DnsMappingRule = {
 };
 ```
 
+## 5.11 ScriptRule
+
+```ts
+type ScriptRuleLanguage = "javascript" | "typescript";
+type ScriptRuleSourceType = "inline" | "fileImport";
+
+type ScriptEntrypoints = {
+  onRequest: boolean;
+  onResponse: boolean;
+};
+
+type ScriptRule = {
+  enabled: boolean;
+  entrypoints: ScriptEntrypoints;
+  id: string;
+  language: ScriptRuleLanguage;
+  match: RuleMatch;
+  name: string;
+  note?: string;
+  priority: number;
+  sourceCode: string;
+  sourcePath?: string;
+  sourceType: ScriptRuleSourceType;
+  workspaceId: string;
+};
+
+type ScriptRunEntry = {
+  kind: "log" | "extraction" | "error";
+  key?: string;
+  level?: "debug" | "info" | "warn" | "error";
+  message?: string;
+  payloadJson?: string;
+  sequence: number;
+};
+
+type ScriptSessionTrace = {
+  durationMs: number;
+  entries: ScriptRunEntry[];
+  outcome: "success" | "skipped" | "runtimeError" | "timedOut" | "invalidResult";
+  ruleId: string;
+  stage: "request" | "response";
+};
+```
+
 ## 6. Command Specification
 
 ## 6.1 Proxy Commands
@@ -442,32 +528,28 @@ type StopProxyInput = {
 响应：
 
 ```ts
-type StopProxyOutput = {
-  success: boolean;
-};
+type StopProxyOutput = ProxyStatus;
 ```
 
-### `get_proxy_status`
+### `get_bootstrap_status`
 
 请求：
 
 ```ts
-type GetProxyStatusInput = {
-  workspaceId?: string;
-};
+type GetBootstrapStatusInput = Record<string, never>;
 ```
 
 响应：
 
 ```ts
-type GetProxyStatusOutput = ProxyStatus;
+type GetBootstrapStatusOutput = ProxyStatus;
 ```
 
 ### `list_sessions`
 
 用途：
 
-- 返回当前应用内存中的已捕获会话列表
+- 返回当前应用内存中的已捕获会话列表，HAR 导入的本地会话由前端合并展示
 
 请求：
 
@@ -490,6 +572,7 @@ type SessionSummary = {
   sizeBytes: number;
   statusCode: number;
   url: string;
+  responseMimeType?: string;
 };
 
 type ListSessionsOutput = SessionSummary[];
@@ -595,30 +678,13 @@ type UpdateWorkspaceOutput = Workspace;
 请求：
 
 ```ts
-type SessionFilter = {
-  keyword?: string;
-  host?: string;
-  method?: string;
-  statusCode?: number;
-  protocol?: "http" | "https" | "ws" | "wss";
-  pinnedOnly?: boolean;
-};
-
-type ListSessionsInput = {
-  workspaceId: string;
-  filter?: SessionFilter;
-  limit?: number;
-  cursor?: string;
-};
+type ListSessionsInput = Record<string, never>;
 ```
 
 响应：
 
 ```ts
-type ListSessionsOutput = {
-  items: SessionSummary[];
-  nextCursor?: string;
-};
+type ListSessionsOutput = SessionSummary[];
 ```
 
 ### `get_session_detail`
@@ -639,9 +705,9 @@ type GetSessionDetailOutput = SessionDetail;
 
 当前阶段约束：
 
-- 仅对已捕获的明文 `HTTP` 会话返回完整详情
 - `requestHeaders` 与 `responseHeaders` 返回真实抓包头信息
-- `requestBody` 与 `responseBody` 优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
+- `requestBody` 与 `responseBody` 对小体积内容优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
+- 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
 - `timing` 当前优先提供：
   - `requestSendMs`
   - `waitingMs`
@@ -649,42 +715,66 @@ type GetSessionDetailOutput = SessionDetail;
   - `totalMs`
 - `dnsMs / connectMs / tlsMs` 预留，待更细粒度链路采样后补齐
 
+### `get_session_detail_content`
+
+请求：
+
+```ts
+type GetSessionDetailContentInput = SessionDetailContentRequest;
+```
+
+响应：
+
+```ts
+type GetSessionDetailContentOutput = SessionDetailContentPatch;
+```
+
+说明：
+
+- 用于按需加载详情中被延迟的 raw request / raw response / request body / response body 内容
+- 前端通过 `mergeSessionDetailContent()` 合并 patch，避免列表轮询或详情首屏携带大体积 payload
+
 ### `clear_sessions`
 
 请求：
 
 ```ts
-type ClearSessionsInput = {
-  workspaceId: string;
-};
+type ClearSessionsInput = Record<string, never>;
 ```
 
 响应：
 
 ```ts
-type ClearSessionsOutput = {
-  deletedCount: number;
-};
+type ClearSessionsOutput = void;
 ```
 
-### `pin_session`
+### `delete_sessions_except`
 
 请求：
 
 ```ts
-type PinSessionInput = {
-  sessionId: string;
-  pinned: boolean;
+type DeleteSessionsExceptInput = {
+  keepSessionId: string;
 };
 ```
 
 响应：
 
 ```ts
-type PinSessionOutput = {
-  success: boolean;
+type DeleteSessionsExceptOutput = void;
+```
+
+### `set_focused_hosts`
+
+请求：
+
+```ts
+type SetFocusedHostsInput = {
+  hosts: string[];
 };
 ```
+
+响应：`void`
 
 ## 6.4 Compose / Repeat Commands — `已实现`
 
@@ -884,7 +974,7 @@ type SetBreakpointRulesInput = BreakpointRule[];
 
 说明：整体替换断点规则列表。前端通过 "Add Rule" 和 "Delete" 操作构造新数组后一次性提交。
 
-### `save_breakpoint_rule`
+### `save_breakpoint_rule` — `暂未注册，当前由 set_breakpoint_rules 整体替换`
 
 请求：
 
@@ -900,7 +990,7 @@ type SaveBreakpointRuleInput = Omit<BreakpointRule, "id"> & {
 type SaveBreakpointRuleOutput = BreakpointRule;
 ```
 
-### `delete_breakpoint_rule`
+### `delete_breakpoint_rule` — `暂未注册，当前由 set_breakpoint_rules 整体替换`
 
 请求：
 
@@ -1049,7 +1139,7 @@ type SaveDnsMappingOutput = DnsMappingRule;
 
 ```ts
 type DeleteRuleInput = {
-  ruleType: "breakpoint" | "rewrite" | "map" | "dns";
+  ruleType: "rewrite" | "map" | "dns" | "script";
   ruleId: string;
 };
 ```
@@ -1057,9 +1147,7 @@ type DeleteRuleInput = {
 响应：
 
 ```ts
-type DeleteRuleOutput = {
-  success: boolean;
-};
+type DeleteRuleOutput = void;
 ```
 
 ## 6.6 Breakpoint Runtime Commands — `已实现`
@@ -1075,7 +1163,9 @@ type ResolveBreakpointInput = BreakpointResolution;
 //   action: "forward" | "drop" | "mock";
 //   mock?: MockResponse;
 //   modifiedRequestHeaders?: HeaderEntry[];
+//   modifiedRequestQueryParams?: HeaderEntry[];
 //   modifiedRequestBodyBase64?: string;
+//   modifiedResponseStatusCode?: number;
 //   modifiedResponseHeaders?: HeaderEntry[];
 //   modifiedResponseBodyBase64?: string;
 // }
@@ -1268,13 +1358,7 @@ type ListThrottledSessionIdsOutput = string[];
 
 ### `get_certificate_status`
 
-请求：
-
-```ts
-type GetCertificateStatusInput = {
-  workspaceId?: string;
-};
-```
+请求：无参数。
 
 响应：
 
@@ -1300,27 +1384,21 @@ type GenerateRootCertificateInput = {
 响应：
 
 ```ts
-type GenerateRootCertificateOutput = {
-  certPath: string;
-  fingerprint: string;
-};
+type GenerateRootCertificateOutput = CertificateStatus;
 ```
 
 ### `open_certificate_install_guide`
 
-请求：
-
-```ts
-type OpenCertificateInstallGuideInput = {
-  platform?: "windows" | "macos" | "linux";
-};
-```
+请求：无参数。
 
 响应：
 
 ```ts
 type OpenCertificateInstallGuideOutput = {
   success: boolean;
+  certPath: string;
+  platform: string;
+  steps: Array<{ order: number; description: string }>;
 };
 ```
 
@@ -1399,6 +1477,77 @@ type ListAndroidAdbDevicesOutput = Array<{
 }>;
 ```
 
+### `set_android_proxy_via_adb`
+
+请求：
+
+```ts
+type SetAndroidProxyViaAdbInput = {
+  deviceSerial?: string;
+  host: string;
+  port: number;
+};
+```
+
+响应：
+
+```ts
+type AndroidAdbProxyResult = {
+  success: boolean;
+  deviceSerial: string;
+  proxyAddress?: string;
+};
+```
+
+### `clear_android_proxy_via_adb`
+
+请求：
+
+```ts
+type ClearAndroidProxyViaAdbInput = {
+  deviceSerial?: string;
+};
+```
+
+响应：`AndroidAdbProxyResult`
+
+### `list_ios_simulators`
+
+列出可用 iOS Simulator 设备，用于选择目标模拟器安装根证书。
+
+请求：无参数。
+
+响应：
+
+```ts
+type ListIosSimulatorsOutput = Array<{
+  name: string;
+  udid: string;
+  state: string;
+  runtime: string;
+}>;
+```
+
+### `install_ios_certificate_via_simulator`
+
+请求：
+
+```ts
+type InstallIosCertificateViaSimulatorInput = {
+  simulatorUdid?: string;
+};
+```
+
+响应：
+
+```ts
+type InstallIosCertificateViaSimulatorOutput = {
+  success: boolean;
+  simulatorName: string;
+  simulatorUdid: string;
+};
+```
+
 ## 6.9 代理内建 HTTP 端点
 
 代理核心在启动时同时监听来自局域网的直连请求，提供以下内建 HTTP 端点：
@@ -1415,47 +1564,52 @@ type ListAndroidAdbDevicesOutput = Array<{
 
 同 `/aiproxy-ca.crt`，为 PEM 格式证书提供备用路径。
 
-## 6.10 Export Commands
+## 6.10 File Import / Export Commands
 
-### `export_sessions`
+当前没有注册 `export_sessions` 后端命令。Sessions 导出由前端 `session-export.helpers.ts` 生成 Session Snapshot / HAR / cURL 文本，再通过 `save_text_file` 写入用户 Downloads 目录。
+
+### `save_text_file`
 
 请求：
 
 ```ts
-type ExportSessionsInput = {
-  workspaceId: string;
-  sessionIds?: string[];
-  format: "har" | "curl" | "json";
-  outputPath: string;
+type SaveTextFileInput = {
+  content: string;
+  fileName: string;
+  revealInFolder?: boolean;
 };
 ```
 
 响应：
 
 ```ts
-type ExportSessionsOutput = {
-  taskId: string;
+type SaveTextFileOutput = string; // 写入后的本地路径
+```
+
+### `read_har_file`
+
+请求：
+
+```ts
+type ReadHarFileInput = {
+  path: string;
 };
 ```
 
-## 7. Event Specification
-
-## 7.1 代理状态事件
-
-### `proxy/status_changed`
+响应：
 
 ```ts
-type ProxyStatusChangedEvent = ProxyStatus;
+type ReadHarFileOutput = string; // HAR 文件内容
 ```
 
-触发时机：
+约束：
 
-- 代理启动
-- 代理停止
-- 系统代理状态变化
-- SSL 状态变化
+- 仅接受 `.har` 扩展名
+- 读取后由前端解析并导入为本地会话快照
 
-## 7.2 会话事件
+## 7. Event Specification
+
+## 7.1 会话事件
 
 ### `session-upsert`
 
@@ -1469,7 +1623,24 @@ type SessionUpsertEvent = SessionSummary;
 type SessionRemoveEvent = string;
 ```
 
-## 7.3 断点事件 — `已实现`
+### `sessions-cleared`
+
+```ts
+type SessionsClearedEvent = void;
+```
+
+### `sessions-removed`
+
+```ts
+type SessionsRemovedEvent = string[];
+```
+
+触发时机：
+
+- `clear_sessions` 清空会话后触发 `sessions-cleared`
+- `delete_sessions_except` 批量移除会话后触发 `sessions-removed`
+
+## 7.2 断点事件 — `已实现`
 
 ### `breakpoint-hit` — `已实现`
 
@@ -1501,20 +1672,7 @@ type BreakpointHitEvent = BreakpointHit;
 - 事件载荷经过 `parseBreakpointHit()` 校验后写入 Zustand store
 - `BreakpointInterceptPanel` 组件监听 store 并渲染拦截面板
 
-## 7.4 规则事件
-
-### `rule/matched`
-
-```ts
-type RuleMatchedEvent = {
-  sessionId: string;
-  ruleType: "breakpoint" | "rewrite" | "map" | "dns";
-  ruleId: string;
-  ruleName: string;
-};
-```
-
-## 7.5 WebSocket 事件 — `已实现`
+## 7.3 WebSocket 事件 — `已实现`
 
 ### `ws-message` — `已实现`
 
@@ -1567,18 +1725,16 @@ type WsConnectionStatusEvent = {
 - `SessionInspectorMessagesPane` 据此更新连接状态指示器（绿点 = 活跃，灰点 = 已关闭）
 - 状态为 `closed` 时 Compose 和 Replay 按钮自动禁用
 
-## 7.6 导出事件
-
-### `export/progress`
+## 7.4 菜单事件
 
 ```ts
-type ExportProgressEvent = {
-  taskId: string;
-  progress: number;
-  status: "running" | "completed" | "failed";
-  errorMessage?: string;
-};
+type MenuEvent = unknown;
 ```
+
+说明：
+
+- `menu-event` 由 Tauri 菜单层推送，前端通过 `services/events/index.ts` 统一订阅
+- 当前未注册 `proxy/status_changed`、`rule/matched`、`certificate/status_changed`、`export/progress` 事件；代理状态和证书状态由命令查询，规则命中通过各类 session trace 查询
 
 ## 8. 前端调用规范
 
@@ -1673,7 +1829,7 @@ type ApiCollectionItem = {
 ### Collection CRUD
 
 - `list_api_collections() -> ApiCollection[]`
-- `upsert_api_collection({ id?, parentId?, name, sortOrder? }) -> ApiCollection` — 当 `id` 存在且 `parentId` 改变时会进行 cycle check（拒绝把文件夹移到自己的子级）
+- `upsert_api_collection({ id?, parentId?, name, description?, sortOrder? }) -> ApiCollection` — 当 `id` 存在且 `parentId` 改变时会进行 cycle check（拒绝把文件夹移到自己的子级）
 - `delete_api_collection({ id }) -> void` — 级联删除子文件夹和请求项
 - `move_api_collection({ id, targetParentId, sortOrder }) -> void` — 在树中移动文件夹；`sortOrder` 是新父级下的目标索引，会触发 dense renumber 和 cycle check
 

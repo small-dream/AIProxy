@@ -5,9 +5,12 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 当前仓库已完成：
 
 - `docs/` 需求、架构、接口、UI、工程规范文档
-- monorepo 工程骨架
-- 桌面端应用入口与 Rust 核心模块占位结构
-- 最小 bootstrap 命令链路（查询代理状态、启动代理、停止代理）
+- pnpm + Cargo monorepo 工程骨架
+- Tauri 2 + React 19 桌面端应用
+- Rust 代理核心、证书、数据库、规则、弱网与导出模块
+- HTTP / HTTPS / WebSocket 抓包、MITM 解密、系统代理接管与手机端抓包辅助
+- Rewrite / Map / DNS / Script / Breakpoint / Throttling 规则工作台
+- Sessions、Compose、Collections、Rules、Throttling、Certificates、Settings 页面闭环
 
 ## 质量校验
 
@@ -43,6 +46,7 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 - `docs/user-guides/websocket-inspector.md`
 - `docs/user-guides/script-rules.md`
 - `docs/user-guides/script-rules-examples.md`
+- `docs/user-guides/collections-and-environments.md`
 
 ## 仓库结构
 
@@ -112,12 +116,13 @@ scripts/        开发、构建、发布脚本
 5. 查看 `logs/dev/aiproxy-desktop-dev.log`
 6. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`connect_received`、`connect_mitm_started`、`tls_handshake_succeeded`、`upstream_request_started`、`https_request_forwarded`
 
-## 下一步建议
+## 本地开发建议
 
 1. 安装 Node.js、pnpm、Rust 与 Tauri 所需系统依赖
-2. 执行依赖安装
-3. 开始搭建 `apps/desktop` 的基础运行链路
-4. 逐步实现代理核心、规则引擎和会话存储
+2. 执行 `pnpm install`
+3. 执行 `pnpm --filter @aiproxy/desktop typecheck`
+4. 执行 `pnpm --filter @aiproxy/desktop test`
+5. 使用 `pnpm desktop:run:<platform>` 启动桌面端，例如 `pnpm desktop:run:macos`
 
 ## 当前实现状态
 
@@ -129,6 +134,11 @@ scripts/        开发、构建、发布脚本
 - 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书、iOS/Android 配置指引，以及 Android 开发者 ADB 辅助安装
 - P0-4 已支持 Compose / Repeat（构造请求与重发）
 - P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
+- WebSocket Inspector 已支持消息查看、搜索、连接状态展示与活跃连接消息注入（重放）
+- Rewrite / Map Local / Map Remote / DNS Mapping / Script Rules 已接入规则中心和 SQLite 持久化
+- Throttling 已支持弱网 Profile、定向规则、运行统计与会话级 trace
+- Sessions 已支持右键操作、按需详情加载、导出 Session Snapshot / HAR / cURL，以及 HAR 导入读取
+- Collections 已支持集合/文件夹、请求保存、拖拽排序、从 Session 保存请求、环境变量与批量执行
 - 桌面端已规划双语国际化方案：支持 `中文 / English`，默认跟随系统语言
 - 桌面端设置页已支持代理预设管理（端口、SSL）以及应用级语言、外观偏好
 - 桌面端主题系统已支持浅色、暗黑与跟随系统，并覆盖应用壳层、卡片、导航、会话视图与 JSON 代码高亮

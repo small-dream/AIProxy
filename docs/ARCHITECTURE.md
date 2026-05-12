@@ -83,7 +83,7 @@ flowchart LR
     C --> D[Proxy Core]
     C --> E[Proxy Preset Service]
     C --> F[Rule Engine]
-    Note: WorkspaceManager 当前为内存实现（Mutex<Vec>），SQLite 持久化计划后续引入
+    Note: 运行时 manager 保留内存快照，启动时从 SQLite 恢复，写入时同步持久化
     C --> G[Certificate Service]
     C --> H[Export Service]
     D --> I[(SQLite)]
@@ -322,10 +322,10 @@ WebSocket 注入（重放）实现机制：
 
 - `start_proxy`
 - `stop_proxy`
-- `get_proxy_status`
+- `get_bootstrap_status`
 - `enable_system_proxy`
 - `disable_system_proxy`
-- `create_workspace` — `已实现`，作为代理预设兼容命令，由内存 WorkspaceManager 创建记录并返回完整数据
+- `create_workspace` — `已实现`，作为代理预设兼容命令，由 WorkspaceManager 创建内存记录并同步写入 SQLite
 - `load_workspace` — `已实现`，按 ID 加载当前激活代理预设
 - `list_workspaces` — `已实现`，返回所有代理预设列表（接口名保持兼容）
 - `update_workspace` — `已实现`，部分更新代理预设字段
@@ -342,23 +342,33 @@ WebSocket 注入（重放）实现机制：
 - `save_map_rule`
 - `list_dns_mappings` — `已实现`，返回指定 workspace 的 DNS 映射规则列表
 - `save_dns_mapping` — `已实现`，新增或更新单条 DNS 映射规则
-- `delete_rule` — `已实现`，支持 `ruleType: "rewrite" | "map" | "dns"`
+- `delete_rule` — `已实现`，支持 `ruleType: "rewrite" | "map" | "dns" | "script"`
 - `list_throttle_profiles` / `save_throttle_profile` / `set_active_throttle_profile` — `已实现`，管理全局弱网 Profile
 - `list_throttle_rules` / `save_throttle_rule` / `delete_throttle_rule` — `已实现`，管理定向弱网规则
 - `list_throttle_session_trace` / `list_throttled_session_ids` / `get_throttle_runtime_stats` — `已实现`，提供弱网可解释性与运行统计
-- `export_sessions`
+- `save_text_file` / `read_har_file` — `已实现`，当前导出由前端生成内容后写入下载目录，HAR 导入通过本地文件读取
 - `get_certificate_status`
-- `install_certificate_guide`
+- `open_certificate_install_guide`
+- `launch_certificate_installer`
+- `list_android_adb_devices` / `install_android_certificate_via_adb` / `set_android_proxy_via_adb` / `clear_android_proxy_via_adb`
+- `list_ios_simulators` / `install_ios_certificate_via_simulator`
 - `get_local_ip`
+- `list_api_collections` / `upsert_api_collection` / `delete_api_collection` / `move_api_collection`
+- `list_api_collection_items` / `get_api_collection_item` / `upsert_api_collection_item` / `delete_api_collection_item` / `move_api_collection_item`
+- `save_session_to_collection` / `batch_execute_collection_items`
+- `list_api_environments` / `upsert_api_environment` / `delete_api_environment`
+- `list_api_environment_variables` / `set_api_environment_variables`
+- `list_api_global_variables` / `set_api_global_variables`
 
 ## 7.3 关键事件示例
 
-- `proxy/status_changed`
 - `session-upsert`
 - `session-remove`
+- `sessions-cleared`
+- `sessions-removed`
 - `breakpoint-hit` — `已实现`，代理管道在断点命中时向前端推送 `BreakpointHit` 载荷，包含 session ID、阶段、请求/响应详情
-- `rule/matched`
-- `certificate/status_changed`
+- `ws-message`
+- `ws-connection-status`
 
 ## 8. 数据流
 
@@ -617,12 +627,13 @@ erDiagram
 
 ### 10.1 SQLite 存储内容
 
-> **当前状态**：会话元数据、规则配置、弱网 Profile、弱网 Rule、Rewrite / Script / Throttling 执行记录已接入 SQLite；代理运行时仍会在内存中保留最近会话和规则 manager 快照，以保证 Inspector 与代理管线读写效率。
+> **当前状态**：会话元数据、代理预设、规则配置、API Collections、环境变量、弱网 Profile、弱网 Rule、Rewrite / Script / Throttling 执行记录已接入 SQLite；代理运行时仍会在内存中保留最近会话和各类 manager 快照，以保证 Inspector 与代理管线读写效率。
 
 - 代理预设
 - 会话元数据
 - 规则配置
 - 弱网 Profile 与作用范围规则
+- API Collections、Collection Items、Environments、Environment Variables、Global Variables
 - Throttling / Rewrite / Script 执行记录
 - 应用设置
 
@@ -663,7 +674,7 @@ erDiagram
 - `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `CollectionsPage`：三栏布局 — `CollectionTreePane`（集合/文件夹树）+ `CollectionItemListPane`（请求列表）+ `CollectionItemEditorPane`（请求编辑器，复用 ComposeRequestSection + ComposeResponseSection）。底部环境选择器支持切换环境，变量替换引擎支持 `{{key}}` 语法
-- `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Map Local / Map Remote / DNS）；`Rewrite / Map / DNS` 采用 `Rule List Pane` + `Rule Editor Pane`
+- `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Mapping / Script）；`Mapping` 内部用分段控制切换 Map Local / Map Remote / DNS，规则编辑采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Runtime Status Bar` + 左侧 `Profiles / Rules` 切换列表 + 右侧 `Profile Editor / Rule Scope Editor`；支持全局 Profile、临时启用、一键关闭、按 URL / Method / Stage 定向规则
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
 - `SettingsPage`：当前已实现 `Proxy Presets` + `Language & Region` + `Appearance` 三个设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
@@ -680,7 +691,7 @@ erDiagram
 - `map-rules` — `已实现首版`：Rules 页面 Map Local / Map Remote 工作台 + 命令层本地 fallback 持久化
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现 P0/P1`：ThrottlingPage 工作台 + use-throttle-profiles hooks + 预设 / 自定义 Profile + 定向 Throttling Rule + Session 级 Throttling Trace + Runtime Stats + Sessions 过滤 / 右键创建规则
-- `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口
+- `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口；前端生成 Session Snapshot / HAR / cURL 内容后通过 `save_text_file` 写入下载目录
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层

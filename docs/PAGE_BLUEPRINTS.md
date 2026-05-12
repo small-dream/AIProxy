@@ -469,7 +469,7 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 | `features/breakpoints/breakpoint.store.ts` | Zustand store，管理 pendingHits / activeHitId / rules |
 | `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` Tauri 事件的 React hook |
 | `features/breakpoints/use-breakpoint-rules.ts` | React Query hooks，调用 `listBreakpointRules` / `setBreakpointRules` |
-| `features/rules/use-rule-center.ts` | React Query hooks，管理 Rewrite / Map Local / Map Remote 的读取、保存、删除 |
+| `features/rules/use-rule-center.ts` | React Query hooks，管理 Rewrite / Mapping / Script 规则的读取、保存、删除 |
 | `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器 |
 | `pages/rules/index.tsx` | Rules 页面，规则中心工作台（Tabs + 列表 + 编辑器 + 预览） |
 | `components/layout/AppShell.tsx` | 集成 BreakpointInterceptPanel 和状态栏断点计数指示器 |
@@ -481,7 +481,8 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 ```ts
 type RulesPageState = {
   query: {
-    ruleType: "breakpoint" | "rewrite" | "mapLocal" | "mapRemote" | "dns";
+    ruleType: "breakpoint" | "rewrite" | "mapping" | "script";
+    mappingMode?: "local" | "remote" | "dns";
     keyword: string;
   };
   selection: {
