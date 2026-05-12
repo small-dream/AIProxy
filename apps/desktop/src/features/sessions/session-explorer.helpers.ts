@@ -127,13 +127,28 @@ export function reconcileExpandedKeys(
   groups: SessionHostGroup[],
 ): string[] {
   const availableKeys = new Set<string>();
+  const expansionAliases = new Map<string, string[]>();
 
   for (const group of groups) {
     availableKeys.add(group.key);
     collectBranchKeys(group.tree, group.key, availableKeys);
+    collectExpansionAliases(group, expansionAliases);
   }
 
-  return expandedKeys.filter((key) => availableKeys.has(key));
+  const reconciledKeys: string[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const key of expandedKeys) {
+    appendExpandedKey(key, availableKeys, reconciledKeys, seenKeys);
+
+    const aliases = expansionAliases.get(key) ?? [];
+
+    for (const alias of aliases) {
+      appendExpandedKey(alias, availableKeys, reconciledKeys, seenKeys);
+    }
+  }
+
+  return reconciledKeys;
 }
 
 export function getSessionLeafLabel(session: SessionSummary): string {
@@ -209,6 +224,125 @@ function collectBranchKeys(nodes: SessionPathNode[], parentKey: string, availabl
     availableKeys.add(key);
     collectBranchKeys(node.children, parentKey, availableKeys);
   }
+}
+
+function appendExpandedKey(
+  key: string,
+  availableKeys: Set<string>,
+  reconciledKeys: string[],
+  seenKeys: Set<string>,
+) {
+  if (!availableKeys.has(key) || seenKeys.has(key)) {
+    return;
+  }
+
+  seenKeys.add(key);
+  reconciledKeys.push(key);
+}
+
+function collectExpansionAliases(group: SessionHostGroup, aliases: Map<string, string[]>) {
+  if (group.kind === "aggregate") {
+    collectAggregateExpansionAliases(group, aliases);
+    return;
+  }
+
+  collectStandaloneHostExpansionAliases(group, aliases);
+}
+
+function collectAggregateExpansionAliases(group: SessionHostGroup, aliases: Map<string, string[]>) {
+  for (const node of group.tree) {
+    if (node.kind !== "branch" || node.branchType !== "host" || !node.host) {
+      continue;
+    }
+
+    const aggregateHostKey = `${group.key}::${node.pathKey}`;
+
+    addExpansionAlias(aliases, node.host, [group.key, aggregateHostKey]);
+    collectAggregateBranchExpansionAliases({
+      aggregateGroupKey: group.key,
+      aggregateHostKey,
+      aliases,
+      host: node.host,
+      hostPathPrefix: node.pathKey,
+      nodes: node.children,
+    });
+  }
+}
+
+function collectAggregateBranchExpansionAliases({
+  aggregateGroupKey,
+  aggregateHostKey,
+  aliases,
+  host,
+  hostPathPrefix,
+  nodes,
+}: {
+  aggregateGroupKey: string;
+  aggregateHostKey: string;
+  aliases: Map<string, string[]>;
+  host: string;
+  hostPathPrefix: string;
+  nodes: SessionPathNode[];
+}) {
+  for (const node of nodes) {
+    if (node.kind !== "branch") {
+      continue;
+    }
+
+    const legacyPathKey = node.pathKey.startsWith(`${hostPathPrefix}/`)
+      ? node.pathKey.slice(hostPathPrefix.length + 1)
+      : node.pathKey;
+    const aggregateBranchKey = `${aggregateGroupKey}::${node.pathKey}`;
+
+    addExpansionAlias(aliases, `${host}::${legacyPathKey}`, [
+      aggregateGroupKey,
+      aggregateHostKey,
+      aggregateBranchKey,
+    ]);
+    collectAggregateBranchExpansionAliases({
+      aggregateGroupKey,
+      aggregateHostKey,
+      aliases,
+      host,
+      hostPathPrefix,
+      nodes: node.children,
+    });
+  }
+}
+
+function collectStandaloneHostExpansionAliases(group: SessionHostGroup, aliases: Map<string, string[]>) {
+  if (!group.host) {
+    return;
+  }
+
+  const aggregateHostPathKey = `host:${group.host}`;
+
+  addExpansionAlias(aliases, `__unfocused__::${aggregateHostPathKey}`, [group.key]);
+  collectStandaloneBranchExpansionAliases(group.tree, group.host, aggregateHostPathKey, aliases);
+}
+
+function collectStandaloneBranchExpansionAliases(
+  nodes: SessionPathNode[],
+  host: string,
+  aggregateHostPathKey: string,
+  aliases: Map<string, string[]>,
+) {
+  for (const node of nodes) {
+    if (node.kind !== "branch") {
+      continue;
+    }
+
+    addExpansionAlias(aliases, `__unfocused__::${aggregateHostPathKey}/${node.pathKey}`, [
+      host,
+      `${host}::${node.pathKey}`,
+    ]);
+    collectStandaloneBranchExpansionAliases(node.children, host, aggregateHostPathKey, aliases);
+  }
+}
+
+function addExpansionAlias(aliases: Map<string, string[]>, key: string, aliasKeys: string[]) {
+  const existingAliases = aliases.get(key) ?? [];
+  aliases.set(key, [...existingAliases, ...aliasKeys]);
 }
 
 function matchesKeyword(session: SessionSummary, keyword: string): boolean {

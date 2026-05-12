@@ -283,6 +283,68 @@ describe("buildSessionHostGroups", () => {
       reconcileExpandedKeys(["missing.example.com", "api.example.com", "api.example.com::api"], groups),
     ).toEqual(["api.example.com", "api.example.com::api"]);
   });
+
+  it("keeps an expanded unfocused host open when focused sessions appear", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "assets.example.com",
+          id: "session-20",
+          path: "/api/users",
+          url: "http://assets.example.com/api/users",
+        }),
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-21",
+          path: "/focus",
+          url: "http://api.example.com/focus",
+        }),
+      ],
+      "",
+      {
+        focusedHosts: ["api.example.com"],
+        unfocusedLabel: "UnFocus",
+      },
+    );
+
+    expect(reconcileExpandedKeys(["assets.example.com"], groups)).toEqual([
+      "__unfocused__",
+      "__unfocused__::host:assets.example.com",
+    ]);
+    expect(
+      reconcileExpandedKeys(["assets.example.com", "assets.example.com::api"], groups),
+    ).toEqual([
+      "__unfocused__",
+      "__unfocused__::host:assets.example.com",
+      "__unfocused__::host:assets.example.com/api",
+    ]);
+  });
+
+  it("restores aggregate child expansions when focused sessions disappear", () => {
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({
+          host: "assets.example.com",
+          id: "session-22",
+          path: "/api/users",
+          url: "http://assets.example.com/api/users",
+        }),
+      ],
+      "",
+      {
+        focusedHosts: ["api.example.com"],
+        unfocusedLabel: "UnFocus",
+      },
+    );
+
+    expect(
+      reconcileExpandedKeys([
+        "__unfocused__",
+        "__unfocused__::host:assets.example.com",
+        "__unfocused__::host:assets.example.com/api",
+      ], groups),
+    ).toEqual(["assets.example.com", "assets.example.com::api"]);
+  });
 });
 
 describe("filterSessionsByHostKeyword", () => {
