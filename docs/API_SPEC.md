@@ -1901,7 +1901,9 @@ type ApiGlobalVariable = {
 
 ## 13. 实现建议
 
-- 在 `packages/shared-types/` 维护所有接口 DTO
+- 所有接口 DTO 维护在 `packages/shared-types/`，按业务域拆分文件，`index.ts` 仅做 barrel re-export
 - 用 Zod 或等价 schema 在前端做运行时校验
-- Rust 侧以模块拆分 Command Handler，避免 `main.rs` 过大
+- Rust 端 Tauri Command Handler 按业务域拆分到 `apps/desktop/src-tauri/src/commands/<domain>.rs`，`commands/mod.rs` 仅做 `mod` 声明和 `pub use` 汇聚；新增命令必须归位到对应业务域文件，不允许写回 `mod.rs` 或 `main.rs`
+- 前端命令客户端按业务域拆分到 `apps/desktop/src/services/commands/<domain>.ts`，基础设施（`invokeCommand` 等）放在 `runtime.ts`，`index.ts` 仅做 barrel re-export
+- 三层（Rust 命令、前端命令客户端、共享类型）的业务域模块文件名必须保持一一对应，新增业务域需同步建立同名模块
 - 事件名保持稳定，避免在 UI 中硬编码字符串分散出现

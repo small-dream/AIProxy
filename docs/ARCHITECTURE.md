@@ -726,6 +726,21 @@ project-root/
 │     │  ├─ components/
 │     │  ├─ hooks/
 │     │  ├─ services/
+│     │  │  ├─ commands/
+│     │  │  │  ├─ index.ts
+│     │  │  │  ├─ runtime.ts
+│     │  │  │  ├─ proxy.ts
+│     │  │  │  ├─ workspaces.ts
+│     │  │  │  ├─ sessions.ts
+│     │  │  │  ├─ compose.ts
+│     │  │  │  ├─ rules.ts
+│     │  │  │  ├─ throttling.ts
+│     │  │  │  ├─ certificates.ts
+│     │  │  │  ├─ collections.ts
+│     │  │  │  ├─ environments.ts
+│     │  │  │  ├─ files.ts
+│     │  │  │  └─ ws.ts
+│     │  │  └─ events/
 │     │  ├─ lib/
 │     │  ├─ types/
 │     │  ├─ themes/
@@ -733,6 +748,19 @@ project-root/
 │     └─ src-tauri/
 │        ├─ src/
 │        │  ├─ commands/
+│        │  │  ├─ mod.rs
+│        │  │  ├─ common.rs
+│        │  │  ├─ proxy.rs
+│        │  │  ├─ workspaces.rs
+│        │  │  ├─ sessions.rs
+│        │  │  ├─ compose.rs
+│        │  │  ├─ rules.rs
+│        │  │  ├─ throttling.rs
+│        │  │  ├─ certificates.rs
+│        │  │  ├─ collections.rs
+│        │  │  ├─ environments.rs
+│        │  │  ├─ files.rs
+│        │  │  └─ ws.rs
 │        │  ├─ system_proxy/
 │        │  │  ├─ mod.rs
 │        │  │  ├─ windows.rs
@@ -751,6 +779,19 @@ project-root/
 │  └─ exporter/
 ├─ packages/
 │  ├─ shared-types/
+│  │  └─ src/
+│  │     ├─ index.ts
+│  │     ├─ common.ts
+│  │     ├─ proxy.ts
+│  │     ├─ workspaces.ts
+│  │     ├─ sessions.ts
+│  │     ├─ compose.ts
+│  │     ├─ rules.ts
+│  │     ├─ throttling.ts
+│  │     ├─ certificates.ts
+│  │     ├─ collections.ts
+│  │     ├─ environments.ts
+│  │     └─ ws.ts
 │  ├─ ui-tokens/
 │  ├─ eslint-config/
 │  └─ tsconfig/
@@ -780,6 +821,16 @@ project-root/
 ### `packages/shared-types/`
 
 承载前后端共享类型与契约定义。
+
+### 命令处理三层同构原则
+
+为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`certificates / collections / compose / environments / files / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
+
+- Rust 命令层：`apps/desktop/src-tauri/src/commands/<domain>.rs`，`mod.rs` 仅做 `mod` 声明与 `pub use` 汇聚，不写业务实现
+- 前端命令客户端：`apps/desktop/src/services/commands/<domain>.ts`，`index.ts` 仅做 barrel re-export，`runtime.ts` 承载 `invokeCommand` 等基础设施
+- 共享类型：`packages/shared-types/src/<domain>.ts`，`index.ts` 仅做 barrel re-export，`common.ts` 承载跨域复用的基础类型
+
+新增命令时必须按业务域归位到对应模块，不允许在 `mod.rs` / `index.ts` 内直接添加实现；若新增独立业务域，三层必须同步建立同名模块。
 
 ### `packages/ui-tokens/`
 
