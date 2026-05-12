@@ -9,22 +9,10 @@ import {
 
 import {
   logDevDebug,
-  logDevError,
   logDevInfo,
 } from "@/services/logger/dev-logger";
 
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {
-  logDevError("ui.commands", "command_failed", {
-    commandName,
-    error,
-    occurredAt: new Date().toISOString(),
-    workspaceId,
-  });
-}
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function listWsMessages(
   sessionId: string,
@@ -94,6 +82,28 @@ export async function injectWsMessage(input: WsInjectInput): Promise<void> {
     });
   } catch (error) {
     reportCommandFailure("inject_ws_message", error, input.sessionId);
+    throw coerceAppError(error);
+  }
+}
+
+export async function searchWsMessages(
+  sessionId: string,
+  query: string,
+  limit?: number,
+  offset?: number,
+): Promise<WsMessage[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "search_ws_messages_bypassed_non_tauri_runtime");
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("search_ws_messages", {
+      input: { sessionId, query, limit, offset },
+    });
+    return parseWsMessages(payload);
+  } catch (error) {
+    reportCommandFailure("search_ws_messages", error);
     throw coerceAppError(error);
   }
 }
