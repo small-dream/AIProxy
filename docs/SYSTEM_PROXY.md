@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：系统代理设计说明
-- 当前阶段：`Phase 1 / P0-1.5`
-- 文档状态：`Draft v1.0`
+- 当前阶段：`P0 系统代理闭环 / 实现同步`
+- 文档状态：`Living Spec v1.1`
 - 关联文档：
   - `docs/ARCHITECTURE.md`
   - `docs/API_SPEC.md`
@@ -177,10 +177,10 @@ Windows 当前实现基于：
 
 - Linux 仅支持 GNOME 和 KDE 桌面环境，其他桌面环境（如 Sway、i3、XFCE）暂不支持
 - Linux 系统代理不会设置环境变量 `http_proxy`/`https_proxy`，仅影响桌面应用
-- 仅适配 HTTP 代理闭环，HTTPS 解密尚未接入
+- HTTPS 解密链路已接入；系统代理只负责将 HTTP/HTTPS 流量导入 AIProxy，是否解密取决于代理启动模式、根证书生成状态与系统/设备信任状态
 - 若应用异常崩溃，系统代理恢复仍需补充更强的兜底策略
 
-## 9. 开发期排障日志
+## 10. 开发期排障日志
 
 开发阶段排查系统代理切换失败或“已接管但未见请求”时，优先查看：
 
@@ -217,9 +217,9 @@ Windows 当前实现基于：
 6. 若 TLS 成功但没有 `upstream_request_started`，优先排查解密后的请求解析
 7. 若出现 `upstream_request_send_failed` 或 `https_upstream_request_failed`，说明请求已进入代理但访问目标站失败
 
-## 10. 下一步建议
+## 11. 下一步建议
 
 1. 在应用退出事件中强制恢复系统代理
 2. 增加”恢复系统代理失败”的用户提示和手动恢复说明
-3. 在 HTTPS 阶段联动系统代理与证书状态检查
+3. 持续加强 HTTPS 解密失败诊断与证书状态联动
 4. 考虑支持 Linux 环境变量 `http_proxy`/`https_proxy` 设置

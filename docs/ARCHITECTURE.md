@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：系统架构文档
-- 当前阶段：`Phase 1 / 初始化设计`
-- 文档状态：`Draft v1.0`
+- 当前阶段：`P0 功能闭环 / 实现同步`
+- 文档状态：`Living Spec v1.1`
 - 配套需求文档：`docs/PRD.md`
 - 配套接口文档：`docs/API_SPEC.md`
 - 配套设计文档：`docs/UI_GUIDELINES.md`
