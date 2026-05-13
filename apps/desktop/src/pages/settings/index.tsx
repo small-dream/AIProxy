@@ -1,5 +1,7 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
   Alert,
   Button,
@@ -20,13 +22,19 @@ import {
   DEFAULT_WORKSPACE_ID,
   type Workspace,
 } from "@aiproxy/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useProxyStatus, useStartProxy } from "@/features/proxy-status/use-proxy-status";
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
+import {
+  checkForAppUpdate,
+  installPendingAppUpdate,
+  type AppUpdateInfo,
+  type AppUpdateProgress,
+} from "@/services/updater/app-updater";
 import {
   appFontSizeOptions,
   appFontPreferences,
@@ -208,6 +216,147 @@ function ProxySettingsSection() {
             {feedback.message}
           </Alert>
         )}
+
+        {proxyStatus?.systemProxyRecoveryWarning ? (
+          <Alert severity="warning" variant="outlined" sx={compactAlertSx}>
+            {t("settingsPage.systemProxyRecoveryWarning", {
+              message: proxyStatus.systemProxyRecoveryWarning,
+            })}
+          </Alert>
+        ) : null}
+      </Stack>
+    </SectionCard>
+  );
+}
+
+type UpdateFeedback = {
+  message: string;
+  severity: "error" | "info" | "success" | "warning";
+};
+
+function UpdatesSection() {
+  const { t } = useI18n();
+  const [isChecking, setIsChecking] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdateInfo | null>(null);
+  const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
+  const [feedback, setFeedback] = useState<UpdateFeedback>({
+    message: t("settingsPage.updatesIdle"),
+    severity: "info",
+  });
+
+  const handleCheck = useCallback(async () => {
+    setIsChecking(true);
+    setProgress(null);
+    setFeedback({ message: t("settingsPage.updatesChecking"), severity: "info" });
+
+    try {
+      const update = await checkForAppUpdate();
+      setAvailableUpdate(update);
+      setFeedback(
+        update
+          ? {
+              message: t("settingsPage.updatesAvailable", { version: update.version }),
+              severity: "success",
+            }
+          : { message: t("settingsPage.updatesNone"), severity: "success" },
+      );
+    } catch (error) {
+      const normalizedError = coerceAppError(error);
+      setFeedback({
+        message: normalizedError.message.trim() || t("common.errors.generic"),
+        severity: "error",
+      });
+    } finally {
+      setIsChecking(false);
+    }
+  }, [t]);
+
+  async function handleInstall() {
+    setIsInstalling(true);
+    setFeedback({ message: t("settingsPage.updatesInstalling"), severity: "info" });
+
+    try {
+      await installPendingAppUpdate((nextProgress) => setProgress(nextProgress));
+      setFeedback({ message: t("settingsPage.updatesRestarting"), severity: "success" });
+    } catch (error) {
+      const normalizedError = coerceAppError(error);
+      setFeedback({
+        message: normalizedError.message.trim() || t("common.errors.generic"),
+        severity: "error",
+      });
+      setIsInstalling(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleMenuCheckForUpdates() {
+      void handleCheck();
+    }
+
+    window.addEventListener("aiproxy-check-for-updates", handleMenuCheckForUpdates);
+    return () => {
+      window.removeEventListener("aiproxy-check-for-updates", handleMenuCheckForUpdates);
+    };
+  }, [handleCheck]);
+
+  const progressText =
+    progress && progress.contentLength
+      ? t("settingsPage.updatesProgress", {
+          downloaded: Math.round(progress.downloaded / 1024).toString(),
+          total: Math.round(progress.contentLength / 1024).toString(),
+        })
+      : null;
+
+  return (
+    <SectionCard compact title={t("settingsPage.updatesSectionTitle")} description={t("settingsPage.updatesDescription")}>
+      <Stack spacing={1.5}>
+        <Stack
+          direction={{ sm: "row", xs: "column" }}
+          spacing={1.5}
+          alignItems={{ sm: "center", xs: "stretch" }}
+        >
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<SystemUpdateAltRoundedIcon />}
+            onClick={() => void handleCheck()}
+            disabled={isChecking || isInstalling}
+            sx={{ minHeight: 34, px: 1.75 }}
+          >
+            {isChecking ? t("settingsPage.updatesCheckingAction") : t("settingsPage.updatesCheckAction")}
+          </Button>
+
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<DownloadRoundedIcon />}
+            onClick={() => void handleInstall()}
+            disabled={!availableUpdate || isChecking || isInstalling}
+            sx={{ minHeight: 34, px: 1.75 }}
+          >
+            {isInstalling ? t("settingsPage.updatesInstallingAction") : t("settingsPage.updatesInstallAction")}
+          </Button>
+        </Stack>
+
+        <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
+          {feedback.message}
+        </Alert>
+
+        {availableUpdate ? (
+          <Alert severity="info" variant="outlined" sx={compactAlertSx}>
+            {t("settingsPage.updatesAvailableDetail", {
+              currentVersion: availableUpdate.currentVersion,
+              version: availableUpdate.version,
+            })}
+          </Alert>
+        ) : null}
+
+        {progressText ? (
+          <Typography color="text.secondary" variant="caption">
+            {progressText}
+          </Typography>
+        ) : null}
       </Stack>
     </SectionCard>
   );
@@ -257,6 +406,8 @@ export function SettingsPage() {
       </Stack>
 
       <ProxySettingsSection />
+
+      <UpdatesSection />
 
       <SectionCard compact title={t("settingsPage.languageSectionTitle")}>
         <FormControl size="small" sx={{ ...compactFieldSx, width: { sm: 260, xs: "100%" } }}>

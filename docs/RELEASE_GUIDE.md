@@ -14,10 +14,12 @@
 每次正式发布前，建议至少完成以下动作：
 
 1. 更新版本号
-2. 执行 lint / test / typecheck
-3. 在目标平台本机完成一次 `bundle`
-4. 手工安装产物验证
-5. 再上传到下载站点或 Release 页面
+2. 执行 lint / test / typecheck / Rust tests
+3. 确认 GitHub Actions CI 已通过
+4. 在目标平台本机或 Release workflow 中完成一次 `bundle`
+5. 手工安装产物验证
+6. 验证自动更新与系统代理恢复
+7. 再上传到下载站点或 Release 页面
 
 ### 版本号需要同步的位置
 
@@ -31,6 +33,7 @@
 pnpm lint
 pnpm test
 pnpm typecheck
+cargo test --workspace
 ```
 
 如果只想先验证桌面端，也可以执行：
@@ -43,7 +46,7 @@ pnpm --filter @aiproxy/desktop typecheck
 
 ## 2. 当前仓库的打包行为
 
-当前 `tauri.conf.json` 已开启 bundle，且 `targets` 为 `all`。
+当前 `tauri.conf.json` 已开启 bundle，`targets` 为 `all`，并启用 Tauri updater artifacts。
 
 含义：
 
@@ -55,6 +58,8 @@ pnpm --filter @aiproxy/desktop typecheck
 
 - 当前仓库脚本不支持跨平台打包
 - 必须在对应原生宿主机上执行发布构建
+- updater artifacts 需要配置 `TAURI_SIGNING_PRIVATE_KEY`
+- updater endpoint 固定为 `https://github.com/small-dream/AIProxy/releases/latest/download/latest.json`
 
 统一打包命令：
 
@@ -236,12 +241,15 @@ Tauri 官方参考：
 建议每个版本创建一个 Release，例如：
 
 - `v0.1.0`
+- `v0.1.0-test`（预发布验证）
 
 建议上传：
 
 - macOS：`.dmg`
 - Windows：`.msi`，如有需要再附 `.exe`
 - Linux：`.AppImage`、`.deb`、`.rpm`
+- updater artifacts：macOS `.app.tar.gz`、Windows `.msi.sig` / `.exe.sig`、Linux `.AppImage.sig`
+- `latest.json`
 
 建议在 Release Notes 中写清楚：
 
@@ -250,16 +258,70 @@ Tauri 官方参考：
 - 支持的平台与架构
 - 安装方式
 - 已知限制
+- 签名状态：`signed/notarized` 或 `unsigned`
+- 未签名产物的用户安装提示
 
-## 8. 当前仓库的已知发布边界
+## 8. GitHub Actions 自动发布
+
+仓库已提供：
+
+- `.github/workflows/ci.yml`：PR 与 `master` push 的质量门禁
+- `.github/workflows/release.yml`：`v*` tag 与手动触发的三端打包发布
+
+Release workflow 的默认发布仓库为：
+
+- `small-dream/AIProxy`
+
+正式发布前必须配置：
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+注意：`tauri.conf.json` 中的 updater `pubkey` 必须与正式发布使用的私钥匹配。首次正式发布前，发布负责人需要用 `cargo tauri signer generate` 生成正式 keypair，替换配置中的占位公钥，并把私钥写入 GitHub Secrets。
+
+平台签名 / 公证 Secrets 可按阶段补齐：
+
+- macOS：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_API_ISSUER`、`APPLE_API_KEY_ID`、`APPLE_API_KEY`
+- Windows：`WINDOWS_CERTIFICATE`、`WINDOWS_CERTIFICATE_PASSWORD`
+
+如果未配置平台签名证书，Release workflow 仍允许产出未签名安装包，但 Release Notes 必须明确标记 `unsigned`。
+
+## 9. 自动更新验证
+
+每次发布前至少验证：
+
+1. 安装旧版本
+2. 发布更高版本到 GitHub Releases
+3. 打开 `Settings -> Software Updates`
+4. 点击 `Check for Updates`
+5. 确认能检测到新版本
+6. 点击 `Install & Restart`
+7. 确认应用重启后版本已更新
+
+若 `latest.json` 缺失、签名错误或 updater artifact 不完整，应用应显示失败状态，不应破坏当前安装。
+
+## 10. 系统代理恢复验证
+
+每次正式发布前至少验证：
+
+1. 启动代理并启用系统代理
+2. 正常关闭系统代理，确认系统代理恢复且 pending snapshot 被清理
+3. 启用系统代理后模拟应用异常退出
+4. 重新启动 AIProxy，确认启动时自动恢复系统代理
+5. 若恢复失败，确认 `Settings` 中出现恢复警告，并且下次启动仍会重试
+
+## 11. 回滚流程
+
+如果发布后发现阻断问题：
+
+1. 在 GitHub Releases 中将问题版本标记为 pre-release 或撤下下载说明
+2. 将 `latest.json` 回滚到上一稳定版本
+3. 发布修复版本，例如 `v0.1.1`
+4. 在 Release Notes 中说明受影响版本、回滚建议和系统代理手动恢复方式
+
+## 12. 当前仓库的已知发布边界
 
 - 当前仓库已经具备本地运行、调试编译、正式 bundle 的能力
-- 当前仓库尚未内置 CI/CD 自动发布工作流
-- 当前仓库也没有现成的签名 / 公证密钥管理方案
-
-如果后续要做自动化发布，推荐下一步新增：
-
-- GitHub Actions 打包工作流
-- 各平台证书与密钥的 Secrets 管理
-- 自动创建 GitHub Release
-- 自动上传安装产物
+- 当前仓库已提供 CI/CD 自动发布工作流
+- updater 签名密钥必须由发布负责人生成并注入 GitHub Secrets
+- macOS notarization 与 Windows code signing 仍依赖外部开发者账号和证书

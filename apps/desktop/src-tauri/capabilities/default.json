@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Default desktop capability set for AIProxy.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-title-bar-style", "opener:default", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-title-bar-style",
+    "opener:default",
+    "dialog:default",
+    "process:default",
+    "updater:default"
+  ]
 }

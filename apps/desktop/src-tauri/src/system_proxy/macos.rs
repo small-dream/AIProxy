@@ -1,17 +1,18 @@
 use super::SystemProxySettings;
 use crate::dev_logger::{log_debug, log_error, log_info};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 
 const NETWORKSETUP_PATH: &str = "/usr/sbin/networksetup";
 const PROXY_BYPASS_DOMAINS: [&str; 3] = ["localhost", "127.0.0.1", "::1"];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MacosSystemProxySnapshot {
     services: Vec<MacosNetworkServiceSnapshot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct MacosNetworkServiceSnapshot {
     auto_proxy_discovery_enabled: bool,
     auto_proxy_url: MacosAutoProxyUrlSnapshot,
@@ -21,14 +22,14 @@ struct MacosNetworkServiceSnapshot {
     secure_web_proxy: MacosProxyProtocolSnapshot,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct MacosProxyProtocolSnapshot {
     enabled: bool,
     port: Option<u16>,
     server: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct MacosAutoProxyUrlSnapshot {
     enabled: bool,
     url: Option<String>,

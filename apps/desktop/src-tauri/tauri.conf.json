@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -36,5 +37,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5RDI0MDA0N0M1OEQ0RgpSV1JQamNWSEFDU2RBWFRxR2NmR21ab1d4S1l4YkEwREVMb3loTmk0ajdvMmZDbjExTklBbjE3Rgo=",
+      "endpoints": [
+        "https://github.com/small-dream/AIProxy/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

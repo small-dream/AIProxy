@@ -38,6 +38,7 @@ pub use macos::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::{
-    apply_system_proxy_settings, capture_system_proxy_snapshot, restore_system_proxy,
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy,
     WindowsSystemProxySnapshot as SystemProxySnapshot,
 };

@@ -1,5 +1,6 @@
 use super::SystemProxySettings;
 use crate::dev_logger::{log_debug, log_error, log_info};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Command;
 
@@ -10,7 +11,7 @@ const GSETTINGS_PROXY_SCHEMA: &str = "org.gnome.system.proxy";
 // Desktop environment detection
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]
 enum LinuxDesktopEnvironment {
     Gnome,
     Kde,
@@ -47,14 +48,14 @@ fn detect_desktop_environment() -> Result<LinuxDesktopEnvironment, String> {
 // Snapshot types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LinuxSystemProxySnapshot {
     desktop: LinuxDesktopEnvironment,
     gnome: Option<GnomeProxySnapshot>,
     kde: Option<KdeProxySnapshot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct GnomeProxySnapshot {
     mode: String,
     http_host: Option<String>,
@@ -64,7 +65,7 @@ struct GnomeProxySnapshot {
     ignore_hosts: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct KdeProxySnapshot {
     proxy_type: Option<String>,
     http_proxy: Option<String>,

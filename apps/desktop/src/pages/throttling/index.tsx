@@ -114,6 +114,7 @@ export function ThrottlingPage() {
   const [ruleDraft, setRuleDraft] = useState<ThrottleRule | null>(null);
   const [validationAttempted, setValidationAttempted] = useState(false);
   const [temporaryUntil, setTemporaryUntil] = useState<number | null>(null);
+  const [temporaryNow, setTemporaryNow] = useState(() => Date.now());
   const activeProfile = useMemo(() => profiles.find((profile) => profile.enabled), [profiles]);
   const presetProfiles = useMemo(() => profiles.filter((profile) => profile.preset), [profiles]);
   const customProfiles = useMemo(() => profiles.filter((profile) => !profile.preset), [profiles]);
@@ -175,12 +176,19 @@ export function ThrottlingPage() {
     return () => window.clearTimeout(timeout);
   }, [setActiveMutation, temporaryUntil]);
 
+  useEffect(() => {
+    if (!temporaryUntil) return undefined;
+    setTemporaryNow(Date.now());
+    const interval = window.setInterval(() => setTemporaryNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [temporaryUntil]);
+
   const profileErrors = getThrottleValidationErrors(profileDraft, t);
   const ruleErrors = ruleDraft ? getRuleValidationErrors(ruleDraft) : [];
   const activeStatusLabel = activeProfile
     ? t("throttlingPage.activeSummary", { name: activeProfile.name })
     : t("throttlingPage.inactiveSummary");
-  const temporaryRemaining = temporaryUntil ? Math.max(0, temporaryUntil - Date.now()) : 0;
+  const temporaryRemaining = temporaryUntil ? Math.max(0, temporaryUntil - temporaryNow) : 0;
 
   function selectProfile(profile: ThrottleProfile) {
     setMode("profiles");

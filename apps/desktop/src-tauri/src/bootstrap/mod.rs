@@ -48,6 +48,7 @@ pub struct BootstrapStatus {
     pub ssl_enabled: bool,
     pub system_proxy_enabled: bool,
     pub started_at: Option<String>,
+    pub system_proxy_recovery_warning: Option<String>,
 }
 
 impl Default for BootstrapStatus {
@@ -59,6 +60,7 @@ impl Default for BootstrapStatus {
             ssl_enabled: true,
             system_proxy_enabled: false,
             started_at: None,
+            system_proxy_recovery_warning: None,
         }
     }
 }
@@ -645,6 +647,20 @@ impl AppState {
             .expect("bootstrap status mutex should not be poisoned");
 
         status.system_proxy_enabled = enabled;
+        if !enabled {
+            status.system_proxy_recovery_warning = None;
+        }
+
+        status.clone()
+    }
+
+    pub fn set_system_proxy_recovery_warning(&self, warning: Option<String>) -> BootstrapStatus {
+        let mut status = self
+            .status
+            .lock()
+            .expect("bootstrap status mutex should not be poisoned");
+
+        status.system_proxy_recovery_warning = warning;
 
         status.clone()
     }

@@ -1,0 +1,256 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: Bundle ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+            bundle-command: pnpm desktop:bundle:macos
+            artifact-glob: |
+              target/release/bundle/macos/*.app.tar.gz
+              target/release/bundle/macos/*.app.tar.gz.sig
+              target/release/bundle/dmg/*.dmg
+          - platform: windows
+            os: windows-latest
+            bundle-command: pnpm desktop:bundle:windows
+            artifact-glob: |
+              target/release/bundle/msi/*.msi
+              target/release/bundle/msi/*.msi.sig
+              target/release/bundle/nsis/*.exe
+              target/release/bundle/nsis/*.exe.sig
+          - platform: linux
+            os: ubuntu-latest
+            bundle-command: pnpm desktop:bundle:linux
+            artifact-glob: |
+              target/release/bundle/appimage/*.AppImage
+              target/release/bundle/appimage/*.AppImage.sig
+              target/release/bundle/deb/*.deb
+              target/release/bundle/rpm/*.rpm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Record signing mode
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "macos" && -n "${APPLE_CERTIFICATE}" && -n "${APPLE_API_KEY}" ]]; then
+            echo "SIGNING_STATUS=macOS signed/notarized" >> "$GITHUB_ENV"
+          elif [[ "${{ matrix.platform }}" == "windows" && -n "${WINDOWS_CERTIFICATE}" ]]; then
+            echo "SIGNING_STATUS=Windows signed" >> "$GITHUB_ENV"
+          else
+            echo "SIGNING_STATUS=${{ matrix.platform }} unsigned" >> "$GITHUB_ENV"
+          fi
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+
+      - name: Bundle
+        run: ${{ matrix.bundle-command }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiproxy-${{ matrix.platform }}
+          path: ${{ matrix.artifact-glob }}
+          if-no-files-found: error
+
+      - name: Write signing summary
+        shell: bash
+        run: echo "- $SIGNING_STATUS" > "signing-${{ matrix.platform }}.md"
+
+      - name: Write updater platform metadata
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            macos)
+              arch="$(uname -m)"
+              if [[ "$arch" == "arm64" ]]; then
+                updater_platform="darwin-aarch64"
+              else
+                updater_platform="darwin-x86_64"
+              fi
+              ;;
+            linux)
+              arch="$(uname -m)"
+              if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+                updater_platform="linux-aarch64"
+              else
+                updater_platform="linux-x86_64"
+              fi
+              ;;
+            windows)
+              updater_platform="windows-x86_64"
+              ;;
+          esac
+          printf '{"bundle":"%s","platform":"%s"}\n' "${{ matrix.platform }}" "$updater_platform" > "updater-platform-${{ matrix.platform }}.json"
+
+      - name: Upload signing summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-${{ matrix.platform }}
+          path: signing-${{ matrix.platform }}.md
+
+      - name: Upload updater platform metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-platform-${{ matrix.platform }}
+          path: updater-platform-${{ matrix.platform }}.json
+
+  publish:
+    name: Publish GitHub Release
+    needs: bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Generate updater manifest
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const repo = "small-dream/AIProxy";
+          const tag = process.env.GITHUB_REF_NAME;
+          const version = tag.startsWith("v") ? tag.slice(1) : tag;
+          const root = path.resolve("release-artifacts");
+
+          function walk(dir) {
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(dir, entry.name);
+              return entry.isDirectory() ? walk(full) : [full];
+            });
+          }
+
+          const files = walk(root);
+          const byName = new Map(files.map((file) => [path.basename(file), file]));
+          const platformByBundle = new Map(
+            files
+              .filter((file) => path.basename(file).startsWith("updater-platform-"))
+              .map((file) => {
+                const metadata = JSON.parse(fs.readFileSync(file, "utf8"));
+                return [metadata.bundle, metadata.platform];
+              }),
+          );
+
+          function pick(match) {
+            return files.find((file) => match(path.basename(file)));
+          }
+
+          function assetUrl(file) {
+            const name = encodeURIComponent(path.basename(file));
+            return `https://github.com/${repo}/releases/download/${tag}/${name}`;
+          }
+
+          function signatureFor(file) {
+            const sig = byName.get(`${path.basename(file)}.sig`);
+            if (!sig) throw new Error(`Missing updater signature for ${file}`);
+            return fs.readFileSync(sig, "utf8").trim();
+          }
+
+          const platforms = {};
+          const mac = pick((name) => name.endsWith(".app.tar.gz"));
+          const linux = pick((name) => name.endsWith(".AppImage"));
+          const windows = pick((name) => name.endsWith(".exe")) ?? pick((name) => name.endsWith(".msi"));
+
+          if (mac) {
+            const entry = { signature: signatureFor(mac), url: assetUrl(mac) };
+            platforms[platformByBundle.get("macos") ?? "darwin-x86_64"] = entry;
+          }
+          if (linux) {
+            platforms[platformByBundle.get("linux") ?? "linux-x86_64"] = { signature: signatureFor(linux), url: assetUrl(linux) };
+          }
+          if (windows) {
+            platforms[platformByBundle.get("windows") ?? "windows-x86_64"] = { signature: signatureFor(windows), url: assetUrl(windows) };
+          }
+
+          if (Object.keys(platforms).length === 0) {
+            throw new Error("No updater artifacts were found.");
+          }
+
+          fs.writeFileSync(
+            "latest.json",
+            `${JSON.stringify({ version, notes: `AIProxy ${version}`, pub_date: new Date().toISOString(), platforms }, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Build release notes
+        run: |
+          {
+            echo "AIProxy release ${GITHUB_REF_NAME}"
+            echo
+            echo "Signing status:"
+            cat release-artifacts/signing-*/*.md
+            echo
+            echo "Unsigned artifacts are expected until platform signing secrets are configured."
+          } > release-notes.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-test') || contains(github.ref_name, '-beta') }}
+          body_path: release-notes.md
+          files: |
+            release-artifacts/aiproxy-*/*
+            latest.json

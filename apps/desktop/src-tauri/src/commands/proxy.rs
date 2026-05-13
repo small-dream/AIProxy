@@ -1,5 +1,6 @@
 use super::common::*;
 use super::certificates::try_load_tls_manager;
+use crate::system_proxy_recovery;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -308,6 +309,13 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
         apply_system_proxy_settings(&settings)?;
     } else {
         let snapshot = capture_system_proxy_snapshot()?;
+        if let Some(app_handle) = state.read_app_handle() {
+            system_proxy_recovery::persist_pending_snapshot(
+                &app_handle,
+                status.active_workspace_id.clone(),
+                &snapshot,
+            )?;
+        }
         apply_system_proxy_settings_with_pre_snapshot(&settings, snapshot.clone())?;
         state.store_system_proxy_snapshot(snapshot);
     }
@@ -321,6 +329,7 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
         ],
     );
 
+    state.set_system_proxy_recovery_warning(None);
     Ok(state.set_system_proxy_enabled(true))
 }
 
@@ -336,6 +345,16 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
             );
 
             return Err(error);
+        }
+    }
+
+    if let Some(app_handle) = state.read_app_handle() {
+        if let Err(error) = system_proxy_recovery::clear_pending_snapshot(&app_handle) {
+            log_warn(
+                "desktop.commands",
+                "disable_system_proxy_recovery_clear_failed",
+                &[("error", error)],
+            );
         }
     }
 

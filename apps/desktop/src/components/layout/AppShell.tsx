@@ -501,6 +501,12 @@ export function AppShell() {
         case "adb_clear_proxy":
           void h.handleAdbClearProxy();
           break;
+        case "check_for_updates":
+          h.navigate("/settings");
+          window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("aiproxy-check-for-updates"));
+          }, 0);
+          break;
         case "import_har":
           navigateToSessionsMenuAction({
             kind: "import-har",

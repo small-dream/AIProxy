@@ -1,5 +1,6 @@
 use super::SystemProxySettings;
 use crate::dev_logger::{log_debug, log_error, log_info};
+use serde::{Deserialize, Serialize};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Networking::WinInet::{
     InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
@@ -12,7 +13,7 @@ use winreg::{
 const INTERNET_SETTINGS_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 const PROXY_OVERRIDE_BYPASS_LOCAL: &str = "<local>";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WindowsSystemProxySnapshot {
     auto_config_url: Option<String>,
     auto_detect: Option<u32>,
@@ -57,6 +58,14 @@ pub fn capture_system_proxy_snapshot() -> Result<WindowsSystemProxySnapshot, Str
 }
 
 pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(), String> {
+    let snapshot = capture_system_proxy_snapshot()?;
+    apply_system_proxy_settings_with_pre_snapshot(settings, snapshot)
+}
+
+pub fn apply_system_proxy_settings_with_pre_snapshot(
+    settings: &SystemProxySettings,
+    _snapshot: WindowsSystemProxySnapshot,
+) -> Result<(), String> {
     let key = open_settings_key()?;
     let endpoint = settings.endpoint();
 

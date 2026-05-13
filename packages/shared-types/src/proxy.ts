@@ -7,6 +7,7 @@ export type ProxyStatus = {
   systemProxyEnabled: boolean;
   activeWorkspaceId?: string;
   startedAt?: string;
+  systemProxyRecoveryWarning?: string;
 };
 
 export type StartProxyInput = {
@@ -59,6 +60,14 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
     return false;
   }
 
+  if (
+    candidate.systemProxyRecoveryWarning !== undefined &&
+    candidate.systemProxyRecoveryWarning !== null &&
+    typeof candidate.systemProxyRecoveryWarning !== "string"
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -79,6 +88,10 @@ export function parseProxyStatus(value: unknown): ProxyStatus {
         : {}),
       ...(candidate.startedAt !== null && candidate.startedAt !== undefined
         ? { startedAt: candidate.startedAt }
+        : {}),
+      ...(candidate.systemProxyRecoveryWarning !== null &&
+      candidate.systemProxyRecoveryWarning !== undefined
+        ? { systemProxyRecoveryWarning: candidate.systemProxyRecoveryWarning }
         : {}),
     };
   }

@@ -34,6 +34,7 @@ pub mod ids {
     pub const IOS_QUICK_ACTIONS: &str = "ios_quick_actions";
     pub const ADB_SET_PROXY: &str = "adb_set_proxy";
     pub const ADB_CLEAR_PROXY: &str = "adb_clear_proxy";
+    pub const CHECK_FOR_UPDATES: &str = "check_for_updates";
     pub const DOCUMENTATION: &str = "documentation";
     pub const SHORTCUTS: &str = "shortcuts";
 }
@@ -200,6 +201,10 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
 
     // --- Help ---
     let help_menu = SubmenuBuilder::new(handle, "Help")
+        .item(&MenuItemBuilder::new("Check for Updates...")
+            .id(ids::CHECK_FOR_UPDATES)
+            .build(handle)?)
+        .separator()
         .item(&MenuItemBuilder::new("AIProxy Documentation")
             .id(ids::DOCUMENTATION)
             .build(handle)?)

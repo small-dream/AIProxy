@@ -4,6 +4,7 @@ mod dev_logger;
 mod menu;
 mod session_stats;
 mod system_proxy;
+mod system_proxy_recovery;
 mod window_state;
 mod workspace;
 
@@ -104,6 +105,8 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(app_state))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_status,
@@ -186,6 +189,7 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
+            system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
             if let Err(error) = menu::build_menu(app.handle()) {
                 log_warn("desktop.app", "menu_build_failed", &[("error", error.to_string())]);
@@ -254,6 +258,13 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
         match restore_system_proxy(&snapshot) {
             Ok(()) => {
                 let _ = app_state.set_system_proxy_enabled(false);
+                if let Err(error) = system_proxy_recovery::clear_pending_snapshot(app_handle) {
+                    log_warn(
+                        "desktop.app",
+                        "shutdown_system_proxy_recovery_clear_failed",
+                        &[("error", error)],
+                    );
+                }
                 log_info(
                     "desktop.app",
                     "shutdown_system_proxy_restored",

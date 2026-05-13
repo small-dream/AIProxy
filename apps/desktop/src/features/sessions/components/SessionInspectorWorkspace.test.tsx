@@ -95,7 +95,7 @@ function createWebSocketSessionDetail(overrides: Partial<SessionDetail> = {}): S
 
 describe("SessionInspectorWorkspace", () => {
   it("renders websocket response tabs in the preferred order", () => {
-    const { container } = render(
+    render(
       <AppProviders>
         <SessionInspectorWorkspace
           detailErrorMessage={undefined}
