@@ -123,12 +123,19 @@
 
 ## Tier 4：技术前瞻（长期壁垒）
 
-### 12. HTTP/2 & HTTP/3 支持
+### 12. 协议栈现代化（HTTP/2 优先）
 
-- **现状**：仅支持 HTTP/1.1。
-- **趋势**：越来越多服务启用 HTTP/2 和 HTTP/3（QUIC），不支持则抓不到或显示不完整。
-- **价值**：长期技术壁垒，确保工具不过时。
-- **预估工作量**：很大（HTTP/2 中等，HTTP/3 极大）。
+- **现状**：核心捕获、转发、展示链路仍以 HTTP/1.1 文本模型为主，协议字段更多表示 `http` / `https` scheme，而不是完整的 HTTP version / transport / application protocol。
+- **趋势**：现代 App、移动端 SDK、云服务和微服务网关普遍启用 HTTP/2；如果长期停留在 HTTP/1.1，会导致抓不到、展示不完整、性能分析失真，也会阻塞后续 gRPC 能力。
+- **建议拆分**：
+  - **P0：协议模型重构**：在 Session 模型中区分 `scheme`、`httpVersion`、`transportProtocol`、`applicationProtocol`，为 HTTP/2 stream、trailers、pseudo headers、gRPC message 留出结构化字段。
+  - **P1：HTTP/2 基础捕获与展示**：支持 TLS ALPN `h2`，捕获 HTTP/2 请求 / 响应并展示为普通会话，至少覆盖 headers、body、status、timing、trailers。
+  - **P2：HTTP/2 规则与重放兼容**：让 Rewrite、Map、Throttle、Script、Compose、Export 能在 HTTP/2 会话上保持可用，必要时用内部统一模型屏蔽 HTTP/1.1 与 HTTP/2 差异。
+  - **P3：HTTP/3 / QUIC 研究项**：HTTP/3 涉及 UDP / QUIC / QPACK / 0-RTT / 连接迁移，技术路线与 HTTP/2 不同，先做识别、提示和降级策略，不阻塞 HTTP/2 落地。
+- **竞品对标**：Charles / Fiddler 对 HTTP/2 有基础支持，但深度调试体验有限；如果 AIProxy 能把 HTTP/2 会话、规则、timing 和 gRPC 展示打通，会形成更强竞争力。
+- **价值**：补齐现代协议基础盘，为移动端、微服务、云原生后端和 gRPC 场景建立长期壁垒。
+- **受益用户**：移动端工程师、后端工程师、平台工程师、QA。
+- **预估工作量**：HTTP/2 中～大；HTTP/3 极大，应单独立项。
 
 ### 13. TypeScript 脚本化规则引擎
 
@@ -148,17 +155,18 @@
 - **受益用户**：高级用户、自动化工程师。
 - **后续增量方向**：多文件项目、外部依赖、WebSocket 脚本化、更多宿主 API。
 
-### 14. gRPC / Protocol Buffers 支持
+### 14. gRPC / Protocol Buffers 分阶段支持
 
-- **内容**：
-  - 解码 Protobuf 二进制消息
-  - 展示结构化的 gRPC 请求 / 响应
-  - 支持 gRPC-Web
-  - 用户可导入 `.proto` 文件用于解码
-- **竞品对标**：Charles 和 Fiddler 的 gRPC 支持都很弱。
-- **价值**：微服务架构中 gRPC 广泛使用，杀手级差异化功能。
-- **受益用户**：后端工程师、平台工程师。
-- **预估工作量**：大。
+- **现状**：尚未支持 Protobuf 解码、gRPC message 展示、`.proto` 导入或 gRPC-Web。
+- **建议拆分**：
+  - **P0：Protobuf Body 解码**：对 `application/x-protobuf`、`application/protobuf` 等二进制 body 提供 Hex / Raw / Decoded 视图；支持用户导入 `.proto` 或 descriptor set 后按类型解码。
+  - **P1：gRPC-Web 支持**：优先覆盖 Web 前端和网关常见场景，可在 HTTP/1.1 或 HTTP/2 基础上展示 unary / streaming message。
+  - **P2：Native gRPC over HTTP/2**：在 HTTP/2 基础能力稳定后，按 gRPC message frame 展示请求 / 响应流，支持 headers、trailers、status、metadata、streaming timeline。
+  - **P3：规则与测试增强**：支持按 Protobuf 字段搜索、过滤、断言、Diff、Mock 和 Replay，形成区别于传统代理工具的高级能力。
+- **竞品对标**：Charles 和 Fiddler 的 gRPC 支持都较弱，mitmproxy 更偏脚本化；GUI 中如果能把 Protobuf message 结构化展示和调试规则结合起来，会有明显差异化。
+- **价值**：微服务架构中 gRPC 广泛使用，是面向后端 / 平台团队的杀手级功能；且可以从 Protobuf / gRPC-Web 开始较早释放价值，不必等待完整 HTTP/3。
+- **受益用户**：后端工程师、平台工程师、移动端工程师。
+- **预估工作量**：大；建议与 HTTP/2 基础能力解耦分批交付。
 
 ### 15. 安全审计模式
 
@@ -180,22 +188,25 @@
 |---|---|---|---|
 | **立即** | ~~SQLite 持久化~~ ✅ | 中 | 全部 |
 | **立即** | ~~DNS 映射~~ ✅ | 小 | 后端 / QA |
-| **短期** | WebSocket 深度支持 | 中 | 前端 / 移动端 |
+| **立即** | ~~WebSocket 深度支持~~ ✅ | 中 | 前端 / 移动端 |
 | **短期** | 请求 Diff 对比 | 小 | 全部 |
+| **短期** | 协议模型重构（scheme / HTTP version / transport / application protocol） | 中 | 移动端 / 后端 / 平台 |
 | **中期** | 流量统计面板 | 中 | 后端 / 平台 |
 | **中期** | Waterfall 瀑布图 | 中 | 前端 / 后端 |
+| **中期** | HTTP/2 基础捕获与展示 | 中～大 | 移动端 / 后端 / 平台 |
+| **中期** | Protobuf Body 解码 / gRPC-Web | 中～大 | 后端 / 平台 / 移动端 |
 | **中期** | 流量录制回放 | 大 | QA |
-| **长期** | API Collection | 大 | 前端 / 后端 |
+| **长期** | API Collection 增量（导入导出 / Postman 兼容 / 断言报告） | 大 | 前端 / 后端 |
 | **长期** | 脚本化规则引擎 | 大 | 高级用户 |
-| **长期** | gRPC 支持 | 大 | 后端 / 平台 |
+| **长期** | Native gRPC over HTTP/2 | 大 | 后端 / 平台 |
 | **远期** | 安全审计模式 | 大 | 安全 / 企业 |
 | **远期** | 自动 Mock Server | 大 | 前端 |
 | **远期** | 智能规则推荐 | 大 | QA / 初级开发者 |
 | **远期** | 协作与分享 | 大 | 团队 |
-| **远期** | HTTP/2 & HTTP/3 | 极大 | 全部 |
+| **远期** | HTTP/3 / QUIC 研究与降级策略 | 极大 | 移动端 / 平台 |
 
 ---
 
 ## 核心策略建议
 
-**持久化和 DNS 映射两个基础短板已补齐，下一步集中精力做流量统计面板和 Diff 对比——这是 Charles 留下的最大空白，也是最能产生差异化认知的切入点。**
+**持久化、WebSocket 和 DNS 映射等基础短板已补齐，下一步建议采用“双线推进”：一条线继续做流量统计面板、Waterfall 和 Diff 对比，快速增强日常调试体验；另一条线启动协议栈现代化，先重构内部协议模型，再落 HTTP/2 基础捕获，并以 Protobuf / gRPC-Web 先释放微服务调试价值。HTTP/3 / QUIC 单独作为远期研究项，不应阻塞 HTTP/2 和 gRPC 能力建设。**
