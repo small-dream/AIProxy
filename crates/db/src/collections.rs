@@ -54,8 +54,13 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), Str
             (id, parent_id, name, description, sort_order, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
-            c.id, c.parent_id, c.name, c.description,
-            c.sort_order as i32, c.created_at, c.updated_at,
+            c.id,
+            c.parent_id,
+            c.name,
+            c.description,
+            c.sort_order as i32,
+            c.created_at,
+            c.updated_at,
         ],
     )
     .map_err(|e| format!("upsert collection: {e}"))?;
@@ -91,7 +96,8 @@ pub fn list_collections_by_parent(
                      FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name",
                 )
                 .map_err(|e| format!("prepare list collections by parent: {e}"))?;
-            let rows: Vec<CollectionRow> = stmt.query_map(params![pid], row_to_collection)
+            let rows: Vec<CollectionRow> = stmt
+                .query_map(params![pid], row_to_collection)
                 .map_err(|e| format!("query collections by parent: {e}"))?
                 .filter_map(|r| r.ok())
                 .collect();
@@ -104,7 +110,8 @@ pub fn list_collections_by_parent(
                      FROM api_collections WHERE parent_id IS NULL ORDER BY sort_order, name",
                 )
                 .map_err(|e| format!("prepare list root collections: {e}"))?;
-            let rows: Vec<CollectionRow> = stmt.query_map([], row_to_collection)
+            let rows: Vec<CollectionRow> = stmt
+                .query_map([], row_to_collection)
                 .map_err(|e| format!("query root collections: {e}"))?
                 .filter_map(|r| r.ok())
                 .collect();
@@ -221,7 +228,10 @@ pub fn list_collection_items(
     Ok(rows)
 }
 
-pub fn get_collection_item(conn: &Connection, id: &str) -> Result<Option<CollectionItemRow>, String> {
+pub fn get_collection_item(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<CollectionItemRow>, String> {
     let result = conn.query_row(
         "SELECT id, collection_id, name, description, sort_order,
                 method, url, headers, body, body_type, raw_language, form_data, url_encoded,
@@ -453,9 +463,7 @@ fn list_collection_ids_by_parent(
 ) -> Result<Vec<String>, String> {
     let rows: Vec<String> = match parent_id {
         Some(p) => conn
-            .prepare(
-                "SELECT id FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name",
-            )
+            .prepare("SELECT id FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name")
             .map_err(|e| format!("prepare list collection ids by parent: {e}"))?
             .query_map(params![p], |row| row.get::<_, String>(0))
             .map_err(|e| format!("query collection ids: {e}"))?
@@ -573,12 +581,22 @@ mod tests {
         let conn = test_conn();
 
         let parent = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "Parent".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "Parent".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         let child = CollectionRow {
-            id: "c2".into(), parent_id: Some("c1".into()), name: "Child".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c2".into(),
+            parent_id: Some("c1".into()),
+            name: "Child".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &parent).unwrap();
         upsert_collection(&conn, &child).unwrap();
@@ -593,8 +611,13 @@ mod tests {
         let conn = test_conn();
 
         let c = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "Test".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "Test".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &c).unwrap();
 
@@ -634,17 +657,32 @@ mod tests {
         let conn = test_conn();
 
         let c = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "To Delete".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "To Delete".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &c).unwrap();
 
         let item = CollectionItemRow {
-            id: "i1".into(), collection_id: "c1".into(), name: "Item".into(),
-            description: String::new(), sort_order: 0, method: "GET".into(),
-            url: "https://example.com".into(), headers: "[]".into(), body: String::new(),
-            body_type: "none".into(), raw_language: "json".into(), form_data: "[]".into(),
-            url_encoded: "[]".into(), created_at: now(), updated_at: now(),
+            id: "i1".into(),
+            collection_id: "c1".into(),
+            name: "Item".into(),
+            description: String::new(),
+            sort_order: 0,
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: "[]".into(),
+            body: String::new(),
+            body_type: "none".into(),
+            raw_language: "json".into(),
+            form_data: "[]".into(),
+            url_encoded: "[]".into(),
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection_item(&conn, &item).unwrap();
 
@@ -658,22 +696,42 @@ mod tests {
         let conn = test_conn();
 
         let c1 = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "Src".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "Src".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         let c2 = CollectionRow {
-            id: "c2".into(), parent_id: None, name: "Dst".into(),
-            description: String::new(), sort_order: 1, created_at: now(), updated_at: now(),
+            id: "c2".into(),
+            parent_id: None,
+            name: "Dst".into(),
+            description: String::new(),
+            sort_order: 1,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &c1).unwrap();
         upsert_collection(&conn, &c2).unwrap();
 
         let item = CollectionItemRow {
-            id: "i1".into(), collection_id: "c1".into(), name: "Item".into(),
-            description: String::new(), sort_order: 0, method: "GET".into(),
-            url: "https://example.com".into(), headers: "[]".into(), body: String::new(),
-            body_type: "none".into(), raw_language: "json".into(), form_data: "[]".into(),
-            url_encoded: "[]".into(), created_at: now(), updated_at: now(),
+            id: "i1".into(),
+            collection_id: "c1".into(),
+            name: "Item".into(),
+            description: String::new(),
+            sort_order: 0,
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: "[]".into(),
+            body: String::new(),
+            body_type: "none".into(),
+            raw_language: "json".into(),
+            form_data: "[]".into(),
+            url_encoded: "[]".into(),
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection_item(&conn, &item).unwrap();
 
@@ -691,13 +749,21 @@ mod tests {
         let conn = test_conn();
 
         let c = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "Self".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "Self".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &c).unwrap();
 
         let err = move_collection(&conn, "c1", Some("c1"), 0, &now()).unwrap_err();
-        assert!(err.contains("descendant"), "expected cycle error, got: {err}");
+        assert!(
+            err.contains("descendant"),
+            "expected cycle error, got: {err}"
+        );
     }
 
     #[test]
@@ -720,7 +786,10 @@ mod tests {
 
         // Try to move c1 under c3 (its grandchild) — must fail.
         let err = move_collection(&conn, "c1", Some("c3"), 0, &now()).unwrap_err();
-        assert!(err.contains("descendant"), "expected cycle error, got: {err}");
+        assert!(
+            err.contains("descendant"),
+            "expected cycle error, got: {err}"
+        );
 
         // Original parents unchanged.
         let parents: Vec<Option<String>> = list_all_collections(&conn)
@@ -756,7 +825,10 @@ mod tests {
 
         let roots = list_collections_by_parent(&conn, None).unwrap();
         let order: Vec<String> = roots.iter().map(|r| r.id.clone()).collect();
-        assert_eq!(order, vec!["b".to_string(), "c".to_string(), "a".to_string()]);
+        assert_eq!(
+            order,
+            vec!["b".to_string(), "c".to_string(), "a".to_string()]
+        );
         assert_eq!(roots[0].sort_order, 0);
         assert_eq!(roots[1].sort_order, 1);
         assert_eq!(roots[2].sort_order, 2);
@@ -769,9 +841,13 @@ mod tests {
         // Two parents P1, P2, each at root.
         for id in ["p1", "p2"] {
             let row = CollectionRow {
-                id: id.into(), parent_id: None, name: id.into(),
-                description: String::new(), sort_order: 0,
-                created_at: now(), updated_at: now(),
+                id: id.into(),
+                parent_id: None,
+                name: id.into(),
+                description: String::new(),
+                sort_order: 0,
+                created_at: now(),
+                updated_at: now(),
             };
             upsert_collection(&conn, &row).unwrap();
         }
@@ -820,7 +896,10 @@ mod tests {
         upsert_collection(&conn, &row).unwrap();
 
         let err = move_collection(&conn, "c1", Some("missing"), 0, &now()).unwrap_err();
-        assert!(err.contains("not found"), "expected missing parent error, got: {err}");
+        assert!(
+            err.contains("not found"),
+            "expected missing parent error, got: {err}"
+        );
 
         let roots = list_collections_by_parent(&conn, None).unwrap();
         assert_eq!(roots.len(), 1);
@@ -832,8 +911,13 @@ mod tests {
         let conn = test_conn();
 
         let c = CollectionRow {
-            id: "c1".into(), parent_id: None, name: "Folder".into(),
-            description: String::new(), sort_order: 0, created_at: now(), updated_at: now(),
+            id: "c1".into(),
+            parent_id: None,
+            name: "Folder".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_collection(&conn, &c).unwrap();
 
@@ -864,7 +948,10 @@ mod tests {
 
         let items = list_collection_items(&conn, "c1").unwrap();
         let order: Vec<String> = items.iter().map(|r| r.id.clone()).collect();
-        assert_eq!(order, vec!["b".to_string(), "c".to_string(), "a".to_string()]);
+        assert_eq!(
+            order,
+            vec!["b".to_string(), "c".to_string(), "a".to_string()]
+        );
     }
 
     #[test]
@@ -922,7 +1009,10 @@ mod tests {
 
         let dst_items = list_collection_items(&conn, "dst").unwrap();
         let dst_order: Vec<String> = dst_items.iter().map(|r| r.id.clone()).collect();
-        assert_eq!(dst_order, vec!["a".to_string(), "x".to_string(), "y".to_string()]);
+        assert_eq!(
+            dst_order,
+            vec!["a".to_string(), "x".to_string(), "y".to_string()]
+        );
         assert_eq!(dst_items[0].sort_order, 0);
         assert_eq!(dst_items[1].sort_order, 1);
         assert_eq!(dst_items[2].sort_order, 2);
@@ -974,7 +1064,10 @@ mod tests {
 
         let dst_items = list_collection_items(&conn, "dst").unwrap();
         let dst_order: Vec<String> = dst_items.iter().map(|r| r.id.clone()).collect();
-        assert_eq!(dst_order, vec!["x".to_string(), "y".to_string(), "a".to_string()]);
+        assert_eq!(
+            dst_order,
+            vec!["x".to_string(), "y".to_string(), "a".to_string()]
+        );
         assert_eq!(dst_items[0].sort_order, 0);
         assert_eq!(dst_items[1].sort_order, 1);
         assert_eq!(dst_items[2].sort_order, 2);
@@ -1015,7 +1108,10 @@ mod tests {
         upsert_collection_item(&conn, &item).unwrap();
 
         let err = move_collection_item(&conn, "a", "missing", 0, &now()).unwrap_err();
-        assert!(err.contains("not found"), "expected missing target error, got: {err}");
+        assert!(
+            err.contains("not found"),
+            "expected missing target error, got: {err}"
+        );
 
         let src_items = list_collection_items(&conn, "src").unwrap();
         assert_eq!(src_items.len(), 1);
@@ -1069,7 +1165,10 @@ mod tests {
         };
 
         let err = upsert_collection(&conn, &bad).unwrap_err();
-        assert!(err.contains("not found"), "expected missing parent error, got: {err}");
+        assert!(
+            err.contains("not found"),
+            "expected missing parent error, got: {err}"
+        );
         assert!(list_all_collections(&conn).unwrap().is_empty());
     }
 }

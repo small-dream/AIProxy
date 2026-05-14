@@ -294,7 +294,10 @@ impl ThrottleManager {
     }
 
     pub fn list_profiles(&self) -> Vec<ThrottleProfileData> {
-        self.profiles.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.profiles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn save_profile(&self, profile: ThrottleProfileData) -> ThrottleProfileData {
@@ -442,7 +445,11 @@ pub(crate) fn resolve_dns_override(
     let rules = manager.rules.lock().unwrap_or_else(|e| e.into_inner());
     let rule = rules
         .iter()
-        .filter(|r| r.enabled && r.workspace_id == workspace_id && pattern_matches(&r.host_pattern, hostname))
+        .filter(|r| {
+            r.enabled
+                && r.workspace_id == workspace_id
+                && pattern_matches(&r.host_pattern, hostname)
+        })
         .max_by_key(|r| r.priority)?;
     rule.target_ip.parse().ok()
 }
@@ -505,7 +512,10 @@ fn pattern_matches(pattern: &str, candidate: &str) -> bool {
         return candidate.contains(normalized);
     }
 
-    let parts: Vec<&str> = normalized.split('*').filter(|part| !part.is_empty()).collect();
+    let parts: Vec<&str> = normalized
+        .split('*')
+        .filter(|part| !part.is_empty())
+        .collect();
 
     if parts.is_empty() {
         return true;
@@ -663,9 +673,15 @@ fn active_throttle_selection_for_request(
         .into_iter()
         .filter(|rule| rule.enabled)
         .filter(|rule| rule.workspace_id == workspace_id)
-        .filter(|rule| throttle_stage_matches(&rule.stage, "request") || throttle_stage_matches(&rule.stage, "response"))
+        .filter(|rule| {
+            throttle_stage_matches(&rule.stage, "request")
+                || throttle_stage_matches(&rule.stage, "response")
+        })
         .filter(|rule| method_matches(&rule.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.url_pattern, request.url.as_str()) || pattern_matches(&rule.url_pattern, &request.host))
+        .filter(|rule| {
+            pattern_matches(&rule.url_pattern, request.url.as_str())
+                || pattern_matches(&rule.url_pattern, &request.host)
+        })
         .collect();
 
     rules.sort_by(|left, right| right.priority.cmp(&left.priority));
@@ -684,7 +700,10 @@ fn active_throttle_selection_for_request(
     }
 
     active_throttle_profile_for_workspace(throttle_manager, workspace_id).map(|profile| {
-        ThrottleRuntimeSelection { profile, rule: None }
+        ThrottleRuntimeSelection {
+            profile,
+            rule: None,
+        }
     })
 }
 
@@ -692,8 +711,7 @@ fn parse_rewrite_payload<T: DeserializeOwned>(rule: &RewriteRule) -> Result<T, S
     serde_json::from_value(rule.payload.clone()).map_err(|error| {
         format!(
             "rewrite rule '{}' has an invalid payload for type '{}': {error}",
-            rule.id,
-            rule.rewrite_type,
+            rule.id, rule.rewrite_type,
         )
     })
 }
@@ -790,7 +808,10 @@ fn build_script_response(response: &UpstreamResponse) -> ScriptResponse {
     }
 }
 
-fn bytes_from_script_body(body_text: Option<String>, body_base64: Option<String>) -> Result<Vec<u8>, String> {
+fn bytes_from_script_body(
+    body_text: Option<String>,
+    body_base64: Option<String>,
+) -> Result<Vec<u8>, String> {
     if let Some(text) = body_text {
         return Ok(text.into_bytes());
     }
@@ -820,10 +841,18 @@ fn apply_script_request_to_runtime(
     request: &mut ParsedProxyRequest,
     script_request: ScriptRequest,
 ) -> Result<(), String> {
-    request.method = Method::from_bytes(script_request.method.as_bytes())
-        .map_err(|error| format!("invalid script request method '{}': {error}", script_request.method))?;
-    request.url = Url::parse(&script_request.url)
-        .map_err(|error| format!("invalid script request url '{}': {error}", script_request.url))?;
+    request.method = Method::from_bytes(script_request.method.as_bytes()).map_err(|error| {
+        format!(
+            "invalid script request method '{}': {error}",
+            script_request.method
+        )
+    })?;
+    request.url = Url::parse(&script_request.url).map_err(|error| {
+        format!(
+            "invalid script request url '{}': {error}",
+            script_request.url
+        )
+    })?;
     request.request_headers = script_request
         .headers
         .into_iter()
@@ -840,8 +869,12 @@ fn apply_script_response_to_runtime(
     response: &mut UpstreamResponse,
     script_response: ScriptResponse,
 ) -> Result<(), String> {
-    response.status_code = StatusCode::from_u16(script_response.status)
-        .map_err(|error| format!("invalid script response status '{}': {error}", script_response.status))?;
+    response.status_code = StatusCode::from_u16(script_response.status).map_err(|error| {
+        format!(
+            "invalid script response status '{}': {error}",
+            script_response.status
+        )
+    })?;
     response.response_headers = header_map_from_script_headers(&script_response.headers);
     response.replace_response_body(bytes_from_script_body(
         script_response.body_text,
@@ -850,7 +883,9 @@ fn apply_script_response_to_runtime(
     Ok(())
 }
 
-fn upstream_response_from_override(override_response: ScriptResponseOverride) -> Result<UpstreamResponse, String> {
+fn upstream_response_from_override(
+    override_response: ScriptResponseOverride,
+) -> Result<UpstreamResponse, String> {
     let response_body =
         bytes_from_script_body(override_response.body_text, override_response.body_base64)?;
 
@@ -861,16 +896,17 @@ fn upstream_response_from_override(override_response: ScriptResponseOverride) ->
         response_headers: header_map_from_script_headers(&override_response.headers),
         response_read_ms: 0,
         spooled_response_path: None,
-        status_code: StatusCode::from_u16(override_response.status)
-            .map_err(|error| format!("invalid mock response status '{}': {error}", override_response.status))?,
+        status_code: StatusCode::from_u16(override_response.status).map_err(|error| {
+            format!(
+                "invalid mock response status '{}': {error}",
+                override_response.status
+            )
+        })?,
         waiting_ms: 0,
     })
 }
 
-fn invalid_trace(
-    mut trace: ScriptTrace,
-    message: String,
-) -> ScriptTrace {
+fn invalid_trace(mut trace: ScriptTrace, message: String) -> ScriptTrace {
     let next_sequence = trace.entries.len() as u32;
     trace.outcome = ScriptRunOutcome::InvalidResult;
     trace.entries.push(ScriptRunEntry {
@@ -1007,12 +1043,18 @@ fn rebuild_request_runtime_state(request: &mut ParsedProxyRequest) -> Result<(),
     request.host = request
         .url
         .host_str()
-        .ok_or_else(|| "request URL does not contain a host after runtime transformation".to_string())?
+        .ok_or_else(|| {
+            "request URL does not contain a host after runtime transformation".to_string()
+        })?
         .to_string();
     request.path = build_request_path(&request.url);
     request.protocol = request.url.scheme().to_string();
     request.query_params = build_query_params(&request.url);
-    set_header_entry(&mut request.request_headers, "Host", &host_header_value(&request.url));
+    set_header_entry(
+        &mut request.request_headers,
+        "Host",
+        &host_header_value(&request.url),
+    );
     request.raw_request = build_raw_http_head(
         &format!("{} {} HTTP/1.1", request.method.as_str(), request.path),
         &request.request_headers,
@@ -1046,7 +1088,9 @@ pub(crate) fn apply_request_rewrite_rules(
                         None,
                         Some("header target does not apply to request stage".to_string()),
                     ));
-                    traces.push(build_rewrite_trace(&rule, "request", started_at, "skipped", entries));
+                    traces.push(build_rewrite_trace(
+                        &rule, "request", started_at, "skipped", entries,
+                    ));
                     continue;
                 }
 
@@ -1079,10 +1123,7 @@ pub(crate) fn apply_request_rewrite_rules(
                 query_pairs.retain(|(name, _)| !name.eq_ignore_ascii_case(&param_name));
 
                 if !payload.operation.eq_ignore_ascii_case("remove") {
-                    query_pairs.push((
-                        param_name.clone(),
-                        payload.value.unwrap_or_default(),
-                    ));
+                    query_pairs.push((param_name.clone(), payload.value.unwrap_or_default()));
                 }
 
                 request.url.set_query(None);
@@ -1114,7 +1155,9 @@ pub(crate) fn apply_request_rewrite_rules(
                         None,
                         Some("body target does not apply to request stage".to_string()),
                     ));
-                    traces.push(build_rewrite_trace(&rule, "request", started_at, "skipped", entries));
+                    traces.push(build_rewrite_trace(
+                        &rule, "request", started_at, "skipped", entries,
+                    ));
                     continue;
                 }
 
@@ -1177,7 +1220,9 @@ pub(crate) fn apply_request_rewrite_rules(
         }
 
         rebuild_request_runtime_state(request)?;
-        traces.push(build_rewrite_trace(&rule, "request", started_at, outcome, entries));
+        traces.push(build_rewrite_trace(
+            &rule, "request", started_at, outcome, entries,
+        ));
     }
 
     Ok(traces)
@@ -1209,7 +1254,9 @@ pub(crate) fn apply_response_rewrite_rules(
                         None,
                         Some("header target does not apply to response stage".to_string()),
                     ));
-                    traces.push(build_rewrite_trace(&rule, "response", started_at, "skipped", entries));
+                    traces.push(build_rewrite_trace(
+                        &rule, "response", started_at, "skipped", entries,
+                    ));
                     continue;
                 }
 
@@ -1247,7 +1294,9 @@ pub(crate) fn apply_response_rewrite_rules(
                         None,
                         Some("body target does not apply to response stage".to_string()),
                     ));
-                    traces.push(build_rewrite_trace(&rule, "response", started_at, "skipped", entries));
+                    traces.push(build_rewrite_trace(
+                        &rule, "response", started_at, "skipped", entries,
+                    ));
                     continue;
                 }
 
@@ -1278,7 +1327,9 @@ pub(crate) fn apply_response_rewrite_rules(
                 ));
             }
         }
-        traces.push(build_rewrite_trace(&rule, "response", started_at, outcome, entries));
+        traces.push(build_rewrite_trace(
+            &rule, "response", started_at, outcome, entries,
+        ));
     }
 
     Ok(traces)
@@ -1369,7 +1420,10 @@ pub(crate) fn apply_response_script_rules(
     traces
 }
 
-fn apply_remote_map_rule(request: &mut ParsedProxyRequest, rule: &MapRule) -> Result<String, String> {
+fn apply_remote_map_rule(
+    request: &mut ParsedProxyRequest,
+    rule: &MapRule,
+) -> Result<String, String> {
     let original_path = request.url.path().to_string();
     let original_query = request.url.query().map(str::to_string);
     let mut mapped_url = Url::parse(&rule.target_value).map_err(|error| {
@@ -1407,7 +1461,13 @@ fn sanitize_request_path(path: &str) -> PathBuf {
 }
 
 fn guess_mime_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_ascii_lowercase().as_str() {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "css" => "text/css; charset=utf-8",
         "gif" => "image/gif",
         "html" | "htm" => "text/html; charset=utf-8",
@@ -1450,7 +1510,10 @@ fn build_local_file_response(path: &Path) -> Result<UpstreamResponse, String> {
     })
 }
 
-fn apply_local_map_rule(request: &ParsedProxyRequest, rule: &MapRule) -> Result<(UpstreamResponse, String), String> {
+fn apply_local_map_rule(
+    request: &ParsedProxyRequest,
+    rule: &MapRule,
+) -> Result<(UpstreamResponse, String), String> {
     let target_path = PathBuf::from(&rule.target_value);
 
     if target_path.is_file() {
@@ -1572,13 +1635,18 @@ pub(crate) async fn apply_request_throttle(
 ) -> Result<ThrottleTrace, ThrottleFailure> {
     let profile = &selection.profile;
     if should_drop_for_packet_loss(profile) {
-        let error = format!(
-            "request dropped by throttle profile '{}'",
-            profile.name
-        );
+        let error = format!("request dropped by throttle profile '{}'", profile.name);
         return Err(ThrottleFailure {
             error: error.clone(),
-            trace: build_throttle_trace(selection, "request", "dropped", body_len, 0, 0, Some(error)),
+            trace: build_throttle_trace(
+                selection,
+                "request",
+                "dropped",
+                body_len,
+                0,
+                0,
+                Some(error),
+            ),
         });
     }
 
@@ -1660,7 +1728,8 @@ pub(crate) fn apply_request_runtime_rules(
 ) -> Result<RequestRuntimeOutcome, String> {
     let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request)?;
     let (local_response, map_traces) = apply_map_rules(map_manager, workspace_id, request)?;
-    let throttle_selection = active_throttle_selection_for_request(throttle_manager, workspace_id, request);
+    let throttle_selection =
+        active_throttle_selection_for_request(throttle_manager, workspace_id, request);
 
     Ok(RequestRuntimeOutcome {
         local_response,

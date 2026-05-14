@@ -12,6 +12,7 @@ import {
   inspectorKeyTypographySx,
   inspectorValueTypographySx,
 } from "./SessionInspectorShared";
+import { formatSessionProtocol, getSessionProtocolMetadata } from "@/features/sessions/session-protocol.helpers";
 import { formatTiming } from "./session-inspector.helpers";
 
 type OverviewSection = {
@@ -368,10 +369,11 @@ function buildOverviewSections({
     ?? detail?.responseBody?.mimeType
     ?? session.responseMimeType
     ?? fallback;
+  const protocolMetadata = getSessionProtocolMetadata(session);
   const requestContentEncoding = getHeaderValue(detail?.requestHeaders, "content-encoding");
   const responseContentEncoding = getHeaderValue(detail?.responseHeaders, "content-encoding");
-  const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest, detail?.requestHeaders, session.method, session.path, session.protocol);
-  const responseHeaderBytes = estimateHeaderBytes(detail?.rawResponse, detail?.responseHeaders, undefined, undefined, session.protocol, session.statusCode);
+  const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest, detail?.requestHeaders, session.method, session.path, protocolMetadata.httpVersion);
+  const responseHeaderBytes = estimateHeaderBytes(detail?.rawResponse, detail?.responseHeaders, undefined, undefined, protocolMetadata.httpVersion, session.statusCode);
   const requestBodyBytes = detail?.requestBody?.sizeBytes ?? 0;
   const responseBodyBytes = detail?.responseBody?.sizeBytes ?? 0;
   const requestTotalBytes = requestHeaderBytes + requestBodyBytes;
@@ -412,10 +414,10 @@ function buildOverviewSections({
           [t("inspector.request.overview.fields.contentType"), responseContentType],
           [t("inspector.request.overview.fields.clientAddress"), detail?.clientAddress ?? fallback],
           [t("inspector.request.overview.fields.remoteAddress"), buildRemoteAddress(session.url, session.host, detail?.serverIp)],
-          [t("common.labels.protocol"), formatProtocol(session.protocol)],
+          [t("common.labels.protocol"), formatSessionProtocol(session)],
           [t("inspector.request.overview.fields.tags"), t("common.states.na")],
-          [t("inspector.request.overview.fields.keptAlive"), formatBooleanValue(getKeepAlive(detail?.requestHeaders, session.protocol), fallback, t)],
-          [t("inspector.request.overview.fields.ssl"), formatSslValue(session.protocol, detail, fallback, t("common.states.na"))],
+          [t("inspector.request.overview.fields.keptAlive"), formatBooleanValue(getKeepAlive(detail?.requestHeaders, protocolMetadata.httpVersion), fallback, t)],
+          [t("inspector.request.overview.fields.ssl"), formatSslValue(protocolMetadata.scheme, detail, fallback, t("common.states.na"))],
         ],
       },
       {
@@ -429,7 +431,7 @@ function buildOverviewSections({
           [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
           [t("inspector.request.overview.fields.dns"), formatConnectionPhaseTiming(timing?.dnsMs, timing, isImportedTiming, fallback, unavailable)],
           [t("inspector.request.overview.fields.connect"), formatConnectionPhaseTiming(timing?.connectMs, timing, isImportedTiming, fallback, unavailable)],
-          [t("inspector.request.overview.fields.tlsHandshake"), formatTlsTiming(timing?.tlsMs, timing, session.protocol, isImportedTiming, fallback, unavailable, t)],
+          [t("inspector.request.overview.fields.tlsHandshake"), formatTlsTiming(timing?.tlsMs, timing, protocolMetadata.scheme, isImportedTiming, fallback, unavailable, t)],
           [t("inspector.request.overview.fields.request"), formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable)],
           [t("inspector.request.overview.fields.response"), formatTiming(timing?.responseReadMs, fallback)],
           [t("inspector.request.overview.fields.latency"), formatTiming(timing?.waitingMs, fallback)],
@@ -757,10 +759,6 @@ function estimateCookieBytes(headers: HeaderEntry[] | undefined, headerName: str
   return matchingHeaders.reduce((total, header) => total + new TextEncoder().encode(`${header.name}: ${header.value}\r\n`).length, 0);
 }
 
-function formatProtocol(protocol: string) {
-  return protocol.toUpperCase();
-}
-
 function normalizeProtocolVersion(protocol: string | undefined) {
   if (!protocol) {
     return "1.1";
@@ -804,7 +802,7 @@ function getKeepAlive(headers: HeaderEntry[] | undefined, protocol: string) {
     return connection.toLowerCase() !== "close";
   }
 
-  if (protocol.toLowerCase() === "http" || protocol.toLowerCase() === "https") {
+  if (protocol.toLowerCase() === "http" || protocol.toLowerCase() === "https" || protocol === "1.1" || protocol === "2" || protocol === "3") {
     return true;
   }
 

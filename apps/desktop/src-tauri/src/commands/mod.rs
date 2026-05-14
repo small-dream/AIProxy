@@ -1,6 +1,6 @@
-mod common;
 mod certificates;
 mod collections;
+mod common;
 mod compose;
 mod environments;
 mod files;

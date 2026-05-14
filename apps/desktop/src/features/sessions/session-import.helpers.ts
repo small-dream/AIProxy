@@ -145,6 +145,7 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
   const requestBody = buildBodyReference(request.postData);
   const responseBody = buildBodyReference(entry.response?.content, entry.response?.content?.size);
   const timing = buildTimingBreakdown(entry);
+  const protocol = parsedUrl.protocol.replace(":", "");
 
   return {
     cookies: [],
@@ -161,7 +162,11 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
       id: sessionId,
       method: request.method,
       path: `${parsedUrl.pathname || "/"}${parsedUrl.search}`,
-      protocol: parsedUrl.protocol.replace(":", ""),
+      protocol,
+      scheme: protocol === "https" ? "https" : "http",
+      httpVersion: "1.1",
+      transportProtocol: "tcp",
+      applicationProtocol: "http",
       sizeBytes:
         responseBody?.sizeBytes
         ?? (typeof entry.response?.content?.size === "number" ? entry.response.content.size : 0),

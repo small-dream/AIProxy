@@ -1,6 +1,7 @@
 import type { SessionDetail } from "@aiproxy/shared-types";
 
 import { generateCurlCommand } from "@/features/compose/curl-export";
+import { getSessionProtocolMetadata } from "./session-protocol.helpers";
 
 export function buildSessionSnapshot(details: SessionDetail[]) {
   return {
@@ -31,49 +32,54 @@ export function buildHarArchive(details: SessionDetail[]) {
         name: "AIProxy",
         version: "0.1.0",
       },
-      entries: details.map((detail) => ({
-        startedDateTime: detail.summary.startedAt,
-        time: detail.summary.durationMs,
-        request: {
-          method: detail.summary.method,
-          url: detail.summary.url,
-          httpVersion: detail.summary.protocol.toUpperCase(),
-          headers: detail.requestHeaders.map((header) => ({ name: header.name, value: header.value })),
-          queryString: detail.queryParams.map((query) => ({ name: query.name, value: query.value })),
-          headersSize: -1,
-          bodySize: detail.requestBody?.sizeBytes ?? 0,
-          postData: detail.requestBody
-            ? {
-                mimeType: detail.requestBody.mimeType ?? "application/octet-stream",
-                text: getBodyText(detail.requestBody),
-              }
-            : undefined,
-        },
-        response: {
-          status: detail.summary.statusCode,
-          statusText: "",
-          httpVersion: detail.summary.protocol.toUpperCase(),
-          headers: detail.responseHeaders.map((header) => ({ name: header.name, value: header.value })),
-          content: {
-            size: detail.responseBody?.sizeBytes ?? detail.summary.sizeBytes,
-            mimeType: detail.responseBody?.mimeType ?? detail.summary.responseMimeType ?? "application/octet-stream",
-            text: getBodyText(detail.responseBody),
+      entries: details.map((detail) => {
+        const protocolMetadata = getSessionProtocolMetadata(detail.summary);
+        const httpVersion = `HTTP/${protocolMetadata.httpVersion}`;
+
+        return {
+          startedDateTime: detail.summary.startedAt,
+          time: detail.summary.durationMs,
+          request: {
+            method: detail.summary.method,
+            url: detail.summary.url,
+            httpVersion,
+            headers: detail.requestHeaders.map((header) => ({ name: header.name, value: header.value })),
+            queryString: detail.queryParams.map((query) => ({ name: query.name, value: query.value })),
+            headersSize: -1,
+            bodySize: detail.requestBody?.sizeBytes ?? 0,
+            postData: detail.requestBody
+              ? {
+                  mimeType: detail.requestBody.mimeType ?? "application/octet-stream",
+                  text: getBodyText(detail.requestBody),
+                }
+              : undefined,
           },
-          redirectURL: "",
-          headersSize: -1,
-          bodySize: detail.responseBody?.sizeBytes ?? detail.summary.sizeBytes,
-        },
-        cache: {},
-        timings: {
-          blocked: 0,
-          dns: detail.timing?.dnsMs ?? 0,
-          connect: detail.timing?.connectMs ?? 0,
-          send: detail.timing?.requestSendMs ?? 0,
-          wait: detail.timing?.waitingMs ?? 0,
-          receive: detail.timing?.responseReadMs ?? 0,
-          ssl: detail.timing?.tlsMs ?? 0,
-        },
-      })),
+          response: {
+            status: detail.summary.statusCode,
+            statusText: "",
+            httpVersion,
+            headers: detail.responseHeaders.map((header) => ({ name: header.name, value: header.value })),
+            content: {
+              size: detail.responseBody?.sizeBytes ?? detail.summary.sizeBytes,
+              mimeType: detail.responseBody?.mimeType ?? detail.summary.responseMimeType ?? "application/octet-stream",
+              text: getBodyText(detail.responseBody),
+            },
+            redirectURL: "",
+            headersSize: -1,
+            bodySize: detail.responseBody?.sizeBytes ?? detail.summary.sizeBytes,
+          },
+          cache: {},
+          timings: {
+            blocked: 0,
+            dns: detail.timing?.dnsMs ?? 0,
+            connect: detail.timing?.connectMs ?? 0,
+            send: detail.timing?.requestSendMs ?? 0,
+            wait: detail.timing?.waitingMs ?? 0,
+            receive: detail.timing?.responseReadMs ?? 0,
+            ssl: detail.timing?.tlsMs ?? 0,
+          },
+        };
+      }),
     },
   };
 }

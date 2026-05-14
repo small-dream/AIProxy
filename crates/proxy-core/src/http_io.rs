@@ -97,9 +97,7 @@ pub(crate) fn is_websocket_upgrade(headers: &[httparse::Header<'_>]) -> bool {
 }
 
 pub(crate) fn should_skip_response_header(header_name: &HeaderName) -> bool {
-    header_name == CONNECTION
-        || header_name == CONTENT_LENGTH
-        || header_name == TRANSFER_ENCODING
+    header_name == CONNECTION || header_name == CONTENT_LENGTH || header_name == TRANSFER_ENCODING
 }
 
 pub(crate) fn read_content_length(headers: &[httparse::Header<'_>]) -> Result<usize, String> {
@@ -203,6 +201,7 @@ pub(crate) fn build_pending_session_detail(
     started_at: DateTime<Utc>,
 ) -> ProxySessionDetail {
     let started_at_text = started_at.to_rfc3339();
+    let protocol_metadata = infer_protocol_metadata(&request.protocol, request.url.as_str());
 
     ProxySessionDetail {
         client_address: request.client_address.clone(),
@@ -231,6 +230,10 @@ pub(crate) fn build_pending_session_detail(
             host: request.host.clone(),
             path: request.path.clone(),
             protocol: request.protocol.clone(),
+            scheme: protocol_metadata.scheme,
+            http_version: protocol_metadata.http_version,
+            transport_protocol: protocol_metadata.transport_protocol,
+            application_protocol: protocol_metadata.application_protocol,
             started_at: started_at_text.clone(),
             finished_at: started_at_text,
             duration_ms: 0,
@@ -324,7 +327,8 @@ pub(crate) fn build_body_reference(
         .filter(|value| !value.is_empty());
 
     // Decode the full body before generating text so compressed streams are never broken.
-    let decoded_body = decode_body_bytes(body, content_encoding.as_deref()).unwrap_or_else(|| body.to_vec());
+    let decoded_body =
+        decode_body_bytes(body, content_encoding.as_deref()).unwrap_or_else(|| body.to_vec());
 
     let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
 
@@ -394,10 +398,7 @@ pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> 
     Some(decoded)
 }
 
-pub(crate) fn build_raw_http_head(
-    start_line: &str,
-    headers: &[ProxyHeaderEntry],
-) -> String {
+pub(crate) fn build_raw_http_head(start_line: &str, headers: &[ProxyHeaderEntry]) -> String {
     let mut raw_message = String::new();
     raw_message.push_str(start_line);
     raw_message.push_str("\r\n");
@@ -441,6 +442,7 @@ pub(crate) fn build_session_summary(input: SessionSummaryInput) -> ProxySessionS
         started_at,
         started_at_instant,
     } = input;
+    let protocol_metadata = infer_protocol_metadata(&protocol, &url);
 
     ProxySessionSummary {
         id,
@@ -448,6 +450,10 @@ pub(crate) fn build_session_summary(input: SessionSummaryInput) -> ProxySessionS
         host,
         path,
         protocol,
+        scheme: protocol_metadata.scheme,
+        http_version: protocol_metadata.http_version,
+        transport_protocol: protocol_metadata.transport_protocol,
+        application_protocol: protocol_metadata.application_protocol,
         started_at: started_at.to_rfc3339(),
         finished_at: Utc::now().to_rfc3339(),
         duration_ms: started_at_instant.elapsed().as_millis(),

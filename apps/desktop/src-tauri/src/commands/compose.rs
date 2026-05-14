@@ -25,10 +25,7 @@ pub async fn send_composed_request(
         "send_composed_request_succeeded",
         &[
             ("session_id", session_id),
-            (
-                "status_code",
-                detail.summary.status_code.to_string(),
-            ),
+            ("status_code", detail.summary.status_code.to_string()),
         ],
     );
 

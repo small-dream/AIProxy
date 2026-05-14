@@ -47,8 +47,11 @@ pub fn upsert_environment(conn: &Connection, env: &EnvironmentRow) -> Result<(),
             (id, name, sort_order, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
-            env.id, env.name, env.sort_order as i32,
-            env.created_at, env.updated_at,
+            env.id,
+            env.name,
+            env.sort_order as i32,
+            env.created_at,
+            env.updated_at,
         ],
     )
     .map_err(|e| format!("upsert environment: {e}"))?;
@@ -82,14 +85,21 @@ pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), String> {
 // Environment variable CRUD
 // ---------------------------------------------------------------------------
 
-pub fn upsert_environment_variable(conn: &Connection, v: &EnvironmentVariableRow) -> Result<(), String> {
+pub fn upsert_environment_variable(
+    conn: &Connection,
+    v: &EnvironmentVariableRow,
+) -> Result<(), String> {
     conn.execute(
         "INSERT OR REPLACE INTO api_environment_variables
             (id, environment_id, key, value, enabled, sort_order)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            v.id, v.environment_id, v.key, v.value,
-            v.enabled as i32, v.sort_order as i32,
+            v.id,
+            v.environment_id,
+            v.key,
+            v.value,
+            v.enabled as i32,
+            v.sort_order as i32,
         ],
     )
     .map_err(|e| format!("upsert environment variable: {e}"))?;
@@ -153,10 +163,7 @@ pub fn upsert_global_variable(conn: &Connection, v: &GlobalVariableRow) -> Resul
         "INSERT OR REPLACE INTO api_global_variables
             (id, key, value, enabled, sort_order)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            v.id, v.key, v.value,
-            v.enabled as i32, v.sort_order as i32,
-        ],
+        params![v.id, v.key, v.value, v.enabled as i32, v.sort_order as i32,],
     )
     .map_err(|e| format!("upsert global variable: {e}"))?;
     Ok(())
@@ -180,10 +187,7 @@ pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>
     Ok(rows)
 }
 
-pub fn set_global_variables(
-    conn: &Connection,
-    vars: &[GlobalVariableRow],
-) -> Result<(), String> {
+pub fn set_global_variables(conn: &Connection, vars: &[GlobalVariableRow]) -> Result<(), String> {
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| format!("begin set global variables transaction: {e}"))?;
@@ -280,20 +284,29 @@ mod tests {
         let conn = test_conn();
 
         let env = EnvironmentRow {
-            id: "env1".into(), name: "Dev".into(), sort_order: 0,
-            created_at: now(), updated_at: now(),
+            id: "env1".into(),
+            name: "Dev".into(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_environment(&conn, &env).unwrap();
 
         let v1 = EnvironmentVariableRow {
-            id: "v1".into(), environment_id: "env1".into(),
-            key: "baseUrl".into(), value: "https://dev.api.com".into(),
-            enabled: true, sort_order: 0,
+            id: "v1".into(),
+            environment_id: "env1".into(),
+            key: "baseUrl".into(),
+            value: "https://dev.api.com".into(),
+            enabled: true,
+            sort_order: 0,
         };
         let v2 = EnvironmentVariableRow {
-            id: "v2".into(), environment_id: "env1".into(),
-            key: "token".into(), value: "dev-token-123".into(),
-            enabled: true, sort_order: 1,
+            id: "v2".into(),
+            environment_id: "env1".into(),
+            key: "token".into(),
+            value: "dev-token-123".into(),
+            enabled: true,
+            sort_order: 1,
         };
         upsert_environment_variable(&conn, &v1).unwrap();
         upsert_environment_variable(&conn, &v2).unwrap();
@@ -309,28 +322,40 @@ mod tests {
         let conn = test_conn();
 
         let env = EnvironmentRow {
-            id: "env1".into(), name: "Staging".into(), sort_order: 0,
-            created_at: now(), updated_at: now(),
+            id: "env1".into(),
+            name: "Staging".into(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_environment(&conn, &env).unwrap();
 
         let v1 = EnvironmentVariableRow {
-            id: "v1".into(), environment_id: "env1".into(),
-            key: "old".into(), value: "old-val".into(),
-            enabled: true, sort_order: 0,
+            id: "v1".into(),
+            environment_id: "env1".into(),
+            key: "old".into(),
+            value: "old-val".into(),
+            enabled: true,
+            sort_order: 0,
         };
         upsert_environment_variable(&conn, &v1).unwrap();
 
         let new_vars = vec![
             EnvironmentVariableRow {
-                id: "v2".into(), environment_id: "env1".into(),
-                key: "baseUrl".into(), value: "https://staging.api.com".into(),
-                enabled: true, sort_order: 0,
+                id: "v2".into(),
+                environment_id: "env1".into(),
+                key: "baseUrl".into(),
+                value: "https://staging.api.com".into(),
+                enabled: true,
+                sort_order: 0,
             },
             EnvironmentVariableRow {
-                id: "v3".into(), environment_id: "env1".into(),
-                key: "apiKey".into(), value: "staging-key".into(),
-                enabled: false, sort_order: 1,
+                id: "v3".into(),
+                environment_id: "env1".into(),
+                key: "apiKey".into(),
+                value: "staging-key".into(),
+                enabled: false,
+                sort_order: 1,
             },
         ];
         set_environment_variables(&conn, "env1", &new_vars).unwrap();
@@ -346,15 +371,21 @@ mod tests {
         let conn = test_conn();
 
         let env = EnvironmentRow {
-            id: "env1".into(), name: "Temp".into(), sort_order: 0,
-            created_at: now(), updated_at: now(),
+            id: "env1".into(),
+            name: "Temp".into(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
         };
         upsert_environment(&conn, &env).unwrap();
 
         let v = EnvironmentVariableRow {
-            id: "v1".into(), environment_id: "env1".into(),
-            key: "k".into(), value: "v".into(),
-            enabled: true, sort_order: 0,
+            id: "v1".into(),
+            environment_id: "env1".into(),
+            key: "k".into(),
+            value: "v".into(),
+            enabled: true,
+            sort_order: 0,
         };
         upsert_environment_variable(&conn, &v).unwrap();
 
@@ -368,12 +399,18 @@ mod tests {
         let conn = test_conn();
 
         let v1 = GlobalVariableRow {
-            id: "gv1".into(), key: "token".into(), value: "global-token".into(),
-            enabled: true, sort_order: 0,
+            id: "gv1".into(),
+            key: "token".into(),
+            value: "global-token".into(),
+            enabled: true,
+            sort_order: 0,
         };
         let v2 = GlobalVariableRow {
-            id: "gv2".into(), key: "apiKey".into(), value: "global-key".into(),
-            enabled: false, sort_order: 1,
+            id: "gv2".into(),
+            key: "apiKey".into(),
+            value: "global-key".into(),
+            enabled: false,
+            sort_order: 1,
         };
         upsert_global_variable(&conn, &v1).unwrap();
         upsert_global_variable(&conn, &v2).unwrap();
@@ -393,17 +430,21 @@ mod tests {
         let conn = test_conn();
 
         let old = GlobalVariableRow {
-            id: "gv1".into(), key: "old".into(), value: "old-val".into(),
-            enabled: true, sort_order: 0,
+            id: "gv1".into(),
+            key: "old".into(),
+            value: "old-val".into(),
+            enabled: true,
+            sort_order: 0,
         };
         upsert_global_variable(&conn, &old).unwrap();
 
-        let new_vars = vec![
-            GlobalVariableRow {
-                id: "gv2".into(), key: "token".into(), value: "new-token".into(),
-                enabled: true, sort_order: 0,
-            },
-        ];
+        let new_vars = vec![GlobalVariableRow {
+            id: "gv2".into(),
+            key: "token".into(),
+            value: "new-token".into(),
+            enabled: true,
+            sort_order: 0,
+        }];
         set_global_variables(&conn, &new_vars).unwrap();
 
         let vars = list_global_variables(&conn).unwrap();

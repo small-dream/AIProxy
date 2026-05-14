@@ -10,6 +10,10 @@ pub struct SessionSummaryRow {
     pub host: String,
     pub path: String,
     pub protocol: String,
+    pub scheme: String,
+    pub http_version: String,
+    pub transport_protocol: String,
+    pub application_protocol: String,
     pub started_at: String,
     pub finished_at: String,
     pub duration_ms: u128,
@@ -26,10 +30,10 @@ pub struct SessionSummaryRow {
 pub struct SessionDetailRow {
     pub id: String,
     pub session_summary_id: String,
-    pub query_params: String,      // JSON array
-    pub cookies: String,           // JSON array
-    pub request_headers: String,   // JSON array
-    pub response_headers: String,  // JSON array
+    pub query_params: String,     // JSON array
+    pub cookies: String,          // JSON array
+    pub request_headers: String,  // JSON array
+    pub response_headers: String, // JSON array
     pub raw_request: Option<String>,
     pub raw_response: Option<String>,
     pub client_address: Option<String>,
@@ -61,14 +65,27 @@ pub fn upsert_session(
 
     tx.execute(
         "INSERT OR REPLACE INTO session_summaries
-            (id, method, host, path, protocol, started_at, finished_at,
-             duration_ms, size_bytes, status_code, url, response_mime_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            (id, method, host, path, protocol, scheme, http_version, transport_protocol,
+             application_protocol, started_at, finished_at, duration_ms, size_bytes,
+             status_code, url, response_mime_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
-            summary.id, summary.method, summary.host, summary.path,
-            summary.protocol, summary.started_at, summary.finished_at,
-            u128_to_i64_saturating(summary.duration_ms), summary.size_bytes as i64,
-            summary.status_code as i32, summary.url, summary.response_mime_type,
+            summary.id,
+            summary.method,
+            summary.host,
+            summary.path,
+            summary.protocol,
+            summary.scheme,
+            summary.http_version,
+            summary.transport_protocol,
+            summary.application_protocol,
+            summary.started_at,
+            summary.finished_at,
+            u128_to_i64_saturating(summary.duration_ms),
+            summary.size_bytes as i64,
+            summary.status_code as i32,
+            summary.url,
+            summary.response_mime_type,
         ],
     )
     .map_err(|e| format!("upsert session summary: {e}"))?;
@@ -81,12 +98,21 @@ pub fn upsert_session(
              request_body_ref, response_body_ref, timing)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
-            detail.id, detail.session_summary_id,
-            detail.query_params, detail.cookies,
-            detail.request_headers, detail.response_headers,
-            detail.raw_request, detail.raw_response,
-            detail.client_address, detail.server_ip, detail.tls_cipher_suite, detail.tls_protocol,
-            detail.request_body_ref, detail.response_body_ref, detail.timing,
+            detail.id,
+            detail.session_summary_id,
+            detail.query_params,
+            detail.cookies,
+            detail.request_headers,
+            detail.response_headers,
+            detail.raw_request,
+            detail.raw_response,
+            detail.client_address,
+            detail.server_ip,
+            detail.tls_cipher_suite,
+            detail.tls_protocol,
+            detail.request_body_ref,
+            detail.response_body_ref,
+            detail.timing,
         ],
     )
     .map_err(|e| format!("upsert session detail: {e}"))?;
@@ -104,7 +130,8 @@ pub fn load_recent_summaries(
 ) -> Result<Vec<SessionSummaryRow>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, method, host, path, protocol, started_at, finished_at,
+            "SELECT id, method, host, path, protocol, scheme, http_version,
+                    transport_protocol, application_protocol, started_at, finished_at,
                     duration_ms, size_bytes, status_code, url, response_mime_type
              FROM session_summaries
              ORDER BY started_at DESC
@@ -127,7 +154,8 @@ pub fn load_session_summary(
     id: &str,
 ) -> Result<Option<SessionSummaryRow>, String> {
     let result = conn.query_row(
-        "SELECT id, method, host, path, protocol, started_at, finished_at,
+        "SELECT id, method, host, path, protocol, scheme, http_version,
+                transport_protocol, application_protocol, started_at, finished_at,
                 duration_ms, size_bytes, status_code, url, response_mime_type
          FROM session_summaries
          WHERE id = ?1",
@@ -143,7 +171,10 @@ pub fn load_session_summary(
 }
 
 /// Load a single session detail by ID.
-pub fn load_session_detail(conn: &Connection, id: &str) -> Result<Option<SessionDetailRow>, String> {
+pub fn load_session_detail(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<SessionDetailRow>, String> {
     let result = conn.query_row(
         "SELECT id, session_summary_id, query_params, cookies,
                 request_headers, response_headers, raw_request, raw_response,
@@ -185,8 +216,15 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         return Ok(0);
     }
 
-    let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-    let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let placeholders: Vec<String> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| format!("begin delete sessions transaction: {e}"))?;
@@ -311,8 +349,14 @@ pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), St
             (id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            msg.id, msg.session_id, msg.direction, msg.timestamp,
-            msg.opcode, msg.payload_text, msg.payload_size as i64, msg.fin as i32,
+            msg.id,
+            msg.session_id,
+            msg.direction,
+            msg.timestamp,
+            msg.opcode,
+            msg.payload_text,
+            msg.payload_size as i64,
+            msg.fin as i32,
         ],
     )
     .map_err(|e| format!("insert ws message: {e}"))?;
@@ -337,7 +381,10 @@ pub fn load_ws_messages(
         .map_err(|e| format!("prepare load ws messages: {e}"))?;
 
     let rows = stmt
-        .query_map(params![session_id, limit as i64, offset as i64], row_to_ws_message)
+        .query_map(
+            params![session_id, limit as i64, offset as i64],
+            row_to_ws_message,
+        )
         .map_err(|e| format!("query ws messages: {e}"))?
         .filter_map(|r| r.ok())
         .collect();
@@ -365,10 +412,7 @@ pub fn search_ws_messages(
     limit: usize,
     offset: usize,
 ) -> Result<Vec<WsMessageRow>, String> {
-    let like_pattern = format!(
-        "%{}%",
-        query.replace('%', "\\%").replace('_', "\\_")
-    );
+    let like_pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
@@ -411,6 +455,10 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummaryRow
         host: row.get("host")?,
         path: row.get("path")?,
         protocol: row.get("protocol")?,
+        scheme: row.get("scheme")?,
+        http_version: row.get("http_version")?,
+        transport_protocol: row.get("transport_protocol")?,
+        application_protocol: row.get("application_protocol")?,
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
         duration_ms: row.get::<_, i64>("duration_ms")? as u128,
@@ -438,6 +486,10 @@ mod tests {
             host: host.into(),
             path: "/".into(),
             protocol: "HTTP/1.1".into(),
+            scheme: "https".into(),
+            http_version: "1.1".into(),
+            transport_protocol: "tcp".into(),
+            application_protocol: "http".into(),
             started_at: "2026-04-19T00:00:00Z".into(),
             finished_at: "2026-04-19T00:00:01Z".into(),
             duration_ms: 100,
@@ -479,6 +531,10 @@ mod tests {
         let loaded = load_recent_summaries(&conn, 100).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "s1");
+        assert_eq!(loaded[0].scheme, "https");
+        assert_eq!(loaded[0].http_version, "1.1");
+        assert_eq!(loaded[0].transport_protocol, "tcp");
+        assert_eq!(loaded[0].application_protocol, "http");
 
         let loaded_detail = load_session_detail(&conn, "s1").unwrap().unwrap();
         assert_eq!(loaded_detail.server_ip, Some("1.2.3.4".into()));
@@ -524,7 +580,12 @@ mod tests {
     #[test]
     fn ws_message_round_trip() {
         let conn = test_conn();
-        upsert_session(&conn, &test_summary("ws1", "ws.example.com"), &test_detail("ws1")).unwrap();
+        upsert_session(
+            &conn,
+            &test_summary("ws1", "ws.example.com"),
+            &test_detail("ws1"),
+        )
+        .unwrap();
 
         let msg = WsMessageRow {
             id: "m1".into(),
@@ -547,18 +608,27 @@ mod tests {
     #[test]
     fn ws_messages_cascade_on_session_delete() {
         let conn = test_conn();
-        upsert_session(&conn, &test_summary("ws2", "ws.example.com"), &test_detail("ws2")).unwrap();
+        upsert_session(
+            &conn,
+            &test_summary("ws2", "ws.example.com"),
+            &test_detail("ws2"),
+        )
+        .unwrap();
 
-        insert_ws_message(&conn, &WsMessageRow {
-            id: "m1".into(),
-            session_id: "ws2".into(),
-            direction: "serverToClient".into(),
-            timestamp: "2026-04-19T00:00:01Z".into(),
-            opcode: "text".into(),
-            payload_text: None,
-            payload_size: 0,
-            fin: true,
-        }).unwrap();
+        insert_ws_message(
+            &conn,
+            &WsMessageRow {
+                id: "m1".into(),
+                session_id: "ws2".into(),
+                direction: "serverToClient".into(),
+                timestamp: "2026-04-19T00:00:01Z".into(),
+                opcode: "text".into(),
+                payload_text: None,
+                payload_size: 0,
+                fin: true,
+            },
+        )
+        .unwrap();
 
         delete_sessions_by_ids(&conn, &["ws2".into()]).unwrap();
         let loaded = load_ws_messages(&conn, "ws2", 100, 0).unwrap();

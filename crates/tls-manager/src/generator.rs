@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use chrono::Datelike;
 use rcgen::{
-    BasicConstraints, Certificate, CertificateParams, DnType, Ia5String, IsCa, KeyPair, KeyUsagePurpose,
-    SanType,
+    BasicConstraints, Certificate, CertificateParams, DnType, Ia5String, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
@@ -54,7 +54,11 @@ impl RootCaPair {
 
         let fingerprint = compute_fingerprint(&cert_der);
 
-        emit_log("INFO", "root_ca_generated", &[("fingerprint", fingerprint.clone())]);
+        emit_log(
+            "INFO",
+            "root_ca_generated",
+            &[("fingerprint", fingerprint.clone())],
+        );
 
         Ok(Self {
             cert_params: params,
@@ -103,9 +107,7 @@ impl RootCaPair {
     }
 
     /// Build the cert_der and key_der into rustls types.
-    pub fn rustls_certified_key(
-        &self,
-    ) -> Result<Arc<rustls::sign::CertifiedKey>, TlsManagerError> {
+    pub fn rustls_certified_key(&self) -> Result<Arc<rustls::sign::CertifiedKey>, TlsManagerError> {
         let cert = CertificateDer::from(self.cert_der.clone());
         let key = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(self.key_der.clone()));
         let signing_key = rustls::crypto::ring::sign::any_supported_type(&key)
@@ -183,9 +185,7 @@ pub fn sign_host_certificate(
     hostname: &str,
 ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), TlsManagerError> {
     let mut params = CertificateParams::default();
-    params
-        .distinguished_name
-        .push(DnType::CommonName, hostname);
+    params.distinguished_name.push(DnType::CommonName, hostname);
     params.subject_alt_names.push(dns_san(hostname)?);
     params.key_usages.push(KeyUsagePurpose::DigitalSignature);
     params.key_usages.push(KeyUsagePurpose::KeyEncipherment);
@@ -205,9 +205,7 @@ pub fn sign_host_certificate(
     let cert = params.signed_by(&host_key_pair, &root_ca.issuer_cert, &root_ca.key_pair)?;
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
-    let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(
-        host_key_pair.serialize_der(),
-    ));
+    let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(host_key_pair.serialize_der()));
 
     Ok((cert_der, key_der))
 }
@@ -218,9 +216,7 @@ pub fn sign_host_certificate_from_data(
     hostname: &str,
 ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), TlsManagerError> {
     let mut params = CertificateParams::default();
-    params
-        .distinguished_name
-        .push(DnType::CommonName, hostname);
+    params.distinguished_name.push(DnType::CommonName, hostname);
     params.subject_alt_names.push(dns_san(hostname)?);
     params.key_usages.push(KeyUsagePurpose::DigitalSignature);
     params.key_usages.push(KeyUsagePurpose::KeyEncipherment);
@@ -240,9 +236,7 @@ pub fn sign_host_certificate_from_data(
     let cert = params.signed_by(&host_key_pair, &sign_data.issuer_cert, &sign_data.key_pair)?;
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
-    let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(
-        host_key_pair.serialize_der(),
-    ));
+    let key_der = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(host_key_pair.serialize_der()));
 
     Ok((cert_der, key_der))
 }
@@ -294,9 +288,10 @@ mod tests {
         let parsed = x509_parser::parse_x509_certificate(&cert_der);
         assert!(parsed.is_ok());
         let cert = parsed.unwrap().1;
-        let san = cert.extensions().iter().find(|ext| {
-            ext.oid == x509_parser::oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME
-        });
+        let san = cert
+            .extensions()
+            .iter()
+            .find(|ext| ext.oid == x509_parser::oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME);
         assert!(san.is_some(), "host cert should have SAN extension");
     }
 

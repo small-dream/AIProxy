@@ -192,6 +192,28 @@ describe("isSessionSummary", () => {
       method: "GET",
       path: "/health",
       protocol: "http",
+      scheme: "http",
+      httpVersion: "1.1",
+      transportProtocol: "tcp",
+      applicationProtocol: "http",
+      sizeBytes: 512,
+      startedAt: "2026-04-11T16:00:00.000Z",
+      statusCode: 200,
+      url: "http://example.com/health",
+    });
+
+    expect(actual).toBe(true);
+  });
+
+  it("keeps legacy session summaries without structured protocol metadata valid", () => {
+    const actual = isSessionSummary({
+      durationMs: 42,
+      finishedAt: "2026-04-11T16:00:01.000Z",
+      host: "example.com",
+      id: "session-legacy",
+      method: "GET",
+      path: "/health",
+      protocol: "http",
       sizeBytes: 512,
       startedAt: "2026-04-11T16:00:00.000Z",
       statusCode: 200,
@@ -240,6 +262,10 @@ describe("parseSessionSummary", () => {
       method: "GET",
       path: "/health",
       protocol: "http",
+      scheme: "http",
+      httpVersion: "1.1",
+      transportProtocol: "tcp",
+      applicationProtocol: "http",
       sizeBytes: 512,
       startedAt: "2026-04-11T16:00:00.000Z",
       statusCode: 200,

@@ -43,8 +43,7 @@ pub fn update_workspace(
     ssl_enabled: Option<bool>,
     updated_at: &str,
 ) -> Result<(), String> {
-    let existing = load_workspace(conn, id)
-        .ok_or_else(|| format!("workspace {id} not found"))?;
+    let existing = load_workspace(conn, id).ok_or_else(|| format!("workspace {id} not found"))?;
 
     let name = name.unwrap_or(&existing.name);
     let proxy_port = proxy_port.unwrap_or(existing.proxy_port);
@@ -89,7 +88,9 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, Strin
 
 /// Check if the workspaces table is empty (for seeding the default).
 pub fn is_empty(conn: &Connection) -> bool {
-    load_all_workspaces(conn).map(|w| w.is_empty()).unwrap_or(true)
+    load_all_workspaces(conn)
+        .map(|w| w.is_empty())
+        .unwrap_or(true)
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
@@ -153,7 +154,15 @@ mod tests {
         };
         upsert_workspace(&conn, &ws).unwrap();
 
-        update_workspace(&conn, "ws-1", Some("New"), Some(9999), Some(true), "2026-01-02T00:00:00Z").unwrap();
+        update_workspace(
+            &conn,
+            "ws-1",
+            Some("New"),
+            Some(9999),
+            Some(true),
+            "2026-01-02T00:00:00Z",
+        )
+        .unwrap();
 
         let loaded = load_workspace(&conn, "ws-1").unwrap();
         assert_eq!(loaded.name, "New");

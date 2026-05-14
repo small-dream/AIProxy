@@ -1,19 +1,18 @@
 use aiproxy_db::body_store::{BodyStore, BODY_FILE_THRESHOLD};
 use aiproxy_db::rules::{
-    BreakpointRuleRow, DnsMappingRow, MapRuleRow, MapRunRow, RewriteRuleRow, ScriptRuleRow,
-    RewriteRunEntryRow, RewriteRunRow, ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
+    BreakpointRuleRow, DnsMappingRow, MapRuleRow, MapRunRow, RewriteRuleRow, RewriteRunEntryRow,
+    RewriteRunRow, ScriptRuleRow, ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
     ThrottleRuleRow, ThrottleRunRow,
 };
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
-    BreakpointManager, BreakpointRule, BreakpointStage, DnsManager, DnsMappingRule, MapManager,
-    MapRule, MapTrace, ProxyServerHandle, ProxySessionDetail, ProxySessionSummary, RewriteManager,
-    RewriteRule, RewriteRuleMatch, RewriteTrace, ScriptEntrypoints, ScriptManager, ScriptRule,
-    ScriptRuleLanguage, ScriptRuleSourceType, ScriptRunEntryKind,
-    ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager, ThrottleProfileData,
-    ThrottleRuleData, ThrottleTrace,
-    TlsManager, CompiledScriptRule,
+    BreakpointManager, BreakpointRule, BreakpointStage, CompiledScriptRule, DnsManager,
+    DnsMappingRule, MapManager, MapRule, MapTrace, ProxyServerHandle, ProxySessionDetail,
+    ProxySessionSummary, RewriteManager, RewriteRule, RewriteRuleMatch, RewriteTrace,
+    ScriptEntrypoints, ScriptManager, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType,
+    ScriptRunEntryKind, ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager,
+    ThrottleProfileData, ThrottleRuleData, ThrottleTrace, TlsManager,
 };
 use serde::Serialize;
 use std::{
@@ -95,7 +94,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>, body_store: Arc<BodyStore>) -> Self {
+    pub fn new(
+        db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
+        body_store: Arc<BodyStore>,
+    ) -> Self {
         let state = Self {
             runtime: Mutex::new(None),
             session_details: Arc::new(Mutex::new(HashMap::new())),
@@ -129,58 +131,50 @@ impl AppState {
         // Load workspaces
         if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
             if !rows.is_empty() {
-                self.workspace_manager.set_workspaces(
-                    rows.into_iter().map(workspace_row_to_data).collect(),
-                );
+                self.workspace_manager
+                    .set_workspaces(rows.into_iter().map(workspace_row_to_data).collect());
             }
         }
 
         // Load rewrite rules
         if let Ok(rows) = aiproxy_db::rules::load_all_rewrite_rules(&conn) {
-            self.rewrite_manager.set_rules(
-                rows.into_iter().map(rewrite_row_to_rule).collect(),
-            );
+            self.rewrite_manager
+                .set_rules(rows.into_iter().map(rewrite_row_to_rule).collect());
         }
 
         // Load map rules
         if let Ok(rows) = aiproxy_db::rules::load_all_map_rules(&conn) {
-            self.map_manager.set_rules(
-                rows.into_iter().map(map_row_to_rule).collect(),
-            );
+            self.map_manager
+                .set_rules(rows.into_iter().map(map_row_to_rule).collect());
         }
 
         // Load script rules
         if let Ok(rows) = aiproxy_db::rules::load_all_script_rules(&conn) {
-            self.script_manager.set_rules(
-                rows.into_iter().map(script_row_to_rule).collect(),
-            );
+            self.script_manager
+                .set_rules(rows.into_iter().map(script_row_to_rule).collect());
         }
 
         // Load throttle profiles
         if let Ok(rows) = aiproxy_db::rules::load_all_throttle_profiles(&conn) {
-            self.throttle_manager.set_profiles(
-                rows.into_iter().map(throttle_row_to_profile).collect(),
-            );
+            self.throttle_manager
+                .set_profiles(rows.into_iter().map(throttle_row_to_profile).collect());
         }
 
         if let Ok(rows) = aiproxy_db::rules::load_all_throttle_rules(&conn) {
-            self.throttle_manager.set_rules(
-                rows.into_iter().map(throttle_row_to_rule).collect(),
-            );
+            self.throttle_manager
+                .set_rules(rows.into_iter().map(throttle_row_to_rule).collect());
         }
 
         // Load breakpoint rules
         if let Ok(rows) = aiproxy_db::rules::load_breakpoint_rules(&conn) {
-            self.breakpoint_manager.set_rules(
-                rows.into_iter().map(breakpoint_row_to_rule).collect(),
-            );
+            self.breakpoint_manager
+                .set_rules(rows.into_iter().map(breakpoint_row_to_rule).collect());
         }
 
         // Load DNS mappings
         if let Ok(rows) = aiproxy_db::rules::load_all_dns_mappings(&conn) {
-            self.dns_manager.set_rules(
-                rows.into_iter().map(dns_mapping_row_to_rule).collect(),
-            );
+            self.dns_manager
+                .set_rules(rows.into_iter().map(dns_mapping_row_to_rule).collect());
         }
 
         // Load recent session summaries
@@ -391,8 +385,7 @@ impl AppState {
         // Persist to DB
         {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
-            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
-            {
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "session_upsert_db_failed",
@@ -465,7 +458,9 @@ impl AppState {
                 .lock()
                 .expect("session list mutex should not be poisoned");
 
-            if let Some(existing_index) = sessions.iter().position(|session| session.id == session_id) {
+            if let Some(existing_index) =
+                sessions.iter().position(|session| session.id == session_id)
+            {
                 sessions[existing_index] = session_summary.clone();
             } else {
                 sessions.push(session_summary.clone());
@@ -473,10 +468,7 @@ impl AppState {
 
             let mut removed_session_ids = Vec::new();
             while sessions.len() > 15_000 {
-                let eviction_index = select_session_eviction_index(
-                    &sessions,
-                    &focused_hosts,
-                );
+                let eviction_index = select_session_eviction_index(&sessions, &focused_hosts);
                 removed_session_ids.push(sessions.remove(eviction_index).id);
             }
 
@@ -501,7 +493,11 @@ impl AppState {
             self.session_detail_order
                 .lock()
                 .expect("session detail order mutex should not be poisoned")
-                .retain(|id| !removed_session_ids.iter().any(|removed_id| removed_id == id));
+                .retain(|id| {
+                    !removed_session_ids
+                        .iter()
+                        .any(|removed_id| removed_id == id)
+                });
 
             for removed_session_id in &removed_session_ids {
                 let _ = self.body_store.remove_bodies(removed_session_id);
@@ -818,11 +814,17 @@ fn log_session_storage_stats(
             ),
             (
                 "raw_request_head_bytes",
-                row.raw_request.as_ref().map_or(0, |value| value.len()).to_string(),
+                row.raw_request
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
             ),
             (
                 "raw_response_head_bytes",
-                row.raw_response.as_ref().map_or(0, |value| value.len()).to_string(),
+                row.raw_response
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
             ),
             ("spill_elapsed_us", spill_elapsed_us.to_string()),
             ("row_build_elapsed_us", row_build_elapsed_us.to_string()),
@@ -844,7 +846,10 @@ fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> usize {
         + row.tls_cipher_suite.as_ref().map_or(0, |value| value.len())
         + row.tls_protocol.as_ref().map_or(0, |value| value.len())
         + row.request_body_ref.as_ref().map_or(0, |value| value.len())
-        + row.response_body_ref.as_ref().map_or(0, |value| value.len())
+        + row
+            .response_body_ref
+            .as_ref()
+            .map_or(0, |value| value.len())
         + row.timing.as_ref().map_or(0, |value| value.len())
 }
 
@@ -860,7 +865,8 @@ fn normalize_optional_host(host: Option<String>) -> Option<String> {
 }
 
 fn normalize_hosts(hosts: Vec<String>) -> HashSet<String> {
-    hosts.into_iter()
+    hosts
+        .into_iter()
         .filter_map(|host| normalize_optional_host(Some(host)))
         .collect()
 }
@@ -980,6 +986,10 @@ fn summary_row_to_proxy(row: SessionSummaryRow) -> ProxySessionSummary {
         host: row.host,
         path: row.path,
         protocol: row.protocol,
+        scheme: row.scheme,
+        http_version: row.http_version,
+        transport_protocol: row.transport_protocol,
+        application_protocol: row.application_protocol,
         started_at: row.started_at,
         finished_at: row.finished_at,
         duration_ms: row.duration_ms,
@@ -997,9 +1007,8 @@ fn detail_row_to_proxy(
 ) -> ProxySessionDetail {
     use aiproxy_proxy_core::{ProxyBodyReference, ProxyHeaderEntry, ProxyTimingBreakdown};
 
-    let headers_from_json = |json: &str| -> Vec<ProxyHeaderEntry> {
-        serde_json::from_str(json).unwrap_or_default()
-    };
+    let headers_from_json =
+        |json: &str| -> Vec<ProxyHeaderEntry> { serde_json::from_str(json).unwrap_or_default() };
 
     let body_ref_from_json = |json: Option<&str>| -> Option<ProxyBodyReference> {
         json.and_then(|j| {
@@ -1007,15 +1016,32 @@ fn detail_row_to_proxy(
             let file_path = v
                 .get("file_path")
                 .and_then(|value| value.as_str())
-                .map(|path| body_store.resolve_body_path(path).to_string_lossy().into_owned());
+                .map(|path| {
+                    body_store
+                        .resolve_body_path(path)
+                        .to_string_lossy()
+                        .into_owned()
+                });
 
             ProxyBodyReference::from_serialized_fields(
-                v.get("inline_text").and_then(|value| value.as_str()).map(String::from),
-                v.get("base64_text").and_then(|value| value.as_str()).map(String::from),
-                v.get("mime_type").and_then(|value| value.as_str()).map(String::from),
-                v.get("encoding").and_then(|value| value.as_str()).map(String::from),
-                v.get("size_bytes").and_then(|value| value.as_u64()).unwrap_or(0) as usize,
-                v.get("truncated").and_then(|value| value.as_bool()).unwrap_or(false),
+                v.get("inline_text")
+                    .and_then(|value| value.as_str())
+                    .map(String::from),
+                v.get("base64_text")
+                    .and_then(|value| value.as_str())
+                    .map(String::from),
+                v.get("mime_type")
+                    .and_then(|value| value.as_str())
+                    .map(String::from),
+                v.get("encoding")
+                    .and_then(|value| value.as_str())
+                    .map(String::from),
+                v.get("size_bytes")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0) as usize,
+                v.get("truncated")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
                 file_path,
             )
         })
@@ -1024,13 +1050,28 @@ fn detail_row_to_proxy(
     let timing = row.timing.as_ref().and_then(|j| {
         let v: serde_json::Value = serde_json::from_str(j).ok()?;
         Some(ProxyTimingBreakdown {
-            connect_ms: v.get("connect_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            connect_ms: v
+                .get("connect_ms")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u128),
             dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            request_send_ms: v.get("request_send_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            response_read_ms: v.get("response_read_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            request_send_ms: v
+                .get("request_send_ms")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u128),
+            response_read_ms: v
+                .get("response_read_ms")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u128),
             tls_ms: v.get("tls_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            total_ms: v.get("total_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            waiting_ms: v.get("waiting_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+            total_ms: v
+                .get("total_ms")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u128),
+            waiting_ms: v
+                .get("waiting_ms")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u128),
         })
     });
 
@@ -1064,6 +1105,10 @@ fn proxy_summary_to_row(summary: &ProxySessionSummary) -> SessionSummaryRow {
         host: summary.host.clone(),
         path: summary.path.clone(),
         protocol: summary.protocol.clone(),
+        scheme: summary.scheme.clone(),
+        http_version: summary.http_version.clone(),
+        transport_protocol: summary.transport_protocol.clone(),
+        application_protocol: summary.application_protocol.clone(),
         started_at: summary.started_at.clone(),
         finished_at: summary.finished_at.clone(),
         duration_ms: summary.duration_ms,
@@ -1088,7 +1133,9 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
                 body_json["encoding"] = serde_json::Value::String(enc.clone());
             }
             if let Some(file_path) = b.file_path() {
-                if let Some(relative_path) = body_store.relative_body_path(std::path::Path::new(file_path)) {
+                if let Some(relative_path) =
+                    body_store.relative_body_path(std::path::Path::new(file_path))
+                {
                     body_json["file_path"] = serde_json::Value::String(relative_path);
                 }
             } else {
@@ -1105,13 +1152,27 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
 
     let timing_json = detail.timing.as_ref().map(|t| {
         let mut v = serde_json::json!({});
-        if let Some(ms) = t.connect_ms { v["connect_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.dns_ms { v["dns_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.request_send_ms { v["request_send_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.response_read_ms { v["response_read_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.tls_ms { v["tls_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.total_ms { v["total_ms"] = serde_json::json!(ms); }
-        if let Some(ms) = t.waiting_ms { v["waiting_ms"] = serde_json::json!(ms); }
+        if let Some(ms) = t.connect_ms {
+            v["connect_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.dns_ms {
+            v["dns_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.request_send_ms {
+            v["request_send_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.response_read_ms {
+            v["response_read_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.tls_ms {
+            v["tls_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.total_ms {
+            v["total_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ms) = t.waiting_ms {
+            v["waiting_ms"] = serde_json::json!(ms);
+        }
         v.to_string()
     });
 
@@ -1120,8 +1181,10 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
         session_summary_id: detail.id.clone(),
         query_params: serde_json::to_string(&detail.query_params).unwrap_or_else(|_| "[]".into()),
         cookies: serde_json::to_string(&detail.cookies).unwrap_or_else(|_| "[]".into()),
-        request_headers: serde_json::to_string(&detail.request_headers).unwrap_or_else(|_| "[]".into()),
-        response_headers: serde_json::to_string(&detail.response_headers).unwrap_or_else(|_| "[]".into()),
+        request_headers: serde_json::to_string(&detail.request_headers)
+            .unwrap_or_else(|_| "[]".into()),
+        response_headers: serde_json::to_string(&detail.response_headers)
+            .unwrap_or_else(|_| "[]".into()),
         raw_request: detail.raw_request_head.clone(),
         raw_response: detail.raw_response_head.clone(),
         client_address: detail.client_address.clone(),
@@ -1146,7 +1209,12 @@ fn spill_session_bodies_to_disk(
     body_store: &BodyStore,
 ) -> Result<(), String> {
     spill_body_reference_to_disk(&detail.id, "request", &mut detail.request_body, body_store)?;
-    spill_body_reference_to_disk(&detail.id, "response", &mut detail.response_body, body_store)?;
+    spill_body_reference_to_disk(
+        &detail.id,
+        "response",
+        &mut detail.response_body,
+        body_store,
+    )?;
     Ok(())
 }
 
@@ -1196,10 +1264,11 @@ fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
         "fileImport" => ScriptRuleSourceType::FileImport,
         _ => ScriptRuleSourceType::Inline,
     };
-    let entrypoints: ScriptEntrypoints = serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
-        on_request: false,
-        on_response: false,
-    });
+    let entrypoints: ScriptEntrypoints =
+        serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
+            on_request: false,
+            on_response: false,
+        });
 
     CompiledScriptRule {
         rule: ScriptRule {
@@ -1261,25 +1330,29 @@ fn persist_script_traces(
         .iter()
         .enumerate()
         .flat_map(|(run_index, trace)| {
-            trace.entries.iter().enumerate().map(move |(entry_index, entry)| ScriptRunEntryRow {
-                id: format!("{session_id}-script-run-{run_index}-entry-{entry_index}"),
-                run_id: format!("{session_id}-script-run-{run_index}"),
-                kind: match entry.kind {
-                    ScriptRunEntryKind::Log => "log".to_string(),
-                    ScriptRunEntryKind::Extraction => "extraction".to_string(),
-                    ScriptRunEntryKind::Error => "error".to_string(),
-                },
-                level: entry.level.as_ref().map(|level| match level {
-                    aiproxy_proxy_core::ScriptLogLevel::Debug => "debug".to_string(),
-                    aiproxy_proxy_core::ScriptLogLevel::Info => "info".to_string(),
-                    aiproxy_proxy_core::ScriptLogLevel::Warn => "warn".to_string(),
-                    aiproxy_proxy_core::ScriptLogLevel::Error => "error".to_string(),
-                }),
-                key: entry.key.clone(),
-                message: entry.message.clone(),
-                payload_json: entry.payload_json.clone(),
-                seq: entry.sequence,
-            })
+            trace
+                .entries
+                .iter()
+                .enumerate()
+                .map(move |(entry_index, entry)| ScriptRunEntryRow {
+                    id: format!("{session_id}-script-run-{run_index}-entry-{entry_index}"),
+                    run_id: format!("{session_id}-script-run-{run_index}"),
+                    kind: match entry.kind {
+                        ScriptRunEntryKind::Log => "log".to_string(),
+                        ScriptRunEntryKind::Extraction => "extraction".to_string(),
+                        ScriptRunEntryKind::Error => "error".to_string(),
+                    },
+                    level: entry.level.as_ref().map(|level| match level {
+                        aiproxy_proxy_core::ScriptLogLevel::Debug => "debug".to_string(),
+                        aiproxy_proxy_core::ScriptLogLevel::Info => "info".to_string(),
+                        aiproxy_proxy_core::ScriptLogLevel::Warn => "warn".to_string(),
+                        aiproxy_proxy_core::ScriptLogLevel::Error => "error".to_string(),
+                    }),
+                    key: entry.key.clone(),
+                    message: entry.message.clone(),
+                    payload_json: entry.payload_json.clone(),
+                    seq: entry.sequence,
+                })
         })
         .collect();
 
@@ -1315,16 +1388,20 @@ fn persist_rewrite_traces(
         .iter()
         .enumerate()
         .flat_map(|(run_index, trace)| {
-            trace.entries.iter().enumerate().map(move |(entry_index, entry)| RewriteRunEntryRow {
-                id: format!("{session_id}-rewrite-run-{run_index}-entry-{entry_index}"),
-                run_id: format!("{session_id}-rewrite-run-{run_index}"),
-                kind: entry.kind.clone(),
-                key: entry.key.clone(),
-                before_value: entry.before.clone(),
-                after_value: entry.after.clone(),
-                message: entry.message.clone(),
-                seq: entry.sequence,
-            })
+            trace
+                .entries
+                .iter()
+                .enumerate()
+                .map(move |(entry_index, entry)| RewriteRunEntryRow {
+                    id: format!("{session_id}-rewrite-run-{run_index}-entry-{entry_index}"),
+                    run_id: format!("{session_id}-rewrite-run-{run_index}"),
+                    kind: entry.kind.clone(),
+                    key: entry.key.clone(),
+                    before_value: entry.before.clone(),
+                    after_value: entry.after.clone(),
+                    message: entry.message.clone(),
+                    seq: entry.sequence,
+                })
         })
         .collect();
 
@@ -1399,7 +1476,9 @@ fn persist_throttle_traces(
 
 #[cfg(test)]
 mod tests {
-    use super::{proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState};
+    use super::{
+        proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState,
+    };
     use aiproxy_db::body_store::BodyStore;
     use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
     use std::collections::HashSet;
@@ -1415,10 +1494,7 @@ mod tests {
         ];
         let focused_hosts = build_focused_hosts(&["api.example.com"]);
 
-        assert_eq!(
-            select_session_eviction_index(&sessions, &focused_hosts),
-            1
-        );
+        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 1);
     }
 
     #[test]
@@ -1429,10 +1505,7 @@ mod tests {
         ];
         let focused_hosts = build_focused_hosts(&["api.example.com"]);
 
-        assert_eq!(
-            select_session_eviction_index(&sessions, &focused_hosts),
-            0
-        );
+        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 0);
     }
 
     #[test]
@@ -1451,7 +1524,8 @@ mod tests {
         let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
         aiproxy_db::schema::run_migrations(&conn).unwrap();
 
-        let body_store_dir = std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
         let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
         body_store.ensure_dir().unwrap();
 
@@ -1473,7 +1547,9 @@ mod tests {
             .expect("session detail mutex should not be poisoned")
             .clear();
 
-        let loaded = state.read_session_detail("db-session").expect("detail should load from db");
+        let loaded = state
+            .read_session_detail("db-session")
+            .expect("detail should load from db");
 
         assert_eq!(loaded.id, "db-session");
         assert_eq!(loaded.summary.host, "api.example.com");
@@ -1489,6 +1565,10 @@ mod tests {
             host: host.to_string(),
             path: "/".to_string(),
             protocol: "HTTP/1.1".to_string(),
+            scheme: "https".to_string(),
+            http_version: "1.1".to_string(),
+            transport_protocol: "tcp".to_string(),
+            application_protocol: "http".to_string(),
             started_at: "2026-04-15T00:00:00Z".to_string(),
             finished_at: "2026-04-15T00:00:01Z".to_string(),
             duration_ms: 1,

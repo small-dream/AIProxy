@@ -11,11 +11,11 @@ pub struct RewriteRuleRow {
     pub note: Option<String>,
     pub enabled: bool,
     pub priority: u32,
-    pub match_methods: String,      // JSON array
+    pub match_methods: String, // JSON array
     pub match_stage: String,
     pub match_url_pattern: String,
     pub rewrite_type: String,
-    pub payload: String,            // JSON value
+    pub payload: String, // JSON value
 }
 
 pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), String> {
@@ -25,17 +25,27 @@ pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), St
              match_methods, match_stage, match_url_pattern, rewrite_type, payload)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
-            r.id, r.workspace_id, r.name, r.note,
-            r.enabled as i32, r.priority,
-            r.match_methods, r.match_stage, r.match_url_pattern,
-            r.rewrite_type, r.payload,
+            r.id,
+            r.workspace_id,
+            r.name,
+            r.note,
+            r.enabled as i32,
+            r.priority,
+            r.match_methods,
+            r.match_stage,
+            r.match_url_pattern,
+            r.rewrite_type,
+            r.payload,
         ],
     )
     .map_err(|e| format!("save rewrite rule: {e}"))?;
     Ok(())
 }
 
-pub fn load_rewrite_rules(conn: &Connection, workspace_id: &str) -> Result<Vec<RewriteRuleRow>, String> {
+pub fn load_rewrite_rules(
+    conn: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<RewriteRuleRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority,
@@ -130,9 +140,17 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), String> {
              preserve_query, priority, source_pattern, target_value)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
-            r.id, r.workspace_id, r.mode, r.name, r.note,
-            r.enabled as i32, r.preserve_path as i32, r.preserve_query as i32,
-            r.priority, r.source_pattern, r.target_value,
+            r.id,
+            r.workspace_id,
+            r.mode,
+            r.name,
+            r.note,
+            r.enabled as i32,
+            r.preserve_path as i32,
+            r.preserve_query as i32,
+            r.priority,
+            r.source_pattern,
+            r.target_value,
         ],
     )
     .map_err(|e| format!("save map rule: {e}"))?;
@@ -204,8 +222,11 @@ pub fn replace_map_runs_for_session(
         .unchecked_transaction()
         .map_err(|e| format!("begin replace map runs transaction: {e}"))?;
 
-    tx.execute("DELETE FROM map_runs WHERE session_id = ?1", params![session_id])
-        .map_err(|e| format!("delete map runs for session: {e}"))?;
+    tx.execute(
+        "DELETE FROM map_runs WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete map runs for session: {e}"))?;
 
     for run in runs {
         tx.execute(
@@ -240,7 +261,10 @@ pub fn replace_map_runs_for_session(
     Ok(())
 }
 
-pub fn load_map_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<MapRunRow>, String> {
+pub fn load_map_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<MapRunRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, workspace_id, rule_id, rule_name, mode, outcome,
@@ -313,9 +337,16 @@ pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Resul
              upload_kbps, download_kbps, packet_loss_ratio)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            p.id, p.workspace_id, p.name, p.note,
-            p.enabled as i32, p.preset as i32,
-            p.latency_ms, p.upload_kbps, p.download_kbps, p.packet_loss_ratio,
+            p.id,
+            p.workspace_id,
+            p.name,
+            p.note,
+            p.enabled as i32,
+            p.preset as i32,
+            p.latency_ms,
+            p.upload_kbps,
+            p.download_kbps,
+            p.packet_loss_ratio,
         ],
     )
     .map_err(|e| format!("save throttle profile: {e}"))?;
@@ -495,8 +526,11 @@ pub fn replace_throttle_runs_for_session(
         .unchecked_transaction()
         .map_err(|e| format!("begin replace throttle runs transaction: {e}"))?;
 
-    tx.execute("DELETE FROM throttle_runs WHERE session_id = ?1", params![session_id])
-        .map_err(|e| format!("delete throttle runs for session: {e}"))?;
+    tx.execute(
+        "DELETE FROM throttle_runs WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete throttle runs for session: {e}"))?;
 
     for run in runs {
         tx.execute(
@@ -532,7 +566,10 @@ pub fn replace_throttle_runs_for_session(
     Ok(())
 }
 
-pub fn load_throttle_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<ThrottleRunRow>, String> {
+pub fn load_throttle_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<ThrottleRunRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, workspace_id, profile_id, profile_name, rule_id, rule_name,
@@ -570,7 +607,10 @@ pub fn load_throttle_runs_for_session(conn: &Connection, session_id: &str) -> Re
     Ok(rows)
 }
 
-pub fn load_throttled_session_ids(conn: &Connection, workspace_id: &str) -> Result<Vec<String>, String> {
+pub fn load_throttled_session_ids(
+    conn: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT session_id FROM throttle_runs
@@ -596,12 +636,15 @@ pub struct BreakpointRuleRow {
     pub id: String,
     pub enabled: bool,
     pub url_pattern: String,
-    pub methods: String,  // JSON array
+    pub methods: String, // JSON array
     pub stage: String,
 }
 
 /// Replace all breakpoint rules atomically.
-pub fn replace_breakpoint_rules(conn: &Connection, rules: &[BreakpointRuleRow]) -> Result<(), String> {
+pub fn replace_breakpoint_rules(
+    conn: &Connection,
+    rules: &[BreakpointRuleRow],
+) -> Result<(), String> {
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| format!("begin replace breakpoint rules transaction: {e}"))?;
@@ -667,8 +710,14 @@ pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), Stri
             (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            r.id, r.workspace_id, r.name, r.note,
-            r.enabled as i32, r.priority, r.host_pattern, r.target_ip,
+            r.id,
+            r.workspace_id,
+            r.name,
+            r.note,
+            r.enabled as i32,
+            r.priority,
+            r.host_pattern,
+            r.target_ip,
         ],
     )
     .map_err(|e| format!("save dns mapping: {e}"))?;
@@ -871,8 +920,11 @@ pub fn replace_script_runs_for_session(
     )
     .map_err(|e| format!("delete script run entries for session: {e}"))?;
 
-    tx.execute("DELETE FROM script_runs WHERE session_id = ?1", params![session_id])
-        .map_err(|e| format!("delete script runs for session: {e}"))?;
+    tx.execute(
+        "DELETE FROM script_runs WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete script runs for session: {e}"))?;
 
     for run in runs {
         tx.execute(
@@ -918,7 +970,10 @@ pub fn replace_script_runs_for_session(
     Ok(())
 }
 
-pub fn load_script_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<ScriptRunRow>, String> {
+pub fn load_script_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<ScriptRunRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at
@@ -1019,8 +1074,11 @@ pub fn replace_rewrite_runs_for_session(
     )
     .map_err(|e| format!("delete rewrite run entries for session: {e}"))?;
 
-    tx.execute("DELETE FROM rewrite_runs WHERE session_id = ?1", params![session_id])
-        .map_err(|e| format!("delete rewrite runs for session: {e}"))?;
+    tx.execute(
+        "DELETE FROM rewrite_runs WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|e| format!("delete rewrite runs for session: {e}"))?;
 
     for run in runs {
         tx.execute(
@@ -1068,7 +1126,10 @@ pub fn replace_rewrite_runs_for_session(
     Ok(())
 }
 
-pub fn load_rewrite_runs_for_session(conn: &Connection, session_id: &str) -> Result<Vec<RewriteRunRow>, String> {
+pub fn load_rewrite_runs_for_session(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<RewriteRunRow>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at
@@ -1187,7 +1248,8 @@ mod tests {
             match_stage: "request".into(),
             match_url_pattern: "example.com".into(),
             rewrite_type: "header".into(),
-            payload: r#"{"headerName":"X-Test","operation":"set","target":"request","value":"1"}"#.into(),
+            payload: r#"{"headerName":"X-Test","operation":"set","target":"request","value":"1"}"#
+                .into(),
         };
 
         save_rewrite_rule(&conn, &rule).unwrap();
@@ -1288,12 +1350,14 @@ mod tests {
 
         first.enabled = false;
         save_throttle_profile(&conn, &first).unwrap();
-        assert!(!load_all_throttle_profiles(&conn)
-            .unwrap()
-            .iter()
-            .find(|p| p.id == "t1")
-            .unwrap()
-            .enabled);
+        assert!(
+            !load_all_throttle_profiles(&conn)
+                .unwrap()
+                .iter()
+                .find(|p| p.id == "t1")
+                .unwrap()
+                .enabled
+        );
     }
 
     #[test]
@@ -1370,7 +1434,8 @@ mod tests {
             source_code: "export function onRequest(ctx) {}".into(),
             source_path: None,
             entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
-            compiled_code: "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}".into(),
+            compiled_code:
+                "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}".into(),
             source_map: Some("{}".into()),
             updated_at: "2026-04-20T00:00:00Z".into(),
         };
@@ -1410,25 +1475,31 @@ mod tests {
         )
         .unwrap();
 
-        save_script_rule(&conn, &ScriptRuleRow {
-            id: "rule-1".into(),
-            workspace_id: "default".into(),
-            name: "Trace Rule".into(),
-            note: None,
-            enabled: true,
-            priority: 10,
-            match_methods: "[]".into(),
-            match_stage: "either".into(),
-            match_url_pattern: "*".into(),
-            language: "javascript".into(),
-            source_type: "inline".into(),
-            source_code: "export function onRequest(ctx) {}".into(),
-            source_path: None,
-            entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
-            compiled_code: "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}".into(),
-            source_map: None,
-            updated_at: "2026-04-20T00:00:00Z".into(),
-        }).unwrap();
+        save_script_rule(
+            &conn,
+            &ScriptRuleRow {
+                id: "rule-1".into(),
+                workspace_id: "default".into(),
+                name: "Trace Rule".into(),
+                note: None,
+                enabled: true,
+                priority: 10,
+                match_methods: "[]".into(),
+                match_stage: "either".into(),
+                match_url_pattern: "*".into(),
+                language: "javascript".into(),
+                source_type: "inline".into(),
+                source_code: "export function onRequest(ctx) {}".into(),
+                source_path: None,
+                entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
+                compiled_code:
+                    "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}"
+                        .into(),
+                source_map: None,
+                updated_at: "2026-04-20T00:00:00Z".into(),
+            },
+        )
+        .unwrap();
 
         let runs = vec![ScriptRunRow {
             id: "run-1".into(),

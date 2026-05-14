@@ -30,13 +30,17 @@ pub fn create_workspace(
         ],
     );
 
-    let workspace = state
-        .read_workspace_manager()
-        .create(input.name, input.proxy_port, ssl_enabled);
+    let workspace =
+        state
+            .read_workspace_manager()
+            .create(input.name, input.proxy_port, ssl_enabled);
 
     // Persist to DB
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let row = aiproxy_db::workspaces::WorkspaceRow {
             id: workspace.id.clone(),
             name: workspace.name.clone(),
@@ -48,7 +52,11 @@ pub fn create_workspace(
             updated_at: workspace.updated_at.clone(),
         };
         if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
-            log_error("desktop.commands", "create_workspace_db_failed", &[("error", error)]);
+            log_error(
+                "desktop.commands",
+                "create_workspace_db_failed",
+                &[("error", error)],
+            );
         }
     }
 
@@ -124,7 +132,10 @@ pub fn update_workspace(
 
     // Persist to DB
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         if let Err(error) = aiproxy_db::workspaces::update_workspace(
             &conn,
             &input.workspace_id,
@@ -133,7 +144,11 @@ pub fn update_workspace(
             input.ssl_enabled,
             &workspace.updated_at,
         ) {
-            log_error("desktop.commands", "update_workspace_db_failed", &[("error", error)]);
+            log_error(
+                "desktop.commands",
+                "update_workspace_db_failed",
+                &[("error", error)],
+            );
         }
     }
 

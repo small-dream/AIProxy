@@ -20,22 +20,15 @@ impl BodyStore {
     }
 
     /// Write a body file for a session. Returns the relative file path.
-    pub fn write_body(
-        &self,
-        session_id: &str,
-        kind: &str,
-        data: &[u8],
-    ) -> Result<String, String> {
+    pub fn write_body(&self, session_id: &str, kind: &str, data: &[u8]) -> Result<String, String> {
         validate_safe_segment(session_id, "session id")?;
         validate_safe_segment(kind, "body kind")?;
 
         let dir = self.base_dir.join(session_id);
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("failed to create body directory: {e}"))?;
+        fs::create_dir_all(&dir).map_err(|e| format!("failed to create body directory: {e}"))?;
 
         let file_path = dir.join(format!("{kind}.body"));
-        fs::write(&file_path, data)
-            .map_err(|e| format!("failed to write body file: {e}"))?;
+        fs::write(&file_path, data).map_err(|e| format!("failed to write body file: {e}"))?;
 
         Ok(format!("{session_id}/{kind}.body"))
     }

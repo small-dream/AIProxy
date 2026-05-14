@@ -28,14 +28,20 @@ export function isComposedRequestInput(value: unknown): value is ComposedRequest
 export function createMockComposeSessionDetail(input: ComposedRequestInput): SessionDetail {
   const now = new Date().toISOString();
   const id = "mock-compose-" + Math.random().toString(36).slice(2, 10);
+  const url = new URL(input.url);
+  const scheme = url.protocol.replace(":", "");
   return {
     id,
     summary: {
       id,
       method: input.method,
-      host: new URL(input.url).host,
-      path: new URL(input.url).pathname,
-      protocol: new URL(input.url).protocol.replace(":", ""),
+      host: url.host,
+      path: url.pathname,
+      protocol: scheme,
+      scheme: scheme === "https" ? "https" : "http",
+      httpVersion: "1.1",
+      transportProtocol: "tcp",
+      applicationProtocol: "http",
       startedAt: now,
       finishedAt: now,
       durationMs: 42,

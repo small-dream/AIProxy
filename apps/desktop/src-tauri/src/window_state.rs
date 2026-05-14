@@ -7,14 +7,8 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    async_runtime::JoinHandle,
-    Monitor,
-    PhysicalPosition,
-    PhysicalSize,
-    Position,
-    Size,
-    WebviewWindow,
-    WindowEvent,
+    async_runtime::JoinHandle, Monitor, PhysicalPosition, PhysicalSize, Position, Size,
+    WebviewWindow, WindowEvent,
 };
 
 const WINDOW_STATE_FILE_NAME: &str = "window-state.json";
@@ -73,14 +67,20 @@ pub fn register_main_window_state_tracking(window: &WebviewWindow) {
             return;
         }
 
-        if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+        if matches!(
+            event,
+            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+        ) {
             cancel_pending_save(&pending_save_for_events);
             persist_main_window_state(&tracked_window);
         }
     });
 }
 
-fn normalize_window_state(window: &WebviewWindow, state: PersistedWindowState) -> PersistedWindowState {
+fn normalize_window_state(
+    window: &WebviewWindow,
+    state: PersistedWindowState,
+) -> PersistedWindowState {
     if state.is_maximized {
         return state;
     }

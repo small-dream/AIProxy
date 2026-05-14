@@ -6,8 +6,8 @@ const DB_FILE_NAME: &str = "aiproxy.db";
 
 /// Resolve the database directory under the platform app data directory.
 pub fn resolve_db_dir() -> Result<PathBuf, String> {
-    let base = dirs::data_dir()
-        .ok_or_else(|| "failed to resolve platform data directory".to_string())?;
+    let base =
+        dirs::data_dir().ok_or_else(|| "failed to resolve platform data directory".to_string())?;
     Ok(base.join(DB_DIR_NAME))
 }
 

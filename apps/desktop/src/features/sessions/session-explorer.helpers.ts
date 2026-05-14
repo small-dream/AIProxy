@@ -1,6 +1,7 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 
 import { enMessages } from "@/i18n/messages/en";
+import { isWebSocketSessionProtocol } from "./session-protocol.helpers";
 
 export type SessionExplorerResourceKind =
   | "api"
@@ -176,7 +177,7 @@ export function getSessionResourceKind(session: SessionSummary): SessionExplorer
     return "warning";
   }
 
-  if (session.statusCode === 101 || session.protocol === "ws" || session.protocol === "wss" || session.responseMimeType === "websocket") {
+  if (session.statusCode === 101 || isWebSocketSessionProtocol(session)) {
     return "websocket";
   }
 

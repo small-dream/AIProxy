@@ -1,5 +1,5 @@
-use super::common::*;
 use super::certificates::try_load_tls_manager;
+use super::common::*;
 use crate::system_proxy_recovery;
 
 #[derive(Debug, Deserialize)]
@@ -46,12 +46,10 @@ pub async fn disable_system_proxy(
     disable_system_proxy_impl(Arc::clone(state.inner())).await
 }
 
-
 #[tauri::command]
 pub fn get_local_ip() -> Vec<String> {
     get_local_ip_addresses()
 }
-
 
 async fn start_proxy_impl(
     input: StartProxyInput,
@@ -221,7 +219,10 @@ async fn start_proxy_impl(
         "desktop.commands",
         "start_proxy_succeeded",
         &[
-            ("workspace_id", status.active_workspace_id.clone().unwrap_or_default()),
+            (
+                "workspace_id",
+                status.active_workspace_id.clone().unwrap_or_default(),
+            ),
             ("bound_port", status.port.to_string()),
             ("ssl_enabled", status.ssl_enabled.to_string()),
         ],

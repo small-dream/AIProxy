@@ -130,6 +130,10 @@ type SessionSummary = {
   host: string;
   path: string;
   protocol: string;
+  scheme?: string;
+  httpVersion?: string;
+  transportProtocol?: string;
+  applicationProtocol?: string;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -566,6 +570,10 @@ type SessionSummary = {
   host: string;
   path: string;
   protocol: string;
+  scheme?: string;
+  httpVersion?: string;
+  transportProtocol?: string;
+  applicationProtocol?: string;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -865,7 +873,7 @@ type WsMessage = {
 
 实现说明：
 - 消息存储在 SQLite `ws_messages` 表中，通过 `session_id` 关联父会话
-- WebSocket 会话通过 `protocol: "ws" | "wss"` 或 `responseMimeType: "websocket"` 识别
+- WebSocket 会话优先通过 `applicationProtocol: "websocket"` 识别，旧数据仍可回退到 `protocol: "ws" | "wss"` 或 `responseMimeType: "websocket"`
 - 消息帧在代理实时中继时同步写入数据库并推送 `ws-message` 事件
 
 ### `get_ws_connection_status` — `已实现`

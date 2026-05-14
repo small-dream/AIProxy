@@ -49,21 +49,30 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
 
     // --- File ---
     let file_menu = SubmenuBuilder::new(handle, "File")
-        .item(&MenuItemBuilder::new("Import HAR...")
-            .id(ids::IMPORT_HAR)
-            .accelerator("CmdOrCtrl+Shift+O")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Import HAR...")
+                .id(ids::IMPORT_HAR)
+                .accelerator("CmdOrCtrl+Shift+O")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Export as HAR...")
-            .id(ids::EXPORT_HAR)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Export as HAR...")
+                .id(ids::EXPORT_HAR)
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Clear All Sessions")
-            .id(ids::CLEAR_ALL_SESSIONS)
-            .accelerator("CmdOrCtrl+Shift+Delete")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Clear All Sessions")
+                .id(ids::CLEAR_ALL_SESSIONS)
+                .accelerator("CmdOrCtrl+Shift+Delete")
+                .build(handle)?,
+        )
         .separator()
-        .item(&PredefinedMenuItem::close_window(handle, Some("Close Window"))?)
+        .item(&PredefinedMenuItem::close_window(
+            handle,
+            Some("Close Window"),
+        )?)
         .build()?;
 
     // --- Edit ---
@@ -76,117 +85,167 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .item(&PredefinedMenuItem::paste(handle, None)?)
         .item(&PredefinedMenuItem::select_all(handle, None)?)
         .separator()
-        .item(&MenuItemBuilder::new("Find...")
-            .id(ids::FIND)
-            .accelerator("CmdOrCtrl+F")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Find...")
+                .id(ids::FIND)
+                .accelerator("CmdOrCtrl+F")
+                .build(handle)?,
+        )
         .build()?;
 
     // --- View ---
     let view_menu = SubmenuBuilder::new(handle, "View")
-        .item(&MenuItemBuilder::new("Refresh")
-            .id(ids::REFRESH)
-            .accelerator("CmdOrCtrl+R")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Refresh")
+                .id(ids::REFRESH)
+                .accelerator("CmdOrCtrl+R")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Sessions")
-            .id(ids::GOTO_SESSIONS)
-            .accelerator("CmdOrCtrl+1")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Compose")
-            .id(ids::GOTO_COMPOSE)
-            .accelerator("CmdOrCtrl+2")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Rules")
-            .id(ids::GOTO_RULES)
-            .accelerator("CmdOrCtrl+3")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Throttling")
-            .id(ids::GOTO_THROTTLING)
-            .accelerator("CmdOrCtrl+4")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Certificates")
-            .id(ids::GOTO_CERTIFICATES)
-            .accelerator("CmdOrCtrl+5")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Settings")
-            .id(ids::GOTO_SETTINGS)
-            .accelerator("CmdOrCtrl+6")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Sessions")
+                .id(ids::GOTO_SESSIONS)
+                .accelerator("CmdOrCtrl+1")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Compose")
+                .id(ids::GOTO_COMPOSE)
+                .accelerator("CmdOrCtrl+2")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Rules")
+                .id(ids::GOTO_RULES)
+                .accelerator("CmdOrCtrl+3")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Throttling")
+                .id(ids::GOTO_THROTTLING)
+                .accelerator("CmdOrCtrl+4")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Certificates")
+                .id(ids::GOTO_CERTIFICATES)
+                .accelerator("CmdOrCtrl+5")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Settings")
+                .id(ids::GOTO_SETTINGS)
+                .accelerator("CmdOrCtrl+6")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Zoom In")
-            .id(ids::ZOOM_IN)
-            .accelerator("CmdOrCtrl+Plus")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Zoom Out")
-            .id(ids::ZOOM_OUT)
-            .accelerator("CmdOrCtrl+Minus")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Reset Zoom")
-            .id(ids::ZOOM_RESET)
-            .accelerator("CmdOrCtrl+0")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Zoom In")
+                .id(ids::ZOOM_IN)
+                .accelerator("CmdOrCtrl+Plus")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Zoom Out")
+                .id(ids::ZOOM_OUT)
+                .accelerator("CmdOrCtrl+Minus")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Reset Zoom")
+                .id(ids::ZOOM_RESET)
+                .accelerator("CmdOrCtrl+0")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Dark Theme")
-            .id(ids::THEME_DARK)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Light Theme")
-            .id(ids::THEME_LIGHT)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Follow System Theme")
-            .id(ids::THEME_SYSTEM)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Dark Theme")
+                .id(ids::THEME_DARK)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Light Theme")
+                .id(ids::THEME_LIGHT)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Follow System Theme")
+                .id(ids::THEME_SYSTEM)
+                .build(handle)?,
+        )
         .build()?;
 
     // --- Proxy ---
     let proxy_menu = SubmenuBuilder::new(handle, "Proxy")
-        .item(&MenuItemBuilder::new("Start Proxy")
-            .id(ids::START_PROXY)
-            .accelerator("CmdOrCtrl+Shift+R")
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Stop Proxy")
-            .id(ids::STOP_PROXY)
-            .accelerator("CmdOrCtrl+Shift+S")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Start Proxy")
+                .id(ids::START_PROXY)
+                .accelerator("CmdOrCtrl+Shift+R")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Stop Proxy")
+                .id(ids::STOP_PROXY)
+                .accelerator("CmdOrCtrl+Shift+S")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Toggle System Proxy")
-            .id(ids::TOGGLE_SYSTEM_PROXY)
-            .accelerator("CmdOrCtrl+Shift+P")
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Toggle System Proxy")
+                .id(ids::TOGGLE_SYSTEM_PROXY)
+                .accelerator("CmdOrCtrl+Shift+P")
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Clear Sessions")
-            .id(ids::CLEAR_SESSIONS)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Clear Sessions")
+                .id(ids::CLEAR_SESSIONS)
+                .build(handle)?,
+        )
         .build()?;
 
     // --- Tools ---
     let android_quick_actions_menu = SubmenuBuilder::new(handle, "Android Quick Actions")
-        .item(&MenuItemBuilder::new("Set Proxy via ADB")
-            .id(ids::ADB_SET_PROXY)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Clear Proxy via ADB")
-            .id(ids::ADB_CLEAR_PROXY)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Set Proxy via ADB")
+                .id(ids::ADB_SET_PROXY)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Clear Proxy via ADB")
+                .id(ids::ADB_CLEAR_PROXY)
+                .build(handle)?,
+        )
         .build()?;
 
     let tools_menu = SubmenuBuilder::new(handle, "Tools")
-        .item(&MenuItemBuilder::new("Breakpoint Rules...")
-            .id(ids::BREAKPOINT_RULES)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Throttling...")
-            .id(ids::THROTTLING)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Breakpoint Rules...")
+                .id(ids::BREAKPOINT_RULES)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Throttling...")
+                .id(ids::THROTTLING)
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("Install Root Certificate")
-            .id(ids::INSTALL_CERT)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Certificate Status")
-            .id(ids::CERT_STATUS)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Install Root Certificate")
+                .id(ids::INSTALL_CERT)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Certificate Status")
+                .id(ids::CERT_STATUS)
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("iOS Quick Actions")
-            .id(ids::IOS_QUICK_ACTIONS)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("iOS Quick Actions")
+                .id(ids::IOS_QUICK_ACTIONS)
+                .build(handle)?,
+        )
         .item(&android_quick_actions_menu)
         .build()?;
 
@@ -201,16 +260,22 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
 
     // --- Help ---
     let help_menu = SubmenuBuilder::new(handle, "Help")
-        .item(&MenuItemBuilder::new("Check for Updates...")
-            .id(ids::CHECK_FOR_UPDATES)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("Check for Updates...")
+                .id(ids::CHECK_FOR_UPDATES)
+                .build(handle)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::new("AIProxy Documentation")
-            .id(ids::DOCUMENTATION)
-            .build(handle)?)
-        .item(&MenuItemBuilder::new("Keyboard Shortcuts")
-            .id(ids::SHORTCUTS)
-            .build(handle)?)
+        .item(
+            &MenuItemBuilder::new("AIProxy Documentation")
+                .id(ids::DOCUMENTATION)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Keyboard Shortcuts")
+                .id(ids::SHORTCUTS)
+                .build(handle)?,
+        )
         .separator()
         .item(&PredefinedMenuItem::about(
             handle,
@@ -230,10 +295,12 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
                 Some(AboutMetadata::default()),
             )?)
             .separator()
-            .item(&MenuItemBuilder::new("Preferences...")
-                .id(ids::PREFERENCES)
-                .accelerator("CmdOrCtrl+Comma")
-                .build(handle)?)
+            .item(
+                &MenuItemBuilder::new("Preferences...")
+                    .id(ids::PREFERENCES)
+                    .accelerator("CmdOrCtrl+Comma")
+                    .build(handle)?,
+            )
             .separator()
             .item(&PredefinedMenuItem::services(handle, None)?)
             .separator()

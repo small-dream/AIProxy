@@ -117,7 +117,8 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
     };
 
     if record.schema_version != RECOVERY_SCHEMA_VERSION || record.platform != current_platform() {
-        let message = "pending system proxy snapshot is incompatible with this app build".to_string();
+        let message =
+            "pending system proxy snapshot is incompatible with this app build".to_string();
         state.set_system_proxy_recovery_warning(Some(message.clone()));
         log_warn(
             "desktop.system_proxy_recovery",

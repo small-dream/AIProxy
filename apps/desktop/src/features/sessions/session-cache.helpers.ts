@@ -7,6 +7,8 @@ import type {
   TimingBreakdown,
 } from "@aiproxy/shared-types";
 
+import { inferProtocolMetadata } from "./session-protocol.helpers";
+
 export function upsertSessionSummary(
   sessions: SessionSummary[],
   nextSession: SessionSummary,
@@ -66,6 +68,9 @@ export function buildPendingComposedSessionDetail(
   const bodyText = input.body ?? "";
   const contentType = findHeaderValue(input.headers, "content-type");
 
+  const protocol = parsedUrl.protocol.replace(":", "");
+  const protocolMetadata = inferProtocolMetadata(protocol, input.url);
+
   return {
     cookies: [],
     id: sessionId,
@@ -80,7 +85,11 @@ export function buildPendingComposedSessionDetail(
       id: sessionId,
       method: input.method,
       path,
-      protocol: parsedUrl.protocol.replace(":", ""),
+      protocol,
+      scheme: protocolMetadata.scheme,
+      httpVersion: protocolMetadata.httpVersion,
+      transportProtocol: protocolMetadata.transportProtocol,
+      applicationProtocol: protocolMetadata.applicationProtocol,
       sizeBytes: 0,
       startedAt,
       statusCode: 0,

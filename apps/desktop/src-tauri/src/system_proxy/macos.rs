@@ -147,10 +147,7 @@ fn apply_system_proxy_settings_with_snapshot(
 fn restore_service_proxy_settings(service: &MacosNetworkServiceSnapshot) -> Result<(), String> {
     set_proxy_bypass_domains(&service.service_name, &service.bypass_domains)?;
     restore_auto_proxy_url_settings(&service.service_name, &service.auto_proxy_url)?;
-    set_auto_proxy_discovery_state(
-        &service.service_name,
-        service.auto_proxy_discovery_enabled,
-    )?;
+    set_auto_proxy_discovery_state(&service.service_name, service.auto_proxy_discovery_enabled)?;
     restore_protocol_proxy_settings(&service.service_name, ProxyKind::Web, &service.web_proxy)?;
     restore_protocol_proxy_settings(
         &service.service_name,
@@ -167,7 +164,10 @@ fn restore_protocol_proxy_settings(
     snapshot: &MacosProxyProtocolSnapshot,
 ) -> Result<(), String> {
     if let (Some(server), Some(port)) = (snapshot.server.as_deref(), snapshot.port) {
-        run_networksetup(kind.set_command(), &[service_name, server, &port.to_string()])?;
+        run_networksetup(
+            kind.set_command(),
+            &[service_name, server, &port.to_string()],
+        )?;
     } else if snapshot.enabled {
         return Err(format!(
             "captured macOS proxy settings for {service_name} are missing the {} server or port",
@@ -445,7 +445,11 @@ fn parse_optional_port(value: &str) -> Option<u16> {
         return None;
     };
 
-    if parsed == 0 { None } else { Some(parsed) }
+    if parsed == 0 {
+        None
+    } else {
+        Some(parsed)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -487,8 +491,8 @@ impl ProxyKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_auto_proxy_discovery_state, parse_auto_proxy_url_snapshot,
-        parse_network_services, parse_proxy_bypass_domains, parse_proxy_snapshot,
+        parse_auto_proxy_discovery_state, parse_auto_proxy_url_snapshot, parse_network_services,
+        parse_proxy_bypass_domains, parse_proxy_snapshot,
     };
 
     #[test]
@@ -538,8 +542,9 @@ mod tests {
 
     #[test]
     fn parses_auto_proxy_url_snapshot() {
-        let snapshot = parse_auto_proxy_url_snapshot("URL: http://proxy.example/pac\nEnabled: Yes\n")
-            .expect("auto proxy URL snapshot should parse");
+        let snapshot =
+            parse_auto_proxy_url_snapshot("URL: http://proxy.example/pac\nEnabled: Yes\n")
+                .expect("auto proxy URL snapshot should parse");
 
         assert!(snapshot.enabled);
         assert_eq!(snapshot.url.as_deref(), Some("http://proxy.example/pac"));
@@ -547,8 +552,7 @@ mod tests {
 
     #[test]
     fn parses_empty_bypass_domains() {
-        let domains =
-            parse_proxy_bypass_domains("There aren't any bypass domains set on Wi-Fi.\n");
+        let domains = parse_proxy_bypass_domains("There aren't any bypass domains set on Wi-Fi.\n");
 
         assert!(domains.is_empty());
     }

@@ -111,10 +111,7 @@ pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(),
     log_info(
         "desktop.system_proxy.windows",
         "proxy_settings_restored",
-        &[(
-            "proxy_enable",
-            snapshot.proxy_enable.to_string(),
-        )],
+        &[("proxy_enable", snapshot.proxy_enable.to_string())],
     );
 
     Ok(())

@@ -99,9 +99,7 @@ pub fn open_certificate_install_guide(
 }
 
 #[tauri::command]
-pub fn launch_certificate_installer(
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
+pub fn launch_certificate_installer(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     launch_certificate_installer_impl(Arc::clone(state.inner()))
 }
 
@@ -159,12 +157,11 @@ pub async fn clear_android_proxy_via_adb(
     .await
 }
 
-
 fn get_certificate_status_impl(state: Arc<AppState>) -> Result<CertificateStateSnapshot, String> {
     let platform = detect_platform();
 
-    let storage = CertStorage::resolve()
-        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+    let storage =
+        CertStorage::resolve().map_err(|e| format!("failed to resolve cert storage: {e}"))?;
 
     if !storage.root_cert_exists() {
         let status = CertificateStateSnapshot {
@@ -177,9 +174,11 @@ fn get_certificate_status_impl(state: Arc<AppState>) -> Result<CertificateStateS
         return Ok(status);
     }
 
-    let cert_pem = storage.load_root_cert_pem()
+    let cert_pem = storage
+        .load_root_cert_pem()
         .map_err(|e| format!("failed to read root cert: {e}"))?;
-    let key_pem = storage.load_root_key_pem()
+    let key_pem = storage
+        .load_root_key_pem()
         .map_err(|e| format!("failed to read root key: {e}"))?;
 
     let root_ca = RootCaPair::load_from_pem(&cert_pem, &key_pem)
@@ -209,8 +208,8 @@ fn generate_root_certificate_impl(
     input: GenerateRootCertificateInput,
     state: Arc<AppState>,
 ) -> Result<CertificateStateSnapshot, String> {
-    let storage = CertStorage::resolve()
-        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+    let storage =
+        CertStorage::resolve().map_err(|e| format!("failed to resolve cert storage: {e}"))?;
 
     // If already exists and not forcing regeneration, return existing status
     if storage.root_cert_exists() && !input.force_regenerate.unwrap_or(false) {
@@ -218,14 +217,15 @@ fn generate_root_certificate_impl(
     }
 
     // Generate new root CA
-    let root_ca = RootCaPair::generate()
-        .map_err(|e| format!("failed to generate root CA: {e}"))?;
+    let root_ca = RootCaPair::generate().map_err(|e| format!("failed to generate root CA: {e}"))?;
 
-    storage.save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+    storage
+        .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
         .map_err(|e| format!("failed to save root CA: {e}"))?;
 
     // Create server config for MITM
-    let server_config = root_ca.create_server_config(&storage)
+    let server_config = root_ca
+        .create_server_config(&storage)
         .map_err(|e| format!("failed to create TLS server config: {e}"))?;
 
     // Store TlsManager in AppState
@@ -252,9 +252,7 @@ fn generate_root_certificate_impl(
     Ok(status)
 }
 
-fn open_certificate_install_guide_impl(
-    state: Arc<AppState>,
-) -> Result<serde_json::Value, String> {
+fn open_certificate_install_guide_impl(state: Arc<AppState>) -> Result<serde_json::Value, String> {
     let platform = detect_platform();
     let cert_status = get_certificate_status_impl(state)?;
     let cert_path = cert_status.cert_path.clone().unwrap_or_default();
@@ -308,8 +306,8 @@ fn install_android_certificate_via_adb_impl(
     input: InstallAndroidCertificateViaAdbInput,
     _state: Arc<AppState>,
 ) -> Result<AndroidAdbInstallResult, String> {
-    let storage = CertStorage::resolve()
-        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+    let storage =
+        CertStorage::resolve().map_err(|e| format!("failed to resolve cert storage: {e}"))?;
 
     if !storage.root_cert_exists() {
         return Err("No certificate found. Generate one first.".to_string());
@@ -389,8 +387,8 @@ fn install_ios_certificate_via_simulator_impl(
     input: InstallIosCertificateViaSimulatorInput,
     _state: Arc<AppState>,
 ) -> Result<IosSimulatorInstallResult, String> {
-    let storage = CertStorage::resolve()
-        .map_err(|e| format!("failed to resolve cert storage: {e}"))?;
+    let storage =
+        CertStorage::resolve().map_err(|e| format!("failed to resolve cert storage: {e}"))?;
 
     if !storage.root_cert_exists() {
         return Err("No certificate found. Generate one first.".to_string());
@@ -399,12 +397,7 @@ fn install_ios_certificate_via_simulator_impl(
     let simulator = resolve_ios_simulator(input.simulator_udid.as_deref())?;
 
     let output = std::process::Command::new("xcrun")
-        .args([
-            "simctl",
-            "keychain",
-            &simulator.udid,
-            "add-root-cert",
-        ])
+        .args(["simctl", "keychain", &simulator.udid, "add-root-cert"])
         .arg(storage.root_cert_path())
         .output()
         .map_err(xcrun_spawn_error)?;
@@ -615,7 +608,8 @@ fn read_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
 
         let payload: serde_json::Value = serde_json::from_slice(&output.stdout)
             .map_err(|error| format!("failed to parse simulator list: {error}"))?;
-        let Some(devices_by_runtime) = payload.get("devices").and_then(|value| value.as_object()) else {
+        let Some(devices_by_runtime) = payload.get("devices").and_then(|value| value.as_object())
+        else {
             return Err("Simulator list did not include a devices map.".to_string());
         };
 
@@ -677,7 +671,10 @@ fn resolve_adb_target_device(requested_serial: Option<&str>) -> Result<String, S
         .collect::<Vec<_>>();
 
     if let Some(requested_serial) = requested_serial {
-        let Some(device) = devices.iter().find(|device| device.serial == requested_serial) else {
+        let Some(device) = devices
+            .iter()
+            .find(|device| device.serial == requested_serial)
+        else {
             return Err(format!(
                 "Android device `{requested_serial}` was not found in adb devices. Refresh the device list and try again."
             ));
@@ -730,7 +727,10 @@ fn resolve_ios_simulator(requested_udid: Option<&str>) -> Result<IosSimulatorDev
     let simulators = read_ios_simulators()?;
 
     if let Some(requested_udid) = requested_udid {
-        let Some(simulator) = simulators.iter().find(|simulator| simulator.udid == requested_udid) else {
+        let Some(simulator) = simulators
+            .iter()
+            .find(|simulator| simulator.udid == requested_udid)
+        else {
             return Err(format!(
                 "iOS Simulator `{requested_udid}` was not found in the booted simulator list. Refresh the simulator list and try again."
             ));
@@ -762,10 +762,7 @@ fn resolve_ios_simulator(requested_udid: Option<&str>) -> Result<IosSimulatorDev
 
 fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
     // 1. Try bare "adb" from PATH
-    if let Ok(output) = std::process::Command::new("adb")
-        .arg("--version")
-        .output()
-    {
+    if let Ok(output) = std::process::Command::new("adb").arg("--version").output() {
         if output.status.success() {
             return Ok(std::path::PathBuf::from("adb"));
         }
@@ -774,7 +771,9 @@ fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
     // 2. Check ANDROID_HOME / ANDROID_SDK_ROOT
     for env_var in &["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Ok(sdk_dir) = std::env::var(env_var) {
-            let adb = std::path::Path::new(&sdk_dir).join("platform-tools").join("adb");
+            let adb = std::path::Path::new(&sdk_dir)
+                .join("platform-tools")
+                .join("adb");
             if adb.exists() {
                 return Ok(adb);
             }
@@ -784,9 +783,7 @@ fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
     // 3. Check common install locations per platform
     if let Some(home) = dirs::home_dir() {
         let candidates: Vec<std::path::PathBuf> = if cfg!(target_os = "macos") {
-            vec![
-                home.join("Library/Android/sdk/platform-tools/adb"),
-            ]
+            vec![home.join("Library/Android/sdk/platform-tools/adb")]
         } else if cfg!(target_os = "linux") {
             vec![
                 home.join("Android/Sdk/platform-tools/adb"),
@@ -880,7 +877,10 @@ fn format_command_output(output: &std::process::Output) -> String {
     }
 }
 
-fn certificate_display_path(storage: &CertStorage, platform: aiproxy_tls_manager::Platform) -> String {
+fn certificate_display_path(
+    storage: &CertStorage,
+    platform: aiproxy_tls_manager::Platform,
+) -> String {
     match platform {
         aiproxy_tls_manager::Platform::Macos => storage
             .root_cert_install_path()
@@ -892,22 +892,24 @@ fn certificate_display_path(storage: &CertStorage, platform: aiproxy_tls_manager
 
 /// Try to load a TlsManager from an existing root CA on disk.
 pub(super) fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
-    let storage = CertStorage::resolve()
-        .map_err(|e| format!("cert storage resolve: {e}"))?;
+    let storage = CertStorage::resolve().map_err(|e| format!("cert storage resolve: {e}"))?;
 
     if !storage.root_cert_exists() {
         return Err("no root certificate found".to_string());
     }
 
-    let cert_pem = storage.load_root_cert_pem()
+    let cert_pem = storage
+        .load_root_cert_pem()
         .map_err(|e| format!("read cert: {e}"))?;
-    let key_pem = storage.load_root_key_pem()
+    let key_pem = storage
+        .load_root_key_pem()
         .map_err(|e| format!("read key: {e}"))?;
 
-    let root_ca = RootCaPair::load_from_pem(&cert_pem, &key_pem)
-        .map_err(|e| format!("load root CA: {e}"))?;
+    let root_ca =
+        RootCaPair::load_from_pem(&cert_pem, &key_pem).map_err(|e| format!("load root CA: {e}"))?;
 
-    let server_config = root_ca.create_server_config(&storage)
+    let server_config = root_ca
+        .create_server_config(&storage)
         .map_err(|e| format!("create server config: {e}"))?;
 
     Ok(Arc::new(TlsManager {

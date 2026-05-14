@@ -36,9 +36,8 @@ impl std::clone::Clone for CertStorage {
 impl CertStorage {
     /// Resolve the default cert directory from the OS data dir.
     pub fn resolve() -> Result<Self, TlsManagerError> {
-        let data_dir = dirs::data_dir().ok_or_else(|| {
-            TlsManagerError::StorageError("cannot resolve app data dir".into())
-        })?;
+        let data_dir = dirs::data_dir()
+            .ok_or_else(|| TlsManagerError::StorageError("cannot resolve app data dir".into()))?;
         let cert_dir = data_dir.join(CERT_DIR_NAME).join(CERT_SUBDIR);
         Ok(Self {
             root_cert_install_path: cert_dir.join(ROOT_CERT_INSTALL_FILE),
@@ -93,31 +92,51 @@ impl CertStorage {
 
     /// Read the root certificate PEM from disk.
     pub fn load_root_cert_pem(&self) -> Result<String, TlsManagerError> {
-        emit_log("DEBUG", "root_cert_load_started", &[("path", self.root_cert_path.to_string_lossy().to_string())]);
-        std::fs::read_to_string(&self.root_cert_path)
-            .map_err(|e| {
-                emit_log("WARN", "root_cert_load_failed", &[("path", self.root_cert_path.to_string_lossy().to_string()), ("error", e.to_string())]);
-                TlsManagerError::StorageError(format!("failed to read root cert: {e}"))
-            })
+        emit_log(
+            "DEBUG",
+            "root_cert_load_started",
+            &[("path", self.root_cert_path.to_string_lossy().to_string())],
+        );
+        std::fs::read_to_string(&self.root_cert_path).map_err(|e| {
+            emit_log(
+                "WARN",
+                "root_cert_load_failed",
+                &[
+                    ("path", self.root_cert_path.to_string_lossy().to_string()),
+                    ("error", e.to_string()),
+                ],
+            );
+            TlsManagerError::StorageError(format!("failed to read root cert: {e}"))
+        })
     }
 
     /// Read the root key PEM from disk.
     pub fn load_root_key_pem(&self) -> Result<String, TlsManagerError> {
-        emit_log("DEBUG", "root_key_load_started", &[("path", self.root_key_path.to_string_lossy().to_string())]);
-        std::fs::read_to_string(&self.root_key_path)
-            .map_err(|e| {
-                emit_log("WARN", "root_key_load_failed", &[("path", self.root_key_path.to_string_lossy().to_string()), ("error", e.to_string())]);
-                TlsManagerError::StorageError(format!("failed to read root key: {e}"))
-            })
+        emit_log(
+            "DEBUG",
+            "root_key_load_started",
+            &[("path", self.root_key_path.to_string_lossy().to_string())],
+        );
+        std::fs::read_to_string(&self.root_key_path).map_err(|e| {
+            emit_log(
+                "WARN",
+                "root_key_load_failed",
+                &[
+                    ("path", self.root_key_path.to_string_lossy().to_string()),
+                    ("error", e.to_string()),
+                ],
+            );
+            TlsManagerError::StorageError(format!("failed to read root key: {e}"))
+        })
     }
 
     /// Save root certificate and key PEM files to disk.
-    pub fn save_root_cert(
-        &self,
-        cert_pem: &str,
-        key_pem: &str,
-    ) -> Result<(), TlsManagerError> {
-        emit_log("INFO", "root_cert_save_started", &[("path", self.root_cert_path.to_string_lossy().to_string())]);
+    pub fn save_root_cert(&self, cert_pem: &str, key_pem: &str) -> Result<(), TlsManagerError> {
+        emit_log(
+            "INFO",
+            "root_cert_save_started",
+            &[("path", self.root_cert_path.to_string_lossy().to_string())],
+        );
 
         std::fs::create_dir_all(&self.cert_dir).map_err(|e| {
             TlsManagerError::StorageError(format!("failed to create cert dir: {e}"))
@@ -131,9 +150,8 @@ impl CertStorage {
             TlsManagerError::StorageError(format!("failed to write installable root cert: {e}"))
         })?;
 
-        std::fs::write(&self.root_key_path, key_pem).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to write root key: {e}"))
-        })?;
+        std::fs::write(&self.root_key_path, key_pem)
+            .map_err(|e| TlsManagerError::StorageError(format!("failed to write root key: {e}")))?;
 
         emit_log("INFO", "root_cert_save_succeeded", &[]);
         Ok(())
@@ -166,10 +184,7 @@ impl CertStorage {
         let signing_key = rustls::crypto::ring::sign::any_supported_type(&key_der)
             .map_err(|e| TlsManagerError::GenerationFailed(format!("host signing key: {e}")))?;
 
-        let certified_key = Arc::new(rustls::sign::CertifiedKey::new(
-            vec![cert_der],
-            signing_key,
-        ));
+        let certified_key = Arc::new(rustls::sign::CertifiedKey::new(vec![cert_der], signing_key));
 
         cache.insert(hostname.to_string(), Arc::clone(&certified_key));
 

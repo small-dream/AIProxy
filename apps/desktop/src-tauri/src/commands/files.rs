@@ -15,10 +15,7 @@ pub struct ReadHarFileInput {
 }
 
 #[tauri::command]
-pub fn save_text_file(
-    input: SaveTextFileInput,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
+pub fn save_text_file(input: SaveTextFileInput, app: tauri::AppHandle) -> Result<String, String> {
     let downloads_dir = dirs::download_dir()
         .ok_or_else(|| "Unable to locate the Downloads directory.".to_string())?;
     let target_path = next_available_export_path(&downloads_dir, &input.file_name);
@@ -51,7 +48,6 @@ pub fn read_har_file(input: ReadHarFileInput) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|error| format!("read HAR file: {error}"))
 }
 
-
 fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
     let requested_path = downloads_dir.join(file_name);
 
@@ -80,4 +76,3 @@ fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf 
 
     requested_path
 }
-

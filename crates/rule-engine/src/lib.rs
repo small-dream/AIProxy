@@ -284,11 +284,17 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
     })
 }
 
-pub fn execute_request_hook(rule: &CompiledScriptRule, payload: ScriptHookPayload) -> ScriptHookResult {
+pub fn execute_request_hook(
+    rule: &CompiledScriptRule,
+    payload: ScriptHookPayload,
+) -> ScriptHookResult {
     execute_hook(rule, "onRequest", ScriptTraceStage::Request, payload)
 }
 
-pub fn execute_response_hook(rule: &CompiledScriptRule, payload: ScriptHookPayload) -> ScriptHookResult {
+pub fn execute_response_hook(
+    rule: &CompiledScriptRule,
+    payload: ScriptHookPayload,
+) -> ScriptHookResult {
     execute_hook(rule, "onResponse", ScriptTraceStage::Response, payload)
 }
 
@@ -502,7 +508,9 @@ fn sanitize_entries(entries: Vec<ScriptRunEntry>) -> Vec<ScriptRunEntry> {
         .enumerate()
         .map(|(index, entry)| ScriptRunEntry {
             kind: entry.kind,
-            key: entry.key.map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
+            key: entry
+                .key
+                .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
             level: entry.level,
             message: entry
                 .message
@@ -559,13 +567,15 @@ fn detect_entrypoints(source: &str) -> Result<ScriptEntrypoints, String> {
         Regex::new(r"export\s+function\s+(onRequest|onResponse)\s*\(")
             .expect("valid allowed export regex")
     });
-    let any_export_re = ANY_EXPORT_RE.get_or_init(|| {
-        Regex::new(r"\bexport\b").expect("valid any export regex")
-    });
+    let any_export_re =
+        ANY_EXPORT_RE.get_or_init(|| Regex::new(r"\bexport\b").expect("valid any export regex"));
 
     let stripped = allowed_export_re.replace_all(source, "function $1(");
     if any_export_re.is_match(&stripped) {
-        return Err("only 'export function onRequest' and 'export function onResponse' are supported".to_string());
+        return Err(
+            "only 'export function onRequest' and 'export function onResponse' are supported"
+                .to_string(),
+        );
     }
 
     let on_request = source.contains("export function onRequest");
@@ -586,7 +596,10 @@ struct TranspiledSource {
     source_map: Option<String>,
 }
 
-fn transpile_source(source: &str, language: &ScriptRuleLanguage) -> Result<TranspiledSource, String> {
+fn transpile_source(
+    source: &str,
+    language: &ScriptRuleLanguage,
+) -> Result<TranspiledSource, String> {
     match language {
         ScriptRuleLanguage::JavaScript => Ok(TranspiledSource {
             code: source.to_string(),
@@ -927,7 +940,9 @@ export function onRequest(ctx: { request: { setHeader: (name: string, value: str
 
         assert!(compiled.rule.entrypoints.on_request);
         assert!(!compiled.rule.entrypoints.on_response);
-        assert!(compiled.compiled_code.contains("__aiproxyScriptExports.onRequest"));
+        assert!(compiled
+            .compiled_code
+            .contains("__aiproxyScriptExports.onRequest"));
     }
 
     #[test]

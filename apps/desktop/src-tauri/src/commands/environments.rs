@@ -59,17 +59,22 @@ pub struct ApiEnvironmentVariableInput {
 }
 
 #[tauri::command]
-pub fn list_api_environments(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiEnvironmentOutput>, String> {
+pub fn list_api_environments(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ApiEnvironmentOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::environments::list_environments(&conn)
         .map_err(|error| format!("list environments: {error}"))?;
-    Ok(rows.into_iter().map(|r| ApiEnvironmentOutput {
+    Ok(rows
+        .into_iter()
+        .map(|r| ApiEnvironmentOutput {
             id: r.id,
             name: r.name,
             sort_order: r.sort_order,
             created_at: r.created_at,
             updated_at: r.updated_at,
-        }).collect())
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -122,14 +127,17 @@ pub fn list_api_environment_variables(
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id)
         .map_err(|error| format!("list environment variables: {error}"))?;
-    Ok(rows.into_iter().map(|r| ApiEnvironmentVariableOutput {
+    Ok(rows
+        .into_iter()
+        .map(|r| ApiEnvironmentVariableOutput {
             id: r.id,
             environment_id: r.environment_id,
             key: r.key,
             value: r.value,
             enabled: r.enabled,
             sort_order: r.sort_order,
-        }).collect())
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -137,16 +145,19 @@ pub fn set_api_environment_variables(
     input: SetApiEnvironmentVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let vars: Vec<aiproxy_db::environments::EnvironmentVariableRow> = input.variables.into_iter().enumerate().map(|(i, v)| {
-        aiproxy_db::environments::EnvironmentVariableRow {
+    let vars: Vec<aiproxy_db::environments::EnvironmentVariableRow> = input
+        .variables
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| aiproxy_db::environments::EnvironmentVariableRow {
             id: v.id,
             environment_id: input.environment_id.clone(),
             key: v.key,
             value: v.value,
             enabled: v.enabled,
             sort_order: v.sort_order.unwrap_or(i as u32),
-        }
-    }).collect();
+        })
+        .collect();
 
     let conn = state.read_db_connection().lock().expect("db mutex");
     aiproxy_db::environments::set_environment_variables(&conn, &input.environment_id, &vars)
@@ -185,17 +196,22 @@ pub struct ApiGlobalVariableInput {
 }
 
 #[tauri::command]
-pub fn list_api_global_variables(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiGlobalVariableOutput>, String> {
+pub fn list_api_global_variables(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ApiGlobalVariableOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::environments::list_global_variables(&conn)
         .map_err(|error| format!("list global variables: {error}"))?;
-    Ok(rows.into_iter().map(|r| ApiGlobalVariableOutput {
+    Ok(rows
+        .into_iter()
+        .map(|r| ApiGlobalVariableOutput {
             id: r.id,
             key: r.key,
             value: r.value,
             enabled: r.enabled,
             sort_order: r.sort_order,
-        }).collect())
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -203,15 +219,18 @@ pub fn set_api_global_variables(
     input: SetApiGlobalVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let vars: Vec<aiproxy_db::environments::GlobalVariableRow> = input.variables.into_iter().enumerate().map(|(i, v)| {
-        aiproxy_db::environments::GlobalVariableRow {
+    let vars: Vec<aiproxy_db::environments::GlobalVariableRow> = input
+        .variables
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| aiproxy_db::environments::GlobalVariableRow {
             id: v.id,
             key: v.key,
             value: v.value,
             enabled: v.enabled,
             sort_order: v.sort_order.unwrap_or(i as u32),
-        }
-    }).collect();
+        })
+        .collect();
 
     let conn = state.read_db_connection().lock().expect("db mutex");
     aiproxy_db::environments::set_global_variables(&conn, &vars)

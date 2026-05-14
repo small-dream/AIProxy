@@ -119,8 +119,7 @@ pub(crate) fn apply_request_resolution(
 
 /// Callback for emitting events from the proxy core to the frontend.
 /// Keeps proxy-core framework-agnostic (no direct tauri dependency).
-pub type BreakpointEventEmitter =
-    Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+pub type BreakpointEventEmitter = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 // ---------------------------------------------------------------------------
 // BreakpointManager
@@ -136,7 +135,10 @@ impl std::fmt::Debug for BreakpointManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BreakpointManager")
             .field("rules", &self.list_rules())
-            .field("pending_count", &self.pending.lock().map(|p| p.len()).unwrap_or(0))
+            .field(
+                "pending_count",
+                &self.pending.lock().map(|p| p.len()).unwrap_or(0),
+            )
             .finish()
     }
 }
@@ -156,26 +158,17 @@ impl BreakpointManager {
     }
 
     pub fn list_rules(&self) -> Vec<BreakpointRule> {
-        self.rules
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn set_rules(&self, rules: Vec<BreakpointRule>) {
-        let mut guard = self
-            .rules
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         *guard = rules;
     }
 
     /// Check whether any enabled rule matches the given stage/method/url.
     pub fn should_break(&self, stage: &BreakpointStage, method: &str, url: &str) -> bool {
-        let rules = self
-            .rules
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         rules.iter().any(|rule| {
             if !rule.enabled {
                 return false;
@@ -184,10 +177,7 @@ impl BreakpointManager {
                 return false;
             }
             if !rule.methods.is_empty()
-                && !rule
-                    .methods
-                    .iter()
-                    .any(|m| m.eq_ignore_ascii_case(method))
+                && !rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
             {
                 return false;
             }
@@ -200,10 +190,7 @@ impl BreakpointManager {
     }
 
     /// Register a pending breakpoint. Returns the receiver end that the proxy task will await.
-    pub fn register_pending(
-        &self,
-        session_id: String,
-    ) -> oneshot::Receiver<BreakpointResolution> {
+    pub fn register_pending(&self, session_id: String) -> oneshot::Receiver<BreakpointResolution> {
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
@@ -213,30 +200,29 @@ impl BreakpointManager {
     }
 
     /// Resolve a pending breakpoint by sending the user's decision.
-    pub fn resolve(&self, session_id: &str, resolution: BreakpointResolution) -> Result<(), String> {
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    pub fn resolve(
+        &self,
+        session_id: &str,
+        resolution: BreakpointResolution,
+    ) -> Result<(), String> {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(sender) = pending.remove(session_id) {
-            sender
-                .send(resolution)
-                .map_err(|_| "failed to send breakpoint resolution — receiver already dropped".to_string())
+            sender.send(resolution).map_err(|_| {
+                "failed to send breakpoint resolution — receiver already dropped".to_string()
+            })
         } else {
-            Err(format!("no pending breakpoint found for session {session_id}"))
+            Err(format!(
+                "no pending breakpoint found for session {session_id}"
+            ))
         }
     }
 
     /// Cancel all pending breakpoints (e.g. when the proxy stops).
     pub fn cancel_all(&self) {
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         pending.clear();
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Breakpoint interception helpers
@@ -317,7 +303,11 @@ fn build_response_stage_hit(
 fn emit_breakpoint_event(emitter: &Option<BreakpointEventEmitter>, hit: &BreakpointHit) {
     if let Some(ref emit) = emitter {
         let payload = serde_json::to_value(hit).unwrap_or_else(|e| {
-            emit_log("ERROR", "breakpoint_hit_serialize_failed", &[("error", e.to_string())]);
+            emit_log(
+                "ERROR",
+                "breakpoint_hit_serialize_failed",
+                &[("error", e.to_string())],
+            );
             serde_json::Value::Null
         });
         emit("breakpoint-hit", payload);
@@ -336,7 +326,11 @@ pub(crate) async fn intercept_request_stage(
         None => return Ok(None),
     };
 
-    if !bp.should_break(&BreakpointStage::Request, request.method.as_str(), request.url.as_str()) {
+    if !bp.should_break(
+        &BreakpointStage::Request,
+        request.method.as_str(),
+        request.url.as_str(),
+    ) {
         return Ok(None);
     }
 
@@ -386,7 +380,11 @@ pub(crate) async fn intercept_response_stage(
         None => return Ok(None),
     };
 
-    if !bp.should_break(&BreakpointStage::Response, request.method.as_str(), request.url.as_str()) {
+    if !bp.should_break(
+        &BreakpointStage::Response,
+        request.method.as_str(),
+        request.url.as_str(),
+    ) {
         return Ok(None);
     }
 
@@ -455,7 +453,11 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
     let body = mock
         .body_base64
         .as_deref()
-        .map(|b| BASE64_STANDARD.decode(b).unwrap_or_else(|_| b.as_bytes().to_vec()))
+        .map(|b| {
+            BASE64_STANDARD
+                .decode(b)
+                .unwrap_or_else(|_| b.as_bytes().to_vec())
+        })
         .unwrap_or_default();
     let body_len = body.len();
     let mut headers = HeaderMap::new();
@@ -468,7 +470,11 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         }
     }
     // Ensure content-length matches body
-    headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&body.len().to_string()).unwrap_or_else(|_| HeaderValue::from_static("0")));
+    headers.insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_str(&body.len().to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
     UpstreamResponse {
         body_truncated: false,
         response_body: body,

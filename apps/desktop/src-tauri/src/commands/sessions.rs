@@ -121,18 +121,12 @@ pub struct SetFocusedHostsInput {
 }
 
 #[tauri::command]
-pub fn delete_sessions_except(
-    input: DeleteSessionsExceptInput,
-    state: State<'_, Arc<AppState>>,
-) {
+pub fn delete_sessions_except(input: DeleteSessionsExceptInput, state: State<'_, Arc<AppState>>) {
     state.delete_sessions_except(&input.keep_session_id);
 }
 
 #[tauri::command]
-pub fn set_focused_hosts(
-    input: SetFocusedHostsInput,
-    state: State<'_, Arc<AppState>>,
-) {
+pub fn set_focused_hosts(input: SetFocusedHostsInput, state: State<'_, Arc<AppState>>) {
     state.set_focused_hosts(input.hosts);
 }
 
@@ -294,15 +288,24 @@ fn log_session_detail_content_stats(
             ),
             (
                 "include_response_body_text",
-                input.include_response_body_text.unwrap_or(false).to_string(),
+                input
+                    .include_response_body_text
+                    .unwrap_or(false)
+                    .to_string(),
             ),
             (
                 "include_request_body_base64",
-                input.include_request_body_base64.unwrap_or(false).to_string(),
+                input
+                    .include_request_body_base64
+                    .unwrap_or(false)
+                    .to_string(),
             ),
             (
                 "include_response_body_base64",
-                input.include_response_body_base64.unwrap_or(false).to_string(),
+                input
+                    .include_response_body_base64
+                    .unwrap_or(false)
+                    .to_string(),
             ),
         ],
     );
@@ -318,14 +321,26 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
         id: detail.id.clone(),
         query_params: detail.query_params.clone(),
         raw_request_head: detail.raw_request_head.clone(),
-        raw_request: include_raw_request.then(|| detail.raw_request_text()).flatten(),
-        raw_request_deferred: (!include_raw_request && detail.raw_request_head.is_some()).then_some(true),
+        raw_request: include_raw_request
+            .then(|| detail.raw_request_text())
+            .flatten(),
+        raw_request_deferred: (!include_raw_request && detail.raw_request_head.is_some())
+            .then_some(true),
         raw_response_head: detail.raw_response_head.clone(),
-        raw_response: include_raw_response.then(|| detail.raw_response_text()).flatten(),
-        raw_response_deferred: (!include_raw_response && detail.raw_response_head.is_some()).then_some(true),
-        request_body: detail.request_body.as_ref().map(build_lightweight_body_payload),
+        raw_response: include_raw_response
+            .then(|| detail.raw_response_text())
+            .flatten(),
+        raw_response_deferred: (!include_raw_response && detail.raw_response_head.is_some())
+            .then_some(true),
+        request_body: detail
+            .request_body
+            .as_ref()
+            .map(build_lightweight_body_payload),
         request_headers: detail.request_headers.clone(),
-        response_body: detail.response_body.as_ref().map(build_lightweight_body_payload),
+        response_body: detail
+            .response_body
+            .as_ref()
+            .map(build_lightweight_body_payload),
         response_headers: detail.response_headers.clone(),
         map_traces: detail.map_traces.clone(),
         server_ip: detail.server_ip.clone(),
@@ -336,7 +351,9 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
     }
 }
 
-fn build_lightweight_body_payload(body: &aiproxy_proxy_core::ProxyBodyReference) -> SessionBodyPayload {
+fn build_lightweight_body_payload(
+    body: &aiproxy_proxy_core::ProxyBodyReference,
+) -> SessionBodyPayload {
     let include_inline_text = should_inline_body_text_by_default(body);
 
     SessionBodyPayload {
@@ -435,11 +452,9 @@ fn estimate_session_body_content_patch_bytes(
     })
 }
 
-
 #[tauri::command]
 pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     state.clear_sessions();
     Ok(())
 }
-

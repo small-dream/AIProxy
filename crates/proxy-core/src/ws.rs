@@ -65,9 +65,7 @@ pub struct WsFrame {
 
 /// Read one WebSocket frame from an async stream.
 /// Returns the parsed frame with unmasked payload.
-pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> Result<WsFrame, String> {
+pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<WsFrame, String> {
     let mut head = [0u8; 2];
     reader
         .read_exact(&mut head)
@@ -372,7 +370,10 @@ impl WsConnectionRegistry {
     pub fn inject(&self, session_id: &str, request: WsInjectRequest) -> Result<(), String> {
         let map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map.get(session_id).ok_or_else(|| {
-            format!("WebSocket session {} is not active or does not exist", session_id)
+            format!(
+                "WebSocket session {} is not active or does not exist",
+                session_id
+            )
         })?;
         if entry.status != WsConnectionStatus::Active {
             return Err(format!("WebSocket session {} is closed", session_id));
@@ -505,7 +506,11 @@ pub async fn relay_websocket_frames<C, U>(
         }
     }
 
-    emit_log("DEBUG", "ws_relay_ended", &[("session_id", session_id.to_string())]);
+    emit_log(
+        "DEBUG",
+        "ws_relay_ended",
+        &[("session_id", session_id.to_string())],
+    );
 }
 
 #[cfg(test)]

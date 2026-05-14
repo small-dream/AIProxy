@@ -29,51 +29,70 @@ impl fmt::Debug for DynamicCertResolver {
 }
 
 impl ResolvesServerCert for DynamicCertResolver {
-    fn resolve(
-        &self,
-        client_hello: rustls::server::ClientHello<'_>,
-    ) -> Option<Arc<CertifiedKey>> {
+    fn resolve(&self, client_hello: rustls::server::ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
         let hostname = client_hello.server_name()?;
 
         // Check the in-memory cache first
         {
-            let cache = self.storage.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = self
+                .storage
+                .host_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(cached) = cache.get(hostname) {
                 return Some(Arc::clone(cached));
             }
         }
 
         // Generate a new host certificate
-        let (cert_der, key_der) =
-            match crate::generator::sign_host_certificate_from_data(&self.root_ca_sign_data, hostname) {
-                Ok(pair) => pair,
-                Err(error) => {
-                    emit_log("WARN", "host_cert_generation_failed", &[
+        let (cert_der, key_der) = match crate::generator::sign_host_certificate_from_data(
+            &self.root_ca_sign_data,
+            hostname,
+        ) {
+            Ok(pair) => pair,
+            Err(error) => {
+                emit_log(
+                    "WARN",
+                    "host_cert_generation_failed",
+                    &[
                         ("hostname", hostname.to_string()),
                         ("error", error.to_string()),
-                    ]);
-                    return None;
-                }
-            };
-
-        let signing_key = match rustls::crypto::ring::sign::any_supported_type(&key_der) {
-            Ok(key) => key,
-            Err(error) => {
-                emit_log("WARN", "host_cert_signing_key_failed", &[
-                    ("hostname", hostname.to_string()),
-                    ("error", error.to_string()),
-                ]);
+                    ],
+                );
                 return None;
             }
         };
 
-        emit_log("DEBUG", "host_cert_generated", &[("hostname", hostname.to_string())]);
+        let signing_key = match rustls::crypto::ring::sign::any_supported_type(&key_der) {
+            Ok(key) => key,
+            Err(error) => {
+                emit_log(
+                    "WARN",
+                    "host_cert_signing_key_failed",
+                    &[
+                        ("hostname", hostname.to_string()),
+                        ("error", error.to_string()),
+                    ],
+                );
+                return None;
+            }
+        };
+
+        emit_log(
+            "DEBUG",
+            "host_cert_generated",
+            &[("hostname", hostname.to_string())],
+        );
 
         let certified_key = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));
 
         // Cache it
         {
-            let mut cache = self.storage.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let mut cache = self
+                .storage
+                .host_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             cache.insert(hostname.to_string(), Arc::clone(&certified_key));
         }
 

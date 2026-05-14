@@ -17,10 +17,8 @@ use std::sync::{
 use system_proxy::restore_system_proxy;
 use tauri::{Manager, RunEvent};
 use window_state::{
-    persist_main_window_state,
-    register_main_window_state_tracking,
+    persist_main_window_state, register_main_window_state_tracking, restore_main_window_state,
     schedule_main_window_state_restore,
-    restore_main_window_state,
 };
 
 static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
@@ -58,7 +56,11 @@ pub fn run() {
             conn
         }
         Err(error) => {
-            log_error("desktop.app", "database_open_failed", &[("error", error.clone())]);
+            log_error(
+                "desktop.app",
+                "database_open_failed",
+                &[("error", error.clone())],
+            );
             write_stderr_line(&format!(
                 "level=ERROR component=desktop.app event=database_open_failed error=\"{error}\""
             ));
@@ -71,17 +73,21 @@ pub fn run() {
         .join("bodies");
     let body_store = aiproxy_db::body_store::BodyStore::new(body_store_dir);
     if let Err(error) = body_store.ensure_dir() {
-        log_error("desktop.app", "body_store_init_failed", &[("error", error.clone())]);
+        log_error(
+            "desktop.app",
+            "body_store_init_failed",
+            &[("error", error.clone())],
+        );
     }
 
-    let app_state = AppState::new(
-        Arc::new(Mutex::new(db_connection)),
-        Arc::new(body_store),
-    );
+    let app_state = AppState::new(Arc::new(Mutex::new(db_connection)), Arc::new(body_store));
 
     // Seed default workspace to DB if empty
     {
-        let conn = app_state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = app_state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         if aiproxy_db::workspaces::is_empty(&conn) {
             let default_ws = app_state.read_workspace_manager().list();
             if let Some(ws) = default_ws.first() {
@@ -96,7 +102,11 @@ pub fn run() {
                     updated_at: ws.updated_at.clone(),
                 };
                 if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
-                    log_error("desktop.app", "seed_default_workspace_failed", &[("error", error)]);
+                    log_error(
+                        "desktop.app",
+                        "seed_default_workspace_failed",
+                        &[("error", error)],
+                    );
                 }
             }
         }
@@ -192,7 +202,11 @@ pub fn run() {
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
             if let Err(error) = menu::build_menu(app.handle()) {
-                log_warn("desktop.app", "menu_build_failed", &[("error", error.to_string())]);
+                log_warn(
+                    "desktop.app",
+                    "menu_build_failed",
+                    &[("error", error.to_string())],
+                );
             }
             menu::register_menu_event_handler(app.handle());
 

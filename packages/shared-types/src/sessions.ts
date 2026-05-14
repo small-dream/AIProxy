@@ -8,6 +8,10 @@ export type SessionSummary = {
   host: string;
   path: string;
   protocol: string;
+  scheme?: string;
+  httpVersion?: string;
+  transportProtocol?: string;
+  applicationProtocol?: string;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -111,6 +115,10 @@ export function isSessionSummary(value: unknown): value is SessionSummary {
     typeof candidate.host === "string" &&
     typeof candidate.path === "string" &&
     typeof candidate.protocol === "string" &&
+    isNullableString(candidate.scheme) &&
+    isNullableString(candidate.httpVersion) &&
+    isNullableString(candidate.transportProtocol) &&
+    isNullableString(candidate.applicationProtocol) &&
     typeof candidate.startedAt === "string" &&
     typeof candidate.finishedAt === "string" &&
     typeof candidate.durationMs === "number" &&

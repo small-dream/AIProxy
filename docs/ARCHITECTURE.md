@@ -432,6 +432,10 @@ erDiagram
 - `id`
 - `workspace_id`
 - `protocol`
+- `scheme`
+- `http_version`
+- `transport_protocol`
+- `application_protocol`
 - `method`
 - `host`
 - `path`

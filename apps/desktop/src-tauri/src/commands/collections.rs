@@ -123,8 +123,7 @@ fn build_collection_item_request(
 ) -> Result<(String, Vec<ProxyHeaderEntry>, Option<String>), String> {
     let url = substitute_vars(&item.url, vars);
     let headers_str = substitute_vars(&item.headers, vars);
-    let mut headers: Vec<ProxyHeaderEntry> =
-        serde_json::from_str(&headers_str).unwrap_or_default();
+    let mut headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_str).unwrap_or_default();
 
     let body = match item.body_type.as_str() {
         "formdata" => {
@@ -262,11 +261,15 @@ pub struct SaveSessionToCollectionInput {
 }
 
 #[tauri::command]
-pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiCollectionOutput>, String> {
+pub fn list_api_collections(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ApiCollectionOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::collections::list_all_collections(&conn)
         .map_err(|error| format!("list collections: {error}"))?;
-    Ok(rows.into_iter().map(|r| ApiCollectionOutput {
+    Ok(rows
+        .into_iter()
+        .map(|r| ApiCollectionOutput {
             id: r.id,
             parent_id: r.parent_id,
             name: r.name,
@@ -274,7 +277,8 @@ pub fn list_api_collections(state: State<'_, Arc<AppState>>) -> Result<Vec<ApiCo
             sort_order: r.sort_order,
             created_at: r.created_at,
             updated_at: r.updated_at,
-        }).collect())
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -360,7 +364,8 @@ pub fn upsert_api_collection_item(
 
     let headers_json = serde_json::to_string(&input.headers).unwrap_or_else(|_| "[]".into());
     let form_data_json = serde_json::to_string(&input.form_data).unwrap_or_else(|_| "[]".into());
-    let url_encoded_json = serde_json::to_string(&input.url_encoded).unwrap_or_else(|_| "[]".into());
+    let url_encoded_json =
+        serde_json::to_string(&input.url_encoded).unwrap_or_else(|_| "[]".into());
 
     let row = aiproxy_db::collections::CollectionItemRow {
         id: id.clone(),
@@ -454,7 +459,8 @@ pub fn save_session_to_collection(
         .unwrap_or_default();
 
     // Determine body type from Content-Type header
-    let content_type = headers.iter()
+    let content_type = headers
+        .iter()
         .find(|h| h.name.eq_ignore_ascii_case("content-type"))
         .map(|h| h.value.to_lowercase())
         .unwrap_or_default();
@@ -467,7 +473,8 @@ pub fn save_session_to_collection(
 
     let (body_type, raw_language) = if content_type.contains("application/json") {
         ("raw".to_string(), "json".to_string())
-    } else if content_type.contains("application/x-www-form-urlencoded") && !url_encoded.is_empty() {
+    } else if content_type.contains("application/x-www-form-urlencoded") && !url_encoded.is_empty()
+    {
         ("urlencoded".to_string(), "json".to_string())
     } else if !body_text.is_empty() {
         // Keep multipart or otherwise unparsed bodies visible/editable instead of
@@ -497,7 +504,6 @@ pub fn save_session_to_collection(
 
     upsert_api_collection_item(upsert_input, state)
 }
-
 
 // ---------------------------------------------------------------------------
 // Batch execute collection items
@@ -563,7 +569,10 @@ pub async fn batch_execute_collection_items(
                     "batch_execute_item_failed",
                     &[("item_id", item.id), ("error", e.clone())],
                 );
-                return Err(format!("batch execute failed at item '{}': {}", item.name, e));
+                return Err(format!(
+                    "batch execute failed at item '{}': {}",
+                    item.name, e
+                ));
             }
         }
     }
@@ -579,7 +588,6 @@ fn substitute_vars(template: &str, vars: &std::collections::HashMap<String, Stri
     }
     result
 }
-
 
 #[cfg(test)]
 mod tests {

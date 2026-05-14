@@ -24,9 +24,8 @@ pub fn initialize() -> Result<Option<PathBuf>, String> {
     let explicit_file_path = env::var(SESSION_STATS_FILE_ENV_VAR)
         .ok()
         .filter(|value| !value.trim().is_empty());
-    let enabled = explicit_flag.unwrap_or_else(|| {
-        explicit_file_path.is_some() || cfg!(debug_assertions)
-    });
+    let enabled =
+        explicit_flag.unwrap_or_else(|| explicit_file_path.is_some() || cfg!(debug_assertions));
 
     SESSION_STATS_ENABLED.store(enabled, Ordering::Relaxed);
 

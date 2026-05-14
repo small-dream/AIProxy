@@ -72,10 +72,7 @@ fn is_trusted_windows(cert_path: &Path) -> bool {
         .map(|byte| format!("{byte:02X}"))
         .collect();
 
-    if !thumbprint
-        .bytes()
-        .all(|byte| byte.is_ascii_hexdigit())
-    {
+    if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return false;
     }
 
@@ -177,9 +174,8 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
                         .lines()
                         .filter(|line| !line.starts_with("-----"))
                         .collect();
-                    if let Ok(other_der) =
-                        base64::engine::general_purpose::STANDARD
-                            .decode(other_b64.replace('\n', "").replace('\r', ""))
+                    if let Ok(other_der) = base64::engine::general_purpose::STANDARD
+                        .decode(other_b64.replace('\n', "").replace('\r', ""))
                     {
                         let mut other_hasher = Sha1::new();
                         other_hasher.update(&other_der);

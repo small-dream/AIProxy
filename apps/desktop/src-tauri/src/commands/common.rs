@@ -1,4 +1,6 @@
-pub(super) use crate::bootstrap::{AppState, BootstrapStatus, CertificateStateSnapshot, RuntimeHandles};
+pub(super) use crate::bootstrap::{
+    AppState, BootstrapStatus, CertificateStateSnapshot, RuntimeHandles,
+};
 pub(super) use crate::dev_logger::{log_debug, log_error, log_info, log_warn};
 pub(super) use crate::session_stats;
 pub(super) use crate::system_proxy::{
@@ -7,15 +9,16 @@ pub(super) use crate::system_proxy::{
 };
 pub(super) use crate::workspace::WorkspaceData;
 pub(super) use aiproxy_proxy_core::{
-    get_local_ip_addresses, global_ws_registry, send_direct_request, start_proxy_server,
-    BreakpointEventEmitter, BreakpointResolution, BreakpointRule, BreakpointStage, DnsMappingRule,
-    MapRule, ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
-    ProxyTimingBreakdown,
-    RewriteRule, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData,
-    ThrottleRuleData, ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection,
-    WsOpcode, compile_script_rule,
+    compile_script_rule, get_local_ip_addresses, global_ws_registry, send_direct_request,
+    start_proxy_server, BreakpointEventEmitter, BreakpointResolution, BreakpointRule,
+    BreakpointStage, DnsMappingRule, MapRule, ProxyHeaderEntry, ProxyRuntimeConfig,
+    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteRule, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData, ThrottleRuleData,
+    ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection, WsOpcode,
 };
-pub(super) use aiproxy_tls_manager::{detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair};
+pub(super) use aiproxy_tls_manager::{
+    detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair,
+};
 pub(super) use serde::{Deserialize, Serialize};
 pub(super) use std::{
     path::{Path, PathBuf},
@@ -30,7 +33,10 @@ pub(super) const DEFAULT_PROXY_PORT: u16 = 8888;
 pub(super) const EAGER_SESSION_DETAIL_BODY_LIMIT_BYTES: usize = 64 * 1024;
 pub(super) const MAX_IMPORTED_SCRIPT_BYTES: usize = 128 * 1024;
 
-pub(super) async fn run_blocking_command<T, F>(command_name: &'static str, task: F) -> Result<T, String>
+pub(super) async fn run_blocking_command<T, F>(
+    command_name: &'static str,
+    task: F,
+) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,

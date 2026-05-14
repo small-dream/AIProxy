@@ -5,7 +5,10 @@ pub fn list_script_session_trace(
     input: ListScriptSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ScriptSessionTraceOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_script_runs_for_session(&conn, &input.session_id)
         .map_err(|error| format!("load script runs: {error}"))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -40,7 +43,10 @@ pub fn list_rewrite_session_trace(
     input: ListRewriteSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<RewriteSessionTraceOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn, &input.session_id)
         .map_err(|error| format!("load rewrite runs: {error}"))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -77,7 +83,10 @@ pub fn list_map_session_trace(
     input: ListMapSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<MapSessionTraceOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_map_runs_for_session(&conn, &input.session_id)
         .map_err(|error| format!("load map runs: {error}"))?;
 
@@ -103,7 +112,10 @@ pub fn list_throttle_session_trace(
     input: ListThrottleSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ThrottleSessionTraceOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_throttle_runs_for_session(&conn, &input.session_id)
         .map_err(|error| format!("load throttle runs: {error}"))?;
 
@@ -131,11 +143,13 @@ pub fn list_throttled_session_ids(
     input: ListThrottledSessionIdsInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<String>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .expect("db mutex should not be poisoned");
     aiproxy_db::rules::load_throttled_session_ids(&conn, &input.workspace_id)
         .map_err(|error| format!("load throttled session ids: {error}"))
 }
-
 
 #[tauri::command]
 pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointRule> {
@@ -143,10 +157,16 @@ pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointR
 }
 
 #[tauri::command]
-pub fn set_breakpoint_rules(rules: Vec<BreakpointRule>, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub fn set_breakpoint_rules(
+    rules: Vec<BreakpointRule>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
     // Persist to DB first
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let rows: Vec<aiproxy_db::rules::BreakpointRuleRow> = rules
             .iter()
             .map(|r| aiproxy_db::rules::BreakpointRuleRow {
@@ -192,7 +212,9 @@ pub fn list_rewrite_rules(
     input: ListRewriteRulesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Vec<RewriteRule> {
-    state.read_rewrite_manager().list_rules()
+    state
+        .read_rewrite_manager()
+        .list_rules()
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
         .collect()
@@ -205,7 +227,10 @@ pub fn save_rewrite_rule(
 ) -> Result<RewriteRule, String> {
     // Persist to DB first
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let row = aiproxy_db::rules::RewriteRuleRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -363,11 +388,10 @@ pub struct ThrottleSessionTraceOutput {
 }
 
 #[tauri::command]
-pub fn list_map_rules(
-    input: ListMapRulesInput,
-    state: State<'_, Arc<AppState>>,
-) -> Vec<MapRule> {
-    state.read_map_manager().list_rules()
+pub fn list_map_rules(input: ListMapRulesInput, state: State<'_, Arc<AppState>>) -> Vec<MapRule> {
+    state
+        .read_map_manager()
+        .list_rules()
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
         .filter(|r| match &input.mode {
@@ -378,15 +402,15 @@ pub fn list_map_rules(
 }
 
 #[tauri::command]
-pub fn save_map_rule(
-    input: MapRule,
-    state: State<'_, Arc<AppState>>,
-) -> Result<MapRule, String> {
+pub fn save_map_rule(input: MapRule, state: State<'_, Arc<AppState>>) -> Result<MapRule, String> {
     validate_map_rule(&input)?;
 
     // Persist to DB first
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let row = aiproxy_db::rules::MapRuleRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -429,10 +453,16 @@ fn validate_map_rule(input: &MapRule) -> Result<(), String> {
         "local" => {
             let path = Path::new(input.target_value.trim());
             if !path.exists() {
-                return Err(format!("map local target path does not exist: {}", path.display()));
+                return Err(format!(
+                    "map local target path does not exist: {}",
+                    path.display()
+                ));
             }
             if !path.is_file() && !path.is_dir() {
-                return Err(format!("map local target path must be a file or folder: {}", path.display()));
+                return Err(format!(
+                    "map local target path must be a file or folder: {}",
+                    path.display()
+                ));
             }
         }
         other => return Err(format!("unsupported map rule mode: {other}")),
@@ -475,7 +505,8 @@ pub fn save_script_rule(
             note: compiled.rule.note.clone(),
             enabled: compiled.rule.enabled,
             priority: compiled.rule.priority,
-            match_methods: serde_json::to_string(&compiled.rule.r#match.methods).unwrap_or_default(),
+            match_methods: serde_json::to_string(&compiled.rule.r#match.methods)
+                .unwrap_or_default(),
             match_stage: compiled.rule.r#match.stage.clone(),
             match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
             language: match compiled.rule.language {
@@ -488,7 +519,8 @@ pub fn save_script_rule(
             },
             source_code: compiled.rule.source_code.clone(),
             source_path: compiled.rule.source_path.clone(),
-            entrypoints: serde_json::to_string(&compiled.rule.entrypoints).unwrap_or_else(|_| "{}".to_string()),
+            entrypoints: serde_json::to_string(&compiled.rule.entrypoints)
+                .unwrap_or_else(|_| "{}".to_string()),
             compiled_code: compiled.compiled_code.clone(),
             source_map: compiled.source_map.clone(),
             updated_at: chrono::Utc::now().to_rfc3339(),
@@ -525,7 +557,8 @@ pub fn read_script_source_file(
         ));
     }
 
-    let source_code = String::from_utf8(bytes).map_err(|error| format!("decode script file as utf-8: {error}"))?;
+    let source_code = String::from_utf8(bytes)
+        .map_err(|error| format!("decode script file as utf-8: {error}"))?;
 
     Ok(ScriptSourceFileOutput {
         file_name: path
@@ -549,13 +582,13 @@ pub struct DeleteRuleInput {
 }
 
 #[tauri::command]
-pub fn delete_rule(
-    input: DeleteRuleInput,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
+pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     // Persist to DB first
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let db_result = match input.rule_type.as_str() {
             "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
@@ -586,18 +619,30 @@ pub struct ListDnsMappingsInput {
 }
 
 #[tauri::command]
-pub fn list_dns_mappings(input: ListDnsMappingsInput, state: State<'_, Arc<AppState>>) -> Vec<DnsMappingRule> {
+pub fn list_dns_mappings(
+    input: ListDnsMappingsInput,
+    state: State<'_, Arc<AppState>>,
+) -> Vec<DnsMappingRule> {
     let rules = state.read_dns_manager().list_rules();
-    rules.into_iter().filter(|r| r.workspace_id == input.workspace_id).collect()
+    rules
+        .into_iter()
+        .filter(|r| r.workspace_id == input.workspace_id)
+        .collect()
 }
 
 #[tauri::command]
-pub fn save_dns_mapping(input: DnsMappingRule, state: State<'_, Arc<AppState>>) -> Result<DnsMappingRule, String> {
+pub fn save_dns_mapping(
+    input: DnsMappingRule,
+    state: State<'_, Arc<AppState>>,
+) -> Result<DnsMappingRule, String> {
     let rule = input;
 
     // Persist to DB
     {
-        let conn = state.read_db_connection().lock().expect("db mutex should not be poisoned");
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .expect("db mutex should not be poisoned");
         let row = aiproxy_db::rules::DnsMappingRow {
             id: rule.id.clone(),
             workspace_id: rule.workspace_id.clone(),

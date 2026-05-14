@@ -1,12 +1,10 @@
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { enMessages } from "@/i18n/messages/en";
+import { isWebSocketSessionProtocol } from "@/features/sessions/session-protocol.helpers";
 
 export function isWebSocketSession(session: SessionSummary): boolean {
-  return session.statusCode === 101
-    || session.protocol === "ws"
-    || session.protocol === "wss"
-    || session.responseMimeType === "websocket";
+  return session.statusCode === 101 || isWebSocketSessionProtocol(session);
 }
 
 export type SearchOptions = {

@@ -162,12 +162,82 @@ fn score_interface_ipv4(interface_name: &str, ip: std::net::Ipv4Addr) -> i32 {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct ProxyProtocolMetadata {
+    pub scheme: String,
+    pub http_version: String,
+    pub transport_protocol: String,
+    pub application_protocol: String,
+}
+
+pub fn infer_protocol_metadata(protocol: &str, url: &str) -> ProxyProtocolMetadata {
+    let normalized_protocol = protocol.trim().to_ascii_lowercase();
+    let url_scheme = Url::parse(url)
+        .ok()
+        .map(|parsed_url| parsed_url.scheme().to_ascii_lowercase());
+
+    let scheme = match normalized_protocol.as_str() {
+        "http" | "https" => normalized_protocol.clone(),
+        "ws" => "http".to_string(),
+        "wss" => "https".to_string(),
+        _ => url_scheme
+            .as_deref()
+            .and_then(|scheme| match scheme {
+                "http" | "https" => Some(scheme.to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "http".to_string()),
+    };
+
+    let http_version = if let Some(version) = protocol.trim().strip_prefix("HTTP/") {
+        version.to_string()
+    } else {
+        match normalized_protocol.as_str() {
+            "2" | "h2" | "http2" => "2".to_string(),
+            "3" | "h3" | "http3" => "3".to_string(),
+            candidate
+                if candidate.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+                    && !candidate.is_empty() =>
+            {
+                candidate.to_string()
+            }
+            _ => "1.1".to_string(),
+        }
+    };
+
+    let transport_protocol =
+        if http_version == "3" || matches!(normalized_protocol.as_str(), "h3" | "http3") {
+            "quic".to_string()
+        } else {
+            "tcp".to_string()
+        };
+
+    let application_protocol = match normalized_protocol.as_str() {
+        "ws" | "wss" => "websocket".to_string(),
+        "grpc" => "grpc".to_string(),
+        "grpc-web" => "grpc-web".to_string(),
+        _ => "http".to_string(),
+    };
+
+    ProxyProtocolMetadata {
+        scheme,
+        http_version,
+        transport_protocol,
+        application_protocol,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxySessionSummary {
     pub id: String,
     pub method: String,
     pub host: String,
     pub path: String,
     pub protocol: String,
+    pub scheme: String,
+    pub http_version: String,
+    pub transport_protocol: String,
+    pub application_protocol: String,
     pub started_at: String,
     pub finished_at: String,
     pub duration_ms: u128,
@@ -329,8 +399,9 @@ impl ProxyBodyReference {
     fn load_bytes(&self) -> Result<Vec<u8>, String> {
         match &self.storage {
             ProxyBodyStorage::InMemory(bytes) => Ok(bytes.to_vec()),
-            ProxyBodyStorage::FilePath(path) => fs::read(path)
-                .map_err(|error| format!("read body file {path}: {error}")),
+            ProxyBodyStorage::FilePath(path) => {
+                fs::read(path).map_err(|error| format!("read body file {path}: {error}"))
+            }
         }
     }
 }
@@ -420,7 +491,10 @@ impl ProxySessionDetail {
     }
 
     pub fn raw_response_text(&self) -> Option<String> {
-        render_raw_http_message(self.raw_response_head.as_deref(), self.response_body.as_ref())
+        render_raw_http_message(
+            self.raw_response_head.as_deref(),
+            self.response_body.as_ref(),
+        )
     }
 
     pub fn resident_memory_bytes_estimate(&self) -> usize {
@@ -433,11 +507,13 @@ impl ProxySessionDetail {
             + estimate_header_entries_memory(&self.query_params)
             + self.raw_request_head.as_ref().map_or(0, String::capacity)
             + self.raw_response_head.as_ref().map_or(0, String::capacity)
-            + self.request_body
+            + self
+                .request_body
                 .as_ref()
                 .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
             + estimate_header_entries_memory(&self.request_headers)
-            + self.response_body
+            + self
+                .response_body
                 .as_ref()
                 .map_or(0, ProxyBodyReference::resident_memory_bytes_estimate)
             + estimate_header_entries_memory(&self.response_headers)
@@ -445,7 +521,8 @@ impl ProxySessionDetail {
             + self.rewrite_traces.capacity() * size_of::<RewriteTrace>()
             + self.server_ip.as_ref().map_or(0, String::capacity)
             + self.summary.resident_memory_bytes_estimate()
-            + self.timing
+            + self
+                .timing
                 .as_ref()
                 .map_or(0, |_| size_of::<ProxyTimingBreakdown>())
             + self.script_traces.capacity() * size_of::<ScriptTrace>()
@@ -525,6 +602,10 @@ impl ProxySessionSummary {
             + self.host.capacity()
             + self.path.capacity()
             + self.protocol.capacity()
+            + self.scheme.capacity()
+            + self.http_version.capacity()
+            + self.transport_protocol.capacity()
+            + self.application_protocol.capacity()
             + self.started_at.capacity()
             + self.finished_at.capacity()
             + self.url.capacity()

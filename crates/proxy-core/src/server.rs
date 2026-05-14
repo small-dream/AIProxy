@@ -87,10 +87,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<'_, S> {
         Pin::new(&mut *self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut *self.inner).poll_shutdown(cx)
     }
 }
@@ -305,10 +302,7 @@ async fn handle_connection(
             emit_log(
                 "WARN",
                 "request_parse_failed",
-                &[
-                    ("client_addr", client_addr.to_string()),
-                    ("error", error),
-                ],
+                &[("client_addr", client_addr.to_string()), ("error", error)],
             );
 
             return Ok(());
@@ -337,7 +331,10 @@ async fn handle_connection(
                 cert_pem.len(),
                 cert_pem
             );
-            stream.write_all(response.as_bytes()).await.map_err(|e| format!("cert write: {e}"))?;
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .map_err(|e| format!("cert write: {e}"))?;
             let _ = stream.shutdown().await;
             return Ok(());
         } else {
@@ -365,7 +362,10 @@ async fn handle_connection(
                 ("client_addr", client_addr.to_string()),
                 ("host", host.clone()),
                 ("port", port.to_string()),
-                ("ssl_interception_enabled", tls_manager.is_some().to_string()),
+                (
+                    "ssl_interception_enabled",
+                    tls_manager.is_some().to_string(),
+                ),
             ],
         );
 
@@ -383,7 +383,8 @@ async fn handle_connection(
                 );
 
                 // No TLS manager — blind tunnel (no decryption)
-                return tunnel_blind_relay(stream, &host, port, &dns_manager, &active_workspace_id).await;
+                return tunnel_blind_relay(stream, &host, port, &dns_manager, &active_workspace_id)
+                    .await;
             }
             Some(mgr) => {
                 emit_log(
@@ -441,17 +442,16 @@ async fn handle_connection(
     let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
-        let script_outcome = apply_request_script_rules(
-            &script_manager,
-            &active_workspace_id,
-            &mut request,
-        );
+        let script_outcome =
+            apply_request_script_rules(&script_manager, &active_workspace_id, &mut request);
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
 
     // --- Request-stage breakpoint ---
-    if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut request).await? {
+    if let Some(resolution) =
+        intercept_request_stage(&breakpoint_manager, &event_emitter, &mut request).await?
+    {
         match resolution.action {
             BreakpointActionKind::Drop => {
                 let _ = stream.shutdown().await;
@@ -459,7 +459,10 @@ async fn handle_connection(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+                    if let Some(selection) = throttle_selection
+                        .as_ref()
+                        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
+                    {
                         match apply_request_throttle(selection, request.body.len()).await {
                             Ok(trace) => {
                                 if let Some(manager) = throttle_manager.as_ref() {
@@ -472,18 +475,18 @@ async fn handle_connection(
                                     manager.record_trace(&failure.trace);
                                 }
                                 throttle_traces.push(failure.trace);
-                            return respond_with_throttle_failure(
-                                &mut stream,
-                                &request,
-                                &session_sender,
-                                started_at,
-                                started_at_instant,
-                                None,
-                                &failure.error,
-                                map_traces.clone(),
-                                throttle_traces,
-                            )
-                            .await;
+                                return respond_with_throttle_failure(
+                                    &mut stream,
+                                    &request,
+                                    &session_sender,
+                                    started_at,
+                                    started_at_instant,
+                                    None,
+                                    &failure.error,
+                                    map_traces.clone(),
+                                    throttle_traces,
+                                )
+                                .await;
                             }
                         }
                     }
@@ -502,8 +505,13 @@ async fn handle_connection(
                         &mut mock_response,
                     ));
 
-                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
-                        let trace = apply_response_throttle(selection, mock_response.response_body.len()).await;
+                    if let Some(selection) = throttle_selection
+                        .as_ref()
+                        .filter(|selection| throttle_selection_matches_stage(selection, "response"))
+                    {
+                        let trace =
+                            apply_response_throttle(selection, mock_response.response_body.len())
+                                .await;
                         if let Some(manager) = throttle_manager.as_ref() {
                             manager.record_trace(&trace);
                         }
@@ -542,7 +550,11 @@ async fn handle_connection(
                     detail.script_traces = script_traces;
                     detail.throttle_traces = throttle_traces;
                     if session_sender.send(detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                        emit_log(
+                            "DEBUG",
+                            "session_send_dropped",
+                            &[("reason", "receiver_disconnected".to_string())],
+                        );
                     }
                     return Ok(());
                 }
@@ -556,10 +568,17 @@ async fn handle_connection(
     let mut pending_detail = build_pending_session_detail(&request, started_at);
     pending_detail.map_traces = map_traces.clone();
     if session_sender.send(pending_detail).await.is_err() {
-        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+        emit_log(
+            "DEBUG",
+            "session_send_dropped",
+            &[("reason", "receiver_disconnected".to_string())],
+        );
     }
 
-    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+    if let Some(selection) = throttle_selection
+        .as_ref()
+        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
+    {
         match apply_request_throttle(selection, request.body.len()).await {
             Ok(trace) => {
                 if let Some(manager) = throttle_manager.as_ref() {
@@ -572,18 +591,18 @@ async fn handle_connection(
                     manager.record_trace(&failure.trace);
                 }
                 throttle_traces.push(failure.trace);
-            return respond_with_throttle_failure(
-                &mut stream,
-                &request,
-                &session_sender,
-                started_at,
-                started_at_instant,
-                None,
-                &failure.error,
-                map_traces.clone(),
-                throttle_traces,
-            )
-            .await;
+                return respond_with_throttle_failure(
+                    &mut stream,
+                    &request,
+                    &session_sender,
+                    started_at,
+                    started_at_instant,
+                    None,
+                    &failure.error,
+                    map_traces.clone(),
+                    throttle_traces,
+                )
+                .await;
             }
         }
     }
@@ -593,16 +612,31 @@ async fn handle_connection(
         None => {
             // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
             let is_ws = request.headers.iter().any(|(name, value)| {
-                name.as_str().eq_ignore_ascii_case("upgrade") && value.as_bytes().eq_ignore_ascii_case(b"websocket")
+                name.as_str().eq_ignore_ascii_case("upgrade")
+                    && value.as_bytes().eq_ignore_ascii_case(b"websocket")
             });
             if is_ws {
-                emit_log("INFO", "ws_http_upgrade_detected", &[
-                    ("request_id", request.request_id.clone()),
-                    ("host", request.host.clone()),
-                    ("url", request.url.to_string()),
-                    ("method", request.method.to_string()),
-                ]);
-                handle_http_websocket_upgrade(&mut stream, &request, &session_sender, &ws_message_sender, started_at, started_at_instant, &dns_manager, &active_workspace_id).await?;
+                emit_log(
+                    "INFO",
+                    "ws_http_upgrade_detected",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("host", request.host.clone()),
+                        ("url", request.url.to_string()),
+                        ("method", request.method.to_string()),
+                    ],
+                );
+                handle_http_websocket_upgrade(
+                    &mut stream,
+                    &request,
+                    &session_sender,
+                    &ws_message_sender,
+                    started_at,
+                    started_at_instant,
+                    &dns_manager,
+                    &active_workspace_id,
+                )
+                .await?;
                 return Ok(());
             }
             forward_request(&client, &request, &dns_manager, &active_workspace_id).await
@@ -751,8 +785,13 @@ async fn handle_connection(
                 }
             }
 
-            if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
-                let trace = apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
+            if let Some(selection) = throttle_selection
+                .as_ref()
+                .filter(|selection| throttle_selection_matches_stage(selection, "response"))
+            {
+                let trace =
+                    apply_response_throttle(selection, upstream_response.response_body_size_bytes)
+                        .await;
                 if let Some(manager) = throttle_manager.as_ref() {
                     manager.record_trace(&trace);
                 }
@@ -791,8 +830,12 @@ async fn handle_connection(
             session_detail.map_traces = map_traces;
 
             if session_sender.send(session_detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
+                emit_log(
+                    "DEBUG",
+                    "session_send_dropped",
+                    &[("reason", "receiver_disconnected".to_string())],
+                );
+            }
 
             emit_log(
                 "DEBUG",
@@ -801,7 +844,10 @@ async fn handle_connection(
                     ("request_id", request.request_id.clone()),
                     ("client_addr", client_addr.to_string()),
                     ("method", request.method.to_string()),
-                    ("status_code", upstream_response.status_code.as_u16().to_string()),
+                    (
+                        "status_code",
+                        upstream_response.status_code.as_u16().to_string(),
+                    ),
                     ("url", request.url.to_string()),
                 ],
             );
@@ -811,12 +857,8 @@ async fn handle_connection(
         Err(error) => {
             let response_message = "The proxy could not reach the upstream server.";
 
-            write_plain_text_response(
-                &mut stream,
-                StatusCode::BAD_GATEWAY,
-                response_message,
-            )
-            .await?;
+            write_plain_text_response(&mut stream, StatusCode::BAD_GATEWAY, response_message)
+                .await?;
 
             let detail = build_session_detail(
                 &request,
@@ -838,8 +880,12 @@ async fn handle_connection(
                 false,
             );
             if session_sender.send(detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
+                emit_log(
+                    "DEBUG",
+                    "session_send_dropped",
+                    &[("reason", "receiver_disconnected".to_string())],
+                );
+            }
             emit_log(
                 "ERROR",
                 "upstream_request_failed",
@@ -878,14 +924,22 @@ async fn forward_request(
     let mut upstream_headers = request.headers.clone();
 
     if let Some(ip) = resolve_dns_override(dns_manager, workspace_id, &request.host) {
-        emit_log("INFO", "dns_override_applied", &[
-            ("host", request.host.clone()),
-            ("override_ip", ip.to_string()),
-        ]);
+        emit_log(
+            "INFO",
+            "dns_override_applied",
+            &[
+                ("host", request.host.clone()),
+                ("override_ip", ip.to_string()),
+            ],
+        );
 
         let port = upstream_url
             .port()
-            .unwrap_or(if upstream_url.scheme() == "https" { 443 } else { 80 });
+            .unwrap_or(if upstream_url.scheme() == "https" {
+                443
+            } else {
+                80
+            });
         upstream_url
             .set_host(Some(&ip.to_string()))
             .map_err(|_| format!("failed to apply DNS override host: {ip}"))?;
@@ -912,24 +966,21 @@ async fn forward_request(
     }
 
     let waiting_started_at = Instant::now();
-    let response = request_builder
-        .send()
-        .await
-        .map_err(|error| {
-            emit_log(
-                "ERROR",
-                "upstream_request_send_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("method", request.method.to_string()),
-                    ("scheme", request.url.scheme().to_string()),
-                    ("host", request.host.clone()),
-                    ("url", request.url.to_string()),
-                    ("error", error.to_string()),
-                ],
-            );
-            format!("failed to send upstream request: {error}")
-        })?;
+    let response = request_builder.send().await.map_err(|error| {
+        emit_log(
+            "ERROR",
+            "upstream_request_send_failed",
+            &[
+                ("request_id", request.request_id.clone()),
+                ("method", request.method.to_string()),
+                ("scheme", request.url.scheme().to_string()),
+                ("host", request.host.clone()),
+                ("url", request.url.to_string()),
+                ("error", error.to_string()),
+            ],
+        );
+        format!("failed to send upstream request: {error}")
+    })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
     let status_code = response.status();
     let response_headers = response.headers().clone();
@@ -1023,7 +1074,9 @@ async fn read_response_body_with_limit(
                 spooled_file = Some(file);
                 body_truncated = true;
             }
-        } else if !body_truncated && response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
+        } else if !body_truncated
+            && response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES
+        {
             body_truncated = true;
         }
 
@@ -1062,11 +1115,16 @@ async fn read_response_body_with_limit(
     ))
 }
 
-async fn create_response_spool_file(request_id: &str) -> Result<(tokio::fs::File, PathBuf), String> {
+async fn create_response_spool_file(
+    request_id: &str,
+) -> Result<(tokio::fs::File, PathBuf), String> {
     let dir = env::temp_dir().join("aiproxy-response-spool");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|error| format!("create response spool directory '{}': {error}", dir.display()))?;
+    tokio::fs::create_dir_all(&dir).await.map_err(|error| {
+        format!(
+            "create response spool directory '{}': {error}",
+            dir.display()
+        )
+    })?;
 
     let path = dir.join(format!("{request_id}-{}.body", Uuid::new_v4()));
     let file = tokio::fs::OpenOptions::new()
@@ -1112,12 +1170,14 @@ async fn write_spooled_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin
         .await
         .map_err(map_io_error)?;
 
-    let mut file = tokio::fs::File::open(spooled_response_path).await.map_err(|error| {
-        format!(
-            "open spooled response file '{}': {error}",
-            spooled_response_path.display()
-        )
-    })?;
+    let mut file = tokio::fs::File::open(spooled_response_path)
+        .await
+        .map_err(|error| {
+            format!(
+                "open spooled response file '{}': {error}",
+                spooled_response_path.display()
+            )
+        })?;
     let mut buffer = vec![0_u8; 64 * 1024];
 
     loop {
@@ -1157,10 +1217,11 @@ async fn tunnel_blind_relay(
 
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
         Some(ip) => {
-            emit_log("INFO", "dns_override_applied", &[
-                ("host", host.to_string()),
-                ("override_ip", ip.to_string()),
-            ]);
+            emit_log(
+                "INFO",
+                "dns_override_applied",
+                &[("host", host.to_string()), ("override_ip", ip.to_string())],
+            );
             ip.to_string()
         }
         None => host.to_string(),
@@ -1195,10 +1256,12 @@ async fn tunnel_blind_relay(
 fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<tokio_rustls::rustls::ClientConfig>> = OnceLock::new();
 
-    use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use tokio_rustls::rustls::client::danger::{
+        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+    };
     use tokio_rustls::rustls::crypto::CryptoProvider;
-    use tokio_rustls::rustls::DigitallySignedStruct;
     use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use tokio_rustls::rustls::DigitallySignedStruct;
 
     #[derive(Debug)]
     struct NoVerifier;
@@ -1266,10 +1329,14 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let port = request.url.port().unwrap_or(80);
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
         Some(ip) => {
-            emit_log("INFO", "dns_override_ws_http", &[
-                ("host", request.host.clone()),
-                ("override_ip", ip.to_string()),
-            ]);
+            emit_log(
+                "INFO",
+                "dns_override_ws_http",
+                &[
+                    ("host", request.host.clone()),
+                    ("override_ip", ip.to_string()),
+                ],
+            );
             ip.to_string()
         }
         None => request.host.clone(),
@@ -1277,57 +1344,86 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let host_port = format!("{}:{}", request.host, port);
     let connect_host_port = format!("{}:{}", connect_host, port);
 
-    emit_log("DEBUG", "ws_http_connecting_upstream", &[
-        ("request_id", request.request_id.clone()),
-        ("host_port", host_port.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "ws_http_connecting_upstream",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("host_port", host_port.clone()),
+        ],
+    );
 
-    let mut upstream = TcpStream::connect(&*connect_host_port)
-        .await
-        .map_err(|e| {
-            emit_log("ERROR", "ws_http_upstream_connect_failed", &[
+    let mut upstream = TcpStream::connect(&*connect_host_port).await.map_err(|e| {
+        emit_log(
+            "ERROR",
+            "ws_http_upstream_connect_failed",
+            &[
                 ("request_id", request.request_id.clone()),
                 ("host_port", host_port.clone()),
                 ("error", e.to_string()),
-            ]);
-            format!("ws upstream connect: {e}")
-        })?;
+            ],
+        );
+        format!("ws upstream connect: {e}")
+    })?;
 
-    emit_log("DEBUG", "ws_http_upstream_connected", &[
-        ("request_id", request.request_id.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "ws_http_upstream_connected",
+        &[("request_id", request.request_id.clone())],
+    );
 
     let raw_req = build_raw_upgrade_request(request)?;
-    emit_log("DEBUG", "ws_http_sending_upgrade", &[
-        ("request_id", request.request_id.clone()),
-        ("raw_req_len", raw_req.len().to_string()),
-    ]);
-    emit_log("DEBUG", "ws_http_raw_request", &[
-        ("request_id", request.request_id.clone()),
-        ("raw_req", raw_req.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "ws_http_sending_upgrade",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("raw_req_len", raw_req.len().to_string()),
+        ],
+    );
+    emit_log(
+        "DEBUG",
+        "ws_http_raw_request",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("raw_req", raw_req.clone()),
+        ],
+    );
 
     upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
-        emit_log("ERROR", "ws_http_upgrade_send_failed", &[
-            ("request_id", request.request_id.clone()),
-            ("error", e.to_string()),
-        ]);
+        emit_log(
+            "ERROR",
+            "ws_http_upgrade_send_failed",
+            &[
+                ("request_id", request.request_id.clone()),
+                ("error", e.to_string()),
+            ],
+        );
         format!("ws upgrade send: {e}")
     })?;
 
     // Read the upstream 101 response and relay it to the client
-    let (response_head, response_prefix) = read_http_response_head(&mut upstream).await.map_err(|e| {
-        emit_log("ERROR", "ws_http_read_response_head_failed", &[
-            ("request_id", request.request_id.clone()),
-            ("error", e.clone()),
-        ]);
-        e
-    })?;
+    let (response_head, response_prefix) =
+        read_http_response_head(&mut upstream).await.map_err(|e| {
+            emit_log(
+                "ERROR",
+                "ws_http_read_response_head_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("error", e.clone()),
+                ],
+            );
+            e
+        })?;
 
-    emit_log("DEBUG", "ws_http_got_response_head", &[
-        ("request_id", request.request_id.clone()),
-        ("response_head", response_head.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "ws_http_got_response_head",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("response_head", response_head.clone()),
+        ],
+    );
 
     // Parse status code from the response
     let status_line = response_head.lines().next().unwrap_or("");
@@ -1337,28 +1433,43 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         .and_then(|v| v.parse().ok())
         .unwrap_or(502);
 
-    emit_log("INFO", "ws_http_upstream_status", &[
-        ("request_id", request.request_id.clone()),
-        ("status_code", status_code.to_string()),
-    ]);
+    emit_log(
+        "INFO",
+        "ws_http_upstream_status",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("status_code", status_code.to_string()),
+        ],
+    );
 
     // Write the response head back to the client
     client_stream
         .write_all(response_head.as_bytes())
         .await
         .map_err(|e| {
-            emit_log("ERROR", "ws_http_write_to_client_failed", &[
-                ("request_id", request.request_id.clone()),
-                ("error", e.to_string()),
-            ]);
+            emit_log(
+                "ERROR",
+                "ws_http_write_to_client_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("error", e.to_string()),
+                ],
+            );
             format!("ws response write to client: {e}")
         })?;
-    client_stream.flush().await.map_err(|e| format!("ws flush: {e}"))?;
+    client_stream
+        .flush()
+        .await
+        .map_err(|e| format!("ws flush: {e}"))?;
 
-    emit_log("INFO", "ws_http_entering_relay", &[
-        ("request_id", request.request_id.clone()),
-        ("session_id", request.request_id.clone()),
-    ]);
+    emit_log(
+        "INFO",
+        "ws_http_entering_relay",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("session_id", request.request_id.clone()),
+        ],
+    );
 
     let mut detail = build_session_detail(
         request,
@@ -1380,18 +1491,31 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
         false,
     );
     detail.summary.protocol = "ws".to_string();
+    let protocol_metadata = infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
+    detail.summary.scheme = protocol_metadata.scheme;
+    detail.summary.http_version = protocol_metadata.http_version;
+    detail.summary.transport_protocol = protocol_metadata.transport_protocol;
+    detail.summary.application_protocol = protocol_metadata.application_protocol;
     detail.summary.response_mime_type = Some("websocket".to_string());
     let session_id_for_relay = detail.id.clone();
     if session_sender.send(detail).await.is_err() {
         return Ok(());
     }
 
-    let (inject_tx, mut inject_rx) = tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
+    let (inject_tx, mut inject_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
 
     let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
-    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
+    crate::ws::relay_websocket_frames(
+        client_stream,
+        &mut upstream,
+        &session_id_for_relay,
+        ws_message_sender,
+        &mut inject_rx,
+    )
+    .await;
 
     registry.mark_closed(&session_id_for_relay);
     registry.unregister(&session_id_for_relay);
@@ -1416,96 +1540,138 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let host_port = format!("{}:{}", request.host, port);
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
         Some(ip) => {
-            emit_log("INFO", "dns_override_wss", &[
-                ("host", request.host.clone()),
-                ("override_ip", ip.to_string()),
-            ]);
+            emit_log(
+                "INFO",
+                "dns_override_wss",
+                &[
+                    ("host", request.host.clone()),
+                    ("override_ip", ip.to_string()),
+                ],
+            );
             ip.to_string()
         }
         None => request.host.clone(),
     };
     let connect_host_port = format!("{}:{}", connect_host, port);
 
-    emit_log("DEBUG", "wss_connecting_upstream", &[
-        ("request_id", request.request_id.clone()),
-        ("host_port", host_port.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_connecting_upstream",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("host_port", host_port.clone()),
+        ],
+    );
 
-    let ws_tcp = TcpStream::connect(&*connect_host_port)
-        .await
-        .map_err(|e| {
-            emit_log("ERROR", "wss_upstream_connect_failed", &[
+    let ws_tcp = TcpStream::connect(&*connect_host_port).await.map_err(|e| {
+        emit_log(
+            "ERROR",
+            "wss_upstream_connect_failed",
+            &[
                 ("request_id", request.request_id.clone()),
                 ("host_port", host_port.clone()),
                 ("error", e.to_string()),
-            ]);
-            format!("wss upstream connect: {e}")
-        })?;
+            ],
+        );
+        format!("wss upstream connect: {e}")
+    })?;
 
-    emit_log("DEBUG", "wss_tcp_connected", &[
-        ("request_id", request.request_id.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_tcp_connected",
+        &[("request_id", request.request_id.clone())],
+    );
 
     let client_config = build_dangerous_client_tls_config();
     let tls_connector = tokio_rustls::TlsConnector::from(client_config);
     let ws_host = request.host.clone();
     let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(ws_host.clone())
-        .unwrap_or_else(|_| tokio_rustls::rustls::pki_types::ServerName::IpAddress(
-            std::net::Ipv4Addr::LOCALHOST.into(),
-        ));
+        .unwrap_or_else(|_| {
+            tokio_rustls::rustls::pki_types::ServerName::IpAddress(
+                std::net::Ipv4Addr::LOCALHOST.into(),
+            )
+        });
 
-    emit_log("DEBUG", "wss_starting_tls_handshake", &[
-        ("request_id", request.request_id.clone()),
-        ("ws_host", ws_host.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_starting_tls_handshake",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("ws_host", ws_host.clone()),
+        ],
+    );
 
-    let mut upstream = tls_connector
-        .connect(dns_name, ws_tcp)
-        .await
-        .map_err(|e| {
-            emit_log("ERROR", "wss_tls_handshake_failed", &[
+    let mut upstream = tls_connector.connect(dns_name, ws_tcp).await.map_err(|e| {
+        emit_log(
+            "ERROR",
+            "wss_tls_handshake_failed",
+            &[
                 ("request_id", request.request_id.clone()),
                 ("ws_host", ws_host.clone()),
                 ("error", e.to_string()),
-            ]);
-            format!("wss upstream tls handshake: {e}")
-        })?;
+            ],
+        );
+        format!("wss upstream tls handshake: {e}")
+    })?;
 
-    emit_log("DEBUG", "wss_tls_connected", &[
-        ("request_id", request.request_id.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_tls_connected",
+        &[("request_id", request.request_id.clone())],
+    );
 
     let raw_req = build_raw_upgrade_request(request)?;
-    emit_log("DEBUG", "wss_sending_upgrade", &[
-        ("request_id", request.request_id.clone()),
-        ("raw_req_len", raw_req.len().to_string()),
-    ]);
-    emit_log("DEBUG", "wss_raw_request", &[
-        ("request_id", request.request_id.clone()),
-        ("raw_req", raw_req.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_sending_upgrade",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("raw_req_len", raw_req.len().to_string()),
+        ],
+    );
+    emit_log(
+        "DEBUG",
+        "wss_raw_request",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("raw_req", raw_req.clone()),
+        ],
+    );
 
     upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
-        emit_log("ERROR", "wss_upgrade_send_failed", &[
-            ("request_id", request.request_id.clone()),
-            ("error", e.to_string()),
-        ]);
+        emit_log(
+            "ERROR",
+            "wss_upgrade_send_failed",
+            &[
+                ("request_id", request.request_id.clone()),
+                ("error", e.to_string()),
+            ],
+        );
         format!("wss upgrade send: {e}")
     })?;
 
     // Read the upstream 101 response and relay it to the client
-    let (response_head, response_prefix) = read_http_response_head(&mut upstream).await.map_err(|e| {
-        emit_log("ERROR", "wss_read_response_head_failed", &[
-            ("request_id", request.request_id.clone()),
-            ("error", e.clone()),
-        ]);
-        e
-    })?;
+    let (response_head, response_prefix) =
+        read_http_response_head(&mut upstream).await.map_err(|e| {
+            emit_log(
+                "ERROR",
+                "wss_read_response_head_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("error", e.clone()),
+                ],
+            );
+            e
+        })?;
 
-    emit_log("DEBUG", "wss_got_response_head", &[
-        ("request_id", request.request_id.clone()),
-        ("response_head", response_head.clone()),
-    ]);
+    emit_log(
+        "DEBUG",
+        "wss_got_response_head",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("response_head", response_head.clone()),
+        ],
+    );
 
     let status_line = response_head.lines().next().unwrap_or("");
     let status_code: u16 = status_line
@@ -1514,27 +1680,42 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         .and_then(|v| v.parse().ok())
         .unwrap_or(502);
 
-    emit_log("INFO", "wss_upstream_status", &[
-        ("request_id", request.request_id.clone()),
-        ("status_code", status_code.to_string()),
-    ]);
+    emit_log(
+        "INFO",
+        "wss_upstream_status",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("status_code", status_code.to_string()),
+        ],
+    );
 
     client_stream
         .write_all(response_head.as_bytes())
         .await
         .map_err(|e| {
-            emit_log("ERROR", "wss_write_to_client_failed", &[
-                ("request_id", request.request_id.clone()),
-                ("error", e.to_string()),
-            ]);
+            emit_log(
+                "ERROR",
+                "wss_write_to_client_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("error", e.to_string()),
+                ],
+            );
             format!("wss response write to client: {e}")
         })?;
-    client_stream.flush().await.map_err(|e| format!("wss flush: {e}"))?;
+    client_stream
+        .flush()
+        .await
+        .map_err(|e| format!("wss flush: {e}"))?;
 
-    emit_log("INFO", "wss_entering_relay", &[
-        ("request_id", request.request_id.clone()),
-        ("session_id", request.request_id.clone()),
-    ]);
+    emit_log(
+        "INFO",
+        "wss_entering_relay",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("session_id", request.request_id.clone()),
+        ],
+    );
 
     let mut detail = build_session_detail(
         request,
@@ -1556,18 +1737,31 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         false,
     );
     detail.summary.protocol = "wss".to_string();
+    let protocol_metadata = infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
+    detail.summary.scheme = protocol_metadata.scheme;
+    detail.summary.http_version = protocol_metadata.http_version;
+    detail.summary.transport_protocol = protocol_metadata.transport_protocol;
+    detail.summary.application_protocol = protocol_metadata.application_protocol;
     detail.summary.response_mime_type = Some("websocket".to_string());
     let session_id_for_relay = detail.id.clone();
     if session_sender.send(detail).await.is_err() {
         return Ok(());
     }
 
-    let (inject_tx, mut inject_rx) = tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
+    let (inject_tx, mut inject_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
 
     let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
-    crate::ws::relay_websocket_frames(client_stream, &mut upstream, &session_id_for_relay, ws_message_sender, &mut inject_rx).await;
+    crate::ws::relay_websocket_frames(
+        client_stream,
+        &mut upstream,
+        &session_id_for_relay,
+        ws_message_sender,
+        &mut inject_rx,
+    )
+    .await;
 
     registry.mark_closed(&session_id_for_relay);
     registry.unregister(&session_id_for_relay);
@@ -1611,11 +1805,7 @@ async fn read_http_response_head<R: AsyncReadExt + Unpin>(
 /// Build a raw HTTP upgrade request string for WebSocket relay.
 fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, String> {
     let path = build_request_path(&request.url);
-    let mut raw = format!(
-        "{} {} HTTP/1.1\r\n",
-        request.method,
-        path,
-    );
+    let mut raw = format!("{} {} HTTP/1.1\r\n", request.method, path,);
 
     // Re-inject Host header because build_upstream_headers strips it as hop-by-hop.
     let host_with_port = match request.url.port() {
@@ -1628,11 +1818,7 @@ fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Str
         if name.as_str().eq_ignore_ascii_case("host") {
             continue;
         }
-        raw.push_str(&format!(
-            "{}: {}\r\n",
-            name,
-            value.to_str().unwrap_or("")
-        ));
+        raw.push_str(&format!("{}: {}\r\n", name, value.to_str().unwrap_or("")));
     }
     raw.push_str("\r\n");
     Ok(raw)
@@ -1698,10 +1884,7 @@ async fn handle_connect_mitm(
     emit_log(
         "DEBUG",
         "tls_handshake_succeeded",
-        &[
-            ("host", host.clone()),
-            ("port", port.to_string()),
-        ],
+        &[("host", host.clone()), ("port", port.to_string())],
     );
 
     let mut tls_stream = tls_stream;
@@ -1713,10 +1896,7 @@ async fn handle_connect_mitm(
             emit_log(
                 "WARN",
                 "tls_request_parse_failed",
-                &[
-                    ("host", host.clone()),
-                    ("error", error),
-                ],
+                &[("host", host.clone()), ("error", error)],
             );
             return Ok(());
         }
@@ -1741,8 +1921,7 @@ async fn handle_connect_mitm(
     // Build a modified request for HTTPS upstream
     let mut https_request = ParsedProxyRequest {
         protocol: "https".to_string(),
-        url: Url::parse(&https_url)
-            .map_err(|e| format!("invalid https URL {https_url}: {e}"))?,
+        url: Url::parse(&https_url).map_err(|e| format!("invalid https URL {https_url}: {e}"))?,
         ..request
     };
 
@@ -1764,17 +1943,16 @@ async fn handle_connect_mitm(
     let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
-        let script_outcome = apply_request_script_rules(
-            &script_manager,
-            &workspace_id,
-            &mut https_request,
-        );
+        let script_outcome =
+            apply_request_script_rules(&script_manager, &workspace_id, &mut https_request);
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
 
     // --- Request-stage breakpoint (HTTPS) ---
-    if let Some(resolution) = intercept_request_stage(&breakpoint_manager, &event_emitter, &mut https_request).await? {
+    if let Some(resolution) =
+        intercept_request_stage(&breakpoint_manager, &event_emitter, &mut https_request).await?
+    {
         match resolution.action {
             BreakpointActionKind::Drop => {
                 let _ = tls_stream.shutdown().await;
@@ -1782,7 +1960,10 @@ async fn handle_connect_mitm(
             }
             BreakpointActionKind::Mock => {
                 if let Some(ref mock) = resolution.mock {
-                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+                    if let Some(selection) = throttle_selection
+                        .as_ref()
+                        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
+                    {
                         match apply_request_throttle(selection, https_request.body.len()).await {
                             Ok(trace) => {
                                 if let Some(manager) = throttle_manager.as_ref() {
@@ -1795,18 +1976,18 @@ async fn handle_connect_mitm(
                                     manager.record_trace(&failure.trace);
                                 }
                                 throttle_traces.push(failure.trace);
-                            return respond_with_throttle_failure(
-                                &mut tls_stream,
-                                &https_request,
-                                &session_sender,
-                                started_at,
-                                started_at_instant,
-                                Some(tls_ms),
-                                &failure.error,
-                                map_traces.clone(),
-                                throttle_traces,
-                            )
-                            .await;
+                                return respond_with_throttle_failure(
+                                    &mut tls_stream,
+                                    &https_request,
+                                    &session_sender,
+                                    started_at,
+                                    started_at_instant,
+                                    Some(tls_ms),
+                                    &failure.error,
+                                    map_traces.clone(),
+                                    throttle_traces,
+                                )
+                                .await;
                             }
                         }
                     }
@@ -1825,8 +2006,13 @@ async fn handle_connect_mitm(
                         &mut mock_response,
                     ));
 
-                    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
-                        let trace = apply_response_throttle(selection, mock_response.response_body.len()).await;
+                    if let Some(selection) = throttle_selection
+                        .as_ref()
+                        .filter(|selection| throttle_selection_matches_stage(selection, "response"))
+                    {
+                        let trace =
+                            apply_response_throttle(selection, mock_response.response_body.len())
+                                .await;
                         if let Some(manager) = throttle_manager.as_ref() {
                             manager.record_trace(&trace);
                         }
@@ -1865,7 +2051,11 @@ async fn handle_connect_mitm(
                     detail.script_traces = script_traces;
                     detail.throttle_traces = throttle_traces;
                     if session_sender.send(detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
+                        emit_log(
+                            "DEBUG",
+                            "session_send_dropped",
+                            &[("reason", "receiver_disconnected".to_string())],
+                        );
                     }
                     return Ok(());
                 }
@@ -1878,7 +2068,10 @@ async fn handle_connect_mitm(
     pending_detail.map_traces = map_traces.clone();
     let _ = session_sender.send(pending_detail).await;
 
-    if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "request")) {
+    if let Some(selection) = throttle_selection
+        .as_ref()
+        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
+    {
         match apply_request_throttle(selection, https_request.body.len()).await {
             Ok(trace) => {
                 if let Some(manager) = throttle_manager.as_ref() {
@@ -1891,18 +2084,18 @@ async fn handle_connect_mitm(
                     manager.record_trace(&failure.trace);
                 }
                 throttle_traces.push(failure.trace);
-            return respond_with_throttle_failure(
-                &mut tls_stream,
-                &https_request,
-                &session_sender,
-                started_at,
-                started_at_instant,
-                Some(tls_ms),
-                &failure.error,
-                map_traces.clone(),
-                throttle_traces,
-            )
-            .await;
+                return respond_with_throttle_failure(
+                    &mut tls_stream,
+                    &https_request,
+                    &session_sender,
+                    started_at,
+                    started_at_instant,
+                    Some(tls_ms),
+                    &failure.error,
+                    map_traces.clone(),
+                    throttle_traces,
+                )
+                .await;
             }
         }
     }
@@ -1912,7 +2105,8 @@ async fn handle_connect_mitm(
         None => {
             // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
             let is_ws = https_request.headers.iter().any(|(name, value)| {
-                name.as_str().eq_ignore_ascii_case("upgrade") && value.as_bytes().eq_ignore_ascii_case(b"websocket")
+                name.as_str().eq_ignore_ascii_case("upgrade")
+                    && value.as_bytes().eq_ignore_ascii_case(b"websocket")
             });
             if is_ws {
                 handle_https_websocket_upgrade(
@@ -2075,8 +2269,13 @@ async fn handle_connect_mitm(
                 }
             }
 
-            if let Some(selection) = throttle_selection.as_ref().filter(|selection| throttle_selection_matches_stage(selection, "response")) {
-                let trace = apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
+            if let Some(selection) = throttle_selection
+                .as_ref()
+                .filter(|selection| throttle_selection_matches_stage(selection, "response"))
+            {
+                let trace =
+                    apply_response_throttle(selection, upstream_response.response_body_size_bytes)
+                        .await;
                 if let Some(manager) = throttle_manager.as_ref() {
                     manager.record_trace(&trace);
                 }
@@ -2115,8 +2314,12 @@ async fn handle_connect_mitm(
             session_detail.map_traces = map_traces;
 
             if session_sender.send(session_detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
+                emit_log(
+                    "DEBUG",
+                    "session_send_dropped",
+                    &[("reason", "receiver_disconnected".to_string())],
+                );
+            }
 
             emit_log(
                 "DEBUG",
@@ -2125,7 +2328,10 @@ async fn handle_connect_mitm(
                     ("request_id", https_request.request_id.clone()),
                     ("host", host.clone()),
                     ("method", https_request.method.to_string()),
-                    ("status_code", upstream_response.status_code.as_u16().to_string()),
+                    (
+                        "status_code",
+                        upstream_response.status_code.as_u16().to_string(),
+                    ),
                     ("url", https_url),
                 ],
             );
@@ -2135,12 +2341,8 @@ async fn handle_connect_mitm(
         Err(error) => {
             let response_message = "The proxy could not reach the upstream HTTPS server.";
 
-            write_plain_text_response(
-                &mut tls_stream,
-                StatusCode::BAD_GATEWAY,
-                response_message,
-            )
-            .await?;
+            write_plain_text_response(&mut tls_stream, StatusCode::BAD_GATEWAY, response_message)
+                .await?;
 
             let detail = build_session_detail(
                 &https_request,
@@ -2162,8 +2364,12 @@ async fn handle_connect_mitm(
                 false,
             );
             if session_sender.send(detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
+                emit_log(
+                    "DEBUG",
+                    "session_send_dropped",
+                    &[("reason", "receiver_disconnected".to_string())],
+                );
+            }
 
             emit_log(
                 "ERROR",
@@ -2195,8 +2401,8 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
             .await
             .map_err(|_| "timed out waiting for client request headers".to_string())?;
 
-        let bytes_read = read_result
-            .map_err(|error| format!("failed to read from client stream: {error}"))?;
+        let bytes_read =
+            read_result.map_err(|error| format!("failed to read from client stream: {error}"))?;
 
         if bytes_read == 0 {
             return Err("client disconnected before sending headers".to_string());
@@ -2299,8 +2505,8 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
             .await
             .map_err(|_| "timed out waiting for client request body".to_string())?;
 
-        let bytes_read = read_result
-            .map_err(|error| format!("failed to read request body: {error}"))?;
+        let bytes_read =
+            read_result.map_err(|error| format!("failed to read request body: {error}"))?;
 
         if bytes_read == 0 {
             return Err("client disconnected before request body was fully received".to_string());
@@ -2337,7 +2543,6 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
     })
 }
 
-
 pub async fn send_direct_request(
     method: String,
     url: String,
@@ -2346,8 +2551,7 @@ pub async fn send_direct_request(
 ) -> Result<ProxySessionDetail, String> {
     let request_method = Method::from_bytes(method.as_bytes())
         .map_err(|e| format!("invalid HTTP method '{method}': {e}"))?;
-    let request_url = Url::parse(&url)
-        .map_err(|e| format!("invalid URL '{url}': {e}"))?;
+    let request_url = Url::parse(&url).map_err(|e| format!("invalid URL '{url}': {e}"))?;
 
     let host = request_url
         .host_str()
@@ -2377,10 +2581,7 @@ pub async fn send_direct_request(
         .map(|b| b.as_bytes().to_vec())
         .unwrap_or_default();
 
-    let raw_request = build_raw_http_head(
-        &format!("{method} {path} HTTP/1.1"),
-        &headers,
-    );
+    let raw_request = build_raw_http_head(&format!("{method} {path} HTTP/1.1"), &headers);
 
     let client = direct_http_client()?;
 
@@ -2395,9 +2596,10 @@ pub async fn send_direct_request(
     let started_at_instant = Instant::now();
 
     let waiting_started_at = Instant::now();
-    let response = request_builder.send().await.map_err(|e| {
-        format!("failed to send request to '{url}': {e}")
-    })?;
+    let response = request_builder
+        .send()
+        .await
+        .map_err(|e| format!("failed to send request to '{url}': {e}"))?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
     let status_code = response.status();
@@ -2533,8 +2735,12 @@ async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     detail.map_traces = map_traces;
     detail.throttle_traces = throttle_traces;
     if session_sender.send(detail).await.is_err() {
-                        emit_log("DEBUG", "session_send_dropped", &[("reason", "receiver_disconnected".to_string())]);
-                    }
+        emit_log(
+            "DEBUG",
+            "session_send_dropped",
+            &[("reason", "receiver_disconnected".to_string())],
+        );
+    }
 
     emit_log(
         "WARN",

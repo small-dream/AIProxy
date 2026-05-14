@@ -205,7 +205,10 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
     }
 
     if !errors.is_empty() {
-        return Err(format!("failed to restore GNOME proxy: {}", errors.join(", ")));
+        return Err(format!(
+            "failed to restore GNOME proxy: {}",
+            errors.join(", ")
+        ));
     }
 
     log_info(
@@ -306,10 +309,7 @@ fn parse_gsettings_array(raw: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    let inner = raw
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .trim();
+    let inner = raw.trim_start_matches('[').trim_end_matches(']').trim();
 
     if inner.is_empty() {
         return Vec::new();
@@ -384,7 +384,10 @@ fn restore_kde(snapshot: Option<&KdeProxySnapshot>) -> Result<(), String> {
     }
 
     if !errors.is_empty() {
-        return Err(format!("failed to restore KDE proxy: {}", errors.join(", ")));
+        return Err(format!(
+            "failed to restore KDE proxy: {}",
+            errors.join(", ")
+        ));
     }
 
     log_info(
@@ -433,7 +436,11 @@ fn kread_config(key: &str) -> Option<String> {
     match output {
         Ok(o) if o.status.success() => {
             let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if val.is_empty() { None } else { Some(val) }
+            if val.is_empty() {
+                None
+            } else {
+                Some(val)
+            }
         }
         _ => None,
     }
