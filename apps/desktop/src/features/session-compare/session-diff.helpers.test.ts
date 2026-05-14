@@ -123,4 +123,90 @@ describe("buildSessionDiffPayload", () => {
     expect(body?.note).toContain("excluded");
     expect(JSON.stringify(body)).not.toContain("secret body");
   });
+
+  it("keeps body diff lazy when summary mode is used", () => {
+    const payload = buildSessionDiffPayload(
+      detail({
+        requestBody: { inlineText: JSON.stringify({ name: "Ada" }), sizeBytes: 14 },
+      }),
+      detail({
+        summary: summary({ id: "session-2" }),
+        requestBody: { inlineText: JSON.stringify({ name: "Grace" }), sizeBytes: 16 },
+      }),
+      { bodyDiffMode: "summary", includeBodyForAi: true, redact: false },
+    );
+
+    const body = payload.sections.find((section) => section.key === "requestBody");
+
+    expect(body?.canExpand).toBe(true);
+    expect(body?.note).toContain("collapsed");
+    expect(JSON.stringify(body)).not.toContain("$.name");
+  });
+
+  it("reports binary body state explicitly", () => {
+    const payload = buildSessionDiffPayload(
+      detail({
+        responseBody: { mimeType: "application/octet-stream", sizeBytes: 12 },
+      }),
+      detail({
+        summary: summary({ id: "session-2" }),
+        responseBody: { mimeType: "application/octet-stream", sizeBytes: 16 },
+      }),
+      { includeBodyForAi: true, redact: false },
+    );
+
+    const body = payload.sections.find((section) => section.key === "responseBody");
+
+    expect(body?.note).toContain("not available as renderable text");
+    expect(body?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "body.text",
+          before: "Non-text or binary",
+          after: "Non-text or binary",
+        }),
+      ]),
+    );
+  });
+
+  it("guards large body diffs before parsing detailed entries", () => {
+    const largeBody = "a".repeat(300_000);
+    const payload = buildSessionDiffPayload(
+      detail({
+        requestBody: { inlineText: largeBody, sizeBytes: largeBody.length },
+      }),
+      detail({
+        summary: summary({ id: "session-2" }),
+        requestBody: { inlineText: `${largeBody}b`, sizeBytes: largeBody.length + 1 },
+      }),
+      { includeBodyForAi: true, redact: false },
+    );
+
+    const body = payload.sections.find((section) => section.key === "requestBody");
+
+    expect(body?.truncated).toBe(true);
+    expect(body?.truncationReason).toContain("size guard");
+    expect(body?.entries.some((entry) => entry.path.startsWith("line "))).toBe(false);
+  });
+
+  it("marks bounded body entries as truncated", () => {
+    const leftBody = Array.from({ length: 5 }, (_, index) => `left-${index}`).join("\n");
+    const rightBody = Array.from({ length: 5 }, (_, index) => `right-${index}`).join("\n");
+    const payload = buildSessionDiffPayload(
+      detail({
+        requestBody: { inlineText: leftBody, sizeBytes: leftBody.length },
+      }),
+      detail({
+        summary: summary({ id: "session-2" }),
+        requestBody: { inlineText: rightBody, sizeBytes: rightBody.length },
+      }),
+      { includeBodyForAi: true, maxBodyEntries: 2, redact: false },
+    );
+
+    const body = payload.sections.find((section) => section.key === "requestBody");
+
+    expect(body?.entries).toHaveLength(2);
+    expect(body?.totalEntries).toBe(5);
+    expect(body?.truncated).toBe(true);
+  });
 });

@@ -45,7 +45,11 @@ export type SessionDiffSection = {
   changed: number;
   unchanged: number;
   entries: SessionDiffEntry[];
+  canExpand?: boolean | undefined;
   note?: string | undefined;
+  totalEntries?: number | undefined;
+  truncated?: boolean | undefined;
+  truncationReason?: string | undefined;
 };
 
 export type SessionDiffPayload = {

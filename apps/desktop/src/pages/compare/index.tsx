@@ -1,5 +1,7 @@
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
+import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import {
@@ -41,6 +43,10 @@ type DetailState = {
   error?: string | undefined;
 };
 
+const BODY_DIFF_DISPLAY_ENTRY_LIMIT = 240;
+const DIFF_SECTION_VISIBLE_CHANGE_LIMIT = 120;
+const LAZY_BODY_DIFF_SECTIONS = new Set(["requestBody", "responseBody"]);
+
 export function ComparePage() {
   const { locale, t } = useI18n();
   const navigate = useNavigate();
@@ -52,6 +58,8 @@ export function ComparePage() {
   const [includeBodyForAi, setIncludeBodyForAi] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ loading: false });
+  const [expandedBodySections, setExpandedBodySections] = useState<Set<string>>(() => new Set());
+  const [expandedEntrySections, setExpandedEntrySections] = useState<Set<string>>(() => new Set());
   const previousCompareKeyRef = useRef("");
   const aiSettingsQuery = useQuery({
     queryKey: ["ai-settings"],
@@ -117,17 +125,33 @@ export function ComparePage() {
     }
     previousCompareKeyRef.current = compareKey;
     summaryMutation.reset();
+    setExpandedBodySections(new Set());
+    setExpandedEntrySections(new Set());
   }, [includeBodyForAi, leftId, rightId, summaryMutation]);
 
-  const payload = useMemo(() => {
+  const displayPayload = useMemo(() => {
     if (!detailState.left || !detailState.right) {
       return undefined;
     }
     return buildSessionDiffPayload(detailState.left, detailState.right, {
+      bodyDiffMode: "summary",
+      expandedBodySections,
+      includeBodyForAi,
+      maxBodyEntries: BODY_DIFF_DISPLAY_ENTRY_LIMIT,
+      redact: true,
+    });
+  }, [detailState.left, detailState.right, expandedBodySections, includeBodyForAi]);
+
+  const buildAiPayload = () => {
+    if (!detailState.left || !detailState.right) {
+      return undefined;
+    }
+    return buildSessionDiffPayload(detailState.left, detailState.right, {
+      bodyDiffMode: "diff",
       includeBodyForAi,
       redact: true,
     });
-  }, [detailState.left, detailState.right, includeBodyForAi]);
+  };
 
   const selectedLeft = useMemo(
     () => sessions.find((session) => session.id === leftId),
@@ -149,8 +173,33 @@ export function ComparePage() {
     setSearchParams(params);
   }
 
-  const previewText = payload ? JSON.stringify(payload, null, 2) : "";
-  const canGenerate = Boolean(payload && aiConfigured && !detailState.loading);
+  const previewPayload = previewOpen ? buildAiPayload() : undefined;
+  const previewText = previewPayload ? JSON.stringify(previewPayload, null, 2) : "";
+  const canGenerate = Boolean(displayPayload && aiConfigured && !detailState.loading);
+
+  function toggleBodySection(sectionKey: string) {
+    setExpandedBodySections((current) => {
+      const next = new Set(current);
+      if (next.has(sectionKey)) {
+        next.delete(sectionKey);
+      } else {
+        next.add(sectionKey);
+      }
+      return next;
+    });
+  }
+
+  function toggleEntrySection(sectionKey: string) {
+    setExpandedEntrySections((current) => {
+      const next = new Set(current);
+      if (next.has(sectionKey)) {
+        next.delete(sectionKey);
+      } else {
+        next.add(sectionKey);
+      }
+      return next;
+    });
+  }
 
   return (
     <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
@@ -174,7 +223,7 @@ export function ComparePage() {
             variant="outlined"
             startIcon={<VisibilityRoundedIcon />}
             onClick={() => setPreviewOpen(true)}
-            disabled={!payload}
+            disabled={!displayPayload}
           >
             {t("comparePage.previewPayload")}
           </Button>
@@ -182,7 +231,12 @@ export function ComparePage() {
             size="small"
             variant="contained"
             startIcon={<AutoFixHighRoundedIcon />}
-            onClick={() => payload && summaryMutation.mutate(payload)}
+            onClick={() => {
+              const aiPayload = buildAiPayload();
+              if (aiPayload) {
+                summaryMutation.mutate(aiPayload);
+              }
+            }}
             disabled={!canGenerate || summaryMutation.isPending}
           >
             {summaryMutation.isPending ? t("comparePage.generating") : t("comparePage.generateSummary")}
@@ -261,12 +315,19 @@ export function ComparePage() {
               {detailState.loading ? <Chip size="small" label={t("comparePage.loadingDetails")} /> : null}
             </Stack>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-              {!payload ? (
+              {!displayPayload ? (
                 <Alert severity="info">{t("comparePage.emptyState")}</Alert>
               ) : (
                 <Stack spacing={1.25}>
-                  {payload.sections.map((section) => (
-                    <DiffSectionCard key={section.key} section={section} />
+                  {displayPayload.sections.map((section) => (
+                    <DiffSectionCard
+                      key={section.key}
+                      bodyDiffExpanded={expandedBodySections.has(section.key)}
+                      displayExpanded={expandedEntrySections.has(section.key)}
+                      section={section}
+                      onToggleBodyDiff={() => toggleBodySection(section.key)}
+                      onToggleDisplay={() => toggleEntrySection(section.key)}
+                    />
                   ))}
                 </Stack>
               )}
@@ -358,6 +419,7 @@ function SessionSelect({
   value: string;
 }) {
   const { t } = useI18n();
+  const hasSelectedSession = !value || sessions.some((session) => session.id === value);
 
   return (
     <FormControl size="small" fullWidth>
@@ -366,6 +428,11 @@ function SessionSelect({
         <MenuItem value="">
           {loading ? t("comparePage.loadingSessions") : t("comparePage.selectSession")}
         </MenuItem>
+        {value && !hasSelectedSession ? (
+          <MenuItem value={value}>
+            {loading ? t("comparePage.loadingSessions") : t("comparePage.missingSession")}
+          </MenuItem>
+        ) : null}
         {sessions.map((session) => (
           <MenuItem key={session.id} value={session.id}>
             {`${session.method} ${session.host}${session.path} - ${session.statusCode} - ${session.startedAt}`}
@@ -376,9 +443,30 @@ function SessionSelect({
   );
 }
 
-function DiffSectionCard({ section }: { section: SessionDiffPayload["sections"][number] }) {
+function DiffSectionCard({
+  bodyDiffExpanded,
+  displayExpanded,
+  onToggleBodyDiff,
+  onToggleDisplay,
+  section,
+}: {
+  bodyDiffExpanded: boolean;
+  displayExpanded: boolean;
+  onToggleBodyDiff: () => void;
+  onToggleDisplay: () => void;
+  section: SessionDiffPayload["sections"][number];
+}) {
   const { t } = useI18n();
-  const visibleEntries = section.entries.filter((entry) => entry.kind !== "unchanged").slice(0, 120);
+  const isLazyBodySection = LAZY_BODY_DIFF_SECTIONS.has(section.key);
+  const isCollapsedBodyMetadata = isLazyBodySection && !bodyDiffExpanded;
+  const changedEntries = isCollapsedBodyMetadata
+    ? section.entries
+    : section.entries.filter((entry) => entry.kind !== "unchanged");
+  const visibleEntries = displayExpanded
+    ? changedEntries
+    : changedEntries.slice(0, DIFF_SECTION_VISIBLE_CHANGE_LIMIT);
+  const hasDisplayOverflow = changedEntries.length > DIFF_SECTION_VISIBLE_CHANGE_LIMIT;
+  const canToggleBodyDiff = Boolean(isLazyBodySection && (section.canExpand || bodyDiffExpanded) && onToggleBodyDiff);
 
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}>
@@ -409,6 +497,23 @@ function DiffSectionCard({ section }: { section: SessionDiffPayload["sections"][
             {section.note}
           </Typography>
         ) : null}
+        {section.truncated ? (
+          <Alert severity="warning" sx={{ borderRadius: 0 }}>
+            {section.truncationReason ?? t("comparePage.diffTruncated")}
+          </Alert>
+        ) : null}
+        {canToggleBodyDiff ? (
+          <Box sx={{ px: 1.25, py: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={bodyDiffExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
+              onClick={onToggleBodyDiff}
+            >
+              {bodyDiffExpanded ? t("comparePage.collapseBodyDiff") : t("comparePage.expandBodyDiff")}
+            </Button>
+          </Box>
+        ) : null}
         {visibleEntries.length === 0 ? (
           <Typography color="text.secondary" variant="body2" sx={{ px: 1.25, py: 1 }}>
             {t("comparePage.noVisibleChanges")}
@@ -432,6 +537,20 @@ function DiffSectionCard({ section }: { section: SessionDiffPayload["sections"][
             <DiffValue value={entry.after} />
           </Box>
         ))}
+        {hasDisplayOverflow ? (
+          <Box sx={{ px: 1.25, py: 1 }}>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={displayExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
+              onClick={onToggleDisplay}
+            >
+              {displayExpanded
+                ? t("comparePage.showFewerChanges")
+                : t("comparePage.showAllChanges", { count: changedEntries.length })}
+            </Button>
+          </Box>
+        ) : null}
       </Stack>
     </Paper>
   );

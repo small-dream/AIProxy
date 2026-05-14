@@ -12,9 +12,14 @@ import { redactDiffPayload } from "./redaction.helpers";
 
 const MAX_ENTRY_VALUE_LENGTH = 2_000;
 const MAX_BODY_ENTRIES_FOR_AI = 80;
+const DEFAULT_BODY_DIFF_CHAR_GUARD = 256_000;
 
 export type CompareBuildOptions = {
+  bodyDiffMode?: "diff" | "summary";
+  expandedBodySections?: Iterable<string>;
   includeBodyForAi: boolean;
+  maxBodyCharsForDiff?: number;
+  maxBodyEntries?: number;
   redact: boolean;
 };
 
@@ -27,9 +32,9 @@ export function buildSessionDiffPayload(
     diffSummary(left.summary, right.summary),
     diffEntries("query", "Query", left.queryParams, right.queryParams),
     diffEntries("requestHeaders", "Request Headers", left.requestHeaders, right.requestHeaders),
-    diffBody("requestBody", "Request Body", getBodyText(left.requestBody), getBodyText(right.requestBody), options),
+    diffBody("requestBody", "Request Body", left.requestBody, right.requestBody, options),
     diffEntries("responseHeaders", "Response Headers", left.responseHeaders, right.responseHeaders),
-    diffBody("responseBody", "Response Body", getBodyText(left.responseBody), getBodyText(right.responseBody), options),
+    diffBody("responseBody", "Response Body", left.responseBody, right.responseBody, options),
     diffTiming(left.timing, right.timing),
   ];
 
@@ -136,41 +141,139 @@ function collectEntries(entries: HeaderEntry[]) {
 function diffBody(
   key: string,
   title: string,
-  leftBody: string | undefined,
-  rightBody: string | undefined,
+  leftBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
   options: CompareBuildOptions,
 ): SessionDiffSection {
+  const leftBodyText = getBodyText(leftBody);
+  const rightBodyText = getBodyText(rightBody);
+  const metadataEntries = diffBodyMetadata(leftBody, rightBody);
+
   if (!leftBody && !rightBody) {
     return buildSection(key, title, [], "No body captured on either side.");
   }
+
   if (!options.includeBodyForAi) {
     return buildSection(
       key,
       title,
-      [compareScalar("body", describeBody(leftBody), describeBody(rightBody))],
+      metadataEntries,
       "Body context is excluded from the AI payload.",
     );
   }
 
-  const leftJson = parseJson(leftBody);
-  const rightJson = parseJson(rightBody);
-  if (leftJson.ok && rightJson.ok) {
+  if (!leftBodyText && !rightBodyText) {
     return buildSection(
       key,
       title,
-      diffJsonValues("$", leftJson.value, rightJson.value).slice(0, MAX_BODY_ENTRIES_FOR_AI),
+      metadataEntries,
+      "Body is captured but is not available as renderable text, so text diff is unavailable.",
     );
   }
 
+  const expandedBodySections = new Set(options.expandedBodySections ?? []);
+  const bodyDiffMode = options.bodyDiffMode ?? "diff";
+  if (bodyDiffMode === "summary" && !expandedBodySections.has(key)) {
+    return buildSection(
+      key,
+      title,
+      metadataEntries,
+      "Body detail is collapsed. Expand to compute a bounded text or JSON diff.",
+      { canExpand: true },
+    );
+  }
+
+  const totalBodyChars = (leftBodyText?.length ?? 0) + (rightBodyText?.length ?? 0);
+  const maxBodyChars = options.maxBodyCharsForDiff ?? DEFAULT_BODY_DIFF_CHAR_GUARD;
+  if (totalBodyChars > maxBodyChars) {
+    return buildSection(
+      key,
+      title,
+      metadataEntries,
+      `Detailed body diff skipped because the captured text is ${formatNumber(totalBodyChars)} chars, above the ${formatNumber(maxBodyChars)} char guard.`,
+      { truncated: true, truncationReason: "Body diff skipped by size guard." },
+    );
+  }
+
+  const entryLimit = options.maxBodyEntries ?? MAX_BODY_ENTRIES_FOR_AI;
+  const leftJson = parseJson(leftBodyText);
+  const rightJson = parseJson(rightBodyText);
+  const entries = leftJson.ok && rightJson.ok
+    ? diffJsonValues("$", leftJson.value, rightJson.value)
+    : diffTextLines(leftBodyText ?? "", rightBodyText ?? "");
+
+  if (leftJson.ok && rightJson.ok) {
+    const truncated = entries.length > entryLimit;
+    return buildSection(
+      key,
+      title,
+      entries.slice(0, entryLimit),
+      buildBodyNote(leftBody, rightBody),
+      {
+        counts: countEntries(entries),
+        totalEntries: entries.length,
+        truncated,
+        ...(truncated ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` } : {}),
+      },
+    );
+  }
+
+  const truncated = entries.length > entryLimit;
   return buildSection(
     key,
     title,
-    diffTextLines(leftBody ?? "", rightBody ?? "").slice(0, MAX_BODY_ENTRIES_FOR_AI),
+    entries.slice(0, entryLimit),
+    buildBodyNote(leftBody, rightBody),
+    {
+      counts: countEntries(entries),
+      totalEntries: entries.length,
+      truncated,
+      ...(truncated ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` } : {}),
+    },
   );
 }
 
-function describeBody(value: string | undefined) {
-  return value ? `${value.length} chars captured` : "No body";
+function diffBodyMetadata(
+  leftBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+): SessionDiffEntry[] {
+  return [
+    compareScalar("body.sizeBytes", describeBodySize(leftBody), describeBodySize(rightBody)),
+    compareScalar("body.mimeType", leftBody?.mimeType ?? "", rightBody?.mimeType ?? ""),
+    compareScalar("body.encoding", leftBody?.encoding ?? "", rightBody?.encoding ?? ""),
+    compareScalar("body.text", describeTextAvailability(leftBody), describeTextAvailability(rightBody)),
+    compareScalar("body.truncated", describeBoolean(leftBody?.truncated), describeBoolean(rightBody?.truncated)),
+  ];
+}
+
+function describeBodySize(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
+  return body ? `${body.sizeBytes} bytes` : "No body";
+}
+
+function describeTextAvailability(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
+  if (!body) {
+    return "No body";
+  }
+  if (getBodyText(body)) {
+    return "Text available";
+  }
+  if (body.textDeferred) {
+    return "Text deferred";
+  }
+  return "Non-text or binary";
+}
+
+function describeBoolean(value: boolean | undefined) {
+  return value === undefined ? "" : String(value);
+}
+
+function buildBodyNote(
+  leftBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+) {
+  return leftBody?.truncated || rightBody?.truncated
+    ? "One or both captured bodies were truncated by the proxy."
+    : undefined;
 }
 
 function parseJson(value: string | undefined): { ok: true; value: unknown } | { ok: false } {
@@ -251,16 +354,45 @@ function buildSection(
   title: string,
   entries: SessionDiffEntry[],
   note?: string,
+  metadata: {
+    canExpand?: boolean;
+    counts?: {
+      added: number;
+      changed: number;
+      removed: number;
+      unchanged: number;
+    };
+    totalEntries?: number;
+    truncated?: boolean;
+    truncationReason?: string;
+  } = {},
 ): SessionDiffSection {
   return {
     key,
     title,
+    ...countEntries(entries, metadata.counts),
+    entries,
+    ...(metadata.canExpand !== undefined ? { canExpand: metadata.canExpand } : {}),
+    ...(note ? { note } : {}),
+    ...(metadata.totalEntries !== undefined ? { totalEntries: metadata.totalEntries } : {}),
+    ...(metadata.truncated !== undefined ? { truncated: metadata.truncated } : {}),
+    ...(metadata.truncationReason ? { truncationReason: metadata.truncationReason } : {}),
+  };
+}
+
+function countEntries(
+  entries: SessionDiffEntry[],
+  override?: { added: number; changed: number; removed: number; unchanged: number },
+) {
+  if (override) {
+    return override;
+  }
+
+  return {
     added: entries.filter((entry) => entry.kind === "added").length,
     removed: entries.filter((entry) => entry.kind === "removed").length,
     changed: entries.filter((entry) => entry.kind === "changed").length,
     unchanged: entries.filter((entry) => entry.kind === "unchanged").length,
-    entries,
-    ...(note ? { note } : {}),
   };
 }
 
@@ -279,4 +411,8 @@ function truncateValue(value: string | undefined) {
   return value.length > MAX_ENTRY_VALUE_LENGTH
     ? `${value.slice(0, MAX_ENTRY_VALUE_LENGTH)}...`
     : value;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
 }
