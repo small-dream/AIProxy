@@ -80,6 +80,8 @@ const compactFieldSx = {
 };
 
 const AI_SETTINGS_QUERY_KEY = ["ai-settings"];
+const AI_DEFAULT_TEMPERATURE = 0.2;
+const AI_DEFAULT_TIMEOUT_MS = 60_000;
 
 function ProxySettingsSection() {
   const { t } = useI18n();
@@ -378,7 +380,8 @@ function AiModelSettingsSection() {
     mutationFn: (input: SaveAiSettingsInput) => saveAiSettings(input),
     onSuccess: (nextSettings) => {
       queryClient.setQueryData(AI_SETTINGS_QUERY_KEY, nextSettings);
-      setApiKeyDraft("");
+      setApiKeyDraft(nextSettings.maskedApiKey ?? "");
+      setApiKeyDraftDirty(false);
       setFeedback({ severity: "success", message: t("settingsPage.aiSaveSuccess") });
     },
     onError: (error) => {
@@ -401,10 +404,11 @@ function AiModelSettingsSection() {
     provider: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1-mini",
-    temperature: 0.2,
-    timeoutMs: 30_000,
+    temperature: AI_DEFAULT_TEMPERATURE,
+    timeoutMs: AI_DEFAULT_TIMEOUT_MS,
   });
   const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [apiKeyDraftDirty, setApiKeyDraftDirty] = useState(false);
   const [feedback, setFeedback] = useState<{ severity: "error" | "info" | "success"; message: string } | null>(null);
 
   useEffect(() => {
@@ -416,15 +420,17 @@ function AiModelSettingsSection() {
       provider: settings.provider,
       baseUrl: settings.baseUrl,
       model: settings.model,
-      temperature: settings.temperature,
-      timeoutMs: settings.timeoutMs,
+      temperature: AI_DEFAULT_TEMPERATURE,
+      timeoutMs: AI_DEFAULT_TIMEOUT_MS,
     });
+    setApiKeyDraft(settings.maskedApiKey ?? "");
+    setApiKeyDraftDirty(false);
   }, [settings]);
 
   function handleSave(clearApiKey = false) {
     saveMutation.mutate({
       ...draft,
-      apiKey: apiKeyDraft,
+      apiKey: apiKeyDraftDirty ? apiKeyDraft : undefined,
       clearApiKey,
     });
   }
@@ -440,7 +446,11 @@ function AiModelSettingsSection() {
           sx={{
             display: "grid",
             gap: 1.5,
-            gridTemplateColumns: { md: "180px minmax(240px, 1fr) minmax(180px, 0.6fr)", xs: "1fr" },
+            gridTemplateColumns: {
+              lg: "260px minmax(320px, 1fr) minmax(240px, 0.8fr)",
+              md: "minmax(240px, 0.8fr) minmax(280px, 1fr) minmax(220px, 0.8fr)",
+              xs: "1fr",
+            },
           }}
         >
           <FormControl size="small" sx={compactFieldSx}>
@@ -475,34 +485,29 @@ function AiModelSettingsSection() {
           sx={{
             display: "grid",
             gap: 1.5,
-            gridTemplateColumns: { md: "minmax(280px, 1fr) 140px 160px", xs: "1fr" },
+            gridTemplateColumns: "1fr",
           }}
         >
           <TextField
             label={t("settingsPage.aiApiKey")}
-            placeholder={settings?.maskedApiKey ?? t("settingsPage.aiApiKeyPlaceholder")}
+            placeholder={t("settingsPage.aiApiKeyPlaceholder")}
             size="small"
-            type="password"
+            type={apiKeyDraftDirty ? "password" : "text"}
             value={apiKeyDraft}
-            onChange={(event) => setApiKeyDraft(event.target.value)}
-            sx={compactFieldSx}
-          />
-          <TextField
-            label={t("settingsPage.aiTemperature")}
-            size="small"
-            type="number"
-            value={draft.temperature}
-            onChange={(event) => setDraft({ ...draft, temperature: Number(event.target.value) })}
-            inputProps={{ min: 0, max: 2, step: 0.1 }}
-            sx={compactFieldSx}
-          />
-          <TextField
-            label={t("settingsPage.aiTimeout")}
-            size="small"
-            type="number"
-            value={draft.timeoutMs}
-            onChange={(event) => setDraft({ ...draft, timeoutMs: Number(event.target.value) })}
-            inputProps={{ min: 5000, max: 180000, step: 1000 }}
+            onFocus={() => {
+              if (!apiKeyDraftDirty && settings?.hasApiKey) {
+                setApiKeyDraft("");
+              }
+            }}
+            onBlur={() => {
+              if (!apiKeyDraftDirty && settings?.maskedApiKey) {
+                setApiKeyDraft(settings.maskedApiKey);
+              }
+            }}
+            onChange={(event) => {
+              setApiKeyDraft(event.target.value);
+              setApiKeyDraftDirty(true);
+            }}
             sx={compactFieldSx}
           />
         </Box>
@@ -533,11 +538,6 @@ function AiModelSettingsSection() {
           >
             {testMutation.isPending ? t("settingsPage.aiTesting") : t("settingsPage.aiTest")}
           </Button>
-          {settings?.hasApiKey ? (
-            <Typography color="text.secondary" variant="caption">
-              {t("settingsPage.aiKeyConfigured", { key: settings.maskedApiKey ?? "" })}
-            </Typography>
-          ) : null}
         </Stack>
 
         {feedback ? (

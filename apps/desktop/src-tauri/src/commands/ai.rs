@@ -7,7 +7,7 @@ const DEFAULT_PROVIDER: &str = "openai-compatible";
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_MODEL: &str = "gpt-4.1-mini";
 const DEFAULT_TEMPERATURE: f64 = 0.2;
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 const MAX_AI_PAYLOAD_BYTES: usize = 96 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,8 +96,8 @@ pub async fn save_ai_settings(
     if model.is_empty() {
         return Err(app_error("INVALID_AI_SETTINGS", "Model is required."));
     }
-    let temperature = input.temperature.clamp(0.0, 2.0);
-    let timeout_ms = input.timeout_ms.clamp(5_000, 180_000);
+    let _client_temperature = input.temperature;
+    let _client_timeout_ms = input.timeout_ms;
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("save_ai_settings", move || {
@@ -121,8 +121,8 @@ pub async fn save_ai_settings(
             base_url,
             model,
             api_key,
-            temperature,
-            timeout_ms,
+            temperature: DEFAULT_TEMPERATURE,
+            timeout_ms: DEFAULT_TIMEOUT_MS,
             updated_at: Utc::now().to_rfc3339(),
         };
         aiproxy_db::ai::upsert_ai_settings(&conn, &row)?;
@@ -209,7 +209,11 @@ async fn load_configured_ai_settings(app_state: &AppState) -> Result<aiproxy_db:
         return Err(app_error("AI_API_KEY_MISSING", "Configure an AI API key in Settings first."));
     }
 
-    Ok(row)
+    Ok(aiproxy_db::ai::AiSettingsRow {
+        temperature: DEFAULT_TEMPERATURE,
+        timeout_ms: DEFAULT_TIMEOUT_MS,
+        ..row
+    })
 }
 
 async fn call_chat_completion(
@@ -268,8 +272,8 @@ fn row_to_public(row: Option<&aiproxy_db::ai::AiSettingsRow>) -> AiSettingsPubli
             model: row.model.clone(),
             has_api_key: !row.api_key.trim().is_empty(),
             masked_api_key: mask_api_key(&row.api_key),
-            temperature: row.temperature,
-            timeout_ms: row.timeout_ms,
+            temperature: DEFAULT_TEMPERATURE,
+            timeout_ms: DEFAULT_TIMEOUT_MS,
             updated_at: Some(row.updated_at.clone()),
         },
         None => AiSettingsPublic {
