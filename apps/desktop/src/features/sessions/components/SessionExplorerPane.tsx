@@ -577,6 +577,7 @@ function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, on
             <Typography
               sx={(theme) => ({
                 ...getSessionTreeTextSx(theme),
+                color: selected ? "text.primary" : "text.secondary",
                 flex: "0 0 auto",
                 whiteSpace: "nowrap",
               })}
@@ -715,7 +716,7 @@ function getResourceTooltipLabel(
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
-  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, 14) });
+  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, resourceKind === "warning" ? 13.5 : 14) });
 
   if (resourceKind === "api") {
     return <JsonFileIcon sx={sx} />;
@@ -788,7 +789,7 @@ function getResourceColor(theme: Theme, resourceKind: SessionExplorerResourceKin
   }
 
   if (resourceKind === "warning") {
-    return theme.palette.error.main;
+    return alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.88 : 0.76);
   }
 
   if (resourceKind === "api") {
