@@ -661,6 +661,7 @@ erDiagram
 - `SessionsPage`
 - `ComposePage`
 - `CollectionsPage`
+- `ComparePage`
 - `RulesPage`
 - `ThrottlingPage`
 - `CertificatesPage`
@@ -678,10 +679,11 @@ erDiagram
 - `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `CollectionsPage`：三栏布局 — `CollectionTreePane`（集合/文件夹树）+ `CollectionItemListPane`（请求列表）+ `CollectionItemEditorPane`（请求编辑器，复用 ComposeRequestSection + ComposeResponseSection）。底部环境选择器支持切换环境，变量替换引擎支持 `{{key}}` 语法
+- `ComparePage`：独立 AI 对比工作台；顶部选择 Left / Right sessions，中间展示 summary / query / headers / body / timing diff，右侧 AI Summary 面板通过 `summarize_session_diff` 手动生成解释。AI payload 默认脱敏，模型配置来自 Settings 的 AI Model section
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Mapping / Script）；`Mapping` 内部用分段控制切换 Map Local / Map Remote / DNS，规则编辑采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Runtime Status Bar` + 左侧 `Profiles / Rules` 切换列表 + 右侧 `Profile Editor / Rule Scope Editor`；支持全局 Profile、临时启用、一键关闭、按 URL / Method / Stage 定向规则
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
-- `SettingsPage`：当前已实现 `Proxy Presets` + `Language & Region` + `Appearance` 三个设置区块，后续可扩展 `Settings Navigation` + `Settings Content Pane`
+- `SettingsPage`：当前已实现 `Proxy Presets` + `AI Model` + `Language & Region` + `Appearance` 等设置区块；AI Model 使用本地 SQLite 保存 OpenAI-compatible 配置，API Key 不回传前端明文
 
 ## 11.2 功能模块拆分
 
@@ -696,6 +698,8 @@ erDiagram
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现 P0/P1`：ThrottlingPage 工作台 + use-throttle-profiles hooks + 预设 / 自定义 Profile + 定向 Throttling Rule + Session 级 Throttling Trace + Runtime Stats + Sessions 过滤 / 右键创建规则
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口；前端生成 Session Snapshot / HAR / cURL 内容后通过 `save_text_file` 写入下载目录
+- `session-compare` — `已实现首版`：ComparePage + session-diff.helpers + redaction.helpers + Sessions 右键对比入口；支持 JSON path diff、文本行 diff、Header / Query 结构化 diff 与 AI 总结
+- `ai` — `已实现首版`：`ai_settings` SQLite 表 + Rust `commands/ai.rs` + 前端 `services/commands/ai.ts`；支持 OpenAI-compatible Chat Completions、连接测试、diff 总结
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层
@@ -828,7 +832,7 @@ project-root/
 
 ### 命令处理三层同构原则
 
-为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`certificates / collections / compose / environments / files / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
+为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`ai / certificates / collections / compose / environments / files / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
 
 - Rust 命令层：`apps/desktop/src-tauri/src/commands/<domain>.rs`，`mod.rs` 仅做 `mod` 声明与 `pub use` 汇聚，不写业务实现
 - 前端命令客户端：`apps/desktop/src/services/commands/<domain>.ts`，`index.ts` 仅做 barrel re-export，`runtime.ts` 承载 `invokeCommand` 等基础设施

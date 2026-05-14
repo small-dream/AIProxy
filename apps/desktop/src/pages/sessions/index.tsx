@@ -79,6 +79,7 @@ const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
 const SELECTED_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.selectedSessionId";
 const FOCUSED_HOSTS_STORAGE_KEY = "aiproxy.sessions.focusedHosts";
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
+const COMPARE_BASE_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.compareBaseSessionId";
 
 export function SessionsPage() {
   const { t } = useI18n();
@@ -132,6 +133,9 @@ export function SessionsPage() {
     () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
   );
   const [showOnlyThrottled, setShowOnlyThrottled] = useState(false);
+  const [compareBaseSessionId, setCompareBaseSessionId] = useState(() =>
+    readStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY) ?? "",
+  );
   const [sessionSelectionNonce, setSessionSelectionNonce] = useState(0);
   const { data: throttledSessionIds = [] } = useQuery({
     queryKey: ["throttled-session-ids", "default"],
@@ -637,6 +641,30 @@ export function SessionsPage() {
     });
   }, [navigate]);
 
+  const handleSetCompareBase = useCallback((session: SessionSummary) => {
+    setCompareBaseSessionId(session.id);
+    writeStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY, session.id);
+    setImportSnackbarMessage(t("sessionsPage.compareBaseSet", {
+      method: session.method,
+      path: session.path,
+    }));
+  }, [t]);
+
+  const handleCompareWith = useCallback((session: SessionSummary) => {
+    const left = compareBaseSessionId && compareBaseSessionId !== session.id
+      ? compareBaseSessionId
+      : selectedSession?.id && selectedSession.id !== session.id
+        ? selectedSession.id
+        : "";
+
+    if (!left) {
+      handleSetCompareBase(session);
+      return;
+    }
+
+    navigate(`/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(session.id)}`);
+  }, [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession?.id]);
+
   const handleAddContainer = useCallback(() => {
     setContainerState((currentState) => createAdditionalSessionContainer(currentState));
   }, []);
@@ -944,6 +972,7 @@ export function SessionsPage() {
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
+        onCompareWith={handleCompareWith}
         onCopyCurl={handleCopyCurl}
         onCopyRequest={handleCopyRequest}
         onCopyResponse={handleCopyResponse}
@@ -958,6 +987,7 @@ export function SessionsPage() {
         onRepeat={handleRepeatSession}
         onSaveResponse={handleSaveResponse}
         onSaveToCollection={handleSaveToCollection}
+        onSetCompareBase={handleSetCompareBase}
         onStopIgnoringHost={handleStopIgnoringHost}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}

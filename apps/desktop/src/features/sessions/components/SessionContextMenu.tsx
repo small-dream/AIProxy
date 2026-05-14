@@ -2,6 +2,7 @@ import type { SessionSummary } from "@aiproxy/shared-types";
 
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
+import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
@@ -33,6 +34,7 @@ type SessionContextMenuProps = {
   onClose: () => void;
   onClearOthers: (session: SessionSummary) => void;
   onCompose: (session: SessionSummary) => void;
+  onCompareWith: (session: SessionSummary) => void;
   onCopyCurl: (session: SessionSummary) => void;
   onCopyRequest: (session: SessionSummary) => void;
   onCopyResponse: (session: SessionSummary) => void;
@@ -47,6 +49,7 @@ type SessionContextMenuProps = {
   onRepeat: (session: SessionSummary) => void;
   onSaveResponse: (session: SessionSummary) => void;
   onSaveToCollection: (session: SessionSummary) => void;
+  onSetCompareBase: (session: SessionSummary) => void;
   onStopIgnoringHost: (session: SessionSummary) => void;
   onUnfocusHost: (session: SessionSummary) => void;
 };
@@ -59,6 +62,7 @@ export function SessionContextMenu({
   onClose,
   onClearOthers,
   onCompose,
+  onCompareWith,
   onCopyCurl,
   onCopyRequest,
   onCopyResponse,
@@ -73,6 +77,7 @@ export function SessionContextMenu({
   onRepeat,
   onSaveResponse,
   onSaveToCollection,
+  onSetCompareBase,
   onStopIgnoringHost,
   onUnfocusHost,
 }: SessionContextMenuProps) {
@@ -126,6 +131,22 @@ export function SessionContextMenu({
           <ContentCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyResponse")}</ListItemText>
+      </MenuItem>
+
+      <Divider sx={dividerSx} />
+
+      <MenuItem onClick={handleClick(onSetCompareBase)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <CompareArrowsRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.setCompareBase")}</ListItemText>
+      </MenuItem>
+
+      <MenuItem onClick={handleClick(onCompareWith)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <CompareArrowsRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.compareWith")}</ListItemText>
       </MenuItem>
 
       <Divider sx={dividerSx} />

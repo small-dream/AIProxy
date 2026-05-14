@@ -194,7 +194,11 @@ pub fn run() {
             commands::set_api_environment_variables,
             commands::list_api_global_variables,
             commands::set_api_global_variables,
-            commands::batch_execute_collection_items
+            commands::batch_execute_collection_items,
+            commands::get_ai_settings,
+            commands::save_ai_settings,
+            commands::test_ai_connection,
+            commands::summarize_session_diff,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

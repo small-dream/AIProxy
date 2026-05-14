@@ -333,6 +333,17 @@ CREATE TABLE IF NOT EXISTS api_global_variables (
     sort_order  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_api_global_vars_key ON api_global_variables(key);
+
+CREATE TABLE IF NOT EXISTS ai_settings (
+    id          TEXT NOT NULL PRIMARY KEY,
+    provider    TEXT NOT NULL DEFAULT 'openai-compatible',
+    base_url    TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    api_key     TEXT NOT NULL DEFAULT '',
+    temperature REAL NOT NULL DEFAULT 0.2,
+    timeout_ms  INTEGER NOT NULL DEFAULT 30000,
+    updated_at  TEXT NOT NULL
+);
 ";
 
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
@@ -366,6 +377,7 @@ mod tests {
             "api_environment_variables",
             "api_environments",
             "api_global_variables",
+            "ai_settings",
             "breakpoint_rules",
             "dns_mappings",
             "map_rules",

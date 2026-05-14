@@ -1907,7 +1907,50 @@ type ApiGlobalVariable = {
 
 变量解析优先级：环境变量 > 全局变量。未匹配的 `{{key}}` 保持原样，不报错。
 
-## 13. 实现建议
+## 13. AI Compare Commands — 已实现首版
+
+这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。首版仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。
+
+### AI 共享类型
+
+```ts
+type AiProviderType = "openai-compatible";
+
+type AiSettingsPublic = {
+  provider: AiProviderType;
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  maskedApiKey?: string;
+  temperature: number;
+  timeoutMs: number;
+  updatedAt?: string;
+};
+
+type SaveAiSettingsInput = {
+  provider: AiProviderType;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  temperature: number;
+  timeoutMs: number;
+};
+```
+
+### AI Settings
+
+- `get_ai_settings() -> AiSettingsPublic`
+- `save_ai_settings(input: SaveAiSettingsInput) -> AiSettingsPublic` — 空 `apiKey` 保留旧 key，`clearApiKey` 显式清除 key
+- `test_ai_connection() -> { ok: boolean; message: string }`
+
+### AI Diff Summary
+
+- `summarize_session_diff({ payload, language }) -> { summary, model, provider, createdAt }`
+- `payload` 为前端生成的 `SessionDiffPayload`，默认已脱敏；后端不读取 session 原始内容，不记录 API Key。
+- `language` 当前为 `en | zh-CN`，用于约束模型输出语言。
+
+## 14. 实现建议
 
 - 所有接口 DTO 维护在 `packages/shared-types/`，按业务域拆分文件，`index.ts` 仅做 barrel re-export
 - 用 Zod 或等价 schema 在前端做运行时校验

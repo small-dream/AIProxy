@@ -16,10 +16,12 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   coerceAppError,
   DEFAULT_PROXY_PORT,
   DEFAULT_WORKSPACE_ID,
+  type SaveAiSettingsInput,
   type Workspace,
 } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -35,6 +37,7 @@ import {
   type AppUpdateInfo,
   type AppUpdateProgress,
 } from "@/services/updater/app-updater";
+import { getAiSettings, saveAiSettings, testAiConnection } from "@/services/commands";
 import {
   appFontSizeOptions,
   appFontPreferences,
@@ -75,6 +78,8 @@ const compactFieldSx = {
     fontSize: 13,
   },
 };
+
+const AI_SETTINGS_QUERY_KEY = ["ai-settings"];
 
 function ProxySettingsSection() {
   const { t } = useI18n();
@@ -362,6 +367,189 @@ function UpdatesSection() {
   );
 }
 
+function AiModelSettingsSection() {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: AI_SETTINGS_QUERY_KEY,
+    queryFn: getAiSettings,
+  });
+  const saveMutation = useMutation({
+    mutationFn: (input: SaveAiSettingsInput) => saveAiSettings(input),
+    onSuccess: (nextSettings) => {
+      queryClient.setQueryData(AI_SETTINGS_QUERY_KEY, nextSettings);
+      setApiKeyDraft("");
+      setFeedback({ severity: "success", message: t("settingsPage.aiSaveSuccess") });
+    },
+    onError: (error) => {
+      setFeedback({ severity: "error", message: coerceAppError(error).message || t("common.errors.generic") });
+    },
+  });
+  const testMutation = useMutation({
+    mutationFn: testAiConnection,
+    onSuccess: (result) => {
+      setFeedback({
+        severity: result.ok ? "success" : "error",
+        message: result.message,
+      });
+    },
+    onError: (error) => {
+      setFeedback({ severity: "error", message: coerceAppError(error).message || t("common.errors.generic") });
+    },
+  });
+  const [draft, setDraft] = useState<SaveAiSettingsInput>({
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    temperature: 0.2,
+    timeoutMs: 30_000,
+  });
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [feedback, setFeedback] = useState<{ severity: "error" | "info" | "success"; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+
+    setDraft({
+      provider: settings.provider,
+      baseUrl: settings.baseUrl,
+      model: settings.model,
+      temperature: settings.temperature,
+      timeoutMs: settings.timeoutMs,
+    });
+  }, [settings]);
+
+  function handleSave(clearApiKey = false) {
+    saveMutation.mutate({
+      ...draft,
+      apiKey: apiKeyDraft,
+      clearApiKey,
+    });
+  }
+
+  const modelError = draft.model.trim().length === 0;
+  const baseUrlError = draft.baseUrl.trim().length === 0;
+  const busy = saveMutation.isPending || testMutation.isPending;
+
+  return (
+    <SectionCard compact title={t("settingsPage.aiSectionTitle")} description={t("settingsPage.aiSectionDescription")}>
+      <Stack spacing={1.5}>
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.5,
+            gridTemplateColumns: { md: "180px minmax(240px, 1fr) minmax(180px, 0.6fr)", xs: "1fr" },
+          }}
+        >
+          <FormControl size="small" sx={compactFieldSx}>
+            <InputLabel>{t("settingsPage.aiProvider")}</InputLabel>
+            <Select
+              label={t("settingsPage.aiProvider")}
+              value={draft.provider}
+              onChange={(event) => setDraft({ ...draft, provider: event.target.value as SaveAiSettingsInput["provider"] })}
+            >
+              <MenuItem value="openai-compatible">OpenAI-compatible</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            label={t("settingsPage.aiBaseUrl")}
+            size="small"
+            value={draft.baseUrl}
+            error={baseUrlError}
+            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+            sx={compactFieldSx}
+          />
+          <TextField
+            label={t("settingsPage.aiModel")}
+            size="small"
+            value={draft.model}
+            error={modelError}
+            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+            sx={compactFieldSx}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.5,
+            gridTemplateColumns: { md: "minmax(280px, 1fr) 140px 160px", xs: "1fr" },
+          }}
+        >
+          <TextField
+            label={t("settingsPage.aiApiKey")}
+            placeholder={settings?.maskedApiKey ?? t("settingsPage.aiApiKeyPlaceholder")}
+            size="small"
+            type="password"
+            value={apiKeyDraft}
+            onChange={(event) => setApiKeyDraft(event.target.value)}
+            sx={compactFieldSx}
+          />
+          <TextField
+            label={t("settingsPage.aiTemperature")}
+            size="small"
+            type="number"
+            value={draft.temperature}
+            onChange={(event) => setDraft({ ...draft, temperature: Number(event.target.value) })}
+            inputProps={{ min: 0, max: 2, step: 0.1 }}
+            sx={compactFieldSx}
+          />
+          <TextField
+            label={t("settingsPage.aiTimeout")}
+            size="small"
+            type="number"
+            value={draft.timeoutMs}
+            onChange={(event) => setDraft({ ...draft, timeoutMs: Number(event.target.value) })}
+            inputProps={{ min: 5000, max: 180000, step: 1000 }}
+            sx={compactFieldSx}
+          />
+        </Box>
+
+        <Stack direction={{ sm: "row", xs: "column" }} spacing={1} alignItems={{ sm: "center", xs: "stretch" }}>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<SaveRoundedIcon />}
+            disabled={busy || modelError || baseUrlError}
+            onClick={() => handleSave(false)}
+          >
+            {saveMutation.isPending ? t("proxyPresets.saving") : t("proxyPresets.save")}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={busy || !settings?.hasApiKey}
+            onClick={() => handleSave(true)}
+          >
+            {t("settingsPage.aiClearKey")}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={busy || !settings?.hasApiKey}
+            onClick={() => testMutation.mutate()}
+          >
+            {testMutation.isPending ? t("settingsPage.aiTesting") : t("settingsPage.aiTest")}
+          </Button>
+          {settings?.hasApiKey ? (
+            <Typography color="text.secondary" variant="caption">
+              {t("settingsPage.aiKeyConfigured", { key: settings.maskedApiKey ?? "" })}
+            </Typography>
+          ) : null}
+        </Stack>
+
+        {feedback ? (
+          <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
+            {feedback.message}
+          </Alert>
+        ) : null}
+      </Stack>
+    </SectionCard>
+  );
+}
+
 export function SettingsPage() {
   const { preference, setPreference, t } = useI18n();
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
@@ -406,6 +594,8 @@ export function SettingsPage() {
       </Stack>
 
       <ProxySettingsSection />
+
+      <AiModelSettingsSection />
 
       <UpdatesSection />
 

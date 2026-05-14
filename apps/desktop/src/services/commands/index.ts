@@ -9,3 +9,4 @@ export * from "./workspaces";
 export * from "./collections";
 export * from "./environments";
 export * from "./ws";
+export * from "./ai";

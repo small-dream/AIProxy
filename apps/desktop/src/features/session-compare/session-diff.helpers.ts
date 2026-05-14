@@ -1,0 +1,282 @@
+import type {
+  HeaderEntry,
+  SessionDetail,
+  SessionDiffEntry,
+  SessionDiffPayload,
+  SessionDiffSection,
+  SessionSummary,
+  TimingBreakdown,
+} from "@aiproxy/shared-types";
+
+import { redactDiffPayload } from "./redaction.helpers";
+
+const MAX_ENTRY_VALUE_LENGTH = 2_000;
+const MAX_BODY_ENTRIES_FOR_AI = 80;
+
+export type CompareBuildOptions = {
+  includeBodyForAi: boolean;
+  redact: boolean;
+};
+
+export function buildSessionDiffPayload(
+  left: SessionDetail,
+  right: SessionDetail,
+  options: CompareBuildOptions,
+): SessionDiffPayload {
+  const sections = [
+    diffSummary(left.summary, right.summary),
+    diffEntries("query", "Query", left.queryParams, right.queryParams),
+    diffEntries("requestHeaders", "Request Headers", left.requestHeaders, right.requestHeaders),
+    diffBody("requestBody", "Request Body", getBodyText(left.requestBody), getBodyText(right.requestBody), options),
+    diffEntries("responseHeaders", "Response Headers", left.responseHeaders, right.responseHeaders),
+    diffBody("responseBody", "Response Body", getBodyText(left.responseBody), getBodyText(right.responseBody), options),
+    diffTiming(left.timing, right.timing),
+  ];
+
+  const payload: SessionDiffPayload = {
+    left: summaryIdentity(left.summary),
+    right: summaryIdentity(right.summary),
+    sections,
+    redacted: false,
+    bodyIncluded: options.includeBodyForAi,
+  };
+
+  return options.redact ? redactDiffPayload(payload) : payload;
+}
+
+export function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]): string | undefined {
+  return body?.inlineText ?? body?.base64Text;
+}
+
+function summaryIdentity(summary: SessionSummary) {
+  return {
+    id: summary.id,
+    label: `${summary.method} ${summary.host}${summary.path}`,
+    method: summary.method,
+    url: summary.url,
+    statusCode: summary.statusCode,
+    durationMs: summary.durationMs,
+    startedAt: summary.startedAt,
+  };
+}
+
+function diffSummary(left: SessionSummary, right: SessionSummary): SessionDiffSection {
+  const entries: SessionDiffEntry[] = [
+    compareScalar("Method", left.method, right.method),
+    compareScalar("URL", left.url, right.url),
+    compareScalar("Status", String(left.statusCode), String(right.statusCode)),
+    compareScalar("Duration", `${left.durationMs} ms`, `${right.durationMs} ms`),
+    compareScalar("Size", `${left.sizeBytes} bytes`, `${right.sizeBytes} bytes`),
+    compareScalar("Protocol", left.protocol, right.protocol),
+    compareScalar("MIME", left.responseMimeType ?? "", right.responseMimeType ?? ""),
+  ];
+
+  return buildSection("summary", "Summary", entries);
+}
+
+function diffTiming(left: TimingBreakdown | undefined, right: TimingBreakdown | undefined): SessionDiffSection {
+  const keys: Array<keyof TimingBreakdown> = [
+    "dnsMs",
+    "connectMs",
+    "tlsMs",
+    "requestSendMs",
+    "waitingMs",
+    "responseReadMs",
+    "totalMs",
+  ];
+  const entries = keys.map((key) =>
+    compareScalar(key, formatTimingValue(left?.[key]), formatTimingValue(right?.[key])),
+  );
+
+  return buildSection("timing", "Timing", entries);
+}
+
+function formatTimingValue(value: number | undefined) {
+  return value === undefined ? "" : `${value} ms`;
+}
+
+function diffEntries(
+  key: string,
+  title: string,
+  leftEntries: HeaderEntry[],
+  rightEntries: HeaderEntry[],
+): SessionDiffSection {
+  const leftMap = collectEntries(leftEntries);
+  const rightMap = collectEntries(rightEntries);
+  const names = Array.from(new Set([...leftMap.keys(), ...rightMap.keys()])).sort();
+  const entries = names.map((name) => {
+    const before = leftMap.get(name);
+    const after = rightMap.get(name);
+    if (before === undefined) {
+      return { path: name, kind: "added" as const, after: truncateValue(after) };
+    }
+    if (after === undefined) {
+      return { path: name, kind: "removed" as const, before: truncateValue(before) };
+    }
+    return {
+      path: name,
+      kind: before === after ? "unchanged" as const : "changed" as const,
+      before: truncateValue(before),
+      after: truncateValue(after),
+    };
+  });
+
+  return buildSection(key, title, entries);
+}
+
+function collectEntries(entries: HeaderEntry[]) {
+  const map = new Map<string, string[]>();
+  for (const entry of entries) {
+    const key = entry.name.toLowerCase();
+    map.set(key, [...(map.get(key) ?? []), entry.value]);
+  }
+  return new Map(Array.from(map.entries()).map(([key, values]) => [key, values.join("\n")]));
+}
+
+function diffBody(
+  key: string,
+  title: string,
+  leftBody: string | undefined,
+  rightBody: string | undefined,
+  options: CompareBuildOptions,
+): SessionDiffSection {
+  if (!leftBody && !rightBody) {
+    return buildSection(key, title, [], "No body captured on either side.");
+  }
+  if (!options.includeBodyForAi) {
+    return buildSection(
+      key,
+      title,
+      [compareScalar("body", describeBody(leftBody), describeBody(rightBody))],
+      "Body context is excluded from the AI payload.",
+    );
+  }
+
+  const leftJson = parseJson(leftBody);
+  const rightJson = parseJson(rightBody);
+  if (leftJson.ok && rightJson.ok) {
+    return buildSection(
+      key,
+      title,
+      diffJsonValues("$", leftJson.value, rightJson.value).slice(0, MAX_BODY_ENTRIES_FOR_AI),
+    );
+  }
+
+  return buildSection(
+    key,
+    title,
+    diffTextLines(leftBody ?? "", rightBody ?? "").slice(0, MAX_BODY_ENTRIES_FOR_AI),
+  );
+}
+
+function describeBody(value: string | undefined) {
+  return value ? `${value.length} chars captured` : "No body";
+}
+
+function parseJson(value: string | undefined): { ok: true; value: unknown } | { ok: false } {
+  if (!value?.trim()) {
+    return { ok: false };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(value) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function diffJsonValues(path: string, left: unknown, right: unknown): SessionDiffEntry[] {
+  if (JSON.stringify(left) === JSON.stringify(right)) {
+    return [{ path, kind: "unchanged", before: stringifyValue(left), after: stringifyValue(right) }];
+  }
+
+  if (isRecord(left) && isRecord(right)) {
+    const keys = Array.from(new Set([...Object.keys(left), ...Object.keys(right)])).sort();
+    return keys.flatMap((key) => {
+      const nextPath = `${path}.${key}`;
+      if (!(key in left)) return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[key]) }];
+      if (!(key in right)) return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[key]) }];
+      return diffJsonValues(nextPath, left[key], right[key]);
+    });
+  }
+
+  if (Array.isArray(left) && Array.isArray(right)) {
+    const length = Math.max(left.length, right.length);
+    return Array.from({ length }, (_, index) => {
+      const nextPath = `${path}[${index}]`;
+      if (index >= left.length) return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[index]) }];
+      if (index >= right.length) return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[index]) }];
+      return diffJsonValues(nextPath, left[index], right[index]);
+    }).flat();
+  }
+
+  return [{
+    path,
+    kind: "changed",
+    before: stringifyValue(left),
+    after: stringifyValue(right),
+  }];
+}
+
+function diffTextLines(left: string, right: string): SessionDiffEntry[] {
+  const leftLines = left.split(/\r?\n/);
+  const rightLines = right.split(/\r?\n/);
+  const length = Math.max(leftLines.length, rightLines.length);
+
+  return Array.from({ length }, (_, index) => {
+    const before = leftLines[index];
+    const after = rightLines[index];
+    if (before === undefined) return { path: `line ${index + 1}`, kind: "added" as const, after: truncateValue(after) };
+    if (after === undefined) return { path: `line ${index + 1}`, kind: "removed" as const, before: truncateValue(before) };
+    return {
+      path: `line ${index + 1}`,
+      kind: before === after ? "unchanged" as const : "changed" as const,
+      before: truncateValue(before),
+      after: truncateValue(after),
+    };
+  }).filter((entry) => entry.kind !== "unchanged" || entry.before);
+}
+
+function compareScalar(path: string, before: string, after: string): SessionDiffEntry {
+  return {
+    path,
+    kind: before === after ? "unchanged" : "changed",
+    before: truncateValue(before),
+    after: truncateValue(after),
+  };
+}
+
+function buildSection(
+  key: string,
+  title: string,
+  entries: SessionDiffEntry[],
+  note?: string,
+): SessionDiffSection {
+  return {
+    key,
+    title,
+    added: entries.filter((entry) => entry.kind === "added").length,
+    removed: entries.filter((entry) => entry.kind === "removed").length,
+    changed: entries.filter((entry) => entry.kind === "changed").length,
+    unchanged: entries.filter((entry) => entry.kind === "unchanged").length,
+    entries,
+    ...(note ? { note } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringifyValue(value: unknown) {
+  return truncateValue(typeof value === "string" ? value : JSON.stringify(value));
+}
+
+function truncateValue(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value.length > MAX_ENTRY_VALUE_LENGTH
+    ? `${value.slice(0, MAX_ENTRY_VALUE_LENGTH)}...`
+    : value;
+}

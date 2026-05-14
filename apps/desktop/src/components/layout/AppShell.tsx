@@ -79,6 +79,7 @@ export function AppShell() {
     isSessionsWorkspace ||
     location.pathname === "/compose" ||
     location.pathname === "/collections" ||
+    location.pathname === "/compare" ||
     location.pathname === "/rules" ||
     location.pathname === "/throttling" ||
     location.pathname === "/certificates";

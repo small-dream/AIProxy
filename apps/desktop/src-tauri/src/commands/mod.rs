@@ -1,3 +1,4 @@
+mod ai;
 mod certificates;
 mod collections;
 mod common;
@@ -11,6 +12,7 @@ mod throttling;
 mod workspaces;
 mod ws;
 
+pub use ai::*;
 pub use certificates::*;
 pub use collections::*;
 pub use compose::*;

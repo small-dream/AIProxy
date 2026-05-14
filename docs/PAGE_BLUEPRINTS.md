@@ -827,6 +827,45 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 | Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
 
+## 8.5 Compare Page — `已实现首版`
+
+Compare Page 是面向 AI 的会话对比工作台，用于回答“这两次请求 / 响应到底差在哪里，以及可能意味着什么”。
+
+```text
+[Compare Page]
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Compare                                      (Preview AI Payload) (Generate) │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Left Session [select........]        Right Session [select........]          │
+│ [Include redacted body context in AI payload]                                │
+├──────────────────────────────────────────────┬───────────────────────────────┤
+│ Diff Workbench                               │ AI Summary                    │
+│ ┌ Summary / Query / Headers / Body / Timing ┐│ Configure / Generate / Result │
+│ │ added / removed / changed / unchanged      ││                               │
+│ │ field-level or line-level entries          ││                               │
+│ └────────────────────────────────────────────┘│                               │
+└──────────────────────────────────────────────┴───────────────────────────────┘
+```
+
+| 文件 | 职责 |
+|------|------|
+| `pages/compare/index.tsx` | ComparePage 主页面，管理会话选择、payload 预览和 AI 总结 |
+| `features/session-compare/session-diff.helpers.ts` | 生成 summary / query / headers / body / timing diff |
+| `features/session-compare/redaction.helpers.ts` | 对 AI payload 做默认脱敏 |
+| `services/commands/ai.ts` | AI settings、连接测试、diff 总结命令包装 |
+
+事件流：
+
+```text
+Sessions 右键 Set as Compare Base
+-> Sessions 右键 Compare with...
+-> navigate /compare?left=<base>&right=<current>
+-> ComparePage 按需加载两个 Session detail/body
+-> buildSessionDiffPayload(redacted)
+-> 用户预览 payload 或手动 Generate Summary
+-> summarize_session_diff 返回 AI 总结
+```
+
 ### 9.4 页面事件流
 
 | 用户操作 | 触发 | 结果 |
@@ -952,6 +991,7 @@ CollectionsPage
 | Sessions | `session-list`, `session-detail`, `proxy-status` | `start_proxy`, `stop_proxy`, `list_sessions`, `enable_system_proxy`, `disable_system_proxy` |
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
 | Collections | `collections`, `environments` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
+| Compare | `session-compare`, `ai` | `get_ai_settings`, `save_ai_settings`, `test_ai_connection`, `summarize_session_diff` |
 | Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |

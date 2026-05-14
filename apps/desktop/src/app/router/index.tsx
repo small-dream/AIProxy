@@ -13,6 +13,9 @@ const ComposePage = lazy(async () => ({
 const CollectionsPage = lazy(async () => ({
   default: (await import("@/pages/collections")).CollectionsPage,
 }));
+const ComparePage = lazy(async () => ({
+  default: (await import("@/pages/compare")).ComparePage,
+}));
 const RulesPage = lazy(async () => ({
   default: (await import("@/pages/rules")).RulesPage,
 }));
@@ -62,6 +65,10 @@ const router = createHashRouter([
       {
         path: "collections",
         element: renderLazyRoute(CollectionsPage),
+      },
+      {
+        path: "compare",
+        element: renderLazyRoute(ComparePage),
       },
       {
         path: "rules",

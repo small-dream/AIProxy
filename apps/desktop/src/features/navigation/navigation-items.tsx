@@ -1,6 +1,7 @@
 import DatasetLinkedRoundedIcon from "@mui/icons-material/DatasetLinkedRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EditRoadRoundedIcon from "@mui/icons-material/EditRoadRounded";
+import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
@@ -34,6 +35,12 @@ export const navigationItems: NavigationItem[] = [
     icon: <FolderCopyRoundedIcon />,
     labelKey: "navigation.collections",
     to: "/collections",
+  },
+  {
+    group: "workspace",
+    icon: <CompareArrowsRoundedIcon />,
+    labelKey: "navigation.compare",
+    to: "/compare",
   },
   {
     group: "workspace",
