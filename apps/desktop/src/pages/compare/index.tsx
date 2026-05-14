@@ -8,6 +8,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogContent,
@@ -16,22 +17,42 @@ import {
   FormControl,
   FormControlLabel,
   InputLabel,
+  ListItemText,
   MenuItem,
   Paper,
   Select,
   Stack,
   Switch,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { coerceAppError, type SessionDetail, type SessionDiffPayload, type SessionSummary } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  type CompareAiPayload,
+  type CompareMode,
+  type SessionComparePayload,
+  type SessionDetail,
+  type SessionDiffPayload,
+  type SessionSummary,
+} from "@aiproxy/shared-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
-import { useSessions } from "@/features/sessions/use-sessions";
+import {
+  buildSessionComparePayload,
+  getAvailableDomains,
+  type SessionCompareScopeInput,
+} from "@/features/session-compare/session-behavior-diff.helpers";
 import { buildSessionDiffPayload } from "@/features/session-compare/session-diff.helpers";
+import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
+import {
+  type SessionCompareScope,
+  useSessionCompareScopes,
+} from "@/features/sessions/session-scope-registry";
+import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { getAiSettings, summarizeSessionDiff } from "@/services/commands";
 import { fontFamilies } from "@/themes/fonts";
@@ -46,6 +67,8 @@ type DetailState = {
 const BODY_DIFF_DISPLAY_ENTRY_LIMIT = 240;
 const DIFF_SECTION_VISIBLE_CHANGE_LIMIT = 120;
 const LAZY_BODY_DIFF_SECTIONS = new Set(["requestBody", "responseBody"]);
+const SESSION_TABLE_LIMIT = 80;
+const SEQUENCE_PREVIEW_LIMIT = 36;
 
 export function ComparePage() {
   const { locale, t } = useI18n();
@@ -53,8 +76,13 @@ export function ComparePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { data: sessions = [], isLoading: sessionsLoading } = useSessions();
+  const scopes = useSessionCompareScopes();
+  const [compareMode, setCompareMode] = useState<CompareMode>(readCompareMode(searchParams));
   const [leftId, setLeftId] = useState(searchParams.get("left") ?? "");
   const [rightId, setRightId] = useState(searchParams.get("right") ?? "");
+  const [leftScopeId, setLeftScopeId] = useState(searchParams.get("leftScope") ?? "");
+  const [rightScopeId, setRightScopeId] = useState(searchParams.get("rightScope") ?? "");
+  const [domainFilter, setDomainFilter] = useState<string[]>(readDomains(searchParams));
   const [includeBodyForAi, setIncludeBodyForAi] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ loading: false });
@@ -66,7 +94,7 @@ export function ComparePage() {
     queryFn: getAiSettings,
   });
   const summaryMutation = useMutation({
-    mutationFn: (payload: SessionDiffPayload) =>
+    mutationFn: (payload: CompareAiPayload) =>
       summarizeSessionDiff({
         language: locale,
         payload,
@@ -74,14 +102,16 @@ export function ComparePage() {
   });
 
   useEffect(() => {
-    const nextLeft = searchParams.get("left") ?? "";
-    const nextRight = searchParams.get("right") ?? "";
-    setLeftId(nextLeft);
-    setRightId(nextRight);
+    setCompareMode(readCompareMode(searchParams));
+    setLeftId(searchParams.get("left") ?? "");
+    setRightId(searchParams.get("right") ?? "");
+    setLeftScopeId(searchParams.get("leftScope") ?? "");
+    setRightScopeId(searchParams.get("rightScope") ?? "");
+    setDomainFilter(readDomains(searchParams));
   }, [searchParams]);
 
   useEffect(() => {
-    if (!leftId || !rightId || leftId === rightId) {
+    if (compareMode !== "request" || !leftId || !rightId || leftId === rightId) {
       setDetailState({ loading: false });
       return;
     }
@@ -116,10 +146,40 @@ export function ComparePage() {
     return () => {
       cancelled = true;
     };
-  }, [leftId, queryClient, rightId, t]);
+  }, [compareMode, leftId, queryClient, rightId, t]);
+
+  const sessionById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
+  const scopeOptions = useMemo(
+    () => scopes.map((scope) => resolveScope(scope, sessionById)),
+    [scopes, sessionById],
+  );
+  const selectedLeft = useMemo(
+    () => sessions.find((session) => session.id === leftId),
+    [leftId, sessions],
+  );
+  const selectedRight = useMemo(
+    () => sessions.find((session) => session.id === rightId),
+    [rightId, sessions],
+  );
+  const selectedLeftScope = useMemo(
+    () => scopeOptions.find((scope) => scope.id === leftScopeId),
+    [leftScopeId, scopeOptions],
+  );
+  const selectedRightScope = useMemo(
+    () => scopeOptions.find((scope) => scope.id === rightScopeId),
+    [rightScopeId, scopeOptions],
+  );
+  const domainOptions = useMemo(
+    () => getAvailableDomains(selectedLeftScope?.sessions ?? [], selectedRightScope?.sessions ?? []),
+    [selectedLeftScope?.sessions, selectedRightScope?.sessions],
+  );
+  const effectiveDomainFilter = useMemo(
+    () => domainFilter.filter((domain) => domainOptions.includes(domain)),
+    [domainFilter, domainOptions],
+  );
 
   useEffect(() => {
-    const compareKey = `${leftId}:${rightId}:${includeBodyForAi}`;
+    const compareKey = `${compareMode}:${leftId}:${rightId}:${leftScopeId}:${rightScopeId}:${effectiveDomainFilter.join(",")}:${includeBodyForAi}`;
     if (previousCompareKeyRef.current === compareKey) {
       return;
     }
@@ -127,10 +187,10 @@ export function ComparePage() {
     summaryMutation.reset();
     setExpandedBodySections(new Set());
     setExpandedEntrySections(new Set());
-  }, [includeBodyForAi, leftId, rightId, summaryMutation]);
+  }, [compareMode, effectiveDomainFilter, includeBodyForAi, leftId, leftScopeId, rightId, rightScopeId, summaryMutation]);
 
-  const displayPayload = useMemo(() => {
-    if (!detailState.left || !detailState.right) {
+  const requestDisplayPayload = useMemo(() => {
+    if (compareMode !== "request" || !detailState.left || !detailState.right) {
       return undefined;
     }
     return buildSessionDiffPayload(detailState.left, detailState.right, {
@@ -140,9 +200,26 @@ export function ComparePage() {
       maxBodyEntries: BODY_DIFF_DISPLAY_ENTRY_LIMIT,
       redact: true,
     });
-  }, [detailState.left, detailState.right, expandedBodySections, includeBodyForAi]);
+  }, [compareMode, detailState.left, detailState.right, expandedBodySections, includeBodyForAi]);
 
-  const buildAiPayload = () => {
+  const sessionPayload = useMemo(() => {
+    if (compareMode !== "session" || !selectedLeftScope || !selectedRightScope || selectedLeftScope.id === selectedRightScope.id) {
+      return undefined;
+    }
+    return buildSessionComparePayload(selectedLeftScope, selectedRightScope, effectiveDomainFilter);
+  }, [compareMode, effectiveDomainFilter, selectedLeftScope, selectedRightScope]);
+
+  const displayPayload = compareMode === "request" ? requestDisplayPayload : sessionPayload;
+  const aiSettings = aiSettingsQuery.data;
+  const aiConfigured = Boolean(aiSettings?.hasApiKey && aiSettings.model.trim());
+  const canGenerate = Boolean(displayPayload && aiConfigured && !detailState.loading);
+  const previewPayload = previewOpen ? buildAiPayload() : undefined;
+  const previewText = previewPayload ? JSON.stringify(previewPayload, null, 2) : "";
+
+  function buildAiPayload(): CompareAiPayload | undefined {
+    if (compareMode === "session") {
+      return sessionPayload;
+    }
     if (!detailState.left || !detailState.right) {
       return undefined;
     }
@@ -151,31 +228,47 @@ export function ComparePage() {
       includeBodyForAi,
       redact: true,
     });
-  };
+  }
 
-  const selectedLeft = useMemo(
-    () => sessions.find((session) => session.id === leftId),
-    [leftId, sessions],
-  );
-  const selectedRight = useMemo(
-    () => sessions.find((session) => session.id === rightId),
-    [rightId, sessions],
-  );
-  const aiSettings = aiSettingsQuery.data;
-  const aiConfigured = Boolean(aiSettings?.hasApiKey && aiSettings.model.trim());
+  function updateMode(nextMode: CompareMode) {
+    setCompareMode(nextMode);
+    const params = new URLSearchParams(searchParams);
+    params.set("mode", nextMode);
+    setSearchParams(params);
+  }
 
-  function updateSelection(nextLeft: string, nextRight: string) {
+  function updateRequestSelection(nextLeft: string, nextRight: string) {
     setLeftId(nextLeft);
     setRightId(nextRight);
     const params = new URLSearchParams(searchParams);
+    params.set("mode", "request");
     if (nextLeft) params.set("left", nextLeft); else params.delete("left");
     if (nextRight) params.set("right", nextRight); else params.delete("right");
     setSearchParams(params);
   }
 
-  const previewPayload = previewOpen ? buildAiPayload() : undefined;
-  const previewText = previewPayload ? JSON.stringify(previewPayload, null, 2) : "";
-  const canGenerate = Boolean(displayPayload && aiConfigured && !detailState.loading);
+  function updateScopeSelection(nextLeftScope: string, nextRightScope: string) {
+    setLeftScopeId(nextLeftScope);
+    setRightScopeId(nextRightScope);
+    const params = new URLSearchParams(searchParams);
+    params.set("mode", "session");
+    if (nextLeftScope) params.set("leftScope", nextLeftScope); else params.delete("leftScope");
+    if (nextRightScope) params.set("rightScope", nextRightScope); else params.delete("rightScope");
+    setSearchParams(params);
+  }
+
+  function updateDomainFilter(nextDomains: string[]) {
+    const normalizedDomains = nextDomains.filter((domain) => domainOptions.includes(domain));
+    setDomainFilter(normalizedDomains);
+    const params = new URLSearchParams(searchParams);
+    params.set("mode", "session");
+    if (normalizedDomains.length > 0) {
+      params.set("domains", normalizedDomains.join(","));
+    } else {
+      params.delete("domains");
+    }
+    setSearchParams(params);
+  }
 
   function toggleBodySection(sectionKey: string) {
     setExpandedBodySections((current) => {
@@ -201,6 +294,10 @@ export function ComparePage() {
     });
   }
 
+  const isSameSelection = compareMode === "request"
+    ? Boolean(leftId && rightId && leftId === rightId)
+    : Boolean(leftScopeId && rightScopeId && leftScopeId === rightScopeId);
+
   return (
     <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
       <Stack
@@ -214,7 +311,7 @@ export function ComparePage() {
             {t("comparePage.title")}
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            {t("comparePage.description")}
+            {compareMode === "request" ? t("comparePage.requestDescription") : t("comparePage.sessionDescription")}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -246,57 +343,48 @@ export function ComparePage() {
 
       <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
         <Stack spacing={1.5}>
-          <Box
-            sx={{
-              display: "grid",
-              gap: 1.5,
-              gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={compareMode}
+            onChange={(_, value: CompareMode | null) => {
+              if (value) {
+                updateMode(value);
+              }
             }}
           >
-            <SessionSelect
-              label={t("comparePage.leftSession")}
-              loading={sessionsLoading}
-              sessions={sessions}
-              value={leftId}
-              onChange={(value) => updateSelection(value, rightId)}
-            />
-            <SessionSelect
-              label={t("comparePage.rightSession")}
-              loading={sessionsLoading}
-              sessions={sessions}
-              value={rightId}
-              onChange={(value) => updateSelection(leftId, value)}
-            />
-          </Box>
+            <ToggleButton value="request">{t("comparePage.requestCompare")}</ToggleButton>
+            <ToggleButton value="session">{t("comparePage.sessionCompare")}</ToggleButton>
+          </ToggleButtonGroup>
 
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Chip
-              icon={<CompareArrowsRoundedIcon />}
-              label={
-                selectedLeft && selectedRight
-                  ? `${selectedLeft.method} ${selectedLeft.host} -> ${selectedRight.method} ${selectedRight.host}`
-                  : t("comparePage.pickTwoSessions")
-              }
-              variant="outlined"
+          {compareMode === "request" ? (
+            <RequestCompareControls
+              includeBodyForAi={includeBodyForAi}
+              leftId={leftId}
+              loading={sessionsLoading}
+              rightId={rightId}
+              selectedLeft={selectedLeft}
+              selectedRight={selectedRight}
+              sessions={sessions}
+              onIncludeBodyForAiChange={setIncludeBodyForAi}
+              onSelectionChange={updateRequestSelection}
             />
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={includeBodyForAi}
-                  onChange={(event) => setIncludeBodyForAi(event.target.checked)}
-                />
-              }
-              label={<Typography variant="body2">{t("comparePage.includeBody")}</Typography>}
+          ) : (
+            <SessionCompareControls
+              domainFilter={effectiveDomainFilter}
+              domainOptions={domainOptions}
+              leftScopeId={leftScopeId}
+              rightScopeId={rightScopeId}
+              scopes={scopeOptions}
+              onDomainFilterChange={updateDomainFilter}
+              onSelectionChange={updateScopeSelection}
             />
-          </Stack>
+          )}
         </Stack>
       </Paper>
 
-      {leftId && rightId && leftId === rightId ? (
-        <Alert severity="warning">{t("comparePage.sameSessionWarning")}</Alert>
-      ) : null}
-      {detailState.error ? <Alert severity="error">{detailState.error}</Alert> : null}
+      {isSameSelection ? <Alert severity="warning">{t("comparePage.sameSessionWarning")}</Alert> : null}
+      {compareMode === "request" && detailState.error ? <Alert severity="error">{detailState.error}</Alert> : null}
 
       <Box
         sx={{
@@ -311,72 +399,43 @@ export function ComparePage() {
           <Stack sx={{ height: "100%", minHeight: 0 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}>
               <CompareArrowsRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
-              <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>{t("comparePage.diffWorkbench")}</Typography>
-              {detailState.loading ? <Chip size="small" label={t("comparePage.loadingDetails")} /> : null}
+              <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
+                {compareMode === "request" ? t("comparePage.diffWorkbench") : t("comparePage.behaviorWorkbench")}
+              </Typography>
+              {compareMode === "request" && detailState.loading ? <Chip size="small" label={t("comparePage.loadingDetails")} /> : null}
             </Stack>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-              {!displayPayload ? (
-                <Alert severity="info">{t("comparePage.emptyState")}</Alert>
+              {compareMode === "request" ? (
+                !requestDisplayPayload ? (
+                  <Alert severity="info">{t("comparePage.requestEmptyState")}</Alert>
+                ) : (
+                  <Stack spacing={1.25}>
+                    {requestDisplayPayload.sections.map((section) => (
+                      <DiffSectionCard
+                        key={section.key}
+                        bodyDiffExpanded={expandedBodySections.has(section.key)}
+                        displayExpanded={expandedEntrySections.has(section.key)}
+                        section={section}
+                        onToggleBodyDiff={() => toggleBodySection(section.key)}
+                        onToggleDisplay={() => toggleEntrySection(section.key)}
+                      />
+                    ))}
+                  </Stack>
+                )
               ) : (
-                <Stack spacing={1.25}>
-                  {displayPayload.sections.map((section) => (
-                    <DiffSectionCard
-                      key={section.key}
-                      bodyDiffExpanded={expandedBodySections.has(section.key)}
-                      displayExpanded={expandedEntrySections.has(section.key)}
-                      section={section}
-                      onToggleBodyDiff={() => toggleBodySection(section.key)}
-                      onToggleDisplay={() => toggleEntrySection(section.key)}
-                    />
-                  ))}
-                </Stack>
+                <SessionCompareWorkbench hasScopes={scopeOptions.length > 0} payload={sessionPayload} />
               )}
             </Box>
           </Stack>
         </Paper>
 
-        <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
-          <Stack sx={{ height: "100%", minHeight: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <AutoFixHighRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>{t("comparePage.aiSummary")}</Typography>
-              </Stack>
-              {aiSettings?.model ? <Chip size="small" label={aiSettings.model} variant="outlined" /> : null}
-            </Stack>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-              {!aiConfigured ? (
-                <Stack spacing={1.5}>
-                  <Alert severity="info">{t("comparePage.aiNotConfigured")}</Alert>
-                  <Button
-                    variant="outlined"
-                    startIcon={<SettingsRoundedIcon />}
-                    onClick={() => navigate("/settings")}
-                  >
-                    {t("comparePage.configureAi")}
-                  </Button>
-                </Stack>
-              ) : summaryMutation.error ? (
-                <Alert severity="error">{coerceAppError(summaryMutation.error).message}</Alert>
-              ) : summaryMutation.data ? (
-                <Typography
-                  component="pre"
-                  sx={{
-                    fontFamily: fontFamilies.mono,
-                    fontSize: 13,
-                    lineHeight: 1.7,
-                    m: 0,
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {summaryMutation.data.summary}
-                </Typography>
-              ) : (
-                <Alert severity="info">{t("comparePage.summaryIdle")}</Alert>
-              )}
-            </Box>
-          </Stack>
-        </Paper>
+        <AiSummaryPanel
+          aiConfigured={aiConfigured}
+          model={aiSettings?.model}
+          mutationData={summaryMutation.data?.summary}
+          mutationError={summaryMutation.error}
+          onConfigure={() => navigate("/settings")}
+        />
       </Box>
 
       <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullWidth maxWidth="md">
@@ -405,7 +464,149 @@ export function ComparePage() {
   );
 }
 
-function SessionSelect({
+function RequestCompareControls({
+  includeBodyForAi,
+  leftId,
+  loading,
+  onIncludeBodyForAiChange,
+  onSelectionChange,
+  rightId,
+  selectedLeft,
+  selectedRight,
+  sessions,
+}: {
+  includeBodyForAi: boolean;
+  leftId: string;
+  loading: boolean;
+  onIncludeBodyForAiChange: (value: boolean) => void;
+  onSelectionChange: (left: string, right: string) => void;
+  rightId: string;
+  selectedLeft?: SessionSummary | undefined;
+  selectedRight?: SessionSummary | undefined;
+  sessions: SessionSummary[];
+}) {
+  const { t } = useI18n();
+
+  return (
+    <Stack spacing={1.5}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1.5,
+          gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
+        }}
+      >
+        <RequestSelect
+          label={t("comparePage.leftRequest")}
+          loading={loading}
+          sessions={sessions}
+          value={leftId}
+          onChange={(value) => onSelectionChange(value, rightId)}
+        />
+        <RequestSelect
+          label={t("comparePage.rightRequest")}
+          loading={loading}
+          sessions={sessions}
+          value={rightId}
+          onChange={(value) => onSelectionChange(leftId, value)}
+        />
+      </Box>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Chip
+          icon={<CompareArrowsRoundedIcon />}
+          label={
+            selectedLeft && selectedRight
+              ? `${selectedLeft.method} ${selectedLeft.host} -> ${selectedRight.method} ${selectedRight.host}`
+              : t("comparePage.pickTwoRequests")
+          }
+          variant="outlined"
+        />
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={includeBodyForAi}
+              onChange={(event) => onIncludeBodyForAiChange(event.target.checked)}
+            />
+          }
+          label={<Typography variant="body2">{t("comparePage.includeBody")}</Typography>}
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+function SessionCompareControls({
+  domainFilter,
+  domainOptions,
+  leftScopeId,
+  onDomainFilterChange,
+  onSelectionChange,
+  rightScopeId,
+  scopes,
+}: {
+  domainFilter: string[];
+  domainOptions: string[];
+  leftScopeId: string;
+  onDomainFilterChange: (domains: string[]) => void;
+  onSelectionChange: (leftScope: string, rightScope: string) => void;
+  rightScopeId: string;
+  scopes: SessionCompareScopeInput[];
+}) {
+  const { t } = useI18n();
+
+  return (
+    <Stack spacing={1.5}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1.5,
+          gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
+        }}
+      >
+        <ScopeSelect
+          label={t("comparePage.leftSessionScope")}
+          scopes={scopes}
+          value={leftScopeId}
+          onChange={(value) => onSelectionChange(value, rightScopeId)}
+        />
+        <ScopeSelect
+          label={t("comparePage.rightSessionScope")}
+          scopes={scopes}
+          value={rightScopeId}
+          onChange={(value) => onSelectionChange(leftScopeId, value)}
+        />
+      </Box>
+      <FormControl size="small" fullWidth disabled={!leftScopeId || !rightScopeId || domainOptions.length === 0}>
+        <InputLabel>{t("comparePage.domainFilter")}</InputLabel>
+        <Select
+          multiple
+          label={t("comparePage.domainFilter")}
+          value={domainFilter}
+          renderValue={(selected) => selected.length === 0 ? t("comparePage.allDomains") : selected.join(", ")}
+          onChange={(event) => {
+            const value = event.target.value;
+            onDomainFilterChange(typeof value === "string" ? value.split(",") : value);
+          }}
+        >
+          {domainOptions.map((domain) => (
+            <MenuItem key={domain} value={domain}>
+              <Checkbox checked={domainFilter.includes(domain)} />
+              <ListItemText primary={domain} />
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <Chip
+        icon={<CompareArrowsRoundedIcon />}
+        label={leftScopeId && rightScopeId ? t("comparePage.sessionBehaviorReady") : t("comparePage.pickTwoSessionScopes")}
+        variant="outlined"
+      />
+    </Stack>
+  );
+}
+
+function RequestSelect({
   label,
   loading,
   onChange,
@@ -426,7 +627,7 @@ function SessionSelect({
       <InputLabel>{label}</InputLabel>
       <Select label={label} value={value} onChange={(event) => onChange(event.target.value)}>
         <MenuItem value="">
-          {loading ? t("comparePage.loadingSessions") : t("comparePage.selectSession")}
+          {loading ? t("comparePage.loadingSessions") : t("comparePage.selectRequest")}
         </MenuItem>
         {value && !hasSelectedSession ? (
           <MenuItem value={value}>
@@ -440,6 +641,235 @@ function SessionSelect({
         ))}
       </Select>
     </FormControl>
+  );
+}
+
+function ScopeSelect({
+  label,
+  onChange,
+  scopes,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  scopes: SessionCompareScopeInput[];
+  value: string;
+}) {
+  const { t } = useI18n();
+  const hasSelectedScope = !value || scopes.some((scope) => scope.id === value);
+
+  return (
+    <FormControl size="small" fullWidth>
+      <InputLabel>{label}</InputLabel>
+      <Select label={label} value={hasSelectedScope ? value : ""} onChange={(event) => onChange(event.target.value)}>
+        <MenuItem value="">{t("comparePage.selectSessionScope")}</MenuItem>
+        {scopes.map((scope) => (
+          <MenuItem key={scope.id} value={scope.id}>
+            {`${scope.label} - ${t("comparePage.requestCount", { count: scope.sessions.length })}`}
+          </MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
+}
+
+function SessionCompareWorkbench({ hasScopes, payload }: { hasScopes: boolean; payload?: SessionComparePayload | undefined }) {
+  const { t } = useI18n();
+
+  if (!hasScopes) {
+    return <Alert severity="info">{t("comparePage.noSessionScopes")}</Alert>;
+  }
+
+  if (!payload) {
+    return <Alert severity="info">{t("comparePage.sessionEmptyState")}</Alert>;
+  }
+
+  return (
+    <Stack spacing={1.25}>
+      <BehaviorSection title={t("comparePage.overview")}>
+        <MetricGrid
+          rows={[
+            ["Requests", payload.overview.left.requestCount, payload.overview.right.requestCount],
+            ["Success", payload.overview.left.successCount, payload.overview.right.successCount],
+            ["Failures", payload.overview.left.failureCount, payload.overview.right.failureCount],
+            ["Domains", payload.overview.left.domainCount, payload.overview.right.domainCount],
+            ["Avg duration", `${payload.overview.left.durationMs.average} ms`, `${payload.overview.right.durationMs.average} ms`],
+            ["Total bytes", formatNumber(payload.overview.left.totalSizeBytes), formatNumber(payload.overview.right.totalSizeBytes)],
+            ["Status codes", formatStatusCodes(payload.overview.left.statusCodes), formatStatusCodes(payload.overview.right.statusCodes)],
+          ]}
+        />
+      </BehaviorSection>
+
+      <BehaviorSection title={t("comparePage.domains")}>
+        <CompareRows
+          columns={[t("comparePage.domain"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.delta"), t("comparePage.share")]}
+          rows={payload.domains.map((row) => [
+            row.domain,
+            String(row.leftCount),
+            String(row.rightCount),
+            formatDelta(row.delta),
+            `${row.leftShare}% -> ${row.rightShare}%`,
+          ])}
+        />
+      </BehaviorSection>
+
+      <BehaviorSection title={t("comparePage.endpoints")}>
+        <CompareRows
+          columns={[t("comparePage.endpoint"), t("comparePage.kind"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.avgDuration")]}
+          rows={payload.endpoints.slice(0, SESSION_TABLE_LIMIT).map((row) => [
+            row.endpoint,
+            row.kind,
+            String(row.leftCount),
+            String(row.rightCount),
+            `${row.leftAverageDurationMs} ms -> ${row.rightAverageDurationMs} ms`,
+          ])}
+        />
+      </BehaviorSection>
+
+      <BehaviorSection title={t("comparePage.timeline")}>
+        <CompareRows
+          columns={[t("comparePage.bucket"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.delta")]}
+          rows={payload.timeline.buckets.map((bucket) => [
+            formatTime(bucket.startedAt),
+            String(bucket.leftCount),
+            String(bucket.rightCount),
+            formatDelta(bucket.delta),
+          ])}
+        />
+      </BehaviorSection>
+
+      <BehaviorSection title={t("comparePage.sequence")}>
+        <Stack spacing={1}>
+          <SequenceSummary payload={payload} />
+          <CompareRows
+            columns={[t("comparePage.index"), t("comparePage.leftEndpoint"), t("comparePage.rightEndpoint")]}
+            rows={payload.sequence.changedPositions.slice(0, SESSION_TABLE_LIMIT).map((row) => [
+              String(row.index + 1),
+              row.left ?? "",
+              row.right ?? "",
+            ])}
+          />
+        </Stack>
+      </BehaviorSection>
+    </Stack>
+  );
+}
+
+function SequenceSummary({ payload }: { payload: SessionComparePayload }) {
+  const { t } = useI18n();
+  const added = payload.sequence.addedEndpoints.slice(0, SEQUENCE_PREVIEW_LIMIT);
+  const removed = payload.sequence.removedEndpoints.slice(0, SEQUENCE_PREVIEW_LIMIT);
+  const repeated = payload.sequence.repeatedEndpoints.slice(0, SEQUENCE_PREVIEW_LIMIT);
+
+  return (
+    <Stack spacing={1}>
+      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        <Chip size="small" color="success" label={`${t("comparePage.addedEndpoints")}: ${payload.sequence.addedEndpoints.length}`} variant="outlined" />
+        <Chip size="small" color="error" label={`${t("comparePage.removedEndpoints")}: ${payload.sequence.removedEndpoints.length}`} variant="outlined" />
+        <Chip size="small" color="warning" label={`${t("comparePage.orderChanges")}: ${payload.sequence.changedPositions.length}`} variant="outlined" />
+        <Chip size="small" label={`${t("comparePage.repeatedEndpoints")}: ${payload.sequence.repeatedEndpoints.length}`} variant="outlined" />
+      </Stack>
+      <EndpointList title={t("comparePage.addedEndpoints")} endpoints={added} />
+      <EndpointList title={t("comparePage.removedEndpoints")} endpoints={removed} />
+      <EndpointList
+        title={t("comparePage.repeatedEndpoints")}
+        endpoints={repeated.map((row) => `${row.endpoint} (${row.leftCount} -> ${row.rightCount})`)}
+      />
+    </Stack>
+  );
+}
+
+function EndpointList({ endpoints, title }: { endpoints: string[]; title: string }) {
+  if (endpoints.length === 0) {
+    return null;
+  }
+
+  return (
+    <Stack spacing={0.5}>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography>
+      <Stack spacing={0.5}>
+        {endpoints.map((endpoint) => (
+          <Typography key={endpoint} component="code" sx={{ fontFamily: fontFamilies.mono, fontSize: 12, overflowWrap: "anywhere" }}>
+            {endpoint}
+          </Typography>
+        ))}
+      </Stack>
+    </Stack>
+  );
+}
+
+function BehaviorSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}>
+      <Typography
+        variant="body2"
+        sx={(theme) => ({
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.045),
+          borderBottom: 1,
+          borderColor: "divider",
+          fontWeight: 750,
+          px: 1.25,
+          py: 1,
+        })}
+      >
+        {title}
+      </Typography>
+      <Box sx={{ p: 1.25 }}>{children}</Box>
+    </Paper>
+  );
+}
+
+function MetricGrid({ rows }: { rows: Array<[string, string | number, string | number]> }) {
+  return (
+    <Box sx={{ display: "grid", gap: 0.75, gridTemplateColumns: { md: "180px minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" } }}>
+      <Typography color="text.secondary" variant="caption">Metric</Typography>
+      <Typography color="text.secondary" variant="caption">Left</Typography>
+      <Typography color="text.secondary" variant="caption">Right</Typography>
+      {rows.map(([label, left, right]) => (
+        <Box key={label} sx={{ display: "contents" }}>
+          <Typography variant="body2" sx={{ fontWeight: 650 }}>{label}</Typography>
+          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{left}</Typography>
+          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{right}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] }) {
+  const { t } = useI18n();
+
+  if (rows.length === 0) {
+    return <Typography color="text.secondary" variant="body2">{t("comparePage.noVisibleChanges")}</Typography>;
+  }
+
+  return (
+    <Stack spacing={0} divider={<Divider />}>
+      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`, px: 0.75, py: 0.5 }}>
+        {columns.map((column) => (
+          <Typography key={column} color="text.secondary" variant="caption" sx={{ fontWeight: 700 }}>
+            {column}
+          </Typography>
+        ))}
+      </Box>
+      {rows.map((row, index) => (
+        <Box key={`${row.join(":")}:${index}`} sx={{ display: "grid", gap: 1, gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`, px: 0.75, py: 0.75 }}>
+          {row.map((cell, cellIndex) => (
+            <Typography
+              key={`${cell}:${cellIndex}`}
+              variant="body2"
+              sx={{
+                fontFamily: cellIndex === 0 ? fontFamilies.mono : undefined,
+                fontSize: cellIndex === 0 ? 12 : undefined,
+                overflowWrap: "anywhere",
+              }}
+            >
+              {cell || "(empty)"}
+            </Typography>
+          ))}
+        </Box>
+      ))}
+    </Stack>
   );
 }
 
@@ -556,6 +986,67 @@ function DiffSectionCard({
   );
 }
 
+function AiSummaryPanel({
+  aiConfigured,
+  model,
+  mutationData,
+  mutationError,
+  onConfigure,
+}: {
+  aiConfigured: boolean;
+  model?: string | undefined;
+  mutationData?: string | undefined;
+  mutationError: unknown;
+  onConfigure: () => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
+      <Stack sx={{ height: "100%", minHeight: 0 }}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <AutoFixHighRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>{t("comparePage.aiSummary")}</Typography>
+          </Stack>
+          {model ? <Chip size="small" label={model} variant="outlined" /> : null}
+        </Stack>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
+          {!aiConfigured ? (
+            <Stack spacing={1.5}>
+              <Alert severity="info">{t("comparePage.aiNotConfigured")}</Alert>
+              <Button
+                variant="outlined"
+                startIcon={<SettingsRoundedIcon />}
+                onClick={onConfigure}
+              >
+                {t("comparePage.configureAi")}
+              </Button>
+            </Stack>
+          ) : mutationError ? (
+            <Alert severity="error">{coerceAppError(mutationError).message}</Alert>
+          ) : mutationData ? (
+            <Typography
+              component="pre"
+              sx={{
+                fontFamily: fontFamilies.mono,
+                fontSize: 13,
+                lineHeight: 1.7,
+                m: 0,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {mutationData}
+            </Typography>
+          ) : (
+            <Alert severity="info">{t("comparePage.summaryIdle")}</Alert>
+          )}
+        </Box>
+      </Stack>
+    </Paper>
+  );
+}
+
 function DiffValue({ value }: { value: string | undefined }) {
   return (
     <Typography
@@ -575,4 +1066,45 @@ function DiffValue({ value }: { value: string | undefined }) {
       {value || "(empty)"}
     </Typography>
   );
+}
+
+function resolveScope(scope: SessionCompareScope, sessionById: Map<string, SessionSummary>): SessionCompareScopeInput {
+  return {
+    id: scope.id,
+    label: scope.label,
+    sessions: scope.sessionIds
+      .map((sessionId) => sessionById.get(sessionId))
+      .filter((session): session is SessionSummary => Boolean(session)),
+  };
+}
+
+function readCompareMode(searchParams: URLSearchParams): CompareMode {
+  return searchParams.get("mode") === "session" ? "session" : "request";
+}
+
+function readDomains(searchParams: URLSearchParams) {
+  return (searchParams.get("domains") ?? "")
+    .split(",")
+    .map((domain) => domain.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function formatDelta(value: number) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatStatusCodes(statusCodes: Record<string, number>) {
+  const entries = Object.entries(statusCodes).sort(([left], [right]) => left.localeCompare(right));
+  return entries.length > 0
+    ? entries.map(([status, count]) => `${status}:${count}`).join(", ")
+    : "(none)";
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : value;
 }

@@ -39,6 +39,7 @@ export function buildSessionDiffPayload(
   ];
 
   const payload: SessionDiffPayload = {
+    compareMode: "request",
     left: summaryIdentity(left.summary),
     right: summaryIdentity(right.summary),
     sections,

@@ -174,12 +174,22 @@ pub async fn summarize_session_diff(
     } else {
         "English"
     };
+    let compare_mode = input
+        .payload
+        .get("compareMode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("request");
+    let focus = if compare_mode == "session" {
+        "Analyze a redacted HTTP session behavior comparison. Focus on request frequency, call counts, domain and endpoint coverage, status patterns, timeline bursts or gaps, repeated calls, and call order changes."
+    } else {
+        "Analyze a redacted HTTP request diff. Focus on parameter, header, body, response, status, and timing differences."
+    };
     let system_prompt = format!(
-        "You are AIProxy's network debugging assistant. Analyze a redacted HTTP session diff. \
+        "You are AIProxy's network debugging assistant. {focus} \
          Answer in {language}. Use these exact sections: 核心结论, 关键差异, 可能原因, 建议验证步骤, 风险 / 注意事项. \
          Be concise, specific, and avoid inventing facts not present in the diff."
     );
-    let user_prompt = format!("Session diff payload:\n{payload_text}");
+    let user_prompt = format!("Compare payload:\n{payload_text}");
     let summary = call_chat_completion(
         &settings,
         &system_prompt,

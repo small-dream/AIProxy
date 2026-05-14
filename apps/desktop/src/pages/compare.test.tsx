@@ -8,6 +8,7 @@ import {
   clearImportedSessions,
   upsertImportedSessions,
 } from "@/features/sessions/imported-sessions.store";
+import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 
 import { ComparePage } from "./compare";
 
@@ -44,9 +45,13 @@ function detail(overrides: Partial<SessionDetail> = {}): SessionDetail {
 function renderCompare(left: SessionDetail, right: SessionDetail) {
   upsertImportedSessions([left, right]);
 
+  return renderCompareRoute(`/compare?left=${left.id}&right=${right.id}`);
+}
+
+function renderCompareRoute(route: string) {
   return render(
     <AppProviders>
-      <MemoryRouter initialEntries={[`/compare?left=${left.id}&right=${right.id}`]}>
+      <MemoryRouter initialEntries={[route]}>
         <ComparePage />
       </MemoryRouter>
     </AppProviders>,
@@ -55,6 +60,7 @@ function renderCompare(left: SessionDetail, right: SessionDetail) {
 
 afterEach(() => {
   clearImportedSessions();
+  syncSessionCompareScopes([]);
 });
 
 describe("ComparePage", () => {
@@ -138,5 +144,69 @@ describe("ComparePage", () => {
     const requestBodySection = screen.getByText("Request Body").closest(".MuiPaper-root");
     expect(requestBodySection).not.toBeNull();
     expect(within(requestBodySection as HTMLElement).getByText("line 240")).toBeInTheDocument();
+  });
+
+  it("renders session behavior comparison and previews a session payload", async () => {
+    const leftApi = detail({
+      summary: summary({
+        id: "left-api",
+        method: "GET",
+        host: "api.example.com",
+        path: "/config",
+        url: "https://api.example.com/config",
+      }),
+    });
+    const leftCdn = detail({
+      summary: summary({
+        id: "left-cdn",
+        method: "GET",
+        host: "cdn.example.com",
+        path: "/asset.js",
+        url: "https://cdn.example.com/asset.js",
+      }),
+    });
+    const rightApi = detail({
+      summary: summary({
+        id: "right-api",
+        method: "POST",
+        host: "api.example.com",
+        path: "/api/",
+        statusCode: 204,
+        url: "https://api.example.com/api/?_method=site.track_events&_device=abc",
+      }),
+    });
+
+    upsertImportedSessions([leftApi, leftCdn, rightApi]);
+    syncSessionCompareScopes([
+      {
+        id: "scope-left",
+        label: "Session 1",
+        sessionIds: ["left-api", "left-cdn"],
+        updatedAt: "2026-05-14T00:00:00.000Z",
+      },
+      {
+        id: "scope-right",
+        label: "Session 2",
+        sessionIds: ["right-api"],
+        updatedAt: "2026-05-14T00:00:00.000Z",
+      },
+    ]);
+
+    renderCompareRoute("/compare?mode=session&leftScope=scope-left&rightScope=scope-right&domains=api.example.com");
+
+    expect(await screen.findByText("Behavior Workbench")).toBeInTheDocument();
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.getAllByText("Domains").length).toBeGreaterThan(0);
+    expect(screen.getByText("Endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Timeline")).toBeInTheDocument();
+    expect(screen.getByText("Sequence")).toBeInTheDocument();
+    expect((await screen.findAllByText("GET api.example.com/config")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("POST api.example.com/api/ _method=site.track_events")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("cdn.example.com")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview AI Payload" }));
+
+    expect(await screen.findByText(/"compareMode": "session"/)).toBeInTheDocument();
+    expect(screen.getByText(/"domainFilter":/)).toBeInTheDocument();
   });
 });

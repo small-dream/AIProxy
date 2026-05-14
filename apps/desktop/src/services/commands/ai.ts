@@ -92,9 +92,10 @@ export async function summarizeSessionDiff(
 
   try {
     logDevInfo("ui.commands", "summarize_session_diff_requested", {
+      compareMode: input.payload.compareMode,
       bodyIncluded: input.payload.bodyIncluded,
       language: input.language,
-      sectionCount: input.payload.sections.length,
+      sectionCount: input.payload.compareMode === "request" ? input.payload.sections.length : undefined,
     });
     return parseSessionDiffSummaryResult(await invoke<unknown>("summarize_session_diff", { input }));
   } catch (error) {

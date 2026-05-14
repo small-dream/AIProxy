@@ -30,6 +30,8 @@ export type TestAiConnectionResult = {
 
 export type SessionDiffChangeKind = "added" | "changed" | "removed" | "unchanged";
 
+export type CompareMode = "request" | "session";
+
 export type SessionDiffEntry = {
   path: string;
   kind: SessionDiffChangeKind;
@@ -53,6 +55,7 @@ export type SessionDiffSection = {
 };
 
 export type SessionDiffPayload = {
+  compareMode: "request";
   left: {
     id: string;
     label: string;
@@ -76,8 +79,102 @@ export type SessionDiffPayload = {
   bodyIncluded: boolean;
 };
 
+export type SessionCompareScopeIdentity = {
+  id: string;
+  label: string;
+  requestCount: number;
+  startedAt?: string | undefined;
+  finishedAt?: string | undefined;
+};
+
+export type SessionCompareOverview = {
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  domainCount: number;
+  totalSizeBytes: number;
+  statusCodes: Record<string, number>;
+  durationMs: {
+    min: number;
+    max: number;
+    average: number;
+    total: number;
+  };
+};
+
+export type SessionCompareDomainRow = {
+  domain: string;
+  leftCount: number;
+  rightCount: number;
+  delta: number;
+  leftShare: number;
+  rightShare: number;
+};
+
+export type SessionCompareEndpointRow = {
+  endpoint: string;
+  kind: "added" | "changed" | "removed" | "unchanged";
+  leftCount: number;
+  rightCount: number;
+  delta: number;
+  leftAverageDurationMs: number;
+  rightAverageDurationMs: number;
+  leftTotalDurationMs: number;
+  rightTotalDurationMs: number;
+  leftStatusCodes: Record<string, number>;
+  rightStatusCodes: Record<string, number>;
+};
+
+export type SessionCompareTimelineBucket = {
+  label: string;
+  startedAt: string;
+  leftCount: number;
+  rightCount: number;
+  delta: number;
+};
+
+export type SessionCompareSequenceMismatch = {
+  index: number;
+  left?: string | undefined;
+  right?: string | undefined;
+};
+
+export type SessionComparePayload = {
+  compareMode: "session";
+  left: SessionCompareScopeIdentity;
+  right: SessionCompareScopeIdentity;
+  domainFilter: string[];
+  generatedAt: string;
+  redacted: boolean;
+  bodyIncluded: false;
+  overview: {
+    left: SessionCompareOverview;
+    right: SessionCompareOverview;
+  };
+  domains: SessionCompareDomainRow[];
+  endpoints: SessionCompareEndpointRow[];
+  timeline: {
+    bucketMs: number;
+    buckets: SessionCompareTimelineBucket[];
+  };
+  sequence: {
+    left: string[];
+    right: string[];
+    addedEndpoints: string[];
+    removedEndpoints: string[];
+    changedPositions: SessionCompareSequenceMismatch[];
+    repeatedEndpoints: Array<{
+      endpoint: string;
+      leftCount: number;
+      rightCount: number;
+    }>;
+  };
+};
+
+export type CompareAiPayload = SessionDiffPayload | SessionComparePayload;
+
 export type SessionDiffSummaryRequest = {
-  payload: SessionDiffPayload;
+  payload: CompareAiPayload;
   language: "en" | "zh-CN";
 };
 

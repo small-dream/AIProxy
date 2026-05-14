@@ -63,6 +63,7 @@ import {
   removeStorageValue,
   writeStorageValue,
 } from "@/features/sessions/session-ui.helpers";
+import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
 import { useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
@@ -379,6 +380,17 @@ export function SessionsPage() {
   useEffect(() => {
     writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(activeContainer?.requestCollapsed ?? false));
   }, [activeContainer?.requestCollapsed]);
+
+  useEffect(() => {
+    syncSessionCompareScopes(
+      containerState.containers.map((container) => ({
+        id: container.id,
+        label: t("sessionsPage.containers.sessionTitle", { index: container.labelNumber }),
+        sessionIds: container.sessionIds,
+        updatedAt: new Date().toISOString(),
+      })),
+    );
+  }, [containerState.containers, t]);
 
   useEffect(() => {
     if (focusedHosts.size > 0) {
