@@ -849,7 +849,7 @@ Compare Page 是面向 AI 的会话对比工作台，用于回答“这两次请
 
 | 文件 | 职责 |
 |------|------|
-| `pages/compare/index.tsx` | ComparePage 主页面，管理会话选择、payload 预览、AI 总结、Body diff 按需展开和截断提示 |
+| `pages/compare/index.tsx` | ComparePage 主页面，管理会话选择、payload 预览、AI 总结（Markdown 渲染）、Body diff 按需展开和截断提示 |
 | `features/session-compare/session-diff.helpers.ts` | 生成 summary / query / headers / body / timing diff；提供 lazy body diff、size guard、binary 状态和截断元数据 |
 | `features/session-compare/redaction.helpers.ts` | 对 AI payload 做默认脱敏 |
 | `services/commands/ai.ts` | AI settings、连接测试、diff 总结命令包装 |

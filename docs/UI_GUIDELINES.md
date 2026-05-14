@@ -882,6 +882,7 @@ Compare Page 是面向 AI 的高密度分析页面，不使用营销式介绍区
 - 当 body diff 被 entry 上限或 size guard 截断 / 跳过时，必须显示 warning 和可读原因；当前已装载的变化可用 `Show all changes` 展开。
 - 非文本 / binary body 必须明确显示不可文本 diff 状态，不显示成未捕获 body。
 - AI Summary 面板在未配置模型时显示 `Configure AI Model` 入口，配置完成后显示模型名和生成结果。
+- AI 返回的总结内容使用 Markdown 渲染（标题、粗体、表格、列表、代码块等），不再以纯文本预格式化形式展示。
 - “包含 Body 上下文”使用 Switch；默认发送的是脱敏 payload，不提供默认完整原文发送入口。
 - 窄屏下 AI Summary 移到 Diff 下方，避免右侧窄栏挤压代码文本。
 
