@@ -827,7 +827,7 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 | Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
 
-## 8.5 Compare Page — `已实现首版`
+## 8.5 Compare Page — `已实现发布硬化版`
 
 Compare Page 是面向 AI 的会话对比工作台，用于回答“这两次请求 / 响应到底差在哪里，以及可能意味着什么”。
 
@@ -842,17 +842,26 @@ Compare Page 是面向 AI 的会话对比工作台，用于回答“这两次请
 │ Diff Workbench                               │ AI Summary                    │
 │ ┌ Summary / Query / Headers / Body / Timing ┐│ Configure / Generate / Result │
 │ │ added / removed / changed / unchanged      ││                               │
-│ │ field-level or line-level entries          ││                               │
+│ │ lazy Body diff / truncation warnings       ││                               │
 │ └────────────────────────────────────────────┘│                               │
 └──────────────────────────────────────────────┴───────────────────────────────┘
 ```
 
 | 文件 | 职责 |
 |------|------|
-| `pages/compare/index.tsx` | ComparePage 主页面，管理会话选择、payload 预览和 AI 总结 |
-| `features/session-compare/session-diff.helpers.ts` | 生成 summary / query / headers / body / timing diff |
+| `pages/compare/index.tsx` | ComparePage 主页面，管理会话选择、payload 预览、AI 总结、Body diff 按需展开和截断提示 |
+| `features/session-compare/session-diff.helpers.ts` | 生成 summary / query / headers / body / timing diff；提供 lazy body diff、size guard、binary 状态和截断元数据 |
 | `features/session-compare/redaction.helpers.ts` | 对 AI payload 做默认脱敏 |
 | `services/commands/ai.ts` | AI settings、连接测试、diff 总结命令包装 |
+| `pages/compare.test.tsx` | Compare 页面集成测试，覆盖 lazy Body diff、binary body 状态和截断展开 |
+
+Body diff 行为：
+
+- Compare 默认展示 Body 元数据摘要，包括 size、MIME、encoding、text availability 和 truncated 状态。
+- 点击 `Compute body diff` 后才计算该 section 的 JSON path diff 或文本行级 diff，避免进入页面时解析大 body 卡顿。
+- 单次 Body diff 有字符数 guard；超过 guard 时不计算详细 entries，并显示跳过原因。
+- 详细 Body diff entries 有上限；被截断时 section 展示 warning，并通过 `Show all changes` 展开当前已装载 entries。
+- 非文本 / binary body 明确显示 `Non-text or binary`，不再误报为未捕获 body。
 
 事件流：
 
@@ -861,8 +870,9 @@ Sessions 右键 Set as Compare Base
 -> Sessions 右键 Compare with...
 -> navigate /compare?left=<base>&right=<current>
 -> ComparePage 按需加载两个 Session detail/body
--> buildSessionDiffPayload(redacted)
--> 用户预览 payload 或手动 Generate Summary
+-> buildSessionDiffPayload(redacted, bodyDiffMode="summary") 生成默认工作台视图
+-> 用户展开 Body section 时 buildSessionDiffPayload(redacted, expandedBodySections=...)
+-> 用户预览 payload 或手动 Generate Summary 时生成 bounded AI payload
 -> summarize_session_diff 返回 AI 总结
 ```
 

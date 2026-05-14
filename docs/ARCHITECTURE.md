@@ -679,7 +679,7 @@ erDiagram
 - `SessionsPage`：`Sessions Header Toolbar`（Search / Clear / Export）+ `Session Explorer Pane` + `Split Resize Handle` + `Session Inspector Workspace` + `SessionContextMenu`；`SessionExportDialog` 处理 `Session Snapshot / HAR / cURL` 三类导出，右键菜单负责复制、重放、Host 聚焦 / 忽略与规则页跳转
 - `ComposePage`：`SectionCard "Request Builder"`（Method/URL/Headers/Body/Query 编辑器）+ `SectionCard "Response Preview"`（复用 Inspector 组件渲染 Overview/Headers/Body/Timing），`Send` + `Export cURL` 工具栏按钮
 - `CollectionsPage`：三栏布局 — `CollectionTreePane`（集合/文件夹树）+ `CollectionItemListPane`（请求列表）+ `CollectionItemEditorPane`（请求编辑器，复用 ComposeRequestSection + ComposeResponseSection）。底部环境选择器支持切换环境，变量替换引擎支持 `{{key}}` 语法
-- `ComparePage`：独立 AI 对比工作台；顶部选择 Left / Right sessions，中间展示 summary / query / headers / body / timing diff，右侧 AI Summary 面板通过 `summarize_session_diff` 手动生成解释。AI payload 默认脱敏，模型配置来自 Settings 的 AI Model section
+- `ComparePage`：独立 AI 对比工作台；顶部选择 Left / Right sessions，中间展示 summary / query / headers / body / timing diff，右侧 AI Summary 面板通过 `summarize_session_diff` 手动生成解释。Body diff 默认 lazy，展开后才计算 JSON path / 文本行 diff；超大 body 受 size guard 保护，截断和 binary / non-text 状态通过 section 元数据展示。AI payload 默认脱敏，模型配置来自 Settings 的 AI Model section
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Mapping / Script）；`Mapping` 内部用分段控制切换 Map Local / Map Remote / DNS，规则编辑采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Runtime Status Bar` + 左侧 `Profiles / Rules` 切换列表 + 右侧 `Profile Editor / Rule Scope Editor`；支持全局 Profile、临时启用、一键关闭、按 URL / Method / Stage 定向规则
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
@@ -698,7 +698,7 @@ erDiagram
 - `dns-mappings` — `已实现`：Rules 页面 DNS tab + DnsMappingsPanel + DnsManager (Rust) + SQLite 持久化 + 代理管线 5 路径接入
 - `throttling` — `已实现 P0/P1`：ThrottlingPage 工作台 + use-throttle-profiles hooks + 预设 / 自定义 Profile + 定向 Throttling Rule + Session 级 Throttling Trace + Runtime Stats + Sessions 过滤 / 右键创建规则
 - `session-export` — `已实现首版`：SessionExportDialog + session-export.helpers + Sessions 页头导出入口；前端生成 Session Snapshot / HAR / cURL 内容后通过 `save_text_file` 写入下载目录
-- `session-compare` — `已实现首版`：ComparePage + session-diff.helpers + redaction.helpers + Sessions 右键对比入口；支持 JSON path diff、文本行 diff、Header / Query 结构化 diff 与 AI 总结
+- `session-compare` — `已实现发布硬化版`：ComparePage + session-diff.helpers + redaction.helpers + Sessions 右键对比入口；支持 JSON path diff、文本行 diff、Header / Query 结构化 diff、Body lazy diff、截断提示、body size guard、binary body 明确状态与 AI 总结
 - `ai` — `已实现首版`：`ai_settings` SQLite 表 + Rust `commands/ai.rs` + 前端 `services/commands/ai.ts`；支持 OpenAI-compatible Chat Completions、连接测试、diff 总结
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`

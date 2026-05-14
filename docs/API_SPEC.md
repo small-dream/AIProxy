@@ -1907,9 +1907,9 @@ type ApiGlobalVariable = {
 
 变量解析优先级：环境变量 > 全局变量。未匹配的 `{{key}}` 保持原样，不报错。
 
-## 13. AI Compare Commands — 已实现首版
+## 13. AI Compare Commands — 已实现发布硬化版
 
-这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。首版仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。
+这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。当前仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。Compare 页面生成的 diff payload 默认脱敏，并带有 Body lazy diff、截断和 binary 状态元数据。
 
 ### AI 共享类型
 
@@ -1936,7 +1936,38 @@ type SaveAiSettingsInput = {
   temperature: number;
   timeoutMs: number;
 };
+
+type SessionDiffChangeKind = "added" | "changed" | "removed" | "unchanged";
+
+type SessionDiffEntry = {
+  path: string;
+  kind: SessionDiffChangeKind;
+  before?: string;
+  after?: string;
+};
+
+type SessionDiffSection = {
+  key: string;
+  title: string;
+  added: number;
+  removed: number;
+  changed: number;
+  unchanged: number;
+  entries: SessionDiffEntry[];
+  canExpand?: boolean;
+  note?: string;
+  totalEntries?: number;
+  truncated?: boolean;
+  truncationReason?: string;
+};
 ```
+
+`SessionDiffSection` 元数据约定：
+
+- `canExpand`：该 section 可在 UI 中按需展开计算更多上下文，目前主要用于 Body lazy diff。
+- `totalEntries`：完整 bounded diff 发现的 entry 数，可能大于当前 `entries.length`。
+- `truncated` / `truncationReason`：当前 entries 被上限或 size guard 截断 / 跳过时必须提供可展示原因。
+- binary / non-text body 通过 Body section 的 `note` 和 `body.text` metadata entry 表达，不应显示成 “No body captured”。
 
 ### AI Settings
 
@@ -1948,6 +1979,7 @@ type SaveAiSettingsInput = {
 
 - `summarize_session_diff({ payload, language }) -> { summary, model, provider, createdAt }`
 - `payload` 为前端生成的 `SessionDiffPayload`，默认已脱敏；后端不读取 session 原始内容，不记录 API Key。
+- 后端对序列化后的 payload 有大小上限；超过上限时返回 `AI_PAYLOAD_TOO_LARGE`，用户可关闭 Body context 或选择更小的 sessions。
 - `language` 当前为 `en | zh-CN`，用于约束模型输出语言。
 
 ## 14. 实现建议

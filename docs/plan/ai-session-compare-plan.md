@@ -7,6 +7,7 @@
 - API Key 存入本地 SQLite；后端命令不向前端回传明文，只返回是否已配置和掩码。
 - AI 调用由 Rust / Tauri 后端执行，前端只提交默认脱敏后的结构化 diff payload，避免 renderer 暴露密钥和 CORS 问题。
 - AI 总结默认手动触发，语言跟随应用语言。
+- 当前实现已完成发布硬化：Body diff 默认 lazy、截断提示可见、超大 body 受 size guard 保护、binary / non-text body 明确展示不可文本 diff 状态，并补充 Compare 页面集成测试。
 
 ## Key Changes
 
@@ -19,11 +20,13 @@
 
 ### Diff 行为
 
-- 前端新增纯函数 diff engine，复用现有 `ensureSessionDetailContent` 拉取两边完整请求 / 响应 body 文本。
+- 前端新增纯函数 diff engine，复用现有 `ensureSessionDetailContent` 拉取两边请求 / 响应 body 文本；Compare 页面默认只渲染 Body 元数据摘要，用户展开时才计算详细 Body diff。
 - 对比范围固定为：summary、URL / method / status / duration / size、query params、request headers、request body、response headers、response body、timing。
 - Headers / query 按 key 大小写不敏感匹配，展示 added / removed / changed / unchanged count。
 - Body 优先 JSON diff：两边都能解析 JSON 时按 path 对比；否则做文本行级 diff；二进制或缺失内容展示不可比较原因。
-- 大 body 默认只参与本地 diff 的截断预览，AI payload 只发送结构化摘要和有限上下文，避免把超大响应直接发给模型。
+- Body section 默认展示 size、MIME、encoding、text availability、truncated 等元数据；非文本 / binary body 显示 `Non-text or binary`，不再误报为未捕获 body。
+- 大 body 受字符数 guard 保护，超过 guard 时跳过详细 entries 并显示原因；详细 body entries 使用上限截断，section 记录 `totalEntries`、`truncated`、`truncationReason`。
+- 页面展示和 AI payload 都使用 bounded diff；Preview / Generate 会重新生成默认脱敏 payload，避免把超大响应直接发给模型。
 
 ### AI 架构
 
@@ -55,6 +58,10 @@
   - `SessionDiffPayload`
   - `SessionDiffSummaryRequest`
   - `SessionDiffSummaryResult`
+- `SessionDiffSection` 除 `added / removed / changed / unchanged / entries` 外，还包含可选元数据：
+  - `canExpand`：页面是否可以触发按需展开，例如 lazy Body diff。
+  - `totalEntries`：完整 bounded diff 发现的 entry 数量。
+  - `truncated` / `truncationReason`：当前 entries 是否被截断，以及展示给用户的截断原因。
 - 前端新增命令客户端 `services/commands/ai.ts`。
 - 前端新增功能目录 `features/session-compare/`，包含 diff helpers、redaction helpers、AI summary hook、Compare 工作台组件。
 
@@ -65,6 +72,9 @@
 - JSON body diff：added / removed / changed / unchanged path。
 - Text body diff：新增行、删除行、修改行。
 - Header / query diff：大小写不敏感匹配，同名多值稳定展示。
+- Lazy body diff：summary mode 不生成详细 body entries，展开后生成 bounded entries。
+- Body size guard：超过 guard 时不解析详细 entries，并返回 truncation metadata。
+- Binary body：明确返回 non-text / binary 状态。
 - Redaction：Authorization、Cookie、token-like JSON fields、query secret fields 都被掩码。
 - AI settings parser：masked key、不返回明文 key、clear key 行为。
 
@@ -72,6 +82,9 @@
 
 - Sessions 右键能设置 compare base 并跳转 Compare。
 - Compare 页选择两个 sessions 后展示 summary / header / body diff。
+- Compare 页默认折叠 Body diff，点击 `Compute body diff` 后展示 JSON path / 文本行级差异。
+- Compare 页在 body diff entries 截断时显示 warning，并支持展开当前已装载变化。
+- Compare 页对 binary body 显示不可文本 diff 状态。
 - 未配置 AI 时展示配置入口；配置后点击 `Generate Summary` 显示 loading、结果、错误态。
 - 应用语言为中文时 AI request language 为中文；英文同理。
 

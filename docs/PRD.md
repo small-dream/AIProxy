@@ -130,7 +130,7 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 导入导出 `HAR`、`cURL`、`Postman`
 - TypeScript 脚本化规则引擎（HTTP/HTTPS 请求与响应阶段，单文件脚本，严格沙箱，支持日志与数据提取）
 - API Collections 与环境变量（当前已实现集合、请求项、从 Session 保存、变量替换与批量执行）
-- 请求 / 响应 Diff 对比与 AI 总结（当前已实现首版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload）
+- 请求 / 响应 Diff 对比与 AI 总结（当前已实现发布硬化版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload、Body lazy diff、截断可见提示、body size guard 与 binary body 明确状态）
 - 规则模板共享
 - 轻量插件系统
 - 流量统计与聚合分析面板

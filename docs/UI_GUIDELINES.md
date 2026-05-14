@@ -312,7 +312,7 @@ Capture Workspace
 
 - `Sessions Page`：抓包主工作台、会话列表、详情检查器
 - `Compose Page`：请求构造、响应预览（已实现），模板面板（待实现）
-- `Compare Page`：请求 / 响应 Diff 与 AI 总结（已实现首版）
+- `Compare Page`：请求 / 响应 Diff 与 AI 总结（已实现发布硬化版）
 - `Rules Page`：规则类型切换、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
 - `Settings Page`：代理预设、设置导航与设置内容区
@@ -872,12 +872,15 @@ Settings Page
 - `Ctrl/Cmd + ,`：打开设置
 - `Space`：快速预览当前会话详情
 
-## 13.5 Compare Page — `已实现首版`
+## 13.5 Compare Page — `已实现发布硬化版`
 
 Compare Page 是面向 AI 的高密度分析页面，不使用营销式介绍区。首屏直接展示两个 Session 选择器、Diff 工作台和 AI Summary 面板。
 
 - 顶部操作只保留 `Preview AI Payload` 与 `Generate Summary`，AI 调用必须由用户手动触发。
 - Diff Workbench 按 section 展示 added / removed / changed / unchanged 计数，并只展开有变化的条目。
+- Body section 默认展示元数据摘要；使用 `Compute body diff` 按需计算详细 diff，避免页面初始渲染时解析大 body。
+- 当 body diff 被 entry 上限或 size guard 截断 / 跳过时，必须显示 warning 和可读原因；当前已装载的变化可用 `Show all changes` 展开。
+- 非文本 / binary body 必须明确显示不可文本 diff 状态，不显示成未捕获 body。
 - AI Summary 面板在未配置模型时显示 `Configure AI Model` 入口，配置完成后显示模型名和生成结果。
 - “包含 Body 上下文”使用 Switch；默认发送的是脱敏 payload，不提供默认完整原文发送入口。
 - 窄屏下 AI Summary 移到 Diff 下方，避免右侧窄栏挤压代码文本。

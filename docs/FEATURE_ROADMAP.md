@@ -39,7 +39,7 @@
 ### 5. 请求 / 响应 Diff 对比
 
 - **内容**：选择两个 session 逐字段对比——Headers diff、Body JSON diff，高亮差异行。
-- **相关进展**：Rewrite P0 已落地会话级改写 before / after diff，可复用部分 diff 展示经验，但尚未支持任意两个 session 对比。
+- **相关进展**：已落地 Compare 独立页面与 Sessions 右键入口，支持任意两个 session 的 summary / query / headers / request body / response body / timing 对比；Body diff 已支持 lazy 展开、截断可见提示、body size guard 和 binary / non-text 明确状态。
 - **竞品对标**：Fiddler 有基础的请求对比，Charles 不支持。Proxyman 无此功能。
 - **价值**：排查「同样接口为何返回不同」是日常最高频的调试场景之一，目前只能肉眼比对或外部工具。
 - **受益用户**：全部。
