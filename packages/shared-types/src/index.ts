@@ -1,4 +1,5 @@
 export * from "./common";
+export * from "./app";
 export * from "./proxy";
 export * from "./workspaces";
 export * from "./sessions";

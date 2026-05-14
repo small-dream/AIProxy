@@ -135,6 +135,12 @@ export const enMessages = {
     stopSystemProxyAction: "Stop System Proxy",
   },
   settingsPage: {
+    aboutBuildNumber: "Build Number",
+    aboutSectionDescription: "Version plus build number uniquely identifies this AIProxy build.",
+    aboutSectionTitle: "About",
+    aboutUniqueIdentifier: "Software identifier: {{identifier}}",
+    aboutVersion: "Version",
+    aboutVersionIdentifier: "Version Identifier",
     customContentFontLabel: "Custom Content Font",
     customFontLabel: "Custom Font Name",
     customFontPlaceholder: "e.g. LXGW WenKai, IBM Plex Sans, Maple Mono",

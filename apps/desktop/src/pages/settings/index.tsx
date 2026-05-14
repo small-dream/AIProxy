@@ -1,5 +1,6 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
@@ -37,7 +38,7 @@ import {
   type AppUpdateInfo,
   type AppUpdateProgress,
 } from "@/services/updater/app-updater";
-import { getAiSettings, saveAiSettings, testAiConnection } from "@/services/commands";
+import { getAiSettings, getAppBuildInfo, saveAiSettings, testAiConnection } from "@/services/commands";
 import {
   appFontSizeOptions,
   appFontPreferences,
@@ -550,6 +551,68 @@ function AiModelSettingsSection() {
   );
 }
 
+function AboutSection() {
+  const { t } = useI18n();
+  const { data: buildInfo } = useQuery({
+    queryKey: ["app-build-info"],
+    queryFn: getAppBuildInfo,
+  });
+  const version = buildInfo?.version ?? "0.1.0";
+  const buildNumber = buildInfo?.buildNumber ?? "0";
+  const versionIdentifier = buildInfo?.versionIdentifier ?? `${version}+${buildNumber}`;
+
+  return (
+    <SectionCard compact title={t("settingsPage.aboutSectionTitle")} description={t("settingsPage.aboutSectionDescription")}>
+      <Stack spacing={1.5}>
+        <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
+          {t("settingsPage.aboutUniqueIdentifier", {
+            identifier: versionIdentifier,
+          })}
+        </Alert>
+        <Box
+          sx={{
+            display: "grid",
+            gap: 1.5,
+            gridTemplateColumns: {
+              md: "repeat(3, minmax(180px, 1fr))",
+              xs: "1fr",
+            },
+          }}
+        >
+          <BuildInfoField label={t("settingsPage.aboutVersion")} value={version} />
+          <BuildInfoField label={t("settingsPage.aboutBuildNumber")} value={buildNumber} />
+          <BuildInfoField label={t("settingsPage.aboutVersionIdentifier")} value={versionIdentifier} />
+        </Box>
+      </Stack>
+    </SectionCard>
+  );
+}
+
+function BuildInfoField({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack spacing={0.5}>
+      <Typography color="text.secondary" variant="caption">
+        {label}
+      </Typography>
+      <Typography
+        component="code"
+        sx={{
+          bgcolor: "action.hover",
+          borderRadius: 1,
+          fontFamily: "monospace",
+          fontSize: 13,
+          lineHeight: 1.6,
+          overflowWrap: "anywhere",
+          px: 1,
+          py: 0.75,
+        }}
+      >
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 export function SettingsPage() {
   const { preference, setPreference, t } = useI18n();
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
@@ -598,6 +661,8 @@ export function SettingsPage() {
       <AiModelSettingsSection />
 
       <UpdatesSection />
+
+      <AboutSection />
 
       <SectionCard compact title={t("settingsPage.languageSectionTitle")}>
         <FormControl size="small" sx={{ ...compactFieldSx, width: { sm: 260, xs: "100%" } }}>

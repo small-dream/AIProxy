@@ -199,6 +199,7 @@ pub fn run() {
             commands::save_ai_settings,
             commands::test_ai_connection,
             commands::summarize_session_diff,
+            commands::get_app_build_info,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

@@ -1,4 +1,5 @@
 mod ai;
+mod app;
 mod certificates;
 mod collections;
 mod common;
@@ -13,6 +14,7 @@ mod workspaces;
 mod ws;
 
 pub use ai::*;
+pub use app::*;
 pub use certificates::*;
 pub use collections::*;
 pub use compose::*;

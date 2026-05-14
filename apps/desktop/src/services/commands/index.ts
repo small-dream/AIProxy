@@ -1,4 +1,5 @@
 export * from "./proxy";
+export * from "./app";
 export * from "./sessions";
 export * from "./certificates";
 export * from "./compose";

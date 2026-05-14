@@ -683,7 +683,7 @@ erDiagram
 - `RulesPage`：顶层 `Rule Center` 卡片 + `Tabs` 切换规则域（Breakpoint / Rewrite / Mapping / Script）；`Mapping` 内部用分段控制切换 Map Local / Map Remote / DNS，规则编辑采用 `Rule List Pane` + `Rule Editor Pane`
 - `ThrottlingPage`：`Runtime Status Bar` + 左侧 `Profiles / Rules` 切换列表 + 右侧 `Profile Editor / Rule Scope Editor`；支持全局 Profile、临时启用、一键关闭、按 URL / Method / Stage 定向规则
 - `CertificatesPage`：`Certificate Status Card` + `Installation Guide Section` + `Risk / FAQ Section`
-- `SettingsPage`：当前已实现 `Proxy Presets` + `AI Model` + `Language & Region` + `Appearance` 等设置区块；AI Model 使用本地 SQLite 保存 OpenAI-compatible 配置，API Key 不回传前端明文
+- `SettingsPage`：当前已实现 `Proxy Presets` + `AI Model` + `Software Updates` + `About` + `Language & Region` + `Appearance` 等设置区块；AI Model 使用本地 SQLite 保存 OpenAI-compatible 配置，API Key 不回传前端明文。About section 展示 Version、Build Number 和 `version+buildNumber` 唯一版本标识
 
 ## 11.2 功能模块拆分
 

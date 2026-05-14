@@ -137,6 +137,12 @@ export const zhCNMessages: Messages = {
     stopSystemProxyAction: "停止系统代理",
   },
   settingsPage: {
+    aboutBuildNumber: "构建号",
+    aboutSectionDescription: "版本号加 Build Number 可唯一标识当前 AIProxy 构建。",
+    aboutSectionTitle: "关于",
+    aboutUniqueIdentifier: "软件标识：{{identifier}}",
+    aboutVersion: "版本号",
+    aboutVersionIdentifier: "版本标识",
     customContentFontLabel: "自定义内容字体",
     customFontLabel: "自定义字体名称",
     customFontPlaceholder: "例如：霞鹜文楷、IBM Plex Sans、Maple Mono",

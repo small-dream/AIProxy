@@ -1775,6 +1775,14 @@ type MenuEvent = unknown;
 
 ## 10. 版本策略
 
+### App Build Info
+
+- `get_app_build_info() -> { version: string; buildNumber: string; versionIdentifier: string }`
+- `version` 来自应用版本号配置，例如 `0.1.0`。
+- `buildNumber` 默认由 `apps/desktop/src-tauri/build.rs` 执行 `git rev-list --count HEAD` 生成；CI 可通过 `AIPROXY_BUILD_NUMBER` 覆盖。
+- `versionIdentifier` 使用 `version+buildNumber` 格式，例如 `0.1.0+153`，作为软件构建的唯一标识。
+- 原生 About 菜单和 Settings > About 都应展示版本号与 Build Number。
+
 ### v1
 
 - 覆盖本地桌面必需命令与实时事件

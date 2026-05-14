@@ -27,6 +27,14 @@
 - `Cargo.toml`
 - `apps/desktop/src-tauri/tauri.conf.json`
 
+### Build Number 与唯一标识
+
+- 桌面端 build script 会在编译时执行 `git rev-list --count HEAD`，并写入 `AIPROXY_BUILD_NUMBER`。
+- CI 如需固定构建号，可显式设置环境变量 `AIPROXY_BUILD_NUMBER`；该值必须是纯数字。
+- 软件唯一标识使用 `version+buildNumber` 格式，例如 `0.1.0+153`。
+- 原生 `About AIProxy` 菜单显示 `0.1.0 (Build 153)`；Settings > About 同时显示 Version、Build Number 和 Version Identifier。
+- 每次正式发布前，应确认工作区处于目标 commit，并在构建日志或应用 About 中核对 Build Number。
+
 ### 发布前质量命令
 
 ```bash

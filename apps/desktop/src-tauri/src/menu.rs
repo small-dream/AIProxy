@@ -3,6 +3,8 @@ use tauri::menu::{
 };
 use tauri::{AppHandle, Emitter, Runtime};
 
+use crate::commands::{app_about_version, app_build_number};
+
 /// Menu item identifiers used for event matching.
 pub mod ids {
     pub const PREFERENCES: &str = "preferences";
@@ -46,6 +48,7 @@ pub mod ids {
 /// On Windows/Linux this becomes the window menu bar.
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
     let handle = app;
+    let about_metadata = build_about_metadata();
 
     // --- File ---
     let file_menu = SubmenuBuilder::new(handle, "File")
@@ -280,7 +283,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .item(&PredefinedMenuItem::about(
             handle,
             Some("About AIProxy"),
-            Some(AboutMetadata::default()),
+            Some(about_metadata.clone()),
         )?)
         .build()?;
 
@@ -292,7 +295,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
             .item(&PredefinedMenuItem::about(
                 handle,
                 Some("About AIProxy"),
-                Some(AboutMetadata::default()),
+                Some(about_metadata),
             )?)
             .separator()
             .item(
@@ -341,6 +344,15 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
     }
 
     Ok(())
+}
+
+fn build_about_metadata<'a>() -> AboutMetadata<'a> {
+    AboutMetadata {
+        name: Some("AIProxy".to_string()),
+        version: Some(app_about_version()),
+        comments: Some(format!("Build number: {}", app_build_number())),
+        ..AboutMetadata::default()
+    }
 }
 
 /// Registers the global menu event handler that forwards all menu actions
