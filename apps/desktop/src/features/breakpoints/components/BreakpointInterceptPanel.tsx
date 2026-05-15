@@ -1058,6 +1058,8 @@ export function BreakpointInterceptPanel() {
         setEditedRespStatusCode(null);
         setEditedRespHeaders(null);
         setEditedRespBody(null);
+        setRequestTab("query");
+        setResponseTab("status");
       };
 
       try {
