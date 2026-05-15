@@ -15,6 +15,7 @@ import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, get
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
+export const JSON_HIGHLIGHT_CHAR_LIMIT = 12000;
 const DEFAULT_VIRTUAL_VIEWPORT_HEIGHT = 420;
 const VIRTUAL_WINDOW_OVERSCAN = 12;
 export const INSPECTOR_KEY_VALUE_GRID_TEMPLATE = "minmax(156px, 0.7fr) minmax(0, 2.3fr)";
@@ -532,14 +533,22 @@ export function SearchableCodeBlock({
   searchQuery: string;
 }) {
   const theme = useTheme();
-  const syntaxColors = getSyntaxColors(theme.palette.mode);
-  const jsonTokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
+  const paletteMode = theme.palette.mode;
+  const jsonTokenColors = useMemo(
+    () => {
+      const colors = getSyntaxColors(paletteMode);
+      return { ...colors, punctuation: "text.primary" } as const;
+    },
+    [paletteMode],
+  );
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const containerRef = useRef<HTMLPreElement | HTMLDivElement | null>(null);
   const shouldVirtualize = useMemo(
     () => shouldVirtualizeCodeBlock(code),
     [code],
   );
+
+  const effectiveLanguage: "json" | "plain" = language === "json" && code.length > JSON_HIGHLIGHT_CHAR_LIMIT ? "plain" : language;
 
   const allMatches = useMemo(() => {
     if (!matcher) return [];
@@ -584,7 +593,7 @@ export function SearchableCodeBlock({
       <VirtualizedSearchableCodeBlock
         code={code}
         currentMatchIndex={currentMatchIndex}
-        language={language}
+        language={effectiveLanguage}
         matcher={matcher}
         onMatchCountChange={onMatchCountChange}
         searchQuery={deferredSearchQuery}
@@ -602,8 +611,8 @@ export function SearchableCodeBlock({
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
-        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, language === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
-        lineHeight: language === "json" ? 1.55 : 1.5,
+        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, effectiveLanguage === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
+        lineHeight: effectiveLanguage === "json" ? 1.55 : 1.5,
         m: 0,
         minHeight: 0,
         overflow: "auto",
@@ -615,10 +624,10 @@ export function SearchableCodeBlock({
       }}
     >
       {matcher
-        ? language === "json"
+        ? effectiveLanguage === "json"
           ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, undefined, matcher, currentMatchRange)
           : renderHighlightedText(code, undefined, matcher, currentMatchRange)
-        : language === "json"
+        : effectiveLanguage === "json"
           ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
           : renderHighlightedText(code, deferredSearchQuery)}
     </Box>

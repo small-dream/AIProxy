@@ -33,7 +33,7 @@ import {
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { coerceAppError, type BodyReference, type BreakpointHit, type BreakpointResolution, type HeaderEntry } from "@aiproxy/shared-types";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { useI18n } from "@/i18n";
@@ -43,6 +43,7 @@ import { fontFamilies } from "@/themes/fonts";
 import { SearchBar } from "@/features/sessions/components/SearchBar";
 import {
   INSPECTOR_KEY_VALUE_GRID_TEMPLATE,
+  JSON_HIGHLIGHT_CHAR_LIMIT,
   getWorkbenchFontSize,
   renderHighlightedText,
   renderJsonSyntaxHighlightedText,
@@ -670,7 +671,7 @@ function BodyEditorContent({
   );
 }
 
-function EditableCodeBlock({
+const EditableCodeBlock = memo(function EditableCodeBlock({
   currentMatchIndex,
   inputAriaLabel,
   language,
@@ -692,8 +693,14 @@ function EditableCodeBlock({
   text: string;
 }) {
   const theme = useTheme();
-  const syntaxColors = getSyntaxColors(theme.palette.mode);
-  const tokenColors = { ...syntaxColors, punctuation: "text.primary" } as const;
+  const paletteMode = theme.palette.mode;
+  const tokenColors = useMemo(
+    () => {
+      const colors = getSyntaxColors(paletteMode);
+      return { ...colors, punctuation: "text.primary" } as const;
+    },
+    [paletteMode],
+  );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const allMatches = useMemo(() => (matcher ? matcher(text) : []), [matcher, text]);
@@ -712,11 +719,12 @@ function EditableCodeBlock({
     preRef.current.scrollLeft = textareaRef.current.scrollLeft;
   }, []);
 
-  const highlightedText = text.length === 0
-    ? ""
-    : language === "json"
-      ? renderJsonSyntaxHighlightedText(text, tokenColors, undefined, matcher, currentMatchRange)
-      : renderHighlightedText(text, undefined, matcher, currentMatchRange);
+  const shouldJsonHighlight = language === "json" && text.length <= JSON_HIGHLIGHT_CHAR_LIMIT;
+  const highlightedText = useMemo(() => {
+    if (text.length === 0) return "";
+    if (!shouldJsonHighlight) return renderHighlightedText(text, undefined, matcher, currentMatchRange);
+    return renderJsonSyntaxHighlightedText(text, tokenColors, undefined, matcher, currentMatchRange);
+  }, [text, shouldJsonHighlight, matcher, currentMatchRange, tokenColors]);
 
   const sharedTextSx = {
     fontFamily: fontFamilies.mono,
@@ -790,7 +798,7 @@ function EditableCodeBlock({
       />
     </Box>
   );
-}
+});
 
 function UrlEncodedBodyTable({
   entries,
