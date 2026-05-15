@@ -5,10 +5,13 @@ import { Box, Stack } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 
+import {
+  AppShellWindowsMenuBar,
+  WINDOWS_TOP_CONTROLS_HEIGHT,
+} from "@/components/layout/AppShellWindowsMenuBar";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 
 const TOP_CONTROLS_VERTICAL_OFFSET = 2;
-const TOP_CONTROLS_HORIZONTAL_GUTTER = 24;
 const MACOS_WINDOW_CONTROLS_SAFE_WIDTH = 112;
 
 type AppShellTopControlsProps = {
@@ -17,6 +20,7 @@ type AppShellTopControlsProps = {
   macosTitlebarEnabled: boolean;
   onStartProxy: () => void;
   onStopProxy: () => void;
+  onMenuAction: (menuId: string) => void;
   onSystemProxyToggle: () => void;
   proxyRunning: boolean;
   startProxyLabel: string;
@@ -33,6 +37,7 @@ export function AppShellTopControls({
   macosTitlebarEnabled,
   onStartProxy,
   onStopProxy,
+  onMenuAction,
   onSystemProxyToggle,
   proxyRunning,
   startProxyLabel,
@@ -42,63 +47,74 @@ export function AppShellTopControls({
   systemProxyOffLabel,
   systemProxyOnLabel,
 }: AppShellTopControlsProps) {
-  const controls = (
-    <Stack
-      alignItems="center"
-      direction="row"
-      spacing={1.25}
-      sx={(theme) => ({
-        backdropFilter: "blur(18px)",
-        bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.68 : 0.76),
-        border: "1px solid",
-        borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.58 : 0.78),
-        borderRadius: 999,
-        boxShadow:
-          theme.palette.mode === "dark"
-            ? "0 8px 22px rgba(0, 0, 0, 0.20)"
-            : "0 8px 22px rgba(15, 23, 42, 0.06)",
-        flexWrap: "wrap",
-        justifyContent: "center",
-        px: 0.4,
-        py: 0.25,
-        rowGap: 0.5,
-      })}
-    >
-      <Stack direction="row" spacing={0.25}>
-        {proxyRunning ? (
-          <TopBarActionButton
-            disabled={isProxyBusy}
-            icon={<StopRoundedIcon />}
-            label={stopProxyLabel}
-            onClick={onStopProxy}
-            tone="error"
-            variant="filled"
-          />
-        ) : (
-          <TopBarActionButton
-            disabled={isProxyBusy}
-            icon={<PlayArrowRoundedIcon />}
-            label={startProxyLabel}
-            onClick={onStartProxy}
-            tone="primary"
-            variant="filled"
-          />
-        )}
+  function renderControls(variant: "floating" | "commandBar") {
+    return (
+      <Stack
+        alignItems="center"
+        direction="row"
+        spacing={variant === "floating" ? 1.25 : 0.75}
+        sx={(theme) => ({
+          ...(variant === "floating"
+            ? {
+                backdropFilter: "blur(18px)",
+                bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.68 : 0.76),
+                border: "1px solid",
+                borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.58 : 0.78),
+                borderRadius: 999,
+                boxShadow:
+                  theme.palette.mode === "dark"
+                    ? "0 8px 22px rgba(0, 0, 0, 0.20)"
+                    : "0 8px 22px rgba(15, 23, 42, 0.06)",
+                px: 0.4,
+                py: 0.25,
+              }
+            : {
+                bgcolor: "transparent",
+                borderRadius: 1,
+                px: 0,
+                py: 0,
+              }),
+          flexWrap: "wrap",
+          justifyContent: "center",
+          rowGap: 0.5,
+        })}
+      >
+        <Stack direction="row" spacing={0.25}>
+          {proxyRunning ? (
+            <TopBarActionButton
+              disabled={isProxyBusy}
+              icon={<StopRoundedIcon />}
+              label={stopProxyLabel}
+              onClick={onStopProxy}
+              tone="error"
+              variant="filled"
+            />
+          ) : (
+            <TopBarActionButton
+              disabled={isProxyBusy}
+              icon={<PlayArrowRoundedIcon />}
+              label={startProxyLabel}
+              onClick={onStartProxy}
+              tone="primary"
+              variant="filled"
+            />
+          )}
 
-        <TopBarActionButton
-          ariaPressed={systemProxyEnabled}
-          disabled={systemProxyActionDisabled}
-          icon={<LanguageRoundedIcon />}
-          label={systemProxyEnabled ? systemProxyOffLabel : systemProxyOnLabel}
-          onClick={onSystemProxyToggle}
-          tone={systemProxyEnabled ? "success" : "default"}
-          variant={systemProxyEnabled ? "filled" : "outlined"}
-        />
+          <TopBarActionButton
+            ariaPressed={systemProxyEnabled}
+            disabled={systemProxyActionDisabled}
+            icon={<LanguageRoundedIcon />}
+            label={systemProxyEnabled ? systemProxyOffLabel : systemProxyOnLabel}
+            onClick={onSystemProxyToggle}
+            tone={systemProxyEnabled ? "success" : "default"}
+            variant={systemProxyEnabled ? "filled" : "outlined"}
+          />
+        </Stack>
+
+        {headerActions}
       </Stack>
-
-      {headerActions}
-    </Stack>
-  );
+    );
+  }
 
   if (macosTitlebarEnabled) {
     return (
@@ -143,7 +159,7 @@ export function AppShellTopControls({
               width: `calc(100vw - ${MACOS_WINDOW_CONTROLS_SAFE_WIDTH * 2}px)`,
             }}
           >
-            {controls}
+            {renderControls("floating")}
           </Box>
         </Box>
       </Box>
@@ -151,28 +167,11 @@ export function AppShellTopControls({
   }
 
   return (
-    <Box
-      sx={{
-        alignItems: "center",
-        display: "flex",
-        justifyContent: "center",
-        left: 0,
-        position: "fixed",
-        right: 0,
-        top: 12 + TOP_CONTROLS_VERTICAL_OFFSET,
-        zIndex: (theme) => theme.zIndex.appBar + 1,
-      }}
-    >
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "center",
-          maxWidth: `calc(100vw - ${TOP_CONTROLS_HORIZONTAL_GUTTER * 2}px)`,
-          width: `calc(100vw - ${TOP_CONTROLS_HORIZONTAL_GUTTER * 2}px)`,
-        }}
-      >
-        {controls}
-      </Box>
-    </Box>
+    <AppShellWindowsMenuBar
+      centerControls={renderControls("commandBar")}
+      onMenuAction={onMenuAction}
+    />
   );
 }
+
+export const NON_MACOS_TOP_CONTROLS_HEIGHT = WINDOWS_TOP_CONTROLS_HEIGHT;

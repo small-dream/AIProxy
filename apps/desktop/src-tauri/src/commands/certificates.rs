@@ -851,6 +851,7 @@ fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(),
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn format_ios_runtime_name(runtime_key: &str) -> String {
     let runtime = runtime_key
         .rsplit('.')

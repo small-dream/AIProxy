@@ -218,6 +218,8 @@ pub fn run() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window should exist");
+            #[cfg(not(target_os = "macos"))]
+            window.set_decorations(false)?;
             register_main_window_state_tracking(&window);
             window.show()?;
             restore_main_window_state(&window);

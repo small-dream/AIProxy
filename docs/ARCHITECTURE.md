@@ -711,6 +711,15 @@ erDiagram
 - `components/shared`：跨页面共享的复合组件
 - `features/*`：按业务聚合页面逻辑、状态与视图
 
+### 11.3.1 应用壳顶部栏与菜单
+
+- `AppShell` 负责全局代理状态、菜单命令分发、路由跳转、窗口命令与状态栏组合。
+- `AppShellTopControls` 负责组合 macOS overlay 标题栏控制区与 Windows / Linux 自绘顶部菜单栏，不直接维护菜单数据。
+- `AppShellWindowsMenuBar` 负责 Windows / Linux 自绘菜单栏、下拉菜单与右上角窗口控制按钮。
+- `app-shell-windows-menu.definitions.ts` 是 Windows / Linux 自绘菜单项的数据源；菜单项 `id` 必须与 `AppShell.handleMenuCommand` 支持的命令保持一致。
+- macOS 继续使用 Tauri 原生菜单，定义位于 `apps/desktop/src-tauri/src/menu.rs`；Windows / Linux 不安装原生菜单，避免与自绘菜单重复。
+- 非 macOS 窗口在运行时关闭系统 decorations，由自绘顶部栏提供拖拽区域和窗口控制按钮；相关 Tauri window 权限由 `src-tauri/capabilities/default.json` 声明。
+
 ## 12. AI 友好型目录结构
 
 ```text

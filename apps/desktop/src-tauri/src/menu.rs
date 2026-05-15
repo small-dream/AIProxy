@@ -1,11 +1,14 @@
+#[cfg(target_os = "macos")]
 use tauri::menu::{
     AboutMetadata, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
 };
 use tauri::{AppHandle, Emitter, Runtime};
 
+#[cfg(target_os = "macos")]
 use crate::commands::{app_about_version, app_build_number};
 
 /// Menu item identifiers used for event matching.
+#[cfg(target_os = "macos")]
 pub mod ids {
     pub const PREFERENCES: &str = "preferences";
     pub const IMPORT_HAR: &str = "import_har";
@@ -46,6 +49,12 @@ pub mod ids {
 /// On macOS this becomes the global app menu bar with the app-specific
 /// submenu (About, Hide, Services, Quit) as the first item.
 /// On Windows/Linux this becomes the window menu bar.
+#[cfg(not(target_os = "macos"))]
+pub fn build_menu<R: Runtime>(_app: &AppHandle<R>) -> Result<(), tauri::Error> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
     let handle = app;
     let about_metadata = build_about_metadata();
@@ -287,65 +296,46 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         )?)
         .build()?;
 
-    // Assemble the full menu.
-    // On macOS, the app-specific submenu must be the first item.
-    #[cfg(target_os = "macos")]
-    {
-        let app_menu = SubmenuBuilder::new(handle, "AIProxy")
-            .item(&PredefinedMenuItem::about(
-                handle,
-                Some("About AIProxy"),
-                Some(about_metadata),
-            )?)
-            .separator()
-            .item(
-                &MenuItemBuilder::new("Preferences...")
-                    .id(ids::PREFERENCES)
-                    .accelerator("CmdOrCtrl+Comma")
-                    .build(handle)?,
-            )
-            .separator()
-            .item(&PredefinedMenuItem::services(handle, None)?)
-            .separator()
-            .item(&PredefinedMenuItem::hide(handle, None)?)
-            .item(&PredefinedMenuItem::hide_others(handle, None)?)
-            .item(&PredefinedMenuItem::show_all(handle, None)?)
-            .separator()
-            .item(&PredefinedMenuItem::quit(handle, None)?)
-            .build()?;
+    let app_menu = SubmenuBuilder::new(handle, "AIProxy")
+        .item(&PredefinedMenuItem::about(
+            handle,
+            Some("About AIProxy"),
+            Some(about_metadata),
+        )?)
+        .separator()
+        .item(
+            &MenuItemBuilder::new("Preferences...")
+                .id(ids::PREFERENCES)
+                .accelerator("CmdOrCtrl+Comma")
+                .build(handle)?,
+        )
+        .separator()
+        .item(&PredefinedMenuItem::services(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(handle, None)?)
+        .item(&PredefinedMenuItem::hide_others(handle, None)?)
+        .item(&PredefinedMenuItem::show_all(handle, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::quit(handle, None)?)
+        .build()?;
 
-        let menu = MenuBuilder::new(handle)
-            .item(&app_menu)
-            .item(&file_menu)
-            .item(&edit_menu)
-            .item(&view_menu)
-            .item(&proxy_menu)
-            .item(&tools_menu)
-            .item(&window_menu)
-            .item(&help_menu)
-            .build()?;
+    let menu = MenuBuilder::new(handle)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&proxy_menu)
+        .item(&tools_menu)
+        .item(&window_menu)
+        .item(&help_menu)
+        .build()?;
 
-        app.set_menu(menu)?;
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let menu = MenuBuilder::new(handle)
-            .item(&file_menu)
-            .item(&edit_menu)
-            .item(&view_menu)
-            .item(&proxy_menu)
-            .item(&tools_menu)
-            .item(&window_menu)
-            .item(&help_menu)
-            .build()?;
-
-        app.set_menu(menu)?;
-    }
+    app.set_menu(menu)?;
 
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn build_about_metadata<'a>() -> AboutMetadata<'a> {
     AboutMetadata {
         name: Some("AIProxy".to_string()),

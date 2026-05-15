@@ -1741,7 +1741,10 @@ type MenuEvent = unknown;
 
 说明：
 
-- `menu-event` 由 Tauri 菜单层推送，前端通过 `services/events/index.ts` 统一订阅
+- macOS：`menu-event` 由 Tauri 原生菜单层推送，前端通过 `services/events/index.ts` 统一订阅
+- Windows / Linux：顶部菜单栏由 React 自绘，菜单项点击直接调用 `AppShell` 的同一套菜单命令分发逻辑，不再依赖原生 Tauri 菜单栏
+- 自绘菜单与原生菜单必须保持相同的 `menuId` 语义；新增菜单项时需同时更新 `apps/desktop/src/components/layout/app-shell-windows-menu.definitions.ts` 与 macOS 原生菜单定义（如该项也应出现在 macOS）
+- 窗口控制类菜单项（如最小化、最大化、关闭）在 Windows / Linux 通过 Tauri window API 执行，并需要在 `src-tauri/capabilities/default.json` 中声明对应 `core:window:*` 权限
 - 当前未注册 `proxy/status_changed`、`rule/matched`、`certificate/status_changed`、`export/progress` 事件；代理状态和证书状态由命令查询，规则命中通过各类 session trace 查询
 
 ## 8. 前端调用规范

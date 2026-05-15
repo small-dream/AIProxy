@@ -13,7 +13,10 @@ import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
-import { AppShellTopControls } from "@/components/layout/AppShellTopControls";
+import {
+  AppShellTopControls,
+  NON_MACOS_TOP_CONTROLS_HEIGHT,
+} from "@/components/layout/AppShellTopControls";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
@@ -113,7 +116,8 @@ export function AppShell() {
   const autoStartAttemptedRef = useRef(false);
   const macosTitlebarEnabled = isTauriRuntime() && isMacPlatform();
   const topInset = macosTitlebarEnabled ? MACOS_TITLEBAR_HEIGHT : 0;
-  const topLayoutHeight = topInset;
+  const mainTopOffset = macosTitlebarEnabled ? topInset : NON_MACOS_TOP_CONTROLS_HEIGHT;
+  const activityBarTopOffset = mainTopOffset;
   const isProxyBusy =
     startProxyMutation.isPending ||
     stopProxyMutation.isPending;
@@ -402,134 +406,7 @@ export function AppShell() {
     let unlisten: (() => void) | undefined;
 
     onMenuEvent((payload) => {
-      const h = menuHandlerRef.current;
-      const navigateToSessionsMenuAction = (menuAction: SessionsMenuAction) => {
-        h.navigate("/", {
-          state: {
-            sessionsMenuAction: menuAction,
-          },
-        });
-      };
-
-      switch (payload.menuId) {
-        case "preferences":
-          h.navigate("/settings");
-          break;
-        case "goto_sessions":
-          h.navigate("/");
-          break;
-        case "goto_compose":
-          h.navigate("/compose");
-          break;
-        case "goto_rules":
-          h.navigate("/rules");
-          break;
-        case "goto_throttling":
-          h.navigate("/throttling");
-          break;
-        case "goto_certificates":
-          h.navigate("/certificates");
-          break;
-        case "goto_settings":
-          h.navigate("/settings");
-          break;
-        case "theme_dark":
-          h.setThemePreference("dark");
-          break;
-        case "theme_light":
-          h.setThemePreference("light");
-          break;
-        case "theme_system":
-          h.setThemePreference("system");
-          break;
-        case "start_proxy":
-          if (!h.proxyStatus?.running) {
-            void h.handleStartProxy();
-          }
-          break;
-        case "stop_proxy":
-          if (h.proxyStatus?.running) {
-            void h.handleStopProxy();
-          }
-          break;
-        case "toggle_system_proxy":
-          void h.handleSystemProxyToggle();
-          break;
-        case "clear_sessions":
-        case "clear_all_sessions":
-          void clearSessions();
-          break;
-        case "find":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));
-          break;
-        case "refresh":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-refresh"));
-          break;
-        case "zoom_in":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-in"));
-          break;
-        case "zoom_out":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-out"));
-          break;
-        case "zoom_reset":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-reset"));
-          break;
-        case "breakpoint_rules":
-          h.navigate("/rules");
-          break;
-        case "throttling_tool":
-          h.navigate("/throttling");
-          break;
-        case "install_cert":
-          h.navigate("/certificates");
-          break;
-        case "cert_status":
-          h.navigate("/certificates");
-          break;
-        case "ios_quick_actions":
-          h.navigate("/certificates?tab=mobile&panel=ios", {
-            state: { menuActionAt: Date.now() },
-          });
-          break;
-        case "android_quick_actions":
-          h.navigate("/certificates?tab=mobile&panel=android", {
-            state: { menuActionAt: Date.now() },
-          });
-          break;
-        case "adb_set_proxy":
-          void h.handleAdbSetProxy();
-          break;
-        case "adb_clear_proxy":
-          void h.handleAdbClearProxy();
-          break;
-        case "check_for_updates":
-          h.navigate("/settings");
-          window.setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("aiproxy-check-for-updates"));
-          }, 0);
-          break;
-        case "import_har":
-          navigateToSessionsMenuAction({
-            kind: "import-har",
-            requestedAt: Date.now(),
-          });
-          break;
-        case "export_har":
-          navigateToSessionsMenuAction({
-            format: "har",
-            kind: "export",
-            requestedAt: Date.now(),
-          });
-          break;
-        case "documentation": {
-          const docsUrl = "https://github.com/jakejiang/aiproxy";
-          window.open(docsUrl, "_blank");
-          break;
-        }
-        case "shortcuts":
-          window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
-          break;
-      }
+      handleMenuCommand(payload.menuId);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -538,6 +415,190 @@ export function AppShell() {
       unlisten?.();
     };
   }, []);
+
+  function handleMenuCommand(menuId: string) {
+    const h = menuHandlerRef.current;
+    const navigateToSessionsMenuAction = (menuAction: SessionsMenuAction) => {
+      h.navigate("/", {
+        state: {
+          sessionsMenuAction: menuAction,
+        },
+      });
+    };
+
+    switch (menuId) {
+      case "preferences":
+        h.navigate("/settings");
+        break;
+      case "goto_sessions":
+        h.navigate("/");
+        break;
+      case "goto_compose":
+        h.navigate("/compose");
+        break;
+      case "goto_rules":
+        h.navigate("/rules");
+        break;
+      case "goto_throttling":
+        h.navigate("/throttling");
+        break;
+      case "goto_certificates":
+        h.navigate("/certificates");
+        break;
+      case "goto_settings":
+        h.navigate("/settings");
+        break;
+      case "theme_dark":
+        h.setThemePreference("dark");
+        break;
+      case "theme_light":
+        h.setThemePreference("light");
+        break;
+      case "theme_system":
+        h.setThemePreference("system");
+        break;
+      case "start_proxy":
+        if (!h.proxyStatus?.running) {
+          void h.handleStartProxy();
+        }
+        break;
+      case "stop_proxy":
+        if (h.proxyStatus?.running) {
+          void h.handleStopProxy();
+        }
+        break;
+      case "toggle_system_proxy":
+        void h.handleSystemProxyToggle();
+        break;
+      case "clear_sessions":
+      case "clear_all_sessions":
+        void clearSessions();
+        break;
+      case "find":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));
+        break;
+      case "refresh":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-refresh"));
+        break;
+      case "zoom_in":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-in"));
+        break;
+      case "zoom_out":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-out"));
+        break;
+      case "zoom_reset":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-reset"));
+        break;
+      case "breakpoint_rules":
+        h.navigate("/rules");
+        break;
+      case "throttling_tool":
+        h.navigate("/throttling");
+        break;
+      case "install_cert":
+        h.navigate("/certificates");
+        break;
+      case "cert_status":
+        h.navigate("/certificates");
+        break;
+      case "ios_quick_actions":
+        h.navigate("/certificates?tab=mobile&panel=ios", {
+          state: { menuActionAt: Date.now() },
+        });
+        break;
+      case "android_quick_actions":
+        h.navigate("/certificates?tab=mobile&panel=android", {
+          state: { menuActionAt: Date.now() },
+        });
+        break;
+      case "adb_set_proxy":
+        void h.handleAdbSetProxy();
+        break;
+      case "adb_clear_proxy":
+        void h.handleAdbClearProxy();
+        break;
+      case "check_for_updates":
+        h.navigate("/settings");
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("aiproxy-check-for-updates"));
+        }, 0);
+        break;
+      case "import_har":
+        navigateToSessionsMenuAction({
+          kind: "import-har",
+          requestedAt: Date.now(),
+        });
+        break;
+      case "export_har":
+        navigateToSessionsMenuAction({
+          format: "har",
+          kind: "export",
+          requestedAt: Date.now(),
+        });
+        break;
+      case "documentation": {
+        const docsUrl = "https://github.com/jakejiang/aiproxy";
+        window.open(docsUrl, "_blank");
+        break;
+      }
+      case "shortcuts":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
+        break;
+      case "edit_undo":
+      case "edit_redo":
+      case "edit_cut":
+      case "edit_copy":
+      case "edit_paste":
+      case "edit_select_all":
+        runDocumentEditCommand(menuId);
+        break;
+      case "window_minimize":
+      case "window_toggle_maximize":
+      case "window_toggle_fullscreen":
+      case "window_close":
+        void runWindowCommand(menuId);
+        break;
+    }
+  }
+
+  function runDocumentEditCommand(menuId: string) {
+    const commandByMenuId: Record<string, string> = {
+      edit_copy: "copy",
+      edit_cut: "cut",
+      edit_paste: "paste",
+      edit_redo: "redo",
+      edit_select_all: "selectAll",
+      edit_undo: "undo",
+    };
+    const command = commandByMenuId[menuId];
+
+    if (command) {
+      document.execCommand(command);
+    }
+  }
+
+  async function runWindowCommand(menuId: string) {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const currentWindow = getCurrentWindow();
+
+    switch (menuId) {
+      case "window_minimize":
+        await currentWindow.minimize();
+        break;
+      case "window_toggle_maximize":
+        await currentWindow.toggleMaximize();
+        break;
+      case "window_toggle_fullscreen":
+        await currentWindow.setFullscreen(!(await currentWindow.isFullscreen()));
+        break;
+      case "window_close":
+        await currentWindow.close();
+        break;
+    }
+  }
 
   // --- Zoom state ---
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -586,6 +647,7 @@ export function AppShell() {
         headerActions={headerActions}
         isProxyBusy={isProxyBusy}
         macosTitlebarEnabled={macosTitlebarEnabled}
+        onMenuAction={handleMenuCommand}
         onStartProxy={() => {
           void handleStartProxy();
         }}
@@ -607,7 +669,7 @@ export function AppShell() {
       <AppShellActivityBar
         locationPathname={location.pathname}
         pendingBreakpointCount={pendingBreakpointCount}
-        topLayoutHeight={topLayoutHeight}
+        topLayoutHeight={activityBarTopOffset}
       />
 
       <Box
@@ -616,7 +678,7 @@ export function AppShell() {
           display: "flex",
           flex: 1,
           flexDirection: "column",
-          mt: `${topLayoutHeight}px`,
+          mt: `${mainTopOffset}px`,
           minHeight: 0,
           minWidth: 0,
           overflow: "hidden",

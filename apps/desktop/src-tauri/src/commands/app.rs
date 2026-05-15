@@ -20,6 +20,7 @@ pub fn app_version_identifier() -> String {
     format!("{}+{}", app_version(), app_build_number())
 }
 
+#[cfg(target_os = "macos")]
 pub fn app_about_version() -> String {
     format!("{} (Build {})", app_version(), app_build_number())
 }

@@ -115,10 +115,12 @@ fn ranked_interface_ipv4_addresses() -> Vec<String> {
     Vec::new()
 }
 
+#[cfg(unix)]
 fn is_usable_ipv4(ip: std::net::Ipv4Addr) -> bool {
     !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified()
 }
 
+#[cfg(unix)]
 fn score_interface_ipv4(interface_name: &str, ip: std::net::Ipv4Addr) -> i32 {
     let octets = ip.octets();
     let mut score = if octets[0] == 192 && octets[1] == 168 {

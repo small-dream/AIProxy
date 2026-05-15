@@ -61,6 +61,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 非 Tauri 运行时的 fallback 代码必须动态检测平台，禁止硬编码为任一特定平台
 - 用户可见的平台相关文案（如证书安装步骤）必须通过 i18n 系统，按平台提供正确的引导内容
 - UI 交互不能仅针对某一平台设计（如 macOS overlay titlebar），需为其他平台提供合理的 fallback
+- 标题栏、菜单栏和窗口控制属于平台集成边界：macOS 使用原生系统菜单；Windows / Linux 使用自绘菜单栏时，菜单项 ID 必须复用同一套 `AppShell` 命令分发语义，并在 Tauri capabilities 中显式声明窗口 API 权限
 
 ### 4.5 新增平台能力的检查清单
 
