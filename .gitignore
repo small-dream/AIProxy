@@ -16,4 +16,4 @@ Cargo.lock
 .idea/
 
 apps/desktop/src-tauri/gen/
-
+.pnpm-store/
