@@ -19,6 +19,23 @@ export default defineConfig({
           return "assets/[name]-[hash].js";
         },
         chunkFileNames: "assets/[name]-[hash].js",
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("@mui") || id.includes("@emotion")) {
+              return "mui-vendor";
+            }
+            if (id.includes("react-router")) {
+              return "router-vendor";
+            }
+            if (id.includes("/react-dom/") || id.includes("/scheduler/") || id.includes("/react/")) {
+              return "react-vendor";
+            }
+            if (id.includes("@tanstack")) {
+              return "query-vendor";
+            }
+            return "vendor";
+          }
+        },
       },
     },
   },
