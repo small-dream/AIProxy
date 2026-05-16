@@ -103,7 +103,7 @@ export function SessionContextMenu({
       anchorReference="anchorPosition"
       onClose={onClose}
       open={anchorPosition !== undefined}
-      slotProps={buildContextMenuSlotProps(236)}
+      slotProps={buildContextMenuSlotProps(220)}
     >
       <MenuItem onClick={handleClick(onCopyUrl)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>

@@ -56,7 +56,7 @@ export function DomainContextMenu({
       anchorReference="anchorPosition"
       onClose={onClose}
       open={anchorPosition !== undefined}
-      slotProps={buildContextMenuSlotProps(220)}
+      slotProps={buildContextMenuSlotProps(180)}
     >
       <MenuItem
         onClick={() => {

@@ -235,7 +235,7 @@ export function SessionInspectorJsonTree({
         anchorReference="anchorPosition"
         onClose={handleContextMenuClose}
         open={contextMenuState !== null}
-        slotProps={buildContextMenuSlotProps(188)}
+        slotProps={buildContextMenuSlotProps(164)}
       >
         <MenuItem
           onClick={() => {
