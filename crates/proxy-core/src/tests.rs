@@ -1,5 +1,6 @@
 use super::rules::{
     active_throttle_profile_for_workspace, apply_map_rules, apply_request_rewrite_rules,
+    apply_response_rewrite_rules,
 };
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
@@ -195,6 +196,56 @@ fn applies_breakpoint_response_status_edits() {
     apply_response_resolution(&resolution, &mut response);
 
     assert_eq!(response.status_code, StatusCode::IM_A_TEAPOT);
+}
+
+#[test]
+fn applies_breakpoint_response_body_edits_as_plain_body() {
+    let mut response = UpstreamResponse {
+        body_truncated: false,
+        response_body: b"original".to_vec(),
+        response_body_size_bytes: 8,
+        response_headers: HeaderMap::new(),
+        response_read_ms: 0,
+        spooled_response_path: None,
+        status_code: StatusCode::OK,
+        waiting_ms: 0,
+    };
+    response
+        .response_headers
+        .insert("content-type", HeaderValue::from_static("application/json"));
+    response
+        .response_headers
+        .insert("content-encoding", HeaderValue::from_static("gzip"));
+    response
+        .response_headers
+        .insert("content-md5", HeaderValue::from_static("stale"));
+    response
+        .response_headers
+        .insert("digest", HeaderValue::from_static("sha-256=stale"));
+    response
+        .response_headers
+        .insert("etag", HeaderValue::from_static("\"stale\""));
+    let resolution = BreakpointResolution {
+        action: BreakpointActionKind::Forward,
+        mock: None,
+        modified_request_body_base64: None,
+        modified_request_headers: None,
+        modified_request_query_params: None,
+        modified_response_body_base64: Some("eyJlZGl0ZWQiOnRydWV9".to_string()),
+        modified_response_headers: None,
+        modified_response_status_code: None,
+        session_id: "request-1".to_string(),
+    };
+
+    apply_response_resolution(&resolution, &mut response);
+
+    assert_eq!(response.response_body, br#"{"edited":true}"#);
+    assert_eq!(response.response_body_size_bytes, 15);
+    assert!(response.response_headers.contains_key("content-type"));
+    assert!(!response.response_headers.contains_key("content-encoding"));
+    assert!(!response.response_headers.contains_key("content-md5"));
+    assert!(!response.response_headers.contains_key("digest"));
+    assert!(!response.response_headers.contains_key("etag"));
 }
 
 #[test]
@@ -401,6 +452,132 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
         .any(|header| header.name.eq_ignore_ascii_case("x-debug-mode") && header.value == "true"));
     assert_eq!(traces.len(), 3);
     assert!(traces.iter().any(|trace| trace.rewrite_type == "redirect"));
+}
+
+#[test]
+fn applies_request_body_rewrite_as_plain_body() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-request-body".to_string(),
+        enabled: true,
+        name: "Rewrite request body".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "target": "request",
+            "text": "{\"edited\":true}"
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.body = b"original".to_vec();
+    request.request_headers.push(ProxyHeaderEntry {
+        name: "Content-Encoding".to_string(),
+        value: "gzip".to_string(),
+    });
+    request.request_headers.push(ProxyHeaderEntry {
+        name: "Content-MD5".to_string(),
+        value: "stale".to_string(),
+    });
+    request.request_headers.push(ProxyHeaderEntry {
+        name: "Digest".to_string(),
+        value: "sha-256=stale".to_string(),
+    });
+    request.request_headers.push(ProxyHeaderEntry {
+        name: "ETag".to_string(),
+        value: "\"stale\"".to_string(),
+    });
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+    assert_eq!(request.body, br#"{"edited":true}"#);
+    assert_eq!(header_entry(&request.request_headers, "content-type"), Some("application/json"));
+    assert_eq!(header_entry(&request.request_headers, "content-encoding"), None);
+    assert_eq!(header_entry(&request.request_headers, "content-md5"), None);
+    assert_eq!(header_entry(&request.request_headers, "digest"), None);
+    assert_eq!(header_entry(&request.request_headers, "etag"), None);
+    assert!(!request.headers.contains_key("content-encoding"));
+    assert_eq!(traces.len(), 1);
+}
+
+#[test]
+fn applies_response_body_rewrite_as_plain_body() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-response-body".to_string(),
+        enabled: true,
+        name: "Rewrite response body".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "target": "response",
+            "text": "{\"edited\":true}"
+        }),
+    });
+
+    let request = build_test_request("http://example.com/api/users");
+    let mut response = UpstreamResponse {
+        body_truncated: false,
+        response_body: b"original".to_vec(),
+        response_body_size_bytes: 8,
+        response_headers: HeaderMap::new(),
+        response_read_ms: 0,
+        spooled_response_path: None,
+        status_code: StatusCode::OK,
+        waiting_ms: 0,
+    };
+    response
+        .response_headers
+        .insert("content-type", HeaderValue::from_static("text/plain"));
+    response
+        .response_headers
+        .insert("content-encoding", HeaderValue::from_static("gzip"));
+    response
+        .response_headers
+        .insert("content-md5", HeaderValue::from_static("stale"));
+    response
+        .response_headers
+        .insert("digest", HeaderValue::from_static("sha-256=stale"));
+    response
+        .response_headers
+        .insert("etag", HeaderValue::from_static("\"stale\""));
+
+    let traces =
+        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response)
+            .unwrap();
+
+    assert_eq!(response.response_body, br#"{"edited":true}"#);
+    assert_eq!(response.response_body_size_bytes, 15);
+    assert_eq!(
+        response
+            .response_headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+    assert!(!response.response_headers.contains_key("content-encoding"));
+    assert!(!response.response_headers.contains_key("content-md5"));
+    assert!(!response.response_headers.contains_key("digest"));
+    assert!(!response.response_headers.contains_key("etag"));
+    assert_eq!(traces.len(), 1);
 }
 
 #[test]
@@ -770,6 +947,13 @@ fn allocate_unused_port() -> u16 {
         .local_addr()
         .unwrap()
         .port()
+}
+
+fn header_entry<'a>(headers: &'a [ProxyHeaderEntry], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        .map(|entry| entry.value.as_str())
 }
 
 fn build_test_request(url: &str) -> ParsedProxyRequest {

@@ -82,6 +82,25 @@ fn refresh_request_target_from_url(request: &mut ParsedProxyRequest) {
     );
 }
 
+fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
+    // Breakpoint body editors operate on decoded/plain bytes. If the original
+    // exchange was compressed or had body validators, those headers no longer
+    // describe the replacement body.
+    headers.remove("content-encoding");
+    headers.remove("content-md5");
+    headers.remove("digest");
+    headers.remove("etag");
+}
+
+fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
+    headers.retain(|entry| {
+        !entry.name.eq_ignore_ascii_case("content-encoding")
+            && !entry.name.eq_ignore_ascii_case("content-md5")
+            && !entry.name.eq_ignore_ascii_case("digest")
+            && !entry.name.eq_ignore_ascii_case("etag")
+    });
+}
+
 pub(crate) fn apply_request_resolution(
     resolution: &BreakpointResolution,
     request: &mut ParsedProxyRequest,
@@ -114,6 +133,9 @@ pub(crate) fn apply_request_resolution(
         request.body = BASE64_STANDARD
             .decode(body_b64)
             .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
+        strip_plain_body_edit_headers(&mut request.headers);
+        strip_plain_body_edit_header_entries(&mut request.request_headers);
+        refresh_request_target_from_url(request);
     }
 }
 
@@ -445,6 +467,7 @@ pub(crate) fn apply_response_resolution(
                 .decode(body_b64)
                 .unwrap_or_else(|_| body_b64.as_bytes().to_vec()),
         );
+        strip_plain_body_edit_headers(&mut upstream_response.response_headers);
     }
 }
 

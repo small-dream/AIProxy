@@ -945,6 +945,22 @@ fn remove_header_entry(headers: &mut Vec<ProxyHeaderEntry>, name: &str) {
     headers.retain(|entry| !entry.name.eq_ignore_ascii_case(name));
 }
 
+fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
+    headers.retain(|entry| {
+        !entry.name.eq_ignore_ascii_case("content-encoding")
+            && !entry.name.eq_ignore_ascii_case("content-md5")
+            && !entry.name.eq_ignore_ascii_case("digest")
+            && !entry.name.eq_ignore_ascii_case("etag")
+    });
+}
+
+fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
+    headers.remove("content-encoding");
+    headers.remove("content-md5");
+    headers.remove("digest");
+    headers.remove("etag");
+}
+
 fn header_entry_value(headers: &[ProxyHeaderEntry], name: &str) -> Option<String> {
     let values: Vec<String> = headers
         .iter()
@@ -1168,6 +1184,7 @@ pub(crate) fn apply_request_rewrite_rules(
                     CONTENT_TYPE.as_str(),
                     &payload.content_type,
                 );
+                strip_plain_body_edit_header_entries(&mut request.request_headers);
                 entries.push(trace_entry(
                     0,
                     "body",
@@ -1306,6 +1323,7 @@ pub(crate) fn apply_response_rewrite_rules(
                 if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
                     response.response_headers.insert(CONTENT_TYPE, content_type);
                 }
+                strip_plain_body_edit_headers(&mut response.response_headers);
                 entries.push(trace_entry(
                     0,
                     "body",
