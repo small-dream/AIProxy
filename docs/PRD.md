@@ -299,7 +299,7 @@ flowchart LR
 
 - Header 改写：支持 request / response 的 set / remove
 - Query 改写：支持 request 阶段 set / remove
-- Body 改写：支持 request / response 整段替换并设置 Content-Type
+- Body 改写：支持 request / response 整段替换并设置 Content-Type，也支持字段模式按 JSON Path 修改/删除指定字段的值
 - Redirect：支持 request 阶段目标 URL 改写，并可保留 path / query
 - 本地文件映射
 - 远程地址映射

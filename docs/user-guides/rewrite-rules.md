@@ -12,7 +12,7 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 - **切换环境**：把命中的 API 请求 Redirect 到 staging 上游
 - **追加 Query 参数**：例如自动追加 `env=staging`
 - **关闭响应缓存**：覆盖 `Cache-Control`
-- **Mock JSON 响应**：把响应 Body 替换为固定 JSON
+- **Mock JSON 响应**：把响应 Body 替换为固定 JSON，或按字段路径修改/删除指定字段
 - **排查 CORS / 鉴权问题**：临时增删 Header，快速验证问题来源
 
 ## 入口位置
@@ -29,7 +29,7 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 
 - Header 改写：新增 / 覆盖 / 删除请求或响应 Header
 - Query 改写：新增 / 覆盖 / 删除请求 URL Query 参数
-- Body 改写：替换请求或响应 Body，并设置 `Content-Type`
+- Body 改写：整段替换请求或响应 Body，或按 JSON Path 修改/删除指定字段，并设置 `Content-Type`
 - Redirect 改写：把请求转发到另一个目标 URL，可选择保留原 path / query
 - URL Pattern、HTTP Method、Stage 匹配
 - 优先级与启停控制
@@ -39,7 +39,6 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 
 当前版本暂不支持：
 
-- JSONPath 字段级 Body 修改
 - 修改响应状态码
 - Cookie 专用编辑器
 - 正则捕获替换
@@ -129,9 +128,11 @@ Query Rewrite 只在请求发往上游前生效。
 
 ### Body Rewrite
 
-可作用于 request 或 response。
+可作用于 request 或 response，支持两种模式：
 
-当前版本是整段替换 Body。替换时会同步设置 `Content-Type`。
+**Replace 模式**（整段替换）：
+- 用自定义内容替换整个 Body
+- 同步设置 `Content-Type`
 
 示例响应 JSON：
 
@@ -140,6 +141,35 @@ Query Rewrite 只在请求发往上游前生效。
   "ok": true,
   "source": "aiproxy"
 }
+```
+
+**Fields 模式**（字段修改）：
+- 按 JSON Path 定位并修改/删除指定字段
+- 支持 `data.user.name` 对象路径和 `items[0].name` 数组下标
+- 支持 `$.` 前缀（如 `$.data.user.name`）
+- 每个字段可选操作：
+  - `set`：设置字段值为指定类型（string / number / boolean / null / JSON）
+  - `remove`：删除该字段
+- 字段模式下仍然需要设置 `Content-Type`（通常为 `application/json`）
+
+字段模式示例 — 修改 JSON 响应：
+
+| 操作 | 路径 | 类型 | 值 |
+|---|---|---|---|
+| set | `user.name` | string | `Jane` |
+| set | `user.enabled` | boolean | `true` |
+| remove | `debug` | — | — |
+
+原 Body：
+
+```json
+{"user":{"name":"Jake"},"debug":true}
+```
+
+改写后：
+
+```json
+{"user":{"name":"Jane","enabled":true}}
 ```
 
 ### Redirect Rewrite
@@ -218,7 +248,7 @@ AIProxy 会自动带入：
 
 - Header：原 Header 值与改写后 Header 值
 - Query：原参数值与改写后参数值
-- Body：原 Body 预览与改写后 Body 预览
+- Body：原 Body 预览与改写后 Body 预览；字段模式下展示每个字段的 before / after 值
 - Redirect：原 URL 与改写后 URL
 
 ## 执行顺序

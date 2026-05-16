@@ -501,8 +501,14 @@ fn applies_request_body_rewrite_as_plain_body() {
         apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
 
     assert_eq!(request.body, br#"{"edited":true}"#);
-    assert_eq!(header_entry(&request.request_headers, "content-type"), Some("application/json"));
-    assert_eq!(header_entry(&request.request_headers, "content-encoding"), None);
+    assert_eq!(
+        header_entry(&request.request_headers, "content-type"),
+        Some("application/json")
+    );
+    assert_eq!(
+        header_entry(&request.request_headers, "content-encoding"),
+        None
+    );
     assert_eq!(header_entry(&request.request_headers, "content-md5"), None);
     assert_eq!(header_entry(&request.request_headers, "digest"), None);
     assert_eq!(header_entry(&request.request_headers, "etag"), None);
@@ -578,6 +584,127 @@ fn applies_response_body_rewrite_as_plain_body() {
     assert!(!response.response_headers.contains_key("digest"));
     assert!(!response.response_headers.contains_key("etag"));
     assert_eq!(traces.len(), 1);
+}
+
+#[test]
+fn applies_request_body_rewrite_to_json_fields() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-request-body-fields".to_string(),
+        enabled: true,
+        name: "Rewrite request body fields".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "user.name", "value": "Jane", "valueType": "string" },
+                { "operation": "set", "path": "user.enabled", "value": "true", "valueType": "boolean" },
+                { "operation": "remove", "path": "debug" }
+            ],
+            "mode": "fields",
+            "target": "request",
+            "text": ""
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.body = br#"{"user":{"name":"Jake"},"debug":true}"#.to_vec();
+    request.request_headers.push(ProxyHeaderEntry {
+        name: "Content-Encoding".to_string(),
+        value: "gzip".to_string(),
+    });
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+    let rewritten: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+
+    assert_eq!(
+        rewritten,
+        json!({ "user": { "name": "Jane", "enabled": true } })
+    );
+    assert_eq!(
+        header_entry(&request.request_headers, "content-type"),
+        Some("application/json")
+    );
+    assert_eq!(
+        header_entry(&request.request_headers, "content-encoding"),
+        None
+    );
+    assert_eq!(traces[0].entries.len(), 3);
+    assert_eq!(traces[0].entries[0].kind, "body-field");
+}
+
+#[test]
+fn applies_response_body_rewrite_to_json_array_fields() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-response-body-fields".to_string(),
+        enabled: true,
+        name: "Rewrite response body fields".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "$.items[0].name", "value": "\"mocked\"", "valueType": "json" },
+                { "operation": "set", "path": "items[1].count", "value": "9", "valueType": "number" }
+            ],
+            "mode": "fields",
+            "target": "response",
+            "text": ""
+        }),
+    });
+
+    let request = build_test_request("http://example.com/api/users");
+    let mut response = UpstreamResponse {
+        body_truncated: false,
+        response_body: br#"{"items":[{"name":"original"},{"count":1}]}"#.to_vec(),
+        response_body_size_bytes: 41,
+        response_headers: HeaderMap::new(),
+        response_read_ms: 0,
+        spooled_response_path: None,
+        status_code: StatusCode::OK,
+        waiting_ms: 0,
+    };
+
+    let traces =
+        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response)
+            .unwrap();
+    let rewritten: serde_json::Value = serde_json::from_slice(&response.response_body).unwrap();
+
+    assert_eq!(
+        rewritten,
+        json!({ "items": [{ "name": "mocked" }, { "count": 9.0 }] })
+    );
+    assert_eq!(
+        response.response_body_size_bytes,
+        response.response_body.len()
+    );
+    assert_eq!(
+        response
+            .response_headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+    assert_eq!(traces[0].entries.len(), 2);
 }
 
 #[test]

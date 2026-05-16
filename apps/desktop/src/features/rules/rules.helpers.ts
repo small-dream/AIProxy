@@ -42,7 +42,17 @@ export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"):
     case "query":
       return { ...base, rewriteType, payload: { operation: "set", paramName: "", value: "" } };
     case "body":
-      return { ...base, rewriteType, payload: { contentType: "application/json", target: "response", text: "" } };
+      return {
+        ...base,
+        rewriteType,
+        payload: {
+          contentType: "application/json",
+          fields: [{ operation: "set", path: "", value: "", valueType: "string" }],
+          mode: "replace",
+          target: "response",
+          text: "",
+        },
+      };
     case "redirect":
       return { ...base, rewriteType, payload: { preservePath: true, preserveQuery: true, targetUrl: "" } };
     case "header":
@@ -155,7 +165,19 @@ export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn):
     if (!rule.payload.paramName.trim()) errors.push(t("rulesPage.validation.queryNameRequired"));
     if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim()) errors.push(t("rulesPage.validation.queryValueRequired"));
   }
-  if (rule.rewriteType === "body" && !rule.payload.text.trim()) errors.push(t("rulesPage.validation.bodyTextRequired"));
+  if (rule.rewriteType === "body") {
+    const mode = rule.payload.mode ?? "replace";
+    if (mode === "replace" && !(rule.payload.text ?? "").trim()) errors.push(t("rulesPage.validation.bodyTextRequired"));
+    if (mode === "fields") {
+      const fields = rule.payload.fields ?? [];
+      if (fields.length === 0 || fields.some((field) => !field.path.trim())) {
+        errors.push(t("rulesPage.validation.bodyFieldPathRequired"));
+      }
+      if (fields.some((field) => field.operation === "set" && field.valueType !== "null" && !(field.value ?? "").trim())) {
+        errors.push(t("rulesPage.validation.bodyFieldValueRequired"));
+      }
+    }
+  }
   if (rule.rewriteType === "redirect" && !rule.payload.targetUrl.trim()) errors.push(t("rulesPage.validation.redirectTargetRequired"));
 
   return errors;

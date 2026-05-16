@@ -288,10 +288,19 @@ type RewriteQueryPayload = {
   value?: string;
 };
 
+type RewriteBodyFieldEdit = {
+  operation: "set" | "remove";
+  path: string;
+  value?: string;
+  valueType?: "string" | "number" | "boolean" | "null" | "json";
+};
+
 type RewriteBodyPayload = {
   contentType: string;
+  fields?: RewriteBodyFieldEdit[];
+  mode?: "replace" | "fields";
   target: RewriteTarget;
-  text: string;
+  text?: string;
 };
 
 type RewriteRedirectPayload = {
@@ -318,7 +327,7 @@ type RewriteRule = {
 type RewriteRunEntry = {
   after?: string;
   before?: string;
-  kind: "header" | "query" | "body" | "redirect" | "skip" | "error";
+  kind: "body-field" | "header" | "query" | "body" | "redirect" | "skip" | "error";
   key?: string;
   message?: string;
   sequence: number;

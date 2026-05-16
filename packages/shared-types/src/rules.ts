@@ -70,10 +70,19 @@ export type RewriteQueryPayload = {
   value?: string;
 };
 
+export type RewriteBodyFieldEdit = {
+  operation: "set" | "remove";
+  path: string;
+  value?: string;
+  valueType?: "string" | "number" | "boolean" | "null" | "json";
+};
+
 export type RewriteBodyPayload = {
   contentType: string;
+  fields?: RewriteBodyFieldEdit[];
+  mode?: "replace" | "fields";
   target: RewriteTarget;
-  text: string;
+  text?: string;
 };
 
 export type RewriteRedirectPayload = {
@@ -211,7 +220,7 @@ export type RewriteRunOutcome = "success" | "skipped" | "failed";
 export type RewriteRunEntry = {
   after?: string;
   before?: string;
-  kind: "header" | "query" | "body" | "redirect" | "skip" | "error";
+  kind: "body-field" | "header" | "query" | "body" | "redirect" | "skip" | "error";
   key?: string;
   message?: string;
   sequence: number;
@@ -343,8 +352,28 @@ function isRewriteBodyPayload(value: unknown): value is RewriteBodyPayload {
   const candidate = value as Partial<RewriteBodyPayload>;
   return (
     typeof candidate.contentType === "string" &&
-    typeof candidate.text === "string" &&
+    isNullableString(candidate.text) &&
+    (candidate.mode === undefined || candidate.mode === "replace" || candidate.mode === "fields") &&
+    (candidate.fields === undefined || candidate.fields.every(isRewriteBodyFieldEdit)) &&
     (candidate.target === "request" || candidate.target === "response")
+  );
+}
+
+function isRewriteBodyFieldEdit(value: unknown): value is RewriteBodyFieldEdit {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteBodyFieldEdit>;
+  return (
+    typeof candidate.path === "string" &&
+    (candidate.operation === "set" || candidate.operation === "remove") &&
+    isNullableString(candidate.value) &&
+    (
+      candidate.valueType === undefined ||
+      candidate.valueType === "string" ||
+      candidate.valueType === "number" ||
+      candidate.valueType === "boolean" ||
+      candidate.valueType === "null" ||
+      candidate.valueType === "json"
+    )
   );
 }
 
@@ -532,7 +561,7 @@ export function isRewriteRunEntry(value: unknown): value is RewriteRunEntry {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<RewriteRunEntry>;
   return (
-    (candidate.kind === "header" || candidate.kind === "query" || candidate.kind === "body" || candidate.kind === "redirect" || candidate.kind === "skip" || candidate.kind === "error")
+    (candidate.kind === "body-field" || candidate.kind === "header" || candidate.kind === "query" || candidate.kind === "body" || candidate.kind === "redirect" || candidate.kind === "skip" || candidate.kind === "error")
     && isNullableString(candidate.after)
     && isNullableString(candidate.before)
     && isNullableString(candidate.key)
