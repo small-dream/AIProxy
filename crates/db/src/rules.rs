@@ -14,6 +14,7 @@ pub struct RewriteRuleRow {
     pub match_methods: String, // JSON array
     pub match_stage: String,
     pub match_url_pattern: String,
+    pub match_type: String,
     pub rewrite_type: String,
     pub payload: String, // JSON value
 }
@@ -22,8 +23,8 @@ pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), St
     conn.execute(
         "INSERT OR REPLACE INTO rewrite_rules
             (id, workspace_id, name, note, enabled, priority,
-             match_methods, match_stage, match_url_pattern, rewrite_type, payload)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             r.id,
             r.workspace_id,
@@ -34,6 +35,7 @@ pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), St
             r.match_methods,
             r.match_stage,
             r.match_url_pattern,
+            r.match_type,
             r.rewrite_type,
             r.payload,
         ],
@@ -49,7 +51,7 @@ pub fn load_rewrite_rules(
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority,
-                    match_methods, match_stage, match_url_pattern, rewrite_type, payload
+                    match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload
              FROM rewrite_rules WHERE workspace_id=?1 ORDER BY priority",
         )
         .map_err(|e| format!("prepare load rewrite rules: {e}"))?;
@@ -66,8 +68,9 @@ pub fn load_rewrite_rules(
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
-                rewrite_type: row.get(9)?,
-                payload: row.get(10)?,
+                match_type: row.get(9)?,
+                rewrite_type: row.get(10)?,
+                payload: row.get(11)?,
             })
         })
         .map_err(|e| format!("query rewrite rules: {e}"))?
@@ -81,7 +84,7 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority,
-                    match_methods, match_stage, match_url_pattern, rewrite_type, payload
+                    match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload
              FROM rewrite_rules ORDER BY priority",
         )
         .map_err(|e| format!("prepare load all rewrite rules: {e}"))?;
@@ -98,8 +101,9 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
-                rewrite_type: row.get(9)?,
-                payload: row.get(10)?,
+                match_type: row.get(9)?,
+                rewrite_type: row.get(10)?,
+                payload: row.get(11)?,
             })
         })
         .map_err(|e| format!("query all rewrite rules: {e}"))?
@@ -1247,6 +1251,7 @@ mod tests {
             match_methods: "[\"GET\",\"POST\"]".into(),
             match_stage: "request".into(),
             match_url_pattern: "example.com".into(),
+            match_type: "contains".into(),
             rewrite_type: "header".into(),
             payload: r#"{"headerName":"X-Test","operation":"set","target":"request","value":"1"}"#
                 .into(),

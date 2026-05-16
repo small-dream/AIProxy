@@ -386,6 +386,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             methods: vec!["GET".to_string()],
             stage: "request".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "header".to_string(),
         workspace_id: "default".to_string(),
@@ -406,6 +407,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             methods: vec!["GET".to_string()],
             stage: "request".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "query".to_string(),
         workspace_id: "default".to_string(),
@@ -425,6 +427,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             methods: vec!["GET".to_string()],
             stage: "request".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "redirect".to_string(),
         workspace_id: "default".to_string(),
@@ -467,6 +470,7 @@ fn applies_request_body_rewrite_as_plain_body() {
             methods: vec!["GET".to_string()],
             stage: "request".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "body".to_string(),
         workspace_id: "default".to_string(),
@@ -529,6 +533,7 @@ fn applies_response_body_rewrite_as_plain_body() {
             methods: vec!["GET".to_string()],
             stage: "response".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "body".to_string(),
         workspace_id: "default".to_string(),
@@ -599,6 +604,7 @@ fn applies_request_body_rewrite_to_json_fields() {
             methods: vec!["POST".to_string()],
             stage: "request".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "body".to_string(),
         workspace_id: "default".to_string(),
@@ -657,6 +663,7 @@ fn applies_response_body_rewrite_to_json_array_fields() {
             methods: vec!["GET".to_string()],
             stage: "response".to_string(),
             url_pattern: "example.com".to_string(),
+            match_type: None,
         },
         rewrite_type: "body".to_string(),
         workspace_id: "default".to_string(),
@@ -705,6 +712,130 @@ fn applies_response_body_rewrite_to_json_array_fields() {
         Some("application/json")
     );
     assert_eq!(traces[0].entries.len(), 2);
+}
+
+#[test]
+fn rewrite_rule_respects_match_type_exact() {
+    let manager = Arc::new(RewriteManager::new());
+    manager.save_rule(RewriteRule {
+        id: "exact-rule".to_string(),
+        enabled: true,
+        name: "Exact match".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "https://api.example.com/v1/users".to_string(),
+            match_type: Some("exact".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    // exact URL should match
+    let mut request = build_test_request("https://api.example.com/v1/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+    assert_eq!(traces.len(), 1);
+
+    // different path should NOT match
+    let mut request2 = build_test_request("https://api.example.com/v1/other");
+    let traces2 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+    assert!(traces2.is_empty());
+}
+
+#[test]
+fn rewrite_rule_respects_match_type_regex() {
+    let manager = Arc::new(RewriteManager::new());
+    manager.save_rule(RewriteRule {
+        id: "regex-rule".to_string(),
+        enabled: true,
+        name: "Regex match".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: r"https://api\.example\.com/v1/users\?env=staging".to_string(),
+            match_type: Some("regex".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    let mut request =
+        build_test_request("https://api.example.com/v1/users?env=staging&lang=en");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+    assert_eq!(traces.len(), 1);
+
+    let mut request2 = build_test_request("https://api.example.com/v1/users?env=prod");
+    let traces2 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+    assert!(traces2.is_empty());
+}
+
+#[test]
+fn rewrite_rule_respects_match_type_wildcard() {
+    let manager = Arc::new(RewriteManager::new());
+    manager.save_rule(RewriteRule {
+        id: "wildcard-rule".to_string(),
+        enabled: true,
+        name: "Wildcard match".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "https://api.example.com/v1/*".to_string(),
+            match_type: Some("wildcard".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    let mut request = build_test_request("https://api.example.com/v1/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+    assert_eq!(traces.len(), 1);
+
+    // different path prefix should NOT match wildcard anchored at start
+    let mut request2 = build_test_request("https://api.example.com/v2/users");
+    let traces2 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+    assert!(traces2.is_empty());
+}
+
+#[test]
+fn rewrite_rule_uses_contains_by_default() {
+    let manager = Arc::new(RewriteManager::new());
+    manager.save_rule(RewriteRule {
+        id: "default-rule".to_string(),
+        enabled: true,
+        name: "Default match".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "api.example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    // substring match should work (legacy behavior)
+    let mut request = build_test_request("https://api.example.com/v1/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager), "default", &mut request).unwrap();
+    assert_eq!(traces.len(), 1);
 }
 
 #[test]

@@ -156,6 +156,13 @@ export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn):
   const errors: string[] = [];
   if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
   if (!rule.match.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
+  if (rule.match.matchType === "regex" && rule.match.urlPattern.trim()) {
+    try {
+      new RegExp(rule.match.urlPattern.trim());
+    } catch {
+      errors.push(t("rulesPage.validation.regexPatternInvalid"));
+    }
+  }
 
   if (rule.rewriteType === "header") {
     if (!rule.payload.headerName.trim()) errors.push(t("rulesPage.validation.headerNameRequired"));

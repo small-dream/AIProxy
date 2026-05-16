@@ -73,23 +73,33 @@ Rewrite 页面采用三段式工作台：
 | Rule Name | 规则名称，便于搜索和识别 | `API 切 staging` |
 | Enabled | 控制规则是否生效 | 开启 |
 | Priority | 数字越大优先级越高 | `100` |
-| URL Pattern | URL 匹配模式，支持 `*` 通配符 | `api.example.com/v1/*` |
+| URL Pattern | URL 匹配模式，按 Match Type 指定的方式解释 | `api.example.com/v1/*` |
+| Match Type | URL Pattern 的匹配方式，默认 Contains | `Wildcard` |
 | HTTP Methods | 只匹配指定方法，留空表示全部 | `GET, POST` |
 | Match Stage | 请求阶段、响应阶段，或两者 | `request` |
 
 ### URL Pattern 规则
 
-- 空值或 `*` 表示匹配所有 URL
-- 不包含 `*` 时，按 URL 子串匹配
-- 包含 `*` 时，按通配符顺序匹配
+Match Type 控制 URL Pattern 如何与请求 URL 进行比对。可选四种方式：
+
+| Match Type | 行为 | Pattern 示例 | 匹配 `https://api.example.com/v1/users` |
+|---|---|---|---|
+| **Contains** (默认) | URL 包含 Pattern 即命中（子串匹配） | `api.example.com` | ✓ |
+| **Wildcard** | `*` 作为通配符，匹配零个或多个字符 | `api.example.com/v1/*` | ✓ |
+| **Exact** | URL 必须与 Pattern 完全相等 | `https://api.example.com/v1/users` | ✓ |
+| **Regex** | Pattern 作为正则表达式匹配 | `api\.example\.com/v1/.*` | ✓ |
+
+Contains 模式下，空值或 `*` 表示匹配所有 URL。Wildcard 模式下，空值或 `*` 同样匹配所有 URL。
 
 示例：
 
-| Pattern | 匹配示例 |
-|---|---|
-| `api.example.com` | `https://api.example.com/v1/users` |
-| `api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
-| `*login*` | 任意包含 `login` 的 URL |
+| Match Type | Pattern | 匹配示例 |
+|---|---|---|
+| Contains | `api.example.com` | `https://api.example.com/v1/users` |
+| Wildcard | `api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| Wildcard | `*login*` | 任意包含 `login` 的 URL |
+| Exact | `https://api.example.com/v1/users` | 仅完全相同的 URL |
+| Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`、`api.staging.com/v2/items` |
 
 ## 改写动作
 

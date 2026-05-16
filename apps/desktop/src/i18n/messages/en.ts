@@ -341,6 +341,13 @@ export const enMessages = {
       saveRule: "Save Rule",
       urlPattern: "URL Pattern",
       urlPatternExample: "api.example.com/v1/*",
+      matchType: "Match Type",
+      matchTypes: {
+        contains: "Contains",
+        exact: "Exact",
+        regex: "Regex",
+        wildcard: "Wildcard",
+      },
     },
     rewrite: {
       title: "Rewrite Rules",
@@ -482,6 +489,7 @@ export const enMessages = {
       ruleNameRequired: "Enter a rule name.",
       scriptSourceRequired: "Enter script source code.",
       urlPatternRequired: "Enter a URL pattern.",
+      regexPatternInvalid: "URL pattern is not a valid regular expression.",
     },
   },
   certificatesPage: {

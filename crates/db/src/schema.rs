@@ -349,6 +349,11 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(CREATE_TABLES)
         .map_err(|e| format!("create tables: {e}"))?;
+    conn.execute(
+        "ALTER TABLE rewrite_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
+        [],
+    )
+    .ok();
     Ok(())
 }
 

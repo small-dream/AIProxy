@@ -97,20 +97,39 @@ function stageApplies(ruleStage: RuleMatch["stage"], currentStage: RuleMatch["st
   return ruleStage === "either" || ruleStage === currentStage;
 }
 
-function wildcardMatch(pattern: string, candidate: string) {
+function wildcardMatch(pattern: string, candidate: string, matchType?: string) {
   const normalized = pattern.trim();
-  if (!normalized || normalized === "*") return true;
-  if (!normalized.includes("*")) return candidate.includes(normalized);
-  const parts = normalized.split("*").filter(Boolean);
-  let cursor = 0;
-  for (const [index, part] of parts.entries()) {
-    const found = candidate.slice(cursor).indexOf(part);
-    if (found < 0) return false;
-    const absolute = cursor + found;
-    if (index === 0 && !normalized.startsWith("*") && absolute !== 0) return false;
-    cursor = absolute + part.length;
+  const mt = matchType || "contains";
+
+  switch (mt) {
+    case "exact":
+      return candidate === normalized;
+    case "regex": {
+      try {
+        return new RegExp(normalized).test(candidate);
+      } catch {
+        return false;
+      }
+    }
+    case "wildcard": {
+      if (!normalized || normalized === "*") return true;
+      const parts = normalized.split("*").filter(Boolean);
+      let cursor = 0;
+      for (const [index, part] of parts.entries()) {
+        const found = candidate.slice(cursor).indexOf(part);
+        if (found < 0) return false;
+        const absolute = cursor + found;
+        if (index === 0 && !normalized.startsWith("*") && absolute !== 0) return false;
+        cursor = absolute + part.length;
+      }
+      return normalized.endsWith("*") || candidate.endsWith(parts.at(-1) ?? "");
+    }
+    default: {
+      // "contains"
+      if (!normalized || normalized === "*") return true;
+      return candidate.includes(normalized);
+    }
   }
-  return normalized.endsWith("*") || candidate.endsWith(parts.at(-1) ?? "");
 }
 
 function testRuleMatch(rule: RewriteRule, input: RuleTestInput) {
@@ -119,7 +138,7 @@ function testRuleMatch(rule: RewriteRule, input: RuleTestInput) {
   if (rule.match.methods.length > 0 && !rule.match.methods.some((method) => method.toUpperCase() === input.method.toUpperCase())) {
     return { ok: false, reason: "HTTP method does not match." };
   }
-  if (!wildcardMatch(rule.match.urlPattern, input.url)) return { ok: false, reason: "URL pattern does not match." };
+  if (!wildcardMatch(rule.match.urlPattern, input.url, rule.match.matchType)) return { ok: false, reason: "URL pattern does not match." };
   return { ok: true, reason: "This sample request matches the rule." };
 }
 
@@ -402,6 +421,23 @@ export function RewriteRulesPanel() {
                       placeholder={t("rulesPage.editor.urlPatternExample")}
                       fullWidth
                     />
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                          {t("rulesPage.editor.matchType")}
+                        </Typography>
+                        <Select
+                          size="small"
+                          value={draft.match.matchType ?? "contains"}
+                          onChange={(e) => setDraft({ ...draft, match: { ...draft.match, matchType: e.target.value } as RuleMatch })}
+                        >
+                          <MenuItem value="contains">{t("rulesPage.editor.matchTypes.contains")}</MenuItem>
+                          <MenuItem value="wildcard">{t("rulesPage.editor.matchTypes.wildcard")}</MenuItem>
+                          <MenuItem value="exact">{t("rulesPage.editor.matchTypes.exact")}</MenuItem>
+                          <MenuItem value="regex">{t("rulesPage.editor.matchTypes.regex")}</MenuItem>
+                        </Select>
+                      </Stack>
+                    </Stack>
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                       <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
                         <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>

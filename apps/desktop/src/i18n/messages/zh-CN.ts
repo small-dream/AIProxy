@@ -343,6 +343,13 @@ export const zhCNMessages: Messages = {
       saveRule: "保存规则",
       urlPattern: "URL 模式",
       urlPatternExample: "api.example.com/v1/*",
+      matchType: "匹配方式",
+      matchTypes: {
+        contains: "包含",
+        exact: "精确",
+        regex: "正则",
+        wildcard: "通配符",
+      },
     },
     rewrite: {
       title: "Rewrite 改写",
@@ -484,6 +491,7 @@ export const zhCNMessages: Messages = {
       ruleNameRequired: "请填写规则名称。",
       scriptSourceRequired: "请填写脚本源码。",
       urlPatternRequired: "请填写 URL 模式。",
+      regexPatternInvalid: "URL 模式不是合法的正则表达式。",
     },
   },
   certificatesPage: {

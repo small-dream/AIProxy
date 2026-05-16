@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 aiproxy-rule-engine = { path = "../rule-engine" }
 base64 = "0.22"
+regex = "1"
 brotli = "8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flate2 = "1"

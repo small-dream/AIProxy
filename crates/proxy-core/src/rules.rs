@@ -1,4 +1,5 @@
 use super::*;
+use regex::Regex;
 
 // ---------------------------------------------------------------------------
 // Rewrite / Map / Throttle types and managers
@@ -11,6 +12,8 @@ pub struct RewriteRuleMatch {
     pub methods: Vec<String>,
     pub stage: String,
     pub url_pattern: String,
+    #[serde(default)]
+    pub match_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -448,7 +451,7 @@ pub(crate) fn resolve_dns_override(
         .filter(|r| {
             r.enabled
                 && r.workspace_id == workspace_id
-                && pattern_matches(&r.host_pattern, hostname)
+                && pattern_matches(&r.host_pattern, hostname, None)
         })
         .max_by_key(|r| r.priority)?;
     rule.target_ip.parse().ok()
@@ -512,51 +515,60 @@ pub(crate) struct RequestScriptOutcome {
     pub(crate) traces: Vec<ScriptTrace>,
 }
 
-fn pattern_matches(pattern: &str, candidate: &str) -> bool {
+fn pattern_matches(pattern: &str, candidate: &str, match_type: Option<&str>) -> bool {
     let normalized = pattern.trim();
 
-    if normalized.is_empty() || normalized == "*" {
-        return true;
-    }
-
-    if !normalized.contains('*') {
-        return candidate.contains(normalized);
-    }
-
-    let parts: Vec<&str> = normalized
-        .split('*')
-        .filter(|part| !part.is_empty())
-        .collect();
-
-    if parts.is_empty() {
-        return true;
-    }
-
-    let mut search_start = 0_usize;
-
-    for (index, part) in parts.iter().enumerate() {
-        if let Some(relative_index) = candidate[search_start..].find(part) {
-            let absolute_index = search_start + relative_index;
-
-            if index == 0 && !normalized.starts_with('*') && absolute_index != 0 {
-                return false;
+    match match_type.unwrap_or("contains") {
+        "exact" => candidate == normalized,
+        "regex" => Regex::new(normalized).is_ok_and(|re| re.is_match(candidate)),
+        "wildcard" => {
+            if normalized.is_empty() || normalized == "*" {
+                return true;
             }
 
-            search_start = absolute_index + part.len();
-        } else {
-            return false;
+            let parts: Vec<&str> = normalized
+                .split('*')
+                .filter(|part| !part.is_empty())
+                .collect();
+
+            if parts.is_empty() {
+                return true;
+            }
+
+            let mut search_start = 0_usize;
+
+            for (index, part) in parts.iter().enumerate() {
+                if let Some(relative_index) = candidate[search_start..].find(part) {
+                    let absolute_index = search_start + relative_index;
+
+                    if index == 0 && !normalized.starts_with('*') && absolute_index != 0 {
+                        return false;
+                    }
+
+                    search_start = absolute_index + part.len();
+                } else {
+                    return false;
+                }
+            }
+
+            if normalized.ends_with('*') {
+                return true;
+            }
+
+            if let Some(last) = parts.last() {
+                return candidate.ends_with(last);
+            }
+
+            true
+        }
+        _ => {
+            // "contains" or unknown — substring match
+            if normalized.is_empty() || normalized == "*" {
+                return true;
+            }
+            candidate.contains(normalized)
         }
     }
-
-    if normalized.ends_with('*') {
-        return true;
-    }
-
-    if let Some(last) = parts.last() {
-        return candidate.ends_with(last);
-    }
-
-    true
 }
 
 fn method_matches(methods: &[String], method: &Method) -> bool {
@@ -587,7 +599,7 @@ fn active_rewrite_rules_for_stage(
         .filter(|rule| rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.r#match.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.r#match.url_pattern, request.url.as_str()))
+        .filter(|rule| pattern_matches(&rule.r#match.url_pattern, request.url.as_str(), rule.r#match.match_type.as_deref()))
         .collect();
 
     rules.sort_by(|left, right| right.priority.cmp(&left.priority));
@@ -608,7 +620,7 @@ fn active_map_rule_for_request(
         .into_iter()
         .filter(|rule| rule.enabled)
         .filter(|rule| rule.workspace_id == workspace_id)
-        .filter(|rule| pattern_matches(&rule.source_pattern, request.url.as_str()))
+        .filter(|rule| pattern_matches(&rule.source_pattern, request.url.as_str(), None))
         .collect();
 
     rules.sort_by(|left, right| right.priority.cmp(&left.priority));
@@ -632,7 +644,7 @@ fn active_script_rules_for_stage(
         .filter(|rule| rule.rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.rule.r#match.url_pattern, request.url.as_str()))
+        .filter(|rule| pattern_matches(&rule.rule.r#match.url_pattern, request.url.as_str(), None))
         .collect();
 
     rules.sort_by(|left, right| right.rule.priority.cmp(&left.rule.priority));
@@ -690,8 +702,8 @@ fn active_throttle_selection_for_request(
         })
         .filter(|rule| method_matches(&rule.methods, &request.method))
         .filter(|rule| {
-            pattern_matches(&rule.url_pattern, request.url.as_str())
-                || pattern_matches(&rule.url_pattern, &request.host)
+            pattern_matches(&rule.url_pattern, request.url.as_str(), None)
+                || pattern_matches(&rule.url_pattern, &request.host, None)
         })
         .collect();
 

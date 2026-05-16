@@ -47,10 +47,13 @@ export type BreakpointResolution = {
 
 export type RuleMatchStage = "request" | "response" | "either";
 
+export type MatchType = "contains" | "wildcard" | "exact" | "regex";
+
 export type RuleMatch = {
   urlPattern: string;
   methods: string[];
   stage: RuleMatchStage;
+  matchType?: MatchType;
 };
 
 export type RewriteRuleType = "header" | "query" | "body" | "redirect";

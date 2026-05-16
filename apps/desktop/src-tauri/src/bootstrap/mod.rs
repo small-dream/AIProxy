@@ -913,6 +913,7 @@ fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
             methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
             stage: row.match_stage,
             url_pattern: row.match_url_pattern,
+            match_type: if row.match_type.is_empty() { None } else { Some(row.match_type) },
         },
         rewrite_type: row.rewrite_type,
         workspace_id: row.workspace_id,

@@ -266,10 +266,13 @@ type BreakpointResolution = {
 
 type RuleMatchStage = "request" | "response" | "either";
 
+type MatchType = "contains" | "wildcard" | "exact" | "regex";
+
 type RuleMatch = {
   urlPattern: string;
   methods: string[];
   stage: RuleMatchStage;
+  matchType?: MatchType;     // 默认 "contains"（子串匹配），可选 "wildcard" / "exact" / "regex"
 };
 
 type RewriteRuleType = "header" | "query" | "body" | "redirect";
