@@ -178,6 +178,7 @@ pub fn set_breakpoint_rules(
                     BreakpointStage::Request => "Request".to_string(),
                     BreakpointStage::Response => "Response".to_string(),
                 },
+                match_type: r.match_type.clone().unwrap_or_else(|| "contains".to_string()),
             })
             .collect();
         aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows)

@@ -229,9 +229,10 @@ type BreakpointActionKind = "forward" | "drop" | "mock";
 type BreakpointRule = {
   id: string;
   enabled: boolean;
-  urlPattern: string;       // 子串匹配，空或 "*" 匹配所有
+  urlPattern: string;       // 匹配方式由 matchType 决定，默认 contains（子串匹配）
   methods: string[];         // 空 = 所有方法
   stage: BreakpointStage;
+  matchType?: MatchType;     // 默认 "contains"，可选 "wildcard" / "exact" / "regex"
 };
 
 type MockResponse = {

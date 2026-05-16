@@ -642,6 +642,7 @@ pub struct BreakpointRuleRow {
     pub url_pattern: String,
     pub methods: String, // JSON array
     pub stage: String,
+    pub match_type: String,
 }
 
 /// Replace all breakpoint rules atomically.
@@ -658,9 +659,9 @@ pub fn replace_breakpoint_rules(
 
     for r in rules {
         tx.execute(
-            "INSERT INTO breakpoint_rules (id, enabled, url_pattern, methods, stage)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![r.id, r.enabled as i32, r.url_pattern, r.methods, r.stage],
+            "INSERT INTO breakpoint_rules (id, enabled, url_pattern, methods, stage, match_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![r.id, r.enabled as i32, r.url_pattern, r.methods, r.stage, r.match_type],
         )
         .map_err(|e| format!("insert breakpoint rule: {e}"))?;
     }
@@ -673,7 +674,7 @@ pub fn replace_breakpoint_rules(
 
 pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, enabled, url_pattern, methods, stage FROM breakpoint_rules")
+        .prepare("SELECT id, enabled, url_pattern, methods, stage, match_type FROM breakpoint_rules")
         .map_err(|e| format!("prepare load breakpoint rules: {e}"))?;
 
     let rows = stmt
@@ -684,6 +685,7 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
                 url_pattern: row.get(2)?,
                 methods: row.get(3)?,
                 stage: row.get(4)?,
+                match_type: row.get(5)?,
             })
         })
         .map_err(|e| format!("query breakpoint rules: {e}"))?
@@ -1375,6 +1377,7 @@ mod tests {
                 url_pattern: "example.com".into(),
                 methods: "[\"GET\"]".into(),
                 stage: "Request".into(),
+                match_type: "contains".into(),
             },
             BreakpointRuleRow {
                 id: "b2".into(),
@@ -1382,6 +1385,7 @@ mod tests {
                 url_pattern: "*".into(),
                 methods: "[]".into(),
                 stage: "Response".into(),
+                match_type: "contains".into(),
             },
         ];
 

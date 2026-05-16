@@ -346,9 +346,13 @@ export const zhCNMessages: Messages = {
       matchType: "匹配方式",
       matchTypes: {
         contains: "包含",
+        containsHint: "URL 任意位置包含匹配文本即命中。",
         exact: "精确",
+        exactHint: "完整 URL 与匹配文本完全相等才命中。",
         regex: "正则",
+        regexHint: "作为正则表达式匹配。例：api\\.example\\.com/v[12]/.*",
         wildcard: "通配符",
+        wildcardHint: "用 * 作为占位符。api.example.com/v1/* 匹配 /v1/ 下所有路径。",
       },
     },
     rewrite: {

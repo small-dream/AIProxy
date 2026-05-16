@@ -354,6 +354,11 @@ pub fn run_migrations(conn: &Connection) -> Result<(), String> {
         [],
     )
     .ok();
+    conn.execute(
+        "ALTER TABLE breakpoint_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
+        [],
+    )
+    .ok();
     Ok(())
 }
 

@@ -17,6 +17,7 @@ export type BreakpointRule = {
   urlPattern: string;
   methods: string[];
   stage: BreakpointStage;
+  matchType?: MatchType;
 };
 
 export type BreakpointHit = {

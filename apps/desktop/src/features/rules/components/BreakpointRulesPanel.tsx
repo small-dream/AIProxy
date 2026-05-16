@@ -22,7 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import type { BreakpointRule, BreakpointStage } from "@aiproxy/shared-types";
+import type { BreakpointRule, BreakpointStage, MatchType } from "@aiproxy/shared-types";
 import { useState } from "react";
 
 import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
@@ -67,10 +67,21 @@ export function BreakpointRulesPanel() {
 
   const hasRequestCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "request" && r.methods.length === 0);
   const hasResponseCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "response" && r.methods.length === 0);
-  const errors = draft.urlPattern.trim() ? [] : [t("rulesPage.validation.urlPatternRequired")];
+  const errors: string[] = [];
+  if (!draft.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
+  if (draft.matchType === "regex" && draft.urlPattern.trim()) {
+    try { new RegExp(draft.urlPattern.trim()); } catch { errors.push(t("rulesPage.validation.regexPatternInvalid")); }
+  }
   const urlPatternLabel = formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t);
+  const matchTypeLabel = t("rulesPage.editor.matchType");
   const methodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
   const stageLabel = formatRuleFieldLabel(t("rulesPage.labels.stage"), "required", t);
+  const matchTypes: { value: MatchType; label: string }[] = [
+    { value: "contains", label: t("rulesPage.editor.matchTypes.contains") },
+    { value: "wildcard", label: t("rulesPage.editor.matchTypes.wildcard") },
+    { value: "exact", label: t("rulesPage.editor.matchTypes.exact") },
+    { value: "regex", label: t("rulesPage.editor.matchTypes.regex") },
+  ];
 
   return (
     <Stack spacing={2}>
@@ -191,6 +202,19 @@ export function BreakpointRulesPanel() {
                 onChange={(e) => setDraft({ ...draft, urlPattern: e.target.value })}
                 sx={{ fontFamily: fontFamilies.mono, fontSize: 13 }}
               />
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>{matchTypeLabel}</InputLabel>
+              <Select
+                label={matchTypeLabel}
+                value={draft.matchType ?? "contains"}
+                onChange={(e) => setDraft({ ...draft, matchType: e.target.value as MatchType })}
+              >
+                {matchTypes.map((mt) => <MenuItem key={mt.value} value={mt.value}>{mt.label}</MenuItem>)}
+              </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.35 }}>
+                {t(`rulesPage.editor.matchTypes.${draft.matchType ?? "contains"}Hint`)}
+              </Typography>
             </FormControl>
             <Stack spacing={0.5}>
               <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>

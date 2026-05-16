@@ -38,6 +38,7 @@ import {
   getRewriteTypeLabel,
   getRewriteValidationErrors,
   HTTP_METHODS,
+  wildcardMatch,
 } from "@/features/rules/rules.helpers";
 import {
   FieldGroup,
@@ -95,41 +96,6 @@ function createSeededRule(seed: RewriteSeed): RewriteRule {
 
 function stageApplies(ruleStage: RuleMatch["stage"], currentStage: RuleMatch["stage"]) {
   return ruleStage === "either" || ruleStage === currentStage;
-}
-
-function wildcardMatch(pattern: string, candidate: string, matchType?: string) {
-  const normalized = pattern.trim();
-  const mt = matchType || "contains";
-
-  switch (mt) {
-    case "exact":
-      return candidate === normalized;
-    case "regex": {
-      try {
-        return new RegExp(normalized).test(candidate);
-      } catch {
-        return false;
-      }
-    }
-    case "wildcard": {
-      if (!normalized || normalized === "*") return true;
-      const parts = normalized.split("*").filter(Boolean);
-      let cursor = 0;
-      for (const [index, part] of parts.entries()) {
-        const found = candidate.slice(cursor).indexOf(part);
-        if (found < 0) return false;
-        const absolute = cursor + found;
-        if (index === 0 && !normalized.startsWith("*") && absolute !== 0) return false;
-        cursor = absolute + part.length;
-      }
-      return normalized.endsWith("*") || candidate.endsWith(parts.at(-1) ?? "");
-    }
-    default: {
-      // "contains"
-      if (!normalized || normalized === "*") return true;
-      return candidate.includes(normalized);
-    }
-  }
 }
 
 function testRuleMatch(rule: RewriteRule, input: RuleTestInput) {
@@ -436,6 +402,9 @@ export function RewriteRulesPanel() {
                           <MenuItem value="exact">{t("rulesPage.editor.matchTypes.exact")}</MenuItem>
                           <MenuItem value="regex">{t("rulesPage.editor.matchTypes.regex")}</MenuItem>
                         </Select>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35 }}>
+                          {t(`rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`)}
+                        </Typography>
                       </Stack>
                     </Stack>
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>

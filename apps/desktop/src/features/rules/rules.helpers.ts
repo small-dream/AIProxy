@@ -3,6 +3,7 @@ import type {
   BreakpointStage,
   DnsMappingRule,
   MapRule,
+  MatchType,
   RewriteRule,
   RewriteRuleType,
   RuleMatch,
@@ -224,4 +225,38 @@ export function getRewriteTypeLabel(rewriteType: RewriteRuleType, t: Translation
 export function formatRuleMatch(match: RuleMatch): string {
   const methods = match.methods.length === 0 ? "ALL" : match.methods.join(", ");
   return `${methods} • ${match.urlPattern || "*"}`;
+}
+
+export function wildcardMatch(pattern: string, candidate: string, matchType?: string): boolean {
+  const normalized = pattern.trim();
+  const mt = matchType || "contains";
+
+  switch (mt) {
+    case "exact":
+      return candidate === normalized;
+    case "regex": {
+      try {
+        return new RegExp(normalized).test(candidate);
+      } catch {
+        return false;
+      }
+    }
+    case "wildcard": {
+      if (!normalized || normalized === "*") return true;
+      const parts = normalized.split("*").filter(Boolean);
+      let cursor = 0;
+      for (const [index, part] of parts.entries()) {
+        const found = candidate.slice(cursor).indexOf(part);
+        if (found < 0) return false;
+        const absolute = cursor + found;
+        if (index === 0 && !normalized.startsWith("*") && absolute !== 0) return false;
+        cursor = absolute + part.length;
+      }
+      return normalized.endsWith("*") || candidate.endsWith(parts.at(-1) ?? "");
+    }
+    default: {
+      if (!normalized || normalized === "*") return true;
+      return candidate.includes(normalized);
+    }
+  }
 }

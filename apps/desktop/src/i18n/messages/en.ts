@@ -344,9 +344,13 @@ export const enMessages = {
       matchType: "Match Type",
       matchTypes: {
         contains: "Contains",
+        containsHint: "Matches if the URL contains the pattern text anywhere.",
         exact: "Exact",
+        exactHint: "Matches only if the entire URL equals the pattern.",
         regex: "Regex",
+        regexHint: "Pattern is a regular expression. Example: api\\.example\\.com/v[12]/.*",
         wildcard: "Wildcard",
+        wildcardHint: "Use * as a placeholder. api.example.com/v1/* matches all paths under /v1/.",
       },
     },
     rewrite: {

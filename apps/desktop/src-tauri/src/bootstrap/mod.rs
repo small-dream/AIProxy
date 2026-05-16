@@ -977,6 +977,7 @@ fn breakpoint_row_to_rule(row: BreakpointRuleRow) -> BreakpointRule {
             "Response" => BreakpointStage::Response,
             _ => BreakpointStage::Request,
         },
+        match_type: if row.match_type.is_empty() { None } else { Some(row.match_type) },
     }
 }
 

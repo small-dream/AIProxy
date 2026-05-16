@@ -54,6 +54,8 @@ pub struct BreakpointRule {
     pub url_pattern: String,
     pub methods: Vec<String>,
     pub stage: BreakpointStage,
+    #[serde(default)]
+    pub match_type: Option<String>,
 }
 
 /// Payload pushed to the frontend when a breakpoint is hit.
@@ -203,11 +205,7 @@ impl BreakpointManager {
             {
                 return false;
             }
-            // URL pattern: empty or "*" matches everything; otherwise substring match
-            if rule.url_pattern.is_empty() || rule.url_pattern == "*" {
-                return true;
-            }
-            url.contains(&rule.url_pattern)
+            crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
         })
     }
 

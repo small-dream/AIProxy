@@ -515,7 +515,7 @@ pub(crate) struct RequestScriptOutcome {
     pub(crate) traces: Vec<ScriptTrace>,
 }
 
-fn pattern_matches(pattern: &str, candidate: &str, match_type: Option<&str>) -> bool {
+pub(crate) fn pattern_matches(pattern: &str, candidate: &str, match_type: Option<&str>) -> bool {
     let normalized = pattern.trim();
 
     match match_type.unwrap_or("contains") {
