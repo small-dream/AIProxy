@@ -477,11 +477,6 @@ impl AppState {
 
         if !removed_session_ids.is_empty() {
             {
-                let conn = self.db.lock().expect("db mutex should not be poisoned");
-                let _ = aiproxy_db::sessions::delete_sessions_by_ids(&conn, &removed_session_ids);
-            }
-
-            {
                 let mut details = self
                     .session_details
                     .lock()
@@ -500,7 +495,6 @@ impl AppState {
                 });
 
             for removed_session_id in &removed_session_ids {
-                let _ = self.body_store.remove_bodies(removed_session_id);
                 if let Some(handle) = self.read_app_handle() {
                     let _ = handle.emit("session-remove", removed_session_id);
                 }
