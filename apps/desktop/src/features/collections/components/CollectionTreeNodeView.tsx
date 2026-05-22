@@ -1,10 +1,8 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import ArrowDropDownRoundedIcon from "@mui/icons-material/ArrowDropDownRounded";
+import ArrowRightRoundedIcon from "@mui/icons-material/ArrowRightRounded";
 import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
-import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
-import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import NoteAddRoundedIcon from "@mui/icons-material/NoteAddRounded";
 import { Box, CircularProgress, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
@@ -91,8 +89,6 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
 
   const isExpanded = isFolderExpanded(node.id);
   const selected = node.id === selectedCollectionId;
-  const hasChildren = node.children.length > 0;
-  const canExpand = hasChildren || selected;
   const dropActive = droppable.isOver && overId === dndId;
   const dropBefore = dropActive && overPosition === "before";
   const dropInto = dropActive && overPosition === "into";
@@ -170,38 +166,23 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
         >
           <Box
             onClick={(event) => {
-              if (!canExpand) return;
               event.stopPropagation();
               onToggleExpand(node.id, !isExpanded);
             }}
             sx={{
               alignItems: "center",
               color: "text.secondary",
-              cursor: canExpand ? "pointer" : "default",
+              cursor: "pointer",
               display: "flex",
               flex: "0 0 auto",
               justifyContent: "center",
               width: 16,
-              "&:hover": canExpand ? { color: "text.primary" } : undefined,
+              "&:hover": { color: "text.primary" },
             }}
           >
-            {canExpand
-              ? (isExpanded
-                ? <ExpandMoreRoundedIcon sx={{ fontSize: 16 }} />
-                : <ChevronRightRoundedIcon sx={{ fontSize: 16 }} />)
-              : null}
-          </Box>
-          <Box
-            sx={{
-              alignItems: "center",
-              color: selected ? "primary.main" : "text.secondary",
-              display: "flex",
-              flex: "0 0 auto",
-              justifyContent: "center",
-              width: 18,
-            }}
-          >
-            {isExpanded ? <FolderOpenRoundedIcon sx={{ fontSize: 17 }} /> : <FolderRoundedIcon sx={{ fontSize: 17 }} />}
+            {isExpanded
+              ? <ArrowDropDownRoundedIcon sx={{ fontSize: 18 }} />
+              : <ArrowRightRoundedIcon sx={{ fontSize: 18 }} />}
           </Box>
           <Typography
             sx={{

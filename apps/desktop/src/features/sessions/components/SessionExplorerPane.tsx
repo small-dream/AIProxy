@@ -2,7 +2,6 @@ import CableRoundedIcon from "@mui/icons-material/CableRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
@@ -476,7 +475,7 @@ function SessionTreeFlatNode({
           mr: 0.25,
         }}
       >
-        {renderBranchIcon(node.branchType, expanded)}
+        {renderBranchIcon(node.branchType)}
       </Box>
       <Typography
         noWrap
@@ -632,12 +631,12 @@ function getHostGroupIconColor(theme: Theme, group: SessionHostGroup): string {
   return theme.palette.text.secondary;
 }
 
-function renderBranchIcon(branchType: "host" | "path", expanded: boolean) {
+function renderBranchIcon(branchType: "host" | "path") {
   if (branchType === "host") {
     return <DomainHostIcon data-testid="aggregate-host-icon" sx={{ fontSize: 17 }} />;
   }
 
-  return expanded ? <FolderOpenRoundedIcon sx={{ fontSize: 16 }} /> : <FolderRoundedIcon sx={{ fontSize: 16 }} />;
+  return <FolderRoundedIcon data-testid="session-folder-icon" sx={{ fontSize: 17 }} />;
 }
 
 function getBranchIconColor(theme: Theme, branchType: "host" | "path"): string {
@@ -645,7 +644,7 @@ function getBranchIconColor(theme: Theme, branchType: "host" | "path"): string {
     return theme.palette.text.secondary;
   }
 
-  return theme.palette.info.main;
+  return theme.palette.mode === "dark" ? "#6FD6F4" : "#5CC8E6";
 }
 
 function buildLeafTooltip(
