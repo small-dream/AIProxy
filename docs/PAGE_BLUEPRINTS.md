@@ -212,10 +212,24 @@ User right clicks a session leaf node
 -> menu closes after action
 ```
 
+**Code Block 右键菜单事件流：**
+
+```text
+User selects text and right clicks in a code block view (JSON Text / Raw / Text Body)
+-> SearchableCodeBlock prevents browser native context menu
+-> stores anchorPosition + selected text
+-> Context menu opens with Copy / Search options
+   Copy  -> navigator.clipboard.writeText(selectedText)
+   Search -> onSearchWithText(selectedText)
+          -> parent pane opens search bar with selected text as query
+-> menu closes after action
+```
+
 ### 4.8 当前实现说明
 
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
-- 右键菜单只挂在会话叶子节点，不作用于 Host 分组节点。
+- 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
+- 右键菜单只挂在会话叶子节点 / 代码块视图，不作用于 Host 分组节点。
 - `Focus Host` 会把其他 Host 降低透明度；`Ignore Host` 会直接从当前列表中过滤对应 Host。
 - Host 聚焦 / 忽略仅保留在当前页面内存状态，刷新页面后不会持久化。
 - `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `/rules`，尚未做规则页 tab 深链。

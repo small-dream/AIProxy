@@ -393,10 +393,12 @@ Sessions Page
 - 定位方式：以鼠标指针位置为锚点弹出
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
+- 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
 
 - 当前动作组：
   - 复制：`Copy URL`、`Copy Request`、`Copy Response`
   - JSON 树：`Copy Key`、`Copy Value`
+  - 代码块：`Copy`、`Search`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
   - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`

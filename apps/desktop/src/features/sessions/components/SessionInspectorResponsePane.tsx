@@ -163,6 +163,11 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     searchController.onQueryChange("");
   }, [searchController]);
 
+  const handleSearchWithText = useCallback((text: string) => {
+    setIsSearchOpen(true);
+    searchController.onQueryChange(text);
+  }, [searchController]);
+
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
 
@@ -267,6 +272,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           detail={detail}
           isResponseBodyLoading={isResponseBodyLoading}
           isResponseRawLoading={isResponseRawLoading}
+          onSearchWithText={handleSearchWithText}
           responseJsonDisplayText={responseJsonDisplayText}
           responseJsonResult={responseJsonResult}
           responseTab={activeResponseTab}
@@ -317,6 +323,7 @@ function ResponseTabContent({
   detail,
   isResponseBodyLoading,
   isResponseRawLoading,
+  onSearchWithText,
   responseJsonDisplayText,
   responseJsonResult,
   responseTab,
@@ -328,6 +335,7 @@ function ResponseTabContent({
   detail: SessionDetail | undefined;
   isResponseBodyLoading: boolean;
   isResponseRawLoading: boolean;
+  onSearchWithText?: ((text: string) => void) | undefined;
   responseJsonDisplayText: string | undefined;
   responseJsonResult: JsonParseResult;
   responseTab: ResponseInspectorTab;
@@ -390,6 +398,7 @@ function ResponseTabContent({
         currentMatchIndex={currentMatchIndex}
         matcher={searchMatcher}
         onMatchCountChange={onMatchCountChange}
+        onSearchWithText={onSearchWithText}
         searchQuery=""
       />
     );
@@ -456,6 +465,7 @@ function ResponseTabContent({
             language="json"
             matcher={searchMatcher}
             onMatchCountChange={onMatchCountChange}
+            onSearchWithText={onSearchWithText}
             searchQuery=""
           />
         </Stack>
@@ -473,6 +483,7 @@ function ResponseTabContent({
         language="json"
         matcher={searchMatcher}
         onMatchCountChange={onMatchCountChange}
+        onSearchWithText={onSearchWithText}
         searchQuery=""
       />
     );
@@ -493,6 +504,7 @@ function ResponseTabContent({
           currentMatchIndex={currentMatchIndex}
           matcher={searchMatcher}
           onMatchCountChange={onMatchCountChange}
+          onSearchWithText={onSearchWithText}
           searchQuery=""
         />
       )}

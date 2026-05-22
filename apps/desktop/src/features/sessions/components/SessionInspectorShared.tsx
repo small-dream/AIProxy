@@ -1,11 +1,13 @@
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
-import { Box, Chip, IconButton, List, ListItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, IconButton, List, ListItem, Menu, MenuItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
-import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -523,6 +525,7 @@ export function SearchableCodeBlock({
   language = "plain",
   matcher,
   onMatchCountChange,
+  onSearchWithText,
   searchQuery,
 }: {
   code: string;
@@ -530,8 +533,10 @@ export function SearchableCodeBlock({
   language?: "json" | "plain";
   matcher?: SearchMatcher | null | undefined;
   onMatchCountChange?: ((count: number) => void) | undefined;
+  onSearchWithText?: ((text: string) => void) | undefined;
   searchQuery: string;
 }) {
+  const { t } = useI18n();
   const theme = useTheme();
   const paletteMode = theme.palette.mode;
   const jsonTokenColors = useMemo(
@@ -547,6 +552,37 @@ export function SearchableCodeBlock({
     () => shouldVirtualizeCodeBlock(code),
     [code],
   );
+
+  const [contextMenu, setContextMenu] = useState<{
+    anchorPosition: { left: number; top: number };
+    selectedText: string;
+  } | null>(null);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() ?? "";
+    if (!selectedText) return;
+    setContextMenu({
+      anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
+      selectedText,
+    });
+  }, []);
+
+  const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const handleCopySelection = useCallback(async () => {
+    if (!contextMenu?.selectedText) return;
+    await navigator.clipboard?.writeText(contextMenu.selectedText);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleSearchSelection = useCallback(() => {
+    if (!contextMenu?.selectedText) return;
+    onSearchWithText?.(contextMenu.selectedText);
+    setContextMenu(null);
+  }, [contextMenu, onSearchWithText]);
 
   const effectiveLanguage = language;
 
@@ -588,24 +624,22 @@ export function SearchableCodeBlock({
     }
   }, [allMatches, code, currentMatchIndex, matcher, shouldVirtualize]);
 
-  if (shouldVirtualize) {
-    return (
-      <VirtualizedSearchableCodeBlock
-        code={code}
-        currentMatchIndex={currentMatchIndex}
-        language={effectiveLanguage}
-        matcher={matcher}
-        onMatchCountChange={onMatchCountChange}
-        searchQuery={deferredSearchQuery}
-        tokenColors={jsonTokenColors}
-      />
-    );
-  }
-
-  return (
+  const codeBlockContent = shouldVirtualize ? (
+    <VirtualizedSearchableCodeBlock
+      code={code}
+      currentMatchIndex={currentMatchIndex}
+      language={effectiveLanguage}
+      matcher={matcher}
+      onContextMenu={handleContextMenu}
+      onMatchCountChange={onMatchCountChange}
+      searchQuery={deferredSearchQuery}
+      tokenColors={jsonTokenColors}
+    />
+  ) : (
     <Box
       component="pre"
       ref={containerRef}
+      onContextMenu={handleContextMenu}
       sx={{
         bgcolor: "transparent",
         color: "text.primary",
@@ -631,6 +665,70 @@ export function SearchableCodeBlock({
           ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
           : renderHighlightedText(code, deferredSearchQuery)}
     </Box>
+  );
+
+  return (
+    <>
+      {codeBlockContent}
+      <Menu
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu?.anchorPosition}
+        onClose={handleCloseContextMenu}
+        open={Boolean(contextMenu)}
+        slotProps={{
+          paper: {
+            sx: {
+              backgroundImage: "none",
+              backdropFilter: "blur(20px)",
+              backgroundColor: (theme: Theme) => theme.palette.mode === "dark"
+                ? "rgba(32,32,32,0.88)"
+                : "rgba(255,255,255,0.88)",
+              borderRadius: 1.5,
+              boxShadow: (theme: Theme) =>
+                theme.palette.mode === "dark"
+                  ? "0 8px 32px rgba(0,0,0,0.48), 0 1px 0 rgba(255,255,255,0.08) inset"
+                  : "0 8px 32px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.56) inset",
+              minWidth: 148,
+              px: 0.5,
+              py: 0.5,
+            },
+          },
+        }}
+      >
+        <MenuItem
+          onClick={handleCopySelection}
+          sx={{
+            borderRadius: 1,
+            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+            fontWeight: 400,
+            gap: 1.5,
+            minHeight: 30,
+            px: 1.25,
+            py: 0.75,
+          }}
+        >
+          <ContentCopyRoundedIcon sx={{ fontSize: 17 }} />
+          {t("contextMenu.copy")}
+        </MenuItem>
+        {onSearchWithText ? (
+          <MenuItem
+            onClick={handleSearchSelection}
+            sx={{
+              borderRadius: 1,
+              fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+              fontWeight: 400,
+              gap: 1.5,
+              minHeight: 30,
+              px: 1.25,
+              py: 0.75,
+            }}
+          >
+            <SearchRoundedIcon sx={{ fontSize: 17 }} />
+            {t("contextMenu.search")}
+          </MenuItem>
+        ) : null}
+      </Menu>
+    </>
   );
 }
 
@@ -690,6 +788,7 @@ function VirtualizedSearchableCodeBlock({
   currentMatchIndex,
   language,
   matcher,
+  onContextMenu,
   onMatchCountChange,
   searchQuery,
   tokenColors,
@@ -698,6 +797,7 @@ function VirtualizedSearchableCodeBlock({
   currentMatchIndex?: number | undefined;
   language: "json" | "plain";
   matcher?: SearchMatcher | null | undefined;
+  onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   onMatchCountChange?: ((count: number) => void) | undefined;
   searchQuery: string;
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
@@ -774,6 +874,7 @@ function VirtualizedSearchableCodeBlock({
   return (
     <Box
       ref={virtualContainerRef}
+      onContextMenu={onContextMenu}
       sx={{
         bgcolor: "transparent",
         color: "text.primary",

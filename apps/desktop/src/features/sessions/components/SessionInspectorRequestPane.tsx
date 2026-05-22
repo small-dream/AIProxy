@@ -85,6 +85,11 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
     searchController.onQueryChange("");
   }, [searchController]);
 
+  const handleSearchWithText = useCallback((text: string) => {
+    setIsSearchOpen(true);
+    searchController.onQueryChange(text);
+  }, [searchController]);
+
   return (
     <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
       <Box
@@ -129,6 +134,7 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
             isRequestBodyLoading={isRequestBodyLoading}
             isRequestFormLoading={isRequestFormLoading}
             isRequestRawLoading={isRequestRawLoading}
+            onSearchWithText={handleSearchWithText}
             requestBodyDisplayText={requestBodyDisplayText}
             requestFormEntries={requestFormEntries}
             requestTab={requestTab}
@@ -173,6 +179,7 @@ function RequestTabContent({
   isRequestBodyLoading,
   isRequestFormLoading,
   isRequestRawLoading,
+  onSearchWithText,
   requestBodyDisplayText,
   requestFormEntries,
   requestTab,
@@ -184,6 +191,7 @@ function RequestTabContent({
   isRequestBodyLoading: boolean;
   isRequestFormLoading: boolean;
   isRequestRawLoading: boolean;
+  onSearchWithText?: ((text: string) => void) | undefined;
   requestBodyDisplayText: string;
   requestFormEntries: RequestFormEntry[];
   requestTab: RequestInspectorTab;
@@ -269,6 +277,7 @@ function RequestTabContent({
         currentMatchIndex={currentMatchIndex}
         matcher={searchMatcher}
         onMatchCountChange={onMatchCountChange}
+        onSearchWithText={onSearchWithText}
         searchQuery=""
       />
     );
@@ -287,6 +296,7 @@ function RequestTabContent({
           language={requestBodyLanguage}
           matcher={searchMatcher}
           onMatchCountChange={onMatchCountChange}
+          onSearchWithText={onSearchWithText}
           searchQuery=""
         />
       )}

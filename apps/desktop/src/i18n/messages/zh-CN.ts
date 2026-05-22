@@ -1082,8 +1082,10 @@ export const zhCNMessages: Messages = {
   contextMenu: {
     clearOthers: "清除其他会话",
     compose: "构造请求",
+    copy: "复制",
     copyAsCurl: "复制 cURL",
     copiedToClipboard: "已复制到剪贴板",
+    search: "搜索",
     copyRequest: "复制请求",
     copyResponse: "复制响应",
     copyUrl: "复制 URL",

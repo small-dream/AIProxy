@@ -1080,8 +1080,10 @@ export const enMessages = {
   contextMenu: {
     clearOthers: "Clear Others",
     compose: "Compose",
+    copy: "Copy",
     copyAsCurl: "Copy cURL",
     copiedToClipboard: "Copied to clipboard",
+    search: "Search",
     copyRequest: "Copy Request",
     copyResponse: "Copy Response",
     copyUrl: "Copy URL",
