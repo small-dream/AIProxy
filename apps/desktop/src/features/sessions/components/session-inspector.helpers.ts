@@ -565,11 +565,11 @@ export function getJsonValueType(
   },
 ): string {
   if (Array.isArray(value)) {
-    return labels?.array ? labels.array(value.length) : `Array[${value.length}]`;
+    return labels?.array ? labels.array(value.length) : `Array [${value.length}]`;
   }
 
   if (isJsonObject(value)) {
-    return labels?.object ? labels.object(Object.keys(value).length) : `Object[${Object.keys(value).length}]`;
+    return labels?.object ? labels.object(Object.keys(value).length) : `Object [${Object.keys(value).length}]`;
   }
 
   if (value === null) {

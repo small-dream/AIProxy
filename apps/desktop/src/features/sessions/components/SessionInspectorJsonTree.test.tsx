@@ -67,6 +67,27 @@ describe("SessionInspectorJsonTree", () => {
     expect(screen.queryByText('"https://example.com/demo"')).not.toBeInTheDocument();
   });
 
+  it("renders compact native-style collection labels", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          searchQuery=""
+          value={{
+            items: [{ name: "first" }, { name: "second" }],
+          }}
+        />
+      </AppProviders>,
+    );
+
+    expect(screen.getByText("Array [2]")).toBeInTheDocument();
+    const expandItemsButton = screen.getByTestId("ChevronRightRoundedIcon").closest("button");
+    expect(expandItemsButton).not.toBeNull();
+    fireEvent.click(expandItemsButton as HTMLButtonElement);
+
+    expect(screen.getByText("[0]")).toBeInTheDocument();
+    expect(screen.getAllByText("Object [1]")).toHaveLength(2);
+  });
+
   it("copies string leaf values without wrapping quotes", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
 

@@ -2,15 +2,13 @@ import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
-import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
+import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
 import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "@/i18n";
-import { getSyntaxColors } from "@/themes/app-theme";
 import {
   buildContextMenuSlotProps,
   contextMenuItemTextProps,
@@ -27,15 +25,14 @@ import {
   type SearchMatcher,
 } from "./session-inspector.helpers";
 import {
-  INSPECTOR_AUX_FONT_SIZE,
-  INSPECTOR_UI_FONT_SIZE,
   InspectorFlatTable,
   getWorkbenchFontSize,
   renderHighlightedText,
   useVirtualWindow,
 } from "./SessionInspectorShared";
 
-const JSON_TREE_ROW_HEIGHT = 26;
+const JSON_TREE_ROW_HEIGHT = 20;
+const JSON_TREE_FONT_SIZE = 12.5;
 
 type JsonTreeRow = {
   depth: number;
@@ -196,7 +193,7 @@ export function SessionInspectorJsonTree({
   }, [containerRef, currentMatchIndex, matcher, matchingRowPaths, rows]);
 
   const visibleRows = rows.slice(startIndex, endIndex);
-  const columnTemplate = "minmax(252px, 1fr) minmax(80px, 0.2fr) minmax(340px, 1.9fr)";
+  const columnTemplate = "minmax(340px, 1fr) minmax(300px, 0.9fr) minmax(360px, 1.2fr)";
 
   return (
     <Box
@@ -206,7 +203,7 @@ export function SessionInspectorJsonTree({
         flex: 1,
         minHeight: 0,
         overflow: "auto",
-        px: 0.5,
+        px: 1.25,
         py: 0.5,
       }}
     >
@@ -321,7 +318,7 @@ function appendVisibleJsonRows(
 
 function getJsonChildren(value: JsonValue): Array<[string, JsonValue]> {
   if (Array.isArray(value)) {
-    return value.map((entry, index) => [String(index), entry] as [string, JsonValue]);
+    return value.map((entry, index) => [`[${index}]`, entry] as [string, JsonValue]);
   }
 
   if (isJsonObject(value)) {
@@ -390,8 +387,9 @@ function collectMatchingExpansionPaths(
     let hasMatchingDescendant = false;
 
     value.forEach((childValue, index) => {
-      const childPath = `${path}.${index}`;
-      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, String(index), expandedPaths)) {
+      const childName = `[${index}]`;
+      const childPath = `${path}.${childName}`;
+      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)) {
         hasMatchingDescendant = true;
       }
     });
@@ -440,8 +438,9 @@ function collectMatcherExpansionPaths(
     let hasMatchingDescendant = false;
 
     value.forEach((childValue, index) => {
-      const childPath = `${path}.${index}`;
-      if (collectMatcherExpansionPaths(childValue, matcher, childPath, String(index), expandedPaths)) {
+      const childName = `[${index}]`;
+      const childPath = `${path}.${childName}`;
+      if (collectMatcherExpansionPaths(childValue, matcher, childPath, childName, expandedPaths)) {
         hasMatchingDescendant = true;
       }
     });
@@ -475,7 +474,7 @@ function collectMatcherExpansionPaths(
 
 function getJsonTypeTone(theme: Theme) {
   return {
-    color: theme.palette.text.secondary,
+    color: theme.palette.mode === "dark" ? theme.palette.text.secondary : "#111111",
   };
 }
 
@@ -501,21 +500,17 @@ function JsonTreeRowView({
   const { t } = useI18n();
   const { depth, hasChildren, isExpanded, name, path, value } = row;
   const theme = useTheme();
-  const syntaxColors = getSyntaxColors(theme.palette.mode);
   const rowValue = hasChildren ? "" : formatJsonPrimitive(value);
   const rowType = getJsonDisplayType(value, t);
   const displayName = name ?? t("inspector.json.root");
   const isSelected = selectedPath === path;
-  const selectedRowBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.055);
-  const selectedRowHoverBackground = alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.075);
-  const dividerColor = alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.34 : 0.42);
-  const valueColor = typeof value === "string"
-    ? syntaxColors.string
-    : typeof value === "number"
-      ? syntaxColors.number
-      : typeof value === "boolean" || value === null
-        ? value === null ? syntaxColors.null : syntaxColors.boolean
-        : "text.primary";
+  const selectedRowBackground = theme.palette.mode === "dark" ? "#0A64C9" : "#0069D9";
+  const selectedRowHoverBackground = theme.palette.mode === "dark" ? "#0B72E3" : "#0069D9";
+  const hoverBackground = theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.06) : alpha("#000000", 0.035);
+  const dividerColor = theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.14) : "#E6E9EE";
+  const bodyTextColor = theme.palette.mode === "dark" ? theme.palette.text.primary : "#111111";
+  const selectedTextColor = "#FFFFFF";
+  const valueColor = isSelected ? selectedTextColor : bodyTextColor;
   const typeTone = getJsonTypeTone(theme);
   const valueRef = useRef<HTMLSpanElement | null>(null);
   const [isValueOverflowing, setIsValueOverflowing] = useState(false);
@@ -551,15 +546,14 @@ function JsonTreeRowView({
     <Box
       sx={{
         backgroundColor: isSelected ? selectedRowBackground : "transparent",
+        borderRadius: isSelected ? 0.75 : 0,
         cursor: "pointer",
         display: "grid",
         gridTemplateColumns: columnTemplate,
         minHeight: JSON_TREE_ROW_HEIGHT,
-        transition: "background-color 120ms ease",
+        transition: "background-color 80ms ease",
         "&:hover": {
-          backgroundColor: isSelected
-            ? selectedRowHoverBackground
-            : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.045 : 0.028),
+          backgroundColor: isSelected ? selectedRowHoverBackground : hoverBackground,
         },
       }}
       onClick={() => onSelectPath(path)}
@@ -570,9 +564,8 @@ function JsonTreeRowView({
           alignItems: "center",
           display: "flex",
           minWidth: 0,
-          pl: depth * 1.25 + 0.5,
+          pl: depth * 1.9 + 1.2,
           pr: 0.75,
-          py: 0.125,
         }}
       >
         {hasChildren ? (
@@ -583,51 +576,43 @@ function JsonTreeRowView({
             }}
             size="small"
             sx={{
-              color: isSelected ? "primary.main" : "text.secondary",
-              mr: 0.25,
+              color: isSelected ? selectedTextColor : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.78 : 0.45),
+              mr: 0.15,
               p: 0,
+              width: 14,
               "& .MuiSvgIcon-root": {
-                fontSize: 15,
+                fontSize: 16,
               },
             }}
           >
             {isExpanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
           </IconButton>
         ) : (
-          <Box sx={{ flex: "0 0 16px", mr: 0.125 }} />
+          <Box sx={{ flex: "0 0 14px", mr: 0.15 }} />
         )}
 
         <Box
           sx={{
             alignItems: "center",
             color: isSelected
-              ? "primary.main"
+              ? selectedTextColor
               : hasChildren
-                ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.82 : 0.78)
-                : alpha(theme.palette.text.secondary, theme.palette.mode === "dark" ? 0.8 : 0.72),
+                ? theme.palette.mode === "dark" ? "#6FD6F4" : "#5CC8E6"
+                : theme.palette.mode === "dark" ? "#AAB4C3" : "#C8D0DA",
             display: "flex",
             flex: "0 0 auto",
-            mr: 0.625,
-            opacity: isSelected ? 1 : 0.96,
+            mr: 0.55,
           }}
         >
-          {hasChildren ? (
-            isExpanded ? (
-              <FolderOpenOutlinedIcon sx={{ fontSize: 18, strokeWidth: 1.4 }} />
-            ) : (
-              <FolderOutlinedIcon sx={{ fontSize: 18, strokeWidth: 1.4 }} />
-            )
-          ) : (
-            <DescriptionOutlinedIcon sx={{ fontSize: 16.5, strokeWidth: 1.4 }} />
-          )}
+          {hasChildren ? <FolderRoundedIcon sx={{ fontSize: 17 }} /> : <DescriptionOutlinedIcon sx={{ fontSize: 15.5 }} />}
         </Box>
 
         <Typography
           sx={{
-            color: "text.primary",
-            fontSize: getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+            color: isSelected ? selectedTextColor : bodyTextColor,
+            fontSize: getWorkbenchFontSize(theme, JSON_TREE_FONT_SIZE),
             fontWeight: hasChildren ? 500 : 400,
-            lineHeight: 1.36,
+            lineHeight: `${JSON_TREE_ROW_HEIGHT}px`,
             minWidth: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -645,15 +630,14 @@ function JsonTreeRowView({
           display: "flex",
           minWidth: 0,
           px: 0.625,
-          py: 0.125,
         }}
       >
         <Typography
           sx={{
-            color: typeTone.color,
-            fontSize: getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
+            color: isSelected ? selectedTextColor : typeTone.color,
+            fontSize: getWorkbenchFontSize(theme, JSON_TREE_FONT_SIZE),
             fontWeight: 400,
-            lineHeight: 1.32,
+            lineHeight: `${JSON_TREE_ROW_HEIGHT}px`,
             maxWidth: "100%",
             minWidth: 0,
             overflow: "hidden",
@@ -674,7 +658,6 @@ function JsonTreeRowView({
           display: "flex",
           minWidth: 0,
           px: 0.75,
-          py: 0.125,
         }}
       >
         {rowValue ? (
@@ -682,9 +665,10 @@ function JsonTreeRowView({
             <Typography
               ref={valueRef}
               sx={{
-                fontSize: getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+                color: valueColor,
+                fontSize: getWorkbenchFontSize(theme, JSON_TREE_FONT_SIZE),
                 fontWeight: 400,
-                lineHeight: 1.36,
+                lineHeight: `${JSON_TREE_ROW_HEIGHT}px`,
                 minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
