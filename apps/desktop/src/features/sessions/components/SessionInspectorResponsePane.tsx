@@ -251,7 +251,18 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
       <Divider />
 
-      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", pl: 2, pr: 0.5, py: 2 }}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+          overflow: "hidden",
+          pl: activeResponseTab === "json" ? 0 : 2,
+          pr: 0.5,
+          py: activeResponseTab === "json" ? 0 : 2,
+        }}
+      >
         <ResponseTabContent
           detail={detail}
           isResponseBodyLoading={isResponseBodyLoading}

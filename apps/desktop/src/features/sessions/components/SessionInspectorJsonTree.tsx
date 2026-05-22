@@ -6,7 +6,7 @@ import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
-import { useCallback, type MouseEvent as ReactMouseEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import {
@@ -33,6 +33,11 @@ import {
 
 const JSON_TREE_ROW_HEIGHT = 20;
 const JSON_TREE_FONT_SIZE = 12.5;
+const JSON_TREE_NAME_COLUMN_RATIO_DEFAULT = 1 / 3;
+const JSON_TREE_TYPE_COLUMN_RATIO_DEFAULT = 1 / 3;
+const JSON_TREE_NAME_COLUMN_RATIO_MIN = 0.16;
+const JSON_TREE_TYPE_COLUMN_RATIO_MIN = 0.12;
+const JSON_TREE_VALUE_COLUMN_RATIO_MIN = 0.14;
 
 type JsonTreeRow = {
   depth: number;
@@ -71,6 +76,11 @@ export function SessionInspectorJsonTree({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenuState, setContextMenuState] = useState<JsonTreeContextMenuState | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [nameColumnRatio, setNameColumnRatio] = useState(JSON_TREE_NAME_COLUMN_RATIO_DEFAULT);
+  const [typeColumnRatio, setTypeColumnRatio] = useState(JSON_TREE_TYPE_COLUMN_RATIO_DEFAULT);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const menuItemSx = getContextMenuItemSx(theme);
   const iconSx = getContextMenuIconSx(theme);
@@ -81,6 +91,14 @@ export function SessionInspectorJsonTree({
     setContextMenuState(null);
     setSnackbarOpen(false);
   }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+    };
+  }, []);
 
   const handleContextMenuOpen = useCallback((row: JsonTreeRow, event: ReactMouseEvent) => {
     event.preventDefault();
@@ -166,6 +184,26 @@ export function SessionInspectorJsonTree({
   const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const updateViewportHeight = () => {
+      setViewportHeight(container.clientHeight);
+    };
+
+    updateViewportHeight();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(updateViewportHeight);
+      resizeObserver.observe(container);
+      return () => resizeObserver.disconnect();
+    }
+
+    window.addEventListener("resize", updateViewportHeight);
+    return () => window.removeEventListener("resize", updateViewportHeight);
+  }, [containerRef]);
+
+  useEffect(() => {
     if (!matcher || matchingRowPaths.length === 0 || currentMatchIndex === undefined) return;
     const targetPath = matchingRowPaths[currentMatchIndex];
     const targetRowIndex = targetPath ? rows.findIndex((row) => row.path === targetPath) : -1;
@@ -193,7 +231,66 @@ export function SessionInspectorJsonTree({
   }, [containerRef, currentMatchIndex, matcher, matchingRowPaths, rows]);
 
   const visibleRows = rows.slice(startIndex, endIndex);
-  const columnTemplate = "minmax(340px, 1fr) minmax(300px, 0.9fr) minmax(360px, 1.2fr)";
+  const valueColumnRatio = Math.max(JSON_TREE_VALUE_COLUMN_RATIO_MIN, 1 - nameColumnRatio - typeColumnRatio);
+  const columnTemplate = `minmax(0, ${nameColumnRatio}fr) minmax(0, ${typeColumnRatio}fr) minmax(0, ${valueColumnRatio}fr)`;
+  const typeDividerRatio = nameColumnRatio + typeColumnRatio;
+  const virtualHeight = Math.max(totalHeight, viewportHeight);
+
+  const startColumnResize = useCallback(
+    (divider: "name" | "type", event: ReactPointerEvent<HTMLDivElement>) => {
+      const container = containerRef.current;
+      const table = tableRef.current;
+      if (!container || !table) return;
+
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      event.currentTarget.setPointerCapture(pointerId);
+
+      const updateColumnWidth = (clientX: number) => {
+        const tableBounds = table.getBoundingClientRect();
+        const totalWidth = Math.max(1, Math.min(table.clientWidth, container.clientWidth));
+        const localRatio = (clientX - tableBounds.left) / totalWidth;
+
+        if (dragFrameRef.current) {
+          window.cancelAnimationFrame(dragFrameRef.current);
+        }
+
+        dragFrameRef.current = window.requestAnimationFrame(() => {
+          if (divider === "name") {
+            setNameColumnRatio(clampNumber(localRatio, JSON_TREE_NAME_COLUMN_RATIO_MIN, typeDividerRatio - JSON_TREE_TYPE_COLUMN_RATIO_MIN));
+            return;
+          }
+
+          const nextTypeDividerRatio = clampNumber(localRatio, nameColumnRatio + JSON_TREE_TYPE_COLUMN_RATIO_MIN, 1 - JSON_TREE_VALUE_COLUMN_RATIO_MIN);
+          setTypeColumnRatio(nextTypeDividerRatio - nameColumnRatio);
+        });
+      };
+
+      updateColumnWidth(event.clientX);
+
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateColumnWidth(moveEvent.clientX);
+      };
+
+      const stopResize = () => {
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [containerRef, nameColumnRatio, typeDividerRatio],
+  );
 
   return (
     <Box
@@ -203,11 +300,20 @@ export function SessionInspectorJsonTree({
         flex: 1,
         minHeight: 0,
         overflow: "auto",
+        position: "relative",
         px: 1.25,
         py: 0.5,
       }}
     >
-      <Box sx={{ height: totalHeight, minWidth: "100%", position: "relative", width: "max-content" }}>
+      <Box
+        ref={tableRef}
+        sx={{
+          height: virtualHeight,
+          minWidth: 0,
+          position: "relative",
+          width: "100%",
+        }}
+      >
         <Box sx={{ left: 0, position: "absolute", right: 0, top: offsetTop }}>
           <InspectorFlatTable columnTemplate={columnTemplate}>
             {visibleRows.map((row) => (
@@ -225,6 +331,23 @@ export function SessionInspectorJsonTree({
             ))}
           </InspectorFlatTable>
         </Box>
+
+      </Box>
+
+      <Box
+        aria-hidden
+        sx={{
+          bottom: 0,
+          left: (theme) => theme.spacing(1.25),
+          pointerEvents: "none",
+          position: "absolute",
+          right: (theme) => theme.spacing(1.25),
+          top: 0,
+          zIndex: 2,
+        }}
+      >
+        <JsonTreeColumnDivider left={`${nameColumnRatio * 100}%`} onPointerDown={(event) => startColumnResize("name", event)} />
+        <JsonTreeColumnDivider left={`${typeDividerRatio * 100}%`} onPointerDown={(event) => startColumnResize("type", event)} />
       </Box>
 
       <Menu
@@ -254,6 +377,52 @@ export function SessionInspectorJsonTree({
         open={snackbarOpen}
       />
     </Box>
+  );
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function JsonTreeColumnDivider({
+  left,
+  onPointerDown,
+}: {
+  left: string;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}) {
+  return (
+    <Box
+      aria-hidden
+      onPointerDown={onPointerDown}
+      sx={{
+        bottom: 0,
+        cursor: "col-resize",
+        left,
+        pointerEvents: "auto",
+        position: "absolute",
+        top: 0,
+        transform: "translateX(-50%)",
+        touchAction: "none",
+        userSelect: "none",
+        width: "9px",
+        zIndex: 2,
+        "&::before": {
+          bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+          bottom: 0,
+          content: '""',
+          left: "50%",
+          position: "absolute",
+          top: 0,
+          transform: "translateX(-50%)",
+          transition: "background-color 120ms ease, opacity 120ms ease",
+          width: "1px",
+        },
+        "&:hover::before": {
+          bgcolor: "primary.main",
+        },
+      }}
+    />
   );
 }
 
@@ -507,7 +676,6 @@ function JsonTreeRowView({
   const selectedRowBackground = theme.palette.mode === "dark" ? "#0A64C9" : "#0069D9";
   const selectedRowHoverBackground = theme.palette.mode === "dark" ? "#0B72E3" : "#0069D9";
   const hoverBackground = theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.06) : alpha("#000000", 0.035);
-  const dividerColor = theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.14) : "#E6E9EE";
   const bodyTextColor = theme.palette.mode === "dark" ? theme.palette.text.primary : "#111111";
   const selectedTextColor = "#FFFFFF";
   const valueColor = isSelected ? selectedTextColor : bodyTextColor;
@@ -626,7 +794,6 @@ function JsonTreeRowView({
       <Box
         sx={{
           alignItems: "center",
-          borderLeft: `1px solid ${dividerColor}`,
           display: "flex",
           minWidth: 0,
           px: 0.625,
@@ -653,7 +820,6 @@ function JsonTreeRowView({
       <Box
         sx={{
           alignItems: "center",
-          borderLeft: `1px solid ${dividerColor}`,
           color: valueColor,
           display: "flex",
           minWidth: 0,
