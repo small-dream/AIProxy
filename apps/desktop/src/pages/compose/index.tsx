@@ -292,7 +292,7 @@ export function ComposePage() {
           display: "grid",
           flex: "1 1 0",
           gap: 0,
-          gridTemplateRows: `${splitRatio}fr 8px ${1 - splitRatio}fr`,
+          gridTemplateRows: `${splitRatio}fr 1px ${1 - splitRatio}fr`,
           minHeight: 0,
         }}
       >
@@ -329,18 +329,21 @@ export function ComposePage() {
             touchAction: "none",
             userSelect: "none",
             "&::before": {
-              bgcolor: (theme) => alpha(theme.palette.text.secondary, theme.palette.mode === "dark" ? 0.3 : 0.22),
-              borderRadius: 999,
+              bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
               content: '""',
-              height: 3,
-              width: 44,
-              opacity: 0.7,
-              transition: "background-color 120ms ease, opacity 120ms ease, width 120ms ease",
+              height: 1,
+              opacity: 1,
+              transition: "background-color 120ms ease, opacity 120ms ease",
+              width: "100%",
+            },
+            "&::after": {
+              content: '""',
+              inset: "-3px 0",
+              position: "absolute",
             },
             "&:hover::before": {
               bgcolor: "primary.main",
               opacity: 1,
-              width: 72,
             },
           }}
         />

@@ -314,7 +314,7 @@ function SessionInspectorWorkspace({
           flex: 1,
           gridTemplateRows: requestCollapsed
             ? "auto 1px minmax(0, 1fr)"
-            : `${inspectorSplitRatio}fr 8px ${1 - inspectorSplitRatio}fr`,
+            : `${inspectorSplitRatio}fr 1px ${1 - inspectorSplitRatio}fr`,
           minHeight: 0,
           overflow: "hidden",
         }}
@@ -361,12 +361,16 @@ function SessionInspectorWorkspace({
               userSelect: "none",
               "&::before": {
                 bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
-                borderRadius: 999,
                 content: '""',
                 height: 1,
-                opacity: 0.7,
+                opacity: 1,
                 transition: "background-color 120ms ease, opacity 120ms ease",
                 width: "100%",
+              },
+              "&::after": {
+                content: '""',
+                inset: "-3px 0",
+                position: "absolute",
               },
               "&:hover::before": {
                 bgcolor: "primary.main",

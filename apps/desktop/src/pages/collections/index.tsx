@@ -761,7 +761,7 @@ export function CollectionsPage() {
         bgcolor: "background.paper",
         display: "grid",
         gap: 0,
-        gridTemplateColumns: `${explorerWidth}px 6px minmax(0, 1fr)`,
+        gridTemplateColumns: `${explorerWidth}px 1px minmax(0, 1fr)`,
         height: "100%",
         minHeight: 0,
         overflow: "hidden",
@@ -922,12 +922,16 @@ export function CollectionsPage() {
           userSelect: "none",
           "&::before": {
             bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
-            borderRadius: 999,
             content: '""',
             height: "100%",
             opacity: 1,
             transition: "background-color 120ms ease, opacity 120ms ease",
             width: 1,
+          },
+          "&::after": {
+            content: '""',
+            inset: "0 -3px",
+            position: "absolute",
           },
           "&:hover::before": {
             bgcolor: "primary.main",
@@ -1069,7 +1073,7 @@ export function CollectionsPage() {
                 flex: "1 1 0",
                 gridTemplateRows: requestCollapsed
                   ? "auto 1px minmax(0, 1fr)"
-                  : `${inspectorSplitRatio}fr 8px ${1 - inspectorSplitRatio}fr`,
+                  : `${inspectorSplitRatio}fr 1px ${1 - inspectorSplitRatio}fr`,
                 minHeight: 0,
                 overflow: "hidden",
               }}
@@ -1113,12 +1117,16 @@ export function CollectionsPage() {
                     userSelect: "none",
                     "&::before": {
                       bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
-                      borderRadius: 999,
                       content: '""',
                       height: 1,
-                      opacity: 0.7,
+                      opacity: 1,
                       transition: "background-color 120ms ease, opacity 120ms ease",
                       width: "100%",
+                    },
+                    "&::after": {
+                      content: '""',
+                      inset: "-3px 0",
+                      position: "absolute",
                     },
                     "&:hover::before": {
                       bgcolor: "primary.main",

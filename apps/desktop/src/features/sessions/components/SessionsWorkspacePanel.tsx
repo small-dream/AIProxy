@@ -133,7 +133,7 @@ export function SessionsWorkspacePanel({
             flex: 1,
             gap: 0,
             gridTemplateColumns: {
-              lg: `${explorerWidth}px 6px minmax(0, 1fr)`,
+              lg: `${explorerWidth}px 1px minmax(0, 1fr)`,
               xs: "1fr",
             },
             minHeight: 0,
@@ -167,12 +167,16 @@ export function SessionsWorkspacePanel({
               userSelect: "none",
               "&::before": {
                 bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
-                borderRadius: 999,
                 content: '""',
                 height: "100%",
                 opacity: 1,
                 transition: "background-color 120ms ease, opacity 120ms ease",
                 width: 1,
+              },
+              "&::after": {
+                content: '""',
+                inset: "0 -3px",
+                position: "absolute",
               },
               "&:hover::before": {
                 bgcolor: "primary.main",

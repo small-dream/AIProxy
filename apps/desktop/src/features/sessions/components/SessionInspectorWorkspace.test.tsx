@@ -479,7 +479,7 @@ describe("SessionInspectorWorkspace", () => {
     const grid = screen.getByTestId("session-inspector-grid");
     const splitter = screen.getByTestId("session-inspector-splitter");
 
-    expect(grid).toHaveStyle({ gridTemplateRows: "0.4fr 8px 0.6fr" });
+    expect(grid).toHaveStyle({ gridTemplateRows: "0.4fr 1px 0.6fr" });
 
     fireEvent.pointerDown(splitter, { clientY: 200, pointerId: 1 });
 
