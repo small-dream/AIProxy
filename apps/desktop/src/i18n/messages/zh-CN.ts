@@ -891,7 +891,8 @@ export const zhCNMessages: Messages = {
     json: {
       array: "数组 [{{count}}]",
       boolean: "布尔值",
-      copyNode: "复制节点",
+      copyKey: "复制键",
+      copyValue: "复制值",
       integer: "整数",
       null: "空值",
       number: "数字",

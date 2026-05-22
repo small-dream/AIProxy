@@ -3,6 +3,7 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
@@ -113,7 +114,17 @@ export function SessionInspectorJsonTree({
     setContextMenuState(null);
   }, []);
 
-  const handleCopyNode = useCallback(async () => {
+  const handleCopyKey = useCallback(async () => {
+    if (!contextMenuState || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(contextMenuState.row.name ?? t("inspector.json.root"));
+    setSnackbarOpen(true);
+    setContextMenuState(null);
+  }, [contextMenuState, t]);
+
+  const handleCopyValue = useCallback(async () => {
     if (!contextMenuState || !navigator.clipboard?.writeText) {
       return;
     }
@@ -355,18 +366,29 @@ export function SessionInspectorJsonTree({
         anchorReference="anchorPosition"
         onClose={handleContextMenuClose}
         open={contextMenuState !== null}
-        slotProps={buildContextMenuSlotProps(164)}
+        slotProps={buildContextMenuSlotProps(168)}
       >
         <MenuItem
           onClick={() => {
-            void handleCopyNode();
+            void handleCopyKey();
+          }}
+          sx={menuItemSx}
+        >
+          <ListItemIcon sx={iconSx}>
+            <KeyRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText {...contextMenuItemTextProps}>{t("inspector.json.copyKey")}</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            void handleCopyValue();
           }}
           sx={menuItemSx}
         >
           <ListItemIcon sx={iconSx}>
             <ContentCopyRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps}>{t("inspector.json.copyNode")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>{t("inspector.json.copyValue")}</ListItemText>
         </MenuItem>
       </Menu>
 

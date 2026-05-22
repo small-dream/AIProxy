@@ -15,7 +15,7 @@ function createLargeJsonTree(): JsonValue {
 }
 
 describe("SessionInspectorJsonTree", () => {
-  it("copies the selected parent node data from the context menu", async () => {
+  it("copies the selected row key from the context menu", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
 
     Object.defineProperty(navigator, "clipboard", {
@@ -44,7 +44,43 @@ describe("SessionInspectorJsonTree", () => {
       clientY: 120,
     });
 
-    fireEvent.click(await screen.findByText("Copy Node"));
+    fireEvent.click(await screen.findByText("Copy Key"));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("user");
+    });
+  });
+
+  it("copies the selected parent node value from the context menu", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText,
+      },
+    });
+
+    render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          searchQuery=""
+          value={{
+            user: {
+              age: 30,
+              name: "Alice",
+            },
+          }}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("user"), {
+      clientX: 80,
+      clientY: 120,
+    });
+
+    fireEvent.click(await screen.findByText("Copy Value"));
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith('{\n    "age": 30,\n    "name": "Alice"\n}');
@@ -114,7 +150,7 @@ describe("SessionInspectorJsonTree", () => {
       clientY: 120,
     });
 
-    fireEvent.click(await screen.findByText("Copy Node"));
+    fireEvent.click(await screen.findByText("Copy Value"));
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("hello world");

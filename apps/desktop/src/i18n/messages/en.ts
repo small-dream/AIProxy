@@ -889,7 +889,8 @@ export const enMessages = {
     json: {
       array: "Array [{{count}}]",
       boolean: "Boolean",
-      copyNode: "Copy Node",
+      copyKey: "Copy Key",
+      copyValue: "Copy Value",
       integer: "Integer",
       null: "Null",
       number: "Number",
