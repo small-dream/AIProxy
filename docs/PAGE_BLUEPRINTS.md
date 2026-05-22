@@ -129,7 +129,7 @@ SessionsPage
 | 文件 | 职责 |
 |------|------|
 | `pages/sessions/index.tsx` | SessionsPage 主页面，组合搜索、导出、上下文菜单、详情与跳转动作 |
-| `features/sessions/components/SessionExplorerPane.tsx` | Host 树、请求节点、右键入口 |
+| `features/sessions/components/SessionExplorerPane.tsx` | Host 树（路径分支节点统一使用 Folder Icon，不再区分展开/折叠态）、请求节点、右键入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作与页面跳转 |
 | `features/sessions/components/SessionExportDialog.tsx` | Selected / Filtered / All 导出范围与格式选择 |
@@ -164,6 +164,10 @@ type SessionsPageState = {
   ui: {
     requestTab: "overview" | "query" | "headers" | "body" | "form" | "raw";
     responseTab: "overview" | "headers" | "text" | "json" | "jsonText" | "raw";
+    jsonTreeColumnRatios?: {
+      nameRatio: number;
+      typeRatio: number;
+    };
     requestCollapsed: boolean;
     explorerWidth: number;
     exportDialogOpen: boolean;
@@ -210,6 +214,7 @@ User right clicks a session leaf node
 
 ### 4.8 当前实现说明
 
+- JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 右键菜单只挂在会话叶子节点，不作用于 Host 分组节点。
 - `Focus Host` 会把其他 Host 降低透明度；`Ignore Host` 会直接从当前列表中过滤对应 Host。
 - Host 聚焦 / 忽略仅保留在当前页面内存状态，刷新页面后不会持久化。

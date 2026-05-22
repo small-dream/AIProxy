@@ -369,10 +369,13 @@ Sessions Page
 
 #### `Split Resize Handle`
 
-- 位于会话树与详情区之间
+- 位于会话树与详情区之间 / Inspector 上下分栏之间
+- 使用 1px 细线渲染，通过 `::after` 伪元素（`inset: -3px 0` 或 `inset: 0 -3px`）提供不可见但易于抓取的拖拽热区
+- 拖拽热区宽度约 9px（水平）或高度约 7px（垂直），保证精确操作
+- 悬停时分割线颜色变为 `primary.main`，提供即时视觉反馈
 - 仅在桌面宽度下展示
-- 支持拖拽调整 Explorer 宽度
-- 宽度变更应被记忆，避免用户每次打开都重新布局
+- 支持拖拽调整 Explorer 宽度 / Inspector 分栏比例
+- 宽度 / 比例变更应被记忆（`localStorage`），避免用户每次打开都重新布局
 
 #### `Session Inspector Workspace`
 
@@ -382,14 +385,18 @@ Sessions Page
 - 中部拆成上下两个面板：`Request Pane` 与 `Response Pane`
 - `Request Pane` 支持收起，并单独维护 tabs 与搜索
 - `Response Pane` 独立维护 tabs 与搜索
+- JSON 树视图（JSON Tab）支持通过拖拽列分隔线调整 Name / Type / Value 三列宽度，列宽在当前会话内维持，切换 tab 或选中项时重置为默认 1/3 均分
 
 #### `Session Context Menu`
 
 - 触发方式：右键会话叶子节点
 - 定位方式：以鼠标指针位置为锚点弹出
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
+- JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
+
 - 当前动作组：
   - 复制：`Copy URL`、`Copy Request`、`Copy Response`
+  - JSON 树：`Copy Key`、`Copy Value`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
   - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
@@ -503,6 +510,10 @@ Collections Page 是 API 集合管理页面，支持保存、分组、编辑和�
 
 - URL、Headers、Body 中的 `{{variable}}` 保持原样显示
 - 未匹配的变量不做高亮报错，保持静默（与 Postman 行为一致）
+
+### Collection 树图标
+
+树节点使用 `ArrowDropDownRoundedIcon`（展开态）/ `ArrowRightRoundedIcon`（折叠态）作为展开指示器，已移除独立的文件夹图标列，合并为单图标指示展开状态。
 
 ### Collection 树拖拽交互
 

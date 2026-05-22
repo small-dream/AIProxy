@@ -17,11 +17,13 @@ import {
   getContextMenuItemSx,
 } from "./context-menu.styles";
 import {
+  clampNumber,
   findNormalizedMatchIndex,
-  formatJsonText,
   formatJsonPrimitive,
+  getJsonChildren,
   isJsonObject,
   normalizeSearch,
+  serializeJsonNode,
   type JsonValue,
   type SearchMatcher,
 } from "./session-inspector.helpers";
@@ -402,10 +404,6 @@ export function SessionInspectorJsonTree({
   );
 }
 
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), Math.max(min, max));
-}
-
 function JsonTreeColumnDivider({
   left,
   onPointerDown,
@@ -507,18 +505,6 @@ function appendVisibleJsonRows(
   });
 }
 
-function getJsonChildren(value: JsonValue): Array<[string, JsonValue]> {
-  if (Array.isArray(value)) {
-    return value.map((entry, index) => [`[${index}]`, entry] as [string, JsonValue]);
-  }
-
-  if (isJsonObject(value)) {
-    return Object.entries(value);
-  }
-
-  return [];
-}
-
 function getJsonDisplayType(value: JsonValue, t: ReturnType<typeof useI18n>["t"]): string {
   if (Array.isArray(value)) {
     return t("inspector.json.array", { count: value.length });
@@ -545,18 +531,6 @@ function getJsonDisplayType(value: JsonValue, t: ReturnType<typeof useI18n>["t"]
   }
 
   return t("inspector.json.unknown");
-}
-
-function serializeJsonNode(value: JsonValue) {
-  if (Array.isArray(value) || isJsonObject(value)) {
-    return formatJsonText(value);
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return JSON.stringify(value);
 }
 
 function collectMatchingExpansionPaths(

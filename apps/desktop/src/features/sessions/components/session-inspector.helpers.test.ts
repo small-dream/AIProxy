@@ -3,12 +3,15 @@ import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shar
 
 import {
   clampInspectorSplitRatio,
+  clampNumber,
   findNormalizedMatchIndex,
   formatJsonText,
   getBodyCodeLanguage,
+  getJsonChildren,
   getRequestOperationLabel,
   parseFormEntries,
   parseJsonBody,
+  serializeJsonNode,
 } from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
@@ -230,5 +233,94 @@ describe("getRequestOperationLabel", () => {
     });
 
     expect(getRequestOperationLabel(undefined, session)).toBeUndefined();
+  });
+});
+
+describe("clampNumber", () => {
+  it("clamps values below the minimum", () => {
+    expect(clampNumber(0.05, 0.16, 0.5)).toBe(0.16);
+  });
+
+  it("clamps values above the maximum", () => {
+    expect(clampNumber(0.95, 0.1, 0.8)).toBe(0.8);
+  });
+
+  it("keeps values within the range unchanged", () => {
+    expect(clampNumber(0.33, 0.16, 0.5)).toBe(0.33);
+  });
+
+  it("returns the minimum when min equals max", () => {
+    expect(clampNumber(0.7, 0.3, 0.3)).toBe(0.3);
+  });
+
+  it("handles negative ranges", () => {
+    expect(clampNumber(-5, -10, 10)).toBe(-5);
+  });
+});
+
+describe("serializeJsonNode", () => {
+  it("pretty-prints an object", () => {
+    expect(serializeJsonNode({ name: "Alice", age: 30 })).toBe(
+      '{\n    "name": "Alice",\n    "age": 30\n}',
+    );
+  });
+
+  it("pretty-prints an array", () => {
+    expect(serializeJsonNode([1, 2, 3])).toBe("[\n    1,\n    2,\n    3\n]");
+  });
+
+  it("returns a string value without wrapping quotes", () => {
+    expect(serializeJsonNode("hello world")).toBe("hello world");
+  });
+
+  it("returns the JSON representation of null", () => {
+    expect(serializeJsonNode(null)).toBe("null");
+  });
+
+  it("returns the JSON representation of a number", () => {
+    expect(serializeJsonNode(42)).toBe("42");
+  });
+
+  it("returns the JSON representation of a boolean", () => {
+    expect(serializeJsonNode(true)).toBe("true");
+    expect(serializeJsonNode(false)).toBe("false");
+  });
+
+  it("pretty-prints nested structure", () => {
+    const result = serializeJsonNode({ items: [{ id: 1 }, { id: 2 }] });
+    expect(result).toBe(
+      '{\n    "items": [\n        {\n            "id": 1\n        },\n        {\n            "id": 2\n        }\n    ]\n}',
+    );
+  });
+});
+
+describe("getJsonChildren", () => {
+  it("returns entries for an object", () => {
+    expect(getJsonChildren({ a: 1, b: 2 })).toEqual([
+      ["a", 1],
+      ["b", 2],
+    ]);
+  });
+
+  it("returns indexed entries for an array", () => {
+    expect(getJsonChildren([true, false])).toEqual([
+      ["[0]", true],
+      ["[1]", false],
+    ]);
+  });
+
+  it("returns an empty array for primitives", () => {
+    expect(getJsonChildren("text")).toEqual([]);
+    expect(getJsonChildren(123)).toEqual([]);
+    expect(getJsonChildren(null)).toEqual([]);
+    expect(getJsonChildren(true)).toEqual([]);
+  });
+
+  it("returns an empty array for an empty object", () => {
+    expect(getJsonChildren({})).toEqual([]);
+  });
+
+  it("returns an empty array for an empty array", () => {
+    expect(getJsonChildren([])).toEqual([]);
   });
 });

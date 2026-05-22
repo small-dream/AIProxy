@@ -462,6 +462,34 @@ export function formatJsonPrimitive(value: JsonValue): string {
   return String(value);
 }
 
+export function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+export function serializeJsonNode(value: JsonValue): string {
+  if (Array.isArray(value) || isJsonObject(value)) {
+    return formatJsonText(value);
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(value);
+}
+
+export function getJsonChildren(value: JsonValue): Array<[string, JsonValue]> {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => [`[${index}]`, entry] as [string, JsonValue]);
+  }
+
+  if (isJsonObject(value)) {
+    return Object.entries(value);
+  }
+
+  return [];
+}
+
 function getRequestOperationFromQuery(queryParams: SessionDetail["queryParams"] | undefined): string | undefined {
   if (!queryParams?.length) {
     return undefined;
