@@ -548,7 +548,7 @@ export function SearchableCodeBlock({
     [code],
   );
 
-  const effectiveLanguage: "json" | "plain" = language === "json" && code.length > JSON_HIGHLIGHT_CHAR_LIMIT ? "plain" : language;
+  const effectiveLanguage = language;
 
   const allMatches = useMemo(() => {
     if (!matcher) return [];
