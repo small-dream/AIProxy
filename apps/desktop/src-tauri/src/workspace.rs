@@ -59,16 +59,12 @@ impl WorkspaceManager {
     pub fn create(&self, name: String, proxy_port: u16, ssl_enabled: bool) -> WorkspaceData {
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = now.replace(['-', ':', '.'], "");
-        let random_suffix: String = std::iter::repeat_with(|| {
-            let idx = (std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos()
-                % 36) as usize;
-            b"0123456789abcdefghijklmnopqrstuvwxyz"[idx] as char
-        })
-        .take(8)
-        .collect();
+        let random_suffix = uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("00000000")
+            .to_string();
 
         let workspace = WorkspaceData {
             id: format!("ws-{timestamp}-{random_suffix}"),

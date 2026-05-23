@@ -421,8 +421,8 @@ function AiModelSettingsSection() {
       provider: settings.provider,
       baseUrl: settings.baseUrl,
       model: settings.model,
-      temperature: AI_DEFAULT_TEMPERATURE,
-      timeoutMs: AI_DEFAULT_TIMEOUT_MS,
+      temperature: settings.temperature,
+      timeoutMs: settings.timeoutMs,
     });
     setApiKeyDraft(settings.maskedApiKey ?? "");
     setApiKeyDraftDirty(false);

@@ -1952,6 +1952,8 @@ pub(crate) fn apply_map_rules(
 
 fn normalize_packet_loss_ratio(packet_loss_ratio: f32) -> f32 {
     if packet_loss_ratio <= 1.0 {
+        // Treat values in [0, 1] as a ratio (e.g. 0.05 = 5% loss).
+        // To express a percentage, use values > 1.0 (e.g. 5 = 5% loss).
         packet_loss_ratio.max(0.0)
     } else {
         (packet_loss_ratio / 100.0).clamp(0.0, 1.0)

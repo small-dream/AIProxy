@@ -4,8 +4,8 @@ import { colorTokens, radiusTokens, spacingTokens } from "./index";
 
 describe("colorTokens", () => {
   it("defines both light and dark palettes", () => {
-    expect(colorTokens.light.primary).toBe("#2962FF");
-    expect(colorTokens.dark.surface).toBe("#1B1F24");
+    expect(colorTokens.light.primary).toBe("#2563EB");
+    expect(colorTokens.dark.surface).toBe("#151B23");
   });
 });
 

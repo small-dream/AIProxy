@@ -146,16 +146,35 @@ const JSON_TEXT_INDENT_SPACES = 4;
 const DEFAULT_JSON_PARSE_MESSAGES = enMessages.inspector.jsonParse;
 const DEFAULT_COMMON_MESSAGES = enMessages.common;
 
+export type InspectorMessages = {
+  common: typeof enMessages.common;
+  inspector: typeof enMessages.inspector;
+};
+
+export const DEFAULT_INSPECTOR_MESSAGES: InspectorMessages = {
+  common: enMessages.common,
+  inspector: enMessages.inspector,
+};
+
 export function buildCountTabLabel(label: string, count: number) {
   return count > 0 ? `${label} (${count})` : label;
 }
 
-export function buildRequestSubtitle(detail: SessionDetail | undefined) {
-  return `${detail?.queryParams.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.query.toLowerCase()} • ${detail?.requestHeaders.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.headers.toLowerCase()} • ${describeBody(detail?.requestBody) ?? DEFAULT_COMMON_MESSAGES.tech.noBody}`;
+export function buildRequestSubtitle(
+  detail: SessionDetail | undefined,
+  messages: InspectorMessages = DEFAULT_INSPECTOR_MESSAGES,
+) {
+  const common = messages.common;
+  return `${detail?.queryParams.length ?? 0} ${common.labels.query.toLowerCase()} • ${detail?.requestHeaders.length ?? 0} ${common.labels.headers.toLowerCase()} • ${describeBody(detail?.requestBody, undefined, common) ?? common.tech.noBody}`;
 }
 
-export function buildResponseSubtitle(detail: SessionDetail | undefined, session: SessionSummary) {
-  return `${session.statusCode} • ${detail?.responseHeaders.length ?? 0} ${DEFAULT_COMMON_MESSAGES.labels.headers.toLowerCase()} • ${describeBody(detail?.responseBody) ?? DEFAULT_COMMON_MESSAGES.tech.noBody}`;
+export function buildResponseSubtitle(
+  detail: SessionDetail | undefined,
+  session: SessionSummary,
+  messages: InspectorMessages = DEFAULT_INSPECTOR_MESSAGES,
+) {
+  const common = messages.common;
+  return `${session.statusCode} • ${detail?.responseHeaders.length ?? 0} ${common.labels.headers.toLowerCase()} • ${describeBody(detail?.responseBody, undefined, common) ?? common.tech.noBody}`;
 }
 
 export function getBodyText(body: BodyReference | undefined) {
@@ -314,28 +333,30 @@ export function describeBody(
     truncatedPreviewLabel?: string;
     unknownMimeTypeLabel?: string;
   },
+  messages: typeof enMessages.common = DEFAULT_COMMON_MESSAGES,
 ) {
   if (!body) {
     return undefined;
   }
 
-  const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? DEFAULT_COMMON_MESSAGES.tech.unknownMimeType;
-  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? DEFAULT_COMMON_MESSAGES.tech.truncatedPreview})` : "";
-  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : DEFAULT_COMMON_MESSAGES.tech.bytes.replace("{{value}}", String(body.sizeBytes));
+  const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? messages.tech.unknownMimeType;
+  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? messages.tech.truncatedPreview})` : "";
+  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : messages.tech.bytes.replace("{{value}}", String(body.sizeBytes));
 
   return `${mimeType} - ${sizeLabel}${truncationSuffix}`;
 }
 
-export function formatTiming(value: number | undefined, fallbackLabel: string = DEFAULT_COMMON_MESSAGES.states.notCaptured) {
+export function formatTiming(value: number | undefined, fallbackLabel?: string, messages: typeof enMessages.common = DEFAULT_COMMON_MESSAGES) {
+  const fallback = fallbackLabel ?? messages.states.notCaptured;
   if (value === undefined) {
-    return fallbackLabel;
+    return fallback;
   }
 
   if (value === 0) {
-    return DEFAULT_COMMON_MESSAGES.tech.lessThanMillisecond;
+    return messages.tech.lessThanMillisecond;
   }
 
-  return DEFAULT_COMMON_MESSAGES.tech.milliseconds.replace("{{value}}", String(value));
+  return messages.tech.milliseconds.replace("{{value}}", String(value));
 }
 
 export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {

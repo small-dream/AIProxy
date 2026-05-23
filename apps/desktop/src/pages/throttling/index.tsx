@@ -35,7 +35,7 @@ import {
 import { alpha } from "@mui/material/styles";
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import {
@@ -127,9 +127,11 @@ export function ThrottlingPage() {
     [rules, selectedRuleId],
   );
   const activeRuleCount = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
+  const seedAppliedRef = useRef(false);
 
   useEffect(() => {
-    if (seed && profiles.length > 0) {
+    if (seed && profiles.length > 0 && !seedAppliedRef.current) {
+      seedAppliedRef.current = true;
       const baseProfile = activeProfile ?? profiles[0];
       if (!baseProfile) return;
       const draft = createRuleDraft(baseProfile.id, seed);
@@ -184,7 +186,7 @@ export function ThrottlingPage() {
   }, [temporaryUntil]);
 
   const profileErrors = getThrottleValidationErrors(profileDraft, t);
-  const ruleErrors = ruleDraft ? getRuleValidationErrors(ruleDraft) : [];
+  const ruleErrors = ruleDraft ? getRuleValidationErrors(ruleDraft, t) : [];
   const activeStatusLabel = activeProfile
     ? t("throttlingPage.activeSummary", { name: activeProfile.name })
     : t("throttlingPage.inactiveSummary");
@@ -276,7 +278,7 @@ export function ThrottlingPage() {
                   {temporaryUntil ? <Chip size="small" icon={<TimerOutlinedIcon />} label={`${Math.ceil(temporaryRemaining / 60000)} min`} sx={{ height: 20, fontSize: 11 }} /> : null}
                 </Stack>
                 <Typography color="text.secondary" variant="caption" noWrap>
-                  {activeStatusLabel} Scope: global profile + {activeRuleCount} targeted {activeRuleCount === 1 ? "rule" : "rules"}.
+                  {activeStatusLabel} {t("throttlingPage.activeStatusScope", { activeRuleCount, ruleLabel: activeRuleCount === 1 ? t("common.labels.rule") : t("common.labels.rules") })}
                 </Typography>
               </Stack>
             </Stack>
@@ -337,11 +339,11 @@ export function ThrottlingPage() {
             ) : (
               <Stack spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}>Targeted rules</Typography>
-                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={handleNewRule} disabled={profiles.length === 0}>New rule</Button>
+                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}>{t("throttlingPage.rulesTitle")}</Typography>
+                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={handleNewRule} disabled={profiles.length === 0}>{t("throttlingPage.newRule")}</Button>
                 </Stack>
                 {rules.length === 0 ? (
-                  <EmptyHint>Create a host, URL, or method scoped rule when global throttling is too broad.</EmptyHint>
+                  <EmptyHint>{t("throttlingPage.rulesEmptyHint")}</EmptyHint>
                 ) : (
                   <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
                     {[...rules].sort((a, b) => b.priority - a.priority).map((rule) => (
@@ -384,6 +386,7 @@ export function ThrottlingPage() {
               draft={ruleDraft}
               errors={validationAttempted ? ruleErrors : []}
               profiles={profiles}
+              t={t}
               onChange={updateRuleDraft}
               onDelete={(ruleId) => {
                 deleteRuleMutation.mutate(ruleId, {
@@ -420,6 +423,7 @@ function ProfileList(props: {
   profiles: ThrottleProfile[];
   selectedProfileId: string | undefined;
 }) {
+  const { t } = useI18n();
   const { activeProfileId, onApply, onSelect, profiles, selectedProfileId } = props;
 
   return (
@@ -447,14 +451,14 @@ function ProfileList(props: {
             primary={(
               <Stack direction="row" spacing={0.5} alignItems="center">
                 <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{profile.name}</Typography>
-                {activeProfileId === profile.id ? <Chip size="small" color="success" label="Active" sx={{ height: 18, fontSize: 10 }} /> : null}
+                {activeProfileId === profile.id ? <Chip size="small" color="success" label={t("throttlingPage.activeChip")} sx={{ height: 18, fontSize: 10 }} /> : null}
               </Stack>
             )}
             secondary={`${profile.latencyMs} ms • ↓ ${profile.downloadKbps} kbps • ↑ ${profile.uploadKbps} kbps • loss ${profile.packetLossRatio}%`}
             secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
           />
           <Button size="small" variant={activeProfileId === profile.id ? "contained" : "outlined"} onClick={(event) => { event.stopPropagation(); onApply(profile.id); }} sx={{ minWidth: 58 }}>
-            Apply
+            {t("throttlingPage.applyPreset")}
           </Button>
         </ListItemButton>
       ))}
@@ -479,7 +483,7 @@ function ProfileEditor(props: {
       <EditorHeader
         icon={<SignalCellularAltRoundedIcon />}
         title={draft.name || t("throttlingPage.customUntitled")}
-        subtitle={active ? "This profile is currently applied globally." : "Tune the profile, then apply it globally or use it from targeted rules."}
+        subtitle={active ? t("throttlingPage.profileEditorActiveHint") : t("throttlingPage.profileEditorInactiveHint")}
       />
       <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
         <TextField size="small" label={t("throttlingPage.fields.name")} value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
@@ -507,15 +511,16 @@ function RuleEditor(props: {
   draft: ThrottleRule | null;
   errors: string[];
   profiles: ThrottleProfile[];
+  t: ReturnType<typeof useI18n>["t"];
   onChange: (patch: Partial<ThrottleRule>) => void;
   onDelete: (ruleId: string) => void;
   onSave: () => void;
   saving: boolean;
 }) {
-  const { draft, errors, profiles, onChange, onDelete, onSave, saving } = props;
+  const { draft, errors, profiles, t, onChange, onDelete, onSave, saving } = props;
 
   if (!draft) {
-    return <EmptyHint>Select a rule, or create one from a captured Session to scope weak-network simulation precisely.</EmptyHint>;
+    return <EmptyHint>{t("throttlingPage.rulesSelectHint")}</EmptyHint>;
   }
 
   return (
@@ -523,47 +528,47 @@ function RuleEditor(props: {
       <EditorHeader
         icon={<FilterAltRoundedIcon />}
         title={draft.name}
-        subtitle="Rules run before the global profile. Highest priority matching rule wins."
+        subtitle={t("throttlingPage.rulesDescription")}
       />
       {errors.length > 0 ? <Alert severity="warning" variant="outlined">{errors.join(" ")}</Alert> : null}
       <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1.2fr 0.8fr" } }}>
-        <TextField size="small" label="Rule name" value={draft.name} onChange={(event) => onChange({ name: event.target.value })} />
+        <TextField size="small" label={t("throttlingPage.ruleFields.name")} value={draft.name} onChange={(event) => onChange({ name: event.target.value })} />
         <FormControl size="small">
-          <InputLabel>Profile</InputLabel>
-          <Select label="Profile" value={draft.profileId} onChange={(event) => onChange({ profileId: event.target.value })}>
+          <InputLabel>{t("throttlingPage.ruleFields.profile")}</InputLabel>
+          <Select label={t("throttlingPage.ruleFields.profile")} value={draft.profileId} onChange={(event) => onChange({ profileId: event.target.value })}>
             {profiles.map((profile) => (
               <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>
             ))}
           </Select>
         </FormControl>
-        <TextField size="small" label="URL / Host pattern" value={draft.urlPattern} onChange={(event) => onChange({ urlPattern: event.target.value })} />
+        <TextField size="small" label={t("throttlingPage.ruleFields.urlPattern")} value={draft.urlPattern} onChange={(event) => onChange({ urlPattern: event.target.value })} />
         <TextField
           size="small"
-          label="Methods"
+          label={t("throttlingPage.ruleFields.methods")}
           placeholder="GET, POST, PUT"
           value={draft.methods.join(", ")}
           onChange={(event) => onChange({ methods: event.target.value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean) })}
         />
         <FormControl size="small">
-          <InputLabel>Stage</InputLabel>
-          <Select label="Stage" value={draft.stage} onChange={(event) => onChange({ stage: event.target.value as ThrottleRule["stage"] })}>
-            <MenuItem value="both">Request + response</MenuItem>
-            <MenuItem value="request">Request only</MenuItem>
-            <MenuItem value="response">Response only</MenuItem>
+          <InputLabel>{t("throttlingPage.ruleFields.stage")}</InputLabel>
+          <Select label={t("throttlingPage.ruleFields.stage")} value={draft.stage} onChange={(event) => onChange({ stage: event.target.value as ThrottleRule["stage"] })}>
+            <MenuItem value="both">{t("throttlingPage.stageBoth")}</MenuItem>
+            <MenuItem value="request">{t("throttlingPage.stageRequest")}</MenuItem>
+            <MenuItem value="response">{t("throttlingPage.stageResponse")}</MenuItem>
           </Select>
         </FormControl>
-        <TextField size="small" label="Priority" type="number" value={draft.priority} onChange={(event) => onChange({ priority: Number(event.target.value) || 0 })} />
+        <TextField size="small" label={t("throttlingPage.ruleFields.priority")} type="number" value={draft.priority} onChange={(event) => onChange({ priority: Number(event.target.value) || 0 })} />
       </Box>
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 0.75 }}>
         <Switch size="small" checked={draft.enabled} onChange={(event) => onChange({ enabled: event.target.checked })} />
-        <Typography variant="body2" sx={{ fontWeight: 650 }}>Enabled</Typography>
-        <Typography color="text.secondary" variant="caption">Only matching traffic uses this profile.</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 650 }}>{t("throttlingPage.ruleFields.enabled")}</Typography>
+        <Typography color="text.secondary" variant="caption">{t("throttlingPage.ruleFields.enabledHint")}</Typography>
       </Stack>
       <Stack direction="row" spacing={1} justifyContent="space-between">
-        <Button color="error" variant="outlined" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => onDelete(draft.id)}>Delete</Button>
+        <Button color="error" variant="outlined" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => onDelete(draft.id)}>{t("throttlingPage.deleteRule")}</Button>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" startIcon={<ReplayRoundedIcon />} onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}>Duplicate</Button>
-          <Button variant="contained" onClick={onSave} disabled={saving}>Save Rule</Button>
+          <Button variant="outlined" startIcon={<ReplayRoundedIcon />} onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}>{t("throttlingPage.duplicateRule")}</Button>
+          <Button variant="contained" onClick={onSave} disabled={saving}>{t("throttlingPage.saveRule")}</Button>
         </Stack>
       </Stack>
     </Stack>
@@ -625,11 +630,11 @@ function getThrottleValidationErrors(profile: ThrottleProfile, t: ReturnType<typ
   return errors;
 }
 
-function getRuleValidationErrors(rule: ThrottleRule): string[] {
+function getRuleValidationErrors(rule: ThrottleRule, t: ReturnType<typeof useI18n>["t"]): string[] {
   const errors: string[] = [];
-  if (!rule.name.trim()) errors.push("Enter a rule name.");
-  if (!rule.profileId) errors.push("Choose a profile.");
-  if (!rule.urlPattern.trim()) errors.push("Enter a URL or host pattern.");
+  if (!rule.name.trim()) errors.push(t("throttlingPage.validation.ruleNameRequired"));
+  if (!rule.profileId) errors.push(t("throttlingPage.validation.ruleProfileRequired"));
+  if (!rule.urlPattern.trim()) errors.push(t("throttlingPage.validation.ruleUrlPatternRequired"));
   return errors;
 }
 

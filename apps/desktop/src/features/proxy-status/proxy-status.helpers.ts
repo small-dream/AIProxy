@@ -7,30 +7,33 @@ type ProxyStatusPresentation = {
   label: string;
 };
 
-export function getProxyStatusPresentation(status: ProxyStatus | undefined): ProxyStatusPresentation {
+export function getProxyStatusPresentation(
+  status: ProxyStatus | undefined,
+  messages: typeof enMessages.proxyStatus = enMessages.proxyStatus,
+): ProxyStatusPresentation {
   if (!status) {
     return {
       chipColor: "default",
-      label: enMessages.proxyStatus.loading,
+      label: messages.loading,
     };
   }
 
   if (status.running) {
     return {
       chipColor: "success",
-      label: enMessages.proxyStatus.runningWithPort.replace("{{port}}", String(status.port)),
+      label: messages.runningWithPort.replace("{{port}}", String(status.port)),
     };
   }
 
   if (status.sslEnabled) {
     return {
       chipColor: "warning",
-      label: enMessages.proxyStatus.readyWithPort.replace("{{port}}", String(status.port)),
+      label: messages.readyWithPort.replace("{{port}}", String(status.port)),
     };
   }
 
   return {
     chipColor: "default",
-    label: enMessages.proxyStatus.idleWithPort.replace("{{port}}", String(status.port)),
+    label: messages.idleWithPort.replace("{{port}}", String(status.port)),
   };
 }

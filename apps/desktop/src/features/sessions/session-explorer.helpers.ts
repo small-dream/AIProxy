@@ -63,7 +63,7 @@ type MutablePathBranch = {
 export function buildSessionHostGroups(
   sessions: SessionSummary[],
   keyword: string,
-  options: BuildSessionHostGroupsOptions = {},
+  options: BuildSessionHostGroupsOptions & { unknownHostLabel?: string } = {},
 ): SessionHostGroup[] {
   const groupsByHost = new Map<string, SessionSummary[]>();
 
@@ -72,7 +72,7 @@ export function buildSessionHostGroups(
       continue;
     }
 
-    const host = normalizeHost(session.host);
+    const host = normalizeHost(session.host, options.unknownHostLabel);
     const existingGroup = groupsByHost.get(host) ?? [];
 
     existingGroup.push(session);
@@ -365,10 +365,10 @@ function matchesKeyword(session: SessionSummary, keyword: string): boolean {
   return haystacks.some((value) => value.toLowerCase().includes(normalizedKeyword));
 }
 
-function normalizeHost(host: string): string {
+function normalizeHost(host: string, unknownHostLabel?: string): string {
   const normalizedHost = host.trim();
 
-  return normalizedHost.length > 0 ? normalizedHost : enMessages.sessionExplorer.unknownHost;
+  return normalizedHost.length > 0 ? normalizedHost : (unknownHostLabel ?? enMessages.sessionExplorer.unknownHost);
 }
 
 function normalizeOptionalHost(host?: string | null): string | null {

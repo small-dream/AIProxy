@@ -43,7 +43,8 @@ pub fn update_workspace(
     ssl_enabled: Option<bool>,
     updated_at: &str,
 ) -> Result<(), String> {
-    let existing = load_workspace(conn, id).ok_or_else(|| format!("workspace {id} not found"))?;
+    let existing =
+        load_workspace(conn, id)?.ok_or_else(|| format!("workspace {id} not found"))?;
 
     let name = name.unwrap_or(&existing.name);
     let proxy_port = proxy_port.unwrap_or(existing.proxy_port);
@@ -58,14 +59,21 @@ pub fn update_workspace(
 }
 
 /// Load a single workspace by ID.
-pub fn load_workspace(conn: &Connection, id: &str) -> Option<WorkspaceRow> {
+pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, String> {
     conn.query_row(
         "SELECT id, name, proxy_port, ssl_enabled, system_proxy_enabled, storage_path, created_at, updated_at
          FROM workspaces WHERE id=?1",
         params![id],
         row_to_workspace,
     )
-    .ok()
+    .map(Some)
+    .or_else(|err| {
+        if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
+            Ok(None)
+        } else {
+            Err(format!("load workspace: {err}"))
+        }
+    })
 }
 
 /// Load all workspaces.
@@ -88,9 +96,13 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, Strin
 
 /// Check if the workspaces table is empty (for seeding the default).
 pub fn is_empty(conn: &Connection) -> bool {
-    load_all_workspaces(conn)
-        .map(|w| w.is_empty())
-        .unwrap_or(true)
+    match load_all_workspaces(conn) {
+        Ok(workspaces) => workspaces.is_empty(),
+        Err(err) => {
+            eprintln!("[warn] failed to load workspaces for is_empty check: {err}");
+            true
+        }
+    }
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
@@ -164,7 +176,7 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = load_workspace(&conn, "ws-1").unwrap();
+        let loaded = load_workspace(&conn, "ws-1").unwrap().unwrap();
         assert_eq!(loaded.name, "New");
         assert_eq!(loaded.proxy_port, 9999);
         assert!(loaded.ssl_enabled);

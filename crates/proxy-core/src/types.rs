@@ -424,7 +424,7 @@ impl Serialize for ProxyBodyReference {
         let base64_text = loaded_bytes
             .as_deref()
             .map(|bytes| BASE64_STANDARD.encode(bytes));
-        let field_count = 2
+        let field_count = 1
             + usize::from(self.encoding.is_some())
             + usize::from(self.mime_type.is_some())
             + usize::from(self.truncated)

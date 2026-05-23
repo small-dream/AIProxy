@@ -362,7 +362,7 @@ export function useSessionContextActions({
       showSnackbar(t("collectionsPage.saved"));
       setSaveToCollectionSession(null);
     } catch {
-      showSnackbar("Failed to save");
+      showSnackbar(t("collectionsPage.saveFailed"));
     }
   }, [saveToCollectionSession, showSnackbar, t]);
 

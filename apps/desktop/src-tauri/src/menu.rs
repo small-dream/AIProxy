@@ -288,12 +288,6 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
                 .id(ids::SHORTCUTS)
                 .build(handle)?,
         )
-        .separator()
-        .item(&PredefinedMenuItem::about(
-            handle,
-            Some("About AIProxy"),
-            Some(about_metadata.clone()),
-        )?)
         .build()?;
 
     let app_menu = SubmenuBuilder::new(handle, "AIProxy")

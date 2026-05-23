@@ -220,6 +220,7 @@ export function SessionsPage() {
     () => buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
       focusedHosts,
       unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
+      unknownHostLabel: t("sessionExplorer.unknownHost"),
     }),
     [activeContainer?.searchValue, domainFilteredSessions, focusedHosts, t],
   );

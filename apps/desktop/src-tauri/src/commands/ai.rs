@@ -96,8 +96,6 @@ pub async fn save_ai_settings(
     if model.is_empty() {
         return Err(app_error("INVALID_AI_SETTINGS", "Model is required."));
     }
-    let _client_temperature = input.temperature;
-    let _client_timeout_ms = input.timeout_ms;
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("save_ai_settings", move || {
@@ -121,8 +119,8 @@ pub async fn save_ai_settings(
             base_url,
             model,
             api_key,
-            temperature: DEFAULT_TEMPERATURE,
-            timeout_ms: DEFAULT_TIMEOUT_MS,
+            temperature: input.temperature.clamp(0.0, 2.0),
+            timeout_ms: input.timeout_ms.clamp(5_000, 300_000),
             updated_at: Utc::now().to_rfc3339(),
         };
         aiproxy_db::ai::upsert_ai_settings(&conn, &row)?;
@@ -219,11 +217,7 @@ async fn load_configured_ai_settings(app_state: &AppState) -> Result<aiproxy_db:
         return Err(app_error("AI_API_KEY_MISSING", "Configure an AI API key in Settings first."));
     }
 
-    Ok(aiproxy_db::ai::AiSettingsRow {
-        temperature: DEFAULT_TEMPERATURE,
-        timeout_ms: DEFAULT_TIMEOUT_MS,
-        ..row
-    })
+    Ok(row)
 }
 
 async fn call_chat_completion(
@@ -282,8 +276,8 @@ fn row_to_public(row: Option<&aiproxy_db::ai::AiSettingsRow>) -> AiSettingsPubli
             model: row.model.clone(),
             has_api_key: !row.api_key.trim().is_empty(),
             masked_api_key: mask_api_key(&row.api_key),
-            temperature: DEFAULT_TEMPERATURE,
-            timeout_ms: DEFAULT_TIMEOUT_MS,
+            temperature: row.temperature,
+            timeout_ms: row.timeout_ms,
             updated_at: Some(row.updated_at.clone()),
         },
         None => AiSettingsPublic {

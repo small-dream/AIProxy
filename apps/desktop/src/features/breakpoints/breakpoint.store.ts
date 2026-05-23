@@ -36,11 +36,15 @@ export const useBreakpointStore = create<BreakpointState>((set) => ({
     set((state) => {
       const pendingHits = state.pendingHits.filter((h) => h.sessionId !== sessionId);
       const remaining = pendingHits.length > 0;
-      let activeHitId: string | null = null;
-      if (remaining) {
-        const currentIdx = state.pendingHits.findIndex((h) => h.sessionId === sessionId);
-        const nextIdx = Math.min(currentIdx, pendingHits.length - 1);
-        activeHitId = pendingHits[nextIdx]?.sessionId ?? pendingHits[0]?.sessionId ?? null;
+      let activeHitId = state.activeHitId;
+      if (state.activeHitId === sessionId) {
+        if (remaining) {
+          const currentIdx = state.pendingHits.findIndex((h) => h.sessionId === sessionId);
+          const nextIdx = Math.min(currentIdx, pendingHits.length - 1);
+          activeHitId = pendingHits[nextIdx]?.sessionId ?? pendingHits[0]?.sessionId ?? null;
+        } else {
+          activeHitId = null;
+        }
       }
       return { pendingHits, activeHitId };
     }),
