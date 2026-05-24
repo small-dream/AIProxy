@@ -915,6 +915,15 @@ export const enMessages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "View full value",
+    waterfall: {
+      unavailable: "Timing unavailable",
+      dns: "DNS",
+      connect: "Connect",
+      tls: "TLS",
+      send: "Send",
+      wait: "Wait",
+      download: "Download",
+    },
     json: {
       array: "Array [{{count}}]",
       boolean: "Boolean",
