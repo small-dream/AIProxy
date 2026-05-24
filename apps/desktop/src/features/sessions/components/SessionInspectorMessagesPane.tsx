@@ -29,6 +29,7 @@ import type {
 } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   getWsConnectionStatus,
   injectWsMessage,
@@ -118,6 +119,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
   const [opcodeFilter, setOpcodeFilter] = useState<OpcodeFilter>("all");
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 150);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState("");
@@ -188,14 +190,14 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       if (opcodeFilter === "text" && msg.opcode !== "text" && msg.opcode !== "continuation") return false;
       if (opcodeFilter === "binary" && msg.opcode !== "binary") return false;
       if (opcodeFilter === "control" && !CONTROL_OPCODES.has(msg.opcode as WsOpcode)) return false;
-      if (search) {
-        const q = search.toLowerCase();
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase();
         const text = msg.payloadText?.toLowerCase() ?? "";
         if (!text.includes(q) && !msg.opcode.includes(q)) return false;
       }
       return true;
     });
-  }, [messages, directionFilter, opcodeFilter, search]);
+  }, [messages, directionFilter, opcodeFilter, debouncedSearch]);
 
   const selected = useMemo(
     () => messages.find((m) => m.id === selectedId),
