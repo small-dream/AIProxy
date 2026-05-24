@@ -1,6 +1,8 @@
-import type { SessionDetail } from "@aiproxy/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type { QueryClient } from "@tanstack/react-query";
 
 import { generateCurlCommand } from "@/features/compose/curl-export";
+import { ensureSessionDetailContent } from "./session-detail-content";
 import { getSessionProtocolMetadata } from "./session-protocol.helpers";
 
 export function buildSessionSnapshot(details: SessionDetail[]) {
@@ -118,4 +120,35 @@ export function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["
   }
 
   return "";
+}
+
+export const EXPORT_BATCH_SIZE = 10;
+
+export const DEFAULT_EXPORT_CONTENT_OPTIONS = {
+  includeRawRequest: true,
+  includeRawResponse: true,
+  includeRequestBodyText: true,
+  includeResponseBodyText: true,
+  includeRequestBodyBase64: true,
+  includeResponseBodyBase64: true,
+} as const;
+
+export async function loadSessionDetailsBatched(
+  queryClient: QueryClient,
+  sessions: SessionSummary[],
+  batchSize: number = EXPORT_BATCH_SIZE,
+): Promise<SessionDetail[]> {
+  if (sessions.length === 0) return [];
+
+  const details: SessionDetail[] = [];
+  for (let i = 0; i < sessions.length; i += batchSize) {
+    const batch = sessions.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map((session) =>
+        ensureSessionDetailContent(queryClient, session.id, { ...DEFAULT_EXPORT_CONTENT_OPTIONS }),
+      ),
+    );
+    details.push(...batchResults);
+  }
+  return details;
 }

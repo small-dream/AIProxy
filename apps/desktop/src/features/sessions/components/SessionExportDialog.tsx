@@ -26,6 +26,8 @@ import { ensureSessionDetailContent } from "@/features/sessions/session-detail-c
 import { SESSION_DETAIL_QUERY_KEY } from "@/features/sessions/use-session-detail";
 import {
   buildHarArchive,
+  loadSessionDetailsBatched,
+  DEFAULT_EXPORT_CONTENT_OPTIONS,
 } from "../session-export.helpers";
 
 export type SessionExportDialogScope = ExportScope | "host";
@@ -324,14 +326,7 @@ async function loadDetailsForScope(props: {
       queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, selectedSession.id], selectedSessionDetail);
     }
 
-    return [await ensureSessionDetailContent(queryClient, selectedSession.id, {
-      includeRawRequest: true,
-      includeRawResponse: true,
-      includeRequestBodyText: true,
-      includeResponseBodyText: true,
-      includeRequestBodyBase64: true,
-      includeResponseBodyBase64: true,
-    })];
+    return [await ensureSessionDetailContent(queryClient, selectedSession.id, { ...DEFAULT_EXPORT_CONTENT_OPTIONS })];
   }
 
   const summaries = scope === "host"
@@ -340,21 +335,5 @@ async function loadDetailsForScope(props: {
       ? filteredSessions
       : allSessions;
 
-  const BATCH_SIZE = 10;
-  const details: SessionDetail[] = [];
-
-  for (let i = 0; i < summaries.length; i += BATCH_SIZE) {
-    const batch = summaries.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(batch.map((session) => ensureSessionDetailContent(queryClient, session.id, {
-      includeRawRequest: true,
-      includeRawResponse: true,
-      includeRequestBodyText: true,
-      includeResponseBodyText: true,
-      includeRequestBodyBase64: true,
-      includeResponseBodyBase64: true,
-    })));
-    details.push(...batchResults);
-  }
-
-  return details;
+  return loadSessionDetailsBatched(queryClient, summaries);
 }

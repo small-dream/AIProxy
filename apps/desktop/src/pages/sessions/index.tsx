@@ -53,8 +53,7 @@ import {
   filterSessionsByHostKeyword,
   reconcileExpandedKeys,
 } from "@/features/sessions/session-explorer.helpers";
-import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
-import { buildHarArchive, buildHarExportFilename } from "@/features/sessions/session-export.helpers";
+import { buildHarArchive, buildHarExportFilename, loadSessionDetailsBatched } from "@/features/sessions/session-export.helpers";
 import { parseHarArchive } from "@/features/sessions/session-import.helpers";
 import { readSessionsMenuAction } from "@/features/sessions/session-menu-actions";
 import {
@@ -1109,20 +1108,9 @@ async function exportSessionsAsHar(
   sessions: SessionSummary[],
   filename: string,
 ) {
-  if (sessions.length === 0) {
-    return;
-  }
+  if (sessions.length === 0) return;
 
-  const details = await Promise.all(
-    sessions.map((session) => ensureSessionDetailContent(queryClient, session.id, {
-      includeRawRequest: true,
-      includeRawResponse: true,
-      includeRequestBodyText: true,
-      includeResponseBodyText: true,
-      includeRequestBodyBase64: true,
-      includeResponseBodyBase64: true,
-    })),
-  );
+  const details = await loadSessionDetailsBatched(queryClient, sessions);
 
   await downloadTextFile(
     filename,
