@@ -94,7 +94,7 @@ function generateWsMessages(count: number): WsMessage[] {
       direction,
       timestamp,
       opcode,
-      payloadText,
+      payloadText: payloadText!,
       payloadSize,
       fin: true,
     });
