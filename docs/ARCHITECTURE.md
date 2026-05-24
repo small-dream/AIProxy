@@ -5,7 +5,7 @@
 - 产品代号：`AIProxy`
 - 文档类型：系统架构文档
 - 当前阶段：`P0 功能闭环 / 实现同步`
-- 文档状态：`Living Spec v1.1`
+- 文档状态：`Living Spec v1.2`
 - 配套需求文档：`docs/PRD.md`
 - 配套接口文档：`docs/API_SPEC.md`
 - 配套设计文档：`docs/UI_GUIDELINES.md`
@@ -276,6 +276,12 @@ WebSocket 注入（重放）实现机制：
 - macOS：通过 `/usr/bin/security verify-cert` 检查
 - Linux：扫描 `/usr/local/share/ca-certificates/`（Debian/Ubuntu）和 `/etc/pki/ca-trust/source/anchors/`（RHEL/Fedora），通过 SHA-1 fingerprint 比对
 
+TLS 证书缓存机制：
+
+- `CertStorage::host_cache` 使用 LRU 缓存（容量 512）存储已签发的 host 证书，避免每次 TLS 握手重复签发
+- Host 证书在首次 TLS 握手时签发并缓存，当缓存达到容量上限时按 LRU 策略淘汰最久未使用的条目
+- LRU 容量上限同时起到内存占用的硬边界作用，防止长运行时因大量不同 host 而无限膨胀
+
 ## 6.3 `session-store`
 
 职责：
@@ -284,6 +290,11 @@ WebSocket 注入（重放）实现机制：
 - 将大体积请求/响应内容按策略落盘
 - 提供搜索、过滤、排序、分页查询接口
 - 在当前 MVP 阶段，桌面运行时内存中保留最近会话的 `summary + detail`，供 `Inspector` 快速读取
+
+批量持久化机制：
+
+- 会话持久化支持批量模式：collector task 每次批量写入最多 50 条会话到同一个 SQLite 事务，减少 DB 锁竞争，提升突发流量场景下的写入吞吐
+- 原有的单条 `upsert_session` 现在是 `upsert_session_batch` 的便捷封装（batch size = 1）
 
 ## 6.4 `rule-engine`
 
@@ -369,6 +380,11 @@ WebSocket 注入（重放）实现机制：
 - `breakpoint-hit` — `已实现`，代理管道在断点命中时向前端推送 `BreakpointHit` 载荷，包含 session ID、阶段、请求/响应详情
 - `ws-message`
 - `ws-connection-status`
+
+## 7.4 前端事件批处理
+
+- `session-upsert` 事件在前端经过批处理合并：`SessionsPage` 使用 100ms 缓冲区（buffer）合并连续的 session-upsert 事件，在每个批处理周期内统一执行 React Query 缓存更新与容器状态更新，避免高频事件导致的重复渲染
+- 旧的 `useSessionEvents` hook 已废弃，替换为带批处理逻辑的新订阅方式
 
 ## 8. 数据流
 
@@ -876,7 +892,10 @@ project-root/
 
 ## 15. 可观测性与日志
 
-- Rust 层记录结构化日志
+- Rust 层使用 `tracing` 生态记录结构化日志（`proxy-core`、`tls-manager` 等核心 crate 使用 `tracing::info!/warn!/error!/debug!` 宏替代原有自定义 `emit_log`）
+- 桌面应用通过 `tracing_subscriber::fmt()` + `tracing_appender::non_blocking` 实现缓冲异步文件写入，guard 存储在 `OnceLock` 中保持应用生命周期
+- 日志同时输出到 stderr 和日志文件（与之前行为一致，但改为缓冲写入，减少 I/O 阻塞）
+- 日志文件路径与命名规则不变
 - UI 层记录错误边界和关键行为埋点
 - 调试模式下开放详细日志视图
 - 预留匿名崩溃采集能力开关
