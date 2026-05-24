@@ -729,6 +729,7 @@ type GetSessionDetailOutput = SessionDetail;
 - `requestHeaders` 与 `responseHeaders` 返回真实抓包头信息
 - `requestBody` 与 `responseBody` 对小体积内容优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
 - 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
+- 当 `BodyReference.truncated` 为 `true` 时，UI 在请求和响应 Inspector 面板中显示 Alert 警告提示用户 body 已被截断
 - `timing` 当前优先提供：
   - `requestSendMs`
   - `waitingMs`
@@ -1677,6 +1678,12 @@ type SessionsClearedEvent = void;
 type SessionsRemovedEvent = string[];
 ```
 
+前端批量化行为：
+
+- `SessionsPage` 对 `session-upsert` 事件采用 100ms 缓冲窗口进行批量合并
+- 同一窗口内的多个 upsert 事件会合并为一次状态更新，避免高频事件（如突发流量）触发逐事件的 UI 刷新
+- 批量刷新时同步更新 Zustand 容器状态和 React Query 缓存
+
 触发时机：
 
 - `clear_sessions` 清空会话后触发 `sessions-cleared`
@@ -1799,7 +1806,8 @@ type MenuEvent = unknown;
 ## 8.3 缓存与同步策略
 
 - 会话详情按需加载
-- 会话列表实时增量更新
+- `session-upsert` 事件在 `SessionsPage` 中以 100ms 间隔批量处理，Zustand 容器状态与 React Query 缓存在同一次批量刷新中同步更新
+- `useSessionEvents` hook 已废弃，事件监听与批量合并逻辑已内联至 SessionsPage
 - 规则、工作区、证书状态可用 Query 缓存
 - 长任务进度以事件流为准，不依赖轮询
 
