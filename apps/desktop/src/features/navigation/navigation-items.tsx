@@ -1,3 +1,4 @@
+import BarChartRoundedIcon from "@mui/icons-material/BarChartRounded";
 import DatasetLinkedRoundedIcon from "@mui/icons-material/DatasetLinkedRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EditRoadRoundedIcon from "@mui/icons-material/EditRoadRounded";
@@ -23,6 +24,12 @@ export const navigationItems: NavigationItem[] = [
     icon: <DatasetLinkedRoundedIcon />,
     labelKey: "navigation.sessions",
     to: "/",
+  },
+  {
+    group: "workspace",
+    icon: <BarChartRoundedIcon />,
+    labelKey: "navigation.insights",
+    to: "/insights",
   },
   {
     group: "workspace",

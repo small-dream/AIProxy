@@ -107,6 +107,7 @@ export const zhCNMessages: Messages = {
     collections: "集合",
     compare: "对比",
     compose: "构造请求",
+    insights: "洞察",
     manage: "管理",
     rules: "规则",
     sessions: "会话",
@@ -1199,6 +1200,48 @@ export const zhCNMessages: Messages = {
     replayTooltip: "编辑并重发此消息",
     injectionFailed: "发送消息失败",
     searchResultsCount: "{{count}} 个匹配",
+  },
+  insightsPage: {
+    title: "洞察",
+    overview: {
+      totalRequests: "总请求数",
+      errorRate: "错误率",
+      avgDuration: "平均耗时",
+      p95Duration: "P95 耗时",
+      p99Duration: "P99 耗时",
+      totalTraffic: "总流量",
+    },
+    hosts: {
+      title: "按主机",
+      host: "主机",
+      requests: "请求数",
+      errors: "错误数",
+      avgDuration: "平均耗时",
+      p95Duration: "P95 耗时",
+      traffic: "流量",
+    },
+    slowRequests: {
+      title: "慢请求",
+      url: "URL",
+      method: "方法",
+      status: "状态",
+      duration: "耗时",
+    },
+    statusCodes: {
+      title: "状态码分布",
+    },
+    methods: {
+      title: "请求方法分布",
+    },
+    export: {
+      title: "导出",
+      markdown: "导出为 Markdown",
+      json: "导出为 JSON",
+    },
+    states: {
+      noData: "暂无会话数据",
+      loading: "正在加载洞察数据...",
+    },
   },
   collectionsPage: {
     title: "集合",

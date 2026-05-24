@@ -22,6 +22,9 @@ const RulesPage = lazy(async () => ({
 const ThrottlingPage = lazy(async () => ({
   default: (await import("@/pages/throttling")).ThrottlingPage,
 }));
+const InsightsPage = lazy(async () => ({
+  default: (await import("@/pages/insights")).InsightsPage,
+}));
 const CertificatesPage = lazy(async () => ({
   default: (await import("@/pages/certificates")).CertificatesPage,
 }));
@@ -57,6 +60,10 @@ const router = createHashRouter([
       {
         index: true,
         element: renderLazyRoute(SessionsPage),
+      },
+      {
+        path: "insights",
+        element: renderLazyRoute(InsightsPage),
       },
       {
         path: "compose",
