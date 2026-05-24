@@ -193,6 +193,10 @@ Sessions polling returns captured sessions
 -> requestCollapsed persists to localStorage
 ```
 
+**事件批处理（M1）：** `SessionsPage` 现在直接订阅会话事件，使用 100ms 批处理缓冲区。`useSessionEvents` hook 已废弃。单次批处理刷新中，容器状态和 React Query 缓存同时更新。
+
+**搜索/筛选防抖（M1）：** SessionExplorer 域过滤器和 WS Messages 搜索输入均使用 `useDebouncedValue` hook（150ms 延迟），避免高频输入触发不必要的重新渲染或查询。
+
 ### 4.7 上下文菜单事件流
 
 ```text
@@ -240,7 +244,7 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 
 ### 4.9 后续扩展位
 
-- `SessionExplorerPane` 增加树形虚拟滚动与分组模式切换
+- ~~`SessionExplorerPane` 增加树形虚拟滚动与分组模式切换~~ **已实现（M1）**：SessionExplorer 使用 `@tanstack/react-virtual` 实现树形虚拟滚动，host → path → session 三级树被展平为一维列表，虚拟化器只渲染可见窗口内的行。行高 26px，overscan 12 行。WS Messages 面板同样使用 `@tanstack/react-virtual`，行高 42px，overscan 8 行。
 - `SessionContextMenu` 补充键盘触发入口与禁用态说明
 - `Focus / Ignore Host` 升级为可持久化筛选策略
 - `Rules` 跳转支持按动作类型直达对应 tab
@@ -302,6 +306,10 @@ UI 布局：
 │                                          [Cancel] [Send]         │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+**虚拟滚动（M1）：** WS Messages 消息列表使用 `@tanstack/react-virtual` 渲染，常量 `MESSAGE_ROW_HEIGHT = 42`，`MESSAGE_ROW_OVERSCAN = 8`。即使消息量达到上千条，滚动仍保持流畅。
+
+**Body 截断提示（M1）：** 当请求/响应 Body 在 20MB 处被截断时，Inspector 各面板会显示 MUI Alert 警告，提示用户 Body 已被截断。该提示文案通过 i18n 系统维护（`en.ts` / `zh-CN.ts`）。
 
 ## 5. Compose Page — `已实现`
 
