@@ -25,3 +25,10 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 rand = "0.8"
 tracing = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "body_decompress"
+harness = false
