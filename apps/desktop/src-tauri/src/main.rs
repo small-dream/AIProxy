@@ -132,6 +132,7 @@ pub fn run() {
             commands::disable_system_proxy,
             commands::save_text_file,
             commands::read_har_file,
+            commands::save_media_file,
             commands::get_certificate_status,
             commands::generate_root_certificate,
             commands::open_certificate_install_guide,

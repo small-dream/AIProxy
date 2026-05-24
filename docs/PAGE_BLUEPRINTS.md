@@ -77,8 +77,8 @@
 │ │   ▸ /api/list?a=1   │      ├───────────────────────────────────────────┤ │
 │ │ ▸ assets.example.com│      │ Request: <Overview> <Query> <Headers>     │ │
 │ │ ...                 │      │          <Body> <Form> <Raw>              │ │
-│ └─────────────────────┘      │ Response: <Overview> <Headers> <Text>     │ │
-│                               │           <JSON> <JSON Text> <Raw>        │ │
+│ └─────────────────────┘      │ Response: <Overview> <Preview> <Headers> <Text>     │ │
+│                               │           <JSON> <JSON Text> <Raw>      │ │
 │                               │ [Inspector content / search / repeat]     │ │
 │                               └───────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -114,6 +114,7 @@ SessionsPage
 │     ├─ InspectorSummaryBar
 │     ├─ SessionInspectorRequestPane
 │     └─ SessionInspectorResponsePane
+│        └─ SessionInspectorMediaPreview（图片/音视频预览）
 │        └─ SessionInspectorMessagesPane（WebSocket 专用）
 │           ├─ Connection Status Indicator
 │           ├─ Message List + Detail Split
@@ -131,6 +132,7 @@ SessionsPage
 | `pages/sessions/index.tsx` | SessionsPage 主页面，组合搜索、导出、上下文菜单、详情与跳转动作 |
 | `features/sessions/components/SessionExplorerPane.tsx` | Host 树（路径分支节点统一使用 Folder Icon，不再区分展开/折叠态）、请求节点、右键入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
+| `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
 | `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作与页面跳转 |
 | `features/sessions/components/SessionExportDialog.tsx` | Selected / Filtered / All 导出范围与格式选择 |
 

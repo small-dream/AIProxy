@@ -84,6 +84,7 @@ export function ComposeResponseSection({
       ) : responseDetail ? (
         <SessionInspectorResponsePane
           detail={responseDetail}
+          isResponseBodyBase64Loading={false}
           isResponseBodyLoading={false}
           isResponseRawLoading={false}
           onResponseTabChange={onResponseTabChange}

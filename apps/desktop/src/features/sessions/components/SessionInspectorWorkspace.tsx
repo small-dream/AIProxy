@@ -133,12 +133,13 @@ function SessionInspectorWorkspace({
   }, [activePane]);
 
   const loadDeferredContent = useCallback(async (
-    key: "requestBodyText" | "requestBodyBase64" | "requestRaw" | "responseBodyText" | "responseRaw",
+    key: "requestBodyText" | "requestBodyBase64" | "requestRaw" | "responseBodyText" | "responseBodyBase64" | "responseRaw",
     request: {
       includeRequestBodyText?: boolean;
       includeRequestBodyBase64?: boolean;
       includeRawRequest?: boolean;
       includeResponseBodyText?: boolean;
+      includeResponseBodyBase64?: boolean;
       includeRawResponse?: boolean;
     },
   ) => {
@@ -227,11 +228,19 @@ function SessionInspectorWorkspace({
           : { includeRawResponse: true },
       );
     }
+
+    if (responseTab === "preview"
+      && detail.responseBody?.base64Deferred
+      && detail.responseBody.base64Text === undefined
+      && !contentLoading.responseBodyBase64) {
+      void loadDeferredContent("responseBodyBase64", { includeResponseBodyBase64: true });
+    }
   }, [
     contentLoading.requestBodyText,
     contentLoading.requestBodyBase64,
     contentLoading.requestRaw,
     contentLoading.responseBodyText,
+    contentLoading.responseBodyBase64,
     contentLoading.responseRaw,
     detail,
     isMultipartRequestBody,
@@ -249,6 +258,7 @@ function SessionInspectorWorkspace({
     : Boolean(contentLoading.requestBodyText);
   const isRequestRawLoading = Boolean(contentLoading.requestRaw);
   const isResponseBodyLoading = Boolean(contentLoading.responseBodyText);
+  const isResponseBodyBase64Loading = Boolean(contentLoading.responseBodyBase64);
   const isResponseRawLoading = Boolean(contentLoading.responseRaw);
 
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
@@ -391,6 +401,7 @@ function SessionInspectorWorkspace({
             key={`${selectedSession.id}:${sessionSelectionNonce}:response`}
             detail={detail}
             ref={responsePaneRef}
+            isResponseBodyBase64Loading={isResponseBodyBase64Loading}
             isResponseBodyLoading={isResponseBodyLoading}
             isResponseRawLoading={isResponseRawLoading}
             onResponseTabChange={onResponseTabChange}

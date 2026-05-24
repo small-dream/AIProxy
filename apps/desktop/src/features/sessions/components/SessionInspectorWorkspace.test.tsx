@@ -299,7 +299,130 @@ describe("SessionInspectorWorkspace", () => {
     ]);
   });
 
-  it("falls back to overview when the current response tab is hidden for the session", () => {
+  it("renders Preview tab for image responses", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "image/png" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              mimeType: "image/png",
+              sizeBytes: 1024,
+            },
+            summary: createSessionSummary({ responseMimeType: "image/png" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Preview",
+      "Headers (1)",
+    ]);
+  });
+
+  it("renders Preview tab alongside Text tab for SVG responses", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "image/svg+xml" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              inlineText: "<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"10\"/></svg>",
+              mimeType: "image/svg+xml",
+              sizeBytes: 60,
+            },
+            summary: createSessionSummary({ responseMimeType: "image/svg+xml" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Preview",
+      "Text",
+      "Headers (1)",
+    ]);
+  });
+
+  it("renders Preview tab for audio/video responses", () => {
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="overview"
+          selectedSession={createSessionSummary({ responseMimeType: "video/mp4" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              base64Text: "AAAA",
+              mimeType: "video/mp4",
+              sizeBytes: 5000,
+            },
+            summary: createSessionSummary({ responseMimeType: "video/mp4" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    const responseTabList = screen.getAllByRole("tablist")[1];
+    const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
+
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Preview",
+      "Headers (1)",
+    ]);
+  });
+
+  it("does not render Preview tab for non-media binary responses", () => {
     const handleResponseTabChange = vi.fn();
 
     render(

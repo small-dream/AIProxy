@@ -16,11 +16,13 @@ import {
   describeBody,
   getBodyText,
   getRawMessageText,
+  hasPreviewableMediaMimeType,
   type JsonParseResult,
   type ResponseInspectorTab,
   type SearchMatcher,
 } from "./session-inspector.helpers";
 import { isWebSocketSession } from "./session-inspector.helpers";
+import { SessionInspectorMediaPreview } from "./SessionInspectorMediaPreview";
 import { SearchBar } from "./SearchBar";
 import { useSearchController } from "./use-search-controller";
 
@@ -66,20 +68,29 @@ function getVisibleResponseTabs(
   }
 
   const responseContentKind = getResponseContentKind(detail, session);
+  const mimeType = detail?.responseBody?.mimeType ?? session.responseMimeType;
+  const hasPreview = hasPreviewableMediaMimeType(mimeType);
 
   if (responseContentKind === "json") {
-    return ["overview", "json", "jsonText", "headers", "raw", "automation"];
+    return hasPreview
+      ? ["overview", "preview", "json", "jsonText", "headers", "raw", "automation"]
+      : ["overview", "json", "jsonText", "headers", "raw", "automation"];
   }
 
   if (responseContentKind === "text") {
-    return ["overview", "text", "headers", "raw", "automation"];
+    return hasPreview
+      ? ["overview", "preview", "text", "headers"]
+      : ["overview", "text", "headers", "raw", "automation"];
   }
 
-  return ["overview", "headers", "raw", "automation"];
+  return hasPreview
+    ? ["overview", "preview", "headers"]
+    : ["overview", "headers", "raw", "automation"];
 }
 
 export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   detail: SessionDetail | undefined;
+  isResponseBodyBase64Loading: boolean;
   isResponseBodyLoading: boolean;
   isResponseRawLoading: boolean;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
@@ -90,6 +101,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   session: SessionSummary;
 }>(function SessionInspectorResponsePane({
   detail,
+  isResponseBodyBase64Loading,
   isResponseBodyLoading,
   isResponseRawLoading,
   onResponseTabChange,
@@ -104,7 +116,8 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const searchController = useSearchController();
   const visibleTabs = useMemo(() => getVisibleResponseTabs(detail, session), [detail, session]);
-  const activeResponseTab = visibleTabs.includes(responseTab) ? responseTab : "overview";
+  const defaultTab = visibleTabs.includes("preview") ? "preview" : "overview";
+  const activeResponseTab = visibleTabs.includes(responseTab) ? responseTab : defaultTab;
   const isSearchable = SEARCHABLE_TABS.has(activeResponseTab);
 
   useEffect(() => {
@@ -114,9 +127,16 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
   useEffect(() => {
     if (!visibleTabs.includes(responseTab)) {
-      onResponseTabChange("overview");
+      const fallback = visibleTabs.includes("preview") ? "preview" : "overview";
+      onResponseTabChange(fallback);
     }
   }, [onResponseTabChange, responseTab, visibleTabs]);
+
+  useEffect(() => {
+    if (visibleTabs.includes("preview") && responseTab === "overview") {
+      onResponseTabChange("preview");
+    }
+  }, [onResponseTabChange, session.id, responseTab, visibleTabs]);
 
   useEffect(() => {
     if (!isSearchable) {
@@ -188,6 +208,9 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           variant="scrollable"
         >
           <Tab label={t("inspector.response.tabs.overview")} value="overview" />
+          {visibleTabs.includes("preview") ? (
+            <Tab label={t("inspector.response.tabs.preview")} value="preview" />
+          ) : null}
           {visibleTabs.includes("json") ? (
             <Tab label={t("inspector.response.tabs.json")} value="json" />
           ) : null}
@@ -263,13 +286,14 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           flex: 1,
           minHeight: 0,
           overflow: "hidden",
-          pl: activeResponseTab === "json" ? 0 : 2,
+          pl: (activeResponseTab === "json" || activeResponseTab === "preview") ? 0 : 2,
           pr: 0.5,
-          py: activeResponseTab === "json" ? 0 : 2,
+          py: (activeResponseTab === "json" || activeResponseTab === "preview") ? 0 : 2,
         }}
       >
         <ResponseTabContent
           detail={detail}
+          isResponseBodyBase64Loading={isResponseBodyBase64Loading}
           isResponseBodyLoading={isResponseBodyLoading}
           isResponseRawLoading={isResponseRawLoading}
           onSearchWithText={handleSearchWithText}
@@ -321,6 +345,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
 
 function ResponseTabContent({
   detail,
+  isResponseBodyBase64Loading,
   isResponseBodyLoading,
   isResponseRawLoading,
   onSearchWithText,
@@ -333,6 +358,7 @@ function ResponseTabContent({
   session,
 }: {
   detail: SessionDetail | undefined;
+  isResponseBodyBase64Loading: boolean;
   isResponseBodyLoading: boolean;
   isResponseRawLoading: boolean;
   onSearchWithText?: ((text: string) => void) | undefined;
@@ -355,6 +381,16 @@ function ResponseTabContent({
     return (
       <SessionInspectorOverview
         detail={detail}
+        session={session}
+      />
+    );
+  }
+
+  if (responseTab === "preview") {
+    return (
+      <SessionInspectorMediaPreview
+        detail={detail}
+        isLoading={isResponseBodyBase64Loading}
         session={session}
       />
     );

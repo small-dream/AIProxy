@@ -394,11 +394,15 @@ Sessions Page
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
+- 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
+- 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
 
 - 当前动作组：
   - 复制：`Copy URL`、`Copy Request`、`Copy Response`
   - JSON 树：`Copy Key`、`Copy Value`
   - 代码块：`Copy`、`Search`
+  - 媒体预览（图片）：`Copy Image`、`Save Image As...`、`Copy Image URL`、`Open in Browser`
+  - 媒体预览（音频/视频）：`Save As...`、`Copy URL`、`Open in Browser`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
   - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
@@ -418,7 +422,12 @@ Sessions Page
 ### 详情面板标签
 
 - Request：`Overview / Query / Headers / Body / Form / Raw`
-- Response：`Overview / Headers / Text / JSON / JSON Text / Raw`
+- Response：`Overview / Preview / Headers / Text / JSON / JSON Text / Raw`
+- `Preview` Tab 仅在响应 MIME 类型为图片（`image/*`）、音频（`audio/*`）或视频（`video/*`）时显示
+- 图片预览使用 `<img>` 渲染 data URI，支持 `object-fit: contain` 自适应容器，底部展示尺寸、MIME 类型、文件大小
+- 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件
+- SVG 同时拥有 Text Tab（原始 XML）和 Preview Tab（渲染后图形）
+- Preview Tab 的 base64 数据通过 `get_session_detail_content` 按需懒加载
 
 ### 详情面板内容层级
 

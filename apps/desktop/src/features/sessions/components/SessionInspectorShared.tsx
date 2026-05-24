@@ -13,7 +13,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars, defaultAppFontSize } from "@/themes/fonts";
-import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
+import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, hasPreviewableMediaMimeType, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -102,7 +102,10 @@ export function InspectorSummaryBar({
 }) {
   const { t } = useI18n();
   const totalDuration = detail?.timing?.totalMs ?? session.durationMs;
-  const requestOperationLabel = getRequestOperationLabel(detail, session);
+  const isMediaResponse = hasPreviewableMediaMimeType(session.responseMimeType);
+  const requestOperationLabel = isMediaResponse
+    ? undefined
+    : getRequestOperationLabel(detail, session);
 
   return (
     <Stack
@@ -117,12 +120,14 @@ export function InspectorSummaryBar({
     >
       <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
         <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
-          <Chip
-            color={getMethodColor(session.method)}
-            label={session.method.toUpperCase()}
-            size="small"
-            variant="filled"
-          />
+          {isMediaResponse ? null : (
+            <Chip
+              color={getMethodColor(session.method)}
+              label={session.method.toUpperCase()}
+              size="small"
+              variant="filled"
+            />
+          )}
           <Chip
             color={getStatusColor(session.statusCode)}
             label={String(session.statusCode)}

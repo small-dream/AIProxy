@@ -9,6 +9,7 @@ import {
   getBodyCodeLanguage,
   getJsonChildren,
   getRequestOperationLabel,
+  hasPreviewableMediaMimeType,
   parseFormEntries,
   parseJsonBody,
   serializeJsonNode,
@@ -322,5 +323,50 @@ describe("getJsonChildren", () => {
 
   it("returns an empty array for an empty array", () => {
     expect(getJsonChildren([])).toEqual([]);
+  });
+});
+
+describe("hasPreviewableMediaMimeType", () => {
+  it("returns true for common image types", () => {
+    expect(hasPreviewableMediaMimeType("image/png")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/jpeg")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/gif")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/webp")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/svg+xml")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/bmp")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/x-icon")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/tiff")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/avif")).toBe(true);
+    expect(hasPreviewableMediaMimeType("image/apng")).toBe(true);
+  });
+
+  it("returns true for audio and video types", () => {
+    expect(hasPreviewableMediaMimeType("audio/mpeg")).toBe(true);
+    expect(hasPreviewableMediaMimeType("audio/wav")).toBe(true);
+    expect(hasPreviewableMediaMimeType("audio/ogg")).toBe(true);
+    expect(hasPreviewableMediaMimeType("video/mp4")).toBe(true);
+    expect(hasPreviewableMediaMimeType("video/webm")).toBe(true);
+  });
+
+  it("returns true regardless of case", () => {
+    expect(hasPreviewableMediaMimeType("Image/PNG")).toBe(true);
+    expect(hasPreviewableMediaMimeType("IMAGE/JPEG")).toBe(true);
+    expect(hasPreviewableMediaMimeType("Audio/MPEG")).toBe(true);
+  });
+
+  it("returns false for non-media types", () => {
+    expect(hasPreviewableMediaMimeType("application/json")).toBe(false);
+    expect(hasPreviewableMediaMimeType("text/plain")).toBe(false);
+    expect(hasPreviewableMediaMimeType("application/octet-stream")).toBe(false);
+    expect(hasPreviewableMediaMimeType("font/woff2")).toBe(false);
+    expect(hasPreviewableMediaMimeType("application/pdf")).toBe(false);
+  });
+
+  it("returns false for undefined", () => {
+    expect(hasPreviewableMediaMimeType(undefined)).toBe(false);
+  });
+
+  it("returns false for empty string", () => {
+    expect(hasPreviewableMediaMimeType("")).toBe(false);
   });
 });

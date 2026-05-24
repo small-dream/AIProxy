@@ -754,8 +754,29 @@ type GetSessionDetailContentOutput = SessionDetailContentPatch;
 
 - 用于按需加载详情中被延迟的 raw request / raw response / request body / response body 内容
 - 前端通过 `mergeSessionDetailContent()` 合并 patch，避免列表轮询或详情首屏携带大体积 payload
+- `includeResponseBodyBase64` 用于媒体预览场景：当响应 MIME 类型为 `image/*`、`audio/*`、`video/*` 时，前端切换到 Preview Tab 后按需请求 base64 数据，构造 data URI 进行行内渲染
 
-### `clear_sessions`
+### `save_media_file`
+
+请求：
+
+```ts
+type SaveMediaFileInput = {
+  base64Content: string;
+  path: string;
+};
+```
+
+响应：
+
+```ts
+type SaveMediaFileOutput = string; // 保存的文件路径
+```
+
+说明：
+
+- 用于媒体预览区的「另存为...」功能，将 base64 编码的媒体内容解码后写入用户通过文件对话框选择的路径
+- 前端通过 Tauri `dialog.save()` 获取目标路径，再调用此命令写入文件
 
 请求：
 

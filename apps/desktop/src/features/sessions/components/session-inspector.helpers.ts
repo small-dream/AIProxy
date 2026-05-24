@@ -98,10 +98,32 @@ export type ResponseInspectorTab =
   | "automation"
   | "headers"
   | "messages"
+  | "preview"
   | "text"
   | "json"
   | "jsonText"
   | "raw";
+
+const PREVIEWABLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+  "image/x-icon",
+  "image/tiff",
+  "image/avif",
+  "image/apng",
+]);
+
+export function hasPreviewableMediaMimeType(mimeType?: string): boolean {
+  if (!mimeType) return false;
+  const lower = mimeType.toLowerCase();
+  if (PREVIEWABLE_IMAGE_TYPES.has(lower)) return true;
+  if (lower.startsWith("audio/") || lower.startsWith("video/")) return true;
+  return false;
+}
 
 export type JsonParseResult =
   | { status: "idle" }
