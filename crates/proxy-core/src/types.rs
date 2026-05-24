@@ -485,6 +485,7 @@ pub struct ProxySessionDetail {
     pub script_traces: Vec<ScriptTrace>,
     pub throttle_traces: Vec<ThrottleTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
+    pub timing_source: Option<String>,
 }
 
 impl ProxySessionDetail {
@@ -572,6 +573,9 @@ impl Serialize for ProxySessionDetail {
         state.serialize_field("throttleTraces", &self.throttle_traces)?;
         if let Some(timing) = &self.timing {
             state.serialize_field("timing", timing)?;
+        }
+        if let Some(timing_source) = &self.timing_source {
+            state.serialize_field("timingSource", timing_source)?;
         }
         state.end()
     }

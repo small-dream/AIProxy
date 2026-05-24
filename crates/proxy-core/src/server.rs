@@ -687,6 +687,7 @@ async fn handle_connection(
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
+            session_detail.timing_source = Some("proxy".to_string());
 
             // --- Response-stage breakpoint ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -2341,6 +2342,7 @@ async fn handle_connect_mitm(
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
+            session_detail.timing_source = Some("proxy".to_string());
 
             // --- Response-stage breakpoint (HTTPS) ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -2854,6 +2856,7 @@ pub async fn send_direct_request(
         tls_cipher_suite: None,
         tls_protocol: None,
         timing: Some(timing),
+        timing_source: Some("compose".to_string()),
     })
 }
 

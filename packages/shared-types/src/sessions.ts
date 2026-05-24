@@ -69,6 +69,7 @@ export type SessionDetail = {
   tlsCipherSuite?: string;
   tlsProtocol?: string;
   timing?: TimingBreakdown;
+  timingSource?: "proxy" | "compose" | "har-import" | undefined;
 };
 
 export type SessionDetailContentRequest = {
@@ -363,6 +364,9 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.timing !== null && candidate.timing !== undefined
         ? { timing: normalizeTimingBreakdown(candidate.timing) }
+        : {}),
+      ...(candidate.timingSource !== null && candidate.timingSource !== undefined
+        ? { timingSource: candidate.timingSource as SessionDetail["timingSource"] }
         : {}),
     };
   }

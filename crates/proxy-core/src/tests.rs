@@ -352,6 +352,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
             total_ms: Some(1),
             waiting_ms: Some(1),
         }),
+        timing_source: None,
     };
 
     let actual = serde_json::to_value(&detail).unwrap();
