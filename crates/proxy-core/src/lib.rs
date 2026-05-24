@@ -34,8 +34,6 @@ use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
-const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
-const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const CLIENT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -46,8 +44,6 @@ const BROTLI_BUFFER_SIZE: usize = 4096;
 const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = MAX_CAPTURED_BODY_BYTES;
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
-
-static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 mod breakpoints;
 mod http_io;
@@ -94,13 +90,14 @@ pub(crate) use breakpoints::{
     intercept_response_stage,
 };
 pub(crate) use http_io::{
-    build_body_reference, build_cookie_entries, build_header_entries_from_httparse_headers,
-    build_header_entries_from_map, build_pending_session_detail, build_query_params,
-    build_raw_http_head, build_request_path, build_session_detail, build_session_summary,
-    build_upstream_headers, build_upstream_headers_from_entries, find_header_end, map_io_error,
-    read_content_length, resolve_target_url, should_skip_request_header,
-    should_skip_response_header, write_plain_text_response, write_upstream_response,
-    SessionSummaryInput,
+    build_body_reference, build_body_reference_from_decoded, build_cookie_entries,
+    build_header_entries_from_httparse_headers, build_header_entries_from_map,
+    build_pending_session_detail, build_query_params, build_raw_http_head, build_request_path,
+    build_session_detail, build_session_summary, build_upstream_headers,
+    build_upstream_headers_from_entries, decode_body_bytes, find_header_end, map_io_error,
+    read_content_length, resolve_target_url, should_render_body_as_text,
+    should_skip_request_header, should_skip_response_header, write_plain_text_response,
+    write_upstream_response, SessionSummaryInput,
 };
 pub(crate) use logging::emit_log;
 pub(crate) use rules::{

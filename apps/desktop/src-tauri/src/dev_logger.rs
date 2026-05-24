@@ -1,18 +1,19 @@
-use chrono::Utc;
 use std::{
     env,
     ffi::OsStr,
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::OnceLock,
 };
+
+use tracing_subscriber::{fmt::writer::MakeWriterExt, EnvFilter};
 
 const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 
-static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
 pub fn initialize() -> Result<PathBuf, String> {
     let log_file_path = resolve_log_file_path();
@@ -26,20 +27,26 @@ pub fn initialize() -> Result<PathBuf, String> {
         })?;
     }
 
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&log_file_path)
-        .map_err(|error| {
-            format!(
-                "failed to reset AIProxy development log file {}: {error}",
-                log_file_path.display()
-            )
-        })?;
-
     env::set_var(DEV_LOG_ENV_VAR, &log_file_path);
-    install_panic_hook(log_file_path.clone());
+
+    let file_appender = tracing_appender::rolling::never(
+        log_file_path.parent().unwrap_or_else(|| Path::new(".")),
+        log_file_path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new(DEV_LOG_FILE_NAME)),
+    );
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+    let _ = GUARD.set(guard);
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(non_blocking.and(std::io::stderr))
+        .with_ansi(false)
+        .init();
+
+    install_panic_hook();
 
     log_info(
         "desktop.app",
@@ -72,41 +79,16 @@ pub fn write_stderr_line(line: &str) {
 }
 
 fn emit_log(level: &str, component: &str, event: &str, fields: &[(&str, String)]) {
-    let timestamp = Utc::now().to_rfc3339();
-    let mut line =
-        format!("timestamp={timestamp} level={level} component={component} event={event}");
-
-    for (name, value) in fields {
-        line.push(' ');
-        line.push_str(name);
-        line.push('=');
-        line.push_str(&quote_value(value));
-    }
-
-    write_stderr_line(&line);
-    append_to_log_file(&line);
-}
-
-fn append_to_log_file(line: &str) {
-    let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
-
-    let log_file_path = resolve_log_file_path();
-
-    if let Some(parent) = log_file_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_file_path)
-    {
-        let _ = writeln!(file, "{line}");
+    let fields_ref: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    match level {
+        "ERROR" => tracing::error!(component, event, fields = ?fields_ref),
+        "WARN" => tracing::warn!(component, event, fields = ?fields_ref),
+        "INFO" => tracing::info!(component, event, fields = ?fields_ref),
+        _ => tracing::debug!(component, event, fields = ?fields_ref),
     }
 }
 
-fn install_panic_hook(log_file_path: PathBuf) {
+fn install_panic_hook() {
     let previous_hook = panic::take_hook();
 
     panic::set_hook(Box::new(move |panic_info| {
@@ -119,36 +101,18 @@ fn install_panic_hook(log_file_path: PathBuf) {
         };
         let location = panic_info
             .location()
-            .map(|location| format!("{}:{}", location.file(), location.line()))
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
             .unwrap_or_else(|| "unknown".to_string());
-        let panic_line = format!(
-            "timestamp={} level=ERROR component=desktop.app event=panic location={} payload={}",
-            Utc::now().to_rfc3339(),
-            quote_value(&location),
-            quote_value(&payload)
+
+        tracing::error!(
+            component = "desktop.app",
+            event = "panic",
+            location = %location,
+            payload = %payload,
         );
 
-        append_specific_log_file(&log_file_path, &panic_line);
-        write_stderr_line(&panic_line);
         let _ = panic::catch_unwind(AssertUnwindSafe(|| previous_hook(panic_info)));
     }));
-}
-
-fn append_specific_log_file(log_file_path: &Path, line: &str) {
-    let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
-    let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
-
-    if let Some(parent) = log_file_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file_path)
-    {
-        let _ = writeln!(file, "{line}");
-    }
 }
 
 fn resolve_log_file_path() -> PathBuf {
@@ -175,10 +139,4 @@ fn discover_workspace_root_from_current_exe() -> Option<PathBuf> {
     }
 
     None
-}
-
-fn quote_value(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-
-    format!("\"{escaped}\"")
 }

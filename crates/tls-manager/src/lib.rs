@@ -8,17 +8,13 @@ pub use storage::CertStorage;
 pub use trust::{detect_platform, is_cert_trusted_on_platform, Platform};
 
 fn emit_log(level: &str, event: &str, fields: &[(&str, String)]) {
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let mut line =
-        format!("timestamp={timestamp} level={level} component=tls-manager event={event}");
-    for (name, value) in fields {
-        line.push(' ');
-        line.push_str(name);
-        line.push('=');
-        line.push_str(&value.replace('\\', "\\\\").replace('"', "\\\""));
+    let fields_ref: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    match level {
+        "ERROR" => tracing::error!(event, fields = ?fields_ref),
+        "WARN" => tracing::warn!(event, fields = ?fields_ref),
+        "INFO" => tracing::info!(event, fields = ?fields_ref),
+        _ => tracing::debug!(event, fields = ?fields_ref),
     }
-    let mut stderr = std::io::stderr().lock();
-    let _ = std::io::Write::write_fmt(&mut stderr, format_args!("{line}\n"));
 }
 
 use serde::Serialize;
