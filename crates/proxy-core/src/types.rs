@@ -485,6 +485,7 @@ pub struct ProxySessionDetail {
     pub script_traces: Vec<ScriptTrace>,
     pub throttle_traces: Vec<ThrottleTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
+    pub timing_source: Option<String>,
 }
 
 impl ProxySessionDetail {
@@ -572,6 +573,9 @@ impl Serialize for ProxySessionDetail {
         state.serialize_field("throttleTraces", &self.throttle_traces)?;
         if let Some(timing) = &self.timing {
             state.serialize_field("timing", timing)?;
+        }
+        if let Some(timing_source) = &self.timing_source {
+            state.serialize_field("timingSource", timing_source)?;
         }
         state.end()
     }
@@ -673,12 +677,16 @@ pub(crate) struct ParsedProxyRequest {
 #[derive(Debug)]
 pub(crate) struct UpstreamResponse {
     pub(crate) body_truncated: bool,
+    pub(crate) connect_ms: u128,
+    pub(crate) dns_ms: u128,
+    pub(crate) request_send_ms: u128,
     pub(crate) response_body: Vec<u8>,
     pub(crate) response_body_size_bytes: usize,
     pub(crate) response_headers: HeaderMap,
     pub(crate) response_read_ms: u128,
     pub(crate) spooled_response_path: Option<PathBuf>,
     pub(crate) status_code: StatusCode,
+    pub(crate) tls_ms: Option<u128>,
     pub(crate) waiting_ms: u128,
 }
 

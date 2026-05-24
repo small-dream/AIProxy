@@ -49,6 +49,7 @@ mod http_io;
 mod logging;
 mod rules;
 mod server;
+mod timing_connector;
 mod types;
 pub mod ws;
 
@@ -77,6 +78,7 @@ pub use types::{
     ProxyProtocolMetadata, ProxyRuntimeConfig, ProxyServerHandle, ProxySessionDetail,
     ProxySessionSummary, ProxyTimingBreakdown, StartedProxyServer, TlsManager,
 };
+pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use ws::{
     global_ws_registry, WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest,
     WsMessageData, WsOpcode,

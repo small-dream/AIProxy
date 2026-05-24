@@ -105,6 +105,7 @@ export const enMessages = {
     collections: "Collections",
     compare: "Compare",
     compose: "Compose",
+    insights: "Insights",
     manage: "Manage",
     rules: "Rules",
     sessions: "Sessions",
@@ -915,6 +916,15 @@ export const enMessages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "View full value",
+    waterfall: {
+      unavailable: "Timing unavailable",
+      dns: "DNS",
+      connect: "Connect",
+      tls: "TLS",
+      send: "Send",
+      wait: "Wait",
+      download: "Download",
+    },
     json: {
       array: "Array [{{count}}]",
       boolean: "Boolean",
@@ -1191,6 +1201,48 @@ export const enMessages = {
     replayTooltip: "Edit and replay this message",
     injectionFailed: "Failed to send message",
     searchResultsCount: "{{count}} matches",
+  },
+  insightsPage: {
+    title: "Insights",
+    overview: {
+      totalRequests: "Total Requests",
+      errorRate: "Error Rate",
+      avgDuration: "Avg Duration",
+      p95Duration: "P95 Duration",
+      p99Duration: "P99 Duration",
+      totalTraffic: "Total Traffic",
+    },
+    hosts: {
+      title: "By Host",
+      host: "Host",
+      requests: "Requests",
+      errors: "Errors",
+      avgDuration: "Avg Duration",
+      p95Duration: "P95 Duration",
+      traffic: "Traffic",
+    },
+    slowRequests: {
+      title: "Slow Requests",
+      url: "URL",
+      method: "Method",
+      status: "Status",
+      duration: "Duration",
+    },
+    statusCodes: {
+      title: "Status Codes",
+    },
+    methods: {
+      title: "Methods",
+    },
+    export: {
+      title: "Export",
+      markdown: "Export as Markdown",
+      json: "Export as JSON",
+    },
+    states: {
+      noData: "No session data available",
+      loading: "Loading insights...",
+    },
   },
   collectionsPage: {
     title: "Collections",

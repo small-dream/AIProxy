@@ -126,6 +126,7 @@ pub fn run() {
             commands::clear_sessions,
             commands::delete_sessions_except,
             commands::set_focused_hosts,
+            commands::get_insights,
             commands::start_proxy,
             commands::stop_proxy,
             commands::enable_system_proxy,

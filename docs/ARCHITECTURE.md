@@ -201,6 +201,8 @@ flowchart LR
 - 内建 `RewriteManager`，支持 Header / Query / Body / Redirect 改写，并记录会话级 rewrite trace — `已实现`
 - 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
+- `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
+- `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
 
 DNS 覆盖实现机制：
 
@@ -290,6 +292,7 @@ TLS 证书缓存机制：
 - 将大体积请求/响应内容按策略落盘
 - 提供搜索、过滤、排序、分页查询接口
 - 在当前 MVP 阶段，桌面运行时内存中保留最近会话的 `summary + detail`，供 `Inspector` 快速读取
+- 提供 `compute_insights()` 聚合查询函数，基于 SQLite 对会话数据按 host / status code / method 分组统计，支持平均/P95 耗时、错误率、慢请求排名等指标
 
 批量持久化机制：
 
@@ -370,6 +373,7 @@ TLS 证书缓存机制：
 - `list_api_environments` / `upsert_api_environment` / `delete_api_environment`
 - `list_api_environment_variables` / `set_api_environment_variables`
 - `list_api_global_variables` / `set_api_global_variables`
+- `get_insights` — `已实现`，基于 SQLite 聚合查询返回流量统计分析结果
 
 ## 7.3 关键事件示例
 
@@ -411,6 +415,29 @@ sequenceDiagram
     P-->>T: 推送会话事件
     T-->>UI: session-upsert
     U->>UI: 查看详情 / Repeat / Compose
+```
+
+### Insights 数据流
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as React UI (InsightsPage)
+    participant T as Tauri Layer
+    participant S as Session Store
+    participant DB as SQLite
+
+    U->>UI: 打开 Insights 页面
+    UI->>T: get_insights({ workspaceId })
+    T->>S: compute_insights()
+    S->>DB: 聚合查询（host / status / method / duration）
+    DB-->>S: 查询结果
+    S-->>T: InsightsResult
+    T-->>UI: 返回聚合数据
+    UI->>UI: 渲染概览卡片、Host 表格、分布图、慢请求列表
+    U->>UI: 点击导出
+    UI->>UI: exportInsightsAsMarkdown / exportInsightsAsJson
+    UI->>T: save_text_file
 ```
 
 ## 9. 数据模型
@@ -682,6 +709,7 @@ erDiagram
 - `ThrottlingPage`
 - `CertificatesPage`
 - `SettingsPage`（含 Proxy Presets section）
+- `InsightsPage`（流量统计分析）
 
 ### 页面蓝图协同规则
 
@@ -719,6 +747,7 @@ erDiagram
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层
+- `insights` — `已实现首版`：InsightsPage + use-insights hooks + SQLite 聚合查询；支持 host breakdown、status code/method 分布、慢请求排名和导出（Markdown/JSON）
 
 ## 11.3 组件分层
 
@@ -766,6 +795,7 @@ project-root/
 │     │  │  │  ├─ workspaces.ts
 │     │  │  │  ├─ sessions.ts
 │     │  │  │  ├─ compose.ts
+│     │  │  │  ├─ insights.ts
 │     │  │  │  ├─ rules.ts
 │     │  │  │  ├─ throttling.ts
 │     │  │  │  ├─ certificates.ts
@@ -787,6 +817,7 @@ project-root/
 │        │  │  ├─ workspaces.rs
 │        │  │  ├─ sessions.rs
 │        │  │  ├─ compose.rs
+│        │  │  ├─ insights.rs
 │        │  │  ├─ rules.rs
 │        │  │  ├─ throttling.rs
 │        │  │  ├─ certificates.rs
@@ -819,6 +850,7 @@ project-root/
 │  │     ├─ workspaces.ts
 │  │     ├─ sessions.ts
 │  │     ├─ compose.ts
+│  │     ├─ insights.ts
 │  │     ├─ rules.ts
 │  │     ├─ throttling.ts
 │  │     ├─ certificates.ts
@@ -857,7 +889,7 @@ project-root/
 
 ### 命令处理三层同构原则
 
-为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`ai / certificates / collections / compose / environments / files / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
+为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`ai / certificates / collections / compose / environments / files / insights / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
 
 - Rust 命令层：`apps/desktop/src-tauri/src/commands/<domain>.rs`，`mod.rs` 仅做 `mod` 声明与 `pub use` 汇聚，不写业务实现
 - 前端命令客户端：`apps/desktop/src/services/commands/<domain>.ts`，`index.ts` 仅做 barrel re-export，`runtime.ts` 承载 `invokeCommand` 等基础设施
@@ -934,9 +966,11 @@ project-root/
 
 ### 15.5 Inspector 详情链路
 
-- `proxy-core` 负责采集请求头、响应头、请求体、响应体和基础 timing
-- `desktop.commands` 通过 `get_session_detail` 暴露单条会话详情
-- 前端 `Session Inspector Workspace` 按需查询详情，避免列表轮询时携带大体积 payload
+- `proxy-core` 负责采集请求头、响应头、请求体、响应体和完整 timing
+- 代理捕获会话通过 `TimingConnector`（hyper）采集全部 7 个 timing 阶段，`timing_source` 标记为 `"proxy"`
+- Compose 发送的请求通过 `reqwest` 采集部分 timing（totalMs / waitingMs / responseReadMs），`timing_source` 标记为 `"compose"`
+- `desktop.commands` 通过 `get_session_detail` 暴露单条会话详情（含 `timingSource` 字段）
+- 前端 `Session Inspector Workspace` 按需查询详情，`WaterfallChart` 组件根据 `timingSource` 展示对应粒度的 timing 瀑布图
 
 ## 16. 风险与演进建议
 

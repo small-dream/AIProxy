@@ -114,6 +114,7 @@ SessionsPage
 │     ├─ InspectorSummaryBar
 │     ├─ SessionInspectorRequestPane
 │     └─ SessionInspectorResponsePane
+│        ├─ WaterfallChart（Overview Tab 内嵌，展示 timing 水平堆叠条形图）
 │        └─ SessionInspectorMediaPreview（图片/音视频预览）
 │        └─ SessionInspectorMessagesPane（WebSocket 专用）
 │           ├─ Connection Status Indicator
@@ -233,6 +234,7 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 
 ### 4.8 当前实现说明
 
+- Inspector Response Overview Tab 内嵌 `WaterfallChart` 组件，展示 timing 水平堆叠条形图（dns / connect / tls / request_send / waiting / response_read / total），各阶段使用不同颜色区分并支持 Tooltip 显示具体耗时。WaterfallChart 根据 `timingSource` 自动调整展示粒度：`"proxy"` 显示全部 7 个阶段，`"compose"` 仅显示已采集的阶段，`"har-import"` 取决于导入数据。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
 - 右键菜单只挂在会话叶子节点 / 代码块视图，不作用于 Host 分组节点。
@@ -1023,6 +1025,109 @@ CollectionsPage
 | Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `move_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `move_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `collectionsPage.*` 文案键 |
 
+## 10.7 Insights Page — `已实现首版`
+
+### 10.7.1 页面目标
+
+提供流量统计分析面板，基于已捕获会话的聚合数据展示概览、Host 维度分析、分布图和慢请求排名。
+
+### 10.7.2 低保真线框
+
+```text
+[Insights Page]
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Title: Insights                                            (Export ▾)         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Overview Cards]                                                             │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│ │ Total       │ │ Avg         │ │ Error       │ │ Total       │            │
+│ │ Requests    │ │ Duration    │ │ Rate        │ │ Size        │            │
+│ │ 1,234       │ │ 234 ms      │ │ 2.3%        │ │ 12.4 MB     │            │
+│ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Host Breakdown Table]                                                       │
+│ Host         │ Requests │ Avg (ms) │ P95 (ms) │ Size     │ Errors          │
+│ api.exam.com │ 456      │ 123      │ 340      │ 5.2 MB   │ 2               │
+│ cdn.exam.com │ 312      │ 45       │ 89       │ 3.1 MB   │ 0               │
+│ ...                                                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Distributions]              │ [Slow Requests]                               │
+│ Status Codes                 │ 1. GET api.example.com/users  2.3s           │
+│ ┌────┐ ┌────┐ ┌────┐       │ 2. POST api.example.com/data 1.8s           │
+│ │2xx │ │4xx │ │5xx │       │ 3. GET cdn.example.com/img   1.2s           │
+│ │980 │ │ 30 │ │  4 │       │ ...                                           │
+│ └────┘ └────┘ └────┘       │                                               │
+│ Methods                      │                                               │
+│ GET: 800  POST: 300  ...    │                                               │
+└──────────────────────────────┴───────────────────────────────────────────────┘
+```
+
+### 10.7.3 React 组件树
+
+```text
+InsightsPage
+├─ PageHeader (title + export dropdown)
+├─ OverviewCardsSection
+│  ├─ OverviewCard (Total Requests)
+│  ├─ OverviewCard (Avg Duration)
+│  ├─ OverviewCard (Error Rate)
+│  └─ OverviewCard (Total Size)
+├─ HostBreakdownTable
+│  ├─ TableHead (Host / Requests / Avg / P95 / Size / Errors)
+│  └─ TableBody (HostInsight rows, sortable columns)
+├─ Bottom Split Layout
+│  ├─ DistributionSection
+│  │  ├─ StatusCodeDistribution (chips or mini bars)
+│  │  └─ MethodDistribution (chips or mini bars)
+│  └─ SlowRequestsSection
+│     └─ SlowRequestList (ranked list with method/host/path/duration)
+```
+
+### 10.7.4 实现文件映射
+
+| 文件 | 职责 |
+|------|------|
+| `pages/insights/index.tsx` | InsightsPage 主页面，组合概览卡片、Host 表格、分布和慢请求 |
+| `features/insights/use-insights.ts` | React Query hook，调用 `getInsights` |
+| `features/insights/insights-export.helpers.ts` | `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 纯函数 |
+| `services/commands/insights.ts` | `getInsights` 命令包装 |
+| `crates/session-store/src/insights.rs` | `compute_insights()` SQLite 聚合查询实现 |
+
+### 10.7.5 页面状态模型
+
+```ts
+type InsightsPageState = {
+  query: {
+    insightsLoading: boolean;
+  };
+  ui: {
+    hostSortField: "requestCount" | "avgDurationMs" | "p95DurationMs" | "totalSizeBytes" | "errorCount";
+    hostSortOrder: "asc" | "desc";
+    exportAnchorEl?: HTMLElement;
+  };
+};
+```
+
+### 10.7.6 页面事件流
+
+```text
+User navigates to /insights
+-> InsightsPage mounts
+-> useInsights({ workspaceId }) triggers get_insights
+-> Rust compute_insights() queries SQLite
+-> InsightsResult returns to frontend
+-> OverviewCardsSection renders summary metrics
+-> HostBreakdownTable renders per-host breakdown
+-> DistributionSection renders status code and method distributions
+-> SlowRequestsSection renders slowest requests list
+
+User clicks Export dropdown
+-> menu opens with Markdown / JSON options
+-> selected export function generates content
+-> save_text_file writes to Downloads directory
+-> Snackbar confirms export success
+```
+
 ## 11. 页面与模块映射
 
 | 页面 | 主 Feature 模块 | 主要命令/接口 |
@@ -1034,6 +1139,7 @@ CollectionsPage
 | Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |
+| Insights | `insights` | `get_insights` (已实现) |
 
 ## 11. 实现建议
 

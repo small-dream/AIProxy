@@ -14,6 +14,7 @@ import {
 } from "./SessionInspectorShared";
 import { formatSessionProtocol, getSessionProtocolMetadata } from "@/features/sessions/session-protocol.helpers";
 import { formatTiming } from "./session-inspector.helpers";
+import { WaterfallChart } from "./WaterfallChart";
 
 type OverviewSection = {
   key: string;
@@ -59,14 +60,23 @@ export function SessionInspectorOverview({
     ...sections.map((section) => ({
       key: section.key,
       title: section.title,
-      content: <OverviewDefinitionList indent={section.key === "general" ? 0 : 3.25} items={section.items} />,
+      content: (
+        <Stack spacing={0}>
+          {section.key === "timing" ? (
+            <Box sx={{ mb: 0.75, pl: 3.25 }}>
+              <WaterfallChart timing={detail?.timing} />
+            </Box>
+          ) : null}
+          <OverviewDefinitionList indent={section.key === "general" ? 0 : 3.25} items={section.items} />
+        </Stack>
+      ),
     })),
     {
       key: "size",
       title: sizeBreakdown.title,
       content: <OverviewSizeTree sessionId={session.id} showTitle={false} sizeBreakdown={sizeBreakdown} />,
     },
-  ], [sections, session.id, sizeBreakdown]);
+  ], [sections, session.id, sizeBreakdown, detail?.timing]);
   const initialExpandedBlocks = useMemo(
     () => buildExpandedState(["general", "timing", "size"]),
     [],

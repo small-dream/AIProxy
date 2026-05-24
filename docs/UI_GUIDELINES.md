@@ -225,6 +225,7 @@ App Shell
 
 - Sessions
 - Compose
+- Insights
 - Breakpoints
 - Rewrite Rules
 - Map Local
@@ -312,6 +313,7 @@ Capture Workspace
 
 - `Sessions Page`：抓包主工作台、会话列表、详情检查器
 - `Compose Page`：请求构造、响应预览（已实现），模板面板（待实现）
+- `Insights Page`：流量统计分析面板（已实现首版）
 - `Compare Page`：请求 / 响应 Diff 与 AI 总结（已实现发布硬化版）
 - `Rules Page`：规则类型切换、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
@@ -805,6 +807,7 @@ Settings Page
 - `KeyValueEditor`
 - `BodyEditor`
 - `TimingPanel`
+- `WaterfallChart` — 水平堆叠条形图，展示请求 timing 各阶段（dns / connect / tls / request_send / waiting / response_read / total）耗时；根据 `timingSource` 调整展示粒度，每个阶段使用不同颜色并支持 Tooltip
 - `CookiePanel`
 - `RawPanel`
 - `RuleList`
@@ -907,6 +910,47 @@ Compare Page 是面向 AI 的高密度分析页面，不使用营销式介绍区
 - AI 返回的总结内容使用 Markdown 渲染（标题、粗体、表格、列表、代码块等），不再以纯文本预格式化形式展示。
 - “包含 Body 上下文”使用 Switch；默认发送的是脱敏 payload，不提供默认完整原文发送入口。
 - 窄屏下 AI Summary 移到 Diff 下方，避免右侧窄栏挤压代码文本。
+
+## 13.6 Insights Page — `已实现首版`
+
+Insights Page 是流量统计分析面板，基于已捕获会话的聚合数据提供概览指标、Host 维度分析、分布图和慢请求排名。
+
+### 页面定位
+
+- 面向开发者的流量概览页面，回答"整体流量健康吗？哪些 Host 最慢？有多少错误？"
+- 数据完全来自本地 SQLite 聚合查询，不依赖外部服务
+
+### 页面结构
+
+```text
+Insights Page
+├─ Page Header (title + Export dropdown: Markdown / JSON)
+├─ Overview Cards Row
+│  ├─ Total Requests Card
+│  ├─ Avg Duration Card
+│  ├─ Error Rate Card
+│  └─ Total Size Card
+├─ Host Breakdown Table (sortable columns)
+│  ├─ Host
+│  ├─ Requests
+│  ├─ Avg Duration / P95 Duration
+│  ├─ Total Size
+│  └─ Error Count
+├─ Bottom Split
+│  ├─ Distribution Section
+│  │  ├─ Status Code Distribution (chips/bars)
+│  │  └─ Method Distribution (chips/bars)
+│  └─ Slow Requests List (ranked, clickable to navigate to session)
+```
+
+### 设计要求
+
+- 概览卡片使用 MUI `Card`，数值使用 `Typography h4`，标签使用 `caption`
+- Host 表格使用 MUI `Table`，支持点击表头排序
+- 分布图使用 Chip 或小型水平条形展示，不引入重量级图表库
+- 慢请求列表使用紧凑的列表布局，显示排名、方法徽章、URL 和耗时
+- 导出使用 `Button` + 下拉菜单，导出操作通过 `save_text_file` 写入下载目录
+- 空状态：未捕获会话时显示提示引导用户返回 Sessions 开始抓包
 
 ## 14. 可访问性规范
 

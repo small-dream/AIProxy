@@ -116,13 +116,6 @@ pub async fn start_proxy_server(
         .map_err(|error| format!("failed to read proxy listener address: {error}"))?
         .port();
 
-    let client = Client::builder()
-        .redirect(Policy::none())
-        .no_proxy()
-        .build()
-        .map_err(|error| format!("failed to create upstream HTTP client: {error}"))?;
-    let client = Arc::new(client);
-
     let (shutdown_sender, mut shutdown_receiver) = oneshot::channel::<()>();
     let (session_sender, session_receiver) = mpsc::channel(4096);
     let (ws_message_sender, ws_message_receiver) = mpsc::channel(4096);
@@ -168,7 +161,6 @@ pub async fn start_proxy_server(
                                 }
                             };
 
-                            let client = Arc::clone(&client);
                             let session_sender = session_sender.clone();
                             let ws_message_sender = ws_message_sender.clone();
                             let tls_manager = tls_manager.clone();
@@ -186,7 +178,6 @@ pub async fn start_proxy_server(
                                 if let Err(error) = handle_connection(
                                     stream,
                                     client_addr,
-                                    client,
                                     session_sender,
                                     ws_message_sender,
                                     tls_manager,
@@ -273,7 +264,6 @@ mod tests {
 async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
-    client: Arc<Client>,
     session_sender: mpsc::Sender<ProxySessionDetail>,
     ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
     tls_manager: Option<Arc<TlsManager>>,
@@ -404,7 +394,6 @@ async fn handle_connection(
                     host,
                     port,
                     mgr,
-                    client,
                     client_addr,
                     session_sender,
                     ws_message_sender,
@@ -639,7 +628,7 @@ async fn handle_connection(
                 .await?;
                 return Ok(());
             }
-            forward_request(&client, &request, &dns_manager, &active_workspace_id).await
+            forward_request(&request, &dns_manager, &active_workspace_id).await
         }
     };
 
@@ -684,11 +673,11 @@ async fn handle_connection(
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
-                    connect_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
+                    connect_ms: Some(upstream_response.connect_ms),
+                    dns_ms: Some(upstream_response.dns_ms),
+                    request_send_ms: Some(upstream_response.request_send_ms),
                     response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: None,
+                    tls_ms: upstream_response.tls_ms,
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
@@ -698,6 +687,7 @@ async fn handle_connection(
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
+            session_detail.timing_source = Some("proxy".to_string());
 
             // --- Response-stage breakpoint ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -740,11 +730,11 @@ async fn handle_connection(
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
-                                    connect_ms: None,
-                                    dns_ms: None,
-                                    request_send_ms: None,
+                                    connect_ms: Some(upstream_response.connect_ms),
+                                    dns_ms: Some(upstream_response.dns_ms),
+                                    request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: None,
+                                    tls_ms: upstream_response.tls_ms,
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
@@ -769,11 +759,11 @@ async fn handle_connection(
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
-                                    connect_ms: None,
-                                    dns_ms: None,
-                                    request_send_ms: None,
+                                    connect_ms: Some(upstream_response.connect_ms),
+                                    dns_ms: Some(upstream_response.dns_ms),
+                                    request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: None,
+                                    tls_ms: upstream_response.tls_ms,
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
@@ -783,6 +773,7 @@ async fn handle_connection(
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                             session_detail.throttle_traces = throttle_traces.clone();
+                            session_detail.timing_source = Some("proxy".to_string());
                         } else {
                             // Only headers/status may have changed — update in place, no body decompression needed.
                             if resolution.modified_response_status_code.is_some() {
@@ -929,11 +920,12 @@ async fn handle_connection(
     }
 }
 async fn forward_request(
-    client: &Client,
     request: &ParsedProxyRequest,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
 ) -> Result<UpstreamResponse, String> {
+    use http_body_util::BodyExt;
+
     emit_log(
         "INFO",
         "upstream_request_started",
@@ -946,10 +938,8 @@ async fn forward_request(
         ],
     );
 
-    let mut upstream_url = request.url.clone();
-    let mut upstream_headers = request.headers.clone();
-
-    if let Some(ip) = resolve_dns_override(dns_manager, workspace_id, &request.host) {
+    let dns_override_ip = resolve_dns_override(dns_manager, workspace_id, &request.host);
+    if let Some(ip) = &dns_override_ip {
         emit_log(
             "INFO",
             "dns_override_applied",
@@ -958,41 +948,99 @@ async fn forward_request(
                 ("override_ip", ip.to_string()),
             ],
         );
-
-        let port = upstream_url
-            .port()
-            .unwrap_or(if upstream_url.scheme() == "https" {
-                443
-            } else {
-                80
-            });
-        upstream_url
-            .set_host(Some(&ip.to_string()))
-            .map_err(|_| format!("failed to apply DNS override host: {ip}"))?;
-        upstream_url
-            .set_port(Some(port))
-            .map_err(|_| format!("failed to apply DNS override port: {port}"))?;
-        let host_header = match request.url.port() {
-            Some(port) => format!("{}:{port}", request.host),
-            None => request.host.clone(),
-        };
-        upstream_headers.insert(
-            HOST,
-            HeaderValue::from_str(&host_header)
-                .map_err(|error| format!("invalid DNS override Host header: {error}"))?,
-        );
     }
 
-    let mut request_builder = client
-        .request(request.method.clone(), upstream_url)
-        .headers(upstream_headers);
+    // Phase 1 + 2 + 3: Use TimingConnector as a tower::Service to connect with timing.
+    let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
+    let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
+        format!(
+            "failed to parse upstream URL '{}' as URI: {e}",
+            request.url
+        )
+    })?;
+    let (timing_stream, connection_timing) =
+        tower_service::Service::call(&mut connector, uri).await.map_err(|error| {
+            emit_log(
+                "ERROR",
+                "upstream_connect_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("host", request.host.clone()),
+                    ("url", request.url.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+            format!("failed to connect to upstream: {error}")
+        })?;
 
-    if !request.body.is_empty() {
-        request_builder = request_builder.body(request.body.clone());
+    // TimingStream implements hyper::rt::Read + Write directly, so use it
+    // without the TokioIo wrapper.
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
+        .await
+        .map_err(|error| {
+            emit_log(
+                "ERROR",
+                "upstream_http_handshake_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("host", request.host.clone()),
+                    ("error", error.to_string()),
+                ],
+            );
+            format!("upstream HTTP handshake failed: {error}")
+        })?;
+
+    // Spawn the connection task that drives the HTTP protocol.
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+
+    // Build the request-target (path + query) for the HTTP request line.
+    let request_target = if request.url.query().is_some() {
+        format!("{}?{}", request.url.path(), request.url.query().unwrap_or(""))
+    } else {
+        request.url.path().to_string()
+    };
+
+    // Build an http::Request with the original Host header (not DNS override IP).
+    let mut http_req_builder = http::Request::builder()
+        .method(request.method.clone())
+        .uri(&request_target);
+
+    // Copy request headers.
+    for (name, value) in &request.headers {
+        if let Ok(v) = value.to_str() {
+            http_req_builder = http_req_builder.header(name.as_str(), v);
+        }
     }
+    // Ensure Host header matches the original request host.
+    let host_header = match request.url.port() {
+        Some(port) => format!("{}:{port}", request.host),
+        None => request.host.clone(),
+    };
+    http_req_builder = http_req_builder.header("host", &host_header);
 
+    let http_req = if request.body.is_empty() {
+        http_req_builder
+            .body::<http_body_util::combinators::BoxBody<bytes::Bytes, std::convert::Infallible>>(
+                http_body_util::Empty::new()
+                    .map_err(|_: std::convert::Infallible| unreachable!())
+                    .boxed(),
+            )
+            .map_err(|e| format!("failed to build upstream request: {e}"))?
+    } else {
+        http_req_builder
+            .body::<http_body_util::combinators::BoxBody<bytes::Bytes, std::convert::Infallible>>(
+                http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
+                    .map_err(|_: std::convert::Infallible| unreachable!())
+                    .boxed(),
+            )
+            .map_err(|e| format!("failed to build upstream request body: {e}"))?
+    };
+
+    let request_send_started_at = Instant::now();
     let waiting_started_at = Instant::now();
-    let response = request_builder.send().await.map_err(|error| {
+    let response = sender.send_request(http_req).await.map_err(|error| {
         emit_log(
             "ERROR",
             "upstream_request_send_failed",
@@ -1007,12 +1055,24 @@ async fn forward_request(
         );
         format!("failed to send upstream request: {error}")
     })?;
+    let request_send_ms = request_send_started_at.elapsed().as_millis();
     let waiting_ms = waiting_started_at.elapsed().as_millis();
-    let status_code = response.status();
-    let response_headers = response.headers().clone();
+
+    let status_code = StatusCode::from_u16(response.status().as_u16())
+        .unwrap_or(StatusCode::BAD_GATEWAY);
+
+    // Collect response headers.
+    let mut response_headers = HeaderMap::new();
+    for (name, value) in response.headers() {
+        if let Ok(header_name) = HeaderName::from_bytes(name.as_str().as_bytes()) {
+            response_headers.append(header_name, value.clone());
+        }
+    }
+
+    // Phase 6: Read full response body.
     let response_read_started_at = Instant::now();
     let (response_body, response_body_size_bytes, body_truncated, spooled_response_path) =
-        read_response_body_with_limit(response, &request.request_id, true)
+        read_hyper_response_body_with_limit(response, &request.request_id, true)
             .await
             .map_err(|error| {
                 emit_log(
@@ -1042,6 +1102,14 @@ async fn forward_request(
             ("host", request.host.clone()),
             ("url", request.url.to_string()),
             ("status_code", status_code.as_u16().to_string()),
+            ("dns_ms", connection_timing.dns_ms.to_string()),
+            ("connect_ms", connection_timing.connect_ms.to_string()),
+            (
+                "tls_ms",
+                connection_timing
+                    .tls_ms
+                    .map_or_else(|| "n/a".to_string(), |v| v.to_string()),
+            ),
             ("waiting_ms", waiting_ms.to_string()),
             ("response_read_ms", response_read_ms.to_string()),
         ],
@@ -1049,12 +1117,16 @@ async fn forward_request(
 
     Ok(UpstreamResponse {
         body_truncated,
+        connect_ms: connection_timing.connect_ms,
+        dns_ms: connection_timing.dns_ms,
+        request_send_ms,
         response_body,
         response_body_size_bytes,
         response_headers,
         response_read_ms,
         spooled_response_path,
         status_code,
+        tls_ms: connection_timing.tls_ms,
         waiting_ms,
     })
 }
@@ -1079,6 +1151,93 @@ async fn read_response_body_with_limit(
         .await
         .map_err(|error| format!("read response chunk: {error}"))?
     {
+        if preserve_full_body {
+            if body_truncated {
+                if let Some(file) = spooled_file.as_mut() {
+                    file.write_all(&chunk)
+                        .await
+                        .map_err(|error| format!("write spooled response chunk: {error}"))?;
+                }
+            } else if response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
+                let (mut file, path) = create_response_spool_file(request_id).await?;
+                if !response_body.is_empty() {
+                    file.write_all(&response_body)
+                        .await
+                        .map_err(|error| format!("seed spooled response body: {error}"))?;
+                }
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|error| format!("write spooled response chunk: {error}"))?;
+                spooled_response_path = Some(path);
+                spooled_file = Some(file);
+                body_truncated = true;
+            }
+        } else if !body_truncated
+            && response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES
+        {
+            body_truncated = true;
+        }
+
+        response_body_size_bytes += chunk.len();
+
+        if response_body.len() < MAX_CAPTURED_BODY_BYTES {
+            let remaining = MAX_CAPTURED_BODY_BYTES - response_body.len();
+            response_body.extend_from_slice(&chunk[..remaining.min(chunk.len())]);
+        }
+    }
+
+    if let Some(file) = spooled_file.as_mut() {
+        file.flush()
+            .await
+            .map_err(|error| format!("flush spooled response body: {error}"))?;
+    }
+
+    if body_truncated {
+        emit_log(
+            "WARN",
+            "response_body_truncated",
+            &[
+                ("request_id", request_id.to_string()),
+                ("original_size", response_body_size_bytes.to_string()),
+                ("captured_size", MAX_CAPTURED_BODY_BYTES.to_string()),
+                ("spooled", preserve_full_body.to_string()),
+            ],
+        );
+    }
+
+    Ok((
+        response_body,
+        response_body_size_bytes,
+        body_truncated,
+        spooled_response_path,
+    ))
+}
+
+/// Read the full body from a hyper Response, with spool-to-disk for large bodies.
+async fn read_hyper_response_body_with_limit(
+    response: hyper::Response<hyper::body::Incoming>,
+    request_id: &str,
+    preserve_full_body: bool,
+) -> Result<(Vec<u8>, usize, bool, Option<PathBuf>), String> {
+    use http_body_util::BodyExt;
+
+    let mut response_body = Vec::new();
+    let mut response_body_size_bytes = 0usize;
+    let mut body_truncated = false;
+    let mut spooled_response_path = None;
+    let mut spooled_file: Option<tokio::fs::File> = None;
+
+    let mut body_stream = std::pin::pin!(response.into_body());
+
+    while let Some(frame_result) = body_stream.frame().await {
+        let frame = frame_result
+            .map_err(|error| format!("read hyper response frame: {error}"))?;
+
+        let chunk = match frame.into_data() {
+            Ok(data) => data,
+            Err(_) => continue, // Skip trailers
+        };
+
         if preserve_full_body {
             if body_truncated {
                 if let Some(file) = spooled_file.as_mut() {
@@ -1857,7 +2016,6 @@ async fn handle_connect_mitm(
     host: String,
     port: u16,
     tls_manager: Arc<TlsManager>,
-    client: Arc<Client>,
     client_addr: SocketAddr,
     session_sender: mpsc::Sender<ProxySessionDetail>,
     ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
@@ -2149,7 +2307,7 @@ async fn handle_connect_mitm(
                 .await?;
                 return Ok(());
             }
-            forward_request(&client, &https_request, &dns_manager, &workspace_id).await
+            forward_request(&https_request, &dns_manager, &workspace_id).await
         }
     };
 
@@ -2185,6 +2343,9 @@ async fn handle_connect_mitm(
             }
 
             // Build session detail once; rebuild only if Mock/Forward modifies the response.
+            // Note: tls_ms here is the MITM client<->proxy TLS handshake time.
+            // upstream_response.tls_ms is the proxy<->upstream TLS handshake time.
+            // We combine them: prefer upstream tls_ms if present, fallback to MITM tls_ms.
             let mut session_detail = build_session_detail(
                 &https_request,
                 upstream_response.status_code.as_u16(),
@@ -2194,11 +2355,11 @@ async fn handle_connect_mitm(
                 started_at,
                 started_at_instant,
                 ProxyTimingBreakdown {
-                    connect_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
+                    connect_ms: Some(upstream_response.connect_ms),
+                    dns_ms: Some(upstream_response.dns_ms),
+                    request_send_ms: Some(upstream_response.request_send_ms),
                     response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: Some(tls_ms),
+                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
@@ -2208,6 +2369,7 @@ async fn handle_connect_mitm(
             session_detail.rewrite_traces = rewrite_traces.clone();
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
+            session_detail.timing_source = Some("proxy".to_string());
 
             // --- Response-stage breakpoint (HTTPS) ---
             let breakpoint_resolution = if upstream_response.body_truncated {
@@ -2250,11 +2412,11 @@ async fn handle_connect_mitm(
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
-                                    connect_ms: None,
-                                    dns_ms: None,
-                                    request_send_ms: None,
+                                    connect_ms: Some(upstream_response.connect_ms),
+                                    dns_ms: Some(upstream_response.dns_ms),
+                                    request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: Some(tls_ms),
+                                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
@@ -2279,11 +2441,11 @@ async fn handle_connect_mitm(
                                 started_at,
                                 started_at_instant,
                                 ProxyTimingBreakdown {
-                                    connect_ms: None,
-                                    dns_ms: None,
-                                    request_send_ms: None,
+                                    connect_ms: Some(upstream_response.connect_ms),
+                                    dns_ms: Some(upstream_response.dns_ms),
+                                    request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: Some(tls_ms),
+                                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
                                     total_ms: Some(started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
@@ -2293,6 +2455,7 @@ async fn handle_connect_mitm(
                             session_detail.rewrite_traces = rewrite_traces.clone();
                             session_detail.script_traces = script_traces.clone();
                             session_detail.throttle_traces = throttle_traces.clone();
+                            session_detail.timing_source = Some("proxy".to_string());
                         } else {
                             // Only headers/status may have changed — update in place, no body decompression needed.
                             if resolution.modified_response_status_code.is_some() {
@@ -2747,6 +2910,7 @@ pub async fn send_direct_request(
         tls_cipher_suite: None,
         tls_protocol: None,
         timing: Some(timing),
+        timing_source: Some("compose".to_string()),
     })
 }
 

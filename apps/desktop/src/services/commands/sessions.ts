@@ -2,10 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   coerceAppError,
+  parseInsightsResult,
   parseSessionDetailContentPatch,
   parseSessionDetail,
   mergeSessionDetailContent,
   parseSessionSummaries,
+  type InsightsResult,
   type SessionDetail,
   type SessionDetailContentPatch,
   type SessionDetailContentRequest,
@@ -258,6 +260,30 @@ export async function setFocusedHosts(hosts: string[]): Promise<void> {
     logDevDebug("ui.commands", "set_focused_hosts_succeeded", { hosts });
   } catch (error) {
     reportCommandFailure("set_focused_hosts", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function invokeGetInsights(): Promise<InsightsResult> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Insights requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    logDevDebug("ui.commands", "get_insights_requested");
+    const payload = await invoke<unknown>("get_insights");
+    const result = parseInsightsResult(payload);
+
+    logDevDebug("ui.commands", "get_insights_succeeded", {
+      totalRequests: result.totalRequests,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("get_insights", error);
     throw coerceAppError(error);
   }
 }

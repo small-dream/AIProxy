@@ -133,7 +133,7 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 请求 / 响应 Diff 对比与 AI 总结（当前已实现发布硬化版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload、Body lazy diff、截断可见提示、body size guard 与 binary body 明确状态）
 - 规则模板共享
 - 轻量插件系统
-- 流量统计与聚合分析面板
+- 流量统计与聚合分析面板 — `M2 已实现首版`：Insights 独立页面，支持概览卡片、Host 维度分析、状态码/方法分布、慢请求排名和导出（Markdown/JSON）
 
 ## 6. MVP 范围
 
@@ -158,8 +158,9 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 插件系统
 - 团队共享规则
 - 云同步
-- 统计分析
 - 高级脚本运行时（多文件工程、依赖管理、WebSocket 脚本化、外部能力扩展）
+
+> 注：统计分析已在 M2 中以 Insights 页面形式实现首版，从可延后模块升级为已实现。
 
 ## 7. 业务流程
 
@@ -213,6 +214,7 @@ flowchart LR
 
 - Sessions
 - Compose
+- Insights
 - Breakpoints
 - Rewrite Rules
 - Map Local
@@ -265,7 +267,8 @@ flowchart LR
 - Response Headers / Body / Raw
 - Query / Form / JSON 友好展示
 - Cookies
-- Timing
+- Timing（含 WaterfallChart 水平堆叠条形图，展示全部 7 个 timing 阶段）
+- Timing 来源标识（`timingSource`）：区分代理捕获、Compose 发送和 HAR 导入的 timing 数据精度
 - WebSocket 消息页签（P1 可先做只读）
 - 详情区默认与当前树形列表选中请求联动，不允许出现“选中态丢失”
 
@@ -420,7 +423,8 @@ flowchart LR
 
 - 完成 WebSocket 深度支持
 - 完成代理预设持久化与导入导出增强（当前通过 Settings 中的 Proxy Presets 管理基础配置）
-- 增加轻量统计分析
+- 增加轻量统计分析 — `已实现`：Insights 页面提供概览卡片、Host 分析、分布图和慢请求排名
+- 完整 Timing 采集与 WaterfallChart — `已实现`：通过 hyper TimingConnector 采集全部 7 个 timing 阶段，WaterfallChart 水平堆叠条形图可视化
 
 ### Phase 3
 

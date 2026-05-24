@@ -193,6 +193,7 @@ pub(crate) fn build_session_detail(
         tls_cipher_suite: request.tls_cipher_suite.clone(),
         tls_protocol: request.tls_protocol.clone(),
         timing: Some(timing),
+        timing_source: None,
     }
 }
 
@@ -254,6 +255,7 @@ pub(crate) fn build_pending_session_detail(
             total_ms: Some(0),
             waiting_ms: None,
         }),
+        timing_source: None,
     }
 }
 
