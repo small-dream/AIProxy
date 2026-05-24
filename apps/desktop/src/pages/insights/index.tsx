@@ -17,7 +17,7 @@ import {
   alpha,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
@@ -200,8 +200,7 @@ export function InsightsPage() {
     queryFn: () => invokeGetInsights(),
   });
 
-  const exportAnchorRef = useRef<HTMLButtonElement>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportAnchorEl, setExportAnchorEl] = useState<HTMLElement | null>(null);
 
   const handleExport = useCallback(
     (format: "markdown" | "json") => {
@@ -216,7 +215,7 @@ export function InsightsPage() {
         downloadTextFile(`insights-${timestamp}.md`, md, "text/markdown");
       }
 
-      setExportMenuOpen(false);
+      setExportAnchorEl(null);
     },
     [data, t],
   );
@@ -226,9 +225,8 @@ export function InsightsPage() {
       <Stack direction="row" spacing={1.25}>
         <Box
           component="button"
-          ref={exportAnchorRef}
           disabled={!data}
-          onClick={() => setExportMenuOpen(true)}
+          onClick={(e) => setExportAnchorEl(e.currentTarget)}
           sx={{
             alignItems: "center",
             bgcolor: "transparent",
@@ -253,9 +251,9 @@ export function InsightsPage() {
           {t("insightsPage.export.title")}
         </Box>
         <Menu
-          anchorEl={exportAnchorRef.current}
-          open={exportMenuOpen}
-          onClose={() => setExportMenuOpen(false)}
+          anchorEl={exportAnchorEl}
+          open={Boolean(exportAnchorEl)}
+          onClose={() => setExportAnchorEl(null)}
         >
           <MenuItem onClick={() => handleExport("markdown")}>
             {t("insightsPage.export.markdown")}
@@ -266,7 +264,7 @@ export function InsightsPage() {
         </Menu>
       </Stack>
     ),
-    [t, data, exportMenuOpen, handleExport],
+    [t, data, exportAnchorEl, handleExport],
   );
 
   useLayoutEffect(() => {
