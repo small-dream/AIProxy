@@ -20,6 +20,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WsConnectionStatusValue,
@@ -124,8 +125,6 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState("");
   const listContainerRef = useRef<HTMLDivElement | null>(null);
-  const [listScrollTop, setListScrollTop] = useState(0);
-  const [listViewportHeight, setListViewportHeight] = useState(0);
 
   // Connection status
   const [connectionStatus, setConnectionStatus] = useState<WsConnectionStatusValue>("closed");
@@ -158,18 +157,6 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     });
     return () => { void unlisten.then((fn) => fn()); };
   }, [sessionId]);
-
-  useEffect(() => {
-    const element = listContainerRef.current;
-    if (!element) return undefined;
-
-    const updateSize = () => setListViewportHeight(element.clientHeight);
-    updateSize();
-
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
 
   // Connection status
   useEffect(() => {
@@ -204,17 +191,12 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     [messages, selectedId],
   );
 
-  const virtualWindow = useMemo(() => {
-    const visibleCount = Math.ceil(listViewportHeight / MESSAGE_ROW_HEIGHT);
-    const start = Math.max(0, Math.floor(listScrollTop / MESSAGE_ROW_HEIGHT) - MESSAGE_ROW_OVERSCAN);
-    const end = Math.min(filtered.length, start + visibleCount + MESSAGE_ROW_OVERSCAN * 2);
-    return {
-      end,
-      items: filtered.slice(start, end),
-      start,
-      totalHeight: filtered.length * MESSAGE_ROW_HEIGHT,
-    };
-  }, [filtered, listScrollTop, listViewportHeight]);
+  const listVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => listContainerRef.current,
+    estimateSize: () => MESSAGE_ROW_HEIGHT,
+    overscan: MESSAGE_ROW_OVERSCAN,
+  });
 
   const handleDirectionChange = useCallback((_: unknown, val: string) => {
     setDirectionFilter(val as DirectionFilter);
@@ -333,30 +315,35 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         <Box
           ref={listContainerRef}
-          onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}
           sx={{ flex: 1, borderRight: 1, borderColor: "divider", overflow: "auto" }}
         >
-          <Box sx={{ height: virtualWindow.totalHeight, position: "relative" }}>
-            <Stack
-              spacing={0}
-              sx={{
-                left: 0,
-                position: "absolute",
-                right: 0,
-                top: virtualWindow.start * MESSAGE_ROW_HEIGHT,
-              }}
-            >
-              {virtualWindow.items.map((msg) => (
-                <MessageRow
-                  key={msg.id}
-                  message={msg}
-                  selected={msg.id === selectedId}
-                  isActive={isActive}
-                  onClick={() => setSelectedId(msg.id)}
-                  onReplay={handleEditReplay}
-                />
-              ))}
-            </Stack>
+          <Box sx={{ height: listVirtualizer.getTotalSize(), position: "relative" }}>
+            {listVirtualizer.getVirtualItems().map((virtualItem) => {
+              const msg = filtered[virtualItem.index];
+              if (!msg) return null;
+
+              return (
+                <Box
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  style={{
+                    position: "absolute",
+                    top: virtualItem.start,
+                    left: 0,
+                    width: "100%",
+                    height: virtualItem.size,
+                  }}
+                >
+                  <MessageRow
+                    message={msg}
+                    selected={msg.id === selectedId}
+                    isActive={isActive}
+                    onClick={() => setSelectedId(msg.id)}
+                    onReplay={handleEditReplay}
+                  />
+                </Box>
+              );
+            })}
           </Box>
         </Box>
 
