@@ -170,12 +170,16 @@ fn applies_breakpoint_request_query_edits_to_runtime_request() {
 fn applies_breakpoint_response_status_edits() {
     let mut response = UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body: b"{}".to_vec(),
         response_body_size_bytes: 2,
         response_headers: HeaderMap::new(),
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::OK,
+        tls_ms: None,
         waiting_ms: 0,
     };
     response
@@ -202,12 +206,16 @@ fn applies_breakpoint_response_status_edits() {
 fn applies_breakpoint_response_body_edits_as_plain_body() {
     let mut response = UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
         response_headers: HeaderMap::new(),
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::OK,
+        tls_ms: None,
         waiting_ms: 0,
     };
     response
@@ -547,12 +555,16 @@ fn applies_response_body_rewrite_as_plain_body() {
     let request = build_test_request("http://example.com/api/users");
     let mut response = UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
         response_headers: HeaderMap::new(),
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::OK,
+        tls_ms: None,
         waiting_ms: 0,
     };
     response
@@ -682,12 +694,16 @@ fn applies_response_body_rewrite_to_json_array_fields() {
     let request = build_test_request("http://example.com/api/users");
     let mut response = UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body: br#"{"items":[{"name":"original"},{"count":1}]}"#.to_vec(),
         response_body_size_bytes: 41,
         response_headers: HeaderMap::new(),
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::OK,
+        tls_ms: None,
         waiting_ms: 0,
     };
 

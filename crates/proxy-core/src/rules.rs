@@ -1206,6 +1206,9 @@ fn upstream_response_from_override(
 
     Ok(UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body_size_bytes: response_body.len(),
         response_body,
         response_headers: header_map_from_script_headers(&override_response.headers),
@@ -1217,6 +1220,7 @@ fn upstream_response_from_override(
                 override_response.status
             )
         })?,
+        tls_ms: None,
         waiting_ms: 0,
     })
 }
@@ -1851,12 +1855,16 @@ fn build_local_file_response(path: &Path) -> Result<UpstreamResponse, String> {
 
     Ok(UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body_size_bytes: body.len(),
         response_body: body,
         response_headers: headers,
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::OK,
+        tls_ms: None,
         waiting_ms: 0,
     })
 }

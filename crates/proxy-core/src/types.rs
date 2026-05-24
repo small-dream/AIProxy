@@ -673,12 +673,16 @@ pub(crate) struct ParsedProxyRequest {
 #[derive(Debug)]
 pub(crate) struct UpstreamResponse {
     pub(crate) body_truncated: bool,
+    pub(crate) connect_ms: u128,
+    pub(crate) dns_ms: u128,
+    pub(crate) request_send_ms: u128,
     pub(crate) response_body: Vec<u8>,
     pub(crate) response_body_size_bytes: usize,
     pub(crate) response_headers: HeaderMap,
     pub(crate) response_read_ms: u128,
     pub(crate) spooled_response_path: Option<PathBuf>,
     pub(crate) status_code: StatusCode,
+    pub(crate) tls_ms: Option<u128>,
     pub(crate) waiting_ms: u128,
 }
 

@@ -498,12 +498,16 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
     );
     UpstreamResponse {
         body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
         response_body: body,
         response_body_size_bytes: body_len,
         response_headers: headers,
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
+        tls_ms: None,
         waiting_ms: 0,
     }
 }
