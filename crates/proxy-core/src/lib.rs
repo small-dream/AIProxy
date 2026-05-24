@@ -15,9 +15,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
-    ffi::OsStr,
-    fs::{self, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    fs::{self},
+    io::{self, Cursor, Read},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
