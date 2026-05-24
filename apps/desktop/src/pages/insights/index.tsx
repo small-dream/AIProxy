@@ -4,6 +4,8 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -15,11 +17,13 @@ import {
   alpha,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { useLayoutEffect, useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
-import { useI18n } from "@/i18n";
+import { downloadTextFile } from "@/lib/download";
+import { useI18n, type TranslationKey } from "@/i18n";
+import type { InsightsResult } from "@aiproxy/shared-types";
 import { invokeGetInsights } from "@/services/commands/sessions";
 
 // ---------------------------------------------------------------------------
@@ -196,20 +200,43 @@ export function InsightsPage() {
     queryFn: () => invokeGetInsights(),
   });
 
+  const exportAnchorRef = useRef<HTMLButtonElement>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+
+  const handleExport = useCallback(
+    (format: "markdown" | "json") => {
+      if (!data) return;
+      const timestamp = new Date().toISOString().slice(0, 10);
+
+      if (format === "json") {
+        const json = JSON.stringify(data, null, 2);
+        downloadTextFile(`insights-${timestamp}.json`, json, "application/json");
+      } else {
+        const md = buildMarkdownReport(data, t);
+        downloadTextFile(`insights-${timestamp}.md`, md, "text/markdown");
+      }
+
+      setExportMenuOpen(false);
+    },
+    [data, t],
+  );
+
   const headerActions = useMemo(
     () => (
       <Stack direction="row" spacing={1.25}>
         <Box
           component="button"
-          disabled
+          ref={exportAnchorRef}
+          disabled={!data}
+          onClick={() => setExportMenuOpen(true)}
           sx={{
             alignItems: "center",
             bgcolor: "transparent",
             border: "1px solid",
-            borderColor: "action.disabledBackground",
+            borderColor: data ? "action.focus" : "action.disabledBackground",
             borderRadius: 1,
-            color: "action.disabled",
-            cursor: "not-allowed",
+            color: data ? "text.primary" : "action.disabled",
+            cursor: data ? "pointer" : "not-allowed",
             display: "inline-flex",
             fontFamily: "inherit",
             gap: 0.5,
@@ -217,14 +244,29 @@ export function InsightsPage() {
             py: 0.5,
             fontSize: 13,
             fontWeight: 500,
+            "&:hover": data
+              ? { bgcolor: "action.hover" }
+              : {},
           }}
         >
           <FileDownloadRoundedIcon sx={{ fontSize: 16 }} />
           {t("insightsPage.export.title")}
         </Box>
+        <Menu
+          anchorEl={exportAnchorRef.current}
+          open={exportMenuOpen}
+          onClose={() => setExportMenuOpen(false)}
+        >
+          <MenuItem onClick={() => handleExport("markdown")}>
+            {t("insightsPage.export.markdown")}
+          </MenuItem>
+          <MenuItem onClick={() => handleExport("json")}>
+            {t("insightsPage.export.json")}
+          </MenuItem>
+        </Menu>
       </Stack>
     ),
-    [t],
+    [t, data, exportMenuOpen, handleExport],
   );
 
   useLayoutEffect(() => {
@@ -412,4 +454,43 @@ export function InsightsPage() {
       </Paper>
     </Stack>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Markdown report builder
+// ---------------------------------------------------------------------------
+
+function buildMarkdownReport(
+  data: InsightsResult,
+  t: (key: TranslationKey) => string,
+): string {
+  const lines: string[] = [
+    `# ${t("insightsPage.title")}`,
+    "",
+    `## ${t("insightsPage.hosts.title")}`,
+    "",
+    `| Host | Requests | Errors | Avg | P95 | Traffic |`,
+    `|------|----------|--------|-----|-----|---------|`,
+  ];
+
+  for (const host of data.byHost.slice(0, 20)) {
+    lines.push(
+      `| ${host.host} | ${host.requestCount} | ${host.errorCount} | ${formatDuration(host.avgDurationMs)} | ${formatDuration(host.p95DurationMs)} | ${formatBytes(host.totalBytes)} |`,
+    );
+  }
+
+  lines.push("");
+  lines.push(`## ${t("insightsPage.slowRequests.title")}`);
+  lines.push("");
+  lines.push(`| URL | Method | Status | Duration |`);
+  lines.push(`|-----|--------|--------|----------|`);
+
+  for (const req of data.slowRequests) {
+    lines.push(
+      `| ${req.url} | ${req.method} | ${req.statusCode} | ${formatDuration(req.durationMs)} |`,
+    );
+  }
+
+  lines.push("");
+  return lines.join("\n");
 }
