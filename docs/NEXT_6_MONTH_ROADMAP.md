@@ -102,7 +102,23 @@
 
 ### M1：2026-06，可靠性与性能产品化
 
-主题：让现有 P0 功能从“能用”变成“敢长期打开用”。
+**状态：✅ 已完成** (2026-05-25)
+
+实现摘要：
+
+- Session 事件双重订阅合并为单一批量缓冲（100ms）
+- SessionExplorer 和 WS Messages 迁移至 @tanstack/react-virtual
+- 搜索/过滤输入统一防抖（150ms）
+- 导出批量加载统一（BATCH_SIZE=10）
+- Body 截断 UI 提示（i18n）
+- Rust 日志迁移至 tracing（缓冲异步写入）
+- TLS 证书缓存 LRU 淘汰（512 上限）
+- Session 持久化批量化（50 条/事务）
+- build_session_detail body 解压去重
+- 压测 fixture（10k sessions, 1k WS messages, 50MB body）
+- 发布检查脚本 release-checklist.sh
+
+主题：让现有 P0 功能从”能用”变成”敢长期打开用”。
 
 核心交付：
 
