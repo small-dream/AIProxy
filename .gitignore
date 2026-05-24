@@ -17,3 +17,7 @@ Cargo.lock
 
 apps/desktop/src-tauri/gen/
 .pnpm-store/
+
+# Stress test fixtures (large files)
+fixtures/stress/50mb-body.txt
+fixtures/stress/50mb-body.txt.gz
