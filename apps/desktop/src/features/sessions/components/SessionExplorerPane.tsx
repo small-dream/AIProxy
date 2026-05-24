@@ -26,6 +26,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { getWorkbenchFontSize } from "./SessionInspectorShared";
 import {
   getSessionQuerySuffix,
@@ -83,6 +84,13 @@ export function SessionExplorerPane({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const [localFilterValue, setLocalFilterValue] = useState(domainFilterValue);
+  const debouncedFilterValue = useDebouncedValue(localFilterValue, 150);
+
+  useEffect(() => {
+    onDomainFilterChange(debouncedFilterValue);
+  }, [debouncedFilterValue, onDomainFilterChange]);
+
   const expandedHostSet = useMemo(() => new Set(expandedHosts), [expandedHosts]);
 
   useEffect(() => {
@@ -274,10 +282,10 @@ export function SessionExplorerPane({
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
-          onChange={(event) => onDomainFilterChange(event.target.value)}
+          onChange={(event) => setLocalFilterValue(event.target.value)}
           placeholder={t("sessionExplorer.filterPlaceholder")}
           spellCheck={false}
-          value={domainFilterValue}
+          value={localFilterValue}
           sx={(theme) => ({
             color: "text.primary",
             bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
