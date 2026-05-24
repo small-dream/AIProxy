@@ -1091,6 +1091,7 @@ fn detail_row_to_proxy(
         tls_cipher_suite: row.tls_cipher_suite.clone(),
         tls_protocol: row.tls_protocol.clone(),
         timing,
+        timing_source: None,
     }
 }
 

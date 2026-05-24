@@ -458,3 +458,14 @@ pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), Strin
     state.clear_sessions();
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_insights(state: State<'_, Arc<AppState>>) -> Result<aiproxy_db::insights::InsightsResult, String> {
+    let state = Arc::clone(state.inner());
+    run_blocking_command("get_insights", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn.lock().expect("db mutex should not be poisoned");
+        aiproxy_db::insights::compute_insights(&conn_guard)
+    })
+    .await
+}

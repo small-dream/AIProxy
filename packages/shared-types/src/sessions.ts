@@ -103,6 +103,52 @@ export type SessionUpsertEvent = SessionSummary;
 
 export type SessionRemoveEvent = string;
 
+// ---------------------------------------------------------------------------
+// Insights types
+// ---------------------------------------------------------------------------
+
+export type InsightsResult = {
+  totalRequests: number;
+  totalErrors: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  p99DurationMs: number;
+  totalBytes: number;
+  byHost: HostInsight[];
+  byStatusCode: StatusCodeDistribution[];
+  byMethod: MethodDistribution[];
+  slowRequests: SlowRequest[];
+};
+
+export type HostInsight = {
+  host: string;
+  requestCount: number;
+  errorCount: number;
+  avgDurationMs: number;
+  p95DurationMs: number;
+  totalBytes: number;
+};
+
+export type StatusCodeDistribution = {
+  statusCode: number;
+  count: number;
+};
+
+export type MethodDistribution = {
+  method: string;
+  count: number;
+};
+
+export type SlowRequest = {
+  sessionId: string;
+  url: string;
+  method: string;
+  statusCode: number;
+  durationMs: number;
+};
+
 export function isSessionSummary(value: unknown): value is SessionSummary {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -615,4 +661,102 @@ function normalizeTimingBreakdown(timing: WireTimingBreakdown): TimingBreakdown 
     ...(totalMs !== null && totalMs !== undefined ? { totalMs } : {}),
     ...(waitingMs !== null && waitingMs !== undefined ? { waitingMs } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Insights validators
+// ---------------------------------------------------------------------------
+
+function isHostInsight(value: unknown): value is HostInsight {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<HostInsight>;
+
+  return (
+    typeof candidate.host === "string" &&
+    typeof candidate.requestCount === "number" &&
+    typeof candidate.errorCount === "number" &&
+    typeof candidate.avgDurationMs === "number" &&
+    typeof candidate.p95DurationMs === "number" &&
+    typeof candidate.totalBytes === "number"
+  );
+}
+
+function isStatusCodeDistribution(value: unknown): value is StatusCodeDistribution {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<StatusCodeDistribution>;
+
+  return typeof candidate.statusCode === "number" && typeof candidate.count === "number";
+}
+
+function isMethodDistribution(value: unknown): value is MethodDistribution {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<MethodDistribution>;
+
+  return typeof candidate.method === "string" && typeof candidate.count === "number";
+}
+
+function isSlowRequest(value: unknown): value is SlowRequest {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<SlowRequest>;
+
+  return (
+    typeof candidate.sessionId === "string" &&
+    typeof candidate.url === "string" &&
+    typeof candidate.method === "string" &&
+    typeof candidate.statusCode === "number" &&
+    typeof candidate.durationMs === "number"
+  );
+}
+
+function isInsightsResult(value: unknown): value is InsightsResult {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<InsightsResult>;
+
+  return (
+    typeof candidate.totalRequests === "number" &&
+    typeof candidate.totalErrors === "number" &&
+    typeof candidate.errorRate === "number" &&
+    typeof candidate.avgDurationMs === "number" &&
+    typeof candidate.p50DurationMs === "number" &&
+    typeof candidate.p95DurationMs === "number" &&
+    typeof candidate.p99DurationMs === "number" &&
+    typeof candidate.totalBytes === "number" &&
+    Array.isArray(candidate.byHost) &&
+    candidate.byHost.every(isHostInsight) &&
+    Array.isArray(candidate.byStatusCode) &&
+    candidate.byStatusCode.every(isStatusCodeDistribution) &&
+    Array.isArray(candidate.byMethod) &&
+    candidate.byMethod.every(isMethodDistribution) &&
+    Array.isArray(candidate.slowRequests) &&
+    candidate.slowRequests.every(isSlowRequest)
+  );
+}
+
+export function parseInsightsResult(value: unknown): InsightsResult {
+  if (isInsightsResult(value)) {
+    return value;
+  }
+
+  throw {
+    code: "INVALID_INSIGHTS_RESULT",
+    message: "The insights result payload does not match the shared contract.",
+    details: {
+      payload: value,
+    },
+  } satisfies AppError;
 }
