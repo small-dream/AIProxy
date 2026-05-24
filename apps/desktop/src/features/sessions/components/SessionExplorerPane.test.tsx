@@ -6,6 +6,19 @@ import { AppProviders } from "@/app/providers/AppProviders";
 import { buildSessionHostGroups } from "../session-explorer.helpers";
 import { SessionExplorerPane } from "./SessionExplorerPane";
 
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 26,
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, i) => ({
+        index: i,
+        key: `virtual-${i}`,
+        start: i * 26,
+        size: 26,
+      })),
+  }),
+}));
+
 function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
   return {
     durationMs: 42,

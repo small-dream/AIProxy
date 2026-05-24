@@ -12,7 +12,6 @@ import {
   Box,
   CircularProgress,
   InputBase,
-  List,
   ListItemButton,
   Stack,
   SvgIcon,
@@ -22,6 +21,7 @@ import {
 import { alpha, type Theme } from "@mui/material/styles";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SvgIconProps } from "@mui/material/SvgIcon";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranslationKey } from "@/i18n";
@@ -82,8 +82,6 @@ export function SessionExplorerPane({
 }: SessionExplorerPaneProps) {
   const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
   const [localFilterValue, setLocalFilterValue] = useState(domainFilterValue);
   const debouncedFilterValue = useDebouncedValue(localFilterValue, 150);
 
@@ -92,18 +90,6 @@ export function SessionExplorerPane({
   }, [debouncedFilterValue, onDomainFilterChange]);
 
   const expandedHostSet = useMemo(() => new Set(expandedHosts), [expandedHosts]);
-
-  useEffect(() => {
-    const element = scrollContainerRef.current;
-    if (!element) return undefined;
-
-    const updateSize = () => setViewportHeight(element.clientHeight);
-    updateSize();
-
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
 
   const visibleRows = useMemo(() => {
     const rows: SessionExplorerVisibleRow[] = [];
@@ -129,16 +115,12 @@ export function SessionExplorerPane({
     return rows;
   }, [expandedHostSet, groups]);
 
-  const virtualRows = useMemo(() => {
-    const visibleCount = Math.ceil(viewportHeight / SESSION_EXPLORER_ROW_HEIGHT);
-    const start = Math.max(0, Math.floor(scrollTop / SESSION_EXPLORER_ROW_HEIGHT) - SESSION_EXPLORER_OVERSCAN);
-    const end = Math.min(visibleRows.length, start + visibleCount + SESSION_EXPLORER_OVERSCAN * 2);
-    return {
-      items: visibleRows.slice(start, end),
-      start,
-      totalHeight: visibleRows.length * SESSION_EXPLORER_ROW_HEIGHT,
-    };
-  }, [scrollTop, viewportHeight, visibleRows]);
+  const virtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => SESSION_EXPLORER_ROW_HEIGHT,
+    overscan: SESSION_EXPLORER_OVERSCAN,
+  });
 
   return (
     <Box
@@ -156,7 +138,6 @@ export function SessionExplorerPane({
     >
       <Box
         ref={scrollContainerRef}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}
       >
         {isLoading ? (
@@ -213,44 +194,56 @@ export function SessionExplorerPane({
             </Typography>
           </Stack>
         ) : (
-          <List
-            disablePadding
-            sx={{ height: virtualRows.totalHeight, minWidth: "100%", position: "relative", width: "max-content" }}
-          >
-            <Box
-              sx={{
-                left: 0,
-                minWidth: "100%",
-                position: "absolute",
-                top: virtualRows.start * SESSION_EXPLORER_ROW_HEIGHT,
-                width: "max-content",
-              }}
-            >
-              {virtualRows.items.map((row) => {
-                if (row.kind === "host") {
-                  const expanded = expandedHostSet.has(row.group.key);
-                  const hostContextMenu = row.group.host
-                    ? (event: React.MouseEvent) => onContextMenuHost?.(row.group.host!, event)
-                    : undefined;
+          <Box sx={{ height: virtualizer.getTotalSize(), minWidth: "100%", position: "relative", width: "max-content" }}>
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const row = visibleRows[virtualItem.index];
+              if (!row) return null;
 
-                  return (
+              if (row.kind === "host") {
+                const expanded = expandedHostSet.has(row.group.key);
+                const hostContextMenu = row.group.host
+                  ? (event: React.MouseEvent) => onContextMenuHost?.(row.group.host!, event)
+                  : undefined;
+
+                return (
+                  <Box
+                    key={virtualItem.key}
+                    data-index={virtualItem.index}
+                    style={{
+                      position: "absolute",
+                      top: virtualItem.start,
+                      left: 0,
+                      width: "100%",
+                      height: virtualItem.size,
+                    }}
+                  >
                     <HostRow
                       expanded={expanded}
                       group={row.group}
-                      key={`host:${row.group.key}`}
                       onContextMenu={hostContextMenu}
                       onToggle={() => onToggleHost(row.group.key)}
                     />
-                  );
-                }
+                  </Box>
+                );
+              }
 
-                return (
+              return (
+                <Box
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  style={{
+                    position: "absolute",
+                    top: virtualItem.start,
+                    left: 0,
+                    width: "100%",
+                    height: virtualItem.size,
+                  }}
+                >
                   <SessionTreeFlatNode
                     depth={row.depth}
                     expanded={row.node.kind === "branch" && expandedHostSet.has(`${row.groupKey}::${row.node.pathKey}`)}
                     getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
                     groupKey={row.groupKey}
-                    key={row.node.kind === "branch" ? `branch:${row.node.pathKey}` : `leaf:${row.node.session.id}`}
                     node={row.node}
                     onContextMenuHost={onContextMenuHost}
                     onContextMenuSession={onContextMenuSession}
@@ -258,10 +251,10 @@ export function SessionExplorerPane({
                     onToggleHost={onToggleHost}
                     selectedSessionId={selectedSessionId}
                   />
-                );
-              })}
-            </Box>
-          </List>
+                </Box>
+              );
+            })}
+          </Box>
         )}
       </Box>
 
