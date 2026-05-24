@@ -27,6 +27,7 @@ use crate::system_proxy::SystemProxySnapshot;
 use crate::workspace::{WorkspaceData, WorkspaceManager};
 
 const SESSION_DETAIL_CACHE_CAPACITY: usize = 1_000;
+pub(crate) const SESSION_BATCH_SIZE: usize = 50;
 
 /// Snapshot of the certificate state for the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -354,15 +355,23 @@ impl AppState {
     }
 
     pub fn upsert_session(&self, mut session_detail: ProxySessionDetail) {
-        let session_id = session_detail.id.clone();
-        let session_summary = session_detail.summary.clone();
         let active_workspace_id = self
             .read_status()
             .active_workspace_id
             .unwrap_or_else(|| "default".to_string());
 
+        self.persist_session_to_db(&mut session_detail, &active_workspace_id);
+        self.update_session_cache_and_emit(&session_detail);
+    }
+
+    /// Persist a single session to the database (spill bodies, build rows, INSERT).
+    fn persist_session_to_db(
+        &self,
+        session_detail: &mut ProxySessionDetail,
+        active_workspace_id: &str,
+    ) {
         let spill_started_at = Instant::now();
-        if let Err(error) = spill_session_bodies_to_disk(&mut session_detail, &self.body_store) {
+        if let Err(error) = spill_session_bodies_to_disk(session_detail, &self.body_store) {
             crate::dev_logger::log_error(
                 "desktop.persistence",
                 "session_body_spill_failed",
@@ -371,83 +380,88 @@ impl AppState {
         }
         let spill_elapsed_us = spill_started_at.elapsed().as_micros();
 
-        let summary_row = proxy_summary_to_row(&session_summary);
+        let summary_row = proxy_summary_to_row(&session_detail.summary);
         let row_build_started_at = Instant::now();
-        let detail_row = proxy_detail_to_row(&session_detail, &self.body_store);
+        let detail_row = proxy_detail_to_row(session_detail, &self.body_store);
         let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
         log_session_storage_stats(
-            &session_detail,
+            session_detail,
             &detail_row,
             spill_elapsed_us,
             row_build_elapsed_us,
         );
 
-        // Persist to DB
-        {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
-            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "session_upsert_db_failed",
-                    &[("error", e)],
-                );
-            }
-
-            if let Err(e) = persist_script_traces(
-                &conn,
-                &session_detail.id,
-                &active_workspace_id,
-                &session_detail.summary,
-                &session_detail.script_traces,
-            ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "script_trace_upsert_db_failed",
-                    &[("error", e)],
-                );
-            }
-
-            if let Err(e) = persist_rewrite_traces(
-                &conn,
-                &session_detail.id,
-                &active_workspace_id,
-                &session_detail.summary,
-                &session_detail.rewrite_traces,
-            ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "rewrite_trace_upsert_db_failed",
-                    &[("error", e)],
-                );
-            }
-
-            if let Err(e) = persist_map_traces(
-                &conn,
-                &session_detail.id,
-                &active_workspace_id,
-                &session_detail.summary,
-                &session_detail.map_traces,
-            ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "map_trace_upsert_db_failed",
-                    &[("error", e)],
-                );
-            }
-
-            if let Err(e) = persist_throttle_traces(
-                &conn,
-                &session_detail.id,
-                &active_workspace_id,
-                &session_detail.throttle_traces,
-            ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "throttle_trace_upsert_db_failed",
-                    &[("error", e)],
-                );
-            }
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "session_upsert_db_failed",
+                &[("error", e)],
+            );
         }
+
+        if let Err(e) = persist_script_traces(
+            &conn,
+            &session_detail.id,
+            active_workspace_id,
+            &session_detail.summary,
+            &session_detail.script_traces,
+        ) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "script_trace_upsert_db_failed",
+                &[("error", e)],
+            );
+        }
+
+        if let Err(e) = persist_rewrite_traces(
+            &conn,
+            &session_detail.id,
+            active_workspace_id,
+            &session_detail.summary,
+            &session_detail.rewrite_traces,
+        ) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "rewrite_trace_upsert_db_failed",
+                &[("error", e)],
+            );
+        }
+
+        if let Err(e) = persist_map_traces(
+            &conn,
+            &session_detail.id,
+            active_workspace_id,
+            &session_detail.summary,
+            &session_detail.map_traces,
+        ) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "map_trace_upsert_db_failed",
+                &[("error", e)],
+            );
+        }
+
+        if let Err(e) = persist_throttle_traces(
+            &conn,
+            &session_detail.id,
+            active_workspace_id,
+            &session_detail.throttle_traces,
+        ) {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "throttle_trace_upsert_db_failed",
+                &[("error", e)],
+            );
+        }
+
+        drop(conn);
+    }
+
+    /// Update the in-memory caches and emit frontend events for a session.
+    fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) {
+        let session_id = session_detail.id.clone();
+        let session_summary = session_detail.summary.clone();
 
         self.insert_session_detail_cache(session_id.clone(), session_detail.clone());
 
@@ -503,6 +517,102 @@ impl AppState {
 
         if let Some(handle) = self.read_app_handle() {
             let _ = handle.emit("session-upsert", session_summary);
+        }
+    }
+
+    /// Persist a batch of sessions with a single DB lock acquisition.
+    pub fn upsert_session_batch(&self, sessions: &mut [ProxySessionDetail]) {
+        let active_workspace_id = self
+            .read_status()
+            .active_workspace_id
+            .unwrap_or_else(|| "default".to_string());
+
+        // Spill bodies to disk before acquiring DB lock.
+        for session in sessions.iter_mut() {
+            if let Err(error) = spill_session_bodies_to_disk(session, &self.body_store) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "session_body_spill_failed",
+                    &[("error", error)],
+                );
+            }
+        }
+
+        // Batch DB writes under one lock.
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        for session in sessions.iter() {
+            let summary_row = proxy_summary_to_row(&session.summary);
+            let detail_row = proxy_detail_to_row(session, &self.body_store);
+
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+            {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "session_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_script_traces(
+                &conn,
+                &session.id,
+                &active_workspace_id,
+                &session.summary,
+                &session.script_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "script_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_rewrite_traces(
+                &conn,
+                &session.id,
+                &active_workspace_id,
+                &session.summary,
+                &session.rewrite_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "rewrite_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_map_traces(
+                &conn,
+                &session.id,
+                &active_workspace_id,
+                &session.summary,
+                &session.map_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "map_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_throttle_traces(
+                &conn,
+                &session.id,
+                &active_workspace_id,
+                &session.throttle_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "throttle_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+        }
+        drop(conn);
+
+        // Update caches and emit events per session.
+        for session in sessions.iter() {
+            self.update_session_cache_and_emit(session);
         }
     }
 

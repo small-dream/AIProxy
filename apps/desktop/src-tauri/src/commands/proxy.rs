@@ -152,7 +152,16 @@ async fn start_proxy_impl(
             tokio::select! {
                 session = session_receiver.recv() => {
                     match session {
-                        Some(session) => state_for_collector.upsert_session(session),
+                        Some(first) => {
+                            let mut batch = vec![first];
+                            while batch.len() < SESSION_BATCH_SIZE {
+                                match session_receiver.try_recv() {
+                                    Ok(s) => batch.push(s),
+                                    Err(_) => break,
+                                }
+                            }
+                            state_for_collector.upsert_session_batch(&mut batch);
+                        }
                         None => break,
                     }
                 }
