@@ -7,6 +7,7 @@ type TopBarActionVariant = "filled" | "outlined";
 
 type TopBarActionButtonProps = {
   ariaPressed?: boolean;
+  buttonRef?: React.RefObject<HTMLButtonElement | null>;
   disabled?: boolean;
   icon: ReactNode;
   label: string;
@@ -17,6 +18,7 @@ type TopBarActionButtonProps = {
 
 export function TopBarActionButton({
   ariaPressed,
+  buttonRef,
   disabled = false,
   icon,
   label,
@@ -28,6 +30,7 @@ export function TopBarActionButton({
     <Tooltip arrow title={label}>
       <span>
         <IconButton
+          ref={buttonRef}
           aria-label={label}
           aria-pressed={ariaPressed}
           disabled={disabled}

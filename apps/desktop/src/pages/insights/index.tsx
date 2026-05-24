@@ -17,10 +17,11 @@ import {
   alpha,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
+import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { downloadTextFile } from "@/lib/download";
 import { useI18n, type TranslationKey } from "@/i18n";
 import type { InsightsResult } from "@aiproxy/shared-types";
@@ -200,6 +201,7 @@ export function InsightsPage() {
     queryFn: () => invokeGetInsights(),
   });
 
+  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
   const [exportAnchorEl, setExportAnchorEl] = useState<HTMLElement | null>(null);
 
   const handleExport = useCallback(
@@ -222,34 +224,14 @@ export function InsightsPage() {
 
   const headerActions = useMemo(
     () => (
-      <Stack direction="row" spacing={1.25}>
-        <Box
-          component="button"
+      <>
+        <TopBarActionButton
           disabled={!data}
-          onClick={(e) => setExportAnchorEl(e.currentTarget)}
-          sx={{
-            alignItems: "center",
-            bgcolor: "transparent",
-            border: "1px solid",
-            borderColor: data ? "action.focus" : "action.disabledBackground",
-            borderRadius: 1,
-            color: data ? "text.primary" : "action.disabled",
-            cursor: data ? "pointer" : "not-allowed",
-            display: "inline-flex",
-            fontFamily: "inherit",
-            gap: 0.5,
-            px: 1.25,
-            py: 0.5,
-            fontSize: 13,
-            fontWeight: 500,
-            "&:hover": data
-              ? { bgcolor: "action.hover" }
-              : {},
-          }}
-        >
-          <FileDownloadRoundedIcon sx={{ fontSize: 16 }} />
-          {t("insightsPage.export.title")}
-        </Box>
+          icon={<FileDownloadRoundedIcon />}
+          label={t("insightsPage.export.title")}
+          onClick={() => setExportAnchorEl(exportButtonRef.current)}
+          buttonRef={exportButtonRef}
+        />
         <Menu
           anchorEl={exportAnchorEl}
           open={Boolean(exportAnchorEl)}
@@ -262,7 +244,7 @@ export function InsightsPage() {
             {t("insightsPage.export.json")}
           </MenuItem>
         </Menu>
-      </Stack>
+      </>
     ),
     [t, data, exportAnchorEl, handleExport],
   );
