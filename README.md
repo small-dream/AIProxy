@@ -29,6 +29,7 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 ## 文档入口
 
 - `docs/PRD.md`
+- `docs/NEXT_6_MONTH_ROADMAP.md`
 - `docs/ARCHITECTURE.md`
 - `docs/API_SPEC.md`
 - `docs/UI_GUIDELINES.md`
