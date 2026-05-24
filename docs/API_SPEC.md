@@ -173,6 +173,11 @@ type TimingBreakdown = {
   totalMs?: number;
 };
 
+// Timing 来源标识：
+// - "proxy": 代理捕获的会话，通过 TimingConnector（hyper）采集全部 7 个阶段
+// - "compose": Compose 发送的请求，通过 reqwest 采集（仅 totalMs/waitingMs/responseReadMs）
+// - "har-import": 从 HAR 文件导入的会话，字段取决于 HAR 原始数据
+
 type SessionDetail = {
   clientAddress?: string;
   cookies: HeaderEntry[];
@@ -195,6 +200,7 @@ type SessionDetail = {
   tlsCipherSuite?: string;
   tlsProtocol?: string;
   timing?: TimingBreakdown;
+  timingSource?: "proxy" | "compose" | "har-import";
 };
 
 type SessionDetailContentRequest = {
@@ -729,12 +735,9 @@ type GetSessionDetailOutput = SessionDetail;
 - `requestHeaders` 与 `responseHeaders` 返回真实抓包头信息
 - `requestBody` 与 `responseBody` 对小体积内容优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
 - 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
-- `timing` 当前优先提供：
-  - `requestSendMs`
-  - `waitingMs`
-  - `responseReadMs`
-  - `totalMs`
-- `dnsMs / connectMs / tlsMs` 预留，待更细粒度链路采样后补齐
+- `timing` 所有 7 个阶段（`dnsMs`、`connectMs`、`tlsMs`、`requestSendMs`、`waitingMs`、`responseReadMs`、`totalMs`）在代理捕获会话中均已通过 `TimingConnector`（hyper）完整填充
+- `timingSource` 标识 timing 数据来源：`"proxy"`（代理捕获，全阶段）、`"compose"`（Compose 发送，仅部分阶段）、`"har-import"`（HAR 导入，取决于原始数据）
+- Compose 发送的请求仍通过 `reqwest`，仅提供 `totalMs`、`waitingMs`、`responseReadMs`
 
 ### `get_session_detail_content`
 
@@ -848,6 +851,7 @@ type SendComposedRequestOutput = ProxySessionDetail;
 - 返回的 `ProxySessionDetail` 与代理捕获的会话结构完全一致，前端 Inspector 组件可零修改复用
 - 组合请求会自动出现在 Sessions 页面的会话列表中
 - Timing 仅包含 `totalMs`、`waitingMs`、`responseReadMs`，其余字段为 `None`（reqwest 不暴露 DNS/Connect/TLS 粒度）
+- `timingSource` 为 `"compose"`，前端 Inspector 可据此区分 timing 数据来源并调整 WaterfallChart 展示
 - 前端使用 Zustand store（`compose-editor.store.ts`）管理编辑器状态，支持从 Sessions 页面的 "Repeat" 按钮预填数据
 
 ### `repeat_session` — `暂未实现，使用前端 Repeat 按钮替代`
@@ -1829,6 +1833,84 @@ type MenuEvent = unknown;
 
 - 增加插件注册与生命周期 API
 - 增加分析面板聚合查询 API
+
+## 15. Insights Commands — `已实现`
+
+这些命令由 `Insights` 页面调用，基于 SQLite 聚合查询提供流量统计分析。
+
+### Insights 共享类型
+
+```ts
+type HostInsight = {
+  host: string;
+  requestCount: number;
+  avgDurationMs: number;
+  medianDurationMs: number;
+  p95DurationMs: number;
+  totalSizeBytes: number;
+  errorCount: number;
+};
+
+type StatusCodeDistribution = {
+  statusCode: number;
+  count: number;
+};
+
+type MethodDistribution = {
+  method: string;
+  count: number;
+};
+
+type SlowRequest = {
+  sessionId: string;
+  method: string;
+  host: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  startedAt: string;
+};
+
+type InsightsResult = {
+  totalRequests: number;
+  avgDurationMs: number;
+  errorRate: number;
+  totalSizeBytes: number;
+  hosts: HostInsight[];
+  statusCodes: StatusCodeDistribution[];
+  methods: MethodDistribution[];
+  slowRequests: SlowRequest[];
+};
+```
+
+### `get_insights`
+
+请求：
+
+```ts
+type GetInsightsInput = {
+  workspaceId: string;
+  startTime?: string;   // ISO 8601，可选时间范围起始
+  endTime?: string;     // ISO 8601，可选时间范围结束
+  limit?: number;       // 慢请求返回数量上限，默认 10
+};
+```
+
+响应：
+
+```ts
+type GetInsightsOutput = InsightsResult;
+```
+
+实现说明：
+
+- 后端通过 `session-store` 的 `compute_insights()` 函数执行 SQLite 聚合查询
+- `hosts` 按 host 分组聚合请求计数、平均/P95 耗时和错误数
+- `statusCodes` 统计各状态码出现次数
+- `methods` 统计各 HTTP 方法出现次数
+- `slowRequests` 按耗时降序返回最慢的请求列表
+- 查询仅覆盖当前 workspace 下的会话数据
+- 前端可通过 `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 导出分析结果
 
 ## 10.1 Script Rule Commands
 

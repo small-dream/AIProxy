@@ -280,3 +280,27 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 6. `docs/ENGINEERING_GUIDELINES.md`
 
 如需偏离本规范，必须先在文档中记录原因。
+
+## 14. M2 实现约束
+
+### 14.1 hyper 与 reqwest 使用边界
+
+`proxy-core` 中 `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段。以下是使用边界：
+
+- `forward_request()`（代理捕获路径）：使用 `hyper` + `TimingConnector`，可采集 dns / connect / tls / request_send / waiting / response_read / total
+- `send_direct_request()`（Compose 路径）：继续使用 `reqwest`，仅提供 totalMs / waitingMs / responseReadMs
+- `TimingConnector` 实现 `hyper::service::Service` trait，通过 `Instant` 时间戳计算各阶段耗时
+- `timing_source` 字段（`"proxy" | "compose" | "har-import"`）标识 timing 数据来源，前端 `WaterfallChart` 据此调整展示粒度
+- 新增 HTTP 客户端能力时，应优先评估是否需要完整 timing 采集；如果需要，应复用 `TimingConnector` 模式而非重新实现
+
+### 14.2 Insights SQL 查询性能
+
+Insights 页面通过 SQLite 聚合查询提供统计分析。以下是性能约束：
+
+- `compute_insights()` 应在单次调用中完成所有聚合，避免多次全表扫描
+- Host 分组统计、状态码分布、方法分布使用 `GROUP BY` 聚合，不加载完整会话列表到内存
+- 慢请求排名使用 `ORDER BY duration_ms DESC LIMIT N`，避免无限制排序
+- P95 耗时计算应使用近似算法或 SQLite 窗口函数，不应对全量数据做排序
+- 查询仅覆盖当前 workspace 下的会话，通过 `workspace_id` 索引过滤
+- 当会话量超过一定阈值时，应考虑增加时间范围过滤（`startTime` / `endTime`）避免查询超时
+- 导出（Markdown / JSON）由前端纯函数生成，不涉及额外数据库查询
