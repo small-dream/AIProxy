@@ -47,7 +47,7 @@ import {
   upsertSessionContainerSummary,
 } from "@/features/sessions/session-containers.helpers";
 import { upsertImportedSessions } from "@/features/sessions/imported-sessions.store";
-import { upsertSessionSummary } from "@/features/sessions/session-cache.helpers";
+import { upsertSessionSummary, removeSessionSummary, removeSessionSummaries } from "@/features/sessions/session-cache.helpers";
 import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
@@ -65,9 +65,8 @@ import {
 } from "@/features/sessions/session-ui.helpers";
 import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
-import { useSessionDetail } from "@/features/sessions/use-session-detail";
-import { useSessionEvents } from "@/features/sessions/use-session-events";
-import { useSessions } from "@/features/sessions/use-sessions";
+import { SESSION_DETAIL_QUERY_KEY, useSessionDetail } from "@/features/sessions/use-session-detail";
+import { SESSIONS_QUERY_KEY, useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
 import { onSessionRemove, onSessionsCleared, onSessionsRemoved, onSessionUpsert } from "@/services/events";
@@ -147,8 +146,6 @@ export function SessionsPage() {
 
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
-
-  useSessionEvents();
 
   const activeContainer =
     getSessionContainerById(containerState, containerState.activeContainerId) ??
@@ -269,6 +266,22 @@ export function SessionsPage() {
         }
         return next;
       });
+
+      // Sync React Query cache
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) => {
+        let updated = currentSessions;
+        for (const summary of batch) {
+          updated = upsertSessionSummary(updated, summary);
+        }
+        return updated;
+      });
+
+      for (const summary of batch) {
+        void queryClient.invalidateQueries({
+          exact: true,
+          queryKey: [SESSION_DETAIL_QUERY_KEY, summary.id],
+        });
+      }
     }
 
     onSessionUpsert((summary) => {
@@ -289,6 +302,10 @@ export function SessionsPage() {
     onSessionRemove((sessionId) => {
       if (cancelled) return;
       setContainerState((currentState) => removeSessionContainerSummary(currentState, sessionId));
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+        removeSessionSummary(currentSessions, sessionId),
+      );
+      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, sessionId] });
     }).then((fn) => {
       if (!cancelled) {
         unlistenFns.push(fn);
@@ -319,6 +336,8 @@ export function SessionsPage() {
             getSessionContainerById(currentState, currentState.activeContainerId)?.responseTab ?? "overview",
         }),
       );
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, []);
+      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });
     }).then((fn) => {
       if (!cancelled) {
         unlistenFns.push(fn);
@@ -336,6 +355,12 @@ export function SessionsPage() {
         }
         return nextState;
       });
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+        removeSessionSummaries(currentSessions, ids),
+      );
+      for (const id of ids) {
+        queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, id] });
+      }
     }).then((fn) => {
       if (!cancelled) {
         unlistenFns.push(fn);
@@ -354,7 +379,7 @@ export function SessionsPage() {
         fn();
       }
     };
-  }, [defaultInspectorSplitRatio]);
+  }, [defaultInspectorSplitRatio, queryClient]);
 
   useEffect(() => {
     writeStorageValue(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));
