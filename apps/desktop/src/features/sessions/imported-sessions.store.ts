@@ -1,5 +1,6 @@
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
+const MAX_IMPORTED_SESSION_DETAILS = 100;
 const importedSessionDetails = new Map<string, SessionDetail>();
 
 export function clearImportedSessions() {
@@ -29,5 +30,9 @@ export function listImportedSessionSummaries(): SessionSummary[] {
 export function upsertImportedSessions(details: SessionDetail[]) {
   for (const detail of details) {
     importedSessionDetails.set(detail.id, detail);
+  }
+  while (importedSessionDetails.size > MAX_IMPORTED_SESSION_DETAILS) {
+    const oldestKey = importedSessionDetails.keys().next().value;
+    if (oldestKey !== undefined) importedSessionDetails.delete(oldestKey);
   }
 }
