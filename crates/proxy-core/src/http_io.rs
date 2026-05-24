@@ -341,7 +341,30 @@ pub(crate) fn build_body_reference(
     ))
 }
 
-fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
+#[allow(dead_code)]
+pub(crate) fn build_body_reference_from_decoded(
+    decoded_body: Vec<u8>,
+    content_type_header: Option<&HeaderValue>,
+    size_bytes: usize,
+    truncated: bool,
+) -> Option<ProxyBodyReference> {
+    if decoded_body.is_empty() && size_bytes == 0 {
+        return None;
+    }
+
+    let mime_type = content_type_header
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
+
+    Some(ProxyBodyReference::from_decoded_bytes(
+        decoded_body, mime_type, size_bytes, truncated, render_as_text,
+    ))
+}
+
+pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
     if let Some(mime_type) = mime_type {
         let lowered = mime_type.to_ascii_lowercase();
         if lowered.starts_with("text/")

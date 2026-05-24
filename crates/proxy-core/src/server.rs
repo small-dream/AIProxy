@@ -758,29 +758,55 @@ async fn handle_connection(
                     }
                     BreakpointActionKind::Forward => {
                         apply_response_resolution(&resolution, &mut upstream_response);
-                        session_detail = build_session_detail(
-                            &request,
-                            upstream_response.status_code.as_u16(),
-                            &upstream_response.response_headers,
-                            &upstream_response.response_body,
-                            upstream_response.response_body_size_bytes,
-                            started_at,
-                            started_at_instant,
-                            ProxyTimingBreakdown {
-                                connect_ms: None,
-                                dns_ms: None,
-                                request_send_ms: None,
-                                response_read_ms: Some(upstream_response.response_read_ms),
-                                tls_ms: None,
-                                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                waiting_ms: Some(upstream_response.waiting_ms),
-                            },
-                            upstream_response.body_truncated,
-                        );
-                        session_detail.map_traces = map_traces.clone();
-                        session_detail.rewrite_traces = rewrite_traces.clone();
-                        session_detail.script_traces = script_traces.clone();
-                        session_detail.throttle_traces = throttle_traces.clone();
+                        if resolution.modified_response_body_base64.is_some() {
+                            // Body changed — must rebuild (includes decompression).
+                            session_detail = build_session_detail(
+                                &request,
+                                upstream_response.status_code.as_u16(),
+                                &upstream_response.response_headers,
+                                &upstream_response.response_body,
+                                upstream_response.response_body_size_bytes,
+                                started_at,
+                                started_at_instant,
+                                ProxyTimingBreakdown {
+                                    connect_ms: None,
+                                    dns_ms: None,
+                                    request_send_ms: None,
+                                    response_read_ms: Some(upstream_response.response_read_ms),
+                                    tls_ms: None,
+                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                    waiting_ms: Some(upstream_response.waiting_ms),
+                                },
+                                upstream_response.body_truncated,
+                            );
+                            session_detail.map_traces = map_traces.clone();
+                            session_detail.rewrite_traces = rewrite_traces.clone();
+                            session_detail.script_traces = script_traces.clone();
+                            session_detail.throttle_traces = throttle_traces.clone();
+                        } else {
+                            // Only headers/status may have changed — update in place, no body decompression needed.
+                            if resolution.modified_response_status_code.is_some() {
+                                session_detail.summary.status_code =
+                                    upstream_response.status_code.as_u16();
+                            }
+                            if resolution.modified_response_headers.is_some() {
+                                session_detail.response_headers =
+                                    build_header_entries_from_map(&upstream_response.response_headers);
+                                session_detail.cookies = build_cookie_entries(
+                                    &request.request_headers,
+                                    &session_detail.response_headers,
+                                );
+                                session_detail.raw_response_head = Some(build_raw_http_head(
+                                    &format!(
+                                        "HTTP/1.1 {} {}",
+                                        upstream_response.status_code.as_u16(),
+                                        upstream_response.status_code.canonical_reason()
+                                            .unwrap_or("Unknown"),
+                                    ),
+                                    &session_detail.response_headers,
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -2242,29 +2268,55 @@ async fn handle_connect_mitm(
                     }
                     BreakpointActionKind::Forward => {
                         apply_response_resolution(&resolution, &mut upstream_response);
-                        session_detail = build_session_detail(
-                            &https_request,
-                            upstream_response.status_code.as_u16(),
-                            &upstream_response.response_headers,
-                            &upstream_response.response_body,
-                            upstream_response.response_body_size_bytes,
-                            started_at,
-                            started_at_instant,
-                            ProxyTimingBreakdown {
-                                connect_ms: None,
-                                dns_ms: None,
-                                request_send_ms: None,
-                                response_read_ms: Some(upstream_response.response_read_ms),
-                                tls_ms: Some(tls_ms),
-                                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                waiting_ms: Some(upstream_response.waiting_ms),
-                            },
-                            upstream_response.body_truncated,
-                        );
-                        session_detail.map_traces = map_traces.clone();
-                        session_detail.rewrite_traces = rewrite_traces.clone();
-                        session_detail.script_traces = script_traces.clone();
-                        session_detail.throttle_traces = throttle_traces.clone();
+                        if resolution.modified_response_body_base64.is_some() {
+                            // Body changed — must rebuild (includes decompression).
+                            session_detail = build_session_detail(
+                                &https_request,
+                                upstream_response.status_code.as_u16(),
+                                &upstream_response.response_headers,
+                                &upstream_response.response_body,
+                                upstream_response.response_body_size_bytes,
+                                started_at,
+                                started_at_instant,
+                                ProxyTimingBreakdown {
+                                    connect_ms: None,
+                                    dns_ms: None,
+                                    request_send_ms: None,
+                                    response_read_ms: Some(upstream_response.response_read_ms),
+                                    tls_ms: Some(tls_ms),
+                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                    waiting_ms: Some(upstream_response.waiting_ms),
+                                },
+                                upstream_response.body_truncated,
+                            );
+                            session_detail.map_traces = map_traces.clone();
+                            session_detail.rewrite_traces = rewrite_traces.clone();
+                            session_detail.script_traces = script_traces.clone();
+                            session_detail.throttle_traces = throttle_traces.clone();
+                        } else {
+                            // Only headers/status may have changed — update in place, no body decompression needed.
+                            if resolution.modified_response_status_code.is_some() {
+                                session_detail.summary.status_code =
+                                    upstream_response.status_code.as_u16();
+                            }
+                            if resolution.modified_response_headers.is_some() {
+                                session_detail.response_headers =
+                                    build_header_entries_from_map(&upstream_response.response_headers);
+                                session_detail.cookies = build_cookie_entries(
+                                    &https_request.request_headers,
+                                    &session_detail.response_headers,
+                                );
+                                session_detail.raw_response_head = Some(build_raw_http_head(
+                                    &format!(
+                                        "HTTP/1.1 {} {}",
+                                        upstream_response.status_code.as_u16(),
+                                        upstream_response.status_code.canonical_reason()
+                                            .unwrap_or("Unknown"),
+                                    ),
+                                    &session_detail.response_headers,
+                                ));
+                            }
+                        }
                     }
                 }
             }
