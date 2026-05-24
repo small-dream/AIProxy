@@ -34,7 +34,7 @@ impl ResolvesServerCert for DynamicCertResolver {
 
         // Check the in-memory cache first
         {
-            let cache = self
+            let mut cache = self
                 .storage
                 .host_cache
                 .lock()
@@ -93,7 +93,7 @@ impl ResolvesServerCert for DynamicCertResolver {
                 .host_cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            cache.insert(hostname.to_string(), Arc::clone(&certified_key));
+            cache.put(hostname.to_string(), Arc::clone(&certified_key));
         }
 
         Some(certified_key)

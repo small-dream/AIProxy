@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use lru::LruCache;
 
 use crate::generator::{self, RootCaPair};
 use crate::{emit_log, TlsManagerError};
@@ -18,7 +20,7 @@ pub struct CertStorage {
     root_cert_path: PathBuf,
     root_key_path: PathBuf,
     /// In-memory cache: hostname → CertifiedKey (for dynamic host certs)
-    pub(crate) host_cache: Arc<Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>,
+    pub(crate) host_cache: Arc<Mutex<LruCache<String, Arc<rustls::sign::CertifiedKey>>>>,
 }
 
 impl std::clone::Clone for CertStorage {
@@ -44,7 +46,7 @@ impl CertStorage {
             root_cert_path: cert_dir.join(ROOT_CERT_FILE),
             root_key_path: cert_dir.join(ROOT_KEY_FILE),
             cert_dir,
-            host_cache: Arc::new(Mutex::new(HashMap::new())),
+            host_cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(512).unwrap()))),
         })
     }
 
@@ -66,7 +68,7 @@ impl CertStorage {
             root_cert_path: temp_dir.join(ROOT_CERT_FILE),
             root_key_path: temp_dir.join(ROOT_KEY_FILE),
             cert_dir: temp_dir,
-            host_cache: Arc::new(Mutex::new(HashMap::new())),
+            host_cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(512).unwrap()))),
         }
     }
 
@@ -186,7 +188,7 @@ impl CertStorage {
 
         let certified_key = Arc::new(rustls::sign::CertifiedKey::new(vec![cert_der], signing_key));
 
-        cache.insert(hostname.to_string(), Arc::clone(&certified_key));
+        cache.put(hostname.to_string(), Arc::clone(&certified_key));
 
         Ok(certified_key)
     }
@@ -243,5 +245,22 @@ mod tests {
             .unwrap();
 
         assert!(Arc::ptr_eq(&original_key, &cloned_key));
+    }
+
+    #[test]
+    fn lru_cache_evicts_oldest_entries() {
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+
+        // Fill cache beyond capacity (512)
+        for i in 0..513 {
+            let hostname = format!("host{}.example.com", i);
+            let _ = storage.get_or_create_host_certified_key(&root_ca, &hostname);
+        }
+
+        let mut cache = storage.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(cache.len() <= 512);
+        // The first entry should have been evicted
+        assert!(cache.get(&"host0.example.com".to_string()).is_none());
     }
 }
