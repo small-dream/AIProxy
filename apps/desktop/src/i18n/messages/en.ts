@@ -1072,6 +1072,9 @@ export const enMessages = {
       tooLarge: "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
       truncated: "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
     },
+    sessionInspector: {
+      bodyTruncatedWarning: "Body was truncated at 20MB. Full content was not captured.",
+    },
   },
   automationTab: {
     emptyDescription: "No script automation traces were recorded for this session.",

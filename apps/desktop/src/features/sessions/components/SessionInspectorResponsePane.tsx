@@ -291,6 +291,11 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           py: (activeResponseTab === "json" || activeResponseTab === "preview") ? 0 : 2,
         }}
       >
+        {detail?.responseBody?.truncated && (
+          <Alert severity="warning" sx={{ mx: 1, mt: 1 }}>
+            {t("inspector.sessionInspector.bodyTruncatedWarning")}
+          </Alert>
+        )}
         <ResponseTabContent
           detail={detail}
           isResponseBodyBase64Loading={isResponseBodyBase64Loading}

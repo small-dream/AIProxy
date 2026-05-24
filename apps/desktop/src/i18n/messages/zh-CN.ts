@@ -1074,6 +1074,9 @@ export const zhCNMessages: Messages = {
       tooLarge: "JSON Body 目前过大，无法用树形视图展示。请改用 JSON 文本或 Raw 查看。",
       truncated: "JSON Body 在抓包时被截断，请改用 JSON 文本或 Raw 查看部分内容。",
     },
+    sessionInspector: {
+      bodyTruncatedWarning: "Body 已在 20MB 处截断，完整内容未被捕获。",
+    },
   },
   automationTab: {
     emptyDescription: "当前会话没有记录到脚本自动化 trace。",
