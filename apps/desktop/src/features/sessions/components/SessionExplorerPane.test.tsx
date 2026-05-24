@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { SessionSummary } from "@aiproxy/shared-types";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import { buildSessionHostGroups } from "../session-explorer.helpers";
@@ -95,6 +95,7 @@ describe("SessionExplorerPane", () => {
   });
 
   it("renders the bottom domain filter and forwards changes", () => {
+    vi.useFakeTimers();
     const handleDomainFilterChange = vi.fn();
 
     render(
@@ -117,7 +118,12 @@ describe("SessionExplorerPane", () => {
     expect(input).toHaveValue("api");
 
     fireEvent.change(input, { target: { value: "assets" } });
+    act(() => { vi.advanceTimersByTime(200); });
 
     expect(handleDomainFilterChange).toHaveBeenCalledWith("assets");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 });
