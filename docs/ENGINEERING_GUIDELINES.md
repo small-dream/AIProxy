@@ -5,7 +5,7 @@
 - 产品代号：`AIProxy`
 - 文档类型：工程开发规范
 - 当前阶段：`Phase 1 / 初始化设计`
-- 文档状态：`Draft v1.0`
+- 文档状态：`Draft v1.1`（M1 更新：性能基线、tracing 日志框架）
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -142,11 +142,12 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 - 关键逻辑和异常路径必须记录结构化日志
 - 日志应包含上下文信息：`who / what / when / why`
-- 根据场景使用合适日志级别：
-  - `DEBUG`：调试细节、流程节点
-  - `INFO`：关键状态变化、正常业务事件
-  - `WARN`：可恢复异常、降级处理、非致命风险
-  - `ERROR`：失败、异常终止、数据不一致、关键流程中断
+- 日志框架使用 `tracing` 生态，通过 `tracing` 宏输出：
+  - `tracing::debug!`：调试细节、流程节点
+  - `tracing::info!`：关键状态变化、正常业务事件
+  - `tracing::warn!`：可恢复异常、降级处理、非致命风险
+  - `tracing::error!`：失败、异常终止、数据不一致、关键流程中断
+- 结构化日志字段格式保持不变：timestamp、level、component、event、key=value pairs
 
 ### 7.4 日志约束
 
@@ -157,6 +158,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 ### 7.5 开发期日志落地要求
 
 - 开发阶段必须保证日志可直接落盘，不能只停留在控制台输出
+- 文件写入通过 `tracing_appender::non_blocking` 缓冲，避免阻塞业务线程
 - 日志文件位置必须写入文档，并保持稳定可查
 - 核心链路至少覆盖：
   - 应用启动
@@ -223,6 +225,34 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 对纯函数、转换器、校验器、规则匹配器必须优先做单测
 - 对关键集成流程补充集成测试
 - 对异常路径和错误映射必须有覆盖
+
+### 9.4 性能基线
+
+#### 压力测试夹具
+
+使用 `scripts/generate-stress-fixtures.ts` 生成大规模测试数据，输出到 `fixtures/stress/`：
+
+- 10k sessions：验证虚拟滚动在大数据量下的渲染性能
+- 1k WS messages：验证 WebSocket 消息列表的滚动流畅度
+- 50MB body：验证大 Body 场景下代理和 UI 的稳定性
+
+#### 验收阈值
+
+| 场景 | 阈值 |
+| ------ | ------ |
+| 10k sessions 渲染 | 必须使用虚拟滚动，无明显卡顿 |
+| 1k WS messages 滚动 | 滚动流畅，无掉帧 |
+| 50MB body 处理 | 代理和 UI 均不崩溃 |
+
+#### 发布检查清单
+
+每个里程碑发布前必须运行 `scripts/release-checklist.sh`，该脚本依次执行：
+
+1. `typecheck`
+2. `lint`
+3. 前端测试
+4. Rust 测试
+5. `clippy`
 
 ## 10. 文档要求
 
