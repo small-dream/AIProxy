@@ -41,6 +41,7 @@ fn parse_urlencoded_entries(value: &str) -> Vec<ProxyHeaderEntry> {
         .map(|(name, value)| ProxyHeaderEntry {
             name: name.into_owned(),
             value: value.into_owned(),
+            is_pseudo: None,
         })
         .collect()
 }
@@ -54,6 +55,7 @@ fn substitute_header_entries(
         .map(|entry| ProxyHeaderEntry {
             name: substitute_vars(&entry.name, vars),
             value: substitute_vars(&entry.value, vars),
+            is_pseudo: entry.is_pseudo,
         })
         .collect()
 }
@@ -69,6 +71,7 @@ fn ensure_content_type_header(headers: &mut Vec<ProxyHeaderEntry>, content_type:
     headers.push(ProxyHeaderEntry {
         name: "Content-Type".to_string(),
         value: content_type.to_string(),
+        is_pseudo: None,
     });
 }
 
@@ -670,6 +673,7 @@ mod tests {
             vec![aiproxy_proxy_core::ProxyHeaderEntry {
                 name: "Content-Type".into(),
                 value: "application/x-www-form-urlencoded".into(),
+                is_pseudo: None,
             }]
         );
         assert_eq!(body.as_deref(), Some("query=alice+smith"));
