@@ -1236,6 +1236,123 @@ async fn direct_request_marks_large_response_previews_as_truncated() {
     upstream_task.await.unwrap();
 }
 
+fn build_test_session_detail() -> ProxySessionDetail {
+    ProxySessionDetail {
+        client_address: Some("127.0.0.1:54321".to_string()),
+        cookies: Vec::new(),
+        id: "session-1".to_string(),
+        query_params: Vec::new(),
+        raw_request_head: Some(build_raw_http_head(
+            "GET /hello HTTP/1.1",
+            &[ProxyHeaderEntry {
+                name: "Host".to_string(),
+                value: "example.com".to_string(),
+                is_pseudo: None,
+            }],
+        )),
+        raw_response_head: Some(build_raw_http_head(
+            "HTTP/1.1 200 OK",
+            &[ProxyHeaderEntry {
+                name: "Content-Type".to_string(),
+                value: "text/plain".to_string(),
+                is_pseudo: None,
+            }],
+        )),
+        request_body: None,
+        request_headers: vec![ProxyHeaderEntry {
+            name: "Host".to_string(),
+            value: "example.com".to_string(),
+            is_pseudo: None,
+        }],
+        response_body: None,
+        response_headers: vec![ProxyHeaderEntry {
+            name: "Content-Type".to_string(),
+            value: "text/plain".to_string(),
+            is_pseudo: None,
+        }],
+        map_traces: Vec::new(),
+        rewrite_traces: Vec::new(),
+        server_ip: None,
+        summary: ProxySessionSummary {
+            id: "session-1".to_string(),
+            method: "GET".to_string(),
+            host: "example.com".to_string(),
+            path: "/hello".to_string(),
+            protocol: "http".to_string(),
+            scheme: "http".to_string(),
+            http_version: "1.1".to_string(),
+            transport_protocol: "tcp".to_string(),
+            application_protocol: "http".to_string(),
+            started_at: "2026-04-21T00:00:00Z".to_string(),
+            finished_at: "2026-04-21T00:00:01Z".to_string(),
+            duration_ms: 1,
+            size_bytes: 0,
+            status_code: 200,
+            url: "http://example.com/hello".to_string(),
+            response_mime_type: None,
+        },
+        script_traces: Vec::new(),
+        throttle_traces: Vec::new(),
+        tls_cipher_suite: None,
+        tls_protocol: None,
+        timing: None,
+        timing_source: None,
+        trailers: None,
+        h2_stream_id: None,
+    }
+}
+
+#[test]
+fn test_proxy_header_entry_is_pseudo_serialization() {
+    let entry = ProxyHeaderEntry {
+        name: ":method".to_string(),
+        value: "GET".to_string(),
+        is_pseudo: Some(true),
+    };
+    let json = serde_json::to_string(&entry).unwrap();
+    assert!(json.contains("\"isPseudo\":true"));
+    assert!(json.contains("\"name\":\":method\""));
+
+    // Regular header without is_pseudo
+    let regular = ProxyHeaderEntry {
+        name: "content-type".to_string(),
+        value: "text/html".to_string(),
+        is_pseudo: None,
+    };
+    let json2 = serde_json::to_string(&regular).unwrap();
+    assert!(!json2.contains("is_pseudo"));
+}
+
+#[test]
+fn test_proxy_session_detail_h2_fields_serialization() {
+    let mut detail = build_test_session_detail();
+    detail.trailers = Some(vec![ProxyHeaderEntry {
+        name: "grpc-status".to_string(),
+        value: "0".to_string(),
+        is_pseudo: None,
+    }]);
+    detail.h2_stream_id = Some(42);
+
+    let json = serde_json::to_string(&detail).unwrap();
+    assert!(json.contains("\"trailers\""));
+    assert!(json.contains("\"grpc-status\""));
+    assert!(json.contains("\"h2StreamId\":42"));
+}
+
+#[test]
+fn test_proxy_header_entry_roundtrip() {
+    let entry = ProxyHeaderEntry {
+        name: ":authority".to_string(),
+        value: "example.com".to_string(),
+        is_pseudo: Some(true),
+    };
+    let json = serde_json::to_string(&entry).unwrap();
+    let deserialized: ProxyHeaderEntry = serde_json::from_str(&json).unwrap();
+    assert_eq!(entry.name, deserialized.name);
+    assert_eq!(entry.value, deserialized.value);
+    assert_eq!(entry.is_pseudo, deserialized.is_pseudo);
+}
+
 fn allocate_unused_port() -> u16 {
     std::net::TcpListener::bind(("127.0.0.1", 0))
         .unwrap()
