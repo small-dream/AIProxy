@@ -1224,6 +1224,13 @@ export const enMessages = {
       avgDuration: "Avg Duration",
       p95Duration: "P95 Duration",
       traffic: "Traffic",
+      contextMenu: {
+        filterByHost: "Filter by this host",
+        filterBySelection: "Filter by selected text",
+        excludeHost: "Exclude this host",
+        copyHost: "Copy host",
+        showRequests: "Show requests for this host",
+      },
     },
     slowRequests: {
       title: "Slow Requests",
@@ -1245,10 +1252,15 @@ export const enMessages = {
     },
     states: {
       noData: "No session data available",
+      noFilteredData: "No sessions match the active host filters",
       loading: "Loading insights...",
     },
     filter: {
       domainPlaceholder: "Filter by domain...",
+      keywordChip: "host contains {{value}}",
+      hostChip: "host = {{host}}",
+      excludeChip: "host != {{host}}",
+      clearAll: "Clear filters",
     },
     scope: {
       current: "{{count}} requests in current scope",

@@ -1,36 +1,82 @@
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
+import FilterAltOffRoundedIcon from "@mui/icons-material/FilterAltOffRounded";
+import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Box,
   Card,
   CardContent,
+  Chip,
   CircularProgress,
+  Divider,
+  IconButton,
   InputBase,
   inputBaseClasses,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Paper,
+  Snackbar,
   Stack,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
   alpha,
   darken,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { downloadTextFile } from "@/lib/download";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
-import type { InsightsResult, SessionSummary } from "@aiproxy/shared-types";
+import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuDividerSx,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "@/features/sessions/components/context-menu.styles";
+import type { GetInsightsInput, InsightsResult, SessionSummary } from "@aiproxy/shared-types";
 import { invokeGetInsights } from "@/services/commands/sessions";
+
+type HostContextMenuState = {
+  anchorPosition: { left: number; top: number };
+  host: string;
+  selectedText?: string;
+};
+
+type InsightsComputationFilters = {
+  excludedHosts: string[];
+  hostExact: string | null;
+  hostKeyword: string;
+};
+
+const EMPTY_INSIGHTS_RESULT: InsightsResult = {
+  totalRequests: 0,
+  totalErrors: 0,
+  errorRate: 0,
+  avgDurationMs: 0,
+  p50DurationMs: 0,
+  p95DurationMs: 0,
+  p99DurationMs: 0,
+  totalBytes: 0,
+  byHost: [],
+  byStatusCode: [],
+  byMethod: [],
+  slowRequests: [],
+};
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -70,6 +116,10 @@ function formatNumber(value: number): string {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function normalizeHostValue(host: string): string {
+  return host.trim().toLowerCase();
 }
 
 function percentile(sortedValues: number[], percentileValue: number): number {
@@ -114,12 +164,25 @@ function getDurationIntensity(durationMs: number, maxDurationMs: number): number
 
 function computeInsightsFromSummaries(
   summaries: SessionSummary[],
-  hostKeyword: string,
+  filters: InsightsComputationFilters,
 ): InsightsResult {
-  const normalizedKeyword = hostKeyword.trim().toLowerCase();
-  const filteredSummaries = normalizedKeyword
-    ? summaries.filter((summary) => summary.host.toLowerCase().includes(normalizedKeyword))
-    : summaries;
+  const normalizedKeyword = normalizeHostValue(filters.hostKeyword);
+  const normalizedExactHost = filters.hostExact ? normalizeHostValue(filters.hostExact) : "";
+  const excludedHostSet = new Set(filters.excludedHosts.map(normalizeHostValue).filter(Boolean));
+  const filteredSummaries = summaries.filter((summary) => {
+    const normalizedHost = normalizeHostValue(summary.host);
+
+    return (
+      (!normalizedKeyword || normalizedHost.includes(normalizedKeyword)) &&
+      (!normalizedExactHost || normalizedHost === normalizedExactHost) &&
+      !excludedHostSet.has(normalizedHost)
+    );
+  });
+
+  if (filteredSummaries.length === 0) {
+    return EMPTY_INSIGHTS_RESULT;
+  }
+
   const totalRequests = filteredSummaries.length;
   const totalErrors = filteredSummaries.filter((summary) => summary.statusCode >= 400).length;
   const totalBytes = filteredSummaries.reduce((sum, summary) => sum + summary.sizeBytes, 0);
@@ -302,18 +365,149 @@ function DistributionItem({
   );
 }
 
+function HostContextMenu({
+  anchorPosition,
+  host,
+  hostExact,
+  selectedText,
+  onClose,
+  onCopyHost,
+  onExcludeHost,
+  onFilterHost,
+  onFilterSelection,
+  onOpenSessions,
+}: {
+  anchorPosition: { left: number; top: number } | undefined;
+  host: string | null;
+  hostExact: string | null;
+  selectedText?: string | undefined;
+  onClose: () => void;
+  onCopyHost: (host: string) => void;
+  onExcludeHost: (host: string) => void;
+  onFilterHost: (host: string) => void;
+  onFilterSelection: (value: string) => void;
+  onOpenSessions: (host: string) => void;
+}) {
+  const { t } = useI18n();
+  const theme = useTheme();
+
+  if (!host) {
+    return null;
+  }
+
+  const isExactHostActive = normalizeHostValue(hostExact ?? "") === normalizeHostValue(host);
+  const menuItemSx = getContextMenuItemSx(theme);
+  const iconSx = getContextMenuIconSx(theme);
+  const dividerSx = getContextMenuDividerSx(theme);
+
+  return (
+    <Menu
+      anchorPosition={anchorPosition ?? { left: 0, top: 0 }}
+      anchorReference="anchorPosition"
+      onClose={onClose}
+      open={anchorPosition !== undefined}
+      slotProps={buildContextMenuSlotProps(220)}
+    >
+      <MenuItem
+        disabled={isExactHostActive}
+        onClick={() => {
+          onFilterHost(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <FilterAltRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("insightsPage.hosts.contextMenu.filterByHost")}
+        </ListItemText>
+      </MenuItem>
+
+      {selectedText && normalizeHostValue(selectedText) !== normalizeHostValue(host) ? (
+        <MenuItem
+          onClick={() => {
+            onFilterSelection(selectedText);
+            onClose();
+          }}
+          sx={menuItemSx}
+        >
+          <ListItemIcon sx={iconSx}>
+            <SearchRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText {...contextMenuItemTextProps}>
+            {t("insightsPage.hosts.contextMenu.filterBySelection")}
+          </ListItemText>
+        </MenuItem>
+      ) : null}
+
+      <MenuItem
+        onClick={() => {
+          onExcludeHost(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <FilterAltOffRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("insightsPage.hosts.contextMenu.excludeHost")}
+        </ListItemText>
+      </MenuItem>
+
+      <Divider sx={dividerSx} />
+
+      <MenuItem
+        onClick={() => {
+          onCopyHost(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <ContentCopyRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("insightsPage.hosts.contextMenu.copyHost")}
+        </ListItemText>
+      </MenuItem>
+
+      <MenuItem
+        onClick={() => {
+          onOpenSessions(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <OpenInNewRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("insightsPage.hosts.contextMenu.showRequests")}
+        </ListItemText>
+      </MenuItem>
+    </Menu>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export function InsightsPage() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
 
   const activeSessionIds = useSessionContainerFilterStore((s) => s.activeSessionIds);
   const activeSessionSummaries = useSessionContainerFilterStore((s) => s.activeSessionSummaries);
   const [domainFilter, setDomainFilter] = useState("");
   const [debouncedDomain, setDebouncedDomain] = useState("");
+  const [excludedHosts, setExcludedHosts] = useState<string[]>([]);
+  const [hostContextMenu, setHostContextMenu] = useState<HostContextMenuState | null>(null);
+  const [hostExact, setHostExact] = useState<string | null>(null);
+  const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleDomainChange = useCallback((value: string) => {
@@ -326,6 +520,85 @@ export function InsightsPage() {
     }, 300);
   }, []);
 
+  const applyImmediateDomainFilter = useCallback((value: string) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    setDomainFilter(value);
+    setDebouncedDomain(value);
+  }, []);
+
+  const handleFilterHost = useCallback((host: string) => {
+    const trimmedHost = host.trim();
+
+    if (!trimmedHost) {
+      return;
+    }
+
+    setHostExact(trimmedHost);
+    setExcludedHosts((currentHosts) =>
+      currentHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost)),
+    );
+  }, []);
+
+  const handleFilterSelectedHostText = useCallback((value: string) => {
+    applyImmediateDomainFilter(value.trim());
+    setHostExact(null);
+  }, [applyImmediateDomainFilter]);
+
+  const handleExcludeHost = useCallback((host: string) => {
+    const trimmedHost = host.trim();
+
+    if (!trimmedHost) {
+      return;
+    }
+
+    setHostExact((currentHost) =>
+      normalizeHostValue(currentHost ?? "") === normalizeHostValue(trimmedHost) ? null : currentHost,
+    );
+    setExcludedHosts((currentHosts) =>
+      currentHosts.some((currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost))
+        ? currentHosts
+        : [...currentHosts, trimmedHost],
+    );
+  }, []);
+
+  const handleCopyHost = useCallback((host: string) => {
+    void navigator.clipboard?.writeText(host);
+    setSnackbarMessage(t("contextMenu.copiedToClipboard"));
+  }, [t]);
+
+  const handleOpenSessionsForHost = useCallback((host: string) => {
+    navigate("/sessions", {
+      state: {
+        sessionHostFilter: {
+          host,
+          requestedAt: Date.now(),
+        },
+      },
+    });
+  }, [navigate]);
+
+  const handleHostContextMenu = useCallback((host: string, event: ReactMouseEvent) => {
+    event.preventDefault();
+
+    const selectedText = window.getSelection()?.toString().trim();
+    const selectedHostText = selectedText && normalizeHostValue(host).includes(normalizeHostValue(selectedText))
+      ? selectedText
+      : undefined;
+    setHostContextMenu({
+      anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
+      host,
+      ...(selectedHostText ? { selectedText: selectedHostText } : {}),
+    });
+  }, []);
+
+  const handleHostContextMenuClose = useCallback(() => {
+    setHostContextMenu(null);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
@@ -334,24 +607,41 @@ export function InsightsPage() {
     };
   }, []);
 
-  const input = useMemo(() => {
-    const base = { sessionIds: activeSessionIds };
-    return debouncedDomain ? { ...base, hostKeyword: debouncedDomain } : base;
-  }, [activeSessionIds, debouncedDomain]);
+  const insightsFilters = useMemo<InsightsComputationFilters>(() => ({
+    excludedHosts,
+    hostExact,
+    hostKeyword: debouncedDomain,
+  }), [debouncedDomain, excludedHosts, hostExact]);
+
+  const input = useMemo<GetInsightsInput>(() => {
+    const base: GetInsightsInput = { sessionIds: activeSessionIds };
+    const trimmedKeyword = debouncedDomain.trim();
+    const trimmedExactHost = hostExact?.trim() ?? "";
+    const filteredExcludedHosts = excludedHosts.map((host) => host.trim()).filter(Boolean);
+
+    return {
+      ...base,
+      ...(filteredExcludedHosts.length > 0 ? { excludedHosts: filteredExcludedHosts } : {}),
+      ...(trimmedExactHost ? { hostExact: trimmedExactHost } : {}),
+      ...(trimmedKeyword ? { hostKeyword: trimmedKeyword } : {}),
+    };
+  }, [activeSessionIds, debouncedDomain, excludedHosts, hostExact]);
 
   const { data: backendData, isLoading } = useQuery({
-    queryKey: ["insights", activeSessionIds, debouncedDomain],
+    queryKey: ["insights", activeSessionIds, debouncedDomain, hostExact, excludedHosts],
     queryFn: () => invokeGetInsights(input),
   });
   const fallbackData = useMemo(
-    () => computeInsightsFromSummaries(activeSessionSummaries, debouncedDomain),
-    [activeSessionSummaries, debouncedDomain],
+    () => computeInsightsFromSummaries(activeSessionSummaries, insightsFilters),
+    [activeSessionSummaries, insightsFilters],
   );
   const data = backendData && backendData.totalRequests > 0
     ? backendData
     : fallbackData.totalRequests > 0
       ? fallbackData
-      : backendData;
+      : backendData ?? fallbackData;
+  const hasActiveFilters = Boolean(debouncedDomain.trim() || hostExact || excludedHosts.length > 0);
+  const filteredOutAllData = hasActiveFilters && data.totalRequests === 0;
   const slowRequestMaxDuration = data?.slowRequests.reduce(
     (maxDuration, req) => Math.max(maxDuration, req.durationMs),
     0,
@@ -382,7 +672,7 @@ export function InsightsPage() {
     () => (
       <>
         <TopBarActionButton
-          disabled={!data}
+          disabled={data.totalRequests === 0}
           icon={<FileDownloadRoundedIcon />}
           label={t("insightsPage.export.title")}
           onClick={() => setExportAnchorEl(exportButtonRef.current)}
@@ -429,7 +719,7 @@ export function InsightsPage() {
     );
   }
 
-  if (!data || data.totalRequests === 0) {
+  if (data.totalRequests === 0 && !hasActiveFilters) {
     return (
       <Stack
         alignItems="center"
@@ -476,6 +766,63 @@ export function InsightsPage() {
             },
           })}
         />
+        {hasActiveFilters ? (
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+              flex: "1 1 auto",
+              minWidth: 0,
+              overflow: "hidden",
+            }}
+          >
+            {debouncedDomain.trim() ? (
+              <Chip
+                label={t("insightsPage.filter.keywordChip", { value: debouncedDomain.trim() })}
+                onDelete={() => applyImmediateDomainFilter("")}
+                size="small"
+                variant="outlined"
+                sx={{ fontSize: 12, maxWidth: 220 }}
+              />
+            ) : null}
+            {hostExact ? (
+              <Chip
+                color="primary"
+                label={t("insightsPage.filter.hostChip", { host: hostExact })}
+                onDelete={() => setHostExact(null)}
+                size="small"
+                variant="outlined"
+                sx={{ fontSize: 12, maxWidth: 260 }}
+              />
+            ) : null}
+            {excludedHosts.map((host) => (
+              <Chip
+                color="warning"
+                key={host}
+                label={t("insightsPage.filter.excludeChip", { host })}
+                onDelete={() =>
+                  setExcludedHosts((currentHosts) =>
+                    currentHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(host)),
+                  )
+                }
+                size="small"
+                variant="outlined"
+                sx={{ fontSize: 12, maxWidth: 260 }}
+              />
+            ))}
+            <Chip
+              label={t("insightsPage.filter.clearAll")}
+              onClick={() => {
+                applyImmediateDomainFilter("");
+                setHostExact(null);
+                setExcludedHosts([]);
+              }}
+              size="small"
+              sx={{ fontSize: 12 }}
+            />
+          </Stack>
+        ) : null}
         <Typography
           color="text.secondary"
           sx={{
@@ -505,36 +852,45 @@ export function InsightsPage() {
         })}
         variant="outlined"
       >
-        {/* Overview cards */}
-        <Stack direction="row" spacing={1.1} sx={{ flexWrap: "wrap", mb: 2.25 }}>
-          <OverviewCard
-            label={t("insightsPage.overview.totalRequests")}
-            tone="primary"
-            value={formatNumber(data.totalRequests)}
-          />
-          <OverviewCard
-            label={t("insightsPage.overview.errorRate")}
-            tone={data.errorRate > 0 ? "error" : "success"}
-            value={formatPercent(data.errorRate)}
-          />
-          <OverviewCard
-            label={t("insightsPage.overview.avgDuration")}
-            tone={data.avgDurationMs >= 1000 ? "warning" : "success"}
-            value={formatDuration(data.avgDurationMs)}
-          />
-          <OverviewCard
-            label={t("insightsPage.overview.p95Duration")}
-            tone={data.p95DurationMs >= 1000 ? "warning" : "success"}
-            value={formatDuration(data.p95DurationMs)}
-          />
-          <OverviewCard
-            label={t("insightsPage.overview.totalTraffic")}
-            tone="primary"
-            value={formatBytes(data.totalBytes)}
-          />
-        </Stack>
+        {filteredOutAllData ? (
+          <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 180 }}>
+            <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+              {t("insightsPage.states.noFilteredData")}
+            </Typography>
+          </Stack>
+        ) : null}
 
-        {data.byHost.length > 0 && (
+        {!filteredOutAllData && (
+          <Stack direction="row" spacing={1.1} sx={{ flexWrap: "wrap", mb: 2.25 }}>
+            <OverviewCard
+              label={t("insightsPage.overview.totalRequests")}
+              tone="primary"
+              value={formatNumber(data.totalRequests)}
+            />
+            <OverviewCard
+              label={t("insightsPage.overview.errorRate")}
+              tone={data.errorRate > 0 ? "error" : "success"}
+              value={formatPercent(data.errorRate)}
+            />
+            <OverviewCard
+              label={t("insightsPage.overview.avgDuration")}
+              tone={data.avgDurationMs >= 1000 ? "warning" : "success"}
+              value={formatDuration(data.avgDurationMs)}
+            />
+            <OverviewCard
+              label={t("insightsPage.overview.p95Duration")}
+              tone={data.p95DurationMs >= 1000 ? "warning" : "success"}
+              value={formatDuration(data.p95DurationMs)}
+            />
+            <OverviewCard
+              label={t("insightsPage.overview.totalTraffic")}
+              tone="primary"
+              value={formatBytes(data.totalBytes)}
+            />
+          </Stack>
+        )}
+
+        {!filteredOutAllData && data.byHost.length > 0 && (
           <Box sx={{ mb: 2.25 }}>
             <SectionTitle>{t("insightsPage.hosts.title")}</SectionTitle>
             <Table size="small">
@@ -553,9 +909,42 @@ export function InsightsPage() {
                   <TableRow
                     hover
                     key={host.host}
-                    sx={{ "&:last-child td": { borderBottom: 0 } }}
+                    onContextMenu={(event) => handleHostContextMenu(host.host, event)}
+                    sx={{
+                      "&:last-child td": { borderBottom: 0 },
+                      "& .host-filter-action": {
+                        opacity: 0,
+                      },
+                      "&:hover .host-filter-action, &:focus-within .host-filter-action": {
+                        opacity: 1,
+                      },
+                    }}
                   >
-                    <TableCell sx={{ fontSize: 13, fontFamily: "monospace" }}>{host.host}</TableCell>
+                    <TableCell sx={{ fontSize: 13, fontFamily: "monospace" }}>
+                      <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                        <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                          {host.host}
+                        </Box>
+                        <Tooltip arrow title={t("insightsPage.hosts.contextMenu.filterByHost")}>
+                          <IconButton
+                            aria-label={t("insightsPage.hosts.contextMenu.filterByHost")}
+                            className="host-filter-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleFilterHost(host.host);
+                            }}
+                            size="small"
+                            sx={{
+                              height: 22,
+                              transition: "opacity 120ms ease, background-color 120ms ease",
+                              width: 22,
+                            }}
+                          >
+                            <FilterAltRoundedIcon sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    </TableCell>
                     <TableCell align="right" sx={{ fontSize: 13 }}>{formatNumber(host.requestCount)}</TableCell>
                     <TableCell align="right" sx={{ fontSize: 13 }}>{formatNumber(host.errorCount)}</TableCell>
                     <TableCell align="right" sx={{ fontSize: 13 }}>{formatDuration(host.avgDurationMs)}</TableCell>
@@ -568,47 +957,49 @@ export function InsightsPage() {
           </Box>
         )}
 
-        <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap", mb: 2.25 }}>
-          {data.byStatusCode.length > 0 && (
-            <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
-              <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
-              <Stack spacing={0.25}>
-                {data.byStatusCode
-                  .slice()
-                  .sort((a, b) => b.count - a.count)
-                  .map((entry) => (
-                    <DistributionItem
-                      key={entry.statusCode}
-                      label={String(entry.statusCode)}
-                      count={entry.count}
-                      maxCount={data.byStatusCode[0]?.count ?? 0}
-                    />
-                  ))}
-              </Stack>
-            </Box>
-          )}
+        {!filteredOutAllData && (
+          <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap", mb: 2.25 }}>
+            {data.byStatusCode.length > 0 && (
+              <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
+                <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
+                <Stack spacing={0.25}>
+                  {data.byStatusCode
+                    .slice()
+                    .sort((a, b) => b.count - a.count)
+                    .map((entry) => (
+                      <DistributionItem
+                        key={entry.statusCode}
+                        label={String(entry.statusCode)}
+                        count={entry.count}
+                        maxCount={data.byStatusCode[0]?.count ?? 0}
+                      />
+                    ))}
+                </Stack>
+              </Box>
+            )}
 
-          {data.byMethod.length > 0 && (
-            <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
-              <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
-              <Stack spacing={0.25}>
-                {data.byMethod
-                  .slice()
-                  .sort((a, b) => b.count - a.count)
-                  .map((entry) => (
-                    <DistributionItem
-                      key={entry.method}
-                      label={entry.method}
-                      count={entry.count}
-                      maxCount={data.byMethod[0]?.count ?? 0}
-                    />
-                  ))}
-              </Stack>
-            </Box>
-          )}
-        </Stack>
+            {data.byMethod.length > 0 && (
+              <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
+                <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
+                <Stack spacing={0.25}>
+                  {data.byMethod
+                    .slice()
+                    .sort((a, b) => b.count - a.count)
+                    .map((entry) => (
+                      <DistributionItem
+                        key={entry.method}
+                        label={entry.method}
+                        count={entry.count}
+                        maxCount={data.byMethod[0]?.count ?? 0}
+                      />
+                    ))}
+                </Stack>
+              </Box>
+            )}
+          </Stack>
+        )}
 
-        {data.slowRequests.length > 0 && (
+        {!filteredOutAllData && data.slowRequests.length > 0 && (
           <Box>
             <SectionTitle>{t("insightsPage.slowRequests.title")}</SectionTitle>
             <Table size="small">
@@ -688,6 +1079,26 @@ export function InsightsPage() {
           </Box>
         )}
       </Paper>
+
+      <HostContextMenu
+        anchorPosition={hostContextMenu?.anchorPosition}
+        host={hostContextMenu?.host ?? null}
+        hostExact={hostExact}
+        selectedText={hostContextMenu?.selectedText}
+        onClose={handleHostContextMenuClose}
+        onCopyHost={handleCopyHost}
+        onExcludeHost={handleExcludeHost}
+        onFilterHost={handleFilterHost}
+        onFilterSelection={handleFilterSelectedHostText}
+        onOpenSessions={handleOpenSessionsForHost}
+      />
+
+      <Snackbar
+        autoHideDuration={2200}
+        message={snackbarMessage}
+        onClose={() => setSnackbarMessage(null)}
+        open={Boolean(snackbarMessage)}
+      />
     </Stack>
   );
 }

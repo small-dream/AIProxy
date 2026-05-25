@@ -462,6 +462,8 @@ pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), Strin
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetInsightsInput {
+    pub excluded_hosts: Option<Vec<String>>,
+    pub host_exact: Option<String>,
     pub session_ids: Vec<String>,
     pub host_keyword: Option<String>,
 }
@@ -473,6 +475,8 @@ pub async fn get_insights(
 ) -> Result<aiproxy_db::insights::InsightsResult, String> {
     let state = Arc::clone(state.inner());
     let filter = aiproxy_db::insights::InsightsFilter {
+        excluded_hosts: input.excluded_hosts.unwrap_or_default(),
+        host_exact: input.host_exact,
         session_ids: input.session_ids,
         host_keyword: input.host_keyword,
     };

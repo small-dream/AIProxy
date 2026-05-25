@@ -11,6 +11,11 @@ export type SessionsMenuAction =
       requestedAt: number;
     };
 
+export type SessionsHostFilterAction = {
+  host: string;
+  requestedAt: number;
+};
+
 export function readSessionsMenuAction(state: unknown): SessionsMenuAction | undefined {
   if (typeof state !== "object" || state === null || !("sessionsMenuAction" in state)) {
     return undefined;
@@ -42,6 +47,35 @@ export function readSessionsMenuAction(state: unknown): SessionsMenuAction | und
     return {
       format,
       kind,
+      requestedAt,
+    };
+  }
+
+  return undefined;
+}
+
+export function readSessionsHostFilterAction(state: unknown): SessionsHostFilterAction | undefined {
+  if (typeof state !== "object" || state === null || !("sessionHostFilter" in state)) {
+    return undefined;
+  }
+
+  const hostFilter = (state as { sessionHostFilter?: unknown }).sessionHostFilter;
+
+  if (typeof hostFilter !== "object" || hostFilter === null) {
+    return undefined;
+  }
+
+  const host = (hostFilter as { host?: unknown }).host;
+  const requestedAt = (hostFilter as { requestedAt?: unknown }).requestedAt;
+
+  if (
+    typeof host === "string" &&
+    host.trim().length > 0 &&
+    typeof requestedAt === "number" &&
+    Number.isFinite(requestedAt)
+  ) {
+    return {
+      host: host.trim(),
       requestedAt,
     };
   }

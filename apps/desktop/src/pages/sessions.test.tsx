@@ -8,7 +8,11 @@ import { AppProviders } from "@/app/providers/AppProviders";
 import { SessionsPage } from "@/pages/sessions";
 
 const mockSetHeaderActions = vi.fn();
-const mockLocation = { key: "default", pathname: "/", state: null };
+const mockLocation: { key: string; pathname: string; state: unknown } = {
+  key: "default",
+  pathname: "/",
+  state: null,
+};
 const testState = vi.hoisted(() => ({
   runtimeSessions: [] as SessionSummary[],
 }));
@@ -100,6 +104,7 @@ vi.mock("@/services/commands", () => ({
 
 vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
   SessionsWorkspacePanel: ({
+    domainFilterValue,
     expandedHosts,
     groups,
     inspectorSplitRatio,
@@ -108,6 +113,7 @@ vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
     onToggleHost,
     selectedSessionId,
   }: {
+    domainFilterValue: string;
     expandedHosts: string[];
     groups: unknown[];
     inspectorSplitRatio: number;
@@ -122,6 +128,7 @@ vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
     return (
       <div>
         <div data-testid="expanded-hosts">{expandedHosts.join("|")}</div>
+        <div data-testid="domain-filter-value">{domainFilterValue}</div>
         <div data-testid="group-count">{String(groups.length)}</div>
         <div data-testid="inspector-ratio">{String(inspectorSplitRatio)}</div>
         <div data-testid="selected-session-id">{selectedSessionId ?? "none"}</div>
@@ -209,6 +216,9 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
 describe("SessionsPage inspector split ratio", () => {
   beforeEach(() => {
     mockSetHeaderActions.mockReset();
+    mockLocation.key = "default";
+    mockLocation.pathname = "/";
+    mockLocation.state = null;
     testState.runtimeSessions = [];
     const storage = new Map<string, string>();
 
@@ -307,6 +317,28 @@ describe("SessionsPage inspector split ratio", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("selected-session-id")).toHaveTextContent("session-1");
+    });
+  });
+
+  it("applies a host filter passed from the insights page", async () => {
+    testState.runtimeSessions = [createSessionSummary({})];
+    mockLocation.key = "host-filter";
+    mockLocation.state = {
+      sessionHostFilter: {
+        host: "api.example.com",
+        requestedAt: 1,
+      },
+    };
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("domain-filter-value")).toHaveTextContent("api.example.com");
+      expect(screen.getByTestId("expanded-hosts")).toHaveTextContent("api.example.com");
     });
   });
 });

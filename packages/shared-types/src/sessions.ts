@@ -153,6 +153,8 @@ export type SlowRequest = {
 };
 
 export type GetInsightsInput = {
+  excludedHosts?: string[];
+  hostExact?: string;
   sessionIds: string[];
   hostKeyword?: string;
 };
@@ -779,6 +781,14 @@ export function isGetInsightsInput(value: unknown): value is GetInsightsInput {
   return (
     Array.isArray(candidate.sessionIds) &&
     candidate.sessionIds.every((id) => typeof id === "string") &&
-    (candidate.hostKeyword === undefined || typeof candidate.hostKeyword === "string")
+    (candidate.hostKeyword === undefined || typeof candidate.hostKeyword === "string") &&
+    (candidate.hostExact === undefined || typeof candidate.hostExact === "string") &&
+    (
+      candidate.excludedHosts === undefined ||
+      (
+        Array.isArray(candidate.excludedHosts) &&
+        candidate.excludedHosts.every((host) => typeof host === "string")
+      )
+    )
   );
 }

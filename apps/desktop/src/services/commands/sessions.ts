@@ -275,6 +275,8 @@ export async function invokeGetInsights(input: GetInsightsInput): Promise<Insigh
 
   try {
     logDevDebug("ui.commands", "get_insights_requested", {
+      excludedHosts: input.excludedHosts,
+      hostExact: input.hostExact,
       sessionCount: input.sessionIds.length,
       hostKeyword: input.hostKeyword,
     });

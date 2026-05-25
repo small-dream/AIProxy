@@ -55,7 +55,7 @@ import {
 } from "@/features/sessions/session-explorer.helpers";
 import { buildHarArchive, buildHarExportFilename, loadSessionDetailsBatched } from "@/features/sessions/session-export.helpers";
 import { parseHarArchive } from "@/features/sessions/session-import.helpers";
-import { readSessionsMenuAction } from "@/features/sessions/session-menu-actions";
+import { readSessionsHostFilterAction, readSessionsMenuAction } from "@/features/sessions/session-menu-actions";
 import {
   readStorageValue,
   readStoredHosts,
@@ -97,6 +97,7 @@ export function SessionsPage() {
   } = useSessions();
   const explorerDragFrameRef = useRef<number | null>(null);
   const inspectorDragFrameRef = useRef<number | null>(null);
+  const lastHandledHostFilterActionRef = useRef(0);
   const defaultInspectorSplitRatio = useMemo(() => {
     const savedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
 
@@ -950,6 +951,29 @@ export function SessionsPage() {
 
     handleOpenExportDialog();
   }, [handleImportHarPickerOpen, handleOpenExportDialog, location.key, location.state]);
+
+  useEffect(() => {
+    const hostFilterAction = readSessionsHostFilterAction(location.state);
+
+    if (
+      !hostFilterAction ||
+      hostFilterAction.requestedAt <= lastHandledHostFilterActionRef.current
+    ) {
+      return;
+    }
+
+    lastHandledHostFilterActionRef.current = hostFilterAction.requestedAt;
+
+    setContainerState((currentState) =>
+      updateActiveSessionContainer(currentState, (container) => ({
+        ...container,
+        domainFilterValue: hostFilterAction.host,
+        expandedHosts: container.expandedHosts.includes(hostFilterAction.host)
+          ? container.expandedHosts
+          : [...container.expandedHosts, hostFilterAction.host],
+      })),
+    );
+  }, [location.key, location.state]);
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>

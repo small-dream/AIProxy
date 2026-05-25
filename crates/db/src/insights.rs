@@ -59,6 +59,8 @@ pub struct SlowRequest {
 
 #[derive(Debug, Clone, Default)]
 pub struct InsightsFilter {
+    pub excluded_hosts: Vec<String>,
+    pub host_exact: Option<String>,
     pub session_ids: Vec<String>,
     pub host_keyword: Option<String>,
 }
@@ -84,10 +86,48 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
         }
     }
 
-    if let Some(ref keyword) = filter.host_keyword {
-        let kw = keyword.to_lowercase();
+    if let Some(kw) = filter
+        .host_keyword
+        .as_ref()
+        .map(|keyword| keyword.trim().to_lowercase())
+        .filter(|keyword| !keyword.is_empty())
+    {
         conditions.push(format!("LOWER(host) LIKE ?{param_idx}"));
         params.push(rusqlite::types::Value::Text(format!("%{kw}%")));
+        param_idx += 1;
+    }
+
+    if let Some(host) = filter
+        .host_exact
+        .as_ref()
+        .map(|host| host.trim().to_lowercase())
+        .filter(|host| !host.is_empty())
+    {
+        conditions.push(format!("LOWER(host) = ?{param_idx}"));
+        params.push(rusqlite::types::Value::Text(host));
+        param_idx += 1;
+    }
+
+    let excluded_hosts: Vec<String> = filter
+        .excluded_hosts
+        .iter()
+        .map(|host| host.trim().to_lowercase())
+        .filter(|host| !host.is_empty())
+        .collect();
+
+    if !excluded_hosts.is_empty() {
+        let placeholders: Vec<String> = excluded_hosts
+            .iter()
+            .map(|_| {
+                let p = format!("?{param_idx}");
+                param_idx += 1;
+                p
+            })
+            .collect();
+        conditions.push(format!("LOWER(host) NOT IN ({})", placeholders.join(", ")));
+        for host in excluded_hosts {
+            params.push(rusqlite::types::Value::Text(host));
+        }
     }
 
     if conditions.is_empty() {
@@ -104,7 +144,10 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
 /// Compute aggregated insights over all sessions in the database.
 ///
 /// Returns zeroed defaults when the `session_summaries` table is empty.
-pub fn compute_insights(conn: &Connection, filter: &InsightsFilter) -> Result<InsightsResult, String> {
+pub fn compute_insights(
+    conn: &Connection,
+    filter: &InsightsFilter,
+) -> Result<InsightsResult, String> {
     let (where_clause, where_params) = build_where(filter);
     let params = || -> Vec<rusqlite::types::Value> { where_params.clone() };
 
@@ -117,18 +160,14 @@ pub fn compute_insights(conn: &Connection, filter: &InsightsFilter) -> Result<In
          FROM session_summaries{where_clause}"
     );
     let (total_requests, total_errors, avg_duration_ms, total_bytes) = conn
-        .query_row(
-            &query,
-            rusqlite::params_from_iter(params()),
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<i64>>(1)?,
-                    row.get::<_, Option<f64>>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                ))
-            },
-        )
+        .query_row(&query, rusqlite::params_from_iter(params()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<f64>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+            ))
+        })
         .map_err(|e| format!("insights overview query: {e}"))?;
 
     let total_errors = total_errors.unwrap_or(0);
@@ -147,11 +186,15 @@ pub fn compute_insights(conn: &Connection, filter: &InsightsFilter) -> Result<In
 
     {
         let mut stmt = conn
-            .prepare(&format!("SELECT duration_ms FROM session_summaries{where_clause} ORDER BY duration_ms"))
+            .prepare(&format!(
+                "SELECT duration_ms FROM session_summaries{where_clause} ORDER BY duration_ms"
+            ))
             .map_err(|e| format!("insights percentile prepare: {e}"))?;
 
         let durations: Vec<i64> = stmt
-            .query_map(rusqlite::params_from_iter(params()), |row| row.get::<_, i64>(0))
+            .query_map(rusqlite::params_from_iter(params()), |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|e| format!("insights percentile query: {e}"))?
             .filter_map(|r| r.ok())
             .collect();
@@ -311,11 +354,7 @@ struct HostInsightRaw {
 }
 
 /// Compute the P95 duration for a single host.
-fn compute_host_p95(
-    conn: &Connection,
-    host: &str,
-    filter: &InsightsFilter,
-) -> f64 {
+fn compute_host_p95(conn: &Connection, host: &str, filter: &InsightsFilter) -> f64 {
     let (where_clause, mut where_params) = build_where(filter);
     let host_param_idx = where_params.len() + 1;
     let query = format!(
@@ -329,7 +368,9 @@ fn compute_host_p95(
         Err(_) => return 0.0,
     };
 
-    let result = stmt.query_map(rusqlite::params_from_iter(where_params), |row| row.get::<_, i64>(0));
+    let result = stmt.query_map(rusqlite::params_from_iter(where_params), |row| {
+        row.get::<_, i64>(0)
+    });
     let durations: Vec<i64> = match result {
         Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
         Err(_) => return 0.0,
@@ -457,6 +498,7 @@ mod tests {
         let filter = InsightsFilter {
             session_ids: vec!["s1".into(), "s3".into()],
             host_keyword: None,
+            ..InsightsFilter::default()
         };
         let result = compute_insights(&conn, &filter).unwrap();
 
@@ -476,11 +518,39 @@ mod tests {
         let filter = InsightsFilter {
             session_ids: vec![],
             host_keyword: Some("API".into()),
+            ..InsightsFilter::default()
         };
         let result = compute_insights(&conn, &filter).unwrap();
 
         assert_eq!(result.total_requests, 2);
         assert_eq!(result.total_errors, 1);
+    }
+
+    #[test]
+    fn filter_by_exact_and_excluded_hosts() {
+        let conn = test_conn();
+        insert_session(&conn, "s1", "api.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "s2", "api.example.com", "POST", 500, 200, 1000);
+        insert_session(&conn, "s3", "cdn.example.com", "GET", 200, 50, 200);
+
+        let exact_filter = InsightsFilter {
+            host_exact: Some("API.EXAMPLE.COM".into()),
+            ..InsightsFilter::default()
+        };
+        let exact_result = compute_insights(&conn, &exact_filter).unwrap();
+
+        assert_eq!(exact_result.total_requests, 2);
+        assert_eq!(exact_result.by_host.len(), 1);
+        assert_eq!(exact_result.by_host[0].host, "api.example.com");
+
+        let excluded_filter = InsightsFilter {
+            excluded_hosts: vec!["api.example.com".into()],
+            ..InsightsFilter::default()
+        };
+        let excluded_result = compute_insights(&conn, &excluded_filter).unwrap();
+
+        assert_eq!(excluded_result.total_requests, 1);
+        assert_eq!(excluded_result.by_host[0].host, "cdn.example.com");
     }
 
     #[test]
@@ -493,6 +563,7 @@ mod tests {
         let filter = InsightsFilter {
             session_ids: vec!["s1".into(), "s2".into()],
             host_keyword: Some("cdn".into()),
+            ..InsightsFilter::default()
         };
         let result = compute_insights(&conn, &filter).unwrap();
 

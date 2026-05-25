@@ -1226,6 +1226,13 @@ export const zhCNMessages: Messages = {
       avgDuration: "平均耗时",
       p95Duration: "P95 耗时",
       traffic: "流量",
+      contextMenu: {
+        filterByHost: "按此 Host 过滤",
+        filterBySelection: "按选中文本过滤",
+        excludeHost: "排除此 Host",
+        copyHost: "复制 Host",
+        showRequests: "查看此 Host 请求",
+      },
     },
     slowRequests: {
       title: "慢请求",
@@ -1247,10 +1254,15 @@ export const zhCNMessages: Messages = {
     },
     states: {
       noData: "暂无会话数据",
+      noFilteredData: "没有会话匹配当前 Host 过滤条件",
       loading: "正在加载洞察数据...",
     },
     filter: {
       domainPlaceholder: "按域名过滤...",
+      keywordChip: "Host 包含 {{value}}",
+      hostChip: "Host = {{host}}",
+      excludeChip: "Host != {{host}}",
+      clearAll: "清除过滤",
     },
     scope: {
       current: "当前范围 {{count}} 个请求",
