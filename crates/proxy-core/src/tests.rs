@@ -463,7 +463,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
     let mut request = build_test_request("http://example.com/api/users?lang=en");
 
     let traces =
-        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false).unwrap();
 
     assert_eq!(
         request.url.as_str(),
@@ -528,7 +528,7 @@ fn applies_request_body_rewrite_as_plain_body() {
     request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
 
     let traces =
-        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false).unwrap();
 
     assert_eq!(request.body, br#"{"edited":true}"#);
     assert_eq!(
@@ -602,7 +602,7 @@ fn applies_response_body_rewrite_as_plain_body() {
         .insert("etag", HeaderValue::from_static("\"stale\""));
 
     let traces =
-        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response)
+        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response, false)
             .unwrap();
 
     assert_eq!(response.response_body, br#"{"edited":true}"#);
@@ -662,7 +662,7 @@ fn applies_request_body_rewrite_to_json_fields() {
     request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
 
     let traces =
-        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false).unwrap();
     let rewritten: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
 
     assert_eq!(
@@ -727,7 +727,7 @@ fn applies_response_body_rewrite_to_json_array_fields() {
     };
 
     let traces =
-        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response)
+        apply_response_rewrite_rules(&Some(Arc::new(manager)), "default", &request, &mut response, false)
             .unwrap();
     let rewritten: serde_json::Value = serde_json::from_slice(&response.response_body).unwrap();
 
@@ -772,13 +772,13 @@ fn rewrite_rule_respects_match_type_exact() {
     // exact URL should match
     let mut request = build_test_request("https://api.example.com/v1/users");
     let traces =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false).unwrap();
     assert_eq!(traces.len(), 1);
 
     // different path should NOT match
     let mut request2 = build_test_request("https://api.example.com/v1/other");
     let traces2 =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2, false).unwrap();
     assert!(traces2.is_empty());
 }
 
@@ -805,12 +805,12 @@ fn rewrite_rule_respects_match_type_regex() {
     let mut request =
         build_test_request("https://api.example.com/v1/users?env=staging&lang=en");
     let traces =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false).unwrap();
     assert_eq!(traces.len(), 1);
 
     let mut request2 = build_test_request("https://api.example.com/v1/users?env=prod");
     let traces2 =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2, false).unwrap();
     assert!(traces2.is_empty());
 }
 
@@ -836,13 +836,13 @@ fn rewrite_rule_respects_match_type_wildcard() {
 
     let mut request = build_test_request("https://api.example.com/v1/users");
     let traces =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false).unwrap();
     assert_eq!(traces.len(), 1);
 
     // different path prefix should NOT match wildcard anchored at start
     let mut request2 = build_test_request("https://api.example.com/v2/users");
     let traces2 =
-        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2).unwrap();
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2, false).unwrap();
     assert!(traces2.is_empty());
 }
 
@@ -869,7 +869,7 @@ fn rewrite_rule_uses_contains_by_default() {
     // substring match should work (legacy behavior)
     let mut request = build_test_request("https://api.example.com/v1/users");
     let traces =
-        apply_request_rewrite_rules(&Some(manager), "default", &mut request).unwrap();
+        apply_request_rewrite_rules(&Some(manager), "default", &mut request, false).unwrap();
     assert_eq!(traces.len(), 1);
 }
 

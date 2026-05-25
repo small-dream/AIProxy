@@ -40,6 +40,7 @@ pub(crate) struct MitmConnectionState {
     pub event_emitter: Option<BreakpointEventEmitter>,
     pub started_at: DateTime<Utc>,
     pub started_at_instant: Instant,
+    pub upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
 }
 
 /// A `hyper::service::Service` that processes each HTTP request arriving on a
@@ -156,6 +157,7 @@ async fn handle_mitm_request(
         &state.throttle_manager,
         &state.workspace_id,
         &mut https_request,
+        is_h2,
     )?;
 
     let map_traces = map_traces;
@@ -216,6 +218,7 @@ async fn handle_mitm_request(
                         &state.workspace_id,
                         &https_request,
                         &mut mock_response,
+                        is_h2,
                     )?);
                     script_traces.extend(apply_response_script_rules(
                         &state.script_manager,
@@ -307,7 +310,7 @@ async fn handle_mitm_request(
     let upstream_result: Result<UpstreamResponse, String> = match local_response {
         Some(local_response) => Ok(local_response),
         None => {
-            crate::server::forward_request(&https_request, &state.dns_manager, &state.workspace_id).await
+            crate::server::forward_request(&https_request, &state.dns_manager, &state.workspace_id, Some(state.upstream_pool.clone())).await
         }
     };
 
@@ -333,6 +336,7 @@ async fn handle_mitm_request(
                     &state.workspace_id,
                     &https_request,
                     &mut upstream_response,
+                    is_h2,
                 )?);
                 script_traces.extend(apply_response_script_rules(
                     &state.script_manager,

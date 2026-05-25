@@ -1404,6 +1404,7 @@ pub(crate) fn apply_request_rewrite_rules(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
+    is_http2: bool,
 ) -> Result<Vec<RewriteTrace>, String> {
     let mut traces = Vec::new();
 
@@ -1498,6 +1499,21 @@ pub(crate) fn apply_request_rewrite_rules(
                     continue;
                 }
 
+                if is_http2 {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some("body".to_string()),
+                        None,
+                        None,
+                        Some("HTTP/2 body rewrite not supported".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(
+                        &rule, "request", started_at, "skipped", entries,
+                    ));
+                    continue;
+                }
+
                 let mode = payload.mode.as_deref().unwrap_or("replace");
                 let before = body_preview(&request.body);
                 if mode.eq_ignore_ascii_case("fields") {
@@ -1580,6 +1596,7 @@ pub(crate) fn apply_response_rewrite_rules(
     workspace_id: &str,
     request: &ParsedProxyRequest,
     response: &mut UpstreamResponse,
+    is_http2: bool,
 ) -> Result<Vec<RewriteTrace>, String> {
     let mut traces = Vec::new();
 
@@ -1640,6 +1657,21 @@ pub(crate) fn apply_response_rewrite_rules(
                         None,
                         None,
                         Some("body target does not apply to response stage".to_string()),
+                    ));
+                    traces.push(build_rewrite_trace(
+                        &rule, "response", started_at, "skipped", entries,
+                    ));
+                    continue;
+                }
+
+                if is_http2 {
+                    entries.push(trace_entry(
+                        0,
+                        "skip",
+                        Some("body".to_string()),
+                        None,
+                        None,
+                        Some("HTTP/2 body rewrite not supported".to_string()),
                     ));
                     traces.push(build_rewrite_trace(
                         &rule, "response", started_at, "skipped", entries,
@@ -2088,8 +2120,9 @@ pub(crate) fn apply_request_runtime_rules(
     throttle_manager: &Option<Arc<ThrottleManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
+    is_http2: bool,
 ) -> Result<RequestRuntimeOutcome, String> {
-    let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request)?;
+    let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request, is_http2)?;
     let (local_response, map_traces) = apply_map_rules(map_manager, workspace_id, request)?;
     let throttle_selection =
         active_throttle_selection_for_request(throttle_manager, workspace_id, request);

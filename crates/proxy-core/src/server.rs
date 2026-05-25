@@ -120,6 +120,7 @@ pub async fn start_proxy_server(
     let (session_sender, session_receiver) = mpsc::channel(4096);
     let (ws_message_sender, ws_message_receiver) = mpsc::channel(4096);
     let connection_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+    let upstream_pool = Arc::new(crate::upstream_pool::UpstreamConnectionPool::new());
 
     emit_log(
         "INFO",
@@ -172,6 +173,7 @@ pub async fn start_proxy_server(
                             let dns_manager = dns_manager.clone();
                             let workspace_id = workspace_id.clone();
                             let event_emitter = event_emitter.clone();
+                            let upstream_pool = upstream_pool.clone();
 
                             tokio::spawn(async move {
                                 let _permit = permit;
@@ -189,6 +191,7 @@ pub async fn start_proxy_server(
                                     dns_manager,
                                     workspace_id,
                                     event_emitter,
+                                    upstream_pool,
                                 )
                                 .await
                                 {
@@ -275,6 +278,7 @@ async fn handle_connection(
     dns_manager: Option<Arc<DnsManager>>,
     workspace_id: Option<String>,
     event_emitter: Option<BreakpointEventEmitter>,
+    upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
 ) -> Result<(), String> {
     let started_at = Utc::now();
     let started_at_instant = Instant::now();
@@ -407,6 +411,7 @@ async fn handle_connection(
                     dns_manager,
                     active_workspace_id,
                     event_emitter,
+                    upstream_pool,
                 )
                 .await;
             }
@@ -424,6 +429,7 @@ async fn handle_connection(
         &throttle_manager,
         &active_workspace_id,
         &mut request,
+        false, // plain HTTP is always HTTP/1.1
     )?;
     let map_traces = map_traces;
     let mut rewrite_traces = rewrite_traces;
@@ -486,6 +492,7 @@ async fn handle_connection(
                         &active_workspace_id,
                         &request,
                         &mut mock_response,
+                        false, // plain HTTP is always HTTP/1.1
                     )?);
                     script_traces.extend(apply_response_script_rules(
                         &script_manager,
@@ -628,7 +635,7 @@ async fn handle_connection(
                 .await?;
                 return Ok(());
             }
-            forward_request(&request, &dns_manager, &active_workspace_id).await
+            forward_request(&request, &dns_manager, &active_workspace_id, Some(upstream_pool.clone())).await
         }
     };
 
@@ -654,6 +661,7 @@ async fn handle_connection(
                     &active_workspace_id,
                     &request,
                     &mut upstream_response,
+                    false, // plain HTTP is always HTTP/1.1
                 )?);
                 script_traces.extend(apply_response_script_rules(
                     &script_manager,
@@ -927,6 +935,7 @@ pub(crate) async fn forward_request(
     request: &ParsedProxyRequest,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
+    pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
 ) -> Result<UpstreamResponse, String> {
     use http_body_util::BodyExt;
 
@@ -954,50 +963,21 @@ pub(crate) async fn forward_request(
         );
     }
 
-    // Phase 1 + 2 + 3: Use TimingConnector as a tower::Service to connect with timing.
-    let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
-    let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
-        format!(
-            "failed to parse upstream URL '{}' as URI: {e}",
-            request.url
-        )
-    })?;
-    let (timing_stream, connection_timing) =
-        tower_service::Service::call(&mut connector, uri).await.map_err(|error| {
-            emit_log(
-                "ERROR",
-                "upstream_connect_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("host", request.host.clone()),
-                    ("url", request.url.to_string()),
-                    ("error", error.to_string()),
-                ],
-            );
-            format!("failed to connect to upstream: {error}")
-        })?;
-
-    // TimingStream implements hyper::rt::Read + Write directly, so use it
-    // without the TokioIo wrapper.
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
-        .await
-        .map_err(|error| {
-            emit_log(
-                "ERROR",
-                "upstream_http_handshake_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("host", request.host.clone()),
-                    ("error", error.to_string()),
-                ],
-            );
-            format!("upstream HTTP handshake failed: {error}")
-        })?;
-
-    // Spawn the connection task that drives the HTTP protocol.
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
+    // --- Try h2 connection pool for HTTPS requests ---
+    let is_https = request.url.scheme() == "https";
+    let pool_result = if is_https {
+        if let Some(ref p) = pool {
+            let key = crate::upstream_pool::UpstreamKey {
+                host: request.host.clone(),
+                port: request.url.port().unwrap_or(443),
+            };
+            Some(p.get_or_connect(&key, dns_override_ip).await?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // Build the request-target (path + query) for the HTTP request line.
     let request_target = if request.url.query().is_some() {
@@ -1023,6 +1003,104 @@ pub(crate) async fn forward_request(
         None => request.host.clone(),
     };
     http_req_builder = http_req_builder.header("host", &host_header);
+
+    let (mut sender, connection_timing) = if let Some(Some((mut h2_sender, timing))) = pool_result {
+        // Pooled h2 path — reuse the cached connection.
+        let timing = timing.unwrap_or_else(|| crate::timing_connector::ConnectionTiming {
+            dns_ms: 0,
+            connect_ms: 0,
+            tls_ms: None,
+            alpn_protocol: Some("h2".to_string()),
+        });
+        let http_req = if request.body.is_empty() {
+            http_req_builder
+                .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
+                    http_body_util::Empty::new()
+                        .map_err(|_: std::convert::Infallible| unreachable!())
+                        .boxed(),
+                )
+                .map_err(|e| format!("failed to build upstream request: {e}"))?
+        } else {
+            http_req_builder
+                .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
+                    http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
+                        .map_err(|_: std::convert::Infallible| unreachable!())
+                        .boxed(),
+                )
+                .map_err(|e| format!("failed to build upstream request body: {e}"))?
+        };
+
+        // send_request + read
+        let waiting_started_at = Instant::now();
+        let response = h2_sender.send_request(http_req).await.map_err(|error| {
+            emit_log(
+                "ERROR",
+                "upstream_request_send_failed",
+                &[
+                    ("request_id", request.request_id.clone()),
+                    ("method", request.method.to_string()),
+                    ("scheme", request.url.scheme().to_string()),
+                    ("host", request.host.clone()),
+                    ("url", request.url.to_string()),
+                    ("error", error.to_string()),
+                ],
+            );
+            format!("failed to send upstream h2 request: {error}")
+        })?;
+        let waiting_ms = waiting_started_at.elapsed().as_millis();
+
+        return build_upstream_response_from_hyper(
+            response,
+            &request,
+            timing,
+            waiting_ms,
+        )
+        .await;
+    } else {
+        // h1 path — establish a new connection per request.
+        let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
+        let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
+            format!(
+                "failed to parse upstream URL '{}' as URI: {e}",
+                request.url
+            )
+        })?;
+        let (timing_stream, connection_timing) =
+            tower_service::Service::call(&mut connector, uri).await.map_err(|error| {
+                emit_log(
+                    "ERROR",
+                    "upstream_connect_failed",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("host", request.host.clone()),
+                        ("url", request.url.to_string()),
+                        ("error", error.to_string()),
+                    ],
+                );
+                format!("failed to connect to upstream: {error}")
+            })?;
+
+        let (sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
+            .await
+            .map_err(|error| {
+                emit_log(
+                    "ERROR",
+                    "upstream_http_handshake_failed",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("host", request.host.clone()),
+                        ("error", error.to_string()),
+                    ],
+                );
+                format!("upstream HTTP handshake failed: {error}")
+            })?;
+
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        (sender, connection_timing)
+    };
 
     let http_req = if request.body.is_empty() {
         http_req_builder
@@ -1064,6 +1142,23 @@ pub(crate) async fn forward_request(
     })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
+    build_upstream_response_from_hyper(
+        response,
+        request,
+        connection_timing,
+        waiting_ms,
+    )
+    .await
+}
+
+/// Build an `UpstreamResponse` from a hyper response, reading the body and
+/// extracting timing information.
+async fn build_upstream_response_from_hyper(
+    response: hyper::Response<hyper::body::Incoming>,
+    request: &ParsedProxyRequest,
+    connection_timing: crate::timing_connector::ConnectionTiming,
+    waiting_ms: u128,
+) -> Result<UpstreamResponse, String> {
     let status_code = StatusCode::from_u16(response.status().as_u16())
         .unwrap_or(StatusCode::BAD_GATEWAY);
 
@@ -1075,7 +1170,7 @@ pub(crate) async fn forward_request(
         }
     }
 
-    // Phase 6: Read full response body.
+    // Read full response body.
     let response_read_started_at = Instant::now();
     let (response_body, response_body_size_bytes, body_truncated, spooled_response_path) =
         read_hyper_response_body_with_limit(response, &request.request_id, true)
@@ -2041,6 +2136,7 @@ async fn handle_connect_mitm(
     dns_manager: Option<Arc<DnsManager>>,
     workspace_id: String,
     event_emitter: Option<BreakpointEventEmitter>,
+    upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
 ) -> Result<(), String> {
     // Send 200 Connection Established
     stream
@@ -2121,6 +2217,7 @@ async fn handle_connect_mitm(
         event_emitter,
         started_at,
         started_at_instant,
+        upstream_pool,
     });
     let service = crate::mitm_service::MitmService {
         state: state.clone(),

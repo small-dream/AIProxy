@@ -52,6 +52,7 @@ mod rules;
 mod server;
 mod timing_connector;
 mod types;
+mod upstream_pool;
 pub mod ws;
 
 #[cfg(test)]
