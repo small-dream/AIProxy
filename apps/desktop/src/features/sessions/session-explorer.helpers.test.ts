@@ -5,6 +5,7 @@ import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
   getSessionResourceKind,
+  matchesKeyword,
   reconcileExpandedKeys,
 } from "./session-explorer.helpers";
 
@@ -401,5 +402,13 @@ describe("getSessionResourceKind", () => {
   it("falls back to pending and warning states", () => {
     expect(getSessionResourceKind(createSessionSummary({ statusCode: 0 }))).toBe("pending");
     expect(getSessionResourceKind(createSessionSummary({ statusCode: 500 }))).toBe("warning");
+  });
+});
+
+describe("matchesKeyword", () => {
+  it("matches HTTP/2 sessions by httpVersion field", () => {
+    const session = createSessionSummary({ protocol: "h2", httpVersion: "2" });
+    expect(matchesKeyword(session, "2")).toBe(true);
+    expect(matchesKeyword(session, "h2")).toBe(false);
   });
 });

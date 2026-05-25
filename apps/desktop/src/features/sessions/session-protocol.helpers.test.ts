@@ -89,4 +89,20 @@ describe("getSessionProtocolMetadata", () => {
     expect(isWebSocketSessionProtocol(createSessionSummary({ applicationProtocol: "websocket" }))).toBe(true);
     expect(isWebSocketSessionProtocol(createSessionSummary({ protocol: "wss" }))).toBe(true);
   });
+
+  it("displays HTTP/2 for h2 session with structured metadata", () => {
+    expect(formatSessionProtocol(createSessionSummary({ protocol: "h2", httpVersion: "2" }))).toBe("HTTP/2");
+  });
+
+  it("displays HTTP/2 with only httpVersion field", () => {
+    expect(formatSessionProtocol(createSessionSummary({ protocol: "https", httpVersion: "2" }))).toBe("HTTP/2");
+  });
+
+  it("prefers explicit httpVersion over protocol inference", () => {
+    const meta = getSessionProtocolMetadata(createSessionSummary({ protocol: "https", httpVersion: "2" }));
+    expect(meta.httpVersion).toBe("2");
+    expect(meta.scheme).toBe("https");
+    expect(meta.transportProtocol).toBe("tcp");
+    expect(meta.applicationProtocol).toBe("http");
+  });
 });

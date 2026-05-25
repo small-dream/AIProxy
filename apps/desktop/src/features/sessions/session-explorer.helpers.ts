@@ -346,7 +346,7 @@ function addExpansionAlias(aliases: Map<string, string[]>, key: string, aliasKey
   aliases.set(key, [...existingAliases, ...aliasKeys]);
 }
 
-function matchesKeyword(session: SessionSummary, keyword: string): boolean {
+export function matchesKeyword(session: SessionSummary, keyword: string): boolean {
   const normalizedKeyword = keyword.trim().toLowerCase();
 
   if (normalizedKeyword.length === 0) {
