@@ -3,7 +3,6 @@ import type {
   BreakpointStage,
   DnsMappingRule,
   MapRule,
-  MatchType,
   RewriteRule,
   RewriteRuleType,
   RuleMatch,

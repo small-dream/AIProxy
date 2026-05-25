@@ -414,6 +414,7 @@ export function AppShell() {
     return () => {
       unlisten?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads latest handlers via menuHandlerRef
   }, []);
 
   function handleMenuCommand(menuId: string) {
