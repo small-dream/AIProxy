@@ -8,6 +8,7 @@ import {
   mergeSessionDetailContent,
   parseSessionSummaries,
   type InsightsResult,
+  type GetInsightsInput,
   type SessionDetail,
   type SessionDetailContentPatch,
   type SessionDetailContentRequest,
@@ -264,7 +265,7 @@ export async function setFocusedHosts(hosts: string[]): Promise<void> {
   }
 }
 
-export async function invokeGetInsights(): Promise<InsightsResult> {
+export async function invokeGetInsights(input: GetInsightsInput): Promise<InsightsResult> {
   if (!isTauriRuntime()) {
     throw {
       code: "DESKTOP_RUNTIME_REQUIRED",
@@ -273,8 +274,11 @@ export async function invokeGetInsights(): Promise<InsightsResult> {
   }
 
   try {
-    logDevDebug("ui.commands", "get_insights_requested");
-    const payload = await invoke<unknown>("get_insights");
+    logDevDebug("ui.commands", "get_insights_requested", {
+      sessionCount: input.sessionIds.length,
+      hostKeyword: input.hostKeyword,
+    });
+    const payload = await invoke<unknown>("get_insights", { input });
     const result = parseInsightsResult(payload);
 
     logDevDebug("ui.commands", "get_insights_succeeded", {
