@@ -787,6 +787,10 @@ async fn handle_connection(
                                     &request.request_headers,
                                     &session_detail.response_headers,
                                 );
+                            }
+                            if resolution.modified_response_status_code.is_some()
+                                || resolution.modified_response_headers.is_some()
+                            {
                                 session_detail.raw_response_head = Some(build_raw_http_head(
                                     &format!(
                                         "HTTP/1.1 {} {}",
@@ -1038,7 +1042,10 @@ async fn forward_request(
             .map_err(|e| format!("failed to build upstream request body: {e}"))?
     };
 
-    let request_send_started_at = Instant::now();
+    // send_request().await bundles socket-write + server-think into one call,
+    // so we cannot truly separate "send" from "wait".  Measure the combined
+    // duration as waiting_ms and leave request_send_ms at 0 until we have a
+    // streaming send API that can report flush completion.
     let waiting_started_at = Instant::now();
     let response = sender.send_request(http_req).await.map_err(|error| {
         emit_log(
@@ -1055,7 +1062,6 @@ async fn forward_request(
         );
         format!("failed to send upstream request: {error}")
     })?;
-    let request_send_ms = request_send_started_at.elapsed().as_millis();
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
     let status_code = StatusCode::from_u16(response.status().as_u16())
@@ -1119,7 +1125,7 @@ async fn forward_request(
         body_truncated,
         connect_ms: connection_timing.connect_ms,
         dns_ms: connection_timing.dns_ms,
-        request_send_ms,
+        request_send_ms: 0,
         response_body,
         response_body_size_bytes,
         response_headers,
@@ -2469,6 +2475,10 @@ async fn handle_connect_mitm(
                                     &https_request.request_headers,
                                     &session_detail.response_headers,
                                 );
+                            }
+                            if resolution.modified_response_status_code.is_some()
+                                || resolution.modified_response_headers.is_some()
+                            {
                                 session_detail.raw_response_head = Some(build_raw_http_head(
                                     &format!(
                                         "HTTP/1.1 {} {}",

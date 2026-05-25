@@ -1153,33 +1153,41 @@ fn detail_row_to_proxy(
         })
     };
 
-    let timing = row.timing.as_ref().and_then(|j| {
+    let timing_json_value = row.timing.as_ref().and_then(|j| {
         let v: serde_json::Value = serde_json::from_str(j).ok()?;
-        Some(ProxyTimingBreakdown {
-            connect_ms: v
-                .get("connect_ms")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u128),
-            dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            request_send_ms: v
-                .get("request_send_ms")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u128),
-            response_read_ms: v
-                .get("response_read_ms")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u128),
-            tls_ms: v.get("tls_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-            total_ms: v
-                .get("total_ms")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u128),
-            waiting_ms: v
-                .get("waiting_ms")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u128),
-        })
+        Some(v)
     });
+
+    let timing = timing_json_value.as_ref().map(|v| ProxyTimingBreakdown {
+        connect_ms: v
+            .get("connect_ms")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u128),
+        dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+        request_send_ms: v
+            .get("request_send_ms")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u128),
+        response_read_ms: v
+            .get("response_read_ms")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u128),
+        tls_ms: v.get("tls_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
+        total_ms: v
+            .get("total_ms")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u128),
+        waiting_ms: v
+            .get("waiting_ms")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u128),
+    });
+
+    let timing_source = timing_json_value
+        .as_ref()
+        .and_then(|v| v.get("timing_source"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     ProxySessionDetail {
         client_address: row.client_address.clone(),
@@ -1201,7 +1209,7 @@ fn detail_row_to_proxy(
         tls_cipher_suite: row.tls_cipher_suite.clone(),
         tls_protocol: row.tls_protocol.clone(),
         timing,
-        timing_source: None,
+        timing_source,
     }
 }
 
@@ -1279,6 +1287,9 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
         }
         if let Some(ms) = t.waiting_ms {
             v["waiting_ms"] = serde_json::json!(ms);
+        }
+        if let Some(ref source) = detail.timing_source {
+            v["timing_source"] = serde_json::json!(source);
         }
         v.to_string()
     });

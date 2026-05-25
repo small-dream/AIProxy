@@ -85,6 +85,11 @@ export function SessionExplorerPane({
   const [localFilterValue, setLocalFilterValue] = useState(domainFilterValue);
   const debouncedFilterValue = useDebouncedValue(localFilterValue, 150);
 
+  // Re-sync when the parent prop changes (e.g. switching to a different container tab).
+  useEffect(() => {
+    setLocalFilterValue(domainFilterValue);
+  }, [domainFilterValue]);
+
   useEffect(() => {
     onDomainFilterChange(debouncedFilterValue);
   }, [debouncedFilterValue, onDomainFilterChange]);
