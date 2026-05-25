@@ -1022,6 +1022,7 @@ export const zhCNMessages: Messages = {
         openSearch: "搜索",
       },
       emptyHeaders: "没有捕获到响应头。",
+      emptyTrailers: "没有捕获到响应 Trailers。",
       jsonSearchPlaceholder: "搜索 JSON 树",
       jsonTextSearchPlaceholder: "搜索 JSON 文本",
       noJsonBody: "当前响应没有可用的 JSON Body。",
@@ -1041,6 +1042,7 @@ export const zhCNMessages: Messages = {
         preview: "预览",
         raw: "Raw",
         text: "文本",
+        trailers: "Trailers",
       },
       preview: {
         contextMenu: {

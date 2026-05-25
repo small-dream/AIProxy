@@ -483,12 +483,18 @@ export function EllipsizedCell({
   );
 }
 
+export type InspectorKeyValueItem = [string, string] | { name: string; value: string; isPseudo?: boolean | undefined };
+
+function isPseudoItem(item: InspectorKeyValueItem): item is { name: string; value: string; isPseudo?: boolean } {
+  return typeof item === "object" && !Array.isArray(item);
+}
+
 export function InspectorKeyValueTable({
   emptyMessage,
   items,
 }: {
   emptyMessage?: string;
-  items: Array<[string, string]>;
+  items: Array<InspectorKeyValueItem>;
 }) {
   const { t } = useI18n();
 
@@ -502,24 +508,49 @@ export function InspectorKeyValueTable({
 
   return (
     <InspectorFlatTable columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}>
-      {items.map(([label, value], index) => (
-        <InspectorFlatTableRow
-          cells={[
-            <Typography
-              key="label"
-              sx={{ ...inspectorKeyTypographySx, wordBreak: "break-all" }}
-              variant="body2"
-            >
-              {label}
-            </Typography>,
-            <EllipsizedCell key="value" text={value} />,
-          ]}
-          columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
-          dense
-          hoverable
-          key={`${label}:${value}:${index}`}
-        />
-      ))}
+      {items.map((item, index) => {
+        const isPseudo = isPseudoItem(item) && item.isPseudo === true;
+        const label = Array.isArray(item) ? item[0] : item.name;
+        const value = Array.isArray(item) ? item[1] : item.value;
+
+        return (
+          <InspectorFlatTableRow
+            cells={[
+              <Typography
+                key="label"
+                sx={{
+                  ...inspectorKeyTypographySx,
+                  ...(isPseudo ? { fontStyle: "italic", opacity: 0.8 } : {}),
+                  wordBreak: "break-all",
+                }}
+                variant="body2"
+              >
+                {label}
+                {isPseudo ? (
+                  <Box component="span" sx={{ color: "text.disabled", fontSize: "0.8em", ml: 0.5 }}>
+                    pseudo
+                  </Box>
+                ) : null}
+              </Typography>,
+              isPseudo ? (
+                <Typography
+                  key="value"
+                  sx={{ ...inspectorValueTypographySx, fontStyle: "italic", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  variant="body2"
+                >
+                  {value}
+                </Typography>
+              ) : (
+                <EllipsizedCell key="value" text={value} />
+              ),
+            ]}
+            columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
+            dense
+            hoverable
+            key={`${label}:${value}:${index}`}
+          />
+        );
+      })}
     </InspectorFlatTable>
   );
 }

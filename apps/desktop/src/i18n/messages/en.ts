@@ -1020,6 +1020,7 @@ export const enMessages = {
         openSearch: "Search",
       },
       emptyHeaders: "No response headers captured.",
+      emptyTrailers: "No response trailers captured.",
       jsonSearchPlaceholder: "Search JSON tree",
       jsonTextSearchPlaceholder: "Search JSON text",
       noJsonBody: "No JSON body available for this response.",
@@ -1039,6 +1040,7 @@ export const enMessages = {
         preview: "Preview",
         raw: "Raw",
         text: "Text",
+        trailers: "Trailers",
       },
       preview: {
         contextMenu: {

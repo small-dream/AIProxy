@@ -63,29 +63,36 @@ function getVisibleResponseTabs(
   detail: SessionDetail | undefined,
   session: SessionSummary,
 ): ResponseInspectorTab[] {
+  const hasTrailers = detail?.trailers && detail.trailers.length > 0;
+
   if (isWebSocketSession(session)) {
-    return ["overview", "messages", "headers", "raw"];
+    const tabs: ResponseInspectorTab[] = ["overview", "messages", "headers", "raw"];
+    if (hasTrailers) tabs.push("trailers");
+    return tabs;
   }
 
   const responseContentKind = getResponseContentKind(detail, session);
   const mimeType = detail?.responseBody?.mimeType ?? session.responseMimeType;
   const hasPreview = hasPreviewableMediaMimeType(mimeType);
 
+  let tabs: ResponseInspectorTab[];
+
   if (responseContentKind === "json") {
-    return hasPreview
+    tabs = hasPreview
       ? ["overview", "preview", "json", "jsonText", "headers", "raw", "automation"]
       : ["overview", "json", "jsonText", "headers", "raw", "automation"];
-  }
-
-  if (responseContentKind === "text") {
-    return hasPreview
+  } else if (responseContentKind === "text") {
+    tabs = hasPreview
       ? ["overview", "preview", "text", "headers"]
       : ["overview", "text", "headers", "raw", "automation"];
+  } else {
+    tabs = hasPreview
+      ? ["overview", "preview", "headers"]
+      : ["overview", "headers", "raw", "automation"];
   }
 
-  return hasPreview
-    ? ["overview", "preview", "headers"]
-    : ["overview", "headers", "raw", "automation"];
+  if (hasTrailers) tabs.push("trailers");
+  return tabs;
 }
 
 export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
@@ -231,6 +238,9 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           ) : null}
           {visibleTabs.includes("automation") ? (
             <Tab label={t("inspector.response.tabs.automation")} value="automation" />
+          ) : null}
+          {visibleTabs.includes("trailers") ? (
+            <Tab label={buildCountTabLabel(t("inspector.response.tabs.trailers"), detail?.trailers?.length ?? 0)} value="trailers" />
           ) : null}
         </Tabs>
 
@@ -410,7 +420,7 @@ function ResponseTabContent({
       <InspectorScrollArea>
         <InspectorKeyValueTable
           emptyMessage={t("inspector.response.emptyHeaders")}
-          items={detail?.responseHeaders.map((entry) => [entry.name, entry.value]) ?? []}
+          items={detail?.responseHeaders.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
         />
       </InspectorScrollArea>
     );
@@ -418,6 +428,17 @@ function ResponseTabContent({
 
   if (responseTab === "automation") {
     return <SessionInspectorAutomationPane sessionId={session.id} />;
+  }
+
+  if (responseTab === "trailers") {
+    return (
+      <InspectorScrollArea>
+        <InspectorKeyValueTable
+          emptyMessage={t("inspector.response.emptyTrailers")}
+          items={detail?.trailers?.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
+        />
+      </InspectorScrollArea>
+    );
   }
 
   if (responseTab === "raw") {

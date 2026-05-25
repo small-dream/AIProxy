@@ -223,7 +223,7 @@ function RequestTabContent({
       <InspectorScrollArea>
         <InspectorKeyValueTable
           emptyMessage={t("inspector.request.emptyHeaders")}
-          items={detail?.requestHeaders.map((entry) => [entry.name, entry.value]) ?? []}
+          items={detail?.requestHeaders.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
         />
       </InspectorScrollArea>
     );

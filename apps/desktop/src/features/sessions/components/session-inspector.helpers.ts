@@ -102,7 +102,8 @@ export type ResponseInspectorTab =
   | "text"
   | "json"
   | "jsonText"
-  | "raw";
+  | "raw"
+  | "trailers";
 
 const PREVIEWABLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
   "image/png",
