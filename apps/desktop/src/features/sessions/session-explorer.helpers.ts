@@ -360,6 +360,9 @@ function matchesKeyword(session: SessionSummary, keyword: string): boolean {
     session.method,
     String(session.statusCode),
     session.responseMimeType ?? "",
+    session.httpVersion ?? "",
+    session.transportProtocol ?? "",
+    session.applicationProtocol ?? "",
   ];
 
   return haystacks.some((value) => value.toLowerCase().includes(normalizedKeyword));
