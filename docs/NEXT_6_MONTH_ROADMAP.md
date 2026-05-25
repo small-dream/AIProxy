@@ -156,7 +156,21 @@
 
 ### M2：2026-07，Timing / Waterfall / Insights
 
-主题：从“看见请求”升级为“看懂性能和异常”。
+**状态：✅ 已完成** (2026-05-25)
+
+实现摘要：
+
+- 代理核心改用 hyper 重写 forward_request，实现全链路 timing 真实采样
+- Timing-aware HTTP connector，捕获 DNS、TCP connect、TLS handshake、request send、TTFB、response read、total
+- timing_source 字段区分真实抓包 / HAR 导入 / Compose 来源
+- Session Inspector Waterfall 阶段耗时条，异常/缺失 timing 有明确状态提示
+- Insights 面板首版：按 host、path、status、method 聚合，P50/P95/P99、错误率、流量体积、慢请求排行
+- Insights 支持按当前 Sessions 筛选条件统计
+- Insights 导出统计摘要为 Markdown / JSON
+- Insights 页面路由、导航与 TopBarActionButton 集成
+- 修复 timing、断点、session 过滤相关 bug
+
+主题：从”看见请求”升级为”看懂性能和异常”。
 
 核心交付：
 
@@ -177,7 +191,7 @@
 
 验收标准：
 
-- 用户能在 30 秒内回答“哪个 host 最慢、哪个接口错误最多、最大的响应是什么”。
+- 用户能在 30 秒内回答”哪个 host 最慢、哪个接口错误最多、最大的响应是什么”。
 - Waterfall 能解释单个请求主要耗时来自连接、TLS、等待还是下载。
 - Insights 对 10k sessions 的聚合计算在可接受时间内完成，不阻塞主工作台。
 
