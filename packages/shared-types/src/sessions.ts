@@ -152,6 +152,11 @@ export type SlowRequest = {
   durationMs: number;
 };
 
+export type GetInsightsInput = {
+  sessionIds: string[];
+  hostKeyword?: string;
+};
+
 export function isSessionSummary(value: unknown): value is SessionSummary {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -762,4 +767,18 @@ export function parseInsightsResult(value: unknown): InsightsResult {
       payload: value,
     },
   } satisfies AppError;
+}
+
+export function isGetInsightsInput(value: unknown): value is GetInsightsInput {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<GetInsightsInput>;
+
+  return (
+    Array.isArray(candidate.sessionIds) &&
+    candidate.sessionIds.every((id) => typeof id === "string") &&
+    (candidate.hostKeyword === undefined || typeof candidate.hostKeyword === "string")
+  );
 }
