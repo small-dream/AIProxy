@@ -12,6 +12,7 @@ use crate::{
     RewriteManager, ScriptManager, ThrottleManager,
     UpstreamResponse,
 };
+use crate::MAX_CAPTURED_BODY_BYTES;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -77,7 +78,8 @@ async fn handle_mitm_request(
 
     // --- Build ParsedProxyRequest from the hyper Request ---
     let (parts, body) = req.into_parts();
-    let body_bytes = BodyExt::collect(body)
+    let limited_body = http_body_util::Limited::new(body, MAX_CAPTURED_BODY_BYTES);
+    let body_bytes = BodyExt::collect(limited_body)
         .await
         .map_err(|e| format!("failed to read request body: {e}"))?
         .to_bytes();
@@ -107,6 +109,35 @@ async fn handle_mitm_request(
 
     // Build header entries and upstream HeaderMap.
     let mut request_headers: Vec<ProxyHeaderEntry> = Vec::new();
+
+    // For h2, synthesize pseudo headers from hyper request parts.
+    if is_h2 {
+        request_headers.push(ProxyHeaderEntry {
+            name: ":method".to_string(),
+            value: parts.method.as_str().to_string(),
+            is_pseudo: Some(true),
+        });
+        request_headers.push(ProxyHeaderEntry {
+            name: ":scheme".to_string(),
+            value: "https".to_string(),
+            is_pseudo: Some(true),
+        });
+        if let Some(authority) = parts.uri.authority() {
+            request_headers.push(ProxyHeaderEntry {
+                name: ":authority".to_string(),
+                value: authority.as_str().to_string(),
+                is_pseudo: Some(true),
+            });
+        }
+        if let Some(pq) = parts.uri.path_and_query() {
+            request_headers.push(ProxyHeaderEntry {
+                name: ":path".to_string(),
+                value: pq.as_str().to_string(),
+                is_pseudo: Some(true),
+            });
+        }
+    }
+
     for (name, value) in &parts.headers {
         let value_str = value
             .to_str()
@@ -143,7 +174,7 @@ async fn handle_mitm_request(
         host: host.clone(),
         method,
         path,
-        protocol: "https".to_string(),
+        protocol: if is_h2 { "h2" } else { "https" }.to_string(),
         query_params,
         raw_request,
         request_headers,
@@ -378,6 +409,15 @@ async fn handle_mitm_request(
             session_detail.script_traces = script_traces.clone();
             session_detail.throttle_traces = throttle_traces.clone();
             session_detail.timing_source = Some("proxy".to_string());
+
+            // For h2, add response pseudo header :status and mark stream metadata.
+            if is_h2 {
+                session_detail.response_headers.insert(0, ProxyHeaderEntry {
+                    name: ":status".to_string(),
+                    value: upstream_response.status_code.as_u16().to_string(),
+                    is_pseudo: Some(true),
+                });
+            }
 
             // --- Response-stage breakpoint ---
             let breakpoint_resolution = if upstream_response.body_truncated {

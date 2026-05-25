@@ -1731,6 +1731,9 @@ mod tests {
             tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
             tls_protocol: Some("TLSv1.3".to_string()),
             timing: None,
+            timing_source: None,
+            trailers: None,
+            h2_stream_id: None,
         }
     }
 }

@@ -1032,21 +1032,32 @@ pub(crate) async fn forward_request(
 
         // send_request + read
         let waiting_started_at = Instant::now();
-        let response = h2_sender.send_request(http_req).await.map_err(|error| {
-            emit_log(
-                "ERROR",
-                "upstream_request_send_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("method", request.method.to_string()),
-                    ("scheme", request.url.scheme().to_string()),
-                    ("host", request.host.clone()),
-                    ("url", request.url.to_string()),
-                    ("error", error.to_string()),
-                ],
-            );
-            format!("failed to send upstream h2 request: {error}")
-        })?;
+        let response = match h2_sender.send_request(http_req).await {
+            Ok(r) => r,
+            Err(error) => {
+                // Evict stale connection from pool and report failure.
+                if let Some(ref p) = pool {
+                    let key = crate::upstream_pool::UpstreamKey {
+                        host: request.host.clone(),
+                        port: request.url.port().unwrap_or(443),
+                    };
+                    p.evict_key(&key).await;
+                }
+                emit_log(
+                    "ERROR",
+                    "upstream_request_send_failed",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("method", request.method.to_string()),
+                        ("scheme", request.url.scheme().to_string()),
+                        ("host", request.host.clone()),
+                        ("url", request.url.to_string()),
+                        ("error", error.to_string()),
+                    ],
+                );
+                return Err(format!("failed to send upstream h2 request: {error}"));
+            }
+        };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
 
         return build_upstream_response_from_hyper(

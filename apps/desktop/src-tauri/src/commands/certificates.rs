@@ -224,7 +224,12 @@ fn generate_root_certificate_impl(
         .map_err(|e| format!("failed to save root CA: {e}"))?;
 
     // Create server config for MITM
-    let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    let h2 = true; // default on for cert generation; actual runtime setting used at proxy start
+    let alpn = if h2 {
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    } else {
+        vec![b"http/1.1".to_vec()]
+    };
     let server_config = root_ca
         .create_server_config(&storage, Some(alpn))
         .map_err(|e| format!("failed to create TLS server config: {e}"))?;
@@ -234,7 +239,7 @@ fn generate_root_certificate_impl(
         root_ca,
         storage: Arc::new(storage),
         server_config,
-        http2_enabled: true,
+        http2_enabled: h2,
     });
     state.set_tls_manager(tls_manager);
 
@@ -894,7 +899,7 @@ fn certificate_display_path(
 }
 
 /// Try to load a TlsManager from an existing root CA on disk.
-pub(super) fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
+pub(super) fn try_load_tls_manager(http2_enabled: Option<bool>) -> Result<Arc<TlsManager>, String> {
     let storage = CertStorage::resolve().map_err(|e| format!("cert storage resolve: {e}"))?;
 
     if !storage.root_cert_exists() {
@@ -911,7 +916,12 @@ pub(super) fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
     let root_ca =
         RootCaPair::load_from_pem(&cert_pem, &key_pem).map_err(|e| format!("load root CA: {e}"))?;
 
-    let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    let h2 = http2_enabled.unwrap_or(true);
+    let alpn = if h2 {
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    } else {
+        vec![b"http/1.1".to_vec()]
+    };
     let server_config = root_ca
         .create_server_config(&storage, Some(alpn))
         .map_err(|e| format!("create server config: {e}"))?;
@@ -920,7 +930,7 @@ pub(super) fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
         root_ca,
         storage: Arc::new(storage),
         server_config,
-        http2_enabled: true,
+        http2_enabled: h2,
     }))
 }
 

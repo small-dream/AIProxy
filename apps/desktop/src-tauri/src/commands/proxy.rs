@@ -8,6 +8,7 @@ pub struct StartProxyInput {
     pub workspace_id: String,
     pub port: Option<u16>,
     pub enable_ssl: Option<bool>,
+    pub enable_http2: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,10 +60,12 @@ async fn start_proxy_impl(
     let port = input.port.unwrap_or(DEFAULT_PROXY_PORT);
     let enable_ssl = input.enable_ssl.unwrap_or(true);
 
+    let http2_enabled = input.enable_http2;
+
     ProxyRuntimeConfig {
         port,
         ssl_enabled: enable_ssl,
-        http2_enabled: None,
+        http2_enabled,
     }
     .validate()
     .map_err(|message| message.to_string())?;
@@ -96,7 +99,7 @@ async fn start_proxy_impl(
             Some(m) => Some(m),
             None => {
                 // Try loading existing root CA from disk
-                match try_load_tls_manager() {
+                match try_load_tls_manager(http2_enabled) {
                     Ok(m) => {
                         state.set_tls_manager(Arc::clone(&m));
                         Some(m)

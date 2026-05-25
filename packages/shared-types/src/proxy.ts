@@ -112,6 +112,7 @@ export function normalizeStartProxyInput(input: StartProxyInput): StartProxyInpu
 
   return {
     enableSsl: input.enableSsl ?? true,
+    enableHttp2: input.enableHttp2 ?? true,
     port: normalizedPort,
     workspaceId: input.workspaceId.trim(),
   };

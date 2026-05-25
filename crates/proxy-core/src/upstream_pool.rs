@@ -60,9 +60,10 @@ impl UpstreamConnectionPool {
     > {
         // Fast path: check the pool for an existing, live connection.
         {
-            let connections = self.connections.read().await;
-            if let Some(pooled) = connections.get(key) {
+            let mut connections = self.connections.write().await;
+            if let Some(pooled) = connections.get_mut(key) {
                 if !pooled.sender.is_closed() && pooled.last_used.elapsed() < self.idle_timeout {
+                    pooled.last_used = Instant::now();
                     emit_log(
                         "DEBUG",
                         "upstream_pool_reuse",
@@ -168,5 +169,20 @@ impl UpstreamConnectionPool {
             }
             alive
         });
+    }
+
+    /// Evict a specific key from the pool (e.g. after a send failure).
+    pub(crate) async fn evict_key(&self, key: &UpstreamKey) {
+        let mut connections = self.connections.write().await;
+        if connections.remove(key).is_some() {
+            emit_log(
+                "DEBUG",
+                "upstream_pool_evicted",
+                &[
+                    ("host", key.host.clone()),
+                    ("port", key.port.to_string()),
+                ],
+            );
+        }
     }
 }
