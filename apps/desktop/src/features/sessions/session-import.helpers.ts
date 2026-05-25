@@ -1,5 +1,7 @@
 import type { BodyReference, HeaderEntry, SessionDetail, TimingBreakdown } from "@aiproxy/shared-types";
 
+import { inferProtocolMetadata, resolveHttpVersion } from "./session-protocol.helpers";
+
 type HarHeader = {
   name?: string;
   value?: string;
@@ -24,6 +26,7 @@ type HarEntry = {
   };
   request?: {
     headers?: HarHeader[];
+    httpVersion?: string;
     method?: string;
     postData?: HarBody;
     queryString?: HarHeader[];
@@ -146,6 +149,8 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
   const responseBody = buildBodyReference(entry.response?.content, entry.response?.content?.size);
   const timing = buildTimingBreakdown(entry);
   const protocol = parsedUrl.protocol.replace(":", "");
+  const harHttpVersion = request?.httpVersion || "HTTP/1.1";
+  const protocolMetadata = inferProtocolMetadata(protocol, request.url);
 
   return {
     cookies: [],
@@ -163,10 +168,10 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
       method: request.method,
       path: `${parsedUrl.pathname || "/"}${parsedUrl.search}`,
       protocol,
-      scheme: protocol === "https" ? "https" : "http",
-      httpVersion: "1.1",
-      transportProtocol: "tcp",
-      applicationProtocol: "http",
+      scheme: protocolMetadata.scheme,
+      httpVersion: resolveHttpVersion(harHttpVersion, harHttpVersion.toLowerCase()),
+      transportProtocol: protocolMetadata.transportProtocol,
+      applicationProtocol: protocolMetadata.applicationProtocol,
       sizeBytes:
         responseBody?.sizeBytes
         ?? (typeof entry.response?.content?.size === "number" ? entry.response.content.size : 0),

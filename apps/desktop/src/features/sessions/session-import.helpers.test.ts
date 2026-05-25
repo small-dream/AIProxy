@@ -87,4 +87,32 @@ describe("parseHarArchive", () => {
       "does not contain any entries",
     );
   });
+
+  it("parses HTTP/2 version from HAR entry", () => {
+    const details = parseHarArchive(JSON.stringify({
+      log: {
+        entries: [
+          {
+            request: {
+              headers: [],
+              httpVersion: "HTTP/2",
+              method: "GET",
+              url: "https://example.com/api",
+            },
+            response: {
+              content: {},
+              headers: [],
+              status: 200,
+            },
+            startedDateTime: new Date().toISOString(),
+            time: 100,
+            timings: { send: 10, wait: 50, receive: 40 },
+          },
+        ],
+      },
+    }));
+
+    expect(details).toHaveLength(1);
+    expect(details[0]!.summary.httpVersion).toBe("2");
+  });
 });

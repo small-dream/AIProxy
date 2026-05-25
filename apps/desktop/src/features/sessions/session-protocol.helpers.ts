@@ -89,7 +89,7 @@ function resolveScheme(normalizedProtocol: string, urlScheme: string | undefined
   return "http";
 }
 
-function resolveHttpVersion(protocol: string | undefined, normalizedProtocol: string): string {
+export function resolveHttpVersion(protocol: string | undefined, normalizedProtocol: string): string {
   const trimmedProtocol = protocol?.trim() ?? "";
 
   if (trimmedProtocol.startsWith("HTTP/")) {
