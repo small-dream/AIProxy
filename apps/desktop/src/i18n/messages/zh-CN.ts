@@ -1249,6 +1249,9 @@ export const zhCNMessages: Messages = {
       noData: "暂无会话数据",
       loading: "正在加载洞察数据...",
     },
+    filter: {
+      domainPlaceholder: "按域名过滤...",
+    },
   },
   collectionsPage: {
     title: "集合",

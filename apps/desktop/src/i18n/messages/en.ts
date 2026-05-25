@@ -1247,6 +1247,9 @@ export const enMessages = {
       noData: "No session data available",
       loading: "Loading insights...",
     },
+    filter: {
+      domainPlaceholder: "Filter by domain...",
+    },
   },
   collectionsPage: {
     title: "Collections",
