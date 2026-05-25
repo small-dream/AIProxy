@@ -923,7 +923,7 @@ async fn handle_connection(
         }
     }
 }
-async fn forward_request(
+pub(crate) async fn forward_request(
     request: &ParsedProxyRequest,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
@@ -1444,6 +1444,7 @@ async fn tunnel_blind_relay(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<tokio_rustls::rustls::ClientConfig>> = OnceLock::new();
 
@@ -1716,6 +1717,7 @@ async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
 /// Handle WebSocket upgrade for HTTPS (wss://) connections via MITM.
 /// Opens a raw TLS connection to upstream, sends the upgrade request, reads the 101 response,
 /// writes it back to the client, then enters bidirectional frame relay.
+#[allow(dead_code)]
 async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     client_stream: &mut S,
     request: &ParsedProxyRequest,
@@ -2016,6 +2018,10 @@ fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Str
 }
 
 /// HTTPS MITM: terminate TLS, capture decrypted traffic, forward upstream.
+///
+/// Uses a hyper server connection to parse HTTP requests from the TLS stream.
+/// This allows handling both HTTP/1.1 and HTTP/2 (based on ALPN negotiation)
+/// through the same `MitmService` request handler.
 #[allow(clippy::too_many_arguments)]
 async fn handle_connect_mitm(
     mut stream: TcpStream,
@@ -2070,546 +2076,89 @@ async fn handle_connect_mitm(
         .1
         .negotiated_cipher_suite()
         .map(|suite| format_tls_cipher_suite(suite.suite()));
+    let alpn_protocol = tls_stream
+        .get_ref()
+        .1
+        .alpn_protocol()
+        .map(|proto| String::from_utf8_lossy(proto).to_string());
 
     emit_log(
         "DEBUG",
         "tls_handshake_succeeded",
-        &[("host", host.clone()), ("port", port.to_string())],
+        &[
+            ("host", host.clone()),
+            ("port", port.to_string()),
+            (
+                "alpn",
+                alpn_protocol
+                    .as_deref()
+                    .unwrap_or("(none)")
+                    .to_string(),
+            ),
+        ],
     );
 
-    let mut tls_stream = tls_stream;
+    let is_h2 = alpn_protocol.as_deref() == Some("h2");
 
-    // Read the decrypted HTTP request from the TLS stream
-    let mut request = match read_proxy_request_from_stream(&mut tls_stream).await {
-        Ok(r) => r,
-        Err(error) => {
-            emit_log(
-                "WARN",
-                "tls_request_parse_failed",
-                &[("host", host.clone()), ("error", error)],
-            );
-            return Ok(());
-        }
-    };
-    request.client_address = Some(client_addr.to_string());
-    request.tls_cipher_suite = tls_cipher_suite;
-    request.tls_protocol = tls_protocol;
-
-    // Rewrite URL to https://
-    let https_url = if request.url.scheme() == "http" {
-        let mut https = format!("https://{host}:{port}");
-        if !request.path.is_empty() && request.path != "/" {
-            https.push_str(&request.path);
-        } else {
-            https.push('/');
-        }
-        https
-    } else {
-        request.url.to_string()
+    // Build shared state for this MITM connection.
+    let state = Arc::new(crate::mitm_service::MitmConnectionState {
+        host: host.clone(),
+        port,
+        client_addr,
+        tls_protocol,
+        tls_cipher_suite,
+        tls_ms,
+        alpn_protocol,
+        session_sender,
+        ws_message_sender,
+        rewrite_manager,
+        map_manager,
+        script_manager,
+        throttle_manager,
+        breakpoint_manager,
+        dns_manager,
+        workspace_id,
+        event_emitter,
+        started_at,
+        started_at_instant,
+    });
+    let service = crate::mitm_service::MitmService {
+        state: state.clone(),
     };
 
-    // Build a modified request for HTTPS upstream
-    let mut https_request = ParsedProxyRequest {
-        protocol: "https".to_string(),
-        url: Url::parse(&https_url).map_err(|e| format!("invalid https URL {https_url}: {e}"))?,
-        ..request
-    };
+    // Use hyper server to handle the decrypted HTTP traffic.
+    // Wrap the TLS stream in TokioIo to bridge tokio's AsyncRead/AsyncWrite
+    // to hyper's Read/Write traits.
+    let io = hyper_util::rt::TokioIo::new(tls_stream);
 
-    let RequestRuntimeOutcome {
-        mut local_response,
-        map_traces,
-        rewrite_traces,
-        throttle_selection,
-    } = apply_request_runtime_rules(
-        &rewrite_manager,
-        &map_manager,
-        &throttle_manager,
-        &workspace_id,
-        &mut https_request,
-    )?;
-    let map_traces = map_traces;
-    let mut rewrite_traces = rewrite_traces;
-    let mut script_traces = Vec::new();
-    let mut throttle_traces = Vec::new();
-
-    if local_response.is_none() {
-        let script_outcome =
-            apply_request_script_rules(&script_manager, &workspace_id, &mut https_request);
-        local_response = script_outcome.local_response;
-        script_traces.extend(script_outcome.traces);
-    }
-
-    // --- Request-stage breakpoint (HTTPS) ---
-    if let Some(resolution) =
-        intercept_request_stage(&breakpoint_manager, &event_emitter, &mut https_request).await?
-    {
-        match resolution.action {
-            BreakpointActionKind::Drop => {
-                let _ = tls_stream.shutdown().await;
-                return Ok(());
-            }
-            BreakpointActionKind::Mock => {
-                if let Some(ref mock) = resolution.mock {
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
-                    {
-                        match apply_request_throttle(selection, https_request.body.len()).await {
-                            Ok(trace) => {
-                                if let Some(manager) = throttle_manager.as_ref() {
-                                    manager.record_trace(&trace);
-                                }
-                                throttle_traces.push(trace);
-                            }
-                            Err(failure) => {
-                                if let Some(manager) = throttle_manager.as_ref() {
-                                    manager.record_trace(&failure.trace);
-                                }
-                                throttle_traces.push(failure.trace);
-                                return respond_with_throttle_failure(
-                                    &mut tls_stream,
-                                    &https_request,
-                                    &session_sender,
-                                    started_at,
-                                    started_at_instant,
-                                    Some(tls_ms),
-                                    &failure.error,
-                                    map_traces.clone(),
-                                    throttle_traces,
-                                )
-                                .await;
-                            }
-                        }
-                    }
-
-                    let mut mock_response = build_mock_upstream_response(mock);
-                    rewrite_traces.extend(apply_response_rewrite_rules(
-                        &rewrite_manager,
-                        &workspace_id,
-                        &https_request,
-                        &mut mock_response,
-                    )?);
-                    script_traces.extend(apply_response_script_rules(
-                        &script_manager,
-                        &workspace_id,
-                        &https_request,
-                        &mut mock_response,
-                    ));
-
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|selection| throttle_selection_matches_stage(selection, "response"))
-                    {
-                        let trace =
-                            apply_response_throttle(selection, mock_response.response_body.len())
-                                .await;
-                        if let Some(manager) = throttle_manager.as_ref() {
-                            manager.record_trace(&trace);
-                        }
-                        throttle_traces.push(trace);
-                    }
-
-                    write_upstream_response(
-                        &mut tls_stream,
-                        mock_response.status_code,
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                    )
-                    .await?;
-
-                    let mut detail = build_session_detail(
-                        &https_request,
-                        mock_response.status_code.as_u16(),
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                        mock_response.response_body_size_bytes,
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: None,
-                            response_read_ms: Some(0),
-                            tls_ms: Some(tls_ms),
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(0),
-                        },
-                        mock_response.body_truncated,
-                    );
-                    detail.map_traces = map_traces;
-                    detail.rewrite_traces = rewrite_traces;
-                    detail.script_traces = script_traces;
-                    detail.throttle_traces = throttle_traces;
-                    if session_sender.send(detail).await.is_err() {
-                        emit_log(
-                            "DEBUG",
-                            "session_send_dropped",
-                            &[("reason", "receiver_disconnected".to_string())],
-                        );
-                    }
-                    return Ok(());
-                }
-            }
-            BreakpointActionKind::Forward => {}
-        }
-    }
-
-    let mut pending_detail = build_pending_session_detail(&https_request, started_at);
-    pending_detail.map_traces = map_traces.clone();
-    let _ = session_sender.send(pending_detail).await;
-
-    if let Some(selection) = throttle_selection
-        .as_ref()
-        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
-    {
-        match apply_request_throttle(selection, https_request.body.len()).await {
-            Ok(trace) => {
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
-                }
-                throttle_traces.push(trace);
-            }
-            Err(failure) => {
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&failure.trace);
-                }
-                throttle_traces.push(failure.trace);
-                return respond_with_throttle_failure(
-                    &mut tls_stream,
-                    &https_request,
-                    &session_sender,
-                    started_at,
-                    started_at_instant,
-                    Some(tls_ms),
-                    &failure.error,
-                    map_traces.clone(),
-                    throttle_traces,
-                )
-                .await;
-            }
-        }
-    }
-
-    let upstream_result = match local_response {
-        Some(local_response) => Ok(local_response),
-        None => {
-            // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
-            let is_ws = https_request.headers.iter().any(|(name, value)| {
-                name.as_str().eq_ignore_ascii_case("upgrade")
-                    && value.as_bytes().eq_ignore_ascii_case(b"websocket")
-            });
-            if is_ws {
-                handle_https_websocket_upgrade(
-                    &mut tls_stream,
-                    &https_request,
-                    &session_sender,
-                    &ws_message_sender,
-                    started_at,
-                    started_at_instant,
-                    tls_ms,
-                    &dns_manager,
-                    &workspace_id,
-                )
-                .await?;
-                return Ok(());
-            }
-            forward_request(&https_request, &dns_manager, &workspace_id).await
-        }
-    };
-
-    match upstream_result {
-        Ok(mut upstream_response) => {
-            if upstream_response.body_truncated {
+    if is_h2 {
+        let executor = hyper_util::rt::TokioExecutor::new();
+        hyper::server::conn::http2::Builder::new(executor)
+            .serve_connection(io, service)
+            .await
+            .map_err(|e| {
                 emit_log(
                     "WARN",
-                    "response_body_passthrough_mode",
-                    &[
-                        ("request_id", https_request.request_id.clone()),
-                        ("url", https_request.url.to_string()),
-                        (
-                            "reason",
-                            "response body exceeded capture limit; skipping response mutations"
-                                .to_string(),
-                        ),
-                    ],
+                    "h2_serve_error",
+                    &[("host", host.clone()), ("error", e.to_string())],
                 );
-            } else {
-                rewrite_traces.extend(apply_response_rewrite_rules(
-                    &rewrite_manager,
-                    &workspace_id,
-                    &https_request,
-                    &mut upstream_response,
-                )?);
-                script_traces.extend(apply_response_script_rules(
-                    &script_manager,
-                    &workspace_id,
-                    &https_request,
-                    &mut upstream_response,
-                ));
-            }
-
-            // Build session detail once; rebuild only if Mock/Forward modifies the response.
-            // Note: tls_ms here is the MITM client<->proxy TLS handshake time.
-            // upstream_response.tls_ms is the proxy<->upstream TLS handshake time.
-            // We combine them: prefer upstream tls_ms if present, fallback to MITM tls_ms.
-            let mut session_detail = build_session_detail(
-                &https_request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-                upstream_response.response_body_size_bytes,
-                started_at,
-                started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: Some(upstream_response.connect_ms),
-                    dns_ms: Some(upstream_response.dns_ms),
-                    request_send_ms: Some(upstream_response.request_send_ms),
-                    response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(upstream_response.waiting_ms),
-                },
-                upstream_response.body_truncated,
-            );
-            session_detail.map_traces = map_traces.clone();
-            session_detail.rewrite_traces = rewrite_traces.clone();
-            session_detail.script_traces = script_traces.clone();
-            session_detail.throttle_traces = throttle_traces.clone();
-            session_detail.timing_source = Some("proxy".to_string());
-
-            // --- Response-stage breakpoint (HTTPS) ---
-            let breakpoint_resolution = if upstream_response.body_truncated {
-                None
-            } else {
-                match intercept_response_stage(
-                    &breakpoint_manager,
-                    &event_emitter,
-                    &https_request,
-                    upstream_response.status_code.as_u16(),
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                )
-                .await
-                {
-                    Ok(resolution) => resolution,
-                    Err(error) => {
-                        let _ = session_sender.send(session_detail).await;
-                        return Err(error);
-                    }
-                }
-            };
-
-            if let Some(resolution) = breakpoint_resolution {
-                match resolution.action {
-                    BreakpointActionKind::Drop => {
-                        let _ = session_sender.send(session_detail).await;
-                        let _ = tls_stream.shutdown().await;
-                        return Ok(());
-                    }
-                    BreakpointActionKind::Mock => {
-                        if let Some(ref mock) = resolution.mock {
-                            upstream_response = build_mock_upstream_response(mock);
-                            session_detail = build_session_detail(
-                                &https_request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
-                                started_at,
-                                started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
-                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
-                            );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
-                        }
-                    }
-                    BreakpointActionKind::Forward => {
-                        apply_response_resolution(&resolution, &mut upstream_response);
-                        if resolution.modified_response_body_base64.is_some() {
-                            // Body changed — must rebuild (includes decompression).
-                            session_detail = build_session_detail(
-                                &https_request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
-                                started_at,
-                                started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms.or(Some(tls_ms)),
-                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
-                            );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
-                            session_detail.timing_source = Some("proxy".to_string());
-                        } else {
-                            // Only headers/status may have changed — update in place, no body decompression needed.
-                            if resolution.modified_response_status_code.is_some() {
-                                session_detail.summary.status_code =
-                                    upstream_response.status_code.as_u16();
-                            }
-                            if resolution.modified_response_headers.is_some() {
-                                session_detail.response_headers =
-                                    build_header_entries_from_map(&upstream_response.response_headers);
-                                session_detail.cookies = build_cookie_entries(
-                                    &https_request.request_headers,
-                                    &session_detail.response_headers,
-                                );
-                            }
-                            if resolution.modified_response_status_code.is_some()
-                                || resolution.modified_response_headers.is_some()
-                            {
-                                session_detail.raw_response_head = Some(build_raw_http_head(
-                                    &format!(
-                                        "HTTP/1.1 {} {}",
-                                        upstream_response.status_code.as_u16(),
-                                        upstream_response.status_code.canonical_reason()
-                                            .unwrap_or("Unknown"),
-                                    ),
-                                    &session_detail.response_headers,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Some(selection) = throttle_selection
-                .as_ref()
-                .filter(|selection| throttle_selection_matches_stage(selection, "response"))
-            {
-                let trace =
-                    apply_response_throttle(selection, upstream_response.response_body_size_bytes)
-                        .await;
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
-                }
-                throttle_traces.push(trace);
-                session_detail.throttle_traces = throttle_traces.clone();
-            }
-
-            let write_result = if let Some(spooled_response_path) =
-                upstream_response.spooled_response_path.as_deref()
-            {
-                write_spooled_upstream_response(
-                    &mut tls_stream,
-                    upstream_response.status_code,
-                    &upstream_response.response_headers,
-                    upstream_response.response_body_size_bytes,
-                    spooled_response_path,
-                )
-                .await
-            } else {
-                write_upstream_response(
-                    &mut tls_stream,
-                    upstream_response.status_code,
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                )
-                .await
-            };
-
-            if let Err(error) = write_result {
-                let _ = session_sender.send(session_detail).await;
-                return Err(error);
-            }
-
-            session_detail.rewrite_traces = rewrite_traces;
-            session_detail.script_traces = script_traces;
-            session_detail.map_traces = map_traces;
-
-            if session_sender.send(session_detail).await.is_err() {
+                format!("HTTP/2 server connection error for {host}:{port}: {e}")
+            })?;
+    } else {
+        hyper::server::conn::http1::Builder::new()
+            .serve_connection(io, service)
+            .await
+            .map_err(|e| {
                 emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
+                    "WARN",
+                    "h1_serve_error",
+                    &[("host", host.clone()), ("error", e.to_string())],
                 );
-            }
-
-            emit_log(
-                "DEBUG",
-                "https_request_forwarded",
-                &[
-                    ("request_id", https_request.request_id.clone()),
-                    ("host", host.clone()),
-                    ("method", https_request.method.to_string()),
-                    (
-                        "status_code",
-                        upstream_response.status_code.as_u16().to_string(),
-                    ),
-                    ("url", https_url),
-                ],
-            );
-
-            Ok(())
-        }
-        Err(error) => {
-            let response_message = "The proxy could not reach the upstream HTTPS server.";
-
-            write_plain_text_response(&mut tls_stream, StatusCode::BAD_GATEWAY, response_message)
-                .await?;
-
-            let detail = build_session_detail(
-                &https_request,
-                StatusCode::BAD_GATEWAY.as_u16(),
-                &HeaderMap::new(),
-                response_message.as_bytes(),
-                response_message.len(),
-                started_at,
-                started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
-                    response_read_ms: Some(0),
-                    tls_ms: Some(tls_ms),
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                },
-                false,
-            );
-            if session_sender.send(detail).await.is_err() {
-                emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
-                );
-            }
-
-            emit_log(
-                "ERROR",
-                "https_upstream_request_failed",
-                &[
-                    ("request_id", https_request.request_id.clone()),
-                    ("host", host.clone()),
-                    ("url", https_url),
-                    ("error", error.clone()),
-                ],
-            );
-
-            Err(format!("upstream HTTPS request failed: {error}"))
-        }
+                format!("HTTP/1.1 server connection error for {host}:{port}: {e}")
+            })?;
     }
+
+    Ok(())
 }
 
 async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest, String> {
