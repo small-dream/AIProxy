@@ -87,6 +87,14 @@ async fn handle_mitm_request(
 
     let is_h2 = state.alpn_protocol.as_deref() == Some("h2");
 
+    if !is_h2 {
+        tracing::debug!(
+            host = %state.host,
+            alpn = ?state.alpn_protocol,
+            "HTTP/2 not negotiated, using HTTP/1.1"
+        );
+    }
+
     // Build URL: for h2 use :authority + :path; for h1 use the URI directly.
     let url = build_url_from_hyper(&parts, &state.host, state.port, is_h2)?;
 

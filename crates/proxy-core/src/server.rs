@@ -2196,6 +2196,14 @@ async fn handle_connect_mitm(
 
     let is_h2 = alpn_protocol.as_deref() == Some("h2");
 
+    if is_h2 {
+        tracing::info!(
+            host = %host,
+            alpn = ?alpn_protocol,
+            "HTTP/2 negotiated for MITM connection"
+        );
+    }
+
     // Build shared state for this MITM connection.
     let state = Arc::new(crate::mitm_service::MitmConnectionState {
         host: host.clone(),
