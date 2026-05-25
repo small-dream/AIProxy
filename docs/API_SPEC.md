@@ -100,6 +100,7 @@ type Workspace = {
   storagePath: string;
   createdAt: string;
   updatedAt: string;
+  http2Enabled?: boolean;  // default true
 };
 ```
 
@@ -118,6 +119,7 @@ type ProxyStatus = {
   systemProxyEnabled: boolean;
   activeWorkspaceId?: string; // 当前激活代理预设 ID，字段名保持兼容
   startedAt?: string;
+  http2Enabled?: boolean;
 };
 ```
 
@@ -150,6 +152,7 @@ type SessionSummary = {
 type HeaderEntry = {
   name: string;
   value: string;
+  isPseudo?: boolean;  // true for HTTP/2 pseudo headers (:method, :path, :scheme, :authority, :status)
 };
 
 type BodyReference = {
@@ -201,6 +204,8 @@ type SessionDetail = {
   tlsProtocol?: string;
   timing?: TimingBreakdown;
   timingSource?: "proxy" | "compose" | "har-import";
+  trailers?: HeaderEntry[];     // HTTP/2 response trailers
+  h2StreamId?: number;          // HTTP/2 stream ID (debugging)
 };
 
 type SessionDetailContentRequest = {
@@ -222,6 +227,12 @@ type SessionDetailContentPatch = {
   requestBody?: Pick<BodyReference, "inlineText" | "textDeferred" | "base64Text" | "base64Deferred">;
   responseBody?: Pick<BodyReference, "inlineText" | "textDeferred" | "base64Text" | "base64Deferred">;
 };
+
+// HTTP/2 Session Notes:
+// - HTTP/2 sessions have `httpVersion: "2"` (set in SessionSummary).
+// - Headers may contain pseudo-headers (`:method`, `:path`, `:scheme`, `:authority`, `:status`)
+//   with `isPseudo: true` in the HeaderEntry.
+// - HTTP/2 responses may include `trailers` (returned in SessionDetail).
 ```
 
 ## 5.5 Rule Models — `BreakpointRule 已实现`
@@ -523,6 +534,7 @@ type StartProxyInput = {
   workspaceId: string; // 当前激活代理预设 ID
   port?: number;
   enableSsl?: boolean;
+  enableHttp2?: boolean;  // default true
 };
 ```
 

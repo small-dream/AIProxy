@@ -202,6 +202,22 @@
 
 ### M3：2026-08，HTTP/2 可用级捕获
 
+**状态：✅ 已完成** (2026-05-25)
+
+实现摘要：
+
+- 启用 hyper http2 feature + h2 crate，服务端/客户端双向 ALPN 配置
+- 新建 mitm_service.rs 统一 hyper Service 处理器，ALPN 结果决定 h1/h2 分支
+- 重构 handle_connect_mitm() 从 httparse 手动解析改为 hyper server connection
+- 新建 upstream_pool.rs 上游 h2 连接池（按 host:port 复用 h2 连接）
+- 数据模型新增 trailers、h2StreamId、isPseudo 字段，DB schema 同步更新
+- 规则引擎：header 级规则在 h2 session 上正常工作，body rewrite 跳过并生成 trace
+- 设置页新增 HTTP/2 开关（中英文 i18n），ALPN 根据配置动态选择
+- Session Inspector 伪头斜体 + "pseudo" 标签，Trailers 标签页
+- HAR 导入修复：读取 httpVersion 而非硬编码 "1.1"
+- 搜索范围扩展：支持按协议字段过滤
+- 诊断日志：ALPN 协商结果记录
+
 主题：补齐现代 Web / 移动端 / 微服务调试的协议门槛。
 
 核心交付：

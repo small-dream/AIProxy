@@ -128,8 +128,8 @@
 - **现状**：核心捕获、转发、展示链路仍以 HTTP/1.1 文本模型为主，协议字段更多表示 `http` / `https` scheme，而不是完整的 HTTP version / transport / application protocol。
 - **趋势**：现代 App、移动端 SDK、云服务和微服务网关普遍启用 HTTP/2；如果长期停留在 HTTP/1.1，会导致抓不到、展示不完整、性能分析失真，也会阻塞后续 gRPC 能力。
 - **建议拆分**：
-  - **P0：协议模型重构**：在 Session 模型中区分 `scheme`、`httpVersion`、`transportProtocol`、`applicationProtocol`，为 HTTP/2 stream、trailers、pseudo headers、gRPC message 留出结构化字段。
-  - **P1：HTTP/2 基础捕获与展示**：支持 TLS ALPN `h2`，捕获 HTTP/2 请求 / 响应并展示为普通会话，至少覆盖 headers、body、status、timing、trailers。
+  - **P0：协议模型重构** ✅ 已完成：在 Session 模型中区分 `scheme`、`httpVersion`、`transportProtocol`、`applicationProtocol`，为 HTTP/2 stream、trailers、pseudo headers、gRPC message 留出结构化字段。
+  - **P1：HTTP/2 基础捕获与展示** ✅ 已完成：支持 TLS ALPN `h2`，捕获 HTTP/2 请求 / 响应并展示为普通会话，至少覆盖 headers、body、status、timing、trailers。实现了 mitm_service.rs 统一处理器、upstream_pool.rs 连接池、pseudo headers 展示、trailers 标签页和 HTTP/2 开关。
   - **P2：HTTP/2 规则与重放兼容**：让 Rewrite、Map、Throttle、Script、Compose、Export 能在 HTTP/2 会话上保持可用，必要时用内部统一模型屏蔽 HTTP/1.1 与 HTTP/2 差异。
   - **P3：HTTP/3 / QUIC 研究项**：HTTP/3 涉及 UDP / QUIC / QPACK / 0-RTT / 连接迁移，技术路线与 HTTP/2 不同，先做识别、提示和降级策略，不阻塞 HTTP/2 落地。
 - **竞品对标**：Charles / Fiddler 对 HTTP/2 有基础支持，但深度调试体验有限；如果 AIProxy 能把 HTTP/2 会话、规则、timing 和 gRPC 展示打通，会形成更强竞争力。

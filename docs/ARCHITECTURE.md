@@ -201,6 +201,8 @@ flowchart LR
 - 内建 `RewriteManager`，支持 Header / Query / Body / Redirect 改写，并记录会话级 rewrite trace — `已实现`
 - 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
+- `mitm_service.rs`：统一 hyper Service 处理器，支持 h1/h2 MITM 请求处理。根据 ALPN 协商结果决定 HTTP/1.1 或 HTTP/2 分支，处理 HTTP/2 stream。
+- `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
 - `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
 
@@ -496,6 +498,9 @@ erDiagram
 - `server_ip`
 - `pinned`
 - `tags`
+- `h2_stream_id` — 可选 HTTP/2 stream 标识符，仅在 HTTP/2 会话中填充
+- Headers 可能包含 pseudo-headers（`:method`、`:path`、`:scheme`、`:authority`、`:status`），以 `is_pseudo: true` 标记
+- `trailers` — 可选 HTTP/2 response trailers
 
 ### `breakpoint_rule`
 
