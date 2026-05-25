@@ -1174,6 +1174,7 @@ fn apply_script_request_to_runtime(
         .map(|header| ProxyHeaderEntry {
             name: header.name,
             value: header.value,
+            is_pseudo: None,
         })
         .collect();
     request.body = bytes_from_script_body(script_request.body_text, script_request.body_base64)?;
@@ -1257,6 +1258,7 @@ fn set_header_entry(headers: &mut Vec<ProxyHeaderEntry>, name: &str, value: &str
     headers.push(ProxyHeaderEntry {
         name: name.to_string(),
         value: value.to_string(),
+        is_pseudo: None,
     });
 }
 

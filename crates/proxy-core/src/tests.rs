@@ -114,6 +114,7 @@ fn applies_breakpoint_request_query_edits_to_runtime_request() {
         query_params: vec![ProxyHeaderEntry {
             name: "lang".to_string(),
             value: "en".to_string(),
+            is_pseudo: None,
         }],
         raw_request: build_raw_http_head("GET /hello?lang=en HTTP/1.1", &[]),
         request_headers: Vec::new(),
@@ -131,10 +132,12 @@ fn applies_breakpoint_request_query_edits_to_runtime_request() {
             ProxyHeaderEntry {
                 name: "lang".to_string(),
                 value: "zh".to_string(),
+                is_pseudo: None,
             },
             ProxyHeaderEntry {
                 name: "debug".to_string(),
                 value: "1".to_string(),
+                is_pseudo: None,
             },
         ]),
         modified_response_body_base64: None,
@@ -156,10 +159,12 @@ fn applies_breakpoint_request_query_edits_to_runtime_request() {
             ProxyHeaderEntry {
                 name: "lang".to_string(),
                 value: "zh".to_string(),
+                is_pseudo: None,
             },
             ProxyHeaderEntry {
                 name: "debug".to_string(),
                 value: "1".to_string(),
+                is_pseudo: None,
             },
         ]
     );
@@ -289,6 +294,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
             &[ProxyHeaderEntry {
                 name: "Content-Type".to_string(),
                 value: "application/json".to_string(),
+                is_pseudo: None,
             }],
         )),
         raw_response_head: Some(build_raw_http_head(
@@ -296,6 +302,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
             &[ProxyHeaderEntry {
                 name: "Content-Type".to_string(),
                 value: "application/json".to_string(),
+                is_pseudo: None,
             }],
         )),
         request_body: Some(ProxyBodyReference::from_decoded_bytes(
@@ -308,6 +315,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
         request_headers: vec![ProxyHeaderEntry {
             name: "Content-Type".to_string(),
             value: "application/json".to_string(),
+            is_pseudo: None,
         }],
         response_body: Some(ProxyBodyReference::from_decoded_bytes(
             br#"{"ok":true}"#.to_vec(),
@@ -319,6 +327,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
         response_headers: vec![ProxyHeaderEntry {
             name: "Content-Type".to_string(),
             value: "application/json".to_string(),
+            is_pseudo: None,
         }],
         map_traces: Vec::new(),
         rewrite_traces: Vec::new(),
@@ -355,6 +364,8 @@ fn serializes_raw_messages_from_heads_and_body_references() {
             waiting_ms: Some(1),
         }),
         timing_source: None,
+        trailers: None,
+        h2_stream_id: None,
     };
 
     let actual = serde_json::to_value(&detail).unwrap();
@@ -497,18 +508,22 @@ fn applies_request_body_rewrite_as_plain_body() {
     request.request_headers.push(ProxyHeaderEntry {
         name: "Content-Encoding".to_string(),
         value: "gzip".to_string(),
+        is_pseudo: None,
     });
     request.request_headers.push(ProxyHeaderEntry {
         name: "Content-MD5".to_string(),
         value: "stale".to_string(),
+        is_pseudo: None,
     });
     request.request_headers.push(ProxyHeaderEntry {
         name: "Digest".to_string(),
         value: "sha-256=stale".to_string(),
+        is_pseudo: None,
     });
     request.request_headers.push(ProxyHeaderEntry {
         name: "ETag".to_string(),
         value: "\"stale\"".to_string(),
+        is_pseudo: None,
     });
     request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
 
@@ -642,6 +657,7 @@ fn applies_request_body_rewrite_to_json_fields() {
     request.request_headers.push(ProxyHeaderEntry {
         name: "Content-Encoding".to_string(),
         value: "gzip".to_string(),
+        is_pseudo: None,
     });
     request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
 
@@ -1240,6 +1256,7 @@ fn build_test_request(url: &str) -> ParsedProxyRequest {
     let request_headers = vec![ProxyHeaderEntry {
         name: "Host".to_string(),
         value: match parsed_url.port() {
+        is_pseudo: None,
             Some(port) => format!("{}:{port}", parsed_url.host_str().unwrap_or_default()),
             None => parsed_url.host_str().unwrap_or_default().to_string(),
         },

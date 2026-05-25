@@ -24,6 +24,7 @@ export type SessionSummary = {
 export type HeaderEntry = {
   name: string;
   value: string;
+  isPseudo?: boolean; // HTTP/2 pseudo header flag
 };
 
 export type BodyReference = {
@@ -70,6 +71,8 @@ export type SessionDetail = {
   tlsProtocol?: string;
   timing?: TimingBreakdown;
   timingSource?: "proxy" | "compose" | "har-import" | undefined;
+  trailers?: HeaderEntry[]; // HTTP/2 response trailers
+  h2StreamId?: number; // HTTP/2 stream ID for debugging
 };
 
 export type SessionDetailContentRequest = {

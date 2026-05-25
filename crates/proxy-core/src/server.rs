@@ -2921,6 +2921,8 @@ pub async fn send_direct_request(
         tls_protocol: None,
         timing: Some(timing),
         timing_source: Some("compose".to_string()),
+        trailers: None,
+        h2_stream_id: None,
     })
 }
 

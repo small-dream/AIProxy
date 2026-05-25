@@ -306,6 +306,7 @@ fn build_response_stage_hit(
                 .map(|(k, v)| ProxyHeaderEntry {
                     name: k.to_string(),
                     value: v.to_str().unwrap_or("").to_string(),
+                    is_pseudo: None,
                 })
                 .collect(),
         ),

@@ -255,6 +255,8 @@ pub struct ProxySessionSummary {
 pub struct ProxyHeaderEntry {
     pub name: String,
     pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_pseudo: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -487,6 +489,8 @@ pub struct ProxySessionDetail {
     pub throttle_traces: Vec<ThrottleTrace>,
     pub timing: Option<ProxyTimingBreakdown>,
     pub timing_source: Option<String>,
+    pub trailers: Option<Vec<ProxyHeaderEntry>>,
+    pub h2_stream_id: Option<u32>,
 }
 
 impl ProxySessionDetail {
@@ -577,6 +581,12 @@ impl Serialize for ProxySessionDetail {
         }
         if let Some(timing_source) = &self.timing_source {
             state.serialize_field("timingSource", timing_source)?;
+        }
+        if let Some(trailers) = &self.trailers {
+            state.serialize_field("trailers", trailers)?;
+        }
+        if let Some(h2_stream_id) = &self.h2_stream_id {
+            state.serialize_field("h2StreamId", h2_stream_id)?;
         }
         state.end()
     }

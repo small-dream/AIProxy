@@ -194,6 +194,8 @@ pub(crate) fn build_session_detail(
         tls_protocol: request.tls_protocol.clone(),
         timing: Some(timing),
         timing_source: None,
+        trailers: None,
+        h2_stream_id: None,
     }
 }
 
@@ -256,6 +258,8 @@ pub(crate) fn build_pending_session_detail(
             waiting_ms: None,
         }),
         timing_source: None,
+        trailers: None,
+        h2_stream_id: None,
     }
 }
 
@@ -267,6 +271,7 @@ pub(crate) fn build_header_entries_from_httparse_headers(
         .map(|header| ProxyHeaderEntry {
             name: header.name.to_string(),
             value: String::from_utf8_lossy(header.value).trim().to_string(),
+            is_pseudo: None,
         })
         .collect()
 }
@@ -280,6 +285,7 @@ pub(crate) fn build_header_entries_from_map(headers: &HeaderMap) -> Vec<ProxyHea
                 .to_str()
                 .map(str::to_string)
                 .unwrap_or_else(|_| String::from_utf8_lossy(value.as_bytes()).to_string()),
+            is_pseudo: None,
         })
         .collect()
 }
@@ -289,6 +295,7 @@ pub(crate) fn build_query_params(url: &Url) -> Vec<ProxyHeaderEntry> {
         .map(|(name, value)| ProxyHeaderEntry {
             name: name.into_owned(),
             value: value.into_owned(),
+            is_pseudo: None,
         })
         .collect()
 }
