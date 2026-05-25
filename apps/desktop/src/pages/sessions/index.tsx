@@ -64,6 +64,7 @@ import {
 } from "@/features/sessions/session-ui.helpers";
 import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
+import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
 import { SESSION_DETAIL_QUERY_KEY, useSessionDetail } from "@/features/sessions/use-session-detail";
 import { SESSIONS_QUERY_KEY, useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
@@ -114,6 +115,13 @@ export function SessionsPage() {
       ...(storedSessionId ? { selectedSessionId: storedSessionId } : {}),
     });
   });
+  const setActiveSessionIds = useSessionContainerFilterStore((s) => s.setActiveSessionIds);
+
+  useEffect(() => {
+    const activeContainer = getSessionContainerById(containerState, containerState.activeContainerId);
+    setActiveSessionIds(activeContainer?.sessionIds ?? []);
+  }, [containerState, setActiveSessionIds]);
+
   const [explorerWidth, setExplorerWidth] = useState(() => {
     const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
     const parsedWidth = Number(savedWidth);
