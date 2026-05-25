@@ -7,6 +7,7 @@ use std::mem::size_of;
 pub struct ProxyRuntimeConfig {
     pub port: u16,
     pub ssl_enabled: bool,
+    pub http2_enabled: Option<bool>,
 }
 
 impl ProxyRuntimeConfig {
@@ -648,6 +649,7 @@ pub struct TlsManager {
     pub root_ca: aiproxy_tls_manager::RootCaPair,
     pub storage: Arc<aiproxy_tls_manager::CertStorage>,
     pub server_config: Arc<tokio_rustls::rustls::ServerConfig>,
+    pub http2_enabled: bool,
 }
 
 impl std::fmt::Debug for TlsManager {

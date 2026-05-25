@@ -224,8 +224,9 @@ fn generate_root_certificate_impl(
         .map_err(|e| format!("failed to save root CA: {e}"))?;
 
     // Create server config for MITM
+    let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let server_config = root_ca
-        .create_server_config(&storage)
+        .create_server_config(&storage, Some(alpn))
         .map_err(|e| format!("failed to create TLS server config: {e}"))?;
 
     // Store TlsManager in AppState
@@ -233,6 +234,7 @@ fn generate_root_certificate_impl(
         root_ca,
         storage: Arc::new(storage),
         server_config,
+        http2_enabled: true,
     });
     state.set_tls_manager(tls_manager);
 
@@ -909,14 +911,16 @@ pub(super) fn try_load_tls_manager() -> Result<Arc<TlsManager>, String> {
     let root_ca =
         RootCaPair::load_from_pem(&cert_pem, &key_pem).map_err(|e| format!("load root CA: {e}"))?;
 
+    let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let server_config = root_ca
-        .create_server_config(&storage)
+        .create_server_config(&storage, Some(alpn))
         .map_err(|e| format!("create server config: {e}"))?;
 
     Ok(Arc::new(TlsManager {
         root_ca,
         storage: Arc::new(storage),
         server_config,
+        http2_enabled: true,
     }))
 }
 

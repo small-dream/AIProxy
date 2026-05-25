@@ -122,17 +122,21 @@ impl RootCaPair {
     pub fn create_server_config(
         &self,
         storage: &CertStorage,
+        alpn_protocols: Option<Vec<Vec<u8>>>,
     ) -> Result<Arc<rustls::ServerConfig>, TlsManagerError> {
         use crate::resolver::DynamicCertResolver;
 
         let sign_data = self.create_sign_data();
         let resolver = DynamicCertResolver::new(sign_data, storage.clone());
 
-        let server_config = rustls::ServerConfig::builder()
+        let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(resolver));
+        if let Some(protocols) = alpn_protocols {
+            config.alpn_protocols = protocols;
+        }
 
-        Ok(Arc::new(server_config))
+        Ok(Arc::new(config))
     }
 
     /// Create the data needed for signing operations (shares the Arc<KeyPair>).
@@ -308,7 +312,7 @@ mod tests {
     fn creates_a_valid_rustls_server_config() {
         let root_ca = RootCaPair::generate().unwrap();
         let storage = CertStorage::new_in_temp_dir();
-        let config = root_ca.create_server_config(&storage);
+        let config = root_ca.create_server_config(&storage, None);
         assert!(config.is_ok(), "should produce a valid ServerConfig");
     }
 }

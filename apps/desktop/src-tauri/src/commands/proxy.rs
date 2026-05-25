@@ -62,6 +62,7 @@ async fn start_proxy_impl(
     ProxyRuntimeConfig {
         port,
         ssl_enabled: enable_ssl,
+        http2_enabled: None,
     }
     .validate()
     .map_err(|message| message.to_string())?;
@@ -130,6 +131,7 @@ async fn start_proxy_impl(
         ProxyRuntimeConfig {
             port,
             ssl_enabled: enable_ssl,
+            http2_enabled: None,
         },
         tls_manager,
         Some(breakpoint_manager),

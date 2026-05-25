@@ -26,6 +26,7 @@ fn validates_a_non_zero_port() {
     let config = ProxyRuntimeConfig {
         port: 8888,
         ssl_enabled: true,
+        http2_enabled: None,
     };
 
     let actual = config.validate();
@@ -38,6 +39,7 @@ fn rejects_zero_as_a_port() {
     let config = ProxyRuntimeConfig {
         port: 0,
         ssl_enabled: false,
+        http2_enabled: None,
     };
 
     let actual = config.validate();
@@ -1024,6 +1026,7 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
         ProxyRuntimeConfig {
             port: proxy_port,
             ssl_enabled: false,
+            http2_enabled: None,
         },
         None,
         None,
@@ -1108,6 +1111,7 @@ async fn forwards_large_http_responses_without_truncating_the_client_body() {
         ProxyRuntimeConfig {
             port: proxy_port,
             ssl_enabled: false,
+            http2_enabled: None,
         },
         None,
         None,
