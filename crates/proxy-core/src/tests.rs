@@ -1256,10 +1256,10 @@ fn build_test_request(url: &str) -> ParsedProxyRequest {
     let request_headers = vec![ProxyHeaderEntry {
         name: "Host".to_string(),
         value: match parsed_url.port() {
-        is_pseudo: None,
             Some(port) => format!("{}:{port}", parsed_url.host_str().unwrap_or_default()),
             None => parsed_url.host_str().unwrap_or_default().to_string(),
         },
+        is_pseudo: None,
     }];
 
     ParsedProxyRequest {
