@@ -16,9 +16,10 @@ brotli = "8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flate2 = "1"
 http = "1"
+h2 = "0.4"
 http-body-util = "0.1"
 httparse = "1"
-hyper = { version = "1", features = ["client", "http1"] }
+hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
 rand = "0.8"
 regex = "1"
