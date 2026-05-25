@@ -1,9 +1,12 @@
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Box,
   Card,
   CardContent,
   CircularProgress,
+  InputBase,
+  inputBaseClasses,
   Menu,
   MenuItem,
   Paper,
@@ -17,13 +20,14 @@ import {
   alpha,
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { downloadTextFile } from "@/lib/download";
 import { useI18n, type TranslationKey } from "@/i18n";
+import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
 import type { InsightsResult } from "@aiproxy/shared-types";
 import { invokeGetInsights } from "@/services/commands/sessions";
 
@@ -196,9 +200,38 @@ export function InsightsPage() {
   const { t } = useI18n();
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
 
+  const activeSessionIds = useSessionContainerFilterStore((s) => s.activeSessionIds);
+  const [domainFilter, setDomainFilter] = useState("");
+  const [debouncedDomain, setDebouncedDomain] = useState("");
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleDomainChange = useCallback((value: string) => {
+    setDomainFilter(value);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedDomain(value);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  const input = useMemo(() => {
+    const base = { sessionIds: activeSessionIds };
+    return debouncedDomain ? { ...base, hostKeyword: debouncedDomain } : base;
+  }, [activeSessionIds, debouncedDomain]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ["insights"],
-    queryFn: () => invokeGetInsights(),
+    queryKey: ["insights", activeSessionIds, debouncedDomain],
+    queryFn: () => invokeGetInsights(input),
+    enabled: activeSessionIds.length > 0,
   });
 
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -257,7 +290,7 @@ export function InsightsPage() {
     };
   }, [headerActions, setHeaderActions]);
 
-  if (isLoading) {
+  if (isLoading || activeSessionIds.length === 0) {
     return (
       <Stack
         alignItems="center"
@@ -289,6 +322,30 @@ export function InsightsPage() {
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
+      <Stack direction="row" sx={{ mb: 0.5 }}>
+        <InputBase
+          startAdornment={
+            <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18, mr: 0.75 }} />
+          }
+          placeholder={t("insightsPage.filter.domainPlaceholder")}
+          value={domainFilter}
+          onChange={(e) => handleDomainChange(e.target.value)}
+          sx={(theme) => ({
+            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+            border: "1px solid",
+            borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
+            borderRadius: 1,
+            px: 1.25,
+            py: 0.5,
+            fontSize: 13,
+            flex: 1,
+            maxWidth: 320,
+            [`& .${inputBaseClasses.input}`]: {
+              p: 0,
+            },
+          })}
+        />
+      </Stack>
       <Paper
         elevation={0}
         sx={(theme) => ({
