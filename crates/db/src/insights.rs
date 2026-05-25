@@ -57,6 +57,47 @@ pub struct SlowRequest {
     pub duration_ms: i64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct InsightsFilter {
+    pub session_ids: Vec<String>,
+    pub host_keyword: Option<String>,
+}
+
+fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>) {
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params: Vec<rusqlite::types::Value> = Vec::new();
+    let mut param_idx = 1;
+
+    if !filter.session_ids.is_empty() {
+        let placeholders: Vec<String> = filter
+            .session_ids
+            .iter()
+            .map(|_| {
+                let p = format!("?{param_idx}");
+                param_idx += 1;
+                p
+            })
+            .collect();
+        conditions.push(format!("id IN ({})", placeholders.join(", ")));
+        for id in &filter.session_ids {
+            params.push(rusqlite::types::Value::Text(id.clone()));
+        }
+    }
+
+    if let Some(ref keyword) = filter.host_keyword {
+        let kw = keyword.to_lowercase();
+        conditions.push(format!("LOWER(host) LIKE ?{param_idx}"));
+        param_idx += 1;
+        params.push(rusqlite::types::Value::Text(format!("%{kw}%")));
+    }
+
+    if conditions.is_empty() {
+        (String::new(), params)
+    } else {
+        (format!(" WHERE {}", conditions.join(" AND ")), params)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Aggregation query
 // ---------------------------------------------------------------------------
@@ -64,16 +105,22 @@ pub struct SlowRequest {
 /// Compute aggregated insights over all sessions in the database.
 ///
 /// Returns zeroed defaults when the `session_summaries` table is empty.
-pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
+pub fn compute_insights(conn: &Connection, filter: &InsightsFilter) -> Result<InsightsResult, String> {
+    let (where_clause, where_params) = build_where(filter);
+    let params = || -> Vec<rusqlite::types::Value> { where_params.clone() };
+
     // --- Overview stats ---
+    let query = format!(
+        "SELECT COUNT(*),
+                SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+                AVG(duration_ms),
+                SUM(size_bytes)
+         FROM session_summaries{where_clause}"
+    );
     let (total_requests, total_errors, avg_duration_ms, total_bytes) = conn
         .query_row(
-            "SELECT COUNT(*),
-                    SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
-                    AVG(duration_ms),
-                    SUM(size_bytes)
-             FROM session_summaries",
-            [],
+            &query,
+            rusqlite::params_from_iter(params()),
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -101,11 +148,11 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
 
     {
         let mut stmt = conn
-            .prepare("SELECT duration_ms FROM session_summaries ORDER BY duration_ms")
+            .prepare(&format!("SELECT duration_ms FROM session_summaries{where_clause} ORDER BY duration_ms"))
             .map_err(|e| format!("insights percentile prepare: {e}"))?;
 
         let durations: Vec<i64> = stmt
-            .query_map([], |row| row.get::<_, i64>(0))
+            .query_map(rusqlite::params_from_iter(params()), |row| row.get::<_, i64>(0))
             .map_err(|e| format!("insights percentile query: {e}"))?
             .filter_map(|r| r.ok())
             .collect();
@@ -118,21 +165,21 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
     // --- By host (top 50) ---
     let by_host = {
         let mut stmt = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT host,
                         COUNT(*) AS request_count,
                         SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS error_count,
                         AVG(duration_ms) AS avg_duration_ms,
                         SUM(size_bytes) AS total_bytes
-                 FROM session_summaries
+                 FROM session_summaries{where_clause}
                  GROUP BY host
                  ORDER BY request_count DESC
-                 LIMIT 50",
-            )
+                 LIMIT 50"
+            ))
             .map_err(|e| format!("insights by_host prepare: {e}"))?;
 
         let host_rows: Vec<HostInsightRaw> = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(HostInsightRaw {
                     host: row.get("host")?,
                     request_count: row.get("request_count")?,
@@ -148,7 +195,7 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
         // Compute per-host P95
         let mut result = Vec::with_capacity(host_rows.len());
         for hr in &host_rows {
-            let p95 = compute_host_p95(conn, &hr.host);
+            let p95 = compute_host_p95(conn, &hr.host, filter);
             result.push(HostInsight {
                 host: hr.host.clone(),
                 request_count: hr.request_count,
@@ -164,16 +211,16 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
     // --- By status code ---
     let by_status_code: Vec<StatusCodeDistribution> = {
         let mut stmt = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT status_code, COUNT(*) AS count
-                 FROM session_summaries
+                 FROM session_summaries{where_clause}
                  GROUP BY status_code
-                 ORDER BY count DESC",
-            )
+                 ORDER BY count DESC"
+            ))
             .map_err(|e| format!("insights by_status_code prepare: {e}"))?;
 
         let rows: Vec<StatusCodeDistribution> = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(StatusCodeDistribution {
                     status_code: row.get("status_code")?,
                     count: row.get("count")?,
@@ -188,16 +235,16 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
     // --- By method ---
     let by_method: Vec<MethodDistribution> = {
         let mut stmt = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT method, COUNT(*) AS count
-                 FROM session_summaries
+                 FROM session_summaries{where_clause}
                  GROUP BY method
-                 ORDER BY count DESC",
-            )
+                 ORDER BY count DESC"
+            ))
             .map_err(|e| format!("insights by_method prepare: {e}"))?;
 
         let rows: Vec<MethodDistribution> = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(MethodDistribution {
                     method: row.get("method")?,
                     count: row.get("count")?,
@@ -212,16 +259,16 @@ pub fn compute_insights(conn: &Connection) -> Result<InsightsResult, String> {
     // --- Slow requests (top 20) ---
     let slow_requests: Vec<SlowRequest> = {
         let mut stmt = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT id, url, method, status_code, duration_ms
-                 FROM session_summaries
+                 FROM session_summaries{where_clause}
                  ORDER BY duration_ms DESC
-                 LIMIT 20",
-            )
+                 LIMIT 20"
+            ))
             .map_err(|e| format!("insights slow_requests prepare: {e}"))?;
 
         let rows: Vec<SlowRequest> = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(SlowRequest {
                     session_id: row.get("id")?,
                     url: row.get("url")?,
@@ -265,15 +312,25 @@ struct HostInsightRaw {
 }
 
 /// Compute the P95 duration for a single host.
-fn compute_host_p95(conn: &Connection, host: &str) -> f64 {
-    let mut stmt = match conn.prepare(
-        "SELECT duration_ms FROM session_summaries WHERE host = ?1 ORDER BY duration_ms",
-    ) {
+fn compute_host_p95(
+    conn: &Connection,
+    host: &str,
+    filter: &InsightsFilter,
+) -> f64 {
+    let (where_clause, mut where_params) = build_where(filter);
+    let host_param_idx = where_params.len() + 1;
+    let query = format!(
+        "SELECT duration_ms FROM session_summaries{where_clause}{}LOWER(host) = ?{host_param_idx} ORDER BY duration_ms",
+        if where_clause.is_empty() { " WHERE " } else { " AND " }
+    );
+    where_params.push(rusqlite::types::Value::Text(host.to_lowercase()));
+
+    let mut stmt = match conn.prepare(&query) {
         Ok(s) => s,
         Err(_) => return 0.0,
     };
 
-    let result = stmt.query_map(params![host], |row| row.get::<_, i64>(0));
+    let result = stmt.query_map(rusqlite::params_from_iter(where_params), |row| row.get::<_, i64>(0));
     let durations: Vec<i64> = match result {
         Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
         Err(_) => return 0.0,
@@ -326,7 +383,7 @@ mod tests {
     #[test]
     fn empty_table_returns_zeros() {
         let conn = test_conn();
-        let result = compute_insights(&conn).unwrap();
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
 
         assert_eq!(result.total_requests, 0);
         assert_eq!(result.total_errors, 0);
@@ -349,7 +406,7 @@ mod tests {
         insert_session(&conn, "s2", "api.example.com", "POST", 500, 200, 1000);
         insert_session(&conn, "s3", "cdn.example.com", "GET", 200, 50, 200);
 
-        let result = compute_insights(&conn).unwrap();
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
 
         assert_eq!(result.total_requests, 3);
         assert_eq!(result.total_errors, 1);
@@ -382,11 +439,63 @@ mod tests {
             );
         }
 
-        let result = compute_insights(&conn).unwrap();
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
 
         // 10 items: indices 0..9, values 10,20,..,100
         assert_eq!(result.p50_duration_ms, 60.0); // index 5
         assert_eq!(result.p95_duration_ms, 100.0); // index 9
         assert_eq!(result.p99_duration_ms, 100.0); // index 9
+    }
+
+    #[test]
+    fn filter_by_session_ids() {
+        let conn = test_conn();
+        insert_session(&conn, "s1", "api.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "s2", "api.example.com", "POST", 500, 200, 1000);
+        insert_session(&conn, "s3", "cdn.example.com", "GET", 200, 50, 200);
+
+        let filter = InsightsFilter {
+            session_ids: vec!["s1".into(), "s3".into()],
+            host_keyword: None,
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+
+        assert_eq!(result.total_requests, 2);
+        assert_eq!(result.total_errors, 0);
+        assert_eq!(result.total_bytes, 700);
+        assert_eq!(result.by_host.len(), 2);
+    }
+
+    #[test]
+    fn filter_by_host_keyword() {
+        let conn = test_conn();
+        insert_session(&conn, "s1", "api.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "s2", "api.example.com", "POST", 500, 200, 1000);
+        insert_session(&conn, "s3", "cdn.example.com", "GET", 200, 50, 200);
+
+        let filter = InsightsFilter {
+            session_ids: vec![],
+            host_keyword: Some("API".into()),
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+
+        assert_eq!(result.total_requests, 2);
+        assert_eq!(result.total_errors, 1);
+    }
+
+    #[test]
+    fn filter_by_both() {
+        let conn = test_conn();
+        insert_session(&conn, "s1", "api.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "s2", "api.example.com", "POST", 500, 200, 1000);
+        insert_session(&conn, "s3", "cdn.example.com", "GET", 200, 50, 200);
+
+        let filter = InsightsFilter {
+            session_ids: vec!["s1".into(), "s2".into()],
+            host_keyword: Some("cdn".into()),
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+
+        assert_eq!(result.total_requests, 0);
     }
 }
