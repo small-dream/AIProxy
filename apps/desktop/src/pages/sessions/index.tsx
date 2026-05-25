@@ -116,11 +116,18 @@ export function SessionsPage() {
     });
   });
   const setActiveSessionIds = useSessionContainerFilterStore((s) => s.setActiveSessionIds);
+  const setActiveSessionSummaries = useSessionContainerFilterStore((s) => s.setActiveSessionSummaries);
 
   useEffect(() => {
     const activeContainer = getSessionContainerById(containerState, containerState.activeContainerId);
-    setActiveSessionIds(activeContainer?.sessionIds ?? []);
-  }, [containerState, setActiveSessionIds]);
+    const sessionIds = activeContainer?.sessionIds ?? [];
+    setActiveSessionIds(sessionIds);
+    setActiveSessionSummaries(
+      sessionIds
+        .map((sessionId) => containerState.sessionSummaryById[sessionId])
+        .filter((session): session is SessionSummary => Boolean(session)),
+    );
+  }, [containerState, setActiveSessionIds, setActiveSessionSummaries]);
 
   const [explorerWidth, setExplorerWidth] = useState(() => {
     const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);

@@ -1250,6 +1250,9 @@ export const enMessages = {
     filter: {
       domainPlaceholder: "Filter by domain...",
     },
+    scope: {
+      current: "{{count}} requests in current scope",
+    },
   },
   collectionsPage: {
     title: "Collections",

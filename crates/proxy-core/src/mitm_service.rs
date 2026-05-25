@@ -75,6 +75,8 @@ async fn handle_mitm_request(
     state: Arc<MitmConnectionState>,
 ) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
     let request_id = Uuid::new_v4().to_string();
+    let request_started_at = Utc::now();
+    let request_started_at_instant = Instant::now();
 
     // --- Build ParsedProxyRequest from the hyper Request ---
     let (parts, body) = req.into_parts();
@@ -242,6 +244,8 @@ async fn handle_mitm_request(
                                 return build_throttle_failure_response(
                                     &https_request,
                                     &state,
+                                    request_started_at,
+                                    request_started_at_instant,
                                     &failure.error,
                                     map_traces,
                                     throttle_traces,
@@ -285,15 +289,15 @@ async fn handle_mitm_request(
                         &mock_response.response_headers,
                         &mock_response.response_body,
                         mock_response.response_body_size_bytes,
-                        state.started_at,
-                        state.started_at_instant,
+                        request_started_at,
+                        request_started_at_instant,
                         ProxyTimingBreakdown {
                             connect_ms: None,
                             dns_ms: None,
                             request_send_ms: None,
                             response_read_ms: Some(0),
-                            tls_ms: Some(state.tls_ms),
-                            total_ms: Some(state.started_at_instant.elapsed().as_millis()),
+                            tls_ms: None,
+                            total_ms: Some(request_started_at_instant.elapsed().as_millis()),
                             waiting_ms: Some(0),
                         },
                         mock_response.body_truncated,
@@ -312,7 +316,7 @@ async fn handle_mitm_request(
     }
 
     // --- Send pending session ---
-    let mut pending_detail = build_pending_session_detail(&https_request, state.started_at);
+    let mut pending_detail = build_pending_session_detail(&https_request, request_started_at);
     pending_detail.map_traces = map_traces.clone();
     let _ = state.session_sender.send(pending_detail).await;
 
@@ -336,6 +340,8 @@ async fn handle_mitm_request(
                 return build_throttle_failure_response(
                     &https_request,
                     &state,
+                    request_started_at,
+                    request_started_at_instant,
                     &failure.error,
                     map_traces,
                     throttle_traces,
@@ -391,15 +397,15 @@ async fn handle_mitm_request(
                 &upstream_response.response_headers,
                 &upstream_response.response_body,
                 upstream_response.response_body_size_bytes,
-                state.started_at,
-                state.started_at_instant,
+                request_started_at,
+                request_started_at_instant,
                 ProxyTimingBreakdown {
                     connect_ms: Some(upstream_response.connect_ms),
                     dns_ms: Some(upstream_response.dns_ms),
                     request_send_ms: Some(upstream_response.request_send_ms),
                     response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: upstream_response.tls_ms.or(Some(state.tls_ms)),
-                    total_ms: Some(state.started_at_instant.elapsed().as_millis()),
+                    tls_ms: upstream_response.tls_ms,
+                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
                     waiting_ms: Some(upstream_response.waiting_ms),
                 },
                 upstream_response.body_truncated,
@@ -456,15 +462,15 @@ async fn handle_mitm_request(
                                 &upstream_response.response_headers,
                                 &upstream_response.response_body,
                                 upstream_response.response_body_size_bytes,
-                                state.started_at,
-                                state.started_at_instant,
+                                request_started_at,
+                                request_started_at_instant,
                                 ProxyTimingBreakdown {
                                     connect_ms: Some(upstream_response.connect_ms),
                                     dns_ms: Some(upstream_response.dns_ms),
                                     request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms.or(Some(state.tls_ms)),
-                                    total_ms: Some(state.started_at_instant.elapsed().as_millis()),
+                                    tls_ms: upstream_response.tls_ms,
+                                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
                                 upstream_response.body_truncated,
@@ -484,15 +490,15 @@ async fn handle_mitm_request(
                                 &upstream_response.response_headers,
                                 &upstream_response.response_body,
                                 upstream_response.response_body_size_bytes,
-                                state.started_at,
-                                state.started_at_instant,
+                                request_started_at,
+                                request_started_at_instant,
                                 ProxyTimingBreakdown {
                                     connect_ms: Some(upstream_response.connect_ms),
                                     dns_ms: Some(upstream_response.dns_ms),
                                     request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms.or(Some(state.tls_ms)),
-                                    total_ms: Some(state.started_at_instant.elapsed().as_millis()),
+                                    tls_ms: upstream_response.tls_ms,
+                                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
                                 upstream_response.body_truncated,
@@ -604,16 +610,16 @@ async fn handle_mitm_request(
                 &HeaderMap::new(),
                 response_message.as_bytes(),
                 response_message.len(),
-                state.started_at,
-                state.started_at_instant,
+                request_started_at,
+                request_started_at_instant,
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     dns_ms: None,
                     request_send_ms: None,
                     response_read_ms: Some(0),
-                    tls_ms: Some(state.tls_ms),
-                    total_ms: Some(state.started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(state.started_at_instant.elapsed().as_millis()),
+                    tls_ms: None,
+                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(request_started_at_instant.elapsed().as_millis()),
                 },
                 false,
             );
@@ -790,6 +796,8 @@ fn build_plain_text_response(
 async fn build_throttle_failure_response(
     request: &ParsedProxyRequest,
     state: &Arc<MitmConnectionState>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
     error: &str,
     map_traces: Vec<crate::MapTrace>,
     throttle_traces: Vec<crate::ThrottleTrace>,
@@ -802,16 +810,16 @@ async fn build_throttle_failure_response(
         &HeaderMap::new(),
         response_message.as_bytes(),
         response_message.len(),
-        state.started_at,
-        state.started_at_instant,
+        started_at,
+        started_at_instant,
         ProxyTimingBreakdown {
             connect_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(0),
-            tls_ms: Some(state.tls_ms),
-            total_ms: Some(state.started_at_instant.elapsed().as_millis()),
-            waiting_ms: Some(state.started_at_instant.elapsed().as_millis()),
+            tls_ms: None,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
         },
         false,
     );

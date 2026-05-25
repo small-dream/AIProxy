@@ -1252,6 +1252,9 @@ export const zhCNMessages: Messages = {
     filter: {
       domainPlaceholder: "按域名过滤...",
     },
+    scope: {
+      current: "当前范围 {{count}} 个请求",
+    },
   },
   collectionsPage: {
     title: "集合",

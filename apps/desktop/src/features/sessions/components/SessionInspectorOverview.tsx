@@ -526,18 +526,8 @@ function getRequestEndOffsetMs(timing: SessionDetail["timing"] | undefined, isIm
     return undefined;
   }
 
-  const phaseOffset = isImportedTiming && timing.requestSendMs != null
-    ? sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs)
-    : undefined;
-
-  if (phaseOffset != null) {
-    return phaseOffset;
-  }
-
-  const responseStartOffsetMs = getResponseStartOffsetMs(timing);
-
-  if (responseStartOffsetMs != null && timing.waitingMs != null) {
-    return Math.max(0, responseStartOffsetMs - timing.waitingMs);
+  if (isImportedTiming && timing.requestSendMs != null) {
+    return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs);
   }
 
   return undefined;
