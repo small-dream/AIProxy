@@ -50,6 +50,7 @@ export function useUpdateWorkspace() {
       name?: string;
       proxyPort?: number;
       sslEnabled?: boolean;
+      http2Enabled?: boolean;
     }) => updateWorkspace(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });

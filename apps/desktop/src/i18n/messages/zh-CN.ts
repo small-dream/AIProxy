@@ -219,6 +219,8 @@ export const zhCNMessages: Messages = {
     saveAndApplySuccess: "代理设置已保存并生效。",
     saveSuccess: "代理设置已保存。",
     saving: "保存中...",
+    http2Enabled: "HTTP/2 支持",
+    http2EnabledDescription: "为捕获的连接启用 HTTP/2 协议。关闭后，所有连接回退到 HTTP/1.1。",
     sslEnabled: "启用 SSL",
     runningHint: "保存后会立即重启正在运行的代理。",
     stoppedHint: "保存后的设置会在下次启动代理时生效。",

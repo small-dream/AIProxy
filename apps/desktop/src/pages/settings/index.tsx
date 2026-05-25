@@ -51,6 +51,7 @@ function createProxyDraft(workspace?: Workspace | null) {
   return {
     proxyPort: workspace?.proxyPort ?? DEFAULT_PROXY_PORT,
     sslEnabled: workspace?.sslEnabled ?? true,
+    http2Enabled: workspace?.http2Enabled ?? true,
   };
 }
 
@@ -117,12 +118,14 @@ function ProxySettingsSection() {
       await updateWorkspaceMutation.mutateAsync({
         proxyPort: draft.proxyPort,
         sslEnabled: draft.sslEnabled,
+        http2Enabled: draft.http2Enabled,
         workspaceId: currentWorkspace.id,
       });
 
       if (proxyStatus?.running) {
         await startProxyMutation.mutateAsync({
           enableSsl: draft.sslEnabled,
+          enableHttp2: draft.http2Enabled,
           port: draft.proxyPort,
           workspaceId: currentWorkspace.id,
         });
@@ -146,7 +149,7 @@ function ProxySettingsSection() {
   const isBusy = updateWorkspaceMutation.isPending || startProxyMutation.isPending;
   const portError = !Number.isInteger(draft.proxyPort) || draft.proxyPort < 1 || draft.proxyPort > 65535;
   const hasChanges = currentWorkspace
-    ? currentWorkspace.proxyPort !== draft.proxyPort || currentWorkspace.sslEnabled !== draft.sslEnabled
+    ? currentWorkspace.proxyPort !== draft.proxyPort || currentWorkspace.sslEnabled !== draft.sslEnabled || currentWorkspace.http2Enabled !== draft.http2Enabled
     : false;
 
   return (
@@ -196,6 +199,28 @@ function ProxySettingsSection() {
                 <Typography color="text.secondary" variant="body2">
                   {t("proxyPresets.sslEnabled")}
                 </Typography>
+              }
+              sx={{ ml: 0 }}
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={draft.http2Enabled}
+                  onChange={(event) => {
+                    setDraft({ ...draft, http2Enabled: event.target.checked });
+                    setFeedback(null);
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2">{t("proxyPresets.http2Enabled")}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {t("proxyPresets.http2EnabledDescription")}
+                  </Typography>
+                </Box>
               }
               sx={{ ml: 0 }}
             />

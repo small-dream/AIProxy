@@ -217,6 +217,8 @@ export const enMessages = {
     saveAndApplySuccess: "Proxy settings saved and applied.",
     saveSuccess: "Proxy settings saved.",
     saving: "Saving...",
+    http2Enabled: "HTTP/2 Support",
+    http2EnabledDescription: "Enable HTTP/2 protocol for captured connections. When disabled, all connections fall back to HTTP/1.1.",
     sslEnabled: "SSL Enabled",
     runningHint: "Saving restarts the running proxy immediately.",
     stoppedHint: "Saved settings will be used the next time the proxy starts.",

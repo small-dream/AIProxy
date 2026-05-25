@@ -125,6 +125,7 @@ export async function updateWorkspace(input: {
   name?: string;
   proxyPort?: number;
   sslEnabled?: boolean;
+  http2Enabled?: boolean;
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "update_workspace_bypassed_non_tauri_runtime", input);
