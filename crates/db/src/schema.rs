@@ -143,6 +143,8 @@ CREATE TABLE IF NOT EXISTS session_details (
     request_body_ref   TEXT,
     response_body_ref  TEXT,
     timing             TEXT,
+    trailers           TEXT DEFAULT NULL,
+    h2_stream_id       INTEGER DEFAULT NULL,
     FOREIGN KEY (session_summary_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
 
@@ -356,6 +358,16 @@ pub fn run_migrations(conn: &Connection) -> Result<(), String> {
     .ok();
     conn.execute(
         "ALTER TABLE breakpoint_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE session_details ADD COLUMN trailers TEXT DEFAULT NULL",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE session_details ADD COLUMN h2_stream_id INTEGER DEFAULT NULL",
         [],
     )
     .ok();

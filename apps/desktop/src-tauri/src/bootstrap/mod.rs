@@ -955,6 +955,7 @@ fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> usize {
             .as_ref()
             .map_or(0, |value| value.len())
         + row.timing.as_ref().map_or(0, |value| value.len())
+        + row.trailers.as_ref().map_or(0, |value| value.len())
 }
 
 fn normalize_optional_host(host: Option<String>) -> Option<String> {
@@ -1189,6 +1190,10 @@ fn detail_row_to_proxy(
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    let trailers = row.trailers.as_ref().and_then(|json| {
+        serde_json::from_str(json).ok()
+    });
+
     ProxySessionDetail {
         client_address: row.client_address.clone(),
         id: row.session_summary_id.clone(),
@@ -1210,6 +1215,8 @@ fn detail_row_to_proxy(
         tls_protocol: row.tls_protocol.clone(),
         timing,
         timing_source,
+        trailers,
+        h2_stream_id: row.h2_stream_id,
     }
 }
 
@@ -1312,6 +1319,8 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
         request_body_ref: body_to_json(&detail.request_body),
         response_body_ref: body_to_json(&detail.response_body),
         timing: timing_json,
+        trailers: detail.trailers.as_ref().map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
+        h2_stream_id: detail.h2_stream_id,
     }
 }
 

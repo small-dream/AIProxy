@@ -43,6 +43,8 @@ pub struct SessionDetailRow {
     pub request_body_ref: Option<String>,  // nullable JSON
     pub response_body_ref: Option<String>, // nullable JSON
     pub timing: Option<String>,            // nullable JSON
+    pub trailers: Option<String>,          // nullable JSON
+    pub h2_stream_id: Option<u32>,
 }
 
 fn u128_to_i64_saturating(value: u128) -> i64 {
@@ -95,8 +97,9 @@ pub fn upsert_session(
             (id, session_summary_id, query_params, cookies,
              request_headers, response_headers, raw_request, raw_response,
              client_address, server_ip, tls_cipher_suite, tls_protocol,
-             request_body_ref, response_body_ref, timing)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             request_body_ref, response_body_ref, timing,
+             trailers, h2_stream_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             detail.id,
             detail.session_summary_id,
@@ -113,6 +116,8 @@ pub fn upsert_session(
             detail.request_body_ref,
             detail.response_body_ref,
             detail.timing,
+            detail.trailers,
+            detail.h2_stream_id,
         ],
     )
     .map_err(|e| format!("upsert session detail: {e}"))?;
@@ -179,7 +184,8 @@ pub fn load_session_detail(
         "SELECT id, session_summary_id, query_params, cookies,
                 request_headers, response_headers, raw_request, raw_response,
                 client_address, server_ip, tls_cipher_suite, tls_protocol,
-                request_body_ref, response_body_ref, timing
+                request_body_ref, response_body_ref, timing,
+                trailers, h2_stream_id
          FROM session_details WHERE session_summary_id=?1",
         params![id],
         |row| {
@@ -199,6 +205,8 @@ pub fn load_session_detail(
                 request_body_ref: row.get(12)?,
                 response_body_ref: row.get(13)?,
                 timing: row.get(14)?,
+                trailers: row.get(15)?,
+                h2_stream_id: row.get::<_, Option<i64>>(16)?.map(|v| v as u32),
             })
         },
     );
@@ -517,6 +525,8 @@ mod tests {
             request_body_ref: None,
             response_body_ref: None,
             timing: Some("{\"totalMs\":100}".into()),
+            trailers: None,
+            h2_stream_id: None,
         }
     }
 
