@@ -231,7 +231,6 @@ export function InsightsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["insights", activeSessionIds, debouncedDomain],
     queryFn: () => invokeGetInsights(input),
-    enabled: activeSessionIds.length > 0,
   });
 
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -290,7 +289,7 @@ export function InsightsPage() {
     };
   }, [headerActions, setHeaderActions]);
 
-  if (isLoading || activeSessionIds.length === 0) {
+  if (isLoading) {
     return (
       <Stack
         alignItems="center"
