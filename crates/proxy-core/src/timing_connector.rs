@@ -23,6 +23,8 @@ pub struct ConnectionTiming {
     pub dns_ms: u128,
     pub connect_ms: u128,
     pub tls_ms: Option<u128>,
+    /// The ALPN protocol negotiated during TLS handshake (e.g. "h2", "http/1.1").
+    pub alpn_protocol: Option<String>,
 }
 
 /// A timing-aware connector for hyper's legacy client.
@@ -78,21 +80,23 @@ impl Service<Uri> for TimingConnector {
             let connect_ms = tcp_started.elapsed().as_millis();
 
             // Phase 3: TLS handshake (HTTPS only)
-            let (timing_stream, tls_ms) = if is_https {
+            let (timing_stream, tls_ms, alpn_protocol) = if is_https {
                 let tls_started = Instant::now();
                 let server_name = ServerName::try_from(host.clone())
                     .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS"))?;
                 let tls_stream = tls_connector.connect(server_name, tcp_stream).await?;
                 let tls_ms = tls_started.elapsed().as_millis();
-                (TimingStream::Tls(tls_stream), Some(tls_ms))
+                let alpn = tls_stream.get_ref().1.alpn_protocol().map(|s| String::from_utf8_lossy(s).into_owned());
+                (TimingStream::Tls(tls_stream), Some(tls_ms), alpn)
             } else {
-                (TimingStream::Plain(tcp_stream), None)
+                (TimingStream::Plain(tcp_stream), None, None)
             };
 
             let timing = ConnectionTiming {
                 dns_ms,
                 connect_ms,
                 tls_ms,
+                alpn_protocol,
             };
 
             Ok((timing_stream, timing))
@@ -264,12 +268,14 @@ fn build_dangerous_tls_connector() -> TlsConnector {
     }
 
     let provider = default_provider();
-    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+    let mut config = ClientConfig::builder_with_provider(Arc::new(provider))
         .with_safe_default_protocol_versions()
         .expect("safe default protocol versions should always be available")
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(AcceptAnyCert))
         .with_no_client_auth();
+
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     TlsConnector::from(Arc::new(config))
 }
