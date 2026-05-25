@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,6 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
     if let Some(ref keyword) = filter.host_keyword {
         let kw = keyword.to_lowercase();
         conditions.push(format!("LOWER(host) LIKE ?{param_idx}"));
-        param_idx += 1;
         params.push(rusqlite::types::Value::Text(format!("%{kw}%")));
     }
 
@@ -351,6 +350,7 @@ fn percentile(sorted: &[i64], p: u8) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::params;
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
