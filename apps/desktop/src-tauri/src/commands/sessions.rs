@@ -459,13 +459,27 @@ pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), Strin
     Ok(())
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetInsightsInput {
+    pub session_ids: Vec<String>,
+    pub host_keyword: Option<String>,
+}
+
 #[tauri::command]
-pub async fn get_insights(state: State<'_, Arc<AppState>>) -> Result<aiproxy_db::insights::InsightsResult, String> {
+pub async fn get_insights(
+    state: State<'_, Arc<AppState>>,
+    input: GetInsightsInput,
+) -> Result<aiproxy_db::insights::InsightsResult, String> {
     let state = Arc::clone(state.inner());
+    let filter = aiproxy_db::insights::InsightsFilter {
+        session_ids: input.session_ids,
+        host_keyword: input.host_keyword,
+    };
     run_blocking_command("get_insights", move || {
         let conn = state.read_db_connection();
         let conn_guard = conn.lock().expect("db mutex should not be poisoned");
-        aiproxy_db::insights::compute_insights(&conn_guard)
+        aiproxy_db::insights::compute_insights(&conn_guard, &filter)
     })
     .await
 }
