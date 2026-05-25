@@ -5,6 +5,7 @@ export type ProxyStatus = {
   port: number;
   sslEnabled: boolean;
   systemProxyEnabled: boolean;
+  http2Enabled?: boolean;
   activeWorkspaceId?: string;
   startedAt?: string;
   systemProxyRecoveryWarning?: string;
@@ -14,6 +15,7 @@ export type StartProxyInput = {
   workspaceId: string;
   port?: number;
   enableSsl?: boolean;
+  enableHttp2?: boolean;
 };
 
 export type StopProxyInput = {

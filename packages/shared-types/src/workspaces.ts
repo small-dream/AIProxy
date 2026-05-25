@@ -6,6 +6,7 @@ export type Workspace = {
   proxyPort: number;
   sslEnabled: boolean;
   systemProxyEnabled: boolean;
+  http2Enabled?: boolean;
   storagePath: string;
   createdAt: string;
   updatedAt: string;
