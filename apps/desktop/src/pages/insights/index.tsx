@@ -42,6 +42,7 @@ import { downloadTextFile } from "@/lib/download";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { useSessionContainerStore } from "@/features/sessions/session-container.store";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useInsightsFilterStore } from "@/features/insights/insights-filter.store";
 import {
   buildContextMenuSlotProps,
   contextMenuItemTextProps,
@@ -503,11 +504,15 @@ export function InsightsPage() {
 
   const activeSessionIds = useSessionContainerStore((s) => s.activeSessionIds);
   const activeSessionSummaries = useSessionContainerStore((s) => s.activeSessionSummaries);
-  const [domainFilter, setDomainFilter] = useState("");
+  const domainFilter = useInsightsFilterStore((s) => s.domainFilter);
+  const setDomainFilter = useInsightsFilterStore((s) => s.setDomainFilter);
+  const excludedHosts = useInsightsFilterStore((s) => s.excludedHosts);
+  const setExcludedHosts = useInsightsFilterStore((s) => s.setExcludedHosts);
+  const hostExact = useInsightsFilterStore((s) => s.hostExact);
+  const setHostExact = useInsightsFilterStore((s) => s.setHostExact);
+  const resetFilters = useInsightsFilterStore((s) => s.resetFilters);
   const [debouncedDomain, setDebouncedDomain] = useState("");
-  const [excludedHosts, setExcludedHosts] = useState<string[]>([]);
   const [hostContextMenu, setHostContextMenu] = useState<HostContextMenuState | null>(null);
-  const [hostExact, setHostExact] = useState<string | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -539,9 +544,7 @@ export function InsightsPage() {
     }
 
     setHostExact(trimmedHost);
-    setExcludedHosts((currentHosts) =>
-      currentHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost)),
-    );
+    setExcludedHosts(excludedHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost)));
   }, []);
 
   const handleFilterSelectedHostText = useCallback((value: string) => {
@@ -556,13 +559,13 @@ export function InsightsPage() {
       return;
     }
 
-    setHostExact((currentHost) =>
-      normalizeHostValue(currentHost ?? "") === normalizeHostValue(trimmedHost) ? null : currentHost,
+    setHostExact(
+      normalizeHostValue(hostExact ?? "") === normalizeHostValue(trimmedHost) ? null : hostExact,
     );
-    setExcludedHosts((currentHosts) =>
-      currentHosts.some((currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost))
-        ? currentHosts
-        : [...currentHosts, trimmedHost],
+    setExcludedHosts(
+      excludedHosts.some((currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost))
+        ? excludedHosts
+        : [...excludedHosts, trimmedHost],
     );
   }, []);
 
@@ -805,9 +808,7 @@ export function InsightsPage() {
                 key={host}
                 label={t("insightsPage.filter.excludeChip", { host })}
                 onDelete={() =>
-                  setExcludedHosts((currentHosts) =>
-                    currentHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(host)),
-                  )
+                  setExcludedHosts(excludedHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(host)))
                 }
                 size="small"
                 variant="outlined"
@@ -818,8 +819,7 @@ export function InsightsPage() {
               label={t("insightsPage.filter.clearAll")}
               onClick={() => {
                 applyImmediateDomainFilter("");
-                setHostExact(null);
-                setExcludedHosts([]);
+                resetFilters();
               }}
               size="small"
               sx={{ fontSize: 12 }}
