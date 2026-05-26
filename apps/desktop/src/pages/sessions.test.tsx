@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import { SessionsPage } from "@/pages/sessions";
+import { useSessionContainerStore } from "@/features/sessions/session-container.store";
 
 const mockSetHeaderActions = vi.fn();
 const mockLocation: { key: string; pathname: string; state: unknown } = {
@@ -220,6 +221,7 @@ describe("SessionsPage inspector split ratio", () => {
     mockLocation.pathname = "/";
     mockLocation.state = null;
     testState.runtimeSessions = [];
+    useSessionContainerStore.getState().clearSessions();
     const storage = new Map<string, string>();
 
     Object.defineProperty(window, "localStorage", {

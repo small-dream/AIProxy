@@ -34,20 +34,8 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import {
-  clearOtherSessionsInActiveContainer,
-  closeSessionContainer,
-  createAdditionalSessionContainer,
-  createInitialSessionContainerState,
-  getSessionContainerById,
-  removeSessionContainerSummary,
-  seedSessionContainers,
-  setActiveSessionContainer,
-  updateActiveSessionContainer,
-  upsertSessionContainerSummary,
-} from "@/features/sessions/session-containers.helpers";
 import { upsertImportedSessions } from "@/features/sessions/imported-sessions.store";
-import { upsertSessionSummary, removeSessionSummary, removeSessionSummaries } from "@/features/sessions/session-cache.helpers";
+import { upsertSessionSummary } from "@/features/sessions/session-cache.helpers";
 import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
@@ -64,12 +52,11 @@ import {
 } from "@/features/sessions/session-ui.helpers";
 import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
-import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
-import { SESSION_DETAIL_QUERY_KEY, useSessionDetail } from "@/features/sessions/use-session-detail";
-import { SESSIONS_QUERY_KEY, useSessions } from "@/features/sessions/use-sessions";
+import { useSessionContainerStore } from "@/features/sessions/session-container.store";
+import { useSessionDetail } from "@/features/sessions/use-session-detail";
+import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { onSessionRemove, onSessionsCleared, onSessionsRemoved, onSessionUpsert } from "@/services/events";
 import { listThrottledSessionIds, readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
@@ -105,9 +92,25 @@ export function SessionsPage() {
       ? clampInspectorSplitRatio(savedRatio)
       : DEFAULT_REQUEST_SPLIT_RATIO;
   }, []);
-  const [containerState, setContainerState] = useState(() => {
+  const store = useSessionContainerStore;
+  const {
+    activeContainerId,
+    containers,
+    hydrated,
+    sessionSummaryById,
+    seedSessions,
+    addContainer,
+    closeContainer,
+    selectContainer,
+    updateActiveContainer: updateContainer,
+    clearOtherSessions,
+    clearSessions: clearStoreSessions,
+  } = store();
+
+  useEffect(() => {
+    if (store.getState().hydrated) return;
     const storedSessionId = readStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
-    return createInitialSessionContainerState({
+    store.getState().init({
       expandedHosts: readStoredHosts(EXPANDED_HOSTS_STORAGE_KEY),
       inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
@@ -115,20 +118,7 @@ export function SessionsPage() {
       responseTab: "overview",
       ...(storedSessionId ? { selectedSessionId: storedSessionId } : {}),
     });
-  });
-  const setActiveSessionIds = useSessionContainerFilterStore((s) => s.setActiveSessionIds);
-  const setActiveSessionSummaries = useSessionContainerFilterStore((s) => s.setActiveSessionSummaries);
-
-  useEffect(() => {
-    const activeContainer = getSessionContainerById(containerState, containerState.activeContainerId);
-    const sessionIds = activeContainer?.sessionIds ?? [];
-    setActiveSessionIds(sessionIds);
-    setActiveSessionSummaries(
-      sessionIds
-        .map((sessionId) => containerState.sessionSummaryById[sessionId])
-        .filter((session): session is SessionSummary => Boolean(session)),
-    );
-  }, [containerState, setActiveSessionIds, setActiveSessionSummaries]);
+  }, [defaultInspectorSplitRatio]);
 
   const [explorerWidth, setExplorerWidth] = useState(() => {
     const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
@@ -163,15 +153,14 @@ export function SessionsPage() {
   const workspaceRef = useRef<WorkspaceHandle>(null);
 
   const activeContainer =
-    getSessionContainerById(containerState, containerState.activeContainerId) ??
-    containerState.containers[0];
+    containers.find((c) => c.id === activeContainerId) ?? containers[0];
 
   const activeSessions = useMemo(
     () =>
       (activeContainer?.sessionIds ?? [])
-        .map((sessionId) => containerState.sessionSummaryById[sessionId])
+        .map((sessionId) => sessionSummaryById[sessionId])
         .filter((session): session is SessionSummary => Boolean(session)),
-    [activeContainer?.sessionIds, containerState.sessionSummaryById],
+    [activeContainer?.sessionIds, sessionSummaryById],
   );
 
   const {
@@ -257,144 +246,10 @@ export function SessionsPage() {
       return;
     }
 
-    setContainerState((currentState) =>
-      currentState.hydrated ? currentState : seedSessionContainers(currentState, runtimeSessions),
-    );
-  }, [areSessionsLoading, runtimeSessions]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const unlistenFns: Array<() => void> = [];
-    let upsertBuffer: SessionSummary[] = [];
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function flushUpsertBuffer() {
-      if (upsertBuffer.length === 0) return;
-      const batch = upsertBuffer;
-      upsertBuffer = [];
-      flushTimer = null;
-
-      setContainerState((currentState) => {
-        let next = currentState;
-        for (const summary of batch) {
-          next = upsertSessionContainerSummary(next, summary);
-        }
-        return next;
-      });
-
-      // Sync React Query cache
-      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) => {
-        let updated = currentSessions;
-        for (const summary of batch) {
-          updated = upsertSessionSummary(updated, summary);
-        }
-        return updated;
-      });
-
-      for (const summary of batch) {
-        void queryClient.invalidateQueries({
-          exact: true,
-          queryKey: [SESSION_DETAIL_QUERY_KEY, summary.id],
-        });
-      }
+    if (!store.getState().hydrated) {
+      seedSessions(runtimeSessions);
     }
-
-    onSessionUpsert((summary) => {
-      if (cancelled) return;
-      upsertBuffer.push(summary);
-
-      if (!flushTimer) {
-        flushTimer = setTimeout(flushUpsertBuffer, 100);
-      }
-    }).then((fn) => {
-      if (!cancelled) {
-        unlistenFns.push(fn);
-      } else {
-        fn();
-      }
-    });
-
-    onSessionRemove((sessionId) => {
-      if (cancelled) return;
-      setContainerState((currentState) => removeSessionContainerSummary(currentState, sessionId));
-      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-        removeSessionSummary(currentSessions, sessionId),
-      );
-      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, sessionId] });
-    }).then((fn) => {
-      if (!cancelled) {
-        unlistenFns.push(fn);
-      } else {
-        fn();
-      }
-    });
-
-    onSessionsCleared(() => {
-      if (cancelled) return;
-      upsertBuffer = [];
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-      }
-      removeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
-      setContainerState((currentState) =>
-        createInitialSessionContainerState({
-          inspectorSplitRatio:
-            getSessionContainerById(currentState, currentState.activeContainerId)?.inspectorSplitRatio
-            ?? defaultInspectorSplitRatio,
-          requestCollapsed:
-            getSessionContainerById(currentState, currentState.activeContainerId)?.requestCollapsed
-            ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
-          requestTab:
-            getSessionContainerById(currentState, currentState.activeContainerId)?.requestTab ?? "headers",
-          responseTab:
-            getSessionContainerById(currentState, currentState.activeContainerId)?.responseTab ?? "overview",
-        }),
-      );
-      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, []);
-      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });
-    }).then((fn) => {
-      if (!cancelled) {
-        unlistenFns.push(fn);
-      } else {
-        fn();
-      }
-    });
-
-    onSessionsRemoved((ids) => {
-      if (cancelled) return;
-      setContainerState((currentState) => {
-        let nextState = currentState;
-        for (const id of ids) {
-          nextState = removeSessionContainerSummary(nextState, id);
-        }
-        return nextState;
-      });
-      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-        removeSessionSummaries(currentSessions, ids),
-      );
-      for (const id of ids) {
-        queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, id] });
-      }
-    }).then((fn) => {
-      if (!cancelled) {
-        unlistenFns.push(fn);
-      } else {
-        fn();
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushUpsertBuffer();
-      }
-      for (const fn of unlistenFns) {
-        fn();
-      }
-    };
-  }, [defaultInspectorSplitRatio, queryClient]);
+  }, [areSessionsLoading, runtimeSessions]);
 
   useEffect(() => {
     writeStorageValue(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));
@@ -424,14 +279,14 @@ export function SessionsPage() {
 
   useEffect(() => {
     syncSessionCompareScopes(
-      containerState.containers.map((container) => ({
+      containers.map((container) => ({
         id: container.id,
         label: t("sessionsPage.containers.sessionTitle", { index: container.labelNumber }),
         sessionIds: container.sessionIds,
         updatedAt: new Date().toISOString(),
       })),
     );
-  }, [containerState.containers, t]);
+  }, [containers, t]);
 
   useEffect(() => {
     if (focusedHosts.size > 0) {
@@ -482,81 +337,65 @@ export function SessionsPage() {
   }, []);
 
   useEffect(() => {
-    if (!containerState.hydrated) {
+    if (!hydrated) {
       return;
     }
 
-    setContainerState((currentState) => {
-      const currentContainer = getSessionContainerById(currentState, currentState.activeContainerId);
+    if (!activeContainer) {
+      return;
+    }
 
-      if (!currentContainer) {
-        return currentState;
-      }
+    const nextExpandedHosts = reconcileExpandedKeys(activeContainer.expandedHosts, hostGroups);
 
-      const nextExpandedHosts = reconcileExpandedKeys(currentContainer.expandedHosts, hostGroups);
+    if (areStringArraysEqual(nextExpandedHosts, activeContainer.expandedHosts)) {
+      return;
+    }
 
-      if (areStringArraysEqual(nextExpandedHosts, currentContainer.expandedHosts)) {
-        return currentState;
-      }
-
-      return updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        expandedHosts: nextExpandedHosts,
-      }));
-    });
-  }, [containerState.hydrated, hostGroups]);
+    updateContainer((container) => ({
+      ...container,
+      expandedHosts: nextExpandedHosts,
+    }));
+  }, [hydrated, hostGroups]);
 
   function toggleHost(host: string) {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        expandedHosts: container.expandedHosts.includes(host)
-          ? container.expandedHosts.filter((currentHost) => currentHost !== host)
-          : [...container.expandedHosts, host],
-      })),
-    );
+    updateContainer((container) => ({
+      ...container,
+      expandedHosts: container.expandedHosts.includes(host)
+        ? container.expandedHosts.filter((currentHost) => currentHost !== host)
+        : [...container.expandedHosts, host],
+    }));
   }
 
   const handleRepeatSession = useCallback((session: SessionSummary) => {
     const selectRepeatedSummary = (summary: SessionSummary) => {
-      setContainerState((currentState) =>
-        updateActiveSessionContainer(upsertSessionContainerSummary(currentState, summary), (container) => ({
-          ...container,
-          selectedSessionId: summary.id,
-        })),
-      );
+      store.getState().upsertSummary(summary);
+      updateContainer((container) => ({
+        ...container,
+        selectedSessionId: summary.id,
+      }));
       setSessionSelectionNonce((currentValue) => currentValue + 1);
     };
 
     void handleRepeatDirect(session, {
       onFailure: (pendingSessionId) => {
-        setContainerState((currentState) =>
-          updateActiveSessionContainer(
-            removeSessionContainerSummary(currentState, pendingSessionId),
-            (container) =>
-              container.selectedSessionId === pendingSessionId
-                ? {
-                    ...container,
-                    selectedSessionId: session.id,
-                  }
-                : container,
-          ),
+        store.getState().removeSummary(pendingSessionId);
+        updateContainer((container) =>
+          container.selectedSessionId === pendingSessionId
+            ? {
+                ...container,
+                selectedSessionId: session.id,
+              }
+            : container,
         );
       },
       onPending: selectRepeatedSummary,
       onSuccess: (pendingSessionId, summary) => {
-        setContainerState((currentState) =>
-          updateActiveSessionContainer(
-            upsertSessionContainerSummary(
-              removeSessionContainerSummary(currentState, pendingSessionId),
-              summary,
-            ),
-            (container) => ({
-              ...container,
-              selectedSessionId: summary.id,
-            }),
-          ),
-        );
+        store.getState().removeSummary(pendingSessionId);
+        store.getState().upsertSummary(summary);
+        updateContainer((container) => ({
+          ...container,
+          selectedSessionId: summary.id,
+        }));
         setSessionSelectionNonce((currentValue) => currentValue + 1);
       },
     });
@@ -612,18 +451,14 @@ export function SessionsPage() {
       queryClient.setQueryData(["session-detail", detail.id], detail);
     }
 
-    setContainerState((currentState) => {
-      let nextState = currentState;
+    for (const detail of details) {
+      store.getState().upsertSummary(detail.summary);
+    }
 
-      for (const detail of details) {
-        nextState = upsertSessionContainerSummary(nextState, detail.summary);
-      }
-
-      return updateActiveSessionContainer(nextState, (container) => ({
-        ...container,
-        ...(details[0]?.id ? { selectedSessionId: details[0].id } : {}),
-      }));
-    });
+    updateContainer((container) => ({
+      ...container,
+      ...(details[0]?.id ? { selectedSessionId: details[0].id } : {}),
+    }));
 
     setSessionSelectionNonce((currentValue) => currentValue + 1);
     setImportSnackbarMessage(t("sessionsImport.messages.importedHar", {
@@ -657,8 +492,8 @@ export function SessionsPage() {
   }, [handleImportSessions, t]);
 
   const handleClearOthers = useCallback((session: SessionSummary) => {
-    setContainerState((currentState) => clearOtherSessionsInActiveContainer(currentState, session.id));
-  }, []);
+    clearOtherSessions(session.id);
+  }, [clearOtherSessions]);
 
   const handleGoToBreakpoints = useCallback(() => {
     navigate("/rules");
@@ -719,94 +554,78 @@ export function SessionsPage() {
   }, [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession?.id]);
 
   const handleAddContainer = useCallback(() => {
-    setContainerState((currentState) => createAdditionalSessionContainer(currentState));
-  }, []);
+    addContainer();
+  }, [addContainer]);
 
   const handleSelectContainer = useCallback((containerId: string) => {
-    setContainerState((currentState) => setActiveSessionContainer(currentState, containerId));
-  }, []);
+    selectContainer(containerId);
+  }, [selectContainer]);
 
   const handleCloseContainer = useCallback((containerId: string) => {
-    setContainerState((currentState) => closeSessionContainer(currentState, containerId));
-  }, []);
+    closeContainer(containerId);
+  }, [closeContainer]);
 
   const handleSelectedSessionChange = useCallback((sessionId: string) => {
     setSessionSelectionNonce((currentValue) => currentValue + 1);
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        selectedSessionId: sessionId,
-      })),
-    );
+    updateContainer((container) => ({
+      ...container,
+      selectedSessionId: sessionId,
+    }));
     writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
-  }, []);
+  }, [updateContainer]);
 
   const handleRequestTabChange = useCallback((tab: RequestInspectorTab) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        requestTab: tab,
-      })),
-    );
-  }, []);
+    updateContainer((container) => ({
+      ...container,
+      requestTab: tab,
+    }));
+  }, [updateContainer]);
 
   const handleResponseTabChange = useCallback((tab: ResponseInspectorTab) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        responseTab: tab,
-      })),
-    );
-  }, []);
+    updateContainer((container) => ({
+      ...container,
+      responseTab: tab,
+    }));
+  }, [updateContainer]);
 
   const handleRequestCollapsedChange = useCallback((collapsed: boolean) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        requestCollapsed: collapsed,
-      })),
-    );
-  }, []);
+    updateContainer((container) => ({
+      ...container,
+      requestCollapsed: collapsed,
+    }));
+  }, [updateContainer]);
 
   const handleDomainFilterChange = useCallback((value: string) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        domainFilterValue: value,
-      })),
-    );
-  }, []);
+    updateContainer((container) => ({
+      ...container,
+      domainFilterValue: value,
+    }));
+  }, [updateContainer]);
 
   const handleInspectorSplitRatioChange = useCallback((ratio: number) => {
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        inspectorSplitRatio: ratio,
-      })),
-    );
-  }, []);
+    updateContainer((container) => ({
+      ...container,
+      inspectorSplitRatio: ratio,
+    }));
+  }, [updateContainer]);
 
   const handleClearActiveContainer = useCallback(() => {
     clearSessions(undefined, {
       onSuccess: () => {
         removeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
-        setContainerState((currentState) =>
-          createInitialSessionContainerState({
-            inspectorSplitRatio:
-              getSessionContainerById(currentState, currentState.activeContainerId)?.inspectorSplitRatio
-              ?? defaultInspectorSplitRatio,
-            requestCollapsed:
-              getSessionContainerById(currentState, currentState.activeContainerId)?.requestCollapsed
-              ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
-            requestTab:
-              getSessionContainerById(currentState, currentState.activeContainerId)?.requestTab ?? "headers",
-            responseTab:
-              getSessionContainerById(currentState, currentState.activeContainerId)?.responseTab ?? "overview",
-          }),
-        );
+        clearStoreSessions({
+          inspectorSplitRatio:
+            activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio,
+          requestCollapsed:
+            activeContainer?.requestCollapsed ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+          requestTab:
+            activeContainer?.requestTab ?? "headers",
+          responseTab:
+            activeContainer?.responseTab ?? "overview",
+        });
       },
     });
-  }, [clearSessions, defaultInspectorSplitRatio]);
+  }, [clearSessions, clearStoreSessions, defaultInspectorSplitRatio, activeContainer]);
 
   const headerActions = useMemo(
     () => (
@@ -964,22 +783,20 @@ export function SessionsPage() {
 
     lastHandledHostFilterActionRef.current = hostFilterAction.requestedAt;
 
-    setContainerState((currentState) =>
-      updateActiveSessionContainer(currentState, (container) => ({
-        ...container,
-        domainFilterValue: hostFilterAction.host,
-        expandedHosts: container.expandedHosts.includes(hostFilterAction.host)
-          ? container.expandedHosts
-          : [...container.expandedHosts, hostFilterAction.host],
-      })),
-    );
+    updateContainer((container) => ({
+      ...container,
+      domainFilterValue: hostFilterAction.host,
+      expandedHosts: container.expandedHosts.includes(hostFilterAction.host)
+        ? container.expandedHosts
+        : [...container.expandedHosts, hostFilterAction.host],
+    }));
   }, [location.key, location.state]);
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <SessionsWorkspacePanel
-        activeContainerId={containerState.activeContainerId}
-        containerTabs={containerState.containers.map((container) => ({
+        activeContainerId={activeContainerId}
+        containerTabs={containers.map((container) => ({
           id: container.id,
           labelNumber: container.labelNumber,
         }))}
