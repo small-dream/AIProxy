@@ -178,15 +178,6 @@ impl AppState {
                 .set_rules(rows.into_iter().map(dns_mapping_row_to_rule).collect());
         }
 
-        // Load recent session summaries
-        if let Ok(rows) = aiproxy_db::sessions::load_recent_summaries(&conn, 15_000) {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .expect("session list mutex should not be poisoned");
-            // Reverse so newest is last (matching the append order during capture)
-            *sessions = rows.into_iter().rev().map(summary_row_to_proxy).collect();
-        }
     }
 
     pub fn read_status(&self) -> BootstrapStatus {
