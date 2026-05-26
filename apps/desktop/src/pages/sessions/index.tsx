@@ -805,7 +805,28 @@ export function SessionsPage() {
     const current = useSessionContainerStore.getState();
     const container = current.containers.find((c) => c.id === current.activeContainerId);
     if (container?.sessionIds.includes(sessionId)) {
-      updateContainer((c) => ({ ...c, selectedSessionId: sessionId }));
+      const summary = current.sessionSummaryById[sessionId];
+      const host = summary?.host;
+      const pathKeys: string[] = [];
+      if (host) {
+        pathKeys.push(host);
+        if (summary.path) {
+          const segments = summary.path.replace(/^\//, "").split("/").filter(Boolean);
+          for (let i = 1; i < segments.length; i++) {
+            pathKeys.push(`${host}::${segments.slice(0, i).join("/")}`);
+          }
+        }
+      }
+      updateContainer((c) => {
+        const existing = new Set(c.expandedHosts);
+        const merged = [...c.expandedHosts];
+        for (const key of pathKeys) {
+          if (!existing.has(key)) {
+            merged.push(key);
+          }
+        }
+        return { ...c, selectedSessionId: sessionId, expandedHosts: merged };
+      });
       writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
     }
   }, [location.key, location.state, updateContainer]);
