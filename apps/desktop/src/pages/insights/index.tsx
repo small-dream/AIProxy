@@ -40,7 +40,8 @@ import type { AppShellOutletContext } from "@/components/layout/app-shell.types"
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { downloadTextFile } from "@/lib/download";
 import { useI18n, type TranslationKey } from "@/i18n";
-import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
+import { useSessionContainerStore } from "@/features/sessions/session-container.store";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   buildContextMenuSlotProps,
   contextMenuItemTextProps,
@@ -500,8 +501,8 @@ export function InsightsPage() {
   const navigate = useNavigate();
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
 
-  const activeSessionIds = useSessionContainerFilterStore((s) => s.activeSessionIds);
-  const activeSessionSummaries = useSessionContainerFilterStore((s) => s.activeSessionSummaries);
+  const activeSessionIds = useSessionContainerStore((s) => s.activeSessionIds);
+  const activeSessionSummaries = useSessionContainerStore((s) => s.activeSessionSummaries);
   const [domainFilter, setDomainFilter] = useState("");
   const [debouncedDomain, setDebouncedDomain] = useState("");
   const [excludedHosts, setExcludedHosts] = useState<string[]>([]);
@@ -627,9 +628,11 @@ export function InsightsPage() {
     };
   }, [activeSessionIds, debouncedDomain, excludedHosts, hostExact]);
 
+  const debouncedSessionIds = useDebouncedValue(activeSessionIds, 5000);
   const { data: backendData, isLoading } = useQuery({
-    queryKey: ["insights", activeSessionIds, debouncedDomain, hostExact, excludedHosts],
+    queryKey: ["insights", debouncedSessionIds, debouncedDomain, hostExact, excludedHosts],
     queryFn: () => invokeGetInsights(input),
+    enabled: activeSessionIds.length > 0,
   });
   const fallbackData = useMemo(
     () => computeInsightsFromSummaries(activeSessionSummaries, insightsFilters),
