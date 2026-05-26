@@ -85,6 +85,7 @@ export function SessionsPage() {
   const explorerDragFrameRef = useRef<number | null>(null);
   const inspectorDragFrameRef = useRef<number | null>(null);
   const lastHandledHostFilterActionRef = useRef(0);
+  const lastHandledSessionSelectRef = useRef(0);
   const defaultInspectorSplitRatio = useMemo(() => {
     const savedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
 
@@ -791,6 +792,23 @@ export function SessionsPage() {
         : [...container.expandedHosts, hostFilterAction.host],
     }));
   }, [location.key, location.state]);
+
+  useEffect(() => {
+    const action = location.state?.sessionSelect;
+    if (!action || typeof action !== "object") return;
+    if (action.requestedAt <= lastHandledSessionSelectRef.current) return;
+    lastHandledSessionSelectRef.current = action.requestedAt;
+
+    const sessionId = action.sessionId;
+    if (typeof sessionId !== "string" || !sessionId) return;
+
+    const current = useSessionContainerStore.getState();
+    const container = current.containers.find((c) => c.id === current.activeContainerId);
+    if (container?.sessionIds.includes(sessionId)) {
+      updateContainer((c) => ({ ...c, selectedSessionId: sessionId }));
+      writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
+    }
+  }, [location.key, location.state, updateContainer]);
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>

@@ -912,8 +912,10 @@ export function InsightsPage() {
                   <TableRow
                     hover
                     key={host.host}
+                    onClick={() => handleOpenSessionsForHost(host.host)}
                     onContextMenu={(event) => handleHostContextMenu(host.host, event)}
                     sx={{
+                      cursor: "pointer",
                       "&:last-child td": { borderBottom: 0 },
                       "& .host-filter-action": {
                         opacity: 0,
@@ -1023,7 +1025,15 @@ export function InsightsPage() {
                     <TableRow
                       hover
                       key={req.sessionId}
-                      sx={{ "&:last-child td": { borderBottom: 0 } }}
+                      onClick={() => navigate("/sessions", {
+                        state: {
+                          sessionSelect: {
+                            sessionId: req.sessionId,
+                            requestedAt: Date.now(),
+                          },
+                        },
+                      })}
+                      sx={{ cursor: "pointer", "&:last-child td": { borderBottom: 0 } }}
                     >
                       <TableCell sx={{ minWidth: 360 }} title={req.url}>
                         <Typography
