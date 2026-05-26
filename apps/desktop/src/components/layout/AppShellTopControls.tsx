@@ -79,37 +79,35 @@ export function AppShellTopControls({
           rowGap: 0.5,
         })}
       >
-        <Stack direction="row" spacing={0.25}>
-          {proxyRunning ? (
-            <TopBarActionButton
-              disabled={isProxyBusy}
-              icon={<StopRoundedIcon />}
-              label={stopProxyLabel}
-              onClick={onStopProxy}
-              tone="error"
-              variant="filled"
-            />
-          ) : (
-            <TopBarActionButton
-              disabled={isProxyBusy}
-              icon={<PlayArrowRoundedIcon />}
-              label={startProxyLabel}
-              onClick={onStartProxy}
-              tone="primary"
-              variant="filled"
-            />
-          )}
-
+        {proxyRunning ? (
           <TopBarActionButton
-            ariaPressed={systemProxyEnabled}
-            disabled={systemProxyActionDisabled}
-            icon={<LanguageRoundedIcon />}
-            label={systemProxyEnabled ? systemProxyOffLabel : systemProxyOnLabel}
-            onClick={onSystemProxyToggle}
-            tone={systemProxyEnabled ? "success" : "default"}
-            variant={systemProxyEnabled ? "filled" : "outlined"}
+            disabled={isProxyBusy}
+            icon={<StopRoundedIcon />}
+            label={stopProxyLabel}
+            onClick={onStopProxy}
+            tone="error"
+            variant="filled"
           />
-        </Stack>
+        ) : (
+          <TopBarActionButton
+            disabled={isProxyBusy}
+            icon={<PlayArrowRoundedIcon />}
+            label={startProxyLabel}
+            onClick={onStartProxy}
+            tone="primary"
+            variant="filled"
+          />
+        )}
+
+        <TopBarActionButton
+          ariaPressed={systemProxyEnabled}
+          disabled={systemProxyActionDisabled}
+          icon={<LanguageRoundedIcon />}
+          label={systemProxyEnabled ? systemProxyOffLabel : systemProxyOnLabel}
+          onClick={onSystemProxyToggle}
+          tone={systemProxyEnabled ? "success" : "default"}
+          variant={systemProxyEnabled ? "filled" : "outlined"}
+        />
 
         {headerActions}
       </Stack>
