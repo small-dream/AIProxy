@@ -575,7 +575,7 @@ export function InsightsPage() {
   }, [t]);
 
   const handleOpenSessionsForHost = useCallback((host: string) => {
-    navigate("/sessions", {
+    navigate("/", {
       state: {
         sessionHostFilter: {
           host,
@@ -1025,7 +1025,7 @@ export function InsightsPage() {
                     <TableRow
                       hover
                       key={req.sessionId}
-                      onClick={() => navigate("/sessions", {
+                      onClick={() => navigate("/", {
                         state: {
                           sessionSelect: {
                             sessionId: req.sessionId,
