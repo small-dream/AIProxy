@@ -28,6 +28,7 @@ import {
   useStopProxy,
 } from "@/features/proxy-status/use-proxy-status";
 import type { SessionsMenuAction } from "@/features/sessions/session-menu-actions";
+import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
@@ -87,6 +88,7 @@ export function AppShell() {
     location.pathname === "/throttling" ||
     location.pathname === "/certificates";
   useBreakpointEvents();
+  useSessionEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
   const { data: proxyStatus } = useProxyStatus();
   const { data: certificateStatus } = useCertificateStatus();
