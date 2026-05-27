@@ -635,7 +635,50 @@ async fn handle_connection(
                 .await?;
                 return Ok(());
             }
-            forward_request(&request, &dns_manager, &active_workspace_id, Some(upstream_pool.clone())).await
+            match tokio::time::timeout(
+                UPSTREAM_REQUEST_TIMEOUT,
+                forward_request(&request, &dns_manager, &active_workspace_id, Some(upstream_pool.clone())),
+            ).await {
+                Ok(result) => result,
+                Err(_) => {
+                    let timeout_secs = UPSTREAM_REQUEST_TIMEOUT.as_secs();
+                    let response_message = format!(
+                        "The upstream server did not respond within {timeout_secs}s.",
+                    );
+                    write_plain_text_response(&mut stream, StatusCode::GATEWAY_TIMEOUT, &response_message).await?;
+                    let detail = build_session_detail(
+                        &request,
+                        StatusCode::GATEWAY_TIMEOUT.as_u16(),
+                        &HeaderMap::new(),
+                        response_message.as_bytes(),
+                        response_message.len(),
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: None,
+                            response_read_ms: Some(0),
+                            tls_ms: None,
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                        },
+                        false,
+                    );
+                    let _ = session_sender.send(detail).await;
+                    emit_log(
+                        "WARN",
+                        "upstream_request_timed_out",
+                        &[
+                            ("request_id", request.request_id.clone()),
+                            ("host", request.host.clone()),
+                            ("url", request.url.to_string()),
+                            ("timeout_secs", timeout_secs.to_string()),
+                        ],
+                    );
+                    return Err(format!("upstream request timed out after {timeout_secs}s"));
+                }
+            }
         }
     };
 

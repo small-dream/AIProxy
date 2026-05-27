@@ -36,6 +36,7 @@ const READ_BUFFER_BYTES: usize = 8 * 1024;
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const CLIENT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;

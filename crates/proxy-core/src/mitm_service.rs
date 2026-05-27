@@ -355,7 +355,49 @@ async fn handle_mitm_request(
     let upstream_result: Result<UpstreamResponse, String> = match local_response {
         Some(local_response) => Ok(local_response),
         None => {
-            crate::server::forward_request(&https_request, &state.dns_manager, &state.workspace_id, Some(state.upstream_pool.clone())).await
+            match tokio::time::timeout(
+                crate::UPSTREAM_REQUEST_TIMEOUT,
+                crate::server::forward_request(&https_request, &state.dns_manager, &state.workspace_id, Some(state.upstream_pool.clone())),
+            ).await {
+                Ok(result) => result,
+                Err(_) => {
+                    let timeout_secs = crate::UPSTREAM_REQUEST_TIMEOUT.as_secs();
+                    let response_message = format!(
+                        "The upstream server did not respond within {timeout_secs}s.",
+                    );
+                    emit_log(
+                        "WARN",
+                        "upstream_request_timed_out",
+                        &[
+                            ("request_id", https_request.request_id.clone()),
+                            ("host", state.host.clone()),
+                            ("url", https_request.url.to_string()),
+                            ("timeout_secs", timeout_secs.to_string()),
+                        ],
+                    );
+                    let detail = build_session_detail(
+                        &https_request,
+                        StatusCode::GATEWAY_TIMEOUT.as_u16(),
+                        &HeaderMap::new(),
+                        response_message.as_bytes(),
+                        response_message.len(),
+                        request_started_at,
+                        request_started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: None,
+                            response_read_ms: Some(0),
+                            tls_ms: None,
+                            total_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                        },
+                        false,
+                    );
+                    let _ = state.session_sender.send(detail).await;
+                    return build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, &response_message);
+                }
+            }
         }
     };
 
