@@ -45,19 +45,28 @@ function SessionContainerTabsImpl({
         direction="row"
         justifyContent="space-between"
         spacing={1}
-          sx={{
-            minHeight: 42,
-            px: 0.75,
-            py: 0.5,
-          }}
+        sx={{
+          minHeight: 42,
+          px: 0.75,
+          py: 0.5,
+        }}
       >
         <Stack
+          alignItems="center"
           direction="row"
           spacing={0.5}
           sx={{
             flex: 1,
+            height: 30,
             minWidth: 0,
+            overscrollBehaviorX: "contain",
             overflowX: "auto",
+            overflowY: "hidden",
+            scrollbarWidth: "none",
+            WebkitOverflowScrolling: "touch",
+            "&::-webkit-scrollbar": {
+              display: "none",
+            },
           }}
         >
           {containers.map((container) => (
@@ -106,12 +115,12 @@ function SessionContainerTabsImpl({
         </Stack>
 
         <Box
-          sx={{
+          sx={(theme) => ({
             alignSelf: "stretch",
             borderLeft: 1,
-            borderColor: "divider",
+            borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
             flex: "0 0 auto",
-          }}
+          })}
         />
 
         <Stack direction="row" spacing={0.25} sx={{ flex: "0 0 auto" }}>

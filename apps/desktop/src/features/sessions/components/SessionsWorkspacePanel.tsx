@@ -117,16 +117,6 @@ export function SessionsWorkspacePanel({
         })}
         variant="outlined"
       >
-        <SessionContainerTabs
-          containers={containerTabs.map((container) => ({
-            ...container,
-            isActive: container.id === activeContainerId,
-          }))}
-          onAddContainer={onAddContainer}
-          onCloseContainer={onCloseContainer}
-          onSelectContainer={onSelectContainer}
-        />
-
         <Box
           sx={{
             display: "grid",
@@ -139,19 +129,39 @@ export function SessionsWorkspacePanel({
             minHeight: 0,
           }}
         >
-          <SessionExplorerPane
-            domainFilterValue={domainFilterValue}
-            errorMessage={errorMessage}
-            expandedHosts={expandedHosts}
-            groups={groups}
-            isLoading={isLoading}
-            onDomainFilterChange={onDomainFilterChange}
-            onContextMenuHost={onContextMenuHost}
-            onContextMenuSession={onContextMenuSession}
-            onSelectSession={onSelectSession}
-            onToggleHost={onToggleHost}
-            selectedSessionId={selectedSessionId}
-          />
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+              minWidth: 0,
+              overflow: "hidden",
+            }}
+          >
+            <SessionContainerTabs
+              containers={containerTabs.map((container) => ({
+                ...container,
+                isActive: container.id === activeContainerId,
+              }))}
+              onAddContainer={onAddContainer}
+              onCloseContainer={onCloseContainer}
+              onSelectContainer={onSelectContainer}
+            />
+
+            <SessionExplorerPane
+              domainFilterValue={domainFilterValue}
+              errorMessage={errorMessage}
+              expandedHosts={expandedHosts}
+              groups={groups}
+              isLoading={isLoading}
+              onDomainFilterChange={onDomainFilterChange}
+              onContextMenuHost={onContextMenuHost}
+              onContextMenuSession={onContextMenuSession}
+              onSelectSession={onSelectSession}
+              onToggleHost={onToggleHost}
+              selectedSessionId={selectedSessionId}
+            />
+          </Box>
 
           <Box
             aria-hidden

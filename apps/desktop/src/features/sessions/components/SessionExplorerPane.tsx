@@ -136,8 +136,10 @@ export function SessionExplorerPane({
         borderBottom: { lg: 0, xs: 1 },
         borderColor: "divider",
         display: "flex",
+        flex: 1,
         flexDirection: "column",
         minHeight: 0,
+        minWidth: 0,
         overflow: "hidden",
       }}
     >
