@@ -106,6 +106,22 @@ export function InspectorSummaryBar({
   const requestOperationLabel = isMediaResponse
     ? undefined
     : getRequestOperationLabel(detail, session);
+  const summaryTitle = requestOperationLabel ?? session.path ?? session.url;
+  const displayHost = session.host || (() => {
+    try {
+      return new URL(session.url).host;
+    } catch {
+      return "";
+    }
+  })();
+  const displayPath = session.path || (() => {
+    try {
+      const parsedUrl = new URL(session.url);
+      return `${parsedUrl.pathname}${parsedUrl.search}`;
+    } catch {
+      return session.url;
+    }
+  })();
 
   return (
     <Stack
@@ -120,38 +136,40 @@ export function InspectorSummaryBar({
     >
       <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
         <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
-          {isMediaResponse ? null : (
-            <Chip
-              color={getMethodColor(session.method)}
-              label={session.method.toUpperCase()}
-              size="small"
-              variant="filled"
-            />
-          )}
-          <Chip
-            color={getStatusColor(session.statusCode)}
-            label={String(session.statusCode)}
-            size="small"
-            variant="outlined"
-          />
-          {requestOperationLabel ? (
-            <Tooltip arrow title={requestOperationLabel}>
+          <Tooltip arrow title={summaryTitle}>
+            <Typography
+              sx={{
+                color: "text.primary",
+                fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 15),
+                fontWeight: 650,
+                lineHeight: 1.25,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              variant="subtitle2"
+            >
+              {summaryTitle}
+            </Typography>
+          </Tooltip>
+          <Stack alignItems="center" direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+            {isMediaResponse ? null : (
               <Chip
-                color="default"
-                label={requestOperationLabel}
+                color={getMethodColor(session.method)}
+                label={session.method.toUpperCase()}
                 size="small"
-                sx={{
-                  maxWidth: 240,
-                  "& .MuiChip-label": {
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  },
-                }}
-                variant="outlined"
+                variant="filled"
               />
-            </Tooltip>
-          ) : null}
-          <Chip label={`${totalDuration}ms`} size="small" variant="outlined" />
+            )}
+            <Chip
+              color={getStatusColor(session.statusCode)}
+              label={String(session.statusCode)}
+              size="small"
+              variant="outlined"
+            />
+            <Chip label={`${totalDuration}ms`} size="small" variant="outlined" />
+          </Stack>
         </Stack>
 
         <Stack alignItems="center" direction="row" spacing={0.5}>
@@ -209,18 +227,43 @@ export function InspectorSummaryBar({
         <Typography
           color="text.secondary"
           sx={{
-            display: "-webkit-box",
+            alignItems: "baseline",
+            display: "flex",
             fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
             fontFamily: "inherit",
-            lineClamp: 2,
             lineHeight: 1.45,
+            minWidth: 0,
             overflow: "hidden",
-            WebkitBoxOrient: "vertical",
-            WebkitLineClamp: 2,
+            whiteSpace: "nowrap",
           }}
           variant="body2"
         >
-          {session.url}
+          {displayHost ? (
+            <Box
+              component="span"
+              sx={{
+                color: "text.primary",
+                flexShrink: 0,
+                fontWeight: 500,
+                maxWidth: "36%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {displayHost}
+            </Box>
+          ) : null}
+          {displayHost && displayPath ? " " : null}
+          <Box
+            component="span"
+            sx={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {displayPath}
+          </Box>
         </Typography>
       </Tooltip>
     </Stack>
