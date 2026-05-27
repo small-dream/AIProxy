@@ -950,6 +950,7 @@ export const enMessages = {
       form: {
         filename: "Filename",
       },
+      headersTitle: "Request Headers",
       noBodyCaptured: "No request body captured",
       overview: {
         complete: "Complete",
@@ -1029,6 +1030,7 @@ export const enMessages = {
       rawUnavailable: "Raw response is not available.",
       rawSearchPlaceholder: "Search raw response",
       responseBody: "Response Body",
+      headersTitle: "Response Headers",
       sectionTitle: "Response",
       serverIp: "Server IP",
       tabs: {

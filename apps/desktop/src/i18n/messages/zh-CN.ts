@@ -952,6 +952,7 @@ export const zhCNMessages: Messages = {
       form: {
         filename: "文件名",
       },
+      headersTitle: "请求 Headers",
       noBodyCaptured: "未捕获请求 Body",
       overview: {
         complete: "完成",
@@ -1031,6 +1032,7 @@ export const zhCNMessages: Messages = {
       rawUnavailable: "原始响应内容不可用。",
       rawSearchPlaceholder: "搜索原始响应",
       responseBody: "响应 Body",
+      headersTitle: "响应 Headers",
       sectionTitle: "响应",
       serverIp: "服务端 IP",
       tabs: {

@@ -420,6 +420,7 @@ function ResponseTabContent({
         <InspectorKeyValueTable
           emptyMessage={t("inspector.response.emptyHeaders")}
           items={detail?.responseHeaders.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
+          title={t("inspector.response.headersTitle")}
         />
       </InspectorScrollArea>
     );

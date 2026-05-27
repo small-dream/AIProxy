@@ -401,6 +401,9 @@ export function InspectorFlatTableRow({
               "&:hover": {
                 bgcolor: "action.hover",
               },
+              "&:hover .InspectorCellAction": {
+                opacity: 1,
+              },
             }
           : undefined),
       }}
@@ -424,8 +427,12 @@ export function InspectorFlatTableRow({
 }
 
 export function EllipsizedCell({
+  isSubtle = false,
+  isItalic = false,
   text,
 }: {
+  isSubtle?: boolean;
+  isItalic?: boolean;
   text: string;
 }) {
   const { t } = useI18n();
@@ -459,6 +466,10 @@ export function EllipsizedCell({
     return () => window.removeEventListener("resize", updateOverflow);
   }, [text]);
 
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard?.writeText(text);
+  }, [text]);
+
   return (
     <>
       <Stack alignItems="center" direction="row" spacing={0.25} sx={{ minWidth: 0, width: "100%" }}>
@@ -468,6 +479,8 @@ export function EllipsizedCell({
             sx={{
               ...inspectorValueTypographySx,
               flex: 1,
+              fontStyle: isItalic ? "italic" : undefined,
+              opacity: isSubtle ? 0.82 : undefined,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -477,12 +490,43 @@ export function EllipsizedCell({
             {text}
           </Typography>
         </Tooltip>
+        {text.length > 0 ? (
+          <Tooltip arrow title={t("contextMenu.copy")}>
+            <IconButton
+              aria-label={t("contextMenu.copy")}
+              className="InspectorCellAction"
+              onClick={handleCopy}
+              size="small"
+              sx={{
+                color: "text.secondary",
+                flex: "0 0 auto",
+                opacity: 0,
+                p: 0.25,
+                transition: "opacity 120ms ease, color 120ms ease",
+                "&:focus-visible": { opacity: 1 },
+                "&:hover": { color: "primary.main" },
+              }}
+            >
+              <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
         {text.length > 80 ? (
           <Tooltip arrow title={t("inspector.copyFullValue")}>
             <IconButton
+              aria-label={t("inspector.copyFullValue")}
+              className="InspectorCellAction"
               onClick={(event) => setAnchorEl(event.currentTarget)}
               size="small"
-              sx={{ color: "text.secondary", flex: "0 0 auto", p: 0.25 }}
+              sx={{
+                color: "text.secondary",
+                flex: "0 0 auto",
+                opacity: 0,
+                p: 0.25,
+                transition: "opacity 120ms ease, color 120ms ease",
+                "&:focus-visible": { opacity: 1 },
+                "&:hover": { color: "primary.main" },
+              }}
             >
               <LaunchRoundedIcon sx={{ fontSize: 14 }} />
             </IconButton>
@@ -535,21 +579,54 @@ function isPseudoItem(item: InspectorKeyValueItem): item is { name: string; valu
 export function InspectorKeyValueTable({
   emptyMessage,
   items,
+  title,
 }: {
   emptyMessage?: string;
   items: Array<InspectorKeyValueItem>;
+  title?: string;
 }) {
   const { t } = useI18n();
 
   if (items.length === 0) {
     return (
+      <Stack spacing={0.75}>
+        {title ? (
+          <Typography
+            sx={{
+              color: "text.secondary",
+              fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
+              fontWeight: 700,
+              letterSpacing: 0,
+              textTransform: "uppercase",
+            }}
+            variant="overline"
+          >
+            {title}
+          </Typography>
+        ) : null}
       <Typography color="text.secondary" variant="body2">
         {emptyMessage ?? t("common.empty.noData")}
       </Typography>
+      </Stack>
     );
   }
 
   return (
+    <Stack spacing={0.75}>
+      {title ? (
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
+            fontWeight: 700,
+            letterSpacing: 0,
+            textTransform: "uppercase",
+          }}
+          variant="overline"
+        >
+          {title}
+        </Typography>
+      ) : null}
     <InspectorFlatTable columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}>
       {items.map((item, index) => {
         const isPseudo = isPseudoItem(item) && item.isPseudo === true;
@@ -563,29 +640,40 @@ export function InspectorKeyValueTable({
                 key="label"
                 sx={{
                   ...inspectorKeyTypographySx,
-                  ...(isPseudo ? { fontStyle: "italic", opacity: 0.8 } : {}),
+                  alignItems: "center",
+                  display: "flex",
+                  gap: 0.5,
+                  ...(isPseudo ? { fontStyle: "italic", opacity: 0.86 } : {}),
                   wordBreak: "break-all",
                 }}
                 variant="body2"
               >
-                {label}
+                <Box component="span" sx={{ minWidth: 0 }}>
+                  {label}
+                </Box>
                 {isPseudo ? (
-                  <Box component="span" sx={{ color: "text.disabled", fontSize: "0.8em", ml: 0.5 }}>
-                    pseudo
-                  </Box>
+                  <Chip
+                    label="pseudo"
+                    size="small"
+                    sx={{
+                      bgcolor: "action.hover",
+                      borderRadius: 0.75,
+                      color: "text.disabled",
+                      fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 10.5),
+                      fontStyle: "normal",
+                      fontWeight: 600,
+                      height: 18,
+                      letterSpacing: 0,
+                      ml: 0.25,
+                      "& .MuiChip-label": {
+                        px: 0.5,
+                      },
+                    }}
+                    variant="filled"
+                  />
                 ) : null}
               </Typography>,
-              isPseudo ? (
-                <Typography
-                  key="value"
-                  sx={{ ...inspectorValueTypographySx, fontStyle: "italic", opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  variant="body2"
-                >
-                  {value}
-                </Typography>
-              ) : (
-                <EllipsizedCell key="value" text={value} />
-              ),
+              <EllipsizedCell isItalic={isPseudo} isSubtle={isPseudo} key="value" text={value} />,
             ]}
             columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
             dense
@@ -595,6 +683,7 @@ export function InspectorKeyValueTable({
         );
       })}
     </InspectorFlatTable>
+    </Stack>
   );
 }
 
