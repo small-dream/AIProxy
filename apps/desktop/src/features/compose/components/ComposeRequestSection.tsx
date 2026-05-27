@@ -105,7 +105,7 @@ export function ComposeRequestSection({
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab label={`${t("composePage.tabs.headers")}${headers.length > 0 ? ` (${headers.length})` : ""}`} value="headers" />
+          <Tab label={t("composePage.tabs.headers")} value="headers" />
           <Tab label={t("composePage.tabs.body")} value="body" />
           <Tab label={t("composePage.tabs.query")} value="query" />
         </Tabs>

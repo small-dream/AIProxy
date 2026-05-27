@@ -12,7 +12,6 @@ import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
 import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock, inspectorTabsSx } from "./SessionInspectorShared";
 import {
-  buildCountTabLabel,
   describeBody,
   getBodyText,
   getRawMessageText,
@@ -231,7 +230,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
             <Tab label={t("websocket.messagesTab")} value="messages" />
           ) : null}
           {visibleTabs.includes("headers") ? (
-            <Tab label={buildCountTabLabel(t("inspector.response.tabs.headers"), detail?.responseHeaders.length ?? 0)} value="headers" />
+            <Tab label={t("inspector.response.tabs.headers")} value="headers" />
           ) : null}
           {visibleTabs.includes("raw") ? (
             <Tab label={t("inspector.response.tabs.raw")} value="raw" />
@@ -240,7 +239,7 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
             <Tab label={t("inspector.response.tabs.automation")} value="automation" />
           ) : null}
           {visibleTabs.includes("trailers") ? (
-            <Tab label={buildCountTabLabel(t("inspector.response.tabs.trailers"), detail?.trailers?.length ?? 0)} value="trailers" />
+            <Tab label={t("inspector.response.tabs.trailers")} value="trailers" />
           ) : null}
         </Tabs>
 

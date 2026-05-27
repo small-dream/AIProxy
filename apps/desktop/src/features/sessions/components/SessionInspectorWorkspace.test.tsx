@@ -124,7 +124,7 @@ describe("SessionInspectorWorkspace", () => {
     expect(responseTabs.map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Messages",
-      "Headers (1)",
+      "Headers",
       "Raw",
     ]);
   });
@@ -160,7 +160,7 @@ describe("SessionInspectorWorkspace", () => {
       "Overview",
       "JSON",
       "JSON Text",
-      "Headers (1)",
+      "Headers",
       "Raw",
       "Automation",
     ]);
@@ -251,7 +251,7 @@ describe("SessionInspectorWorkspace", () => {
     expect(responseTabs.map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Text",
-      "Headers (1)",
+      "Headers",
       "Raw",
       "Automation",
     ]);
@@ -293,7 +293,7 @@ describe("SessionInspectorWorkspace", () => {
 
     expect(responseTabs.map((tab) => tab.textContent)).toEqual([
       "Overview",
-      "Headers (1)",
+      "Headers",
       "Raw",
       "Automation",
     ]);
@@ -335,7 +335,7 @@ describe("SessionInspectorWorkspace", () => {
     expect(responseTabs.map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Preview",
-      "Headers (1)",
+      "Headers",
     ]);
   });
 
@@ -377,7 +377,7 @@ describe("SessionInspectorWorkspace", () => {
       "Overview",
       "Preview",
       "Text",
-      "Headers (1)",
+      "Headers",
     ]);
   });
 
@@ -418,7 +418,7 @@ describe("SessionInspectorWorkspace", () => {
     expect(responseTabs.map((tab) => tab.textContent)).toEqual([
       "Overview",
       "Preview",
-      "Headers (1)",
+      "Headers",
     ]);
   });
 
@@ -486,10 +486,10 @@ describe("SessionInspectorWorkspace", () => {
     const requestTabs = within(requestTabList as HTMLElement).getAllByRole("tab");
 
     expect(requestTabs.map((tab) => tab.textContent)).toEqual([
-      "Query (1)",
+      "Query",
       "Form",
       "Body",
-      "Headers (1)",
+      "Headers",
       "Raw",
     ]);
   });

@@ -1149,15 +1149,15 @@ export function BreakpointInterceptPanel() {
 
   // Request pane tab labels
   const requestTabLabels = {
-    query: `${t("breakpointPanel.query")} (${reqQueryParams.length})`,
-    headers: `${t("breakpointPanel.headers")} (${reqHeaders.length})`,
+    query: t("breakpointPanel.query"),
+    headers: t("breakpointPanel.headers"),
     body: t("breakpointPanel.body"),
   };
 
   // Response pane tab labels
   const responseTabLabels = {
     status: t("breakpointPanel.statusLabel"),
-    headers: `${t("breakpointPanel.headers")} (${mockMode ? mockHeaders.length : respHeaders.length})`,
+    headers: t("breakpointPanel.headers"),
     body: t("breakpointPanel.body"),
   };
 

@@ -66,7 +66,7 @@ describe("BreakpointInterceptPanel", () => {
     expect(screen.getByText("/api/?_method=app.launch&_app=Android-PBUS-3.14.0")).toBeInTheDocument();
     expect(screen.getByText("1 / 1")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Query" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Query (2)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Query" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Status" })).toBeDisabled();
     expect(screen.getByText("2 params")).toBeInTheDocument();
   });
@@ -76,7 +76,9 @@ describe("BreakpointInterceptPanel", () => {
 
     fireEvent.change(screen.getByDisplayValue("_method"), { target: { value: "debug" } });
     fireEvent.change(screen.getByDisplayValue("app.launch"), { target: { value: "1" } });
-    fireEvent.click(screen.getByRole("tab", { name: "Headers (2)" }));
+    const requestTabList = screen.getAllByRole("tablist")[0];
+    if (!requestTabList) throw new Error("Request tablist not found");
+    fireEvent.click(within(requestTabList).getByRole("tab", { name: "Headers" }));
     fireEvent.change(screen.getByDisplayValue("Content-Type"), { target: { value: "X-Debug" } });
     fireEvent.change(screen.getByDisplayValue("application/x-www-form-urlencoded"), { target: { value: "true" } });
     const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
@@ -115,7 +117,7 @@ describe("BreakpointInterceptPanel", () => {
 
     fireEvent.click(within(responsePane).getByRole("tab", { name: "Status" }));
     fireEvent.change(within(responsePane).getByLabelText("Status"), { target: { value: "418" } });
-    fireEvent.click(within(responsePane).getByRole("tab", { name: "Headers (1)" }));
+    fireEvent.click(within(responsePane).getByRole("tab", { name: "Headers" }));
     fireEvent.change(within(responsePane).getByDisplayValue("Content-Type"), { target: { value: "X-Response" } });
     fireEvent.change(within(responsePane).getByDisplayValue("application/json"), { target: { value: "changed" } });
     fireEvent.click(within(responsePane).getByRole("tab", { name: "Body" }));

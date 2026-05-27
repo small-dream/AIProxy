@@ -17,7 +17,6 @@ import {
   inspectorTabsSx,
 } from "./SessionInspectorShared";
 import {
-  buildCountTabLabel,
   getBodyCodeLanguage,
   getRawMessageText,
   type RequestFormEntry,
@@ -108,10 +107,10 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
           value={requestTab}
           variant="scrollable"
         >
-          <Tab label={buildCountTabLabel(t("inspector.request.tabs.query"), detail?.queryParams.length ?? 0)} value="query" />
-          <Tab label={buildCountTabLabel(t("inspector.request.tabs.form"), requestFormEntries.length)} value="form" />
+          <Tab label={t("inspector.request.tabs.query")} value="query" />
+          <Tab label={t("inspector.request.tabs.form")} value="form" />
           <Tab label={t("inspector.request.tabs.body")} value="body" />
-          <Tab label={buildCountTabLabel(t("inspector.request.tabs.headers"), detail?.requestHeaders.length ?? 0)} value="headers" />
+          <Tab label={t("inspector.request.tabs.headers")} value="headers" />
           <Tab label={t("inspector.request.tabs.raw")} value="raw" />
         </Tabs>
         <Button

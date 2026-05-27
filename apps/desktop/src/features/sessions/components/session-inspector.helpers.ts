@@ -179,10 +179,6 @@ export const DEFAULT_INSPECTOR_MESSAGES: InspectorMessages = {
   inspector: enMessages.inspector,
 };
 
-export function buildCountTabLabel(label: string, count: number) {
-  return count > 0 ? `${label} (${count})` : label;
-}
-
 export function buildRequestSubtitle(
   detail: SessionDetail | undefined,
   messages: InspectorMessages = DEFAULT_INSPECTOR_MESSAGES,
