@@ -369,7 +369,11 @@ pub(crate) fn build_body_reference_from_decoded(
     let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
 
     Some(ProxyBodyReference::from_decoded_bytes(
-        decoded_body, mime_type, size_bytes, truncated, render_as_text,
+        decoded_body,
+        mime_type,
+        size_bytes,
+        truncated,
+        render_as_text,
     ))
 }
 

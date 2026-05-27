@@ -637,15 +637,26 @@ async fn handle_connection(
             }
             match tokio::time::timeout(
                 UPSTREAM_REQUEST_TIMEOUT,
-                forward_request(&request, &dns_manager, &active_workspace_id, Some(upstream_pool.clone())),
-            ).await {
+                forward_request(
+                    &request,
+                    &dns_manager,
+                    &active_workspace_id,
+                    Some(upstream_pool.clone()),
+                ),
+            )
+            .await
+            {
                 Ok(result) => result,
                 Err(_) => {
                     let timeout_secs = UPSTREAM_REQUEST_TIMEOUT.as_secs();
-                    let response_message = format!(
-                        "The upstream server did not respond within {timeout_secs}s.",
-                    );
-                    write_plain_text_response(&mut stream, StatusCode::GATEWAY_TIMEOUT, &response_message).await?;
+                    let response_message =
+                        format!("The upstream server did not respond within {timeout_secs}s.",);
+                    write_plain_text_response(
+                        &mut stream,
+                        StatusCode::GATEWAY_TIMEOUT,
+                        &response_message,
+                    )
+                    .await?;
                     let detail = build_session_detail(
                         &request,
                         StatusCode::GATEWAY_TIMEOUT.as_u16(),
@@ -832,8 +843,9 @@ async fn handle_connection(
                                     upstream_response.status_code.as_u16();
                             }
                             if resolution.modified_response_headers.is_some() {
-                                session_detail.response_headers =
-                                    build_header_entries_from_map(&upstream_response.response_headers);
+                                session_detail.response_headers = build_header_entries_from_map(
+                                    &upstream_response.response_headers,
+                                );
                                 session_detail.cookies = build_cookie_entries(
                                     &request.request_headers,
                                     &session_detail.response_headers,
@@ -846,7 +858,9 @@ async fn handle_connection(
                                     &format!(
                                         "HTTP/1.1 {} {}",
                                         upstream_response.status_code.as_u16(),
-                                        upstream_response.status_code.canonical_reason()
+                                        upstream_response
+                                            .status_code
+                                            .canonical_reason()
                                             .unwrap_or("Unknown"),
                                     ),
                                     &session_detail.response_headers,
@@ -1024,7 +1038,11 @@ pub(crate) async fn forward_request(
 
     // Build the request-target (path + query) for the HTTP request line.
     let request_target = if request.url.query().is_some() {
-        format!("{}?{}", request.url.path(), request.url.query().unwrap_or(""))
+        format!(
+            "{}?{}",
+            request.url.path(),
+            request.url.query().unwrap_or("")
+        )
     } else {
         request.url.path().to_string()
     };
@@ -1103,24 +1121,17 @@ pub(crate) async fn forward_request(
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-        return build_upstream_response_from_hyper(
-            response,
-            &request,
-            timing,
-            waiting_ms,
-        )
-        .await;
+        return build_upstream_response_from_hyper(response, &request, timing, waiting_ms).await;
     } else {
         // h1 path — establish a new connection per request.
         let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
-        let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
-            format!(
-                "failed to parse upstream URL '{}' as URI: {e}",
-                request.url
-            )
-        })?;
-        let (timing_stream, connection_timing) =
-            tower_service::Service::call(&mut connector, uri).await.map_err(|error| {
+        let uri: http::Uri =
+            request.url.to_string().parse().map_err(|e| {
+                format!("failed to parse upstream URL '{}' as URI: {e}", request.url)
+            })?;
+        let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
+            .await
+            .map_err(|error| {
                 emit_log(
                     "ERROR",
                     "upstream_connect_failed",
@@ -1196,13 +1207,7 @@ pub(crate) async fn forward_request(
     })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-    build_upstream_response_from_hyper(
-        response,
-        request,
-        connection_timing,
-        waiting_ms,
-    )
-    .await
+    build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await
 }
 
 /// Build an `UpstreamResponse` from a hyper response, reading the body and
@@ -1213,8 +1218,8 @@ async fn build_upstream_response_from_hyper(
     connection_timing: crate::timing_connector::ConnectionTiming,
     waiting_ms: u128,
 ) -> Result<UpstreamResponse, String> {
-    let status_code = StatusCode::from_u16(response.status().as_u16())
-        .unwrap_or(StatusCode::BAD_GATEWAY);
+    let status_code =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
 
     // Collect response headers.
     let mut response_headers = HeaderMap::new();
@@ -1385,8 +1390,7 @@ async fn read_hyper_response_body_with_limit(
     let mut body_stream = std::pin::pin!(response.into_body());
 
     while let Some(frame_result) = body_stream.frame().await {
-        let frame = frame_result
-            .map_err(|error| format!("read hyper response frame: {error}"))?;
+        let frame = frame_result.map_err(|error| format!("read hyper response frame: {error}"))?;
 
         let chunk = match frame.into_data() {
             Ok(data) => data,
@@ -2240,10 +2244,7 @@ async fn handle_connect_mitm(
             ("port", port.to_string()),
             (
                 "alpn",
-                alpn_protocol
-                    .as_deref()
-                    .unwrap_or("(none)")
-                    .to_string(),
+                alpn_protocol.as_deref().unwrap_or("(none)").to_string(),
             ),
         ],
     );

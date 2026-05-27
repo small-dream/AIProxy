@@ -661,7 +661,14 @@ pub fn replace_breakpoint_rules(
         tx.execute(
             "INSERT INTO breakpoint_rules (id, enabled, url_pattern, methods, stage, match_type)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![r.id, r.enabled as i32, r.url_pattern, r.methods, r.stage, r.match_type],
+            params![
+                r.id,
+                r.enabled as i32,
+                r.url_pattern,
+                r.methods,
+                r.stage,
+                r.match_type
+            ],
         )
         .map_err(|e| format!("insert breakpoint rule: {e}"))?;
     }
@@ -674,7 +681,9 @@ pub fn replace_breakpoint_rules(
 
 pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, enabled, url_pattern, methods, stage, match_type FROM breakpoint_rules")
+        .prepare(
+            "SELECT id, enabled, url_pattern, methods, stage, match_type FROM breakpoint_rules",
+        )
         .map_err(|e| format!("prepare load breakpoint rules: {e}"))?;
 
     let rows = stmt

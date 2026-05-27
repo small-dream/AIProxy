@@ -43,8 +43,7 @@ pub fn update_workspace(
     ssl_enabled: Option<bool>,
     updated_at: &str,
 ) -> Result<(), String> {
-    let existing =
-        load_workspace(conn, id)?.ok_or_else(|| format!("workspace {id} not found"))?;
+    let existing = load_workspace(conn, id)?.ok_or_else(|| format!("workspace {id} not found"))?;
 
     let name = name.unwrap_or(&existing.name);
     let proxy_port = proxy_port.unwrap_or(existing.proxy_port);

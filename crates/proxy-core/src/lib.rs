@@ -76,12 +76,12 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, start_proxy_server};
+pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,
     ProxyProtocolMetadata, ProxyRuntimeConfig, ProxyServerHandle, ProxySessionDetail,
     ProxySessionSummary, ProxyTimingBreakdown, StartedProxyServer, TlsManager,
 };
-pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use ws::{
     global_ws_registry, WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest,
     WsMessageData, WsOpcode,

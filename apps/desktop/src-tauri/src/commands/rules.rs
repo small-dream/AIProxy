@@ -178,7 +178,10 @@ pub fn set_breakpoint_rules(
                     BreakpointStage::Request => "Request".to_string(),
                     BreakpointStage::Response => "Response".to_string(),
                 },
-                match_type: r.match_type.clone().unwrap_or_else(|| "contains".to_string()),
+                match_type: r
+                    .match_type
+                    .clone()
+                    .unwrap_or_else(|| "contains".to_string()),
             })
             .collect();
         aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows)
@@ -242,7 +245,11 @@ pub fn save_rewrite_rule(
             match_methods: serde_json::to_string(&input.r#match.methods).unwrap_or_default(),
             match_stage: input.r#match.stage.clone(),
             match_url_pattern: input.r#match.url_pattern.clone(),
-            match_type: input.r#match.match_type.clone().unwrap_or_else(|| "contains".to_string()),
+            match_type: input
+                .r#match
+                .match_type
+                .clone()
+                .unwrap_or_else(|| "contains".to_string()),
             rewrite_type: input.rewrite_type.clone(),
             payload: input.payload.to_string(),
         };

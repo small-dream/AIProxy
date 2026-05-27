@@ -82,11 +82,16 @@ impl Service<Uri> for TimingConnector {
             // Phase 3: TLS handshake (HTTPS only)
             let (timing_stream, tls_ms, alpn_protocol) = if is_https {
                 let tls_started = Instant::now();
-                let server_name = ServerName::try_from(host.clone())
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS"))?;
+                let server_name = ServerName::try_from(host.clone()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS")
+                })?;
                 let tls_stream = tls_connector.connect(server_name, tcp_stream).await?;
                 let tls_ms = tls_started.elapsed().as_millis();
-                let alpn = tls_stream.get_ref().1.alpn_protocol().map(|s| String::from_utf8_lossy(s).into_owned());
+                let alpn = tls_stream
+                    .get_ref()
+                    .1
+                    .alpn_protocol()
+                    .map(|s| String::from_utf8_lossy(s).into_owned());
                 (TimingStream::Tls(tls_stream), Some(tls_ms), alpn)
             } else {
                 (TimingStream::Plain(tcp_stream), None, None)
@@ -129,12 +134,8 @@ impl Read for TimingStream {
         let n = unsafe {
             let mut tbuf = tokio::io::ReadBuf::uninit(buf.as_mut());
             let poll_result = match self.get_mut() {
-                TimingStream::Plain(stream) => {
-                    Pin::new(stream).poll_read(cx, &mut tbuf)
-                }
-                TimingStream::Tls(stream) => {
-                    Pin::new(stream).poll_read(cx, &mut tbuf)
-                }
+                TimingStream::Plain(stream) => Pin::new(stream).poll_read(cx, &mut tbuf),
+                TimingStream::Tls(stream) => Pin::new(stream).poll_read(cx, &mut tbuf),
             };
             match poll_result {
                 Poll::Ready(Ok(())) => tbuf.filled().len(),
@@ -155,34 +156,22 @@ impl Write for TimingStream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
-            TimingStream::Plain(stream) => {
-                Pin::new(stream).poll_write(cx, buf)
-            }
-            TimingStream::Tls(stream) => {
-                Pin::new(stream).poll_write(cx, buf)
-            }
+            TimingStream::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
+            TimingStream::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            TimingStream::Plain(stream) => {
-                Pin::new(stream).poll_flush(cx)
-            }
-            TimingStream::Tls(stream) => {
-                Pin::new(stream).poll_flush(cx)
-            }
+            TimingStream::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            TimingStream::Tls(stream) => Pin::new(stream).poll_flush(cx),
         }
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            TimingStream::Plain(stream) => {
-                Pin::new(stream).poll_shutdown(cx)
-            }
-            TimingStream::Tls(stream) => {
-                Pin::new(stream).poll_shutdown(cx)
-            }
+            TimingStream::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            TimingStream::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
         }
     }
 }
@@ -206,9 +195,12 @@ fn uri_port(uri: &Uri) -> u16 {
 async fn resolve_host(host: &str, port: u16) -> io::Result<SocketAddr> {
     let lookup_target = format!("{host}:{port}");
     let mut addrs = tokio::net::lookup_host(&lookup_target).await?;
-    addrs
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("DNS lookup failed for {host}")))
+    addrs.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("DNS lookup failed for {host}"),
+        )
+    })
 }
 
 /// Build a TLS connector that accepts any server certificate.

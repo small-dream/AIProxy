@@ -599,7 +599,13 @@ fn active_rewrite_rules_for_stage(
         .filter(|rule| rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.r#match.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.r#match.url_pattern, request.url.as_str(), rule.r#match.match_type.as_deref()))
+        .filter(|rule| {
+            pattern_matches(
+                &rule.r#match.url_pattern,
+                request.url.as_str(),
+                rule.r#match.match_type.as_deref(),
+            )
+        })
         .collect();
 
     rules.sort_by(|left, right| right.priority.cmp(&left.priority));
@@ -2122,7 +2128,8 @@ pub(crate) fn apply_request_runtime_rules(
     request: &mut ParsedProxyRequest,
     is_http2: bool,
 ) -> Result<RequestRuntimeOutcome, String> {
-    let rewrite_traces = apply_request_rewrite_rules(rewrite_manager, workspace_id, request, is_http2)?;
+    let rewrite_traces =
+        apply_request_rewrite_rules(rewrite_manager, workspace_id, request, is_http2)?;
     let (local_response, map_traces) = apply_map_rules(map_manager, workspace_id, request)?;
     let throttle_selection =
         active_throttle_selection_for_request(throttle_manager, workspace_id, request);

@@ -1,22 +1,19 @@
 use super::*;
+use crate::MAX_CAPTURED_BODY_BYTES;
 use crate::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
     apply_response_rewrite_rules, apply_response_script_rules, apply_response_throttle,
     build_cookie_entries, build_header_entries_from_map, build_pending_session_detail,
-    build_query_params, build_raw_http_head, build_request_path, build_session_detail,
-    emit_log,
-    intercept_request_stage, intercept_response_stage,
-    throttle_selection_matches_stage, RequestRuntimeOutcome,
-    BreakpointActionKind, BreakpointEventEmitter, BreakpointManager, DnsManager,
-    MapManager, ParsedProxyRequest, ProxySessionDetail, ProxyTimingBreakdown,
-    RewriteManager, ScriptManager, ThrottleManager,
-    UpstreamResponse,
+    build_query_params, build_raw_http_head, build_request_path, build_session_detail, emit_log,
+    intercept_request_stage, intercept_response_stage, throttle_selection_matches_stage,
+    BreakpointActionKind, BreakpointEventEmitter, BreakpointManager, DnsManager, MapManager,
+    ParsedProxyRequest, ProxySessionDetail, ProxyTimingBreakdown, RequestRuntimeOutcome,
+    RewriteManager, ScriptManager, ThrottleManager, UpstreamResponse,
 };
-use crate::MAX_CAPTURED_BODY_BYTES;
+use http_body_util::BodyExt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use http_body_util::BodyExt;
 
 /// Shared state for a single MITM TLS connection. Created once per TLS handshake,
 /// cloned into every request handled on this connection.
@@ -53,9 +50,7 @@ pub(crate) struct MitmService {
 }
 
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for MitmService {
-    type Response = hyper::Response<
-        http_body_util::combinators::BoxBody<bytes::Bytes, String>,
-    >;
+    type Response = hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
     type Error = String;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -207,16 +202,22 @@ async fn handle_mitm_request(
     let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
-        let script_outcome =
-            apply_request_script_rules(&state.script_manager, &state.workspace_id, &mut https_request);
+        let script_outcome = apply_request_script_rules(
+            &state.script_manager,
+            &state.workspace_id,
+            &mut https_request,
+        );
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
 
     // --- Request-stage breakpoint ---
-    if let Some(resolution) =
-        intercept_request_stage(&state.breakpoint_manager, &state.event_emitter, &mut https_request)
-            .await?
+    if let Some(resolution) = intercept_request_stage(
+        &state.breakpoint_manager,
+        &state.event_emitter,
+        &mut https_request,
+    )
+    .await?
     {
         match resolution.action {
             BreakpointActionKind::Drop => {
@@ -302,7 +303,15 @@ async fn handle_mitm_request(
                         },
                         mock_response.body_truncated,
                     );
-                    send_session(&state.session_sender, detail, map_traces, rewrite_traces, script_traces, throttle_traces).await;
+                    send_session(
+                        &state.session_sender,
+                        detail,
+                        map_traces,
+                        rewrite_traces,
+                        script_traces,
+                        throttle_traces,
+                    )
+                    .await;
 
                     return build_hyper_response_from_upstream(
                         mock_response.status_code,
@@ -357,14 +366,20 @@ async fn handle_mitm_request(
         None => {
             match tokio::time::timeout(
                 crate::UPSTREAM_REQUEST_TIMEOUT,
-                crate::server::forward_request(&https_request, &state.dns_manager, &state.workspace_id, Some(state.upstream_pool.clone())),
-            ).await {
+                crate::server::forward_request(
+                    &https_request,
+                    &state.dns_manager,
+                    &state.workspace_id,
+                    Some(state.upstream_pool.clone()),
+                ),
+            )
+            .await
+            {
                 Ok(result) => result,
                 Err(_) => {
                     let timeout_secs = crate::UPSTREAM_REQUEST_TIMEOUT.as_secs();
-                    let response_message = format!(
-                        "The upstream server did not respond within {timeout_secs}s.",
-                    );
+                    let response_message =
+                        format!("The upstream server did not respond within {timeout_secs}s.",);
                     emit_log(
                         "WARN",
                         "upstream_request_timed_out",
@@ -395,7 +410,10 @@ async fn handle_mitm_request(
                         false,
                     );
                     let _ = state.session_sender.send(detail).await;
-                    return build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, &response_message);
+                    return build_plain_text_response(
+                        StatusCode::GATEWAY_TIMEOUT,
+                        &response_message,
+                    );
                 }
             }
         }
@@ -460,11 +478,14 @@ async fn handle_mitm_request(
 
             // For h2, add response pseudo header :status and mark stream metadata.
             if is_h2 {
-                session_detail.response_headers.insert(0, ProxyHeaderEntry {
-                    name: ":status".to_string(),
-                    value: upstream_response.status_code.as_u16().to_string(),
-                    is_pseudo: Some(true),
-                });
+                session_detail.response_headers.insert(
+                    0,
+                    ProxyHeaderEntry {
+                        name: ":status".to_string(),
+                        value: upstream_response.status_code.as_u16().to_string(),
+                        is_pseudo: Some(true),
+                    },
+                );
             }
 
             // --- Response-stage breakpoint ---
@@ -512,7 +533,9 @@ async fn handle_mitm_request(
                                     request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
                                     tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                                    total_ms: Some(
+                                        request_started_at_instant.elapsed().as_millis(),
+                                    ),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
                                 upstream_response.body_truncated,
@@ -540,7 +563,9 @@ async fn handle_mitm_request(
                                     request_send_ms: Some(upstream_response.request_send_ms),
                                     response_read_ms: Some(upstream_response.response_read_ms),
                                     tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                                    total_ms: Some(
+                                        request_started_at_instant.elapsed().as_millis(),
+                                    ),
                                     waiting_ms: Some(upstream_response.waiting_ms),
                                 },
                                 upstream_response.body_truncated,
@@ -556,8 +581,9 @@ async fn handle_mitm_request(
                                     upstream_response.status_code.as_u16();
                             }
                             if resolution.modified_response_headers.is_some() {
-                                session_detail.response_headers =
-                                    build_header_entries_from_map(&upstream_response.response_headers);
+                                session_detail.response_headers = build_header_entries_from_map(
+                                    &upstream_response.response_headers,
+                                );
                                 session_detail.cookies = build_cookie_entries(
                                     &https_request.request_headers,
                                     &session_detail.response_headers,
@@ -570,7 +596,9 @@ async fn handle_mitm_request(
                                     &format!(
                                         "HTTP/1.1 {} {}",
                                         upstream_response.status_code.as_u16(),
-                                        upstream_response.status_code.canonical_reason()
+                                        upstream_response
+                                            .status_code
+                                            .canonical_reason()
                                             .unwrap_or("Unknown"),
                                     ),
                                     &session_detail.response_headers,
@@ -629,13 +657,14 @@ async fn handle_mitm_request(
             // for the hyper response body. For large spooled responses this is
             // suboptimal, but it keeps the initial implementation correct. Streaming
             // from disk can be added as a follow-up optimisation.
-            let response_body = if let Some(ref spool_path) = upstream_response.spooled_response_path {
-                tokio::fs::read(spool_path)
-                    .await
-                    .map_err(|e| format!("read spooled response: {e}"))?
-            } else {
-                upstream_response.response_body.clone()
-            };
+            let response_body =
+                if let Some(ref spool_path) = upstream_response.spooled_response_path {
+                    tokio::fs::read(spool_path)
+                        .await
+                        .map_err(|e| format!("read spooled response: {e}"))?
+                } else {
+                    upstream_response.response_body.clone()
+                };
 
             build_hyper_response_from_upstream(
                 upstream_response.status_code,
@@ -716,8 +745,7 @@ fn build_url_from_hyper(
             .map(|a| a.as_str())
             .unwrap_or(default_host);
         let target = format!("https://{authority}{path}");
-        Url::parse(&target)
-            .map_err(|e| format!("invalid h2 URL '{target}': {e}"))
+        Url::parse(&target).map_err(|e| format!("invalid h2 URL '{target}': {e}"))
     } else {
         // h1: URI may be in origin-form or authority-form.
         let uri_str = parts.uri.to_string();
@@ -744,9 +772,9 @@ fn build_url_from_hyper(
 fn build_upstream_headers_from_hyper(
     headers: &hyper::http::HeaderMap,
 ) -> Result<HeaderMap, String> {
-    let is_ws_upgrade = headers.get("upgrade").map_or(false, |v| {
-        v.as_bytes().eq_ignore_ascii_case(b"websocket")
-    });
+    let is_ws_upgrade = headers
+        .get("upgrade")
+        .map_or(false, |v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
 
     let mut header_map = HeaderMap::new();
     for (name, value) in headers {

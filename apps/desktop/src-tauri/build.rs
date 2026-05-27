@@ -19,7 +19,13 @@ fn git_commit_count() -> Option<String> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
     let repository_root = Path::new(&manifest_dir).join("../../..");
     let output = Command::new("git")
-        .args(["-C", repository_root.to_str()?, "rev-list", "--count", "HEAD"])
+        .args([
+            "-C",
+            repository_root.to_str()?,
+            "rev-list",
+            "--count",
+            "HEAD",
+        ])
         .output()
         .ok()?;
 

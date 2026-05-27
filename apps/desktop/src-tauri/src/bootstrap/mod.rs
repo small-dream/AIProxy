@@ -177,7 +177,6 @@ impl AppState {
             self.dns_manager
                 .set_rules(rows.into_iter().map(dns_mapping_row_to_rule).collect());
         }
-
     }
 
     pub fn read_status(&self) -> BootstrapStatus {
@@ -535,8 +534,7 @@ impl AppState {
             let summary_row = proxy_summary_to_row(&session.summary);
             let detail_row = proxy_detail_to_row(session, &self.body_store);
 
-            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
-            {
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "session_upsert_db_failed",
@@ -1009,7 +1007,11 @@ fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
             methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
             stage: row.match_stage,
             url_pattern: row.match_url_pattern,
-            match_type: if row.match_type.is_empty() { None } else { Some(row.match_type) },
+            match_type: if row.match_type.is_empty() {
+                None
+            } else {
+                Some(row.match_type)
+            },
         },
         rewrite_type: row.rewrite_type,
         workspace_id: row.workspace_id,
@@ -1073,7 +1075,11 @@ fn breakpoint_row_to_rule(row: BreakpointRuleRow) -> BreakpointRule {
             "Response" => BreakpointStage::Response,
             _ => BreakpointStage::Request,
         },
-        match_type: if row.match_type.is_empty() { None } else { Some(row.match_type) },
+        match_type: if row.match_type.is_empty() {
+            None
+        } else {
+            Some(row.match_type)
+        },
     }
 }
 
@@ -1181,9 +1187,10 @@ fn detail_row_to_proxy(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let trailers = row.trailers.as_ref().and_then(|json| {
-        serde_json::from_str(json).ok()
-    });
+    let trailers = row
+        .trailers
+        .as_ref()
+        .and_then(|json| serde_json::from_str(json).ok());
 
     ProxySessionDetail {
         client_address: row.client_address.clone(),
@@ -1310,7 +1317,10 @@ fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> S
         request_body_ref: body_to_json(&detail.request_body),
         response_body_ref: body_to_json(&detail.response_body),
         timing: timing_json,
-        trailers: detail.trailers.as_ref().map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
+        trailers: detail
+            .trailers
+            .as_ref()
+            .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
         h2_stream_id: detail.h2_stream_id,
     }
 }

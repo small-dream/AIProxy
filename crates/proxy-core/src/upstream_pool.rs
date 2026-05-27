@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use http_body_util::combinators::BoxBody;
 use tokio::sync::RwLock;
 
-use crate::timing_connector::ConnectionTiming;
 use crate::emit_log;
+use crate::timing_connector::ConnectionTiming;
 
 /// Key used to look up pooled connections.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -67,10 +67,7 @@ impl UpstreamConnectionPool {
                     emit_log(
                         "DEBUG",
                         "upstream_pool_reuse",
-                        &[
-                            ("host", key.host.clone()),
-                            ("port", key.port.to_string()),
-                        ],
+                        &[("host", key.host.clone()), ("port", key.port.to_string())],
                     );
                     // We don't have timing info for a reused connection.
                     return Ok(Some((pooled.sender.clone(), None)));
@@ -84,10 +81,9 @@ impl UpstreamConnectionPool {
             .parse()
             .map_err(|e| format!("invalid upstream URI for pool: {e}"))?;
 
-        let (timing_stream, connection_timing) =
-            tower_service::Service::call(&mut connector, uri)
-                .await
-                .map_err(|e| format!("upstream pool connect failed: {e}"))?;
+        let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
+            .await
+            .map_err(|e| format!("upstream pool connect failed: {e}"))?;
 
         // Check ALPN — if the upstream did not negotiate h2 we cannot pool this
         // connection as h2. Return None so the caller falls back to h1.
@@ -129,10 +125,7 @@ impl UpstreamConnectionPool {
         emit_log(
             "DEBUG",
             "upstream_pool_new_connection",
-            &[
-                ("host", key.host.clone()),
-                ("port", key.port.to_string()),
-            ],
+            &[("host", key.host.clone()), ("port", key.port.to_string())],
         );
 
         // Store in the pool.
@@ -161,10 +154,7 @@ impl UpstreamConnectionPool {
                 emit_log(
                     "DEBUG",
                     "upstream_pool_evicted",
-                    &[
-                        ("host", key.host.clone()),
-                        ("port", key.port.to_string()),
-                    ],
+                    &[("host", key.host.clone()), ("port", key.port.to_string())],
                 );
             }
             alive
@@ -178,10 +168,7 @@ impl UpstreamConnectionPool {
             emit_log(
                 "DEBUG",
                 "upstream_pool_evicted",
-                &[
-                    ("host", key.host.clone()),
-                    ("port", key.port.to_string()),
-                ],
+                &[("host", key.host.clone()), ("port", key.port.to_string())],
             );
         }
     }

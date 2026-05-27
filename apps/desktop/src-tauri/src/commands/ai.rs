@@ -101,7 +101,10 @@ pub async fn save_ai_settings(
     run_blocking_command("save_ai_settings", move || {
         let conn = db.lock().map_err(|_| "db mutex poisoned".to_string())?;
         let existing = aiproxy_db::ai::load_ai_settings(&conn)?;
-        let existing_api_key = existing.as_ref().map(|row| row.api_key.as_str()).unwrap_or("");
+        let existing_api_key = existing
+            .as_ref()
+            .map(|row| row.api_key.as_str())
+            .unwrap_or("");
         let api_key = if input.clear_api_key.unwrap_or(false) {
             String::new()
         } else if let Some(api_key) = input.api_key {
@@ -130,15 +133,11 @@ pub async fn save_ai_settings(
 }
 
 #[tauri::command]
-pub async fn test_ai_connection(state: State<'_, Arc<AppState>>) -> Result<TestAiConnectionResult, String> {
+pub async fn test_ai_connection(
+    state: State<'_, Arc<AppState>>,
+) -> Result<TestAiConnectionResult, String> {
     let settings = load_configured_ai_settings(state.inner()).await?;
-    let result = call_chat_completion(
-        &settings,
-        "Reply with exactly: ok",
-        "ok",
-        0.0,
-    )
-    .await;
+    let result = call_chat_completion(&settings, "Reply with exactly: ok", "ok", 0.0).await;
 
     match result {
         Ok(_) => Ok(TestAiConnectionResult {
@@ -204,17 +203,27 @@ pub async fn summarize_session_diff(
     })
 }
 
-async fn load_configured_ai_settings(app_state: &AppState) -> Result<aiproxy_db::ai::AiSettingsRow, String> {
+async fn load_configured_ai_settings(
+    app_state: &AppState,
+) -> Result<aiproxy_db::ai::AiSettingsRow, String> {
     let db = Arc::clone(app_state.read_db_connection());
     let row = run_blocking_command("load_configured_ai_settings", move || {
         let conn = db.lock().map_err(|_| "db mutex poisoned".to_string())?;
         aiproxy_db::ai::load_ai_settings(&conn)
     })
     .await?
-    .ok_or_else(|| app_error("AI_NOT_CONFIGURED", "Configure an AI model in Settings first."))?;
+    .ok_or_else(|| {
+        app_error(
+            "AI_NOT_CONFIGURED",
+            "Configure an AI model in Settings first.",
+        )
+    })?;
 
     if row.api_key.trim().is_empty() {
-        return Err(app_error("AI_API_KEY_MISSING", "Configure an AI API key in Settings first."));
+        return Err(app_error(
+            "AI_API_KEY_MISSING",
+            "Configure an AI API key in Settings first.",
+        ));
     }
 
     Ok(row)
@@ -254,11 +263,14 @@ async fn call_chat_completion(
         .map_err(|error| format!("read AI response: {error}"))?;
 
     if !status.is_success() {
-        return Err(format!("AI request failed with HTTP {status}: {}", truncate_for_error(&text)));
+        return Err(format!(
+            "AI request failed with HTTP {status}: {}",
+            truncate_for_error(&text)
+        ));
     }
 
-    let parsed: ChatCompletionResponse = serde_json::from_str(&text)
-        .map_err(|error| format!("parse AI response: {error}"))?;
+    let parsed: ChatCompletionResponse =
+        serde_json::from_str(&text).map_err(|error| format!("parse AI response: {error}"))?;
     parsed
         .choices
         .first()
@@ -313,7 +325,10 @@ fn validate_provider(provider: &str) -> Result<(), String> {
     if provider == DEFAULT_PROVIDER {
         Ok(())
     } else {
-        Err(app_error("UNSUPPORTED_AI_PROVIDER", "Only OpenAI-compatible providers are supported."))
+        Err(app_error(
+            "UNSUPPORTED_AI_PROVIDER",
+            "Only OpenAI-compatible providers are supported.",
+        ))
     }
 }
 
@@ -322,10 +337,17 @@ fn normalize_base_url(base_url: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err(app_error("INVALID_AI_SETTINGS", "Base URL is required."));
     }
-    let url = reqwest::Url::parse(trimmed)
-        .map_err(|_| app_error("INVALID_AI_SETTINGS", "Enter a valid HTTP or HTTPS Base URL."))?;
+    let url = reqwest::Url::parse(trimmed).map_err(|_| {
+        app_error(
+            "INVALID_AI_SETTINGS",
+            "Enter a valid HTTP or HTTPS Base URL.",
+        )
+    })?;
     if url.scheme() != "http" && url.scheme() != "https" {
-        return Err(app_error("INVALID_AI_SETTINGS", "Base URL must start with http:// or https://."));
+        return Err(app_error(
+            "INVALID_AI_SETTINGS",
+            "Base URL must start with http:// or https://.",
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -363,7 +385,10 @@ mod tests {
 
     #[test]
     fn masks_api_key_without_returning_plaintext() {
-        assert_eq!(mask_api_key("sk-abcdef123456"), Some("**** 3456".to_string()));
+        assert_eq!(
+            mask_api_key("sk-abcdef123456"),
+            Some("**** 3456".to_string())
+        );
         assert_eq!(mask_api_key(""), None);
     }
 
