@@ -971,41 +971,34 @@ function VirtualizedSearchableCodeBlock({
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
 }) {
   const MAX_LINE_CHARS = 500;
-  const lines = useMemo(() => {
+  const { lines, maxLineLength } = useMemo(() => {
     const rawLines = code.split(/\r?\n/);
     const result: string[] = [];
+    let longestLineLength = 0;
+
+    function pushLine(line: string) {
+      result.push(line);
+      if (line.length > longestLineLength) {
+        longestLineLength = line.length;
+      }
+    }
+
     for (const line of rawLines) {
       if (line.length <= MAX_LINE_CHARS) {
-        result.push(line);
+        pushLine(line);
       } else {
         for (let i = 0; i < line.length; i += MAX_LINE_CHARS) {
-          result.push(line.slice(i, i + MAX_LINE_CHARS));
+          pushLine(line.slice(i, i + MAX_LINE_CHARS));
         }
       }
     }
-    return result;
+
+    return { lines: result, maxLineLength: longestLineLength };
   }, [code]);
   const lineHeight = language === "json" ? 21 : 20;
   const { containerRef: virtualContainerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);
-
-  const [measuredContentWidth, setMeasuredContentWidth] = useState(0);
-
-  useEffect(() => {
-    const container = virtualContainerRef.current;
-    if (!container || lines.length === 0) return;
-    const computedStyle = window.getComputedStyle(container);
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.font = computedStyle.font;
-    let maxW = 0;
-    for (const line of lines) {
-      const w = ctx.measureText(line).width;
-      if (w > maxW) maxW = w;
-    }
-    setMeasuredContentWidth(Math.ceil(maxW));
-  }, [lines]);
+  const stableContentWidth = maxLineLength > 0 ? `max(100%, ${maxLineLength + 2}ch)` : "100%";
 
   const lineMatchInfo = useMemo(() => {
     if (!matcher) return { totalMatches: 0, lineOffsets: [] as number[], matchLineIndex: -1 };
@@ -1075,7 +1068,7 @@ function VirtualizedSearchableCodeBlock({
         whiteSpace: "pre",
       }}
     >
-      <Box sx={{ height: totalHeight, minWidth: "100%", position: "relative", width: measuredContentWidth > 0 ? measuredContentWidth : "max-content" }}>
+      <Box sx={{ height: totalHeight, minWidth: "100%", position: "relative", width: stableContentWidth }}>
         <Box sx={{ left: 0, position: "absolute", right: 0, top: offsetTop }}>
           {visibleLines.map((line, visibleIndex) => {
             const lineContent =

@@ -25,6 +25,16 @@ describe("SearchableCodeBlock", () => {
     expect(container).not.toHaveTextContent("line 399 match");
   });
 
+  it("keeps virtualized content width stable without canvas text measurement", () => {
+    const createElementSpy = vi.spyOn(document, "createElement");
+
+    renderWithProviders(<SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="" />);
+
+    expect(createElementSpy).not.toHaveBeenCalledWith("canvas");
+
+    createElementSpy.mockRestore();
+  });
+
   it("keeps large content virtualized while scrolling to the first matching off-screen line", () => {
     const { container } = renderWithProviders(<SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="line 399" />);
     const scrollContainer = container.firstChild as HTMLDivElement | null;
