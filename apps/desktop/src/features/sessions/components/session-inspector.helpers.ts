@@ -448,7 +448,8 @@ const REQUEST_OPERATION_PATH_KEYS = new Set([
 ]);
 
 export function getRequestOperationLabel(detail: SessionDetail | undefined, session: SessionSummary): string | undefined {
-  const queryParamValue = getRequestOperationFromQuery(detail?.queryParams);
+  const queryParamValue = getRequestOperationFromQuery(detail?.queryParams)
+    ?? getRequestOperationFromUrl(session);
 
   if (queryParamValue) {
     return queryParamValue;
@@ -550,6 +551,32 @@ function getRequestOperationFromQuery(queryParams: SessionDetail["queryParams"] 
   });
 
   return normalizeOperationValue(fuzzyEntry?.value);
+}
+
+function getRequestOperationFromUrl(session: SessionSummary): string | undefined {
+  const searchParams = getSessionSearchParams(session);
+
+  if (!searchParams) {
+    return undefined;
+  }
+
+  return getRequestOperationFromQuery(
+    Array.from(searchParams.entries()).map(([name, value]) => ({ name, value })),
+  );
+}
+
+function getSessionSearchParams(session: SessionSummary): URLSearchParams | undefined {
+  try {
+    return new URL(session.url).searchParams;
+  } catch {
+    const queryStartIndex = session.path.indexOf("?");
+
+    if (queryStartIndex === -1) {
+      return undefined;
+    }
+
+    return new URLSearchParams(session.path.slice(queryStartIndex + 1));
+  }
 }
 
 function getRequestPathSegments(session: SessionSummary): string[] {

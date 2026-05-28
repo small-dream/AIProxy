@@ -134,12 +134,13 @@ export function InspectorSummaryBar({
         py: 1.25,
       })}
     >
-      <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5}>
-        <Stack alignItems="center" direction="row" spacing={1} sx={{ minWidth: 0 }}>
+      <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5} sx={{ minWidth: 0 }}>
+        <Stack alignItems="center" direction="row" spacing={1} sx={{ flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>
           <Tooltip arrow title={summaryTitle}>
             <Typography
               sx={{
                 color: "text.primary",
+                flex: "1 1 auto",
                 fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 15),
                 fontWeight: 650,
                 lineHeight: 1.25,
@@ -154,12 +155,13 @@ export function InspectorSummaryBar({
             </Typography>
           </Tooltip>
           <Stack alignItems="center" direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+            <Chip color="warning" label={`${totalDuration}ms`} size="small" variant="outlined" />
             {isMediaResponse ? null : (
               <Chip
                 color={getMethodColor(session.method)}
                 label={session.method.toUpperCase()}
                 size="small"
-                variant="filled"
+                variant="outlined"
               />
             )}
             <Chip
@@ -168,11 +170,10 @@ export function InspectorSummaryBar({
               size="small"
               variant="outlined"
             />
-            <Chip label={`${totalDuration}ms`} size="small" variant="outlined" />
           </Stack>
         </Stack>
 
-        <Stack alignItems="center" direction="row" spacing={0.5}>
+        <Stack alignItems="center" direction="row" spacing={0.5} sx={{ flex: "0 0 auto" }}>
           {onRepeat ? (
             <Tooltip arrow title={t("inspector.summary.repeatInCompose")}>
               <IconButton

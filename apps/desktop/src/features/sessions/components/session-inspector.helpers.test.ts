@@ -209,6 +209,15 @@ describe("getRequestOperationLabel", () => {
     expect(getRequestOperationLabel(detail, createSessionSummary())).toBe("app.launch");
   });
 
+  it("reads operation params from the summary URL before detail loads", () => {
+    const session = createSessionSummary({
+      path: "/api/events?__method=track_events",
+      url: "https://api.example.com/api/events?__method=track_events",
+    });
+
+    expect(getRequestOperationLabel(undefined, session)).toBe("track_events");
+  });
+
   it("supports keyed path segments when the method is embedded in the path", () => {
     const session = createSessionSummary({
       path: "/rpc/method/app.launch",
