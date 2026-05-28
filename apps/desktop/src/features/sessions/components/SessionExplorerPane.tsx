@@ -357,18 +357,36 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
       dense
       onClick={onToggle}
       onContextMenu={onContextMenu}
-      sx={{
+      sx={(theme) => ({
+        bgcolor: flashVisible ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.10 : 0.055) : "transparent",
         borderRadius: 1,
         minHeight: 26,
         minWidth: "100%",
+        overflow: "hidden",
+        position: "relative",
         px: 1,
         py: 0.25,
-        transition: "background-color 140ms ease",
+        transition: "background-color 900ms ease, box-shadow 900ms ease",
         width: "100%",
-        "&:hover": {
-          bgcolor: "action.hover",
+        "&::before": {
+          bgcolor: flashVisible ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.82 : 0.72) : "transparent",
+          borderRadius: 999,
+          content: '""',
+          height: 16,
+          left: 2,
+          opacity: flashVisible ? 1 : 0,
+          position: "absolute",
+          top: "50%",
+          transform: "translateY(-50%)",
+          transition: "opacity 900ms ease, background-color 900ms ease",
+          width: 3,
         },
-      }}
+        "&:hover": {
+          bgcolor: flashVisible
+            ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.14 : 0.08)
+            : "action.hover",
+        },
+      })}
     >
       {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
       <Box
@@ -385,14 +403,12 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
       </Box>
       <Box
         component="span"
-        sx={(theme) => ({
-          backgroundColor: flashVisible ? alpha(theme.palette.info.main, 0.16) : "transparent",
+        sx={{
           display: "inline-flex",
           marginLeft: 0.2,
           maxWidth: "calc(100% - 24px)",
           minWidth: 0,
-          transition: "background-color 1800ms ease",
-        })}
+        }}
       >
         <Typography noWrap sx={(theme) => getSessionTreeTextSx(theme)} variant="body2">
           {group.label}
