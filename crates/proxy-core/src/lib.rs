@@ -12,6 +12,8 @@ use reqwest::{
     Client, Method, StatusCode, Url,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::HashMap,
     env,
@@ -37,6 +39,8 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const CLIENT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+#[cfg(test)]
+static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
@@ -86,6 +90,34 @@ pub use ws::{
     global_ws_registry, WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest,
     WsMessageData, WsOpcode,
 };
+
+pub(crate) fn upstream_request_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_UPSTREAM_REQUEST_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    UPSTREAM_REQUEST_TIMEOUT
+}
+
+#[cfg(test)]
+pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard
+}
+
+#[cfg(test)]
+pub(crate) struct TestTimeoutGuard;
+
+#[cfg(test)]
+impl Drop for TestTimeoutGuard {
+    fn drop(&mut self) {
+        TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(0, Ordering::SeqCst);
+    }
+}
 
 #[cfg(test)]
 pub(crate) use breakpoints::apply_request_resolution;

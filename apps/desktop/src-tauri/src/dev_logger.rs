@@ -12,6 +12,7 @@ use tracing_subscriber::{fmt::writer::MakeWriterExt, EnvFilter};
 
 const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
+const RELEASE_LOG_FILE_NAME: &str = "aiproxy-desktop.log";
 
 static GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
@@ -55,6 +56,10 @@ pub fn initialize() -> Result<PathBuf, String> {
     );
 
     Ok(log_file_path)
+}
+
+pub fn current_log_file_path() -> PathBuf {
+    resolve_log_file_path()
 }
 
 pub fn log_debug(component: &str, event: &str, fields: &[(&str, String)]) {
@@ -122,11 +127,18 @@ fn resolve_log_file_path() -> PathBuf {
         }
     }
 
-    discover_workspace_root_from_current_exe()
-        .unwrap_or_else(|| env::temp_dir().join("aiproxy-dev"))
+    if let Some(workspace_root) = discover_workspace_root_from_current_exe() {
+        return workspace_root
+            .join("logs")
+            .join("dev")
+            .join(DEV_LOG_FILE_NAME);
+    }
+
+    dirs::data_local_dir()
+        .unwrap_or_else(|| env::temp_dir().join("aiproxy"))
+        .join("AIProxy")
         .join("logs")
-        .join("dev")
-        .join(DEV_LOG_FILE_NAME)
+        .join(RELEASE_LOG_FILE_NAME)
 }
 
 fn discover_workspace_root_from_current_exe() -> Option<PathBuf> {

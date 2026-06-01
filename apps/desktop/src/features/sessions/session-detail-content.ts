@@ -1,5 +1,6 @@
 import type {
   SessionDetail,
+  SessionDetailContentPatch,
   SessionDetailContentRequest,
 } from "@aiproxy/shared-types";
 import { mergeSessionDetailContent } from "@aiproxy/shared-types";
@@ -8,6 +9,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   getSessionDetail,
   getSessionDetailContent,
+  isCapturedSessionNotFoundError,
 } from "@/services/commands";
 import { SESSION_DETAIL_QUERY_KEY } from "./use-session-detail";
 
@@ -27,15 +29,52 @@ export async function ensureSessionDetailContent(
     return detail;
   }
 
-  const patch = await getSessionDetailContent({
-    sessionId,
-    ...request,
-  });
+  let patch: SessionDetailContentPatch;
+  try {
+    patch = await getSessionDetailContent({
+      sessionId,
+      ...request,
+    });
+  } catch (error) {
+    if (!isCapturedSessionNotFoundError(error)) {
+      throw error;
+    }
+
+    patch = buildUnavailableContentPatch(sessionId, request);
+  }
+
   const nextDetail = mergeSessionDetailContent(detail, patch);
 
   queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, sessionId], nextDetail);
 
   return nextDetail;
+}
+
+function buildUnavailableContentPatch(
+  sessionId: string,
+  request: Omit<SessionDetailContentRequest, "sessionId">,
+): SessionDetailContentPatch {
+  return {
+    sessionId,
+    ...(request.includeRawRequest ? { rawRequestDeferred: false } : {}),
+    ...(request.includeRawResponse ? { rawResponseDeferred: false } : {}),
+    ...(request.includeRequestBodyText || request.includeRequestBodyBase64
+      ? {
+          requestBody: {
+            ...(request.includeRequestBodyText ? { textDeferred: false } : {}),
+            ...(request.includeRequestBodyBase64 ? { base64Deferred: false } : {}),
+          },
+        }
+      : {}),
+    ...(request.includeResponseBodyText || request.includeResponseBodyBase64
+      ? {
+          responseBody: {
+            ...(request.includeResponseBodyText ? { textDeferred: false } : {}),
+            ...(request.includeResponseBodyBase64 ? { base64Deferred: false } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 export function sessionDetailNeedsContent(

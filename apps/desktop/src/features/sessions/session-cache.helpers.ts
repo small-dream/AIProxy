@@ -9,6 +9,8 @@ import type {
 
 import { inferProtocolMetadata } from "./session-protocol.helpers";
 
+export const PENDING_SESSION_TIMEOUT_MS = 120_000;
+
 export function upsertSessionSummary(
   sessions: SessionSummary[],
   nextSession: SessionSummary,
@@ -49,6 +51,45 @@ export function replaceSessionSummary(
   }
 
   return sessions.map((session, index) => (index === existingIndex ? nextSession : session));
+}
+
+export function markTimedOutPendingSession(
+  session: SessionSummary,
+  nowMs = Date.now(),
+  timeoutMs = PENDING_SESSION_TIMEOUT_MS,
+): SessionSummary {
+  if (!isPendingSessionTimedOut(session, nowMs, timeoutMs)) {
+    return session;
+  }
+
+  const startedAtMs = Date.parse(session.startedAt);
+  const durationMs = Number.isFinite(startedAtMs)
+    ? Math.max(timeoutMs, nowMs - startedAtMs)
+    : timeoutMs;
+
+  return {
+    ...session,
+    durationMs,
+    finishedAt: new Date(Number.isFinite(startedAtMs) ? startedAtMs + durationMs : nowMs).toISOString(),
+    statusCode: 504,
+  };
+}
+
+export function isPendingSessionTimedOut(
+  session: SessionSummary,
+  nowMs = Date.now(),
+  timeoutMs = PENDING_SESSION_TIMEOUT_MS,
+): boolean {
+  if (session.statusCode > 0) {
+    return false;
+  }
+
+  const startedAtMs = Date.parse(session.startedAt);
+  if (!Number.isFinite(startedAtMs)) {
+    return false;
+  }
+
+  return nowMs - startedAtMs >= timeoutMs;
 }
 
 export function buildPendingComposedSessionDetail(

@@ -39,6 +39,7 @@ import {
   getLocalIp,
   listAndroidAdbDevices,
   setAndroidProxyViaAdb,
+  showLogFile,
 } from "@/services/commands";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
@@ -544,6 +545,11 @@ export function AppShell() {
         window.open(docsUrl, "_blank");
         break;
       }
+      case "show_logs":
+        void showLogFile().catch((error) => {
+          setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
+        });
+        break;
       case "shortcuts":
         window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
         break;

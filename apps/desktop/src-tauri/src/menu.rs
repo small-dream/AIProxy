@@ -40,6 +40,7 @@ pub mod ids {
     pub const ADB_SET_PROXY: &str = "adb_set_proxy";
     pub const ADB_CLEAR_PROXY: &str = "adb_clear_proxy";
     pub const CHECK_FOR_UPDATES: &str = "check_for_updates";
+    pub const SHOW_LOGS: &str = "show_logs";
     pub const DOCUMENTATION: &str = "documentation";
     pub const SHORTCUTS: &str = "shortcuts";
 }
@@ -281,6 +282,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
         .item(
             &MenuItemBuilder::new("AIProxy Documentation")
                 .id(ids::DOCUMENTATION)
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Show Logs")
+                .id(ids::SHOW_LOGS)
                 .build(handle)?,
         )
         .item(

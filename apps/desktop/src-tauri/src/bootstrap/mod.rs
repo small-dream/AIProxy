@@ -203,15 +203,48 @@ impl AppState {
             .cloned()
         {
             self.touch_session_detail_cache(session_id);
+            crate::dev_logger::log_debug(
+                "desktop.sessions",
+                "session_detail_memory_cache_hit",
+                &[("session_id", session_id.to_string())],
+            );
             return Some(detail);
         }
+        crate::dev_logger::log_debug(
+            "desktop.sessions",
+            "session_detail_memory_cache_miss",
+            &[("session_id", session_id.to_string())],
+        );
 
         // Fallback: load from DB
         let detail = {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
-            let row = aiproxy_db::sessions::load_session_detail(&conn, session_id)
-                .ok()
-                .flatten()?;
+            let row = match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
+                Ok(Some(row)) => {
+                    crate::dev_logger::log_debug(
+                        "desktop.persistence",
+                        "session_detail_db_hit",
+                        &[("session_id", session_id.to_string())],
+                    );
+                    row
+                }
+                Ok(None) => {
+                    crate::dev_logger::log_warn(
+                        "desktop.persistence",
+                        "session_detail_db_miss",
+                        &[("session_id", session_id.to_string())],
+                    );
+                    return None;
+                }
+                Err(error) => {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "load_session_detail_failed",
+                        &[("session_id", session_id.to_string()), ("error", error)],
+                    );
+                    return None;
+                }
+            };
 
             let summary = self
                 .sessions
@@ -221,16 +254,43 @@ impl AppState {
                 .find(|s| s.id == session_id)
                 .cloned()
                 .or_else(|| {
-                    aiproxy_db::sessions::load_session_summary(&conn, session_id)
-                        .ok()
-                        .flatten()
-                        .map(summary_row_to_proxy)
+                    match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
+                        Ok(Some(row)) => {
+                            crate::dev_logger::log_debug(
+                                "desktop.persistence",
+                                "session_summary_db_hit",
+                                &[("session_id", session_id.to_string())],
+                            );
+                            Some(summary_row_to_proxy(row))
+                        }
+                        Ok(None) => {
+                            crate::dev_logger::log_warn(
+                                "desktop.persistence",
+                                "session_summary_db_miss",
+                                &[("session_id", session_id.to_string())],
+                            );
+                            None
+                        }
+                        Err(error) => {
+                            crate::dev_logger::log_error(
+                                "desktop.persistence",
+                                "load_session_summary_failed",
+                                &[("session_id", session_id.to_string()), ("error", error)],
+                            );
+                            None
+                        }
+                    }
                 })?;
 
             detail_row_to_proxy(&row, summary, &self.body_store)
         };
 
         self.insert_session_detail_cache(session_id.to_string(), detail.clone());
+        crate::dev_logger::log_debug(
+            "desktop.sessions",
+            "session_detail_db_backfill_succeeded",
+            &[("session_id", session_id.to_string())],
+        );
 
         Some(detail)
     }
@@ -456,7 +516,7 @@ impl AppState {
         self.insert_session_detail_cache(session_id.clone(), session_detail.clone());
 
         let focused_hosts = self.read_focused_hosts();
-        let removed_session_ids = {
+        let (removed_session_ids, session_count_after_update) = {
             let mut sessions = self
                 .sessions
                 .lock()
@@ -476,10 +536,33 @@ impl AppState {
                 removed_session_ids.push(sessions.remove(eviction_index).id);
             }
 
-            removed_session_ids
+            (removed_session_ids, sessions.len())
         };
 
         if !removed_session_ids.is_empty() {
+            crate::dev_logger::log_warn(
+                "desktop.sessions",
+                "session_summary_evicted",
+                &[
+                    ("session_id", session_id.clone()),
+                    ("removed_count", removed_session_ids.len().to_string()),
+                    ("removed_session_ids", removed_session_ids.join(",")),
+                    (
+                        "session_count_after",
+                        session_count_after_update.to_string(),
+                    ),
+                    ("focused_hosts_count", focused_hosts.len().to_string()),
+                    (
+                        "focused_hosts_sample",
+                        focused_hosts
+                            .iter()
+                            .take(10)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    ),
+                ],
+            );
             {
                 let mut details = self
                     .session_details
@@ -635,7 +718,7 @@ impl AppState {
             if let Some(index) = order.iter().position(|id| id == &session_id) {
                 order.remove(index);
             }
-            order.push_back(session_id);
+            order.push_back(session_id.clone());
 
             while order.len() > SESSION_DETAIL_CACHE_CAPACITY {
                 if let Some(evicted_id) = order.pop_front() {
@@ -645,6 +728,16 @@ impl AppState {
         }
 
         if !evicted_ids.is_empty() {
+            crate::dev_logger::log_info(
+                "desktop.sessions",
+                "session_detail_lru_evicted",
+                &[
+                    ("inserted_session_id", session_id.clone()),
+                    ("evicted_count", evicted_ids.len().to_string()),
+                    ("evicted_session_ids", evicted_ids.join(",")),
+                    ("cache_capacity", SESSION_DETAIL_CACHE_CAPACITY.to_string()),
+                ],
+            );
             let mut details = self
                 .session_details
                 .lock()

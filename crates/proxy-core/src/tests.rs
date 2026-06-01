@@ -5,11 +5,12 @@ use super::rules::{
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    resolve_target_url, send_direct_request, start_proxy_server, BreakpointActionKind,
-    BreakpointResolution, MapManager, MapRule, ParsedProxyRequest, ProxyBodyReference,
-    ProxyHeaderEntry, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
-    ProxyTimingBreakdown, RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer,
-    ThrottleManager, ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
+    override_upstream_request_timeout_for_test, resolve_target_url, send_direct_request,
+    start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
+    ParsedProxyRequest, ProxyBodyReference, ProxyHeaderEntry, ProxyRuntimeConfig,
+    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteManager, RewriteRule,
+    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, UpstreamResponse,
+    MAX_CAPTURED_BODY_BYTES,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, StatusCode, Url};
@@ -1115,6 +1116,67 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
 
     started_proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session() {
+    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyRuntimeConfig {
+            port: proxy_port,
+            ssl_enabled: false,
+            http2_enabled: None,
+        },
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Option::<String>::None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/slow");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    client_stream.read_to_string(&mut response).await.unwrap();
+    let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed timeout session detail");
+
+    assert!(response.contains("504 Gateway Timeout"));
+    assert_eq!(session.summary.status_code, 504);
+    assert_eq!(session.summary.method, "GET");
+    assert_eq!(session.summary.path, "/slow");
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
 }
 
 #[tokio::test]

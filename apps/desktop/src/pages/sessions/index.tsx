@@ -35,7 +35,11 @@ import {
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
 import { upsertImportedSessions } from "@/features/sessions/imported-sessions.store";
-import { upsertSessionSummary } from "@/features/sessions/session-cache.helpers";
+import {
+  markTimedOutPendingSession,
+  PENDING_SESSION_TIMEOUT_MS,
+  upsertSessionSummary,
+} from "@/features/sessions/session-cache.helpers";
 import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
@@ -53,11 +57,12 @@ import {
 import { syncSessionCompareScopes } from "@/features/sessions/session-scope-registry";
 import { useSessionContextActions } from "@/features/sessions/use-session-context-actions";
 import { useSessionContainerStore } from "@/features/sessions/session-container.store";
-import { useSessionDetail } from "@/features/sessions/use-session-detail";
+import { SESSION_DETAIL_QUERY_KEY, useSessionDetail } from "@/features/sessions/use-session-detail";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { listThrottledSessionIds, readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
+import { isCapturedSessionNotFoundError, listThrottledSessionIds, readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
+import { logDevWarn } from "@/services/logger/dev-logger";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
 const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
@@ -142,6 +147,8 @@ export function SessionsPage() {
   const [compareBaseSessionId, setCompareBaseSessionId] = useState(() =>
     readStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY) ?? "",
   );
+  const [locallyTimedOutSessionIds, setLocallyTimedOutSessionIds] = useState<Set<string>>(() => new Set());
+  const [pendingTimeoutNowMs, setPendingTimeoutNowMs] = useState(() => Date.now());
   const [sessionSelectionNonce, setSessionSelectionNonce] = useState(0);
   const { data: throttledSessionIds = [] } = useQuery({
     queryKey: ["throttled-session-ids", "default"],
@@ -163,6 +170,78 @@ export function SessionsPage() {
         .filter((session): session is SessionSummary => Boolean(session)),
     [activeContainer?.sessionIds, sessionSummaryById],
   );
+  const displayActiveSessions = useMemo(
+    () => activeSessions.map((session) =>
+      locallyTimedOutSessionIds.has(session.id)
+        ? markTimedOutPendingSession(session, pendingTimeoutNowMs, 0)
+        : markTimedOutPendingSession(session, pendingTimeoutNowMs),
+    ),
+    [activeSessions, locallyTimedOutSessionIds, pendingTimeoutNowMs],
+  );
+  useEffect(() => {
+    const activePendingIds = new Set(
+      activeSessions
+        .filter((session) => session.statusCode <= 0)
+        .map((session) => session.id),
+    );
+
+    setLocallyTimedOutSessionIds((currentIds) => {
+      const nextIds = new Set(
+        Array.from(currentIds).filter((sessionId) => activePendingIds.has(sessionId)),
+      );
+
+      return nextIds.size === currentIds.size ? currentIds : nextIds;
+    });
+  }, [activeSessions]);
+  useEffect(() => {
+    let nextDelayMs: number | undefined;
+
+    for (const session of activeSessions) {
+      if (session.statusCode > 0 || locallyTimedOutSessionIds.has(session.id)) {
+        continue;
+      }
+
+      const startedAtMs = Date.parse(session.startedAt);
+      if (!Number.isFinite(startedAtMs)) {
+        continue;
+      }
+
+      const delayMs = Math.max(0, startedAtMs + PENDING_SESSION_TIMEOUT_MS - pendingTimeoutNowMs);
+      nextDelayMs = nextDelayMs === undefined ? delayMs : Math.min(nextDelayMs, delayMs);
+    }
+
+    if (nextDelayMs === undefined) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const nowMs = Date.now();
+      const timedOutSessions = activeSessions.filter((session) => {
+        if (session.statusCode > 0 || locallyTimedOutSessionIds.has(session.id)) {
+          return false;
+        }
+
+        const startedAtMs = Date.parse(session.startedAt);
+        return Number.isFinite(startedAtMs) && startedAtMs + PENDING_SESSION_TIMEOUT_MS <= nowMs;
+      });
+
+      for (const session of timedOutSessions) {
+        logDevWarn("ui.sessions", "pending_session_timed_out_locally", {
+          ageMs: nowMs - Date.parse(session.startedAt),
+          host: session.host,
+          method: session.method,
+          path: session.path,
+          sessionId: session.id,
+          timeoutMs: PENDING_SESSION_TIMEOUT_MS,
+          url: session.url,
+        });
+      }
+
+      setPendingTimeoutNowMs(nowMs);
+    }, nextDelayMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeSessions, locallyTimedOutSessionIds, pendingTimeoutNowMs]);
 
   const {
     contextMenuAnchor,
@@ -202,11 +281,11 @@ export function SessionsPage() {
   });
   const filteredByIgnoreSessions = useMemo(() => {
     if (ignoredHosts.size === 0) {
-      return activeSessions;
+      return displayActiveSessions;
     }
 
-    return activeSessions.filter((session) => !ignoredHosts.has(session.host));
-  }, [activeSessions, ignoredHosts]);
+    return displayActiveSessions.filter((session) => !ignoredHosts.has(session.host));
+  }, [displayActiveSessions, ignoredHosts]);
   const filteredByThrottleSessions = useMemo(() => {
     if (!showOnlyThrottled) {
       return filteredByIgnoreSessions;
@@ -231,12 +310,47 @@ export function SessionsPage() {
     () => visibleSessions.find((session) => session.id === activeContainer?.selectedSessionId),
     [activeContainer?.selectedSessionId, visibleSessions],
   );
+  const selectedRawSession = useMemo(
+    () => activeSessions.find((session) => session.id === activeContainer?.selectedSessionId),
+    [activeContainer?.selectedSessionId, activeSessions],
+  );
+  const isSelectedSessionLocallyTimedOut = Boolean(
+    selectedRawSession &&
+      selectedRawSession.statusCode <= 0 &&
+      selectedSession &&
+      (selectedSession.statusCode > 0 || locallyTimedOutSessionIds.has(selectedRawSession.id)),
+  );
   const selectedSessionIdValue = selectedSession?.id;
   const {
     data: selectedSessionDetail,
     error: sessionDetailError,
     isLoading: isSessionDetailLoading,
-  } = useSessionDetail(selectedSessionIdValue);
+  } = useSessionDetail(isSelectedSessionLocallyTimedOut ? undefined : selectedSessionIdValue);
+  const isStaleSessionDetailError = isCapturedSessionNotFoundError(sessionDetailError);
+
+  useEffect(() => {
+    if (
+      !selectedSessionIdValue ||
+      !selectedSession ||
+      !selectedRawSession ||
+      selectedRawSession.statusCode > 0 ||
+      !isStaleSessionDetailError
+    ) {
+      return;
+    }
+
+    logDevWarn("ui.sessions", "selected_pending_session_detail_missing", {
+      host: selectedSession.host,
+      method: selectedSession.method,
+      path: selectedSession.path,
+      sessionId: selectedSession.id,
+      startedAt: selectedSession.startedAt,
+      statusCode: selectedSession.statusCode,
+      url: selectedSession.url,
+    });
+    setLocallyTimedOutSessionIds((currentIds) => new Set(currentIds).add(selectedSession.id));
+    queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, selectedSessionIdValue] });
+  }, [isStaleSessionDetailError, queryClient, selectedRawSession, selectedSession, selectedSessionIdValue]);
   const sessionsErrorMessage = getOperationErrorMessage(
     sessionsError,
     t("sessionsPage.sessionsLoadError"),
@@ -840,7 +954,7 @@ export function SessionsPage() {
           labelNumber: container.labelNumber,
         }))}
         detailErrorMessage={
-          sessionDetailError
+          sessionDetailError && !(isStaleSessionDetailError && selectedRawSession?.statusCode === 0)
             ? getOperationErrorMessage(
                 sessionDetailError,
                 t("sessionsPage.detailLoadError"),
@@ -883,7 +997,7 @@ export function SessionsPage() {
       />
 
       <SessionExportDialog
-        allSessions={activeSessions}
+        allSessions={displayActiveSessions}
         filteredSessions={visibleSessions}
         {...(exportDialogHostScope ? { hostScope: exportDialogHostScope } : {})}
         {...(exportDialogInitialScope ? { initialScope: exportDialogInitialScope } : {})}

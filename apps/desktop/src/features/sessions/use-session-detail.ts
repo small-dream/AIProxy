@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getSessionDetail } from "@/services/commands";
+import { getSessionDetail, isCapturedSessionNotFoundError } from "@/services/commands";
 
 const SESSION_DETAIL_QUERY_KEY = "session-detail";
 
@@ -11,5 +11,6 @@ export function useSessionDetail(sessionId: string | undefined) {
     enabled: Boolean(sessionId),
     queryFn: () => getSessionDetail(sessionId as string),
     queryKey: [SESSION_DETAIL_QUERY_KEY, sessionId],
+    retry: (_failureCount, error) => !isCapturedSessionNotFoundError(error),
   });
 }

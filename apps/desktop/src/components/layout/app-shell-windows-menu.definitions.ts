@@ -94,6 +94,7 @@ export const WINDOWS_MENU_DEFINITIONS = [
       { id: "check_for_updates", label: "Check for Updates..." },
       { kind: "divider" },
       { id: "documentation", label: "AIProxy Documentation" },
+      { id: "show_logs", label: "Show Logs" },
       { id: "shortcuts", label: "Keyboard Shortcuts" },
     ],
   },

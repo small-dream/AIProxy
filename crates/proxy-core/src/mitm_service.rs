@@ -364,8 +364,9 @@ async fn handle_mitm_request(
     let upstream_result: Result<UpstreamResponse, String> = match local_response {
         Some(local_response) => Ok(local_response),
         None => {
+            let upstream_timeout = crate::upstream_request_timeout();
             match tokio::time::timeout(
-                crate::UPSTREAM_REQUEST_TIMEOUT,
+                upstream_timeout,
                 crate::server::forward_request(
                     &https_request,
                     &state.dns_manager,
@@ -377,7 +378,7 @@ async fn handle_mitm_request(
             {
                 Ok(result) => result,
                 Err(_) => {
-                    let timeout_secs = crate::UPSTREAM_REQUEST_TIMEOUT.as_secs();
+                    let timeout_secs = upstream_timeout.as_secs();
                     let response_message =
                         format!("The upstream server did not respond within {timeout_secs}s.",);
                     emit_log(

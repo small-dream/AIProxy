@@ -108,6 +108,8 @@ pub struct SessionDetailContentPatchPayload {
     response_body: Option<SessionBodyContentPatchPayload>,
 }
 
+const SESSION_NOT_FOUND_CODE: &str = "SESSION_NOT_FOUND";
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionsExceptInput {
@@ -145,9 +147,17 @@ pub fn get_session_detail(
     input: GetSessionDetailInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionDetailPayload, String> {
-    let detail = state
-        .read_session_detail(&input.session_id)
-        .ok_or_else(|| format!("captured session {} was not found", input.session_id))?;
+    let detail = match state.read_session_detail(&input.session_id) {
+        Some(detail) => detail,
+        None => {
+            log_session_not_found(
+                "get_session_detail",
+                &input.session_id,
+                state.inner().as_ref(),
+            );
+            return Err(session_not_found_error(&input.session_id));
+        }
+    };
     let payload = build_session_detail_payload(&detail);
 
     log_session_detail_serialization_stats(&detail, &payload);
@@ -160,14 +170,72 @@ pub fn get_session_detail_content(
     input: GetSessionDetailContentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionDetailContentPatchPayload, String> {
-    let detail = state
-        .read_session_detail(&input.session_id)
-        .ok_or_else(|| format!("captured session {} was not found", input.session_id))?;
+    let detail = match state.read_session_detail(&input.session_id) {
+        Some(detail) => detail,
+        None => {
+            log_session_not_found(
+                "get_session_detail_content",
+                &input.session_id,
+                state.inner().as_ref(),
+            );
+            return Err(session_not_found_error(&input.session_id));
+        }
+    };
     let payload = build_session_detail_content_patch(&detail, &input);
 
     log_session_detail_content_stats(&detail, &payload, &input);
 
     Ok(payload)
+}
+
+fn session_not_found_error(session_id: &str) -> String {
+    serde_json::json!({
+        "code": SESSION_NOT_FOUND_CODE,
+        "message": format!("Captured session {session_id} was not found."),
+        "details": {
+            "sessionId": session_id,
+        },
+    })
+    .to_string()
+}
+
+fn log_session_not_found(command_name: &str, session_id: &str, state: &AppState) {
+    let sessions = state.read_sessions();
+    let summary = sessions.iter().find(|session| session.id == session_id);
+    let mut fields = vec![
+        ("command_name", command_name.to_string()),
+        ("session_id", session_id.to_string()),
+        ("session_count", sessions.len().to_string()),
+        ("summary_in_memory", summary.is_some().to_string()),
+    ];
+
+    if let Some(summary) = summary {
+        fields.extend([
+            ("method", summary.method.clone()),
+            ("host", summary.host.clone()),
+            ("path", summary.path.clone()),
+            ("url", summary.url.clone()),
+            ("status_code", summary.status_code.to_string()),
+            ("started_at", summary.started_at.clone()),
+            ("finished_at", summary.finished_at.clone()),
+        ]);
+    }
+
+    log_warn("desktop.sessions", "session_detail_not_found", &fields);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_not_found_error_uses_structured_app_error_payload() {
+        let error = session_not_found_error("session-1");
+        let payload: serde_json::Value = serde_json::from_str(&error).expect("valid json");
+
+        assert_eq!(payload["code"], "SESSION_NOT_FOUND");
+        assert_eq!(payload["details"]["sessionId"], "session-1");
+    }
 }
 
 fn log_session_detail_serialization_stats(

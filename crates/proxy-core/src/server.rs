@@ -635,8 +635,9 @@ async fn handle_connection(
                 .await?;
                 return Ok(());
             }
+            let upstream_timeout = upstream_request_timeout();
             match tokio::time::timeout(
-                UPSTREAM_REQUEST_TIMEOUT,
+                upstream_timeout,
                 forward_request(
                     &request,
                     &dns_manager,
@@ -648,7 +649,7 @@ async fn handle_connection(
             {
                 Ok(result) => result,
                 Err(_) => {
-                    let timeout_secs = UPSTREAM_REQUEST_TIMEOUT.as_secs();
+                    let timeout_secs = upstream_timeout.as_secs();
                     let response_message =
                         format!("The upstream server did not respond within {timeout_secs}s.",);
                     write_plain_text_response(

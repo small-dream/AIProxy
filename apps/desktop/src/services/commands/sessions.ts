@@ -18,6 +18,7 @@ import {
 import {
   logDevDebug,
   logDevInfo,
+  logDevWarn,
 } from "@/services/logger/dev-logger";
 
 import {
@@ -86,8 +87,18 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
 
     return detail;
   } catch (error) {
-    reportCommandFailure("get_session_detail", error);
-    throw coerceAppError(error);
+    const appError = coerceAppError(error);
+    if (isCapturedSessionNotFoundError(appError)) {
+      logDevWarn("ui.commands", "session_detail_not_found", {
+        commandName: "get_session_detail",
+        errorCode: appError.code,
+        message: appError.message,
+        sessionId,
+      });
+    } else {
+      reportCommandFailure("get_session_detail", error);
+    }
+    throw appError;
   }
 }
 
@@ -170,9 +181,24 @@ export async function getSessionDetailContent(
 
     return patch;
   } catch (error) {
-    reportCommandFailure("get_session_detail_content", error);
-    throw coerceAppError(error);
+    const appError = coerceAppError(error);
+    if (isCapturedSessionNotFoundError(appError)) {
+      logDevWarn("ui.commands", "session_detail_not_found", {
+        commandName: "get_session_detail_content",
+        errorCode: appError.code,
+        message: appError.message,
+        request: input,
+        sessionId: input.sessionId,
+      });
+    } else {
+      reportCommandFailure("get_session_detail_content", error);
+    }
+    throw appError;
   }
+}
+
+export function isCapturedSessionNotFoundError(error: unknown): boolean {
+  return coerceAppError(error).code === "SESSION_NOT_FOUND";
 }
 
 export async function getSessionDetailWithContent(
