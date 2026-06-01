@@ -8,18 +8,22 @@ use std::{
     sync::OnceLock,
 };
 
+use chrono::Utc;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt::writer::MakeWriterExt, EnvFilter};
 
 const DEV_LOG_ENV_VAR: &str = "AIPROXY_DEV_LOG_FILE";
 const DEV_LOG_FILE_NAME: &str = "aiproxy-desktop-dev.log";
 const RELEASE_LOG_FILE_NAME: &str = "aiproxy-desktop.log";
+const RETAINED_LOG_FILE_COUNT: usize = 15;
 
 static GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
 pub fn initialize() -> Result<PathBuf, String> {
-    let log_file_path = resolve_log_file_path();
+    let log_file_base_path = resolve_log_file_base_path();
+    let current_log_file_path = current_rolling_log_file_path(&log_file_base_path);
 
-    if let Some(parent) = log_file_path.parent() {
+    if let Some(parent) = log_file_base_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
                 "failed to create AIProxy development log directory {}: {error}",
@@ -28,14 +32,9 @@ pub fn initialize() -> Result<PathBuf, String> {
         })?;
     }
 
-    env::set_var(DEV_LOG_ENV_VAR, &log_file_path);
+    env::set_var(DEV_LOG_ENV_VAR, &log_file_base_path);
 
-    let file_appender = tracing_appender::rolling::never(
-        log_file_path.parent().unwrap_or_else(|| Path::new(".")),
-        log_file_path
-            .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new(DEV_LOG_FILE_NAME)),
-    );
+    let file_appender = build_file_appender(&log_file_base_path)?;
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     let _ = GUARD.set(guard);
 
@@ -52,14 +51,20 @@ pub fn initialize() -> Result<PathBuf, String> {
     log_info(
         "desktop.app",
         "logger_initialized",
-        &[("log_file", log_file_path.display().to_string())],
+        &[
+            ("log_file", current_log_file_path.display().to_string()),
+            (
+                "log_file_retention_count",
+                RETAINED_LOG_FILE_COUNT.to_string(),
+            ),
+        ],
     );
 
-    Ok(log_file_path)
+    Ok(current_log_file_path)
 }
 
 pub fn current_log_file_path() -> PathBuf {
-    resolve_log_file_path()
+    current_rolling_log_file_path(&resolve_log_file_base_path())
 }
 
 pub fn log_debug(component: &str, event: &str, fields: &[(&str, String)]) {
@@ -120,7 +125,64 @@ fn install_panic_hook() {
     }));
 }
 
-fn resolve_log_file_path() -> PathBuf {
+fn build_file_appender(log_file_base_path: &Path) -> Result<RollingFileAppender, String> {
+    let directory = log_file_base_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let (filename_prefix, filename_suffix) = rolling_filename_parts(log_file_base_path);
+
+    RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix(filename_prefix)
+        .filename_suffix(filename_suffix)
+        .max_log_files(RETAINED_LOG_FILE_COUNT)
+        .build(directory)
+        .map_err(|error| {
+            format!(
+                "failed to initialize AIProxy rolling log file appender in {}: {error}",
+                directory.display()
+            )
+        })
+}
+
+fn current_rolling_log_file_path(log_file_base_path: &Path) -> PathBuf {
+    let directory = log_file_base_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let (filename_prefix, filename_suffix) = rolling_filename_parts(log_file_base_path);
+    let date = Utc::now().format("%Y-%m-%d");
+
+    let filename = if filename_suffix.is_empty() {
+        format!("{filename_prefix}.{date}")
+    } else {
+        format!("{filename_prefix}.{date}.{filename_suffix}")
+    };
+
+    directory.join(filename)
+}
+
+fn rolling_filename_parts(log_file_base_path: &Path) -> (String, String) {
+    let filename = log_file_base_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new(DEV_LOG_FILE_NAME));
+    let filename_path = Path::new(filename);
+
+    let prefix = filename_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEV_LOG_FILE_NAME)
+        .to_string();
+    let suffix = filename_path
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_string();
+
+    (prefix, suffix)
+}
+
+fn resolve_log_file_base_path() -> PathBuf {
     if let Ok(log_file) = env::var(DEV_LOG_ENV_VAR) {
         if !log_file.trim().is_empty() {
             return PathBuf::from(log_file);
