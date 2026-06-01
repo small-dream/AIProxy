@@ -125,8 +125,36 @@ impl AppState {
         state
     }
 
+    /// Clear all session data from SQLite and BodyStore.
+    /// Used at startup and shutdown to ensure no session data persists across restarts.
+    pub fn clear_session_storage(&self) {
+        {
+            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "clear_session_storage_db_failed",
+                    &[("error", error)],
+                );
+            }
+        }
+
+        if let Err(error) = self.body_store.clear_all() {
+            crate::dev_logger::log_error(
+                "desktop.persistence",
+                "clear_session_storage_bodies_failed",
+                &[("error", error)],
+            );
+        }
+
+        crate::dev_logger::log_info("desktop.persistence", "session_storage_cleared", &[]);
+    }
+
     /// Load all persisted data from SQLite into the in-memory managers.
     fn init_from_db(&self) {
+        // Clear all session data from previous runs (sessions are ephemeral)
+        self.clear_session_storage();
+
         let conn = self.db.lock().expect("db mutex should not be poisoned");
 
         // Load workspaces
@@ -509,11 +537,12 @@ impl AppState {
     }
 
     /// Update the in-memory caches and emit frontend events for a session.
+    /// Update the in-memory caches and emit frontend events for a session.
+    /// Note: detail is NOT inserted into the LRU here. Only SQLite and summary Vec are updated.
+    /// Detail enters the LRU only when the user explicitly views it via read_session_detail().
     fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) {
         let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
-
-        self.insert_session_detail_cache(session_id.clone(), session_detail.clone());
 
         let focused_hosts = self.read_focused_hosts();
         let (removed_session_ids, session_count_after_update) = {
@@ -1750,13 +1779,23 @@ mod tests {
         let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
         body_store.ensure_dir().unwrap();
 
+        // Create AppState first (init_from_db clears session storage on startup)
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        // Insert test data after AppState creation so it survives the startup cleanup
         let summary = build_summary("db-session", "api.example.com");
         let detail = build_detail(&summary);
         let summary_row = proxy_summary_to_row(&summary);
-        let detail_row = proxy_detail_to_row(&detail, body_store.as_ref());
-        aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        let detail_row = proxy_detail_to_row(&detail, state.body_store.as_ref());
+        {
+            let conn = state
+                .db
+                .lock()
+                .expect("db mutex should not be poisoned");
+            aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
 
-        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+        // Clear in-memory caches so the test must fall back to DB
         state
             .sessions
             .lock()

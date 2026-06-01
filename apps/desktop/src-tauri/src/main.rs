@@ -315,4 +315,7 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
             )],
         );
     }
+
+    // Clear session data on exit (safety net for cases where startup cleanup misses stale data)
+    app_state.clear_session_storage();
 }
