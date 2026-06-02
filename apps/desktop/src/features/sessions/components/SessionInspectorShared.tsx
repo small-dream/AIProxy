@@ -13,7 +13,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars, defaultAppFontSize } from "@/themes/fonts";
-import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, hasPreviewableMediaMimeType, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
+import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, hasPreviewableMediaMimeType, isClientCancelledStatus, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -102,6 +102,12 @@ export function InspectorSummaryBar({
 }) {
   const { t } = useI18n();
   const totalDuration = detail?.timing?.totalMs ?? session.durationMs;
+  const durationLabel = totalDuration === 0
+    ? t("common.tech.lessThanMillisecond")
+    : t("common.tech.milliseconds", { value: totalDuration });
+  const statusLabel = isClientCancelledStatus(session.statusCode)
+    ? `${t("inspector.request.overview.cancelled")} ${session.statusCode}`
+    : String(session.statusCode);
   const isMediaResponse = hasPreviewableMediaMimeType(session.responseMimeType);
   const requestOperationLabel = isMediaResponse
     ? undefined
@@ -155,7 +161,7 @@ export function InspectorSummaryBar({
             </Typography>
           </Tooltip>
           <Stack alignItems="center" direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
-            <Chip color="warning" label={`${totalDuration}ms`} size="small" variant="outlined" />
+            <Chip color="warning" label={durationLabel} size="small" variant="outlined" />
             {isMediaResponse ? null : (
               <Chip
                 color={getMethodColor(session.method)}
@@ -166,7 +172,7 @@ export function InspectorSummaryBar({
             )}
             <Chip
               color={getStatusColor(session.statusCode)}
-              label={String(session.statusCode)}
+              label={statusLabel}
               size="small"
               variant="outlined"
             />

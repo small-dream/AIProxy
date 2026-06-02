@@ -1,10 +1,12 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 
 import { enMessages } from "@/i18n/messages/en";
+import { isClientCancelledStatus } from "./components/session-inspector.helpers";
 import { isWebSocketSessionProtocol } from "./session-protocol.helpers";
 
 export type SessionExplorerResourceKind =
   | "api"
+  | "cancelled"
   | "css"
   | "file"
   | "html"
@@ -171,6 +173,10 @@ export function getSessionQuerySuffix(session: SessionSummary): string {
 export function getSessionResourceKind(session: SessionSummary): SessionExplorerResourceKind {
   if (session.statusCode <= 0) {
     return "pending";
+  }
+
+  if (isClientCancelledStatus(session.statusCode)) {
+    return "cancelled";
   }
 
   if (session.statusCode >= 400) {

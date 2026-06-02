@@ -723,6 +723,10 @@ function getResourceTooltipLabel(
     return t("sessionExplorer.resourceKinds.failed");
   }
 
+  if (resourceKind === "cancelled") {
+    return t("sessionExplorer.resourceKinds.cancelled");
+  }
+
   if (resourceKind === "pending") {
     return t("sessionExplorer.resourceKinds.pending");
   }
@@ -739,7 +743,7 @@ function getResourceTooltipLabel(
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
-  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, resourceKind === "warning" ? 13.5 : 14) });
+  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, resourceKind === "warning" || resourceKind === "cancelled" ? 13.5 : 14) });
 
   if (resourceKind === "api") {
     return <JsonFileIcon sx={sx} />;
@@ -791,7 +795,7 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
     return <CircularProgress color="inherit" size={12} thickness={6} />;
   }
 
-  if (resourceKind === "warning") {
+  if (resourceKind === "warning" || resourceKind === "cancelled") {
     return <WarningAmberRoundedIcon sx={sx} />;
   }
 
@@ -813,6 +817,10 @@ function getResourceColor(theme: Theme, resourceKind: SessionExplorerResourceKin
 
   if (resourceKind === "warning") {
     return alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.88 : 0.76);
+  }
+
+  if (resourceKind === "cancelled") {
+    return theme.palette.warning.dark;
   }
 
   if (resourceKind === "api") {

@@ -897,6 +897,7 @@ export const enMessages = {
     loading: "Loading captured sessions...",
     pending: "Pending",
     resourceKinds: {
+      cancelled: "Cancelled",
       css: "CSS",
       failed: "Failed",
       file: "File",
@@ -953,6 +954,7 @@ export const enMessages = {
       headersTitle: "Request Headers",
       noBodyCaptured: "No request body captured",
       overview: {
+        cancelled: "Cancelled",
         complete: "Complete",
         fields: {
           clientAddress: "Client Address",

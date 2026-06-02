@@ -899,6 +899,7 @@ export const zhCNMessages: Messages = {
     loading: "正在加载已捕获的会话...",
     pending: "等待中",
     resourceKinds: {
+      cancelled: "已取消",
       css: "CSS",
       failed: "失败",
       file: "文件",
@@ -955,6 +956,7 @@ export const zhCNMessages: Messages = {
       headersTitle: "请求 Headers",
       noBodyCaptured: "未捕获请求 Body",
       overview: {
+        cancelled: "已取消",
         complete: "完成",
         fields: {
           clientAddress: "客户端地址",

@@ -13,7 +13,7 @@ import {
   inspectorValueTypographySx,
 } from "./SessionInspectorShared";
 import { formatSessionProtocol, getSessionProtocolMetadata } from "@/features/sessions/session-protocol.helpers";
-import { formatTiming } from "./session-inspector.helpers";
+import { formatTiming, isClientCancelledStatus } from "./session-inspector.helpers";
 import { WaterfallChart } from "./WaterfallChart";
 
 type OverviewSection = {
@@ -410,6 +410,9 @@ function buildOverviewSections({
   const responseCookieBytes = detail ? estimateCookieBytes(detail.responseHeaders, "set-cookie") : undefined;
   const requestUncompressedBytes = estimateDecodedBodyBytes(detail?.requestBody);
   const responseUncompressedBytes = estimateDecodedBodyBytes(detail?.responseBody);
+  const statusLabel = isClientCancelledStatus(session.statusCode)
+    ? t("inspector.request.overview.cancelled")
+    : session.statusCode > 0 ? t("inspector.request.overview.complete") : t("common.states.pending");
 
   return {
     sections: [
@@ -419,7 +422,7 @@ function buildOverviewSections({
         items: [
           [t("common.labels.url"), session.url],
           [t("common.labels.method"), session.method],
-          [t("inspector.request.overview.fields.status"), session.statusCode > 0 ? t("inspector.request.overview.complete") : t("common.states.pending")],
+          [t("inspector.request.overview.fields.status"), statusLabel],
           [t("inspector.request.overview.fields.responseCode"), session.statusCode > 0 ? String(session.statusCode) : fallback],
           [t("inspector.request.overview.fields.contentType"), responseContentType],
           [t("inspector.request.overview.fields.clientAddress"), detail?.clientAddress ?? fallback],

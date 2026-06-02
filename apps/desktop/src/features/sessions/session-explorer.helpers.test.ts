@@ -401,6 +401,7 @@ describe("getSessionResourceKind", () => {
 
   it("falls back to pending and warning states", () => {
     expect(getSessionResourceKind(createSessionSummary({ statusCode: 0 }))).toBe("pending");
+    expect(getSessionResourceKind(createSessionSummary({ statusCode: 499 }))).toBe("cancelled");
     expect(getSessionResourceKind(createSessionSummary({ statusCode: 500 }))).toBe("warning");
   });
 });

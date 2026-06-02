@@ -378,6 +378,10 @@ export function formatTiming(value: number | undefined, fallbackLabel?: string, 
   return messages.tech.milliseconds.replace("{{value}}", String(value));
 }
 
+export function isClientCancelledStatus(statusCode: number): boolean {
+  return statusCode === 499;
+}
+
 export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
   if (statusCode >= 500) {
     return "error";
