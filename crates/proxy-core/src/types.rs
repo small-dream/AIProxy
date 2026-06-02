@@ -668,7 +668,7 @@ impl std::fmt::Debug for TlsManager {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ParsedProxyRequest {
     pub(crate) body: Vec<u8>,
     pub(crate) client_address: Option<String>,

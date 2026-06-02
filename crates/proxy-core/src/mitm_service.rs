@@ -15,6 +15,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+const CLIENT_CLOSED_REQUEST_STATUS: u16 = 499;
+
 /// Shared state for a single MITM TLS connection. Created once per TLS handshake,
 /// cloned into every request handled on this connection.
 #[allow(dead_code)]
@@ -328,6 +330,13 @@ async fn handle_mitm_request(
     let mut pending_detail = build_pending_session_detail(&https_request, request_started_at);
     pending_detail.map_traces = map_traces.clone();
     let _ = state.session_sender.send(pending_detail).await;
+    let mut cancellation_guard = PendingRequestCancellationGuard::new(
+        https_request.clone(),
+        state.session_sender.clone(),
+        request_started_at,
+        request_started_at_instant,
+        map_traces.clone(),
+    );
 
     // --- Request throttle ---
     if let Some(selection) = throttle_selection
@@ -346,6 +355,7 @@ async fn handle_mitm_request(
                     manager.record_trace(&failure.trace);
                 }
                 throttle_traces.push(failure.trace);
+                cancellation_guard.disarm();
                 return build_throttle_failure_response(
                     &https_request,
                     &state,
@@ -411,6 +421,7 @@ async fn handle_mitm_request(
                         false,
                     );
                     let _ = state.session_sender.send(detail).await;
+                    cancellation_guard.disarm();
                     return build_plain_text_response(
                         StatusCode::GATEWAY_TIMEOUT,
                         &response_message,
@@ -437,13 +448,55 @@ async fn handle_mitm_request(
                     ],
                 );
             } else {
-                rewrite_traces.extend(apply_response_rewrite_rules(
+                let response_rewrite_traces = match apply_response_rewrite_rules(
                     &state.rewrite_manager,
                     &state.workspace_id,
                     &https_request,
                     &mut upstream_response,
                     is_h2,
-                )?);
+                ) {
+                    Ok(traces) => traces,
+                    Err(error) => {
+                        let response_message =
+                            "The proxy could not process the upstream HTTPS response.";
+                        let detail = build_session_detail(
+                            &https_request,
+                            StatusCode::BAD_GATEWAY.as_u16(),
+                            &HeaderMap::new(),
+                            response_message.as_bytes(),
+                            response_message.len(),
+                            request_started_at,
+                            request_started_at_instant,
+                            ProxyTimingBreakdown {
+                                connect_ms: Some(upstream_response.connect_ms),
+                                dns_ms: Some(upstream_response.dns_ms),
+                                request_send_ms: Some(upstream_response.request_send_ms),
+                                response_read_ms: Some(upstream_response.response_read_ms),
+                                tls_ms: upstream_response.tls_ms,
+                                total_ms: Some(request_started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(upstream_response.waiting_ms),
+                            },
+                            false,
+                        );
+                        let _ = state.session_sender.send(detail).await;
+                        emit_log(
+                            "ERROR",
+                            "https_response_processing_failed",
+                            &[
+                                ("request_id", https_request.request_id.clone()),
+                                ("host", state.host.clone()),
+                                ("url", https_request.url.to_string()),
+                                ("error", error),
+                            ],
+                        );
+                        cancellation_guard.disarm();
+                        return build_plain_text_response(
+                            StatusCode::BAD_GATEWAY,
+                            response_message,
+                        );
+                    }
+                };
+                rewrite_traces.extend(response_rewrite_traces);
                 script_traces.extend(apply_response_script_rules(
                     &state.script_manager,
                     &state.workspace_id,
@@ -506,6 +559,7 @@ async fn handle_mitm_request(
                     Ok(resolution) => resolution,
                     Err(error) => {
                         let _ = state.session_sender.send(session_detail).await;
+                        cancellation_guard.disarm();
                         return Err(error);
                     }
                 }
@@ -515,6 +569,7 @@ async fn handle_mitm_request(
                 match resolution.action {
                     BreakpointActionKind::Drop => {
                         let _ = state.session_sender.send(session_detail).await;
+                        cancellation_guard.disarm();
                         return Ok(build_empty_response(StatusCode::NO_CONTENT));
                     }
                     BreakpointActionKind::Mock => {
@@ -638,6 +693,7 @@ async fn handle_mitm_request(
                 Vec::new(),
             )
             .await;
+            cancellation_guard.disarm();
 
             emit_log(
                 "DEBUG",
@@ -714,8 +770,104 @@ async fn handle_mitm_request(
                 ],
             );
 
+            cancellation_guard.disarm();
             build_plain_text_response(StatusCode::BAD_GATEWAY, response_message)
         }
+    }
+}
+
+struct PendingRequestCancellationGuard {
+    disarmed: bool,
+    map_traces: Vec<crate::MapTrace>,
+    request: ParsedProxyRequest,
+    sender: mpsc::Sender<ProxySessionDetail>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+}
+
+impl PendingRequestCancellationGuard {
+    fn new(
+        request: ParsedProxyRequest,
+        sender: mpsc::Sender<ProxySessionDetail>,
+        started_at: DateTime<Utc>,
+        started_at_instant: Instant,
+        map_traces: Vec<crate::MapTrace>,
+    ) -> Self {
+        Self {
+            disarmed: false,
+            map_traces,
+            request,
+            sender,
+            started_at,
+            started_at_instant,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.disarmed = true;
+    }
+}
+
+impl Drop for PendingRequestCancellationGuard {
+    fn drop(&mut self) {
+        if self.disarmed {
+            return;
+        }
+
+        let elapsed_ms = self.started_at_instant.elapsed().as_millis();
+        let mut detail = build_session_detail(
+            &self.request,
+            CLIENT_CLOSED_REQUEST_STATUS,
+            &HeaderMap::new(),
+            &[],
+            0,
+            self.started_at,
+            self.started_at_instant,
+            ProxyTimingBreakdown {
+                connect_ms: None,
+                dns_ms: None,
+                request_send_ms: None,
+                response_read_ms: Some(0),
+                tls_ms: None,
+                total_ms: Some(elapsed_ms),
+                waiting_ms: Some(elapsed_ms),
+            },
+            false,
+        );
+        detail.map_traces = self.map_traces.clone();
+        detail.timing_source = Some("proxy".to_string());
+
+        let request_id = self.request.request_id.clone();
+        let host = self.request.host.clone();
+        let method = self.request.method.to_string();
+        let url = self.request.url.to_string();
+        let sender = self.sender.clone();
+
+        tokio::spawn(async move {
+            if sender.send(detail).await.is_err() {
+                emit_log(
+                    "DEBUG",
+                    "session_send_dropped",
+                    &[("reason", "receiver_disconnected".to_string())],
+                );
+            }
+
+            emit_log(
+                "WARN",
+                "upstream_request_cancelled",
+                &[
+                    ("request_id", request_id),
+                    ("method", method),
+                    ("host", host),
+                    ("url", url),
+                    (
+                        "reason",
+                        "client_disconnected_or_request_cancelled".to_string(),
+                    ),
+                    ("elapsed_ms", elapsed_ms.to_string()),
+                ],
+            );
+        });
     }
 }
 
