@@ -199,6 +199,8 @@ type SessionDetail = {
   responseHeaders: HeaderEntry[];
   serverIp?: string;
   mapTraces?: MapSessionTrace[];
+  rewriteTraces?: RewriteSessionTrace[];
+  scriptTraces?: ScriptSessionTrace[];
   throttleTraces?: ThrottleSessionTrace[];
   tlsCipherSuite?: string;
   tlsProtocol?: string;
@@ -277,7 +279,9 @@ type BreakpointResolution = {
   action: BreakpointActionKind;
   mock?: MockResponse;
   modifiedRequestHeaders?: HeaderEntry[];
+  modifiedRequestQueryParams?: HeaderEntry[];
   modifiedRequestBodyBase64?: string;
+  modifiedResponseStatusCode?: number;
   modifiedResponseHeaders?: HeaderEntry[];
   modifiedResponseBodyBase64?: string;
 };

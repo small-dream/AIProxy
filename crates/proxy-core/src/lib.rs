@@ -15,7 +15,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     fs::{self},
     io::{self, Cursor, Read},

@@ -41,6 +41,8 @@ pub struct ScriptRuleMatch {
     pub url_pattern: String,
     pub methods: Vec<String>,
     pub stage: String,
+    #[serde(default)]
+    pub match_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -879,6 +881,7 @@ mod tests {
                 url_pattern: "example.com".to_string(),
                 methods: vec!["GET".to_string()],
                 stage: "either".to_string(),
+                match_type: None,
             },
             language,
             source_type: ScriptRuleSourceType::Inline,

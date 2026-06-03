@@ -1,5 +1,5 @@
 import { AppError, isNullableBoolean, isNullableNumber, isNullableString } from "./common";
-import { isMapSessionTrace, type MapSessionTrace } from "./rules";
+import { isMapSessionTrace, type MapSessionTrace, type RewriteSessionTrace, isRewriteSessionTrace, type ScriptSessionTrace, isScriptSessionTrace } from "./rules";
 import { isThrottleSessionTrace, type ThrottleSessionTrace } from "./throttling";
 
 export type SessionSummary = {
@@ -66,6 +66,8 @@ export type SessionDetail = {
   serverIp?: string;
   summary: SessionSummary;
   mapTraces?: MapSessionTrace[];
+  rewriteTraces?: RewriteSessionTrace[];
+  scriptTraces?: ScriptSessionTrace[];
   throttleTraces?: ThrottleSessionTrace[];
   tlsCipherSuite?: string;
   tlsProtocol?: string;
@@ -316,8 +318,12 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     tlsCipherSuite?: string | null;
     tlsProtocol?: string | null;
     mapTraces?: MapSessionTrace[] | null;
+    rewriteTraces?: RewriteSessionTrace[] | null;
+    scriptTraces?: ScriptSessionTrace[] | null;
     throttleTraces?: ThrottleSessionTrace[] | null;
     timing?: TimingBreakdown | null;
+    trailers?: HeaderEntry[] | null;
+    h2StreamId?: number | null;
   };
 
   return (
@@ -335,8 +341,12 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
     (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
     (candidate.mapTraces === undefined || candidate.mapTraces === null || (Array.isArray(candidate.mapTraces) && candidate.mapTraces.every(isMapSessionTrace))) &&
+    (candidate.rewriteTraces === undefined || candidate.rewriteTraces === null || (Array.isArray(candidate.rewriteTraces) && candidate.rewriteTraces.every(isRewriteSessionTrace))) &&
+    (candidate.scriptTraces === undefined || candidate.scriptTraces === null || (Array.isArray(candidate.scriptTraces) && candidate.scriptTraces.every(isScriptSessionTrace))) &&
     (candidate.throttleTraces === undefined || candidate.throttleTraces === null || (Array.isArray(candidate.throttleTraces) && candidate.throttleTraces.every(isThrottleSessionTrace))) &&
     (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
+    (candidate.trailers === undefined || candidate.trailers === null || (Array.isArray(candidate.trailers) && candidate.trailers.every(isHeaderEntry))) &&
+    isNullableNumber(candidate.h2StreamId) &&
     isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
     isNullableBoolean(candidate.rawRequestDeferred) &&
@@ -367,6 +377,10 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       mapTraces?: MapSessionTrace[] | null;
       throttleTraces?: ThrottleSessionTrace[] | null;
       timing?: TimingBreakdown | null;
+      rewriteTraces?: RewriteSessionTrace[] | null;
+      scriptTraces?: ScriptSessionTrace[] | null;
+      trailers?: HeaderEntry[] | null;
+      h2StreamId?: number | null;
     };
 
     return {
@@ -423,6 +437,18 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.timingSource !== null && candidate.timingSource !== undefined
         ? { timingSource: candidate.timingSource as SessionDetail["timingSource"] }
+        : {}),
+      ...(candidate.rewriteTraces !== null && candidate.rewriteTraces !== undefined
+        ? { rewriteTraces: candidate.rewriteTraces }
+        : {}),
+      ...(candidate.scriptTraces !== null && candidate.scriptTraces !== undefined
+        ? { scriptTraces: candidate.scriptTraces }
+        : {}),
+      ...(candidate.trailers !== null && candidate.trailers !== undefined
+        ? { trailers: candidate.trailers }
+        : {}),
+      ...(candidate.h2StreamId !== null && candidate.h2StreamId !== undefined
+        ? { h2StreamId: candidate.h2StreamId }
         : {}),
     };
   }

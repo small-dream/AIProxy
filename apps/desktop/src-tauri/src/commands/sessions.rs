@@ -66,6 +66,12 @@ pub struct SessionDetailPayload {
     response_headers: Vec<ProxyHeaderEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     map_traces: Vec<aiproxy_proxy_core::MapTrace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    rewrite_traces: Vec<aiproxy_proxy_core::RewriteTrace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    throttle_traces: Vec<aiproxy_proxy_core::ThrottleTrace>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,6 +81,12 @@ pub struct SessionDetailPayload {
     summary: ProxySessionSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     timing: Option<ProxyTimingBreakdown>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timing_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trailers: Option<Vec<ProxyHeaderEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    h2_stream_id: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -411,11 +423,17 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
             .map(build_lightweight_body_payload),
         response_headers: detail.response_headers.clone(),
         map_traces: detail.map_traces.clone(),
+        rewrite_traces: detail.rewrite_traces.clone(),
+        script_traces: detail.script_traces.clone(),
+        throttle_traces: detail.throttle_traces.clone(),
         server_ip: detail.server_ip.clone(),
         tls_cipher_suite: detail.tls_cipher_suite.clone(),
         tls_protocol: detail.tls_protocol.clone(),
         summary: detail.summary.clone(),
         timing: detail.timing.clone(),
+        timing_source: detail.timing_source.clone(),
+        trailers: detail.trailers.clone(),
+        h2_stream_id: detail.h2_stream_id,
     }
 }
 

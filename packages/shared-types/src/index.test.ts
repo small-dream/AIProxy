@@ -161,6 +161,7 @@ describe("normalizeStartProxyInput", () => {
     });
 
     expect(actual).toEqual({
+      enableHttp2: true,
       enableSsl: true,
       port: DEFAULT_PROXY_PORT,
       workspaceId: "default-workspace",
@@ -320,9 +321,104 @@ describe("isSessionDetail", () => {
         totalMs: 3,
         waitingMs: 0,
       },
+      rewriteTraces: [],
+      scriptTraces: [],
+      trailers: [{ name: "x-trailer", value: "test" }],
+      h2StreamId: 1,
     });
 
     expect(actual).toBe(true);
+  });
+
+  it("accepts session detail with all trace fields", () => {
+    const actual = isSessionDetail({
+      id: "test-id",
+      cookies: [],
+      requestHeaders: [],
+      responseHeaders: [],
+      queryParams: [],
+      summary: {
+        durationMs: 10,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "test-id",
+        method: "GET",
+        path: "/",
+        protocol: "http",
+        sizeBytes: 0,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/",
+      },
+      mapTraces: [{
+        durationMs: 5,
+        mode: "remote",
+        originalUrl: "https://a.example.com/x",
+        outcome: "success",
+        ruleId: "m1",
+        ruleName: "map-remote",
+        sourcePattern: "a.example.com",
+        targetValue: "b.example.com",
+      }],
+      rewriteTraces: [{
+        durationMs: 3,
+        entries: [{ kind: "header", key: "X-Custom", after: "new-value", before: "old-value", sequence: 0 }],
+        outcome: "success",
+        rewriteType: "header",
+        ruleId: "r1",
+        ruleName: "rewrite-header",
+        stage: "request",
+      }],
+      scriptTraces: [{
+        durationMs: 10,
+        entries: [{ kind: "log", level: "info", message: "script ran", sequence: 0 }],
+        outcome: "success",
+        ruleId: "s1",
+        stage: "request",
+      }],
+      throttleTraces: [{
+        bodyBytes: 1024,
+        delayMs: 50,
+        latencyMs: 100,
+        outcome: "applied",
+        profileId: "p1",
+        profileName: "Slow 3G",
+        sequence: 0,
+        stage: "request",
+        transferDelayMs: 200,
+      }],
+      trailers: [{ name: "x-trailer", value: "test" }],
+      h2StreamId: 42,
+      timingSource: "proxy",
+    });
+
+    expect(actual).toBe(true);
+  });
+
+  it("rejects session detail with invalid rewriteTraces", () => {
+    const actual = isSessionDetail({
+      id: "test-id",
+      cookies: [],
+      requestHeaders: [],
+      responseHeaders: [],
+      queryParams: [],
+      summary: {
+        durationMs: 10,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "test-id",
+        method: "GET",
+        path: "/",
+        protocol: "http",
+        sizeBytes: 0,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/",
+      },
+      rewriteTraces: "not-an-array",
+    });
+
+    expect(actual).toBe(false);
   });
 });
 
@@ -462,6 +558,54 @@ describe("parseSessionDetail", () => {
       totalMs: 3,
       waitingMs: 0,
     });
+  });
+
+  it("preserves rewriteTraces, scriptTraces, trailers, and h2StreamId", () => {
+    const payload = {
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      requestHeaders: [{ name: "Host", value: "example.com" }],
+      responseHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+      rewriteTraces: [{
+        durationMs: 3,
+        entries: [{ kind: "header", key: "X-Custom", after: "new-value", before: "old-value", sequence: 0 }],
+        outcome: "success",
+        rewriteType: "header",
+        ruleId: "r1",
+        ruleName: "rewrite-header",
+        stage: "request",
+      }],
+      scriptTraces: [{
+        durationMs: 10,
+        entries: [{ kind: "log", level: "info", message: "script ran", sequence: 0 }],
+        outcome: "success",
+        ruleId: "s1",
+        stage: "request",
+      }],
+      trailers: [{ name: "x-trailer", value: "test" }],
+      h2StreamId: 7,
+    };
+
+    const parsed = parseSessionDetail(payload);
+
+    expect(parsed.rewriteTraces).toEqual(payload.rewriteTraces);
+    expect(parsed.scriptTraces).toEqual(payload.scriptTraces);
+    expect(parsed.trailers).toEqual(payload.trailers);
+    expect(parsed.h2StreamId).toBe(payload.h2StreamId);
   });
 
   it("throws when the payload is invalid", () => {

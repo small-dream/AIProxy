@@ -1,11 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 const MAX_WS_FRAME_SIZE: u64 = 16 * 1024 * 1024;
 const WS_MASK_CHUNK_BYTES: usize = 16 * 1024;
+
+/// Timeout for individual read operations during WebSocket frame parsing.
+/// Prevents a malicious peer from stalling the relay by sending a header
+/// that claims a large payload but never delivers the data.
+const WS_FRAME_READ_TIMEOUT_SECS: u64 = 30;
 
 // ---------------------------------------------------------------------------
 // WebSocket frame types
@@ -65,11 +72,15 @@ pub struct WsFrame {
 
 /// Read one WebSocket frame from an async stream.
 /// Returns the parsed frame with unmasked payload.
+/// Each read operation is guarded by a timeout to prevent a stalled peer
+/// from blocking the relay loop indefinitely.
 pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<WsFrame, String> {
+    let read_timeout = Duration::from_secs(WS_FRAME_READ_TIMEOUT_SECS);
+
     let mut head = [0u8; 2];
-    reader
-        .read_exact(&mut head)
+    timeout(read_timeout, reader.read_exact(&mut head))
         .await
+        .map_err(|_| format!("ws frame header read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
         .map_err(|e| format!("ws frame header read: {e}"))?;
 
     let fin = (head[0] & 0x80) != 0;
@@ -79,16 +90,20 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
 
     if payload_len == 126 {
         let mut ext = [0u8; 2];
-        reader
-            .read_exact(&mut ext)
+        timeout(read_timeout, reader.read_exact(&mut ext))
             .await
+            .map_err(|_| {
+                format!("ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+            })?
             .map_err(|e| format!("ws extended length read: {e}"))?;
         payload_len = u16::from_be_bytes(ext) as u64;
     } else if payload_len == 127 {
         let mut ext = [0u8; 8];
-        reader
-            .read_exact(&mut ext)
+        timeout(read_timeout, reader.read_exact(&mut ext))
             .await
+            .map_err(|_| {
+                format!("ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+            })?
             .map_err(|e| format!("ws extended length read: {e}"))?;
         payload_len = u64::from_be_bytes(ext);
     }
@@ -101,9 +116,11 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
 
     let mut mask_key = [0u8; 4];
     if mask {
-        reader
-            .read_exact(&mut mask_key)
+        timeout(read_timeout, reader.read_exact(&mut mask_key))
             .await
+            .map_err(|_| {
+                format!("ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+            })?
             .map_err(|e| format!("ws mask key read: {e}"))?;
     }
 
@@ -111,9 +128,11 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
         .map_err(|_| "ws payload length does not fit in usize".to_string())?;
     let mut payload = vec![0u8; payload_len];
     if payload_len > 0 {
-        reader
-            .read_exact(&mut payload)
+        timeout(read_timeout, reader.read_exact(&mut payload))
             .await
+            .map_err(|_| {
+                format!("ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+            })?
             .map_err(|e| format!("ws payload read: {e}"))?;
     }
 

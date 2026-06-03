@@ -202,7 +202,7 @@ flowchart LR
 - 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
 - `mitm_service.rs`：统一 hyper Service 处理器，支持 h1/h2 MITM 请求处理。根据 ALPN 协商结果决定 HTTP/1.1 或 HTTP/2 分支，处理 HTTP/2 stream。
-- `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。
+- `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
 - `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
 
@@ -241,7 +241,9 @@ Rewrite 规则实现机制：
 - `BreakpointManager` 管理运行时断点规则列表和暂停中的请求映射
 - 代理管道在每个连接的 tokio task 中，于 `forward_request` 前和 `write_upstream_response` 前各插入拦截检查
 - 匹配规则时创建 `oneshot` 通道，代理 task await 接收端；前端通过 `resolve_breakpoint` 命令发送决策到发送端
-- 支持三种决策：Forward（放行，可选修改 headers/body）、Drop（丢弃连接）、Mock（在请求阶段直接返回用户构造的响应）
+- 支持三种决策：Forward（放行，可选修改 headers/body/query params）、Drop（丢弃连接）、Mock（在请求阶段直接返回用户构造的响应）
+- 支持 Query 参数修改（`modifiedRequestQueryParams`）和响应状态码修改（`modifiedResponseStatusCode`）
+- `cancel_for_rules` 方法支持规则级别的取消：当断点规则被禁用或删除时，对应的 pending 请求自动放行而非硬错误
 - 事件推送通过框架无关的 `BreakpointEventEmitter` 回调实现，Tauri 层封装 `app_handle.emit()`
 
 WebSocket 注入（重放）实现机制：

@@ -149,10 +149,16 @@ pub type BreakpointEventEmitter = Arc<dyn Fn(&str, serde_json::Value) + Send + S
 // BreakpointManager
 // ---------------------------------------------------------------------------
 
+/// A pending breakpoint entry, tracking which rule triggered it.
+struct PendingBreakpoint {
+    rule_id: String,
+    sender: oneshot::Sender<BreakpointResolution>,
+}
+
 /// Manages active breakpoint rules and pending interceptions.
 pub struct BreakpointManager {
     rules: std::sync::Mutex<Vec<BreakpointRule>>,
-    pending: std::sync::Mutex<HashMap<String, oneshot::Sender<BreakpointResolution>>>,
+    pending: std::sync::Mutex<HashMap<String, PendingBreakpoint>>,
 }
 
 impl std::fmt::Debug for BreakpointManager {
@@ -187,7 +193,33 @@ impl BreakpointManager {
 
     pub fn set_rules(&self, rules: Vec<BreakpointRule>) {
         let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Collect IDs of currently active (enabled) rules before replacing.
+        let old_active_ids: Vec<String> = guard
+            .iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.id.clone())
+            .collect();
+
+        // Identify active IDs that are no longer present or no longer enabled.
+        let new_active_ids: HashSet<&str> = rules
+            .iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.id.as_str())
+            .collect();
+        let removed_ids: Vec<String> = old_active_ids
+            .into_iter()
+            .filter(|id| !new_active_ids.contains(id.as_str()))
+            .collect();
+
         *guard = rules;
+
+        // Release the rules lock before acquiring the pending lock.
+        drop(guard);
+
+        if !removed_ids.is_empty() {
+            self.cancel_for_rules(&removed_ids);
+        }
     }
 
     /// Check whether any enabled rule matches the given stage/method/url.
@@ -209,13 +241,48 @@ impl BreakpointManager {
         })
     }
 
+    /// Find the ID of the first enabled rule matching the given stage/method/url.
+    /// Returns None if no rule matches.
+    fn find_matching_rule_id(
+        &self,
+        stage: &BreakpointStage,
+        method: &str,
+        url: &str,
+    ) -> Option<String> {
+        let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        rules.iter().find(|rule| {
+            if !rule.enabled {
+                return false;
+            }
+            if rule.stage != *stage {
+                return false;
+            }
+            if !rule.methods.is_empty()
+                && !rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+            {
+                return false;
+            }
+            crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
+        }).map(|rule| rule.id.clone())
+    }
+
     /// Register a pending breakpoint. Returns the receiver end that the proxy task will await.
-    pub fn register_pending(&self, session_id: String) -> oneshot::Receiver<BreakpointResolution> {
+    pub fn register_pending(
+        &self,
+        session_id: String,
+        rule_id: String,
+    ) -> oneshot::Receiver<BreakpointResolution> {
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(session_id, tx);
+            .insert(
+                session_id,
+                PendingBreakpoint {
+                    rule_id,
+                    sender: tx,
+                },
+            );
         rx
     }
 
@@ -226,8 +293,8 @@ impl BreakpointManager {
         resolution: BreakpointResolution,
     ) -> Result<(), String> {
         let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(sender) = pending.remove(session_id) {
-            sender.send(resolution).map_err(|_| {
+        if let Some(entry) = pending.remove(session_id) {
+            entry.sender.send(resolution).map_err(|_| {
                 "failed to send breakpoint resolution — receiver already dropped".to_string()
             })
         } else {
@@ -238,9 +305,51 @@ impl BreakpointManager {
     }
 
     /// Cancel all pending breakpoints (e.g. when the proxy stops).
+    /// Sends a Forward resolution to each waiter so the proxy can pass
+    /// the request/response through unmodified instead of hard-erroring.
     pub fn cancel_all(&self) {
         let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        pending.clear();
+        for (_key, entry) in pending.drain() {
+            let forward_resolution = BreakpointResolution {
+                session_id: _key.clone(),
+                action: BreakpointActionKind::Forward,
+                mock: None,
+                modified_request_headers: None,
+                modified_request_query_params: None,
+                modified_request_body_base64: None,
+                modified_response_status_code: None,
+                modified_response_headers: None,
+                modified_response_body_base64: None,
+            };
+            let _ = entry.sender.send(forward_resolution);
+        }
+    }
+
+    /// Cancel pending breakpoints that were triggered by specific rule IDs.
+    /// Sends a Forward resolution so each waiter passes through unmodified.
+    pub fn cancel_for_rules(&self, rule_ids: &[String]) {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        let keys_to_remove: Vec<_> = pending
+            .iter()
+            .filter(|(_, entry)| rule_ids.contains(&entry.rule_id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in keys_to_remove {
+            if let Some(entry) = pending.remove(&key) {
+                let forward_resolution = BreakpointResolution {
+                    session_id: key.clone(),
+                    action: BreakpointActionKind::Forward,
+                    mock: None,
+                    modified_request_headers: None,
+                    modified_request_query_params: None,
+                    modified_request_body_base64: None,
+                    modified_response_status_code: None,
+                    modified_response_headers: None,
+                    modified_response_body_base64: None,
+                };
+                let _ = entry.sender.send(forward_resolution);
+            }
+        }
     }
 }
 
@@ -347,16 +456,17 @@ pub(crate) async fn intercept_request_stage(
         None => return Ok(None),
     };
 
-    if !bp.should_break(
+    let rule_id = match bp.find_matching_rule_id(
         &BreakpointStage::Request,
         request.method.as_str(),
         request.url.as_str(),
     ) {
-        return Ok(None);
-    }
+        Some(id) => id,
+        None => return Ok(None),
+    };
 
     let session_id = request.request_id.clone();
-    let receiver = bp.register_pending(session_id.clone());
+    let receiver = bp.register_pending(session_id.clone(), rule_id);
 
     let hit = build_request_stage_hit(request);
     emit_log(
@@ -376,12 +486,15 @@ pub(crate) async fn intercept_request_stage(
             Ok(Some(resolution))
         }
         Err(_) => {
+            // The oneshot sender was dropped without sending — this should no
+            // longer happen because cancel_all() sends a Forward resolution.
+            // If it does, treat it as a graceful forward (no modifications).
             emit_log(
                 "WARN",
-                "breakpoint_request_cancelled",
+                "breakpoint_request_sender_dropped",
                 &[("session_id", session_id)],
             );
-            Err("breakpoint cancelled (proxy may have stopped)".to_string())
+            Ok(None)
         }
     }
 }
@@ -401,16 +514,17 @@ pub(crate) async fn intercept_response_stage(
         None => return Ok(None),
     };
 
-    if !bp.should_break(
+    let rule_id = match bp.find_matching_rule_id(
         &BreakpointStage::Response,
         request.method.as_str(),
         request.url.as_str(),
     ) {
-        return Ok(None);
-    }
+        Some(id) => id,
+        None => return Ok(None),
+    };
 
     let session_id = request.request_id.clone();
-    let receiver = bp.register_pending(session_id.clone());
+    let receiver = bp.register_pending(session_id.clone(), rule_id);
 
     let hit = build_response_stage_hit(request, status_code, response_headers, response_body);
     emit_log(
@@ -428,12 +542,15 @@ pub(crate) async fn intercept_response_stage(
     match receiver.await {
         Ok(resolution) => Ok(Some(resolution)),
         Err(_) => {
+            // The oneshot sender was dropped without sending — this should no
+            // longer happen because cancel_all() sends a Forward resolution.
+            // If it does, treat it as a graceful forward (no modifications).
             emit_log(
                 "WARN",
-                "breakpoint_response_cancelled",
+                "breakpoint_response_sender_dropped",
                 &[("session_id", session_id)],
             );
-            Err("breakpoint cancelled (proxy may have stopped)".to_string())
+            Ok(None)
         }
     }
 }
@@ -510,5 +627,212 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
         tls_ms: None,
         waiting_ms: 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to build a minimal BreakpointRule.
+    fn make_rule(id: &str, enabled: bool) -> BreakpointRule {
+        BreakpointRule {
+            id: id.to_string(),
+            enabled,
+            url_pattern: "example.com".to_string(),
+            methods: vec![],
+            stage: BreakpointStage::Request,
+            match_type: None,
+        }
+    }
+
+    /// cancel_all should send a Forward resolution to every pending breakpoint.
+    #[tokio::test]
+    async fn cancel_all_sends_forward_resolution() {
+        let manager = BreakpointManager::new();
+
+        let receiver = manager.register_pending(
+            "session-1".to_string(),
+            "rule-a".to_string(),
+        );
+
+        manager.cancel_all();
+
+        let resolution = receiver.await.expect("receiver should not be dropped");
+        assert_eq!(resolution.action, BreakpointActionKind::Forward);
+        assert_eq!(resolution.session_id, "session-1");
+        assert!(resolution.mock.is_none());
+        assert!(resolution.modified_request_body_base64.is_none());
+        assert!(resolution.modified_request_headers.is_none());
+        assert!(resolution.modified_request_query_params.is_none());
+        assert!(resolution.modified_response_body_base64.is_none());
+        assert!(resolution.modified_response_headers.is_none());
+        assert!(resolution.modified_response_status_code.is_none());
+    }
+
+    /// cancel_for_rules should only cancel pending breakpoints whose rule_id
+    /// appears in the provided list. Other pending entries should remain intact.
+    #[tokio::test]
+    async fn cancel_for_rules_only_targets_matching_rules() {
+        let manager = BreakpointManager::new();
+
+        let receiver_a = manager.register_pending(
+            "session-a".to_string(),
+            "rule-a".to_string(),
+        );
+        let receiver_b = manager.register_pending(
+            "session-b".to_string(),
+            "rule-b".to_string(),
+        );
+
+        // Cancel only rule-a.
+        manager.cancel_for_rules(&["rule-a".to_string()]);
+
+        // Rule A's receiver should get a Forward resolution.
+        let resolution_a = receiver_a.await.expect("receiver A should resolve");
+        assert_eq!(resolution_a.action, BreakpointActionKind::Forward);
+        assert_eq!(resolution_a.session_id, "session-a");
+
+        // Rule B's entry should still be pending (receiver not resolved).
+        // We can verify this by resolving it manually afterward.
+        let resolution_b = BreakpointResolution {
+            session_id: "session-b".to_string(),
+            action: BreakpointActionKind::Drop,
+            mock: None,
+            modified_request_body_base64: None,
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: None,
+        };
+        manager
+            .resolve("session-b", resolution_b)
+            .expect("session-b should still be pending");
+
+        let result_b = receiver_b.await.expect("receiver B should resolve");
+        assert_eq!(result_b.action, BreakpointActionKind::Drop);
+    }
+
+    /// set_rules should cancel pending breakpoints whose rules have been removed
+    /// or disabled. Pending breakpoints for still-active rules should remain intact.
+    #[tokio::test]
+    async fn set_rules_cancels_removed_breakpoints() {
+        let manager = BreakpointManager::new();
+
+        // Initially set two active rules: A and B.
+        manager.set_rules(vec![
+            make_rule("rule-a", true),
+            make_rule("rule-b", true),
+        ]);
+
+        // Register a pending breakpoint for rule A.
+        let receiver_a = manager.register_pending(
+            "session-a".to_string(),
+            "rule-a".to_string(),
+        );
+
+        // Now set rules to only include B (remove A).
+        manager.set_rules(vec![make_rule("rule-b", true)]);
+
+        // Rule A's pending entry should have received a Forward resolution.
+        let resolution_a = receiver_a.await.expect("receiver A should resolve");
+        assert_eq!(resolution_a.action, BreakpointActionKind::Forward);
+        assert_eq!(resolution_a.session_id, "session-a");
+    }
+
+    /// set_rules should cancel pending breakpoints when a rule is disabled
+    /// (even if it is still present in the list).
+    #[tokio::test]
+    async fn set_rules_cancels_disabled_breakpoints() {
+        let manager = BreakpointManager::new();
+
+        manager.set_rules(vec![make_rule("rule-a", true)]);
+
+        let receiver_a = manager.register_pending(
+            "session-a".to_string(),
+            "rule-a".to_string(),
+        );
+
+        // Disable rule-a.
+        manager.set_rules(vec![make_rule("rule-a", false)]);
+
+        let resolution_a = receiver_a.await.expect("receiver A should resolve");
+        assert_eq!(resolution_a.action, BreakpointActionKind::Forward);
+    }
+
+    /// resolve should remove the pending entry and send the resolution to the
+    /// waiting receiver.
+    #[tokio::test]
+    async fn resolve_sends_resolution_to_waiting_receiver() {
+        let manager = BreakpointManager::new();
+
+        let receiver = manager.register_pending(
+            "session-1".to_string(),
+            "rule-a".to_string(),
+        );
+
+        let resolution = BreakpointResolution {
+            session_id: "session-1".to_string(),
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_body_base64: None,
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: None,
+        };
+
+        manager.resolve("session-1", resolution).expect("resolve should succeed");
+
+        let result = receiver.await.expect("receiver should resolve");
+        assert_eq!(result.action, BreakpointActionKind::Forward);
+    }
+
+    /// resolve should return an error for an unknown session ID.
+    #[test]
+    fn resolve_returns_error_for_unknown_session() {
+        let manager = BreakpointManager::new();
+
+        let resolution = BreakpointResolution {
+            session_id: "unknown".to_string(),
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_body_base64: None,
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: None,
+        };
+
+        let result = manager.resolve("unknown", resolution);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no pending breakpoint"));
+    }
+
+    /// should_break should match enabled rules and skip disabled ones.
+    #[test]
+    fn should_break_matches_enabled_rules_only() {
+        let manager = BreakpointManager::new();
+
+        manager.set_rules(vec![
+            make_rule("rule-a", true),
+            make_rule("rule-b", false),
+        ]);
+
+        assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test"));
+        // rule-b is disabled, so disabling rule-a should make should_break return false.
+        manager.set_rules(vec![
+            make_rule("rule-a", false),
+            make_rule("rule-b", true),
+        ]);
+        // rule-b is now enabled and still matches.
+        assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test"));
     }
 }

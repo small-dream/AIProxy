@@ -121,6 +121,14 @@ pub async fn start_proxy_server(
     let (ws_message_sender, ws_message_receiver) = mpsc::channel(4096);
     let connection_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
     let upstream_pool = Arc::new(crate::upstream_pool::UpstreamConnectionPool::new());
+    // Start background eviction of stale pooled connections every 60s.
+    {
+        let pool = Arc::clone(&upstream_pool);
+        pool.start_eviction_timer(
+            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
+        );
+    }
 
     emit_log(
         "INFO",
@@ -261,6 +269,91 @@ mod tests {
         assert_eq!(parsed["details"]["port"], 8888);
         assert_eq!(parsed["details"]["host"], "127.0.0.1");
     }
+
+    // -----------------------------------------------------------------------
+    // check_transfer_encoding
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn accepts_sole_chunked_transfer_encoding() {
+        let headers = [httparse::Header {
+            name: "Transfer-Encoding",
+            value: b"chunked",
+        }];
+        assert_eq!(super::check_transfer_encoding(&headers), Ok(true));
+    }
+
+    #[test]
+    fn rejects_multi_coding_transfer_encoding() {
+        let headers = [httparse::Header {
+            name: "Transfer-Encoding",
+            value: b"gzip, chunked",
+        }];
+        assert!(super::check_transfer_encoding(&headers).is_err());
+    }
+
+    #[test]
+    fn rejects_non_chunked_transfer_encoding() {
+        let headers = [httparse::Header {
+            name: "Transfer-Encoding",
+            value: b"gzip",
+        }];
+        assert!(super::check_transfer_encoding(&headers).is_err());
+    }
+
+    #[test]
+    fn rejects_multiple_te_headers() {
+        let headers = [
+            httparse::Header {
+                name: "Transfer-Encoding",
+                value: b"chunked",
+            },
+            httparse::Header {
+                name: "Transfer-Encoding",
+                value: b"gzip",
+            },
+        ];
+        assert!(super::check_transfer_encoding(&headers).is_err());
+    }
+
+    #[test]
+    fn no_transfer_encoding_returns_false() {
+        let headers = [httparse::Header {
+            name: "Content-Length",
+            value: b"42",
+        }];
+        assert_eq!(super::check_transfer_encoding(&headers), Ok(false));
+    }
+
+    // -----------------------------------------------------------------------
+    // CONNECT port parsing from URL
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn connect_port_parsed_from_url() {
+        // CONNECT target "example.com:8443" is parsed as "http://example.com:8443"
+        // by read_proxy_request. Verify that url::Url extracts the custom port.
+        let raw_path = "example.com:8443";
+        let target_url = format!("http://{raw_path}");
+        let url = reqwest::Url::parse(&target_url).expect("valid URL");
+
+        assert_eq!(url.port(), Some(8443));
+        assert_eq!(url.host_str(), Some("example.com"));
+    }
+
+    #[test]
+    fn connect_default_port_when_absent() {
+        let raw_path = "example.com";
+        let target_url = format!("http://{raw_path}");
+        let url = reqwest::Url::parse(&target_url).expect("valid URL");
+
+        // No explicit port → url::Url returns None, proxy falls back to 443.
+        assert_eq!(url.port(), None);
+        assert_eq!(
+            url.port().unwrap_or(super::DEFAULT_HTTPS_PORT),
+            super::DEFAULT_HTTPS_PORT
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -346,7 +439,7 @@ async fn handle_connection(
 
     if request.method == Method::CONNECT {
         let host = request.host.clone();
-        let port: u16 = request.path.parse().unwrap_or(DEFAULT_HTTPS_PORT);
+        let port = request.url.port().unwrap_or(DEFAULT_HTTPS_PORT);
 
         emit_log(
             "DEBUG",
@@ -2326,6 +2419,291 @@ async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest
     read_proxy_request_from_stream(stream).await
 }
 
+/// Check if the request has `Transfer-Encoding: chunked` as the sole transfer
+/// coding. Rejects unsupported combinations (e.g. `gzip, chunked`) and multiple
+/// TE headers, since we only decode chunked framing — forwarding other codings
+/// without decoding would silently corrupt the body upstream.
+///
+/// Collects ALL Transfer-Encoding header values, comma-splits them into a
+/// single coding list, then accepts only exactly one coding: "chunked".
+///
+/// Returns:
+/// - `Ok(true)` — sole `Transfer-Encoding: chunked`, we can decode it.
+/// - `Ok(false)` — no Transfer-Encoding header present.
+/// - `Err(...)` — unsupported transfer coding present.
+fn check_transfer_encoding(headers: &[httparse::Header<'_>]) -> Result<bool, String> {
+    // Collect all TE header values, then split by comma into a single coding list.
+    let header_values: Vec<String> = headers
+        .iter()
+        .filter(|h| h.name.eq_ignore_ascii_case("transfer-encoding"))
+        .map(|h| String::from_utf8_lossy(h.value).into_owned())
+        .collect();
+
+    if header_values.is_empty() {
+        return Ok(false);
+    }
+
+    let all_codings: Vec<&str> = header_values
+        .iter()
+        .flat_map(|v| v.split(','))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if all_codings.is_empty() {
+        return Ok(false);
+    }
+
+    // Accept only a single "chunked" coding across all TE headers.
+    if all_codings.len() == 1 && all_codings[0].eq_ignore_ascii_case("chunked") {
+        return Ok(true);
+    }
+
+    Err(format!(
+        "unsupported Transfer-Encoding (only 'chunked' is supported, got: {:?})",
+        all_codings
+    ))
+}
+
+/// Read a chunked transfer-encoded body from the stream.
+///
+/// `leftover` contains any body bytes already buffered past the header end.
+/// Returns the fully-decoded body as a contiguous byte vector.
+async fn read_chunked_body<S: AsyncReadExt + Unpin>(
+    stream: &mut S,
+    leftover: &[u8],
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    let mut pending: &[u8] = leftover;
+
+    loop {
+        // Read the chunk size line (hex number followed by \r\n).
+        let size_line = timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_line(stream, &mut pending))
+            .await
+            .map_err(|_| "timed out reading chunk size line".to_string())??;
+        let size_str = size_line.trim();
+        // Some servers send chunk extensions after a semicolon; ignore them.
+        let size_str = size_str.split(';').next().unwrap_or(size_str).trim();
+        let chunk_size =
+            usize::from_str_radix(size_str, 16).map_err(|e| format!("invalid chunk size: {e}"))?;
+
+        if chunk_size == 0 {
+            // Final chunk — consume trailers (including any trailer headers).
+            timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_trailer(stream, &mut pending, true))
+                .await
+                .map_err(|_| "timed out reading chunk trailer".to_string())??;
+            break;
+        }
+
+        // Cumulative size check BEFORE allocating/reading chunk data.
+        // Use saturating_add to prevent overflow on huge chunk sizes.
+        let new_len = body.len().saturating_add(chunk_size);
+        if new_len > MAX_REQUEST_BODY_BYTES {
+            return Err(format!(
+                "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
+            ));
+        }
+
+        // Read chunk_size bytes of data.
+        let mut chunk_data =
+            timeout(CLIENT_BODY_READ_TIMEOUT, read_exact_from(stream, &mut pending, chunk_size))
+                .await
+                .map_err(|_| "timed out reading chunk data".to_string())??;
+        body.append(&mut chunk_data);
+
+        // Consume the trailing \r\n after the chunk data.
+        timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_trailer(stream, &mut pending, false))
+            .await
+            .map_err(|_| "timed out reading chunk data trailer".to_string())??;
+    }
+
+    Ok(body)
+}
+
+/// Read bytes from a combination of a leftover buffer and a stream.
+/// Consumes from `leftover` first, then reads from `stream` for the remainder.
+async fn read_exact_from<S: AsyncReadExt + Unpin>(
+    stream: &mut S,
+    leftover: &mut &[u8],
+    mut count: usize,
+) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::with_capacity(count);
+
+    // Drain leftover first.
+    let from_leftover = count.min(leftover.len());
+    if from_leftover > 0 {
+        buf.extend_from_slice(&leftover[..from_leftover]);
+        *leftover = &leftover[from_leftover..];
+        count -= from_leftover;
+    }
+
+    // Read the rest from the stream.
+    while count > 0 {
+        let mut tmp = vec![0u8; count];
+        let read = stream
+            .read(&mut tmp)
+            .await
+            .map_err(|e| format!("failed to read chunk data: {e}"))?;
+        if read == 0 {
+            return Err("unexpected EOF while reading chunk data".to_string());
+        }
+        buf.extend_from_slice(&tmp[..read]);
+        count -= read;
+    }
+
+    Ok(buf)
+}
+
+/// Read a single line (up to \r\n) from the leftover buffer and stream.
+/// Returns the line content without the trailing \r\n.
+async fn read_chunk_line<S: AsyncReadExt + Unpin>(
+    stream: &mut S,
+    leftover: &mut &[u8],
+) -> Result<String, String> {
+    let mut line = Vec::new();
+
+    loop {
+        // Consume leftover bytes one at a time looking for \r\n.
+        while !leftover.is_empty() {
+            let byte = leftover[0];
+            *leftover = &leftover[1..];
+            line.push(byte);
+            if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
+                line.truncate(line.len() - 2);
+                return String::from_utf8(line)
+                    .map_err(|e| format!("chunk size line is not valid UTF-8: {e}"));
+            }
+        }
+
+        // No more leftover; read from stream.
+        let mut tmp = [0u8; 1];
+        let read = stream
+            .read(&mut tmp)
+            .await
+            .map_err(|e| format!("failed to read chunk size line: {e}"))?;
+        if read == 0 {
+            return Err("unexpected EOF while reading chunk size line".to_string());
+        }
+        line.push(tmp[0]);
+        if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
+            line.truncate(line.len() - 2);
+            return String::from_utf8(line)
+                .map_err(|e| format!("chunk size line is not valid UTF-8: {e}"));
+        }
+
+        if line.len() > 64 {
+            return Err("chunk size line is too long".to_string());
+        }
+    }
+}
+
+/// Consume trailing data after a chunk.
+///
+/// After non-final chunks this is just `\r\n`. After the final 0-size chunk,
+/// the HTTP spec allows trailer header lines before the terminal `\r\n`.
+/// When `is_final` is true we consume all trailer header lines until the empty line.
+/// When `is_final` is false we expect exactly `\r\n`.
+async fn read_chunk_trailer<S: AsyncReadExt + Unpin>(
+    stream: &mut S,
+    leftover: &mut &[u8],
+    is_final: bool,
+) -> Result<(), String> {
+    if !is_final {
+        // Data trailer: must be exactly \r\n.
+        let mut buf = [0u8; 2];
+        let mut filled = 0;
+
+        while filled < 2 && !leftover.is_empty() {
+            buf[filled] = leftover[0];
+            *leftover = &leftover[1..];
+            filled += 1;
+        }
+
+        while filled < 2 {
+            let read = stream
+                .read(&mut buf[filled..])
+                .await
+                .map_err(|e| format!("failed to read chunk trailer: {e}"))?;
+            if read == 0 {
+                return Err("unexpected EOF while reading chunk trailer".to_string());
+            }
+            filled += read;
+        }
+
+        if buf != [b'\r', b'\n'] {
+            return Err(format!(
+                "expected chunk trailer \\r\\n, got {:?}",
+                buf
+            ));
+        }
+        return Ok(());
+    }
+
+    // Final trailer: consume lines until an empty line (\r\n).
+    // Cap the number of trailer lines to prevent unbounded reads from a
+    // malicious client that sends endless valid trailer lines.
+    const MAX_TRAILER_LINES: usize = 64;
+    let mut trailer_count = 0usize;
+    loop {
+        let line = read_trailer_line(stream, leftover).await?;
+        // Empty line signals end of trailers.
+        if line.is_empty() {
+            break;
+        }
+        trailer_count += 1;
+        if trailer_count > MAX_TRAILER_LINES {
+            return Err("too many chunked trailer header lines".to_string());
+        }
+        // Non-empty line is a trailer header — consume and ignore.
+        // (we don't forward trailers from chunked encoding)
+    }
+    Ok(())
+}
+
+/// Read a single line (up to \r\n) from the leftover buffer and stream.
+/// Similar to `read_chunk_line` but with a higher line-length limit suitable
+/// for trailer header lines.
+async fn read_trailer_line<S: AsyncReadExt + Unpin>(
+    stream: &mut S,
+    leftover: &mut &[u8],
+) -> Result<String, String> {
+    let mut line = Vec::new();
+
+    loop {
+        // Consume leftover bytes one at a time looking for \r\n.
+        while !leftover.is_empty() {
+            let byte = leftover[0];
+            *leftover = &leftover[1..];
+            line.push(byte);
+            if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
+                line.truncate(line.len() - 2);
+                return String::from_utf8(line)
+                    .map_err(|e| format!("trailer line is not valid UTF-8: {e}"));
+            }
+        }
+
+        // No more leftover; read from stream.
+        let mut tmp = [0u8; 1];
+        let read = stream
+            .read(&mut tmp)
+            .await
+            .map_err(|e| format!("failed to read trailer line: {e}"))?;
+        if read == 0 {
+            return Err("unexpected EOF while reading trailer line".to_string());
+        }
+        line.push(tmp[0]);
+        if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
+            line.truncate(line.len() - 2);
+            return String::from_utf8(line)
+                .map_err(|e| format!("trailer line is not valid UTF-8: {e}"));
+        }
+
+        if line.len() > 8192 {
+            return Err("trailer line is too long".to_string());
+        }
+    }
+}
+
 async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     stream: &mut S,
 ) -> Result<ParsedProxyRequest, String> {
@@ -2369,13 +2747,14 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         raw_path,
         url,
         body_length,
-        headers,
+        mut headers,
         request_headers,
         host,
         path,
         protocol,
         query_params,
         request_version,
+        is_chunked,
     ) = {
         let method = Method::from_bytes(
             request
@@ -2395,13 +2774,22 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         };
         let url = Url::parse(&target_url)
             .map_err(|error| format!("invalid proxy target URL: {error}"))?;
-        let body_length = read_content_length(request.headers)?;
-        if body_length > MAX_REQUEST_BODY_BYTES {
-            return Err(format!(
-                "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
-            ));
-        }
-        let headers = build_upstream_headers(request.headers)?;
+        let is_chunked = check_transfer_encoding(request.headers)?;
+        let (body_length, headers) = if is_chunked {
+            // For chunked requests, Content-Length is absent; build headers first
+            // so we can strip Transfer-Encoding and add Content-Length later.
+            let hdrs = build_upstream_headers(request.headers)?;
+            (0usize, hdrs)
+        } else {
+            let len = read_content_length(request.headers)?;
+            if len > MAX_REQUEST_BODY_BYTES {
+                return Err(format!(
+                    "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
+                ));
+            }
+            let hdrs = build_upstream_headers(request.headers)?;
+            (len, hdrs)
+        };
         let request_headers = build_header_entries_from_httparse_headers(request.headers);
         let host = url
             .host_str()
@@ -2432,24 +2820,39 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
             protocol,
             query_params,
             request_version,
+            is_chunked,
         )
     };
 
-    while buffer.len() < header_end + body_length {
-        let read_result = timeout(CLIENT_BODY_READ_TIMEOUT, stream.read(&mut chunk))
-            .await
-            .map_err(|_| "timed out waiting for client request body".to_string())?;
+    let body = if is_chunked {
+        // Any bytes already buffered past header_end belong to the chunked body.
+        let leftover = if buffer.len() > header_end {
+            buffer[header_end..].to_vec()
+        } else {
+            Vec::new()
+        };
+        let decoded = read_chunked_body(stream, &leftover).await?;
+        // Replace Transfer-Encoding with the actual Content-Length.
+        headers.remove(TRANSFER_ENCODING);
+        headers.insert(CONTENT_LENGTH, HeaderValue::from(decoded.len()));
+        decoded
+    } else {
+        while buffer.len() < header_end + body_length {
+            let read_result = timeout(CLIENT_BODY_READ_TIMEOUT, stream.read(&mut chunk))
+                .await
+                .map_err(|_| "timed out waiting for client request body".to_string())?;
 
-        let bytes_read =
-            read_result.map_err(|error| format!("failed to read request body: {error}"))?;
+            let bytes_read =
+                read_result.map_err(|error| format!("failed to read request body: {error}"))?;
 
-        if bytes_read == 0 {
-            return Err("client disconnected before request body was fully received".to_string());
+            if bytes_read == 0 {
+                return Err("client disconnected before request body was fully received".to_string());
+            }
+
+            buffer.extend_from_slice(&chunk[..bytes_read]);
         }
-
-        buffer.extend_from_slice(&chunk[..bytes_read]);
-    }
-    let body = buffer[header_end..header_end + body_length].to_vec();
+        buffer[header_end..header_end + body_length].to_vec()
+    };
     let raw_request = build_raw_http_head(
         &format!(
             "{} {} HTTP/1.{}",

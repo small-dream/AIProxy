@@ -650,7 +650,7 @@ fn active_script_rules_for_stage(
         .filter(|rule| rule.rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.rule.r#match.url_pattern, request.url.as_str(), None))
+        .filter(|rule| pattern_matches(&rule.rule.r#match.url_pattern, request.url.as_str(), rule.rule.r#match.match_type.as_deref()))
         .collect();
 
     rules.sort_by(|left, right| right.rule.priority.cmp(&left.rule.priority));

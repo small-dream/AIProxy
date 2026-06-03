@@ -787,6 +787,7 @@ pub struct ScriptRuleRow {
     pub match_methods: String,
     pub match_stage: String,
     pub match_url_pattern: String,
+    pub match_type: String,
     pub language: String,
     pub source_type: String,
     pub source_code: String,
@@ -847,9 +848,9 @@ pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), St
     conn.execute(
         "INSERT OR REPLACE INTO script_rules
             (id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
-             match_url_pattern, language, source_type, source_code, source_path, entrypoints,
+             match_url_pattern, match_type, language, source_type, source_code, source_path, entrypoints,
              compiled_code, source_map, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             row.id,
             row.workspace_id,
@@ -860,6 +861,7 @@ pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), St
             row.match_methods,
             row.match_stage,
             row.match_url_pattern,
+            row.match_type,
             row.language,
             row.source_type,
             row.source_code,
@@ -878,7 +880,7 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, St
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
-                    match_url_pattern, language, source_type, source_code, source_path, entrypoints,
+                    match_url_pattern, match_type, language, source_type, source_code, source_path, entrypoints,
                     compiled_code, source_map, updated_at
              FROM script_rules ORDER BY priority DESC, updated_at DESC",
         )
@@ -896,14 +898,15 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, St
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
-                language: row.get(9)?,
-                source_type: row.get(10)?,
-                source_code: row.get(11)?,
-                source_path: row.get(12)?,
-                entrypoints: row.get(13)?,
-                compiled_code: row.get(14)?,
-                source_map: row.get(15)?,
-                updated_at: row.get(16)?,
+                match_type: row.get(9)?,
+                language: row.get(10)?,
+                source_type: row.get(11)?,
+                source_code: row.get(12)?,
+                source_path: row.get(13)?,
+                entrypoints: row.get(14)?,
+                compiled_code: row.get(15)?,
+                source_map: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|e| format!("query script rules: {e}"))?
@@ -1447,6 +1450,7 @@ mod tests {
             match_methods: "[\"GET\"]".into(),
             match_stage: "either".into(),
             match_url_pattern: "example.com".into(),
+            match_type: "contains".into(),
             language: "typescript".into(),
             source_type: "inline".into(),
             source_code: "export function onRequest(ctx) {}".into(),
@@ -1505,6 +1509,7 @@ mod tests {
                 match_methods: "[]".into(),
                 match_stage: "either".into(),
                 match_url_pattern: "*".into(),
+                match_type: "contains".into(),
                 language: "javascript".into(),
                 source_type: "inline".into(),
                 source_code: "export function onRequest(ctx) {}".into(),

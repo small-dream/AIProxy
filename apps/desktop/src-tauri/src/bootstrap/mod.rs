@@ -1532,6 +1532,11 @@ fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
                 url_pattern: row.match_url_pattern,
                 methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
                 stage: row.match_stage,
+                match_type: if row.match_type.is_empty() {
+                    None
+                } else {
+                    Some(row.match_type)
+                },
             },
             language,
             source_type,

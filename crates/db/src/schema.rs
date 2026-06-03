@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS script_rules (
     match_methods   TEXT NOT NULL DEFAULT '[]',
     match_stage     TEXT NOT NULL DEFAULT '',
     match_url_pattern TEXT NOT NULL DEFAULT '',
+    match_type      TEXT NOT NULL DEFAULT 'contains',
     language        TEXT NOT NULL,
     source_type     TEXT NOT NULL,
     source_code     TEXT NOT NULL,
@@ -358,6 +359,11 @@ pub fn run_migrations(conn: &Connection) -> Result<(), String> {
     .ok();
     conn.execute(
         "ALTER TABLE breakpoint_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE script_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
         [],
     )
     .ok();

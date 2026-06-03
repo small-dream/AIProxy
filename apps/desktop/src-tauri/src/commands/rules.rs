@@ -518,6 +518,12 @@ pub fn save_script_rule(
                 .unwrap_or_default(),
             match_stage: compiled.rule.r#match.stage.clone(),
             match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
+            match_type: compiled
+                .rule
+                .r#match
+                .match_type
+                .clone()
+                .unwrap_or_else(|| "contains".to_string()),
             language: match compiled.rule.language {
                 ScriptRuleLanguage::JavaScript => "javascript".to_string(),
                 ScriptRuleLanguage::TypeScript => "typescript".to_string(),
