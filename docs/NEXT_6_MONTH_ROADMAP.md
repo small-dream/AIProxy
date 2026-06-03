@@ -217,6 +217,7 @@
 - HAR 导入修复：读取 httpVersion 而非硬编码 "1.1"
 - 搜索范围扩展：支持按协议字段过滤
 - 诊断日志：ALPN 协商结果记录
+- 后续协议栈收敛项：明文 HTTP 代理路径仍保留手写 `httparse` 请求解析与 body 读取；chunked body 已先就地修复。长期应评估将明文 HTTP 请求解析和 body 读取收敛到 hyper request/body 模型，与 HTTPS MITM 的 hyper Service 路径共享更多请求构建、超时、大小限制和 raw message 生成逻辑。
 
 主题：补齐现代 Web / 移动端 / 微服务调试的协议门槛。
 
@@ -472,4 +473,3 @@
 - 性能压测结果可公开写入 release notes。
 
 若未满足，则下一阶段继续优先补可靠性、协议和发布质量，不进入云协作或插件市场。
-
