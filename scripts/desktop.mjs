@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -43,6 +44,11 @@ if (cli.action === "bundle" && !hasCargoTauri()) {
 }
 
 const steps = createSteps(cli.action);
+
+// Sync the git short hash into tauri.conf.json so macOS uses it as
+// CFBundleVersion. This must happen BEFORE Tauri reads the config,
+// otherwise the About dialog shows "Version 0.1.0 (0.1.0)" (duplicated).
+syncTauriBundleVersion();
 
 for (const step of steps) {
   console.log(`[aiproxy-scripts] ${step.label}`);
@@ -249,4 +255,43 @@ function printUsage() {
       "  node scripts/desktop.mjs bundle --platform macos",
     ].join("\n"),
   );
+}
+
+/**
+ * Updates bundle.macOS.bundleVersion in tauri.conf.json with the current
+ * git short hash so the macOS About dialog shows "Version 0.1.0 (64c454b)"
+ * instead of the duplicated "Version 0.1.0 (0.1.0)".
+ */
+function syncTauriBundleVersion() {
+  const configPath = path.join(tauriDir, "tauri.conf.json");
+  const shortHash = runSilent("git", ["rev-parse", "--short", "HEAD"], repoRoot);
+
+  if (!shortHash) {
+    console.warn("[aiproxy-scripts] Could not resolve git short hash, skipping bundleVersion sync.");
+    return;
+  }
+
+  const raw = fs.readFileSync(configPath, "utf8");
+  const config = JSON.parse(raw);
+
+  if (!config.bundle) config.bundle = {};
+  if (!config.bundle.macOS) config.bundle.macOS = {};
+
+  const current = config.bundle.macOS.bundleVersion;
+  if (current === shortHash) return;
+
+  config.bundle.macOS.bundleVersion = shortHash;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  console.log(`[aiproxy-scripts] Synced bundle.macOS.bundleVersion → ${shortHash}`);
+}
+
+function runSilent(command, args, cwd) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    shell: false,
+    stdio: "pipe",
+  });
+  if (result.status !== 0) return null;
+  return result.stdout.trim();
 }
