@@ -1,10 +1,80 @@
 use super::*;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+// ---------------------------------------------------------------------------
+// OwnedPrefixedStream — prepends bytes to an owned stream
+// ---------------------------------------------------------------------------
+
+/// An owned variant of the prefixed-stream pattern. Wraps an owned
+/// `S: AsyncRead + AsyncWrite + Unpin` and prepends `prefix` bytes to
+/// reads. Writes pass through directly to the inner stream.
+///
+/// Unlike the borrowed `PrefixedStream<'a, S>`, this takes `S` by value
+/// and can satisfy `'static` bounds (e.g. when passed to TLS acceptors
+/// or hyper server connections).
+pub(crate) struct OwnedPrefixedStream<S> {
+    prefix: Cursor<Vec<u8>>,
+    inner: S,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for OwnedPrefixedStream<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let position = self.prefix.position() as usize;
+        let prefix = self.prefix.get_ref();
+        if position < prefix.len() {
+            let bytes = std::cmp::min(buf.remaining(), prefix.len() - position);
+            buf.put_slice(&prefix[position..position + bytes]);
+            self.prefix.set_position((position + bytes) as u64);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for OwnedPrefixedStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, bytes)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+impl<S> OwnedPrefixedStream<S> {
+    pub(crate) fn new(prefix: Vec<u8>, inner: S) -> Self {
+        Self {
+            prefix: Cursor::new(prefix),
+            inner,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 pub(crate) fn resolve_target_url(
     raw_target: &str,
     headers: &[httparse::Header<'_>],
 ) -> Result<String, String> {
-    if raw_target.starts_with("http://") || raw_target.starts_with("https://") {
+    if raw_target.starts_with("http://")
+        || raw_target.starts_with("https://")
+        || raw_target.starts_with("ws://")
+        || raw_target.starts_with("wss://")
+    {
         return Ok(raw_target.to_string());
     }
 
@@ -94,24 +164,6 @@ pub(crate) fn is_websocket_upgrade(headers: &[httparse::Header<'_>]) -> bool {
     headers.iter().any(|h| {
         h.name.eq_ignore_ascii_case("upgrade") && h.value.eq_ignore_ascii_case(b"websocket")
     })
-}
-
-pub(crate) fn should_skip_response_header(header_name: &HeaderName) -> bool {
-    header_name == CONNECTION || header_name == CONTENT_LENGTH || header_name == TRANSFER_ENCODING
-}
-
-pub(crate) fn read_content_length(headers: &[httparse::Header<'_>]) -> Result<usize, String> {
-    let Some(header) = headers
-        .iter()
-        .find(|header| header.name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str()))
-    else {
-        return Ok(0);
-    };
-
-    String::from_utf8_lossy(header.value)
-        .trim()
-        .parse::<usize>()
-        .map_err(|error| format!("invalid content-length header: {error}"))
 }
 
 pub(crate) fn build_request_path(url: &Url) -> String {
@@ -498,47 +550,6 @@ pub(crate) fn build_session_summary(input: SessionSummaryInput) -> ProxySessionS
         url,
         response_mime_type,
     }
-}
-
-pub(crate) async fn write_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    stream: &mut S,
-    status_code: StatusCode,
-    headers: &HeaderMap,
-    body: &[u8],
-) -> Result<(), String> {
-    let reason = status_code.canonical_reason().unwrap_or("Unknown");
-    let mut response = format!("HTTP/1.1 {} {reason}\r\n", status_code.as_u16());
-
-    for (header_name, header_value) in headers {
-        if should_skip_response_header(header_name) {
-            continue;
-        }
-
-        let header_value = header_value
-            .to_str()
-            .map_err(|error| format!("response header value is not valid UTF-8: {error}"))?;
-
-        response.push_str(header_name.as_str());
-        response.push_str(": ");
-        response.push_str(header_value);
-        response.push_str("\r\n");
-    }
-
-    response.push_str(&format!("Content-Length: {}\r\n", body.len()));
-    response.push_str("Connection: close\r\n\r\n");
-
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .map_err(map_io_error)?;
-
-    if !body.is_empty() {
-        stream.write_all(body).await.map_err(map_io_error)?;
-    }
-
-    stream.flush().await.map_err(map_io_error)?;
-
-    Ok(())
 }
 
 pub(crate) async fn write_plain_text_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(

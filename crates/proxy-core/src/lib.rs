@@ -25,7 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::{mpsc, oneshot, Semaphore},
     task::JoinHandle,
@@ -37,7 +37,6 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
-const CLIENT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(test)]
 static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
@@ -46,13 +45,13 @@ const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
 const BROTLI_BUFFER_SIZE: usize = 4096;
 const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
-const MAX_REQUEST_BODY_BYTES: usize = MAX_CAPTURED_BODY_BYTES;
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 mod breakpoints;
+mod connection;
 mod http_io;
+mod http_proxy;
 mod logging;
-mod mitm_service;
 mod rules;
 mod server;
 mod timing_connector;
@@ -125,14 +124,16 @@ pub(crate) use breakpoints::{
     apply_response_resolution, build_mock_upstream_response, intercept_request_stage,
     intercept_response_stage,
 };
+pub(crate) use connection::{ConnectionContext, ConnectionMode};
+pub(crate) use http_proxy::HttpProxyService;
 pub(crate) use http_io::{
     build_body_reference, build_cookie_entries, build_header_entries_from_httparse_headers,
     build_header_entries_from_map, build_pending_session_detail, build_query_params,
     build_raw_http_head, build_request_path, build_session_detail, build_session_summary,
     build_upstream_headers, build_upstream_headers_from_entries, find_header_end, map_io_error,
-    read_content_length, resolve_target_url, should_skip_request_header,
-    should_skip_response_header, write_plain_text_response, write_upstream_response,
-    SessionSummaryInput,
+    resolve_target_url, should_skip_request_header,
+    write_plain_text_response,
+    OwnedPrefixedStream, SessionSummaryInput,
 };
 pub(crate) use logging::emit_log;
 pub(crate) use rules::{

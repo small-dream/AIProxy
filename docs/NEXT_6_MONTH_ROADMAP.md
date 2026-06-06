@@ -207,8 +207,8 @@
 实现摘要：
 
 - 启用 hyper http2 feature + h2 crate，服务端/客户端双向 ALPN 配置
-- 新建 mitm_service.rs 统一 hyper Service 处理器，ALPN 结果决定 h1/h2 分支
-- 重构 handle_connect_mitm() 从 httparse 手动解析改为 hyper server connection
+- 新建 `http_proxy.rs`（`HttpProxyService`）统一 hyper Service 处理器；`ConnectionMode` enum（PlainHttp / MitmHttps） + `ConnectionContext` 区分纯 HTTP 和 MITM；ALPN 结果决定 h1/h2 分支
+- 重构 `handle_connect_mitm()` + `handle_connection()` 从 httparse 手动解析改为 hyper server connection
 - 新建 upstream_pool.rs 上游 h2 连接池（按 host:port 复用 h2 连接）
 - 数据模型新增 trailers、h2StreamId、isPseudo 字段，DB schema 同步更新
 - 规则引擎：header 级规则在 h2 session 上正常工作，body rewrite 跳过并生成 trace

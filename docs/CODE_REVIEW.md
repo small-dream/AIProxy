@@ -51,9 +51,11 @@
 
 ## 一、🔴 高严重度问题
 
-### 1. Transfer-Encoding: chunked 请求体被静默丢弃
+### 1. Transfer-Encoding: chunked 请求体被静默丢弃 ✅ 已解决
 
-- **文件**: [server.rs:2329](crates/proxy-core/src/server.rs#L2329)
+> **P2.5 重构已修复**：手动 HTTP/1.1 解析（`read_proxy_request_from_stream`、`check_transfer_encoding`、`read_chunked_body`）已替换为 hyper server connection。hyper 原生支持 chunked transfer encoding，不再有手动解码遗漏的风险。
+
+- **原文件**: ~~server.rs:2329~~ → 相关代码已删除
 - **分类**: Bug · 数据丢失
 - **影响**: 使用 `Transfer-Encoding: chunked` 的 POST/PUT 请求（无 Content-Length）会被代理静默丢弃全部请求体
 
@@ -366,7 +368,7 @@ let mut head = String::with_capacity(512); // 预分配合理大小
 
 ### 18. MITM 服务中 TLS 握手错误信息不足
 
-- **文件**: [mitm_service.rs](crates/proxy-core/src/mitm_service.rs)
+- **文件**: ~~mitm_service.rs~~ → 已迁移至 [http_proxy.rs](crates/proxy-core/src/http_proxy.rs)
 - **分类**: 健壮性 · 可调试性（体验增强）
 - **状态**: PLAUSIBLE
 

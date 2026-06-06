@@ -270,60 +270,6 @@ mod tests {
         assert_eq!(parsed["details"]["host"], "127.0.0.1");
     }
 
-    // -----------------------------------------------------------------------
-    // check_transfer_encoding
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn accepts_sole_chunked_transfer_encoding() {
-        let headers = [httparse::Header {
-            name: "Transfer-Encoding",
-            value: b"chunked",
-        }];
-        assert_eq!(super::check_transfer_encoding(&headers), Ok(true));
-    }
-
-    #[test]
-    fn rejects_multi_coding_transfer_encoding() {
-        let headers = [httparse::Header {
-            name: "Transfer-Encoding",
-            value: b"gzip, chunked",
-        }];
-        assert!(super::check_transfer_encoding(&headers).is_err());
-    }
-
-    #[test]
-    fn rejects_non_chunked_transfer_encoding() {
-        let headers = [httparse::Header {
-            name: "Transfer-Encoding",
-            value: b"gzip",
-        }];
-        assert!(super::check_transfer_encoding(&headers).is_err());
-    }
-
-    #[test]
-    fn rejects_multiple_te_headers() {
-        let headers = [
-            httparse::Header {
-                name: "Transfer-Encoding",
-                value: b"chunked",
-            },
-            httparse::Header {
-                name: "Transfer-Encoding",
-                value: b"gzip",
-            },
-        ];
-        assert!(super::check_transfer_encoding(&headers).is_err());
-    }
-
-    #[test]
-    fn no_transfer_encoding_returns_false() {
-        let headers = [httparse::Header {
-            name: "Content-Length",
-            value: b"42",
-        }];
-        assert_eq!(super::check_transfer_encoding(&headers), Ok(false));
-    }
 
     // -----------------------------------------------------------------------
     // CONNECT port parsing from URL
@@ -373,10 +319,10 @@ async fn handle_connection(
     event_emitter: Option<BreakpointEventEmitter>,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
 ) -> Result<(), String> {
-    let started_at = Utc::now();
-    let started_at_instant = Instant::now();
-
-    let mut request = match read_proxy_request(&mut stream).await {
+    // Header-only probe — reads until \r\n\r\n, returns (request, consumed, leftover).
+    // consumed = full header bytes up to and including \r\n\r\n.
+    // leftover = bytes accidentally read past the header (body/TLS ClientHello).
+    let (mut request, consumed, leftover) = match read_header_only(&mut stream).await {
         Ok(request) => request,
         Err(error) => {
             write_plain_text_response(
@@ -456,6 +402,10 @@ async fn handle_connection(
             ],
         );
 
+        // Replay ONLY leftover (TLS ClientHello bytes) into the stream.
+        // TLS acceptor must NOT see the CONNECT request header.
+        let prefixed = OwnedPrefixedStream::new(leftover, stream);
+
         match tls_manager {
             None => {
                 emit_log(
@@ -470,8 +420,14 @@ async fn handle_connection(
                 );
 
                 // No TLS manager — blind tunnel (no decryption)
-                return tunnel_blind_relay(stream, &host, port, &dns_manager, &active_workspace_id)
-                    .await;
+                return tunnel_blind_relay(
+                    prefixed,
+                    &host,
+                    port,
+                    &dns_manager,
+                    &active_workspace_id,
+                )
+                .await;
             }
             Some(mgr) => {
                 emit_log(
@@ -487,15 +443,13 @@ async fn handle_connection(
 
                 // MITM: TLS terminate, capture, forward
                 return handle_connect_mitm(
-                    stream,
+                    prefixed,
                     host,
                     port,
                     mgr,
                     client_addr,
                     session_sender,
                     ws_message_sender,
-                    started_at,
-                    started_at_instant,
                     breakpoint_manager,
                     rewrite_manager,
                     map_manager,
@@ -511,576 +465,36 @@ async fn handle_connection(
         }
     }
 
-    let RequestRuntimeOutcome {
-        mut local_response,
-        map_traces,
-        rewrite_traces,
-        throttle_selection,
-    } = apply_request_runtime_rules(
-        &rewrite_manager,
-        &map_manager,
-        &throttle_manager,
-        &active_workspace_id,
-        &mut request,
-        false, // plain HTTP is always HTTP/1.1
-    )?;
-    let map_traces = map_traces;
-    let mut rewrite_traces = rewrite_traces;
-    let mut script_traces = Vec::new();
-    let mut throttle_traces = Vec::new();
+    // === Non-CONNECT: hand off to hyper server ===
+    // hyper needs the COMPLETE HTTP request — replay consumed + leftover.
+    let ctx = Arc::new(ConnectionContext {
+        mode: ConnectionMode::PlainHttp,
+        client_addr,
+        session_sender,
+        ws_message_sender,
+        rewrite_manager,
+        map_manager,
+        script_manager,
+        throttle_manager,
+        breakpoint_manager,
+        dns_manager,
+        workspace_id: active_workspace_id,
+        event_emitter,
+        upstream_pool,
+    });
 
-    if local_response.is_none() {
-        let script_outcome =
-            apply_request_script_rules(&script_manager, &active_workspace_id, &mut request);
-        local_response = script_outcome.local_response;
-        script_traces.extend(script_outcome.traces);
-    }
+    let service = HttpProxyService { ctx };
+    let mut prefix = consumed;
+    prefix.extend_from_slice(&leftover);
+    let io = hyper_util::rt::TokioIo::new(OwnedPrefixedStream::new(prefix, stream));
 
-    // --- Request-stage breakpoint ---
-    if let Some(resolution) =
-        intercept_request_stage(&breakpoint_manager, &event_emitter, &mut request).await?
-    {
-        match resolution.action {
-            BreakpointActionKind::Drop => {
-                let _ = stream.shutdown().await;
-                return Ok(());
-            }
-            BreakpointActionKind::Mock => {
-                if let Some(ref mock) = resolution.mock {
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
-                    {
-                        match apply_request_throttle(selection, request.body.len()).await {
-                            Ok(trace) => {
-                                if let Some(manager) = throttle_manager.as_ref() {
-                                    manager.record_trace(&trace);
-                                }
-                                throttle_traces.push(trace);
-                            }
-                            Err(failure) => {
-                                if let Some(manager) = throttle_manager.as_ref() {
-                                    manager.record_trace(&failure.trace);
-                                }
-                                throttle_traces.push(failure.trace);
-                                return respond_with_throttle_failure(
-                                    &mut stream,
-                                    &request,
-                                    &session_sender,
-                                    started_at,
-                                    started_at_instant,
-                                    None,
-                                    &failure.error,
-                                    map_traces.clone(),
-                                    throttle_traces,
-                                )
-                                .await;
-                            }
-                        }
-                    }
+    hyper::server::conn::http1::Builder::new()
+        .serve_connection(io, service)
+        .with_upgrades()
+        .await
+        .map_err(|e| format!("HTTP/1.1 server error: {e}"))?;
 
-                    let mut mock_response = build_mock_upstream_response(mock);
-                    rewrite_traces.extend(apply_response_rewrite_rules(
-                        &rewrite_manager,
-                        &active_workspace_id,
-                        &request,
-                        &mut mock_response,
-                        false, // plain HTTP is always HTTP/1.1
-                    )?);
-                    script_traces.extend(apply_response_script_rules(
-                        &script_manager,
-                        &active_workspace_id,
-                        &request,
-                        &mut mock_response,
-                    ));
-
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|selection| throttle_selection_matches_stage(selection, "response"))
-                    {
-                        let trace =
-                            apply_response_throttle(selection, mock_response.response_body.len())
-                                .await;
-                        if let Some(manager) = throttle_manager.as_ref() {
-                            manager.record_trace(&trace);
-                        }
-                        throttle_traces.push(trace);
-                    }
-
-                    write_upstream_response(
-                        &mut stream,
-                        mock_response.status_code,
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                    )
-                    .await?;
-
-                    let mut detail = build_session_detail(
-                        &request,
-                        mock_response.status_code.as_u16(),
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                        mock_response.response_body_size_bytes,
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: None,
-                            response_read_ms: Some(0),
-                            tls_ms: None,
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(0),
-                        },
-                        mock_response.body_truncated,
-                    );
-                    detail.map_traces = map_traces;
-                    detail.rewrite_traces = rewrite_traces;
-                    detail.script_traces = script_traces;
-                    detail.throttle_traces = throttle_traces;
-                    if session_sender.send(detail).await.is_err() {
-                        emit_log(
-                            "DEBUG",
-                            "session_send_dropped",
-                            &[("reason", "receiver_disconnected".to_string())],
-                        );
-                    }
-                    return Ok(());
-                }
-            }
-            BreakpointActionKind::Forward => {
-                // Modifications already applied inside intercept_request_stage
-            }
-        }
-    }
-
-    let mut pending_detail = build_pending_session_detail(&request, started_at);
-    pending_detail.map_traces = map_traces.clone();
-    if session_sender.send(pending_detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
-        );
-    }
-
-    if let Some(selection) = throttle_selection
-        .as_ref()
-        .filter(|selection| throttle_selection_matches_stage(selection, "request"))
-    {
-        match apply_request_throttle(selection, request.body.len()).await {
-            Ok(trace) => {
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
-                }
-                throttle_traces.push(trace);
-            }
-            Err(failure) => {
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&failure.trace);
-                }
-                throttle_traces.push(failure.trace);
-                return respond_with_throttle_failure(
-                    &mut stream,
-                    &request,
-                    &session_sender,
-                    started_at,
-                    started_at_instant,
-                    None,
-                    &failure.error,
-                    map_traces.clone(),
-                    throttle_traces,
-                )
-                .await;
-            }
-        }
-    }
-
-    let upstream_result = match local_response {
-        Some(local_response) => Ok(local_response),
-        None => {
-            // WebSocket upgrade requests must bypass reqwest (which can't handle 101 protocol switch).
-            let is_ws = request.headers.iter().any(|(name, value)| {
-                name.as_str().eq_ignore_ascii_case("upgrade")
-                    && value.as_bytes().eq_ignore_ascii_case(b"websocket")
-            });
-            if is_ws {
-                emit_log(
-                    "INFO",
-                    "ws_http_upgrade_detected",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("host", request.host.clone()),
-                        ("url", request.url.to_string()),
-                        ("method", request.method.to_string()),
-                    ],
-                );
-                handle_http_websocket_upgrade(
-                    &mut stream,
-                    &request,
-                    &session_sender,
-                    &ws_message_sender,
-                    started_at,
-                    started_at_instant,
-                    &dns_manager,
-                    &active_workspace_id,
-                )
-                .await?;
-                return Ok(());
-            }
-            let upstream_timeout = upstream_request_timeout();
-            match tokio::time::timeout(
-                upstream_timeout,
-                forward_request(
-                    &request,
-                    &dns_manager,
-                    &active_workspace_id,
-                    Some(upstream_pool.clone()),
-                ),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    let timeout_secs = upstream_timeout.as_secs();
-                    let response_message =
-                        format!("The upstream server did not respond within {timeout_secs}s.",);
-                    write_plain_text_response(
-                        &mut stream,
-                        StatusCode::GATEWAY_TIMEOUT,
-                        &response_message,
-                    )
-                    .await?;
-                    let detail = build_session_detail(
-                        &request,
-                        StatusCode::GATEWAY_TIMEOUT.as_u16(),
-                        &HeaderMap::new(),
-                        response_message.as_bytes(),
-                        response_message.len(),
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: None,
-                            response_read_ms: Some(0),
-                            tls_ms: None,
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                        },
-                        false,
-                    );
-                    let _ = session_sender.send(detail).await;
-                    emit_log(
-                        "WARN",
-                        "upstream_request_timed_out",
-                        &[
-                            ("request_id", request.request_id.clone()),
-                            ("host", request.host.clone()),
-                            ("url", request.url.to_string()),
-                            ("timeout_secs", timeout_secs.to_string()),
-                        ],
-                    );
-                    return Err(format!("upstream request timed out after {timeout_secs}s"));
-                }
-            }
-        }
-    };
-
-    match upstream_result {
-        Ok(mut upstream_response) => {
-            if upstream_response.body_truncated {
-                emit_log(
-                    "WARN",
-                    "response_body_passthrough_mode",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("url", request.url.to_string()),
-                        (
-                            "reason",
-                            "response body exceeded capture limit; skipping response mutations"
-                                .to_string(),
-                        ),
-                    ],
-                );
-            } else {
-                rewrite_traces.extend(apply_response_rewrite_rules(
-                    &rewrite_manager,
-                    &active_workspace_id,
-                    &request,
-                    &mut upstream_response,
-                    false, // plain HTTP is always HTTP/1.1
-                )?);
-                script_traces.extend(apply_response_script_rules(
-                    &script_manager,
-                    &active_workspace_id,
-                    &request,
-                    &mut upstream_response,
-                ));
-            }
-
-            // Build session detail once; rebuild only if Mock/Forward modifies the response.
-            let mut session_detail = build_session_detail(
-                &request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-                upstream_response.response_body_size_bytes,
-                started_at,
-                started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: Some(upstream_response.connect_ms),
-                    dns_ms: Some(upstream_response.dns_ms),
-                    request_send_ms: Some(upstream_response.request_send_ms),
-                    response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: upstream_response.tls_ms,
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(upstream_response.waiting_ms),
-                },
-                upstream_response.body_truncated,
-            );
-            session_detail.map_traces = map_traces.clone();
-            session_detail.rewrite_traces = rewrite_traces.clone();
-            session_detail.script_traces = script_traces.clone();
-            session_detail.throttle_traces = throttle_traces.clone();
-            session_detail.timing_source = Some("proxy".to_string());
-
-            // --- Response-stage breakpoint ---
-            let breakpoint_resolution = if upstream_response.body_truncated {
-                None
-            } else {
-                match intercept_response_stage(
-                    &breakpoint_manager,
-                    &event_emitter,
-                    &request,
-                    upstream_response.status_code.as_u16(),
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                )
-                .await
-                {
-                    Ok(resolution) => resolution,
-                    Err(error) => {
-                        let _ = session_sender.send(session_detail).await;
-                        return Err(error);
-                    }
-                }
-            };
-
-            if let Some(resolution) = breakpoint_resolution {
-                match resolution.action {
-                    BreakpointActionKind::Drop => {
-                        let _ = session_sender.send(session_detail).await;
-                        let _ = stream.shutdown().await;
-                        return Ok(());
-                    }
-                    BreakpointActionKind::Mock => {
-                        if let Some(ref mock) = resolution.mock {
-                            upstream_response = build_mock_upstream_response(mock);
-                            session_detail = build_session_detail(
-                                &request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
-                                started_at,
-                                started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
-                            );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
-                        }
-                    }
-                    BreakpointActionKind::Forward => {
-                        apply_response_resolution(&resolution, &mut upstream_response);
-                        if resolution.modified_response_body_base64.is_some() {
-                            // Body changed — must rebuild (includes decompression).
-                            session_detail = build_session_detail(
-                                &request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
-                                started_at,
-                                started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
-                            );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
-                            session_detail.timing_source = Some("proxy".to_string());
-                        } else {
-                            // Only headers/status may have changed — update in place, no body decompression needed.
-                            if resolution.modified_response_status_code.is_some() {
-                                session_detail.summary.status_code =
-                                    upstream_response.status_code.as_u16();
-                            }
-                            if resolution.modified_response_headers.is_some() {
-                                session_detail.response_headers = build_header_entries_from_map(
-                                    &upstream_response.response_headers,
-                                );
-                                session_detail.cookies = build_cookie_entries(
-                                    &request.request_headers,
-                                    &session_detail.response_headers,
-                                );
-                            }
-                            if resolution.modified_response_status_code.is_some()
-                                || resolution.modified_response_headers.is_some()
-                            {
-                                session_detail.raw_response_head = Some(build_raw_http_head(
-                                    &format!(
-                                        "HTTP/1.1 {} {}",
-                                        upstream_response.status_code.as_u16(),
-                                        upstream_response
-                                            .status_code
-                                            .canonical_reason()
-                                            .unwrap_or("Unknown"),
-                                    ),
-                                    &session_detail.response_headers,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Some(selection) = throttle_selection
-                .as_ref()
-                .filter(|selection| throttle_selection_matches_stage(selection, "response"))
-            {
-                let trace =
-                    apply_response_throttle(selection, upstream_response.response_body_size_bytes)
-                        .await;
-                if let Some(manager) = throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
-                }
-                throttle_traces.push(trace);
-                session_detail.throttle_traces = throttle_traces.clone();
-            }
-
-            let write_result = if let Some(spooled_response_path) =
-                upstream_response.spooled_response_path.as_deref()
-            {
-                write_spooled_upstream_response(
-                    &mut stream,
-                    upstream_response.status_code,
-                    &upstream_response.response_headers,
-                    upstream_response.response_body_size_bytes,
-                    spooled_response_path,
-                )
-                .await
-            } else {
-                write_upstream_response(
-                    &mut stream,
-                    upstream_response.status_code,
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                )
-                .await
-            };
-
-            if let Err(error) = write_result {
-                let _ = session_sender.send(session_detail).await;
-                return Err(error);
-            }
-
-            session_detail.rewrite_traces = rewrite_traces;
-            session_detail.script_traces = script_traces;
-            session_detail.map_traces = map_traces;
-
-            if session_sender.send(session_detail).await.is_err() {
-                emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
-                );
-            }
-
-            emit_log(
-                "DEBUG",
-                "request_forwarded",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("client_addr", client_addr.to_string()),
-                    ("method", request.method.to_string()),
-                    (
-                        "status_code",
-                        upstream_response.status_code.as_u16().to_string(),
-                    ),
-                    ("url", request.url.to_string()),
-                ],
-            );
-
-            Ok(())
-        }
-        Err(error) => {
-            let response_message = "The proxy could not reach the upstream server.";
-
-            write_plain_text_response(&mut stream, StatusCode::BAD_GATEWAY, response_message)
-                .await?;
-
-            let detail = build_session_detail(
-                &request,
-                StatusCode::BAD_GATEWAY.as_u16(),
-                &HeaderMap::new(),
-                response_message.as_bytes(),
-                response_message.len(),
-                started_at,
-                started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
-                    response_read_ms: Some(0),
-                    tls_ms: None,
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                },
-                false,
-            );
-            if session_sender.send(detail).await.is_err() {
-                emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
-                );
-            }
-            emit_log(
-                "ERROR",
-                "upstream_request_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("client_addr", client_addr.to_string()),
-                    ("method", request.method.to_string()),
-                    ("url", request.url.to_string()),
-                    ("error", error.clone()),
-                ],
-            );
-
-            Err(format!("upstream request failed: {error}"))
-        }
-    }
+    Ok(())
 }
 pub(crate) async fn forward_request(
     request: &ParsedProxyRequest,
@@ -1575,73 +989,10 @@ async fn create_response_spool_file(
     Ok((file, path))
 }
 
-async fn write_spooled_upstream_response<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    stream: &mut S,
-    status_code: StatusCode,
-    headers: &HeaderMap,
-    body_size_bytes: usize,
-    spooled_response_path: &Path,
-) -> Result<(), String> {
-    let reason = status_code.canonical_reason().unwrap_or("Unknown");
-    let mut response = format!("HTTP/1.1 {} {reason}\r\n", status_code.as_u16());
-
-    for (header_name, header_value) in headers {
-        if should_skip_response_header(header_name) {
-            continue;
-        }
-
-        let header_value = header_value
-            .to_str()
-            .map_err(|error| format!("response header value is not valid UTF-8: {error}"))?;
-
-        response.push_str(header_name.as_str());
-        response.push_str(": ");
-        response.push_str(header_value);
-        response.push_str("\r\n");
-    }
-
-    response.push_str(&format!("Content-Length: {body_size_bytes}\r\n"));
-    response.push_str("Connection: close\r\n\r\n");
-
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .map_err(map_io_error)?;
-
-    let mut file = tokio::fs::File::open(spooled_response_path)
-        .await
-        .map_err(|error| {
-            format!(
-                "open spooled response file '{}': {error}",
-                spooled_response_path.display()
-            )
-        })?;
-    let mut buffer = vec![0_u8; 64 * 1024];
-
-    loop {
-        let bytes_read = file
-            .read(&mut buffer)
-            .await
-            .map_err(|error| format!("read spooled response file: {error}"))?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        stream
-            .write_all(&buffer[..bytes_read])
-            .await
-            .map_err(map_io_error)?;
-    }
-
-    stream.flush().await.map_err(map_io_error)?;
-
-    Ok(())
-}
 
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
-async fn tunnel_blind_relay(
-    mut client_stream: TcpStream,
+async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
+    mut client_stream: S,
     host: &str,
     port: u16,
     dns_manager: &Option<Arc<DnsManager>>,
@@ -1668,9 +1019,9 @@ async fn tunnel_blind_relay(
         .await
         .map_err(|e| format!("failed to connect to upstream {host}:{port}: {e}"))?;
 
-    // Bidirectional copy
-    let (mut cr, mut cw) = client_stream.split();
-    let (mut ur, mut uw) = upstream.split();
+    // Bidirectional copy via tokio::io::split (works with any AsyncRead + AsyncWrite).
+    let (mut cr, mut cw) = tokio::io::split(&mut client_stream);
+    let (mut ur, mut uw) = tokio::io::split(&mut upstream);
 
     let client_to_upstream = tokio::io::copy(&mut cr, &mut uw);
     let upstream_to_client = tokio::io::copy(&mut ur, &mut cw);
@@ -1691,8 +1042,7 @@ async fn tunnel_blind_relay(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
+pub(crate) fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<tokio_rustls::rustls::ClientConfig>> = OnceLock::new();
 
     use tokio_rustls::rustls::client::danger::{
@@ -1755,211 +1105,6 @@ fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig
 /// Handle WebSocket upgrade for plain HTTP (ws://) connections.
 /// Opens a raw TCP connection to upstream, sends the upgrade request, reads the 101 response,
 /// writes it back to the client, then enters bidirectional frame relay.
-async fn handle_http_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    client_stream: &mut S,
-    request: &ParsedProxyRequest,
-    session_sender: &mpsc::Sender<ProxySessionDetail>,
-    ws_message_sender: &mpsc::Sender<crate::ws::WsMessageData>,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
-    dns_manager: &Option<Arc<DnsManager>>,
-    workspace_id: &str,
-) -> Result<(), String> {
-    let port = request.url.port().unwrap_or(80);
-    let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
-        Some(ip) => {
-            emit_log(
-                "INFO",
-                "dns_override_ws_http",
-                &[
-                    ("host", request.host.clone()),
-                    ("override_ip", ip.to_string()),
-                ],
-            );
-            ip.to_string()
-        }
-        None => request.host.clone(),
-    };
-    let host_port = format!("{}:{}", request.host, port);
-    let connect_host_port = format!("{}:{}", connect_host, port);
-
-    emit_log(
-        "DEBUG",
-        "ws_http_connecting_upstream",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("host_port", host_port.clone()),
-        ],
-    );
-
-    let mut upstream = TcpStream::connect(&*connect_host_port).await.map_err(|e| {
-        emit_log(
-            "ERROR",
-            "ws_http_upstream_connect_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("host_port", host_port.clone()),
-                ("error", e.to_string()),
-            ],
-        );
-        format!("ws upstream connect: {e}")
-    })?;
-
-    emit_log(
-        "DEBUG",
-        "ws_http_upstream_connected",
-        &[("request_id", request.request_id.clone())],
-    );
-
-    let raw_req = build_raw_upgrade_request(request)?;
-    emit_log(
-        "DEBUG",
-        "ws_http_sending_upgrade",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("raw_req_len", raw_req.len().to_string()),
-        ],
-    );
-    emit_log(
-        "DEBUG",
-        "ws_http_raw_request",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("raw_req", raw_req.clone()),
-        ],
-    );
-
-    upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
-        emit_log(
-            "ERROR",
-            "ws_http_upgrade_send_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("error", e.to_string()),
-            ],
-        );
-        format!("ws upgrade send: {e}")
-    })?;
-
-    // Read the upstream 101 response and relay it to the client
-    let (response_head, response_prefix) =
-        read_http_response_head(&mut upstream).await.map_err(|e| {
-            emit_log(
-                "ERROR",
-                "ws_http_read_response_head_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("error", e.clone()),
-                ],
-            );
-            e
-        })?;
-
-    emit_log(
-        "DEBUG",
-        "ws_http_got_response_head",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("response_head", response_head.clone()),
-        ],
-    );
-
-    // Parse status code from the response
-    let status_line = response_head.lines().next().unwrap_or("");
-    let status_code: u16 = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(502);
-
-    emit_log(
-        "INFO",
-        "ws_http_upstream_status",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("status_code", status_code.to_string()),
-        ],
-    );
-
-    // Write the response head back to the client
-    client_stream
-        .write_all(response_head.as_bytes())
-        .await
-        .map_err(|e| {
-            emit_log(
-                "ERROR",
-                "ws_http_write_to_client_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("error", e.to_string()),
-                ],
-            );
-            format!("ws response write to client: {e}")
-        })?;
-    client_stream
-        .flush()
-        .await
-        .map_err(|e| format!("ws flush: {e}"))?;
-
-    emit_log(
-        "INFO",
-        "ws_http_entering_relay",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("session_id", request.request_id.clone()),
-        ],
-    );
-
-    let mut detail = build_session_detail(
-        request,
-        status_code,
-        &HeaderMap::new(),
-        &[],
-        0,
-        started_at,
-        started_at_instant,
-        ProxyTimingBreakdown {
-            connect_ms: None,
-            dns_ms: None,
-            request_send_ms: None,
-            response_read_ms: Some(0),
-            tls_ms: None,
-            total_ms: Some(started_at_instant.elapsed().as_millis()),
-            waiting_ms: Some(0),
-        },
-        false,
-    );
-    detail.summary.protocol = "ws".to_string();
-    let protocol_metadata = infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
-    detail.summary.scheme = protocol_metadata.scheme;
-    detail.summary.http_version = protocol_metadata.http_version;
-    detail.summary.transport_protocol = protocol_metadata.transport_protocol;
-    detail.summary.application_protocol = protocol_metadata.application_protocol;
-    detail.summary.response_mime_type = Some("websocket".to_string());
-    let session_id_for_relay = detail.id.clone();
-    if session_sender.send(detail).await.is_err() {
-        return Ok(());
-    }
-
-    let (inject_tx, mut inject_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
-    let registry = crate::ws::global_ws_registry();
-    registry.register(session_id_for_relay.clone(), inject_tx);
-
-    let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
-    crate::ws::relay_websocket_frames(
-        client_stream,
-        &mut upstream,
-        &session_id_for_relay,
-        ws_message_sender,
-        &mut inject_rx,
-    )
-    .await;
-
-    registry.mark_closed(&session_id_for_relay);
-    registry.unregister(&session_id_for_relay);
-    Ok(())
-}
 
 /// Handle WebSocket upgrade for HTTPS (wss://) connections via MITM.
 /// Opens a raw TLS connection to upstream, sends the upgrade request, reads the 101 response,
@@ -2210,7 +1355,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
 
 /// Read a complete HTTP response head (status line + headers) from a stream.
 /// Returns the full text including the trailing \r\n\r\n.
-async fn read_http_response_head<R: AsyncReadExt + Unpin>(
+pub(crate) async fn read_http_response_head<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> Result<(String, Vec<u8>), String> {
     let mut buf = Vec::with_capacity(READ_BUFFER_BYTES);
@@ -2268,18 +1413,16 @@ fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Str
 ///
 /// Uses a hyper server connection to parse HTTP requests from the TLS stream.
 /// This allows handling both HTTP/1.1 and HTTP/2 (based on ALPN negotiation)
-/// through the same `MitmService` request handler.
+/// through the same `HttpProxyService` request handler.
 #[allow(clippy::too_many_arguments)]
-async fn handle_connect_mitm(
-    mut stream: TcpStream,
+async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    mut stream: S,
     host: String,
     port: u16,
     tls_manager: Arc<TlsManager>,
     client_addr: SocketAddr,
     session_sender: mpsc::Sender<ProxySessionDetail>,
     ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
     breakpoint_manager: Option<Arc<BreakpointManager>>,
     rewrite_manager: Option<Arc<RewriteManager>>,
     map_manager: Option<Arc<MapManager>>,
@@ -2353,15 +1496,17 @@ async fn handle_connect_mitm(
         );
     }
 
-    // Build shared state for this MITM connection.
-    let state = Arc::new(crate::mitm_service::MitmConnectionState {
-        host: host.clone(),
-        port,
+    // Build shared connection context for this MITM connection.
+    let ctx = Arc::new(ConnectionContext {
+        mode: ConnectionMode::MitmHttps {
+            host: host.clone(),
+            port,
+            tls_protocol,
+            tls_cipher_suite,
+            tls_ms,
+            alpn_protocol,
+        },
         client_addr,
-        tls_protocol,
-        tls_cipher_suite,
-        tls_ms,
-        alpn_protocol,
         session_sender,
         ws_message_sender,
         rewrite_manager,
@@ -2372,13 +1517,9 @@ async fn handle_connect_mitm(
         dns_manager,
         workspace_id,
         event_emitter,
-        started_at,
-        started_at_instant,
         upstream_pool,
     });
-    let service = crate::mitm_service::MitmService {
-        state: state.clone(),
-    };
+    let service = HttpProxyService { ctx };
 
     // Use hyper server to handle the decrypted HTTP traffic.
     // Wrap the TLS stream in TokioIo to bridge tokio's AsyncRead/AsyncWrite
@@ -2401,6 +1542,7 @@ async fn handle_connect_mitm(
     } else {
         hyper::server::conn::http1::Builder::new()
             .serve_connection(io, service)
+            .with_upgrades()
             .await
             .map_err(|e| {
                 emit_log(
@@ -2415,298 +1557,25 @@ async fn handle_connect_mitm(
     Ok(())
 }
 
-async fn read_proxy_request(stream: &mut TcpStream) -> Result<ParsedProxyRequest, String> {
-    read_proxy_request_from_stream(stream).await
-}
 
-/// Check if the request has `Transfer-Encoding: chunked` as the sole transfer
-/// coding. Rejects unsupported combinations (e.g. `gzip, chunked`) and multiple
-/// TE headers, since we only decode chunked framing — forwarding other codings
-/// without decoding would silently corrupt the body upstream.
+/// Header-only probe to detect CONNECT / CA cert requests.
 ///
-/// Collects ALL Transfer-Encoding header values, comma-splits them into a
-/// single coding list, then accepts only exactly one coding: "chunked".
+/// Reads from the stream until `\r\n\r\n` is found, then parses the
+/// request line and headers via httparse. Does NOT read the body.
 ///
 /// Returns:
-/// - `Ok(true)` — sole `Transfer-Encoding: chunked`, we can decode it.
-/// - `Ok(false)` — no Transfer-Encoding header present.
-/// - `Err(...)` — unsupported transfer coding present.
-fn check_transfer_encoding(headers: &[httparse::Header<'_>]) -> Result<bool, String> {
-    // Collect all TE header values, then split by comma into a single coding list.
-    let header_values: Vec<String> = headers
-        .iter()
-        .filter(|h| h.name.eq_ignore_ascii_case("transfer-encoding"))
-        .map(|h| String::from_utf8_lossy(h.value).into_owned())
-        .collect();
-
-    if header_values.is_empty() {
-        return Ok(false);
-    }
-
-    let all_codings: Vec<&str> = header_values
-        .iter()
-        .flat_map(|v| v.split(','))
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if all_codings.is_empty() {
-        return Ok(false);
-    }
-
-    // Accept only a single "chunked" coding across all TE headers.
-    if all_codings.len() == 1 && all_codings[0].eq_ignore_ascii_case("chunked") {
-        return Ok(true);
-    }
-
-    Err(format!(
-        "unsupported Transfer-Encoding (only 'chunked' is supported, got: {:?})",
-        all_codings
-    ))
-}
-
-/// Read a chunked transfer-encoded body from the stream.
+/// - `request`  — ParsedProxyRequest with method, path, URL, headers (body is empty)
+/// - `consumed`  — all raw bytes read up to and including `\r\n\r\n`
+/// - `leftover`  — any bytes read PAST the header terminator (body prefix,
+///                  TLS ClientHello for CONNECT, etc.)
 ///
-/// `leftover` contains any body bytes already buffered past the header end.
-/// Returns the fully-decoded body as a contiguous byte vector.
-async fn read_chunked_body<S: AsyncReadExt + Unpin>(
+/// The caller MUST replay the appropriate bytes via PrefixedStream:
+///   - CONNECT / MITM / tunnel: replay only `leftover`
+///   - Non-CONNECT (hyper): replay `[consumed, leftover].concat()`
+///   - CA cert: neither is replayed — `stream` is used directly, then closed.
+async fn read_header_only<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     stream: &mut S,
-    leftover: &[u8],
-) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    let mut pending: &[u8] = leftover;
-
-    loop {
-        // Read the chunk size line (hex number followed by \r\n).
-        let size_line = timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_line(stream, &mut pending))
-            .await
-            .map_err(|_| "timed out reading chunk size line".to_string())??;
-        let size_str = size_line.trim();
-        // Some servers send chunk extensions after a semicolon; ignore them.
-        let size_str = size_str.split(';').next().unwrap_or(size_str).trim();
-        let chunk_size =
-            usize::from_str_radix(size_str, 16).map_err(|e| format!("invalid chunk size: {e}"))?;
-
-        if chunk_size == 0 {
-            // Final chunk — consume trailers (including any trailer headers).
-            timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_trailer(stream, &mut pending, true))
-                .await
-                .map_err(|_| "timed out reading chunk trailer".to_string())??;
-            break;
-        }
-
-        // Cumulative size check BEFORE allocating/reading chunk data.
-        // Use saturating_add to prevent overflow on huge chunk sizes.
-        let new_len = body.len().saturating_add(chunk_size);
-        if new_len > MAX_REQUEST_BODY_BYTES {
-            return Err(format!(
-                "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
-            ));
-        }
-
-        // Read chunk_size bytes of data.
-        let mut chunk_data =
-            timeout(CLIENT_BODY_READ_TIMEOUT, read_exact_from(stream, &mut pending, chunk_size))
-                .await
-                .map_err(|_| "timed out reading chunk data".to_string())??;
-        body.append(&mut chunk_data);
-
-        // Consume the trailing \r\n after the chunk data.
-        timeout(CLIENT_BODY_READ_TIMEOUT, read_chunk_trailer(stream, &mut pending, false))
-            .await
-            .map_err(|_| "timed out reading chunk data trailer".to_string())??;
-    }
-
-    Ok(body)
-}
-
-/// Read bytes from a combination of a leftover buffer and a stream.
-/// Consumes from `leftover` first, then reads from `stream` for the remainder.
-async fn read_exact_from<S: AsyncReadExt + Unpin>(
-    stream: &mut S,
-    leftover: &mut &[u8],
-    mut count: usize,
-) -> Result<Vec<u8>, String> {
-    let mut buf = Vec::with_capacity(count);
-
-    // Drain leftover first.
-    let from_leftover = count.min(leftover.len());
-    if from_leftover > 0 {
-        buf.extend_from_slice(&leftover[..from_leftover]);
-        *leftover = &leftover[from_leftover..];
-        count -= from_leftover;
-    }
-
-    // Read the rest from the stream.
-    while count > 0 {
-        let mut tmp = vec![0u8; count];
-        let read = stream
-            .read(&mut tmp)
-            .await
-            .map_err(|e| format!("failed to read chunk data: {e}"))?;
-        if read == 0 {
-            return Err("unexpected EOF while reading chunk data".to_string());
-        }
-        buf.extend_from_slice(&tmp[..read]);
-        count -= read;
-    }
-
-    Ok(buf)
-}
-
-/// Read a single line (up to \r\n) from the leftover buffer and stream.
-/// Returns the line content without the trailing \r\n.
-async fn read_chunk_line<S: AsyncReadExt + Unpin>(
-    stream: &mut S,
-    leftover: &mut &[u8],
-) -> Result<String, String> {
-    let mut line = Vec::new();
-
-    loop {
-        // Consume leftover bytes one at a time looking for \r\n.
-        while !leftover.is_empty() {
-            let byte = leftover[0];
-            *leftover = &leftover[1..];
-            line.push(byte);
-            if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
-                line.truncate(line.len() - 2);
-                return String::from_utf8(line)
-                    .map_err(|e| format!("chunk size line is not valid UTF-8: {e}"));
-            }
-        }
-
-        // No more leftover; read from stream.
-        let mut tmp = [0u8; 1];
-        let read = stream
-            .read(&mut tmp)
-            .await
-            .map_err(|e| format!("failed to read chunk size line: {e}"))?;
-        if read == 0 {
-            return Err("unexpected EOF while reading chunk size line".to_string());
-        }
-        line.push(tmp[0]);
-        if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
-            line.truncate(line.len() - 2);
-            return String::from_utf8(line)
-                .map_err(|e| format!("chunk size line is not valid UTF-8: {e}"));
-        }
-
-        if line.len() > 64 {
-            return Err("chunk size line is too long".to_string());
-        }
-    }
-}
-
-/// Consume trailing data after a chunk.
-///
-/// After non-final chunks this is just `\r\n`. After the final 0-size chunk,
-/// the HTTP spec allows trailer header lines before the terminal `\r\n`.
-/// When `is_final` is true we consume all trailer header lines until the empty line.
-/// When `is_final` is false we expect exactly `\r\n`.
-async fn read_chunk_trailer<S: AsyncReadExt + Unpin>(
-    stream: &mut S,
-    leftover: &mut &[u8],
-    is_final: bool,
-) -> Result<(), String> {
-    if !is_final {
-        // Data trailer: must be exactly \r\n.
-        let mut buf = [0u8; 2];
-        let mut filled = 0;
-
-        while filled < 2 && !leftover.is_empty() {
-            buf[filled] = leftover[0];
-            *leftover = &leftover[1..];
-            filled += 1;
-        }
-
-        while filled < 2 {
-            let read = stream
-                .read(&mut buf[filled..])
-                .await
-                .map_err(|e| format!("failed to read chunk trailer: {e}"))?;
-            if read == 0 {
-                return Err("unexpected EOF while reading chunk trailer".to_string());
-            }
-            filled += read;
-        }
-
-        if buf != [b'\r', b'\n'] {
-            return Err(format!(
-                "expected chunk trailer \\r\\n, got {:?}",
-                buf
-            ));
-        }
-        return Ok(());
-    }
-
-    // Final trailer: consume lines until an empty line (\r\n).
-    // Cap the number of trailer lines to prevent unbounded reads from a
-    // malicious client that sends endless valid trailer lines.
-    const MAX_TRAILER_LINES: usize = 64;
-    let mut trailer_count = 0usize;
-    loop {
-        let line = read_trailer_line(stream, leftover).await?;
-        // Empty line signals end of trailers.
-        if line.is_empty() {
-            break;
-        }
-        trailer_count += 1;
-        if trailer_count > MAX_TRAILER_LINES {
-            return Err("too many chunked trailer header lines".to_string());
-        }
-        // Non-empty line is a trailer header — consume and ignore.
-        // (we don't forward trailers from chunked encoding)
-    }
-    Ok(())
-}
-
-/// Read a single line (up to \r\n) from the leftover buffer and stream.
-/// Similar to `read_chunk_line` but with a higher line-length limit suitable
-/// for trailer header lines.
-async fn read_trailer_line<S: AsyncReadExt + Unpin>(
-    stream: &mut S,
-    leftover: &mut &[u8],
-) -> Result<String, String> {
-    let mut line = Vec::new();
-
-    loop {
-        // Consume leftover bytes one at a time looking for \r\n.
-        while !leftover.is_empty() {
-            let byte = leftover[0];
-            *leftover = &leftover[1..];
-            line.push(byte);
-            if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
-                line.truncate(line.len() - 2);
-                return String::from_utf8(line)
-                    .map_err(|e| format!("trailer line is not valid UTF-8: {e}"));
-            }
-        }
-
-        // No more leftover; read from stream.
-        let mut tmp = [0u8; 1];
-        let read = stream
-            .read(&mut tmp)
-            .await
-            .map_err(|e| format!("failed to read trailer line: {e}"))?;
-        if read == 0 {
-            return Err("unexpected EOF while reading trailer line".to_string());
-        }
-        line.push(tmp[0]);
-        if line.len() >= 2 && line[line.len() - 2..] == [b'\r', b'\n'] {
-            line.truncate(line.len() - 2);
-            return String::from_utf8(line)
-                .map_err(|e| format!("trailer line is not valid UTF-8: {e}"));
-        }
-
-        if line.len() > 8192 {
-            return Err("trailer line is too long".to_string());
-        }
-    }
-}
-
-async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    stream: &mut S,
-) -> Result<ParsedProxyRequest, String> {
+) -> Result<(ParsedProxyRequest, Vec<u8>, Vec<u8>), String> {
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
@@ -2742,20 +1611,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         return Err("request headers are incomplete".to_string());
     }
 
-    let (
-        method,
-        raw_path,
-        url,
-        body_length,
-        mut headers,
-        request_headers,
-        host,
-        path,
-        protocol,
-        query_params,
-        request_version,
-        is_chunked,
-    ) = {
+    let (method, raw_path, url, header_map, request_headers, host, path, protocol, query_params) = {
         let method = Method::from_bytes(
             request
                 .method
@@ -2774,22 +1630,7 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         };
         let url = Url::parse(&target_url)
             .map_err(|error| format!("invalid proxy target URL: {error}"))?;
-        let is_chunked = check_transfer_encoding(request.headers)?;
-        let (body_length, headers) = if is_chunked {
-            // For chunked requests, Content-Length is absent; build headers first
-            // so we can strip Transfer-Encoding and add Content-Length later.
-            let hdrs = build_upstream_headers(request.headers)?;
-            (0usize, hdrs)
-        } else {
-            let len = read_content_length(request.headers)?;
-            if len > MAX_REQUEST_BODY_BYTES {
-                return Err(format!(
-                    "request body exceeds the maximum supported size of {MAX_REQUEST_BODY_BYTES} bytes"
-                ));
-            }
-            let hdrs = build_upstream_headers(request.headers)?;
-            (len, hdrs)
-        };
+        let header_map = build_upstream_headers(request.headers)?;
         let request_headers = build_header_entries_from_httparse_headers(request.headers);
         let host = url
             .host_str()
@@ -2806,53 +1647,29 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
             url.scheme().to_string()
         };
         let query_params = build_query_params(&url);
-        let request_version = request.version.unwrap_or(1);
 
         (
             method,
             raw_path,
             url,
-            body_length,
-            headers,
+            header_map,
             request_headers,
             host,
             path,
             protocol,
             query_params,
-            request_version,
-            is_chunked,
         )
     };
 
-    let body = if is_chunked {
-        // Any bytes already buffered past header_end belong to the chunked body.
-        let leftover = if buffer.len() > header_end {
-            buffer[header_end..].to_vec()
-        } else {
-            Vec::new()
-        };
-        let decoded = read_chunked_body(stream, &leftover).await?;
-        // Replace Transfer-Encoding with the actual Content-Length.
-        headers.remove(TRANSFER_ENCODING);
-        headers.insert(CONTENT_LENGTH, HeaderValue::from(decoded.len()));
-        decoded
+    let consumed = buffer[..header_end].to_vec();
+    let leftover = if buffer.len() > header_end {
+        buffer[header_end..].to_vec()
     } else {
-        while buffer.len() < header_end + body_length {
-            let read_result = timeout(CLIENT_BODY_READ_TIMEOUT, stream.read(&mut chunk))
-                .await
-                .map_err(|_| "timed out waiting for client request body".to_string())?;
-
-            let bytes_read =
-                read_result.map_err(|error| format!("failed to read request body: {error}"))?;
-
-            if bytes_read == 0 {
-                return Err("client disconnected before request body was fully received".to_string());
-            }
-
-            buffer.extend_from_slice(&chunk[..bytes_read]);
-        }
-        buffer[header_end..header_end + body_length].to_vec()
+        Vec::new()
     };
+
+    // Build minimal raw_request for logging/display.
+    let request_version = request.version.unwrap_or(1);
     let raw_request = build_raw_http_head(
         &format!(
             "{} {} HTTP/1.{}",
@@ -2863,10 +1680,10 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         &request_headers,
     );
 
-    Ok(ParsedProxyRequest {
-        body,
+    let parsed = ParsedProxyRequest {
+        body: Vec::new(),
         client_address: None,
-        headers,
+        headers: header_map,
         host,
         method,
         path,
@@ -2878,7 +1695,9 @@ async fn read_proxy_request_from_stream<S: AsyncReadExt + AsyncWriteExt + Unpin>
         url,
         tls_cipher_suite: None,
         tls_protocol: None,
-    })
+    };
+
+    Ok((parsed, consumed, leftover))
 }
 
 pub async fn send_direct_request(
@@ -3039,59 +1858,3 @@ pub async fn send_direct_request(
     })
 }
 
-async fn respond_with_throttle_failure<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    stream: &mut S,
-    request: &ParsedProxyRequest,
-    session_sender: &mpsc::Sender<ProxySessionDetail>,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
-    tls_ms: Option<u128>,
-    error: &str,
-    map_traces: Vec<MapTrace>,
-    throttle_traces: Vec<ThrottleTrace>,
-) -> Result<(), String> {
-    let response_message = "The request was dropped by the active throttle profile.";
-
-    write_plain_text_response(stream, StatusCode::GATEWAY_TIMEOUT, response_message).await?;
-
-    let mut detail = build_session_detail(
-        request,
-        StatusCode::GATEWAY_TIMEOUT.as_u16(),
-        &HeaderMap::new(),
-        response_message.as_bytes(),
-        response_message.len(),
-        started_at,
-        started_at_instant,
-        ProxyTimingBreakdown {
-            connect_ms: None,
-            dns_ms: None,
-            request_send_ms: None,
-            response_read_ms: Some(0),
-            tls_ms,
-            total_ms: Some(started_at_instant.elapsed().as_millis()),
-            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-        },
-        false,
-    );
-    detail.map_traces = map_traces;
-    detail.throttle_traces = throttle_traces;
-    if session_sender.send(detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
-        );
-    }
-
-    emit_log(
-        "WARN",
-        "request_throttled",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("url", request.url.to_string()),
-            ("error", error.to_string()),
-        ],
-    );
-
-    Ok(())
-}

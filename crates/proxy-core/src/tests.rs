@@ -963,11 +963,11 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
         r#"{"mapped":true}"#
     );
     assert_eq!(traces.len(), 1);
-    assert!(traces[0]
-        .local_path
-        .as_deref()
-        .unwrap_or_default()
-        .ends_with("assets/app.json"));
+    let expected_suffix = std::path::Path::new("assets").join("app.json");
+    assert!(std::path::Path::new(
+        traces[0].local_path.as_deref().unwrap_or_default()
+    )
+    .ends_with(&expected_suffix));
 
     let _ = fs::remove_dir_all(dir_path);
 }
@@ -1431,6 +1431,283 @@ fn test_proxy_header_entry_roundtrip() {
     assert_eq!(entry.name, deserialized.name);
     assert_eq!(entry.value, deserialized.value);
     assert_eq!(entry.is_pseudo, deserialized.is_pseudo);
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket regression tests — lock in the WS error/session fixes
+// ---------------------------------------------------------------------------
+
+/// Helper: send a raw WS upgrade request through the proxy and return
+/// (response_text, completed_session).
+async fn send_ws_upgrade_via_proxy(
+    proxy_port: u16,
+    upstream_port: u16,
+    started_proxy: &mut StartedProxyServer,
+) -> (String, ProxySessionDetail) {
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port))
+        .await
+        .unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Read the proxy response.
+    let mut response_buf = [0u8; 4096];
+    let n = timeout(Duration::from_secs(3), client_stream.read(&mut response_buf))
+        .await
+        .expect("timed out reading proxy response")
+        .unwrap();
+    let response_text = String::from_utf8_lossy(&response_buf[..n]).to_string();
+
+    // Collect the first completed session (skip pending status=0).
+    let completed_session = timeout(Duration::from_secs(2), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed session");
+
+    (response_text, completed_session)
+}
+
+/// After collecting the primary completed session, drain the channel briefly
+/// and assert that no additional completed sessions (status != 0) appear.
+async fn assert_no_duplicate_completed_sessions(
+    started_proxy: &mut StartedProxyServer,
+    context: &str,
+) {
+    let mut extra_completed = Vec::new();
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    loop {
+        let remaining = drain_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match timeout(remaining, started_proxy.session_receiver.recv()).await {
+            Ok(Some(s)) if s.summary.status_code != 0 => extra_completed.push(s),
+            _ => break,
+        }
+    }
+    assert!(
+        extra_completed.is_empty(),
+        "{context}: expected no duplicate completed sessions, got statuses: {:?}",
+        extra_completed
+            .iter()
+            .map(|s| s.summary.status_code)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
+    // Use a port that is not listening (allocate_unused_port opens and
+    // immediately closes, so the port is free but nobody is accepting).
+    let dead_port = allocate_unused_port();
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyRuntimeConfig {
+            port: proxy_port,
+            ssl_enabled: false,
+            http2_enabled: None,
+        },
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Option::<String>::None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, dead_port, &mut started_proxy).await;
+
+    // The proxy response should be 502 Bad Gateway.
+    assert!(
+        response_text.contains("502"),
+        "expected 502 response, got: {response_text}"
+    );
+
+    // The completed session must be 502 — NOT 499 (client cancelled).
+    assert_eq!(
+        completed_session.summary.status_code, 502,
+        "expected 502 session, got {}",
+        completed_session.summary.status_code
+    );
+
+    // No duplicate completed sessions (e.g. no 499 from guard).
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_connect_failure").await;
+
+    started_proxy.server_handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
+    // Mock upstream that returns 403 Forbidden (refuses upgrade).
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden")
+            .await
+            .unwrap();
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyRuntimeConfig {
+            port: proxy_port,
+            ssl_enabled: false,
+            http2_enabled: None,
+        },
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Option::<String>::None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+
+    // The proxy response should forward the upstream's 403.
+    assert!(
+        response_text.contains("403"),
+        "expected 403 response, got: {response_text}"
+    );
+
+    // Status should be 403, NOT 499 or 502.
+    assert_eq!(completed_session.summary.status_code, 403);
+
+    // WS registry must NOT have this session (only 101 gets registered).
+    let registry = crate::ws::global_ws_registry();
+    assert_eq!(
+        registry.get_status(&completed_session.id),
+        crate::ws::WsConnectionStatus::Closed,
+        "non-101 session should not be in WS registry"
+    );
+
+    // No duplicate completed sessions.
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_non_101").await;
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn ws_upgrade_101_success_carries_rewrite_traces() {
+    // Mock upstream that returns 101 Switching Protocols.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(
+                b"HTTP/1.1 101 Switching Protocols\r\n\
+                  Upgrade: websocket\r\n\
+                  Connection: Upgrade\r\n\
+                  Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\
+                  \r\n",
+            )
+            .await
+            .unwrap();
+        // Keep the connection alive briefly for the relay to start.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    });
+
+    // Set up a request-stage rewrite rule that matches the WS URL.
+    let rewrite_manager = Arc::new(RewriteManager::new());
+    rewrite_manager.save_rule(RewriteRule {
+        id: "ws-test-rewrite".to_string(),
+        enabled: true,
+        name: "WS test rewrite".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "127.0.0.1".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-ws-test",
+            "operation": "set",
+            "target": "request",
+            "value": "true"
+        }),
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyRuntimeConfig {
+            port: proxy_port,
+            ssl_enabled: false,
+            http2_enabled: None,
+        },
+        None,                        // tls_manager
+        None,                        // breakpoint_manager
+        Some(rewrite_manager),       // rewrite_manager
+        None,                        // map_manager
+        None,                        // script_manager
+        None,                        // throttle_manager
+        None,                        // dns_manager
+        Some("default".to_string()), // workspace_id
+        None,                        // event_emitter
+    )
+    .await
+    .unwrap();
+
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+
+    // The proxy response should be 101 Switching Protocols.
+    assert!(
+        response_text.starts_with("HTTP/1.1 101"),
+        "expected 101 response, got: {response_text}"
+    );
+
+    // Session status should be 101.
+    assert_eq!(completed_session.summary.status_code, 101);
+
+    // The session should carry the rewrite trace from the request-stage rule.
+    assert!(
+        !completed_session.rewrite_traces.is_empty(),
+        "expected rewrite_traces to be populated on 101 session, but got {:?}",
+        completed_session.rewrite_traces
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
 }
 
 fn allocate_unused_port() -> u16 {
