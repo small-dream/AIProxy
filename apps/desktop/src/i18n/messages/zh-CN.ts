@@ -141,6 +141,7 @@ export const zhCNMessages: Messages = {
   },
   settingsPage: {
     aboutBuildNumber: "构建号",
+    aboutCommitHash: "Commit",
     aboutSectionDescription: "版本号加 Build Number 可唯一标识当前 AIProxy 构建。",
     aboutSectionTitle: "关于",
     aboutUniqueIdentifier: "软件标识：{{identifier}}",

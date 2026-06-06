@@ -4,6 +4,7 @@ export type AppBuildInfo = {
   version: string;
   buildNumber: string;
   versionIdentifier: string;
+  commitHash: string;
 };
 
 export function isAppBuildInfo(value: unknown): value is AppBuildInfo {
@@ -16,7 +17,8 @@ export function isAppBuildInfo(value: unknown): value is AppBuildInfo {
   return (
     typeof candidate.version === "string" &&
     typeof candidate.buildNumber === "string" &&
-    typeof candidate.versionIdentifier === "string"
+    typeof candidate.versionIdentifier === "string" &&
+    typeof candidate.commitHash === "string"
   );
 }
 

@@ -7,6 +7,7 @@ pub struct AppBuildInfo {
     pub version: String,
     pub build_number: String,
     pub version_identifier: String,
+    pub commit_hash: String,
 }
 
 pub fn app_version() -> &'static str {
@@ -21,9 +22,8 @@ pub fn app_version_identifier() -> String {
     format!("{}+{}", app_version(), app_build_number())
 }
 
-#[cfg(target_os = "macos")]
-pub fn app_about_version() -> String {
-    format!("{} (Build {})", app_version(), app_build_number())
+pub fn app_commit_hash() -> &'static str {
+    option_env!("AIPROXY_GIT_HASH").unwrap_or("unknown")
 }
 
 #[tauri::command]
@@ -32,6 +32,7 @@ pub fn get_app_build_info() -> AppBuildInfo {
         version: app_version().to_string(),
         build_number: app_build_number().to_string(),
         version_identifier: app_version_identifier(),
+        commit_hash: app_commit_hash().to_string(),
     }
 }
 

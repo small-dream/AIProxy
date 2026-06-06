@@ -20,6 +20,7 @@ const fallbackAppBuildInfo: AppBuildInfo = {
   version: "0.1.0",
   buildNumber: "0",
   versionIdentifier: "0.1.0+0",
+  commitHash: "dev",
 };
 
 export async function getAppBuildInfo(): Promise<AppBuildInfo> {

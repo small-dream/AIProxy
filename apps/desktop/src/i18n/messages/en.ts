@@ -139,6 +139,7 @@ export const enMessages = {
   },
   settingsPage: {
     aboutBuildNumber: "Build Number",
+    aboutCommitHash: "Commit",
     aboutSectionDescription: "Version plus build number uniquely identifies this AIProxy build.",
     aboutSectionTitle: "About",
     aboutUniqueIdentifier: "Software identifier: {{identifier}}",

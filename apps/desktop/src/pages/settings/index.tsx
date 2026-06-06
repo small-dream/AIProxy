@@ -585,6 +585,7 @@ function AboutSection() {
   const version = buildInfo?.version ?? "0.1.0";
   const buildNumber = buildInfo?.buildNumber ?? "0";
   const versionIdentifier = buildInfo?.versionIdentifier ?? `${version}+${buildNumber}`;
+  const commitHash = buildInfo?.commitHash ?? "dev";
 
   return (
     <SectionCard compact title={t("settingsPage.aboutSectionTitle")} description={t("settingsPage.aboutSectionDescription")}>
@@ -599,13 +600,14 @@ function AboutSection() {
             display: "grid",
             gap: 1.5,
             gridTemplateColumns: {
-              md: "repeat(3, minmax(180px, 1fr))",
+              md: "repeat(4, minmax(160px, 1fr))",
               xs: "1fr",
             },
           }}
         >
           <BuildInfoField label={t("settingsPage.aboutVersion")} value={version} />
           <BuildInfoField label={t("settingsPage.aboutBuildNumber")} value={buildNumber} />
+          <BuildInfoField label={t("settingsPage.aboutCommitHash")} value={commitHash} />
           <BuildInfoField label={t("settingsPage.aboutVersionIdentifier")} value={versionIdentifier} />
         </Box>
       </Stack>

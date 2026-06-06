@@ -5,7 +5,7 @@ use tauri::menu::{
 use tauri::{AppHandle, Emitter, Runtime};
 
 #[cfg(target_os = "macos")]
-use crate::commands::{app_about_version, app_build_number};
+use crate::commands::{app_build_number, app_commit_hash};
 
 /// Menu item identifiers used for event matching.
 #[cfg(target_os = "macos")]
@@ -339,8 +339,12 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
 fn build_about_metadata<'a>() -> AboutMetadata<'a> {
     AboutMetadata {
         name: Some("AIProxy".to_string()),
-        version: Some(app_about_version()),
-        comments: Some(format!("Build number: {}", app_build_number())),
+        version: None,
+        comments: Some(format!(
+            "Build {} · {}",
+            app_build_number(),
+            app_commit_hash()
+        )),
         ..AboutMetadata::default()
     }
 }
