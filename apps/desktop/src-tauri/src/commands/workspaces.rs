@@ -1,8 +1,8 @@
 use super::common::*;
 
 #[tauri::command]
-pub fn list_workspaces(state: State<'_, Arc<AppState>>) -> Vec<WorkspaceData> {
-    state.read_workspace_manager().list()
+pub fn list_workspaces(state: State<'_, Arc<AppState>>) -> Result<Vec<WorkspaceData>, String> {
+    Ok(state.read_workspace_manager().list())
 }
 
 #[derive(Debug, Deserialize)]

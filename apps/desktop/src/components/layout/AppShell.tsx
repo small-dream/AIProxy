@@ -24,6 +24,7 @@ import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
 import { useI18n } from "@/i18n";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
+import { useNotificationStore } from "@/services/notification.store";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
 
@@ -47,6 +48,12 @@ export function AppShell() {
   // --- Snackbar message shared across hooks ---
   const [menuSnackbarMessage, setMenuSnackbarMessage] = useState<string | null>(null);
 
+  // --- Global notification queue (fed by reportCommandFailure etc.) ---
+  const notificationQueue = useNotificationStore((s) => s.queue);
+  const shiftNotification = useNotificationStore((s) => s.shift);
+  const activeNotification = notificationQueue[0] ?? null;
+  const snackbarMessage = menuSnackbarMessage ?? activeNotification?.message ?? null;
+
   // --- Proxy lifecycle ---
   const {
     proxyStatus,
@@ -54,6 +61,7 @@ export function AppShell() {
     port,
     isProxyBusy,
     isBusy,
+    isWorkspacesError,
     systemProxyActionDisabled,
     portDialogOpen,
     portDraft,
@@ -132,6 +140,7 @@ export function AppShell() {
       <AppShellTopControls
         headerActions={headerActions}
         isProxyBusy={isProxyBusy}
+        workspaceConfigUnavailable={isWorkspacesError}
         macosTitlebarEnabled={macosTitlebarEnabled}
         onMenuAction={handleMenuCommand}
         onStartProxy={() => {
@@ -235,11 +244,18 @@ export function AppShell() {
       />
 
       <Snackbar
+        key={menuSnackbarMessage ?? activeNotification?.id ?? "snackbar"}
         autoHideDuration={4000}
         anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        message={menuSnackbarMessage}
-        onClose={() => setMenuSnackbarMessage(null)}
-        open={menuSnackbarMessage !== null}
+        message={snackbarMessage}
+        onClose={() => {
+          if (menuSnackbarMessage !== null) {
+            setMenuSnackbarMessage(null);
+          } else if (activeNotification !== null) {
+            shiftNotification();
+          }
+        }}
+        open={snackbarMessage !== null}
         sx={{
           top: "50% !important",
           bottom: "auto !important",

@@ -152,8 +152,8 @@ pub fn get_bootstrap_status(state: State<'_, Arc<AppState>>) -> BootstrapStatus 
 }
 
 #[tauri::command]
-pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<ProxySessionSummary> {
-    state.read_sessions()
+pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Result<Vec<ProxySessionSummary>, String> {
+    Ok(state.read_sessions())
 }
 
 #[tauri::command]

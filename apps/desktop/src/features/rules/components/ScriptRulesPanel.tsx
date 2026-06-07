@@ -71,7 +71,7 @@ const EXTRACT_TEMPLATE = `export function onResponse(ctx) {
 
 export function ScriptRulesPanel() {
   const { t } = useI18n();
-  const { data: rules = [] } = useScriptRules();
+  const { data: rules = [], isError: isRulesError } = useScriptRules();
   const saveMutation = useSaveScriptRule();
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
@@ -156,6 +156,7 @@ export function ScriptRulesPanel() {
   }
 
   function handleSave() {
+    if (isRulesError) return;
     setValidationAttempted(true);
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
@@ -168,6 +169,7 @@ export function ScriptRulesPanel() {
   }
 
   function handleDelete() {
+    if (isRulesError) return;
     if (!selectedRuleId || !rules.some((rule) => rule.id === selectedRuleId)) {
       setSelectedRuleId(undefined);
       setDraft(createEmptyScriptRule());
@@ -190,7 +192,11 @@ export function ScriptRulesPanel() {
   const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
 
   return (
-    <ManagedRulesWorkbench
+    <>
+      {isRulesError && (
+        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+      )}
+      <ManagedRulesWorkbench
       searchPlaceholder={t("rulesPage.script.searchPlaceholder")}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
@@ -199,23 +205,25 @@ export function ScriptRulesPanel() {
           <Button
             size="small"
             variant="outlined"
+            disabled={isRulesError}
             startIcon={<AddRoundedIcon />}
             onClick={() => handleCreate()}
           >
             {t("rulesPage.script.createRule")}
           </Button>
-          <Button size="small" variant="outlined" onClick={() => handleCreate("header")}>
+          <Button size="small" variant="outlined" disabled={isRulesError} onClick={() => handleCreate("header")}>
             {t("rulesPage.script.templates.header")}
           </Button>
-          <Button size="small" variant="outlined" onClick={() => handleCreate("mock")}>
+          <Button size="small" variant="outlined" disabled={isRulesError} onClick={() => handleCreate("mock")}>
             {t("rulesPage.script.templates.mock")}
           </Button>
-          <Button size="small" variant="outlined" onClick={() => handleCreate("extract")}>
+          <Button size="small" variant="outlined" disabled={isRulesError} onClick={() => handleCreate("extract")}>
             {t("rulesPage.script.templates.extract")}
           </Button>
           <Button
             size="small"
             variant="outlined"
+            disabled={isRulesError}
             startIcon={<FileOpenRoundedIcon />}
             onClick={() => {
               void handleImportFile();
@@ -285,7 +293,7 @@ export function ScriptRulesPanel() {
               color="error"
               startIcon={<DeleteRoundedIcon />}
               onClick={handleDelete}
-              disabled={deleteMutation.isPending}
+              disabled={deleteMutation.isPending || isRulesError}
             >
               {t("common.actions.remove")}
             </Button>
@@ -294,7 +302,7 @@ export function ScriptRulesPanel() {
               variant="contained"
               startIcon={<SaveRoundedIcon />}
               onClick={handleSave}
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || isRulesError}
             >
               {t("rulesPage.editor.saveRule")}
             </Button>
@@ -418,5 +426,6 @@ export function ScriptRulesPanel() {
         </Stack>
       }
     />
+    </>
   );
 }

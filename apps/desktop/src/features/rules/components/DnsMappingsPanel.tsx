@@ -26,7 +26,7 @@ import { useI18n } from "@/i18n";
 
 export function DnsMappingsPanel() {
   const { t } = useI18n();
-  const { data: rules = [] } = useDnsMappings(DEFAULT_WORKSPACE_ID);
+  const { data: rules = [], isError: isRulesError } = useDnsMappings(DEFAULT_WORKSPACE_ID);
   const saveMutation = useSaveDnsMapping();
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
@@ -58,6 +58,7 @@ export function DnsMappingsPanel() {
   }
 
   function handleSave() {
+    if (isRulesError) return;
     setValidationAttempted(true);
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
@@ -70,6 +71,7 @@ export function DnsMappingsPanel() {
   }
 
   function handleDelete() {
+    if (isRulesError) return;
     if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
       setDraft(createEmptyDnsMappingRule());
       setSelectedRuleId(undefined);
@@ -91,7 +93,11 @@ export function DnsMappingsPanel() {
   const errors = getDnsMappingValidationErrors(draft, t);
 
   return (
-    <ManagedRulesWorkbench
+    <>
+      {isRulesError && (
+        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+      )}
+      <ManagedRulesWorkbench
       searchPlaceholder={t("rulesPage.dns.searchPlaceholder")}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
@@ -99,6 +105,7 @@ export function DnsMappingsPanel() {
         <Button
           size="small"
           variant="outlined"
+          disabled={isRulesError}
           startIcon={<AddRoundedIcon />}
           onClick={handleCreateRule}
         >
@@ -164,7 +171,7 @@ export function DnsMappingsPanel() {
               color="error"
               startIcon={<DeleteRoundedIcon />}
               onClick={handleDelete}
-              disabled={deleteMutation.isPending}
+              disabled={deleteMutation.isPending || isRulesError}
             >
               {t("common.actions.remove")}
             </Button>
@@ -173,7 +180,7 @@ export function DnsMappingsPanel() {
               variant="contained"
               startIcon={<SaveRoundedIcon />}
               onClick={handleSave}
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || isRulesError}
             >
               {t("rulesPage.editor.saveRule")}
             </Button>
@@ -216,5 +223,6 @@ export function DnsMappingsPanel() {
         </Stack>
       }
     />
+    </>
   );
 }

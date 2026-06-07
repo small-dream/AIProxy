@@ -35,7 +35,7 @@ import { useI18n } from "@/i18n";
 
 export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const { t } = useI18n();
-  const { data: rules = [] } = useMapRules(mode);
+  const { data: rules = [], isError: isRulesError } = useMapRules(mode);
   const saveMutation = useSaveMapRule();
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
@@ -88,6 +88,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }
 
   function handleSave() {
+    if (isRulesError) return;
     setValidationAttempted(true);
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
@@ -100,6 +101,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }
 
   function handleDelete() {
+    if (isRulesError) return;
     if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
       setDraft(createEmptyMapRule(mode));
       setSelectedRuleId(undefined);
@@ -144,7 +146,11 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }, [t]);
 
   return (
-    <ManagedRulesWorkbench
+    <>
+      {isRulesError && (
+        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+      )}
+      <ManagedRulesWorkbench
       searchPlaceholder={
         isLocal
           ? t("rulesPage.mapLocal.searchPlaceholder")
@@ -156,6 +162,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
         <Button
           size="small"
           variant="outlined"
+          disabled={isRulesError}
           startIcon={<AddRoundedIcon />}
           onClick={handleCreateRule}
         >
@@ -225,7 +232,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               color="error"
               startIcon={<DeleteRoundedIcon />}
               onClick={handleDelete}
-              disabled={deleteMutation.isPending}
+              disabled={deleteMutation.isPending || isRulesError}
             >
               {t("common.actions.remove")}
             </Button>
@@ -234,7 +241,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               variant="contained"
               startIcon={<SaveRoundedIcon />}
               onClick={handleSave}
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || isRulesError}
             >
               {t("rulesPage.editor.saveRule")}
             </Button>
@@ -319,5 +326,6 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
         </Stack>
       }
     />
+    </>
   );
 }

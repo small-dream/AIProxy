@@ -10,13 +10,13 @@ pub struct ListThrottleProfilesInput {
 pub fn list_throttle_profiles(
     input: ListThrottleProfilesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<ThrottleProfileData> {
-    state
+) -> Result<Vec<ThrottleProfileData>, String> {
+    Ok(state
         .read_throttle_manager()
         .list_profiles()
         .into_iter()
         .filter(|p| p.workspace_id == input.workspace_id)
-        .collect()
+        .collect())
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,13 +29,13 @@ pub struct ListThrottleRulesInput {
 pub fn list_throttle_rules(
     input: ListThrottleRulesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<ThrottleRuleData> {
-    state
+) -> Result<Vec<ThrottleRuleData>, String> {
+    Ok(state
         .read_throttle_manager()
         .list_rules()
         .into_iter()
         .filter(|rule| rule.workspace_id == input.workspace_id)
-        .collect()
+        .collect())
 }
 
 #[tauri::command]

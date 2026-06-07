@@ -1,6 +1,7 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import {
+  Alert,
   Box,
   Button,
   Dialog,
@@ -60,6 +61,8 @@ export function EnvironmentManagerDialog({
   const envSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const globalSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Depend on query .data directly (stable reference from the query cache, or
+  // undefined when disabled/failed) — avoids a new `[]` identity on every render.
   useEffect(() => {
     if (envVarsQuery.data) {
       setLocalEnvVars(
@@ -155,7 +158,6 @@ export function EnvironmentManagerDialog({
     }
   }
 
-  const environments = environmentsQuery.data ?? [];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -180,11 +182,16 @@ export function EnvironmentManagerDialog({
                 overflow: "hidden",
               }}
             >
+              {environmentsQuery.isError && (
+                <Alert severity="error" sx={{ m: 1, py: 0.5 }}>
+                  {t("common.errors.generic")}
+                </Alert>
+              )}
               <Typography variant="caption" sx={{ fontWeight: 600, mb: 1, px: 0.5 }}>
                 {t("collectionsPage.environmentSelector")}
               </Typography>
               <Box sx={{ flex: 1, overflow: "auto" }}>
-                {environments.map((env) => (
+                {(environmentsQuery.data ?? []).map((env) => (
                   <Stack
                     key={env.id}
                     direction="row"
@@ -228,15 +235,16 @@ export function EnvironmentManagerDialog({
                     </IconButton>
                   </Stack>
                 ))}
-                {environments.length === 0 && (
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ p: 1, display: "block" }}
-                  >
-                    {t("common.empty.noData")}
-                  </Typography>
-                )}
+                {(environmentsQuery.data ?? []).length === 0 &&
+                  !environmentsQuery.isError && (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ p: 1, display: "block" }}
+                    >
+                      {t("common.empty.noData")}
+                    </Typography>
+                  )}
               </Box>
               <Box sx={{ pt: 1, borderTop: 1, borderColor: "divider" }}>
                 {isAddingEnv ? (
@@ -281,7 +289,21 @@ export function EnvironmentManagerDialog({
 
             {/* Variable editor */}
             <Box sx={{ flex: 1, overflow: "auto" }}>
-              {selectedEnvId ? (
+              {envVarsQuery.isError ? (
+                <Box
+                  sx={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    p: 2,
+                  }}
+                >
+                  <Alert severity="error" sx={{ width: "100%" }}>
+                    {t("common.errors.generic")}
+                  </Alert>
+                </Box>
+              ) : selectedEnvId ? (
                 <VariableEditorTable
                   key={selectedEnvId}
                   keyPlaceholder={t("collectionsPage.variableKey")}
@@ -312,15 +334,31 @@ export function EnvironmentManagerDialog({
 
         {activeTab === "globals" && (
           <Box sx={{ height: 420, overflow: "auto" }}>
-            <VariableEditorTable
-              keyPlaceholder={t("collectionsPage.variableKey")}
-              onChange={(vars) => {
-                setLocalGlobalVars(vars);
-                debouncedSaveGlobalVars(vars);
-              }}
-              valuePlaceholder={t("collectionsPage.variableValue")}
-              variables={localGlobalVars}
-            />
+            {globalVarsQuery.isError ? (
+              <Box
+                sx={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  p: 2,
+                }}
+              >
+                <Alert severity="error" sx={{ width: "100%" }}>
+                  {t("common.errors.generic")}
+                </Alert>
+              </Box>
+            ) : (
+              <VariableEditorTable
+                keyPlaceholder={t("collectionsPage.variableKey")}
+                onChange={(vars) => {
+                  setLocalGlobalVars(vars);
+                  debouncedSaveGlobalVars(vars);
+                }}
+                valuePlaceholder={t("collectionsPage.variableValue")}
+                variables={localGlobalVars}
+              />
+            )}
           </Box>
         )}
       </DialogContent>

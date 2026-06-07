@@ -100,8 +100,8 @@ export function ThrottlingPage() {
   const { t } = useI18n();
   const location = useLocation();
   const seed = (location.state as { throttleSeed?: ThrottleSeed } | null)?.throttleSeed;
-  const { data: profiles = [] } = useThrottleProfiles();
-  const { data: rules = [] } = useThrottleRules();
+  const { data: profiles = [], isError: isProfilesError } = useThrottleProfiles();
+  const { data: rules = [], isError: isRulesError } = useThrottleRules();
   const { data: stats } = useThrottleRuntimeStats();
   const saveProfileMutation = useSaveThrottleProfile();
   const saveRuleMutation = useSaveThrottleRule();
@@ -211,6 +211,7 @@ export function ThrottlingPage() {
   }
 
   function handleSaveProfile(enableAfterSave = false) {
+    if (isProfilesError) return;
     setValidationAttempted(true);
     if (profileErrors.length > 0) return;
     saveProfileMutation.mutate(
@@ -227,6 +228,7 @@ export function ThrottlingPage() {
   }
 
   function handleTemporaryEnable() {
+    if (isProfilesError) return;
     const target = selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
     if (!target) return;
     setTemporaryUntil(Date.now() + TEMP_ENABLE_MS);
@@ -234,6 +236,7 @@ export function ThrottlingPage() {
   }
 
   function handleNewRule() {
+    if (isRulesError) return;
     const profileId = activeProfile?.id ?? selectedProfileId ?? profiles[0]?.id;
     if (!profileId) return;
     const draft = createRuleDraft(profileId);
@@ -244,6 +247,7 @@ export function ThrottlingPage() {
   }
 
   function handleSaveRule() {
+    if (isRulesError) return;
     if (!ruleDraft) return;
     setValidationAttempted(true);
     if (ruleErrors.length > 0) return;
@@ -262,6 +266,9 @@ export function ThrottlingPage() {
 
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
+      {(isProfilesError || isRulesError) && (
+        <Alert severity="error">{t("common.errors.generic")}</Alert>
+      )}
       <Paper elevation={0} variant="outlined" sx={{ borderRadius: "8px", overflow: "hidden" }}>
         <Box sx={{ px: 1.5, py: 1.25 }}>
           <Stack
@@ -511,7 +518,7 @@ export function ThrottlingPage() {
           {mode === "profiles" ? (
             <ProfileEditor
               active={activeProfile?.id === profileDraft.id}
-              canSave={!saveProfileMutation.isPending}
+              canSave={!saveProfileMutation.isPending && !isProfilesError}
               draft={profileDraft}
               errors={validationAttempted ? profileErrors : []}
               onChange={setProfileDraft}
@@ -523,6 +530,7 @@ export function ThrottlingPage() {
             <RuleEditor
               draft={ruleDraft}
               errors={validationAttempted ? ruleErrors : []}
+              isError={isRulesError}
               profiles={profiles}
               t={t}
               onChange={updateRuleDraft}
@@ -535,7 +543,7 @@ export function ThrottlingPage() {
                 });
               }}
               onSave={handleSaveRule}
-              saving={saveRuleMutation.isPending}
+              saving={saveRuleMutation.isPending || isRulesError}
             />
           )}
         </Paper>
@@ -765,6 +773,7 @@ function ProfileEditor(props: {
 function RuleEditor(props: {
   draft: ThrottleRule | null;
   errors: string[];
+  isError?: boolean;
   profiles: ThrottleProfile[];
   t: ReturnType<typeof useI18n>["t"];
   onChange: (patch: Partial<ThrottleRule>) => void;
@@ -772,7 +781,7 @@ function RuleEditor(props: {
   onSave: () => void;
   saving: boolean;
 }) {
-  const { draft, errors, profiles, t, onChange, onDelete, onSave, saving } = props;
+  const { draft, errors, isError = false, profiles, t, onChange, onDelete, onSave, saving } = props;
 
   if (!draft) {
     return <EmptyHint>{t("throttlingPage.rulesSelectHint")}</EmptyHint>;
@@ -873,6 +882,7 @@ function RuleEditor(props: {
         <Button
           color="error"
           variant="outlined"
+          disabled={isError}
           startIcon={<DeleteOutlineRoundedIcon />}
           onClick={() => onDelete(draft.id)}
         >
@@ -881,6 +891,7 @@ function RuleEditor(props: {
         <Stack direction="row" spacing={1}>
           <Button
             variant="outlined"
+            disabled={isError}
             startIcon={<ReplayRoundedIcon />}
             onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}
           >

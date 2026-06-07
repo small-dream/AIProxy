@@ -188,7 +188,7 @@ export function RewriteRulesPanel() {
   const { t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: rules = [] } = useRewriteRules();
+  const { data: rules = [], isError: isRulesError } = useRewriteRules();
   const saveMutation = useSaveRewriteRule();
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
@@ -370,6 +370,7 @@ export function RewriteRulesPanel() {
   }
 
   function handleSave() {
+    if (isRulesError) return;
     setValidationAttempted(true);
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
@@ -382,6 +383,7 @@ export function RewriteRulesPanel() {
   }
 
   function handleDelete() {
+    if (isRulesError) return;
     if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
       setDraft(createEmptyRewriteRule());
       setSelectedRuleId(undefined);
@@ -408,6 +410,9 @@ export function RewriteRulesPanel() {
 
   return (
     <>
+      {isRulesError && (
+        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+      )}
       <ManagedRulesWorkbench
         searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
         searchValue={searchValue}
@@ -419,6 +424,7 @@ export function RewriteRulesPanel() {
                 key={type}
                 size="small"
                 variant="outlined"
+                disabled={isRulesError}
                 startIcon={<AddRoundedIcon />}
                 onClick={() => handleCreateRule(type)}
               >
@@ -428,6 +434,7 @@ export function RewriteRulesPanel() {
             <Button
               size="small"
               variant="outlined"
+              disabled={isRulesError}
               startIcon={<AddRoundedIcon />}
               onClick={() => setTemplateDialogOpen(true)}
             >
@@ -454,6 +461,7 @@ export function RewriteRulesPanel() {
             <RewriteEditorHeader
               deletePending={deleteMutation.isPending}
               draft={draft}
+              isError={isRulesError}
               onChange={setDraft}
               onDelete={handleDelete}
               onSave={handleSave}
@@ -698,6 +706,7 @@ export function RewriteRulesPanel() {
 function RewriteEditorHeader({
   deletePending,
   draft,
+  isError = false,
   onChange,
   onDelete,
   onSave,
@@ -705,6 +714,7 @@ function RewriteEditorHeader({
 }: {
   deletePending: boolean;
   draft: RewriteRule;
+  isError?: boolean;
   onChange: (rule: RewriteRule) => void;
   onDelete: () => void;
   onSave: () => void;
@@ -773,7 +783,7 @@ function RewriteEditorHeader({
               color="error"
               startIcon={<DeleteRoundedIcon />}
               onClick={onDelete}
-              disabled={deletePending}
+              disabled={deletePending || isError}
             >
               {t("common.actions.remove")}
             </Button>
@@ -784,7 +794,7 @@ function RewriteEditorHeader({
           variant="contained"
           startIcon={<SaveRoundedIcon />}
           onClick={onSave}
-          disabled={savePending}
+          disabled={savePending || isError}
         >
           {t("rulesPage.editor.saveRule")}
         </Button>

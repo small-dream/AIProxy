@@ -82,7 +82,11 @@ export function ComparePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { data: sessions = [], isLoading: sessionsLoading } = useSessions();
+  const {
+    data: sessions = [],
+    isLoading: sessionsLoading,
+    isError: isSessionsError,
+  } = useSessions();
   const scopes = useSessionCompareScopes();
   const [compareMode, setCompareMode] = useState<CompareMode>(readCompareMode(searchParams));
   const [leftId, setLeftId] = useState(searchParams.get("left") ?? "");
@@ -330,6 +334,9 @@ export function ComparePage() {
 
   return (
     <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
+      {isSessionsError && (
+        <Alert severity="error">{t("common.errors.generic")}</Alert>
+      )}
       <Stack
         direction={{ md: "row", xs: "column" }}
         spacing={1.25}
@@ -375,7 +382,16 @@ export function ComparePage() {
         </Stack>
       </Stack>
 
-      <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
+      <Paper
+        elevation={0}
+        sx={{
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 2,
+          p: 1.5,
+          ...(isSessionsError ? { opacity: 0.4, pointerEvents: "none" } : {}),
+        }}
+      >
         <Stack spacing={1.5}>
           <ToggleButtonGroup
             exclusive

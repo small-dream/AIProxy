@@ -40,7 +40,7 @@ import { fontFamilies } from "@/themes/fonts";
 
 export function BreakpointRulesPanel() {
   const { t } = useI18n();
-  const { data: rules = [] } = useBreakpointRules();
+  const { data: rules = [], isError: isRulesError } = useBreakpointRules();
   const setRulesMutation = useSetBreakpointRules();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [draft, setDraft] = useState<BreakpointRule>(createEmptyBreakpointRule());
@@ -100,6 +100,9 @@ export function BreakpointRulesPanel() {
 
   return (
     <Stack spacing={2}>
+      {isRulesError && (
+        <Alert severity="error">{t("common.errors.generic")}</Alert>
+      )}
       <Paper
         elevation={0}
         sx={{
@@ -128,7 +131,7 @@ export function BreakpointRulesPanel() {
             <Button
               size="small"
               variant="outlined"
-              disabled={hasRequestCatchAll}
+              disabled={hasRequestCatchAll || isRulesError}
               onClick={() => handleAddCatchAll("request")}
             >
               {t("rulesPage.breakOnAllRequests")}
@@ -136,7 +139,7 @@ export function BreakpointRulesPanel() {
             <Button
               size="small"
               variant="outlined"
-              disabled={hasResponseCatchAll}
+              disabled={hasResponseCatchAll || isRulesError}
               onClick={() => handleAddCatchAll("response")}
             >
               {t("rulesPage.breakOnAllResponses")}
@@ -144,6 +147,7 @@ export function BreakpointRulesPanel() {
             <Button
               size="small"
               variant="contained"
+              disabled={isRulesError}
               startIcon={<AddRoundedIcon />}
               onClick={() => {
                 setDraft(createEmptyBreakpointRule());
@@ -319,7 +323,7 @@ export function BreakpointRulesPanel() {
         <Divider />
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={handleDialogClose}>{t("common.actions.cancel")}</Button>
-          <Button variant="contained" onClick={handleSave} disabled={setRulesMutation.isPending}>
+          <Button variant="contained" onClick={handleSave} disabled={setRulesMutation.isPending || isRulesError}>
             {t("rulesPage.addRule")}
           </Button>
         </DialogActions>

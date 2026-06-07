@@ -29,6 +29,7 @@ type AppShellTopControlsProps = {
   systemProxyEnabled: boolean;
   systemProxyOffLabel: string;
   systemProxyOnLabel: string;
+  workspaceConfigUnavailable?: boolean;
 };
 
 export function AppShellTopControls({
@@ -46,6 +47,7 @@ export function AppShellTopControls({
   systemProxyEnabled,
   systemProxyOffLabel,
   systemProxyOnLabel,
+  workspaceConfigUnavailable = false,
 }: AppShellTopControlsProps) {
   function renderControls(variant: "floating" | "commandBar") {
     return (
@@ -96,7 +98,7 @@ export function AppShellTopControls({
           />
         ) : (
           <TopBarActionButton
-            disabled={isProxyBusy}
+            disabled={isProxyBusy || workspaceConfigUnavailable}
             icon={<PlayArrowRoundedIcon />}
             label={startProxyLabel}
             onClick={onStartProxy}

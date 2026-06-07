@@ -31,7 +31,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const enableSystemProxyMutation = useEnableSystemProxy();
   const disableSystemProxyMutation = useDisableSystemProxy();
   const updateWorkspaceMutation = useUpdateWorkspace();
-  const { data: workspaces = [] } = useWorkspaces();
+  const { data: workspaces = [], isError: isWorkspacesError } = useWorkspaces();
 
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const currentWorkspace = useMemo(
@@ -53,7 +53,8 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const isProxyBusy = startProxyMutation.isPending || stopProxyMutation.isPending;
   const isSystemProxyBusy =
     enableSystemProxyMutation.isPending || disableSystemProxyMutation.isPending;
-  const isBusy = isProxyBusy || isSystemProxyBusy || updateWorkspaceMutation.isPending;
+  const isBusy =
+    isProxyBusy || isSystemProxyBusy || updateWorkspaceMutation.isPending || isWorkspacesError;
   const systemProxyActionDisabled =
     isSystemProxyBusy ||
     isProxyBusy ||
@@ -140,6 +141,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
 
   // --- Proxy control handlers ---
   async function handleStartProxy(input = initialStartProxyInput) {
+    if (isWorkspacesError) return;
     try {
       await startProxyMutation.mutateAsync(input);
     } catch (error) {
@@ -166,6 +168,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   }
 
   async function handlePortApply() {
+    if (isWorkspacesError) return;
     const nextPort = Number.parseInt(portDraft.trim(), 10);
 
     if (!Number.isInteger(nextPort) || nextPort < 1 || nextPort > 65535) {
@@ -223,6 +226,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     isProxyBusy,
     isBusy,
     systemProxyActionDisabled,
+    isWorkspacesError,
 
     // Port dialog state
     portDialogOpen,

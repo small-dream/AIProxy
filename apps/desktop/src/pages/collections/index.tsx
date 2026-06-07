@@ -20,6 +20,7 @@ import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
@@ -980,6 +981,11 @@ export function CollectionsPage() {
               </IconButton>
             </Tooltip>
           </Stack>
+          {(environmentsQuery.isError || envVarsQuery.isError || globalVarsQuery.isError) && (
+            <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+              {t("common.errors.generic")}
+            </Alert>
+          )}
         </Box>
       </WorkbenchPane>
 
@@ -1087,7 +1093,13 @@ export function CollectionsPage() {
                   value={editor.url}
                   onChange={(e) => editor.setUrl(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && editor.url.trim()) handleSend();
+                    if (
+                      e.key === "Enter" &&
+                      editor.url.trim() &&
+                      !envVarsQuery.isError &&
+                      !globalVarsQuery.isError
+                    )
+                      handleSend();
                   }}
                 />
                 <Tooltip title={t("collectionsPage.saveRequest")}>
@@ -1108,7 +1120,12 @@ export function CollectionsPage() {
                 <Tooltip title={t("collectionsPage.sendRequest")}>
                   <span>
                     <Button
-                      disabled={!editor.url.trim() || sendMutation.isPending}
+                      disabled={
+                        !editor.url.trim() ||
+                        sendMutation.isPending ||
+                        envVarsQuery.isError ||
+                        globalVarsQuery.isError
+                      }
                       onClick={handleSend}
                       size="small"
                       startIcon={sendMutation.isPending ? undefined : <SendRoundedIcon />}

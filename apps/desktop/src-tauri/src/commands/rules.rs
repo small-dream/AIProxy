@@ -152,8 +152,8 @@ pub fn list_throttled_session_ids(
 }
 
 #[tauri::command]
-pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Vec<BreakpointRule> {
-    state.read_breakpoint_manager().list_rules()
+pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Result<Vec<BreakpointRule>, String> {
+    Ok(state.read_breakpoint_manager().list_rules())
 }
 
 #[tauri::command]
@@ -215,13 +215,13 @@ pub struct ListRewriteRulesInput {
 pub fn list_rewrite_rules(
     input: ListRewriteRulesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<RewriteRule> {
-    state
+) -> Result<Vec<RewriteRule>, String> {
+    Ok(state
         .read_rewrite_manager()
         .list_rules()
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
-        .collect()
+        .collect())
 }
 
 #[tauri::command]
@@ -397,8 +397,11 @@ pub struct ThrottleSessionTraceOutput {
 }
 
 #[tauri::command]
-pub fn list_map_rules(input: ListMapRulesInput, state: State<'_, Arc<AppState>>) -> Vec<MapRule> {
-    state
+pub fn list_map_rules(
+    input: ListMapRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<MapRule>, String> {
+    Ok(state
         .read_map_manager()
         .list_rules()
         .into_iter()
@@ -407,7 +410,7 @@ pub fn list_map_rules(input: ListMapRulesInput, state: State<'_, Arc<AppState>>)
             Some(mode) => r.mode == *mode,
             None => true,
         })
-        .collect()
+        .collect())
 }
 
 #[tauri::command]
@@ -507,13 +510,13 @@ fn validate_map_rule(input: &MapRule) -> Result<(), String> {
 pub fn list_script_rules(
     input: ListScriptRulesInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<ScriptRule> {
-    state
+) -> Result<Vec<ScriptRule>, String> {
+    Ok(state
         .read_script_manager()
         .list_rules()
         .into_iter()
         .filter(|rule| rule.workspace_id == input.workspace_id)
-        .collect()
+        .collect())
 }
 
 #[tauri::command]
@@ -681,12 +684,12 @@ pub struct ListDnsMappingsInput {
 pub fn list_dns_mappings(
     input: ListDnsMappingsInput,
     state: State<'_, Arc<AppState>>,
-) -> Vec<DnsMappingRule> {
+) -> Result<Vec<DnsMappingRule>, String> {
     let rules = state.read_dns_manager().list_rules();
-    rules
+    Ok(rules
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
-        .collect()
+        .collect())
 }
 
 #[tauri::command]

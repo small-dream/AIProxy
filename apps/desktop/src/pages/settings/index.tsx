@@ -92,7 +92,7 @@ const AI_DEFAULT_TIMEOUT_MS = 60_000;
 
 function ProxySettingsSection() {
   const { t } = useI18n();
-  const { data: workspaces = [] } = useWorkspaces();
+  const { data: workspaces = [], isError: isWorkspacesError } = useWorkspaces();
   const { data: proxyStatus } = useProxyStatus();
   const updateWorkspaceMutation = useUpdateWorkspace();
   const startProxyMutation = useStartProxy();
@@ -116,7 +116,7 @@ function ProxySettingsSection() {
   }, [currentWorkspace]);
 
   async function handleSave() {
-    if (!currentWorkspace || portError) return;
+    if (isWorkspacesError || !currentWorkspace || portError) return;
 
     setFeedback(null);
 
@@ -168,6 +168,9 @@ function ProxySettingsSection() {
       description={t("proxyPresets.description")}
     >
       <Stack spacing={1.5}>
+        {isWorkspacesError && (
+          <Alert severity="error">{t("common.errors.generic")}</Alert>
+        )}
         <Stack
           direction={{ md: "row", xs: "column" }}
           spacing={1.5}
@@ -244,7 +247,7 @@ function ProxySettingsSection() {
             variant="contained"
             startIcon={<SaveRoundedIcon />}
             onClick={() => void handleSave()}
-            disabled={!currentWorkspace || portError || isBusy || !hasChanges}
+            disabled={!currentWorkspace || portError || isBusy || !hasChanges || isWorkspacesError}
             sx={{ minHeight: 34, px: 1.75 }}
           >
             {isBusy ? t("proxyPresets.saving") : t("proxyPresets.save")}

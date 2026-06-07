@@ -1,10 +1,12 @@
 import { type PropsWithChildren, useEffect, useMemo, useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@mui/material/styles";
 
+import { coerceAppError } from "@aiproxy/shared-types";
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { I18nProvider, resolveLocale, type SupportedLocale } from "@/i18n";
 import { logDevInfo } from "@/services/logger/dev-logger";
+import { useNotificationStore } from "@/services/notification.store";
 import { createAppTheme, resolveThemeMode } from "@/themes/app-theme";
 import {
   fontFamilies,
@@ -87,6 +89,17 @@ export function AppProviders({ children }: PropsWithChildren) {
             staleTime: 60_000,
           },
         },
+        queryCache: new QueryCache({
+          onError: (error) => {
+            // Skip benign errors that callers handle intentionally
+            // (e.g. stale session-detail lookups after the session was cleared).
+            if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
+
+            const message =
+              coerceAppError(error).message || "Query failed";
+            useNotificationStore.getState().push(message);
+          },
+        }),
       }),
   );
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => getSystemPrefersDark());
