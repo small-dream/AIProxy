@@ -141,11 +141,19 @@ fn active_script_rules_for_stage(
         .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
         .filter(|rule| {
-            pattern_matches(
-                &rule.rule.r#match.url_pattern,
-                request.url.as_str(),
-                rule.rule.r#match.match_type.as_deref(),
-            )
+            // Use pre-compiled regex for "regex" match type; fall back to
+            // pattern_matches for other match types (exact/wildcard/contains).
+            match rule.rule.r#match.match_type.as_deref() {
+                Some("regex") => rule
+                    .compiled_match
+                    .as_ref()
+                    .is_some_and(|re| re.is_match(request.url.as_str())),
+                _ => pattern_matches(
+                    &rule.rule.r#match.url_pattern,
+                    request.url.as_str(),
+                    rule.rule.r#match.match_type.as_deref(),
+                ),
+            }
         })
         .collect();
 

@@ -17,3 +17,4 @@ rquickjs = { version = "0.8", features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing = "0.1"

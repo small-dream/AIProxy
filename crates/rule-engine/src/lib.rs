@@ -122,11 +122,13 @@ pub enum ScriptTraceStage {
     Response,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct CompiledScriptRule {
     pub rule: ScriptRule,
     pub compiled_code: String,
     pub source_map: Option<String>,
+    /// Pre-compiled regex for URL pattern matching (populated when match_type == "regex").
+    pub compiled_match: Option<Regex>,
 }
 
 impl CompiledScriptRule {
@@ -276,6 +278,24 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
     let transpiled = transpile_source(&input.source_code, &input.language)?;
     let compiled_code = build_runtime_module(&transpiled.code);
 
+    let compiled_match = if input.r#match.match_type.as_deref() == Some("regex") {
+        let pattern = input.r#match.url_pattern.trim();
+        match Regex::new(pattern) {
+            Ok(re) => Some(re),
+            Err(e) => {
+                tracing::warn!(
+                    event = "rules.regex_compile_failed",
+                    pattern = pattern,
+                    error = %e,
+                    "regex compile failed for script rule"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(CompiledScriptRule {
         rule: ScriptRule {
             entrypoints,
@@ -283,6 +303,7 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
         },
         compiled_code,
         source_map: transpiled.source_map,
+        compiled_match,
     })
 }
 

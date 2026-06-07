@@ -1781,6 +1781,7 @@ fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
         },
         compiled_code: row.compiled_code,
         source_map: row.source_map,
+        compiled_match: None,
     }
 }
 

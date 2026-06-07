@@ -1,4 +1,5 @@
 use super::*;
+use regex::Regex;
 
 // ---------------------------------------------------------------------------
 // Breakpoint types
@@ -155,9 +156,15 @@ struct PendingBreakpoint {
     sender: oneshot::Sender<BreakpointResolution>,
 }
 
+/// Internal wrapper that pairs a breakpoint rule with a pre-compiled regex.
+struct CompiledBreakpointRule {
+    rule: BreakpointRule,
+    compiled_match: Option<Regex>,
+}
+
 /// Manages active breakpoint rules and pending interceptions.
 pub struct BreakpointManager {
-    rules: std::sync::Mutex<Vec<BreakpointRule>>,
+    rules: std::sync::Mutex<Vec<CompiledBreakpointRule>>,
     pending: std::sync::Mutex<HashMap<String, PendingBreakpoint>>,
 }
 
@@ -188,31 +195,49 @@ impl BreakpointManager {
     }
 
     pub fn list_rules(&self) -> Vec<BreakpointRule> {
-        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|c| c.rule.clone())
+            .collect()
     }
 
     pub fn set_rules(&self, rules: Vec<BreakpointRule>) {
+        // Compile regex patterns at insertion time.
+        let compiled: Vec<CompiledBreakpointRule> = rules
+            .into_iter()
+            .map(|rule| {
+                let compiled_match =
+                    crate::rules::compile_match_regex(&rule.match_type, &rule.url_pattern);
+                CompiledBreakpointRule {
+                    rule,
+                    compiled_match,
+                }
+            })
+            .collect();
+
         let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
 
         // Collect IDs of currently active (enabled) rules before replacing.
         let old_active_ids: Vec<String> = guard
             .iter()
-            .filter(|r| r.enabled)
-            .map(|r| r.id.clone())
+            .filter(|c| c.rule.enabled)
+            .map(|c| c.rule.id.clone())
             .collect();
 
         // Identify active IDs that are no longer present or no longer enabled.
-        let new_active_ids: HashSet<&str> = rules
+        let new_active_ids: HashSet<&str> = compiled
             .iter()
-            .filter(|r| r.enabled)
-            .map(|r| r.id.as_str())
+            .filter(|c| c.rule.enabled)
+            .map(|c| c.rule.id.as_str())
             .collect();
         let removed_ids: Vec<String> = old_active_ids
             .into_iter()
             .filter(|id| !new_active_ids.contains(id.as_str()))
             .collect();
 
-        *guard = rules;
+        *guard = compiled;
 
         // Release the rules lock before acquiring the pending lock.
         drop(guard);
@@ -225,7 +250,8 @@ impl BreakpointManager {
     /// Check whether any enabled rule matches the given stage/method/url.
     pub fn should_break(&self, stage: &BreakpointStage, method: &str, url: &str) -> bool {
         let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.iter().any(|rule| {
+        rules.iter().any(|cr| {
+            let rule = &cr.rule;
             if !rule.enabled {
                 return false;
             }
@@ -237,7 +263,19 @@ impl BreakpointManager {
             {
                 return false;
             }
-            crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
+            // Use pre-compiled regex for "regex" match type; fall back to
+            // pattern_matches for other match types (exact/wildcard/contains).
+            match rule.match_type.as_deref() {
+                Some("regex") => cr
+                    .compiled_match
+                    .as_ref()
+                    .is_some_and(|re| re.is_match(url)),
+                _ => crate::rules::pattern_matches(
+                    &rule.url_pattern,
+                    url,
+                    rule.match_type.as_deref(),
+                ),
+            }
         })
     }
 
@@ -252,7 +290,8 @@ impl BreakpointManager {
         let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         rules
             .iter()
-            .find(|rule| {
+            .find(|cr| {
+                let rule = &cr.rule;
                 if !rule.enabled {
                     return false;
                 }
@@ -264,9 +303,20 @@ impl BreakpointManager {
                 {
                     return false;
                 }
-                crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
+                // Use pre-compiled regex for "regex" match type.
+                match rule.match_type.as_deref() {
+                    Some("regex") => cr
+                        .compiled_match
+                        .as_ref()
+                        .is_some_and(|re| re.is_match(url)),
+                    _ => crate::rules::pattern_matches(
+                        &rule.url_pattern,
+                        url,
+                        rule.match_type.as_deref(),
+                    ),
+                }
             })
-            .map(|rule| rule.id.clone())
+            .map(|cr| cr.rule.id.clone())
     }
 
     /// Register a pending breakpoint. Returns the receiver end that the proxy task will await.
