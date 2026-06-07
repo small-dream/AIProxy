@@ -521,25 +521,31 @@ export function InsightsPage() {
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleDomainChange = useCallback((value: string) => {
-    setDomainFilter(value);
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    debounceTimerRef.current = setTimeout(() => {
+  const handleDomainChange = useCallback(
+    (value: string) => {
+      setDomainFilter(value);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        setDebouncedDomain(value);
+      }, 300);
+    },
+    [setDomainFilter],
+  );
+
+  const applyImmediateDomainFilter = useCallback(
+    (value: string) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+
+      setDomainFilter(value);
       setDebouncedDomain(value);
-    }, 300);
-  }, [setDomainFilter]);
-
-  const applyImmediateDomainFilter = useCallback((value: string) => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-
-    setDomainFilter(value);
-    setDebouncedDomain(value);
-  }, [setDomainFilter]);
+    },
+    [setDomainFilter],
+  );
 
   const handleFilterHost = useCallback(
     (host: string) => {
