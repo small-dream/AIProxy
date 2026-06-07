@@ -342,6 +342,12 @@ pub struct WsConnectionRegistry {
     connections: Mutex<HashMap<String, WsConnectionEntry>>,
 }
 
+impl Default for WsConnectionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WsConnectionRegistry {
     pub fn new() -> Self {
         Self {

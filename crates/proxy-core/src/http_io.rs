@@ -173,6 +173,7 @@ pub(crate) fn build_request_path(url: &Url) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_session_detail(
     request: &ParsedProxyRequest,
     status_code: u16,

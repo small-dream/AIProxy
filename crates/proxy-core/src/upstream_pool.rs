@@ -102,7 +102,7 @@ impl UpstreamConnectionPool {
         match action {
             PendingAction::Wait(mut rx) => {
                 // Another task is connecting — wait for it to finish.
-                while rx.changed().await.is_ok() {
+                if rx.changed().await.is_ok() {
                     if let Some(conn) = rx.borrow().as_ref() {
                         emit_log(
                             "DEBUG",
@@ -184,8 +184,7 @@ impl UpstreamConnectionPool {
         // connection as h2. Return None so the caller falls back to h1.
         let negotiated_h2 = connection_timing
             .alpn_protocol
-            .as_deref()
-            .map_or(false, |proto| proto == "h2");
+            .as_deref() == Some("h2");
 
         if !negotiated_h2 {
             emit_log(

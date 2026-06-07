@@ -140,7 +140,8 @@ Phase 8 — rules 行为整理（#9b）                 ~2 天    ← 依赖 #7,
 **问题**：`pattern_matches`（`rules.rs` L518-572）在热路径上每次调用 `Regex::new()`，浪费 CPU。
 
 **影响文件**：
-- `crates/proxy-core/src/rules.rs` — `pattern_matches`（L518-572）、4 个 Manager（L158-438）
+- `crates/proxy-core/src/rules.rs` — `pattern_matches`（L518-572）、RewriteManager（L158-438）
+- **P1 范围仅覆盖 RewriteManager 的 regex 预编译**；Script 规则和 Breakpoint 规则的 regex 编译缓存进入 P2（详见"不在本次范围内"章节）
 
 **方案**：
 

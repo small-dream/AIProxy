@@ -55,13 +55,6 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpProx
 // Core request handler — shared between plain HTTP and MITM paths
 // ---------------------------------------------------------------------------
 
-/// Process a single HTTP request: build ParsedProxyRequest, apply rules,
-/// forward upstream (or use local/mock response), build session detail,
-/// and return a hyper Response.
-///
-/// `started_at` and `started_at_instant` are per-request timestamps created
-/// by the caller (HttpProxyService::call).
-
 // ---------------------------------------------------------------------------
 // WebSocket upgrade handler
 // ---------------------------------------------------------------------------
@@ -71,6 +64,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpProx
 ///
 /// This is used instead of returning `Err` so that upstream failures produce
 /// proper 502 sessions rather than 499 (client cancelled) via the guard.
+#[allow(clippy::too_many_arguments)]
 async fn send_ws_upstream_error_session(
     request: &ParsedProxyRequest,
     ctx: &ConnectionContext,
@@ -144,6 +138,7 @@ async fn send_ws_upstream_error_session(
 /// 2. Sends the raw upgrade request and reads the response.
 /// 3. If upstream returns 101, sets up bidirectional WebSocket frame relay.
 /// 4. If upstream refuses, returns the upstream error response.
+#[allow(clippy::too_many_arguments)]
 async fn handle_ws_upgrade_via_hyper(
     on_upgrade: hyper::upgrade::OnUpgrade,
     request: ParsedProxyRequest,
@@ -243,7 +238,7 @@ async fn handle_ws_upgrade_via_hyper(
                     .await);
                 }
             };
-            WsUpstream::Tls(tls_stream)
+            WsUpstream::Tls(Box::new(tls_stream))
         }
         ConnectionMode::PlainHttp => WsUpstream::Plain(ws_tcp),
     };
@@ -623,7 +618,7 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
 /// Wraps either a plain TCP stream (ws://) or a TLS stream (wss://).
 enum WsUpstream {
     Plain(TcpStream),
-    Tls(tokio_rustls::client::TlsStream<TcpStream>),
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
 }
 
 impl AsyncRead for WsUpstream {
@@ -634,7 +629,7 @@ impl AsyncRead for WsUpstream {
     ) -> Poll<io::Result<()>> {
         match &mut *self {
             WsUpstream::Plain(s) => Pin::new(s).poll_read(cx, buf),
-            WsUpstream::Tls(s) => Pin::new(s).poll_read(cx, buf),
+            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_read(cx, buf),
         }
     }
 }
@@ -647,21 +642,21 @@ impl AsyncWrite for WsUpstream {
     ) -> Poll<io::Result<usize>> {
         match &mut *self {
             WsUpstream::Plain(s) => Pin::new(s).poll_write(cx, buf),
-            WsUpstream::Tls(s) => Pin::new(s).poll_write(cx, buf),
+            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut *self {
             WsUpstream::Plain(s) => Pin::new(s).poll_flush(cx),
-            WsUpstream::Tls(s) => Pin::new(s).poll_flush(cx),
+            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_flush(cx),
         }
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut *self {
             WsUpstream::Plain(s) => Pin::new(s).poll_shutdown(cx),
-            WsUpstream::Tls(s) => Pin::new(s).poll_shutdown(cx),
+            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_shutdown(cx),
         }
     }
 }
@@ -787,6 +782,7 @@ async fn build_upstream_error_response_and_session(
 
 /// Build a `ProxySessionDetail` from an upstream response, attaching proxy
 /// timing, trace metadata, and an optional timing-source marker.
+#[allow(clippy::too_many_arguments)]
 fn build_upstream_session_detail(
     request: &ParsedProxyRequest,
     upstream_response: &UpstreamResponse,
@@ -848,11 +844,11 @@ async fn stage_parse_request(
     let is_ws_upgrade = req
         .headers()
         .get("upgrade")
-        .map_or(false, |v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
         && req
             .headers()
             .get("connection")
-            .map_or(false, |v| {
+            .is_some_and(|v| {
                 v.to_str()
                     .unwrap_or("")
                     .to_ascii_lowercase()
@@ -960,6 +956,7 @@ enum BreakpointRequestOutcome {
 ///
 /// For Mock, also applies response rewrite/script rules and response throttle
 /// (because a mock breakpoint directly creates a response).
+#[allow(clippy::too_many_arguments)]
 async fn stage_intercept_request_breakpoint(
     ctx: &ConnectionContext,
     request: &ParsedProxyRequest,
@@ -1197,7 +1194,7 @@ enum ForwardOutcome {
     /// Stage 6.
     Completed {
         upstream_response: UpstreamResponse,
-        cancellation_guard: PendingRequestCancellationGuard,
+        cancellation_guard: Box<PendingRequestCancellationGuard>,
     },
     /// A terminal response has been built (e.g. 504 Gateway Timeout).
     /// The guard was already disarmed.  The caller should return this response.
@@ -1206,7 +1203,7 @@ enum ForwardOutcome {
     /// caller can disarm it before building the error response.
     UpstreamError {
         error: String,
-        cancellation_guard: PendingRequestCancellationGuard,
+        cancellation_guard: Box<PendingRequestCancellationGuard>,
     },
 }
 
@@ -1288,11 +1285,11 @@ async fn stage_forward_upstream(
     match upstream_result {
         Ok(upstream_response) => Ok(ForwardOutcome::Completed {
             upstream_response,
-            cancellation_guard,
+            cancellation_guard: Box::new(cancellation_guard),
         }),
         Err(error) => Ok(ForwardOutcome::UpstreamError {
             error,
-            cancellation_guard,
+            cancellation_guard: Box::new(cancellation_guard),
         }),
     }
 }
@@ -1304,6 +1301,7 @@ async fn stage_forward_upstream(
 /// Apply response rewrite/script rules, build session detail, handle
 /// response-stage breakpoint (Drop/Mock/Forward), apply response throttle,
 /// send the final session, and build the hyper response.
+#[allow(clippy::too_many_arguments)]
 async fn stage_process_upstream_response(
     request: &ParsedProxyRequest,
     mut upstream_response: UpstreamResponse,
@@ -1705,7 +1703,7 @@ pub(crate) async fn handle_http_request(
         ForwardOutcome::Completed {
             upstream_response,
             cancellation_guard,
-        } => (upstream_response, cancellation_guard),
+        } => (upstream_response, *cancellation_guard),
     };
 
     // --- Stage 6: Process upstream response ---
@@ -1877,7 +1875,7 @@ fn build_upstream_headers_from_hyper(
 ) -> Result<HeaderMap, String> {
     let is_ws_upgrade = headers
         .get("upgrade")
-        .map_or(false, |v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
 
     let mut header_map = HeaderMap::new();
     for (name, value) in headers {

@@ -92,7 +92,7 @@ impl Service<Uri> for TimingConnector {
                     .1
                     .alpn_protocol()
                     .map(|s| String::from_utf8_lossy(s).into_owned());
-                (TimingStream::Tls(tls_stream), Some(tls_ms), alpn)
+                (TimingStream::Tls(Box::new(tls_stream)), Some(tls_ms), alpn)
             } else {
                 (TimingStream::Plain(tcp_stream), None, None)
             };
@@ -116,7 +116,7 @@ impl Service<Uri> for TimingConnector {
 /// pattern as `hyper_util::rt::TokioIo`.
 pub enum TimingStream {
     Plain(TcpStream),
-    Tls(TlsStream<TcpStream>),
+    Tls(Box<TlsStream<TcpStream>>),
 }
 
 impl Connection for TimingStream {

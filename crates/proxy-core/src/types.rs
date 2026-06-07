@@ -605,7 +605,7 @@ fn render_raw_http_message(
 }
 
 fn estimate_header_entries_memory(entries: &[ProxyHeaderEntry]) -> usize {
-    entries.len() * size_of::<ProxyHeaderEntry>()
+    std::mem::size_of_val(entries)
         + entries
             .iter()
             .map(|entry| entry.name.capacity() + entry.value.capacity())

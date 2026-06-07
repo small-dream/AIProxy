@@ -610,7 +610,7 @@ pub(crate) async fn forward_request(
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-        return build_upstream_response_from_hyper(response, &request, timing, waiting_ms).await;
+        return build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
     } else {
         // h1 path — establish a new connection per request.
         let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
@@ -1086,11 +1086,12 @@ pub(crate) fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::C
 /// Handle WebSocket upgrade for plain HTTP (ws://) connections.
 /// Opens a raw TCP connection to upstream, sends the upgrade request, reads the 101 response,
 /// writes it back to the client, then enters bidirectional frame relay.
-
+///
 /// Handle WebSocket upgrade for HTTPS (wss://) connections via MITM.
 /// Opens a raw TLS connection to upstream, sends the upgrade request, reads the 101 response,
 /// writes it back to the client, then enters bidirectional frame relay.
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     client_stream: &mut S,
     request: &ParsedProxyRequest,
@@ -1218,7 +1219,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
 
     // Read the upstream 101 response and relay it to the client
     let (response_head, response_prefix) =
-        read_http_response_head(&mut upstream).await.map_err(|e| {
+        read_http_response_head(&mut upstream).await.inspect_err(|e| {
             emit_log(
                 "ERROR",
                 "wss_read_response_head_failed",
@@ -1227,7 +1228,6 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
                     ("error", e.clone()),
                 ],
             );
-            e
         })?;
 
     emit_log(
@@ -1547,8 +1547,8 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
 /// Returns:
 /// - `request`  — ParsedProxyRequest with method, path, URL, headers (body is empty)
 /// - `consumed`  — all raw bytes read up to and including `\r\n\r\n`
-/// - `leftover`  — any bytes read PAST the header terminator (body prefix,
-///                  TLS ClientHello for CONNECT, etc.)
+/// - `leftover` — any bytes read PAST the header terminator (body prefix,
+///   TLS ClientHello for CONNECT, etc.)
 ///
 /// The caller MUST replay the appropriate bytes via PrefixedStream:
 ///   - CONNECT / MITM / tunnel: replay only `leftover`
