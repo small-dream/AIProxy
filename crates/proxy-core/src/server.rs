@@ -482,7 +482,7 @@ pub(crate) async fn forward_request(
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
     pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
-) -> Result<UpstreamResponse, String> {
+) -> Result<UpstreamResponse, ProxyError> {
     use http_body_util::BodyExt;
 
     emit_log(
@@ -569,7 +569,7 @@ pub(crate) async fn forward_request(
                         .map_err(|_: std::convert::Infallible| unreachable!())
                         .boxed(),
                 )
-                .map_err(|e| format!("failed to build upstream request: {e}"))?
+                .map_err(|e| ProxyError::UpstreamError(format!("failed to build upstream request: {e}")))?
         } else {
             http_req_builder
                 .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
@@ -577,7 +577,7 @@ pub(crate) async fn forward_request(
                         .map_err(|_: std::convert::Infallible| unreachable!())
                         .boxed(),
                 )
-                .map_err(|e| format!("failed to build upstream request body: {e}"))?
+                .map_err(|e| ProxyError::UpstreamError(format!("failed to build upstream request body: {e}")))?
         };
 
         // send_request + read
@@ -605,7 +605,7 @@ pub(crate) async fn forward_request(
                         ("error", error.to_string()),
                     ],
                 );
-                return Err(format!("failed to send upstream h2 request: {error}"));
+                return Err(ProxyError::UpstreamError(format!("failed to send upstream h2 request: {error}")));
             }
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
@@ -616,7 +616,7 @@ pub(crate) async fn forward_request(
         let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
         let uri: http::Uri =
             request.url.to_string().parse().map_err(|e| {
-                format!("failed to parse upstream URL '{}' as URI: {e}", request.url)
+                ProxyError::UpstreamError(format!("failed to parse upstream URL '{}' as URI: {e}", request.url))
             })?;
         let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
             .await
@@ -631,7 +631,7 @@ pub(crate) async fn forward_request(
                         ("error", error.to_string()),
                     ],
                 );
-                format!("failed to connect to upstream: {error}")
+                ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
             })?;
 
         let (sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
@@ -646,7 +646,7 @@ pub(crate) async fn forward_request(
                         ("error", error.to_string()),
                     ],
                 );
-                format!("upstream HTTP handshake failed: {error}")
+                ProxyError::UpstreamError(format!("upstream HTTP handshake failed: {error}"))
             })?;
 
         tokio::spawn(async move {
@@ -692,7 +692,7 @@ pub(crate) async fn forward_request(
                 ("error", error.to_string()),
             ],
         );
-        format!("failed to send upstream request: {error}")
+        ProxyError::UpstreamError(format!("failed to send upstream request: {error}"))
     })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
@@ -706,7 +706,7 @@ async fn build_upstream_response_from_hyper(
     request: &ParsedProxyRequest,
     connection_timing: crate::timing_connector::ConnectionTiming,
     waiting_ms: u128,
-) -> Result<UpstreamResponse, String> {
+) -> Result<UpstreamResponse, ProxyError> {
     let status_code =
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
 
@@ -737,7 +737,7 @@ async fn build_upstream_response_from_hyper(
                         ("error", error.clone()),
                     ],
                 );
-                format!("failed to read upstream response body: {error}")
+                ProxyError::UpstreamError(format!("failed to read upstream response body: {error}"))
             })?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 

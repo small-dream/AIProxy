@@ -1,0 +1,43 @@
+/// Structured error type for proxy-core operations.
+/// Introduced as part of P1 code quality governance to replace ad-hoc
+/// `String` errors with structured variants that preserve error context.
+#[derive(Debug, thiserror::Error)]
+pub enum ProxyError {
+    #[error("upstream connection failed: {0}")]
+    UpstreamError(String),
+
+    #[error("TLS handshake failed: {0}")]
+    TlsError(String),
+
+    #[error("rule application failed: {0}")]
+    RuleError(String),
+
+    #[error("breakpoint cancelled")]
+    BreakpointCancelled,
+
+    #[error("request dropped")]
+    RequestDropped,
+
+    #[error("script execution timeout")]
+    ScriptTimeout,
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for ProxyError {
+    fn from(s: String) -> Self {
+        ProxyError::Other(s)
+    }
+}
+
+/// Convenience conversion from ProxyError to String for Tauri command boundaries.
+/// At the Tauri command layer, errors are still returned as `Result<T, String>`.
+impl From<ProxyError> for String {
+    fn from(err: ProxyError) -> Self {
+        err.to_string()
+    }
+}

@@ -50,6 +50,7 @@ const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 mod breakpoints;
 mod connection;
 mod context;
+mod error;
 mod http_io;
 mod http_proxy;
 mod logging;
@@ -80,6 +81,7 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use context::{ProxyConfig, ProxyManagers};
+pub use error::ProxyError;
 pub use server::{send_direct_request, start_proxy_server};
 pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{

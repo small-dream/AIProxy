@@ -1239,7 +1239,7 @@ async fn stage_forward_upstream(
             )
             .await
             {
-                Ok(result) => result,
+                Ok(result) => result.map_err(String::from),
                 Err(_) => {
                     let timeout_secs = upstream_timeout.as_secs();
                     let response_message =
