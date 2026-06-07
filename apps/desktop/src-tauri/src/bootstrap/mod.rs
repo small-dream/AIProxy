@@ -434,6 +434,7 @@ impl AppState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn upsert_session(&self, mut session_detail: ProxySessionDetail) {
         let active_workspace_id = self
             .read_status()
@@ -444,7 +445,125 @@ impl AppState {
         self.update_session_cache_and_emit(&session_detail);
     }
 
+    /// Async version of `upsert_session` that offloads blocking IO (body spill + SQLite)
+    /// to a blocking thread via `tauri::async_runtime::spawn_blocking`, keeping the
+    /// async runtime free for other work.
+    ///
+    /// `update_session_cache_and_emit` runs after `spawn_blocking` returns so that the
+    /// session_details / sessions mutexes are not held inside the blocking thread.
+    pub async fn upsert_session_async(&self, mut session_detail: ProxySessionDetail) {
+        let active_workspace_id = self
+            .read_status()
+            .active_workspace_id
+            .unwrap_or_else(|| "default".to_string());
+
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+
+        // Move blocking IO into the blocking thread pool.
+        // body spill uses std::fs (sync), row build is pure CPU, SQLite is sync —
+        // all belong in spawn_blocking.
+        // Return session_detail so we can use it for cache update afterwards.
+        let session_detail = tauri::async_runtime::spawn_blocking(move || {
+            let spill_started_at = Instant::now();
+            if let Err(error) = spill_session_bodies_to_disk(&mut session_detail, &body_store) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "session_body_spill_failed",
+                    &[("error", error)],
+                );
+            }
+            let spill_elapsed_us = spill_started_at.elapsed().as_micros();
+
+            let summary_row = proxy_summary_to_row(&session_detail.summary);
+            let row_build_started_at = Instant::now();
+            let detail_row = proxy_detail_to_row(&session_detail, &body_store);
+            let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
+            log_session_storage_stats(
+                &session_detail,
+                &detail_row,
+                spill_elapsed_us,
+                row_build_elapsed_us,
+            );
+
+            let conn = db.lock().expect("db mutex should not be poisoned");
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+            {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "session_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_script_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.summary,
+                &session_detail.script_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "script_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_rewrite_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.summary,
+                &session_detail.rewrite_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "rewrite_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_map_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.summary,
+                &session_detail.map_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "map_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            if let Err(e) = persist_throttle_traces(
+                &conn,
+                &session_detail.id,
+                &active_workspace_id,
+                &session_detail.throttle_traces,
+            ) {
+                crate::dev_logger::log_error(
+                    "desktop.persistence",
+                    "throttle_trace_upsert_db_failed",
+                    &[("error", e)],
+                );
+            }
+
+            // Return session_detail for cache update in async context.
+            session_detail
+        })
+        .await
+        .expect("persist_session spawn_blocking should not panic");
+
+        // Update caches and emit in the async context (not inside spawn_blocking)
+        // to avoid nested mutex locks across threads.
+        self.update_session_cache_and_emit(&session_detail);
+    }
+
     /// Persist a single session to the database (spill bodies, build rows, INSERT).
+    #[allow(dead_code)]
     fn persist_session_to_db(
         &self,
         session_detail: &mut ProxySessionDetail,
@@ -625,6 +744,7 @@ impl AppState {
     }
 
     /// Persist a batch of sessions with a single DB lock acquisition.
+    #[allow(dead_code)]
     pub fn upsert_session_batch(&self, sessions: &mut [ProxySessionDetail]) {
         let active_workspace_id = self
             .read_status()
@@ -714,6 +834,115 @@ impl AppState {
         drop(conn);
 
         // Update caches and emit events per session.
+        for session in sessions.iter() {
+            self.update_session_cache_and_emit(session);
+        }
+    }
+
+    /// Async version of `upsert_session_batch` that offloads blocking IO
+    /// (body spill + SQLite writes) to a blocking thread.
+    pub async fn upsert_session_batch_async(&self, mut sessions: Vec<ProxySessionDetail>) {
+        let active_workspace_id = self
+            .read_status()
+            .active_workspace_id
+            .unwrap_or_else(|| "default".to_string());
+
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+
+        // Move all blocking IO into spawn_blocking.
+        // Return sessions for cache update in async context afterwards.
+        let sessions = tauri::async_runtime::spawn_blocking(move || {
+            // Spill bodies to disk.
+            for session in sessions.iter_mut() {
+                if let Err(error) = spill_session_bodies_to_disk(session, &body_store) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "session_body_spill_failed",
+                        &[("error", error)],
+                    );
+                }
+            }
+
+            // Batch DB writes under one lock.
+            let conn = db.lock().expect("db mutex should not be poisoned");
+            for session in sessions.iter() {
+                let summary_row = proxy_summary_to_row(&session.summary);
+                let detail_row = proxy_detail_to_row(session, &body_store);
+
+                if let Err(e) =
+                    aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+                {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "session_upsert_db_failed",
+                        &[("error", e)],
+                    );
+                }
+
+                if let Err(e) = persist_script_traces(
+                    &conn,
+                    &session.id,
+                    &active_workspace_id,
+                    &session.summary,
+                    &session.script_traces,
+                ) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "script_trace_upsert_db_failed",
+                        &[("error", e)],
+                    );
+                }
+
+                if let Err(e) = persist_rewrite_traces(
+                    &conn,
+                    &session.id,
+                    &active_workspace_id,
+                    &session.summary,
+                    &session.rewrite_traces,
+                ) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "rewrite_trace_upsert_db_failed",
+                        &[("error", e)],
+                    );
+                }
+
+                if let Err(e) = persist_map_traces(
+                    &conn,
+                    &session.id,
+                    &active_workspace_id,
+                    &session.summary,
+                    &session.map_traces,
+                ) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "map_trace_upsert_db_failed",
+                        &[("error", e)],
+                    );
+                }
+
+                if let Err(e) = persist_throttle_traces(
+                    &conn,
+                    &session.id,
+                    &active_workspace_id,
+                    &session.throttle_traces,
+                ) {
+                    crate::dev_logger::log_error(
+                        "desktop.persistence",
+                        "throttle_trace_upsert_db_failed",
+                        &[("error", e)],
+                    );
+                }
+            }
+
+            // Return sessions for cache update in async context.
+            sessions
+        })
+        .await
+        .expect("persist_session_batch spawn_blocking should not panic");
+
+        // Update caches and emit in the async context.
         for session in sessions.iter() {
             self.update_session_cache_and_emit(session);
         }

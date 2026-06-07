@@ -558,7 +558,7 @@ pub async fn batch_execute_collection_items(
         match send_direct_request(item.method, url, headers, body).await {
             Ok(detail) => {
                 let session_id = detail.id.clone();
-                state.upsert_session(detail.clone());
+                state.upsert_session_async(detail.clone()).await;
                 log_debug(
                     "desktop.commands",
                     "batch_execute_item_succeeded",

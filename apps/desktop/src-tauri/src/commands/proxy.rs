@@ -135,20 +135,24 @@ async fn start_proxy_impl(
     let dns_manager = state.read_dns_manager();
 
     let started_proxy_server = start_proxy_server(
-        ProxyRuntimeConfig {
-            port,
-            ssl_enabled: enable_ssl,
-            http2_enabled,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port,
+                ssl_enabled: enable_ssl,
+                http2_enabled,
+            },
+            workspace_id: Some(input.workspace_id.clone()),
+            event_emitter,
         },
-        tls_manager,
-        Some(breakpoint_manager),
-        Some(rewrite_manager),
-        Some(map_manager),
-        Some(script_manager),
-        Some(throttle_manager),
-        Some(dns_manager),
-        Some(input.workspace_id.clone()),
-        event_emitter,
+        ProxyManagers {
+            tls: tls_manager,
+            breakpoint: Some(breakpoint_manager),
+            rewrite: Some(rewrite_manager),
+            map: Some(map_manager),
+            script: Some(script_manager),
+            throttle: Some(throttle_manager),
+            dns: Some(dns_manager),
+        },
     )
     .await?;
 
@@ -169,7 +173,7 @@ async fn start_proxy_impl(
                                     Err(_) => break,
                                 }
                             }
-                            state_for_collector.upsert_session_batch(&mut batch);
+                            state_for_collector.upsert_session_batch_async(batch).await;
                         }
                         None => break,
                     }
@@ -177,7 +181,8 @@ async fn start_proxy_impl(
                 ws_msg = ws_message_receiver.recv() => {
                     match ws_msg {
                         Some(msg) => {
-                            let conn = state_for_ws.read_db_connection().lock().expect("db mutex");
+                            // Offload WS message DB insert to blocking thread.
+                            let db = Arc::clone(state_for_ws.read_db_connection());
                             let row = aiproxy_db::sessions::WsMessageRow {
                                 id: msg.id.clone(),
                                 session_id: msg.session_id.clone(),
@@ -188,14 +193,16 @@ async fn start_proxy_impl(
                                 payload_size: msg.payload_size,
                                 fin: msg.fin,
                             };
-                            if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
-                                crate::dev_logger::log_error(
-                                    "desktop.ws_collector",
-                                    "insert_ws_message_failed",
-                                    &[("error", e)],
-                                );
-                            }
-                            drop(conn);
+                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                                let conn = db.lock().expect("db mutex");
+                                if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
+                                    crate::dev_logger::log_error(
+                                        "desktop.ws_collector",
+                                        "insert_ws_message_failed",
+                                        &[("error", e)],
+                                    );
+                                }
+                            }).await;
 
                             // Emit to frontend
                             if let Some(handle) = state_for_ws.read_app_handle() {

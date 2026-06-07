@@ -1,6 +1,7 @@
 # AIProxy 全面架构审查报告
 
 > 审查日期：2026-06-07
+> 最后更新：2026-06-07 — P0 全部修复
 > 审查范围：整体架构设计、前端代码质量、Rust 核心代码质量、API 契约与类型安全、跨横切关注点
 > 审查基准：顶级架构师标准，面向生产级桌面代理调试工具
 
@@ -8,19 +9,19 @@
 
 ## 总体健康度：A-（良好偏上）
 
-AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好。主要风险集中在 `proxy-core` / `bootstrap` 的职责膨胀、WebView CSP / 脚本内存限制、以及若干 API 契约漂移。当前更像是"工程质量较好的快速演进产品"，尚未架构失控，但需要一次面向稳定性和边界收敛的整理。
+AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好。P0 安全与稳定性问题已全部修复。剩余风险集中在 `proxy-core` / `bootstrap` 的职责膨胀和若干 API 契约漂移。当前更像是"工程质量较好的快速演进产品"，尚未架构失控，需要一次面向稳定性和边界收敛的整理。
 
 ---
 
 ## 五大维度评分总览
 
-| 维度 | 评分 | 一句话 |
-|------|------|--------|
-| 整体架构设计 | **A-** | 分层清晰、文档完备，proxy-core 需要瘦身 |
-| 前端代码质量 | **B+** | 类型纪律优秀，缺少 ErrorBoundary 是最大短板 |
-| Rust 核心代码 | **B+** | 并发模式成熟，错误处理需结构化 |
-| API 契约与类型安全 | **B+** | 零 any、type guard 体系完善，API 文档严重过时 |
-| 跨横切关注点 | **B+** | 安全基础扎实，CSP 和沙箱内存限制需加固 |
+| 维度 | 修复前 | 修复后 | 变化说明 |
+|------|--------|--------|----------|
+| 整体架构设计 | A- | A- | 分层清晰、文档完备，proxy-core 仍需瘦身 |
+| 前端代码质量 | B+ | A- | ErrorBoundary 已补齐，最大短板消除 |
+| Rust 核心代码 | B+ | A- | 沙箱内存限制已加固，unsafe 管控优秀 |
+| API 契约与类型安全 | B+ | A- | http2Enabled 契约已修复，Insights 文档仍待同步 |
+| 跨横切关注点 | B+ | A- | CSP、沙箱、Cargo.lock 三项安全加固完成 |
 
 ---
 
@@ -54,7 +55,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ---
 
-## 二、前端代码质量（B+）
+## 二、前端代码质量（B+ → A-）
 
 ### 核心优势
 
@@ -69,7 +70,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
-| F1 | **缺少 ErrorBoundary**：全项目无任何 React ErrorBoundary，一个组件渲染错误会导致白屏 | 生产稳定性风险 | P0 |
+| F1 | ~~**缺少 ErrorBoundary**~~ ✅ 已修复：已添加全局级 + 页面级 ErrorBoundary（`components/shared/ErrorBoundary.tsx`），包裹在 AppProviders 内部 | ~~生产稳定性风险~~ | ~~P0~~ 已完成 |
 | F2 | **核心组件过大**：`AppShell`(770行) 承载过多逻辑、`SessionsPage`(1130行) 含 30+ useEffect | 维护困难 | P1 |
 | F3 | **类型重复定义**：`BodyType`/`RawLanguage` 在两个 store 中重复；`SESSIONS_QUERY_KEY` 在两处各自定义 | 不一致风险 | P2 |
 | F4 | **硬编码字符串**：`SessionsPage` 中的 `"All Sessions"` / `"Throttled"` 未走 i18n | 国际化缺陷 | P2 |
@@ -84,7 +85,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ---
 
-## 三、Rust 核心代码质量（B+）
+## 三、Rust 核心代码质量（B+ → A-）
 
 ### 核心优势
 
@@ -92,7 +93,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 2. **大 body 自动 spool 到磁盘**：超过 20MB 写入临时文件避免 OOM
 3. **HTTP/2 连接池复用**：`upstream_pool.rs` 维护 h2 连接池，后台 evict timer 定期清理
 4. **unsafe 使用极少且安全**：全部集中在 FFI 边界（`getifaddgs`），有完整 SAFETY 注释
-5. **Script 沙箱设计完备**：QuickJS + 50ms 超时 + `AtomicBool` 中断 + 独立线程执行
+5. **Script 沙箱设计完备**：QuickJS + 50ms 超时 + 16MB 内存限制 + `AtomicBool` 中断 + 独立线程执行
 6. **测试覆盖广泛**：proxy-core 30+ 测试、db 使用内存 SQLite、tls-manager 验证证书有效性
 
 ### 关键问题
@@ -127,7 +128,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ---
 
-## 四、API 契约与类型安全（B+）
+## 四、API 契约与类型安全（B+ → A-）
 
 ### 核心优势
 
@@ -142,7 +143,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
 | C1 | **API_SPEC.md Insights 章节与实现不一致**：文档定义的 `GetInsightsInput`（`workspaceId`/`startTime`/`endTime`/`limit`）与实际实现（`sessionIds`/`excludedHosts`/`hostExact`/`hostKeyword`）差异较大；`InsightsResult`/`HostInsight`/`SlowRequest` 字段名也不同 | 文档与代码漂移 | P1 |
-| C2 | **`WorkspaceData`/`BootstrapStatus` 缺少 `http2Enabled`**：前端定义了但 Rust 侧没有 | HTTP/2 设置无法持久化 | P1 |
+| C2 | ~~**`WorkspaceData`/`BootstrapStatus` 缺少 `http2Enabled`**~~ ✅ 已修复：Rust 侧 `WorkspaceData`、`BootstrapStatus`、`UpdateWorkspaceInput`、`WorkspaceRow` 已补齐 `http2_enabled` 字段，DB migration 已添加 | ~~HTTP/2 设置无法持久化~~ | ~~P1~~ 已完成 |
 | C3 | **Rust 错误返回不一致**：`ai.rs`/`sessions.rs` 返回 `{code, message}`，其他模块返回纯字符串 | 前端无法区分错误类型 | P2 |
 | C4 | **列表查询命令静默返回空数组**：出错时不抛异常，前端无法区分"无数据"和"查询失败" | 静默失败 | P2 |
 
@@ -155,25 +156,25 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ---
 
-## 五、跨横切关注点（B+）
+## 五、跨横切关注点（B+ → A-）
 
 ### 错误处理 — B+
 
 - 前端：`coerceAppError` 统一处理 `string | Error | AppError` → `AppError`，`reportCommandFailure` 记录日志
 - Rust：`tls-manager` 使用 `thiserror` 定义 `TlsManagerError`，`proxy-core` 使用 `String`（需改进）
-- **缺少前端 ErrorBoundary** 是最大短板
+- ✅ 前端 ErrorBoundary 已补齐（全局级 + 页面级）
 
-### 安全性 — B+
+### 安全性 — B+ → A-
 
 - ✅ SQL 注入防护完善：全部使用 `rusqlite::params!` 参数化查询
 - ✅ 路径遍历防护：`body_store.rs` 的 `validate_safe_segment` + `canonicalize` 双重校验，有测试覆盖
 - ✅ 敏感数据脱敏：`redaction.helpers.ts` 对 authorization/cookie/token 等字段自动 REDACTED
 - ✅ 脚本沙箱时间限制：50ms 超时 + `AtomicBool` 中断 + 独立线程，日志条目 8KB 截断
+- ✅ **脚本沙箱内存限制已加固**：`allocator` feature 已移除，`set_memory_limit(16MB)` + `set_gc_threshold(8MB)` 生效
 - ✅ 无硬编码密钥或凭证
 - ✅ Rust 生产代码中 unwrap/panic 使用极为克制（仅约 5 处，均为安全常量）
-- 🔴 **CSP 完全禁用**：`tauri.conf.json` 中 `"csp": null`，WebView 可执行任意脚本并访问本地资源 — **最高风险项**
-- 🔴 **JS 沙箱无内存限制**：`rule-engine` 中 rquickjs Runtime 创建时未调用 `set_max_size`，恶意脚本理论上可无限分配内存
-- ⚠️ **`Cargo.lock` 存在但未被 git 追踪**：文件存在于仓库根目录（183KB），但 `.gitignore` 排除了它，`git ls-files` 为空。对于应用程序应追踪 `Cargo.lock` 以确保可复现构建
+- ✅ **CSP 策略已配置**：`tauri.conf.json` 已设置 `csp`（生产）和 `devCsp`（开发），限制为 `'self'` + 必要的 inline 样式
+- ✅ **Cargo.lock 已追踪**：已从 `.gitignore` 移除并 `git add`
 
 ### 测试策略 — B
 
@@ -200,15 +201,17 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ## 优先级排序的改进路线图
 
-### P0 — 安全与稳定性（1-2 周）
+### P0 — 安全与稳定性 ✅ 全部已完成（2026-06-07）
 
-| # | 改进项 | 预期工作量 |
-|---|--------|-----------|
-| 1 | 🔴 **配置 CSP 策略**（`tauri.conf.json` 当前 `"csp": null`） | 0.5 天 |
-| 2 | 🔴 **JS 沙箱添加内存限制**（rquickjs `set_max_size`） | 0.5 天 |
-| 3 | 添加前端 ErrorBoundary（全局 + 页面级） | 1-2 天 |
-| 4 | 修复 `http2Enabled` 前后端契约不一致 | 0.5 天 |
-| 5 | 追踪 `Cargo.lock`（移出 `.gitignore` 并 `git add`） | 0.1 天 |
+| # | 改进项 | 状态 |
+|---|--------|------|
+| 1 | ✅ **配置 CSP 策略**：`tauri.conf.json` 已设置 `csp` + `devCsp` | 已完成 |
+| 2 | ✅ **JS 沙箱添加内存限制**：移除 `allocator` feature，添加 `set_memory_limit(16MB)` | 已完成 |
+| 3 | ✅ **添加前端 ErrorBoundary**：全局级 + 页面级 | 已完成 |
+| 4 | ✅ **修复 `http2Enabled` 前后端契约**：Rust DB/schema/workspace 层已补齐 | 已完成 |
+| 5 | ✅ **追踪 `Cargo.lock`**：已移出 `.gitignore` 并 `git add` | 已完成 |
+
+> 详细修复计划见 `docs/plan/p0-security-stability-fix-plan.md`
 
 ### P1 — 代码质量与架构治理（2-4 周）
 
@@ -242,23 +245,25 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 1. **代理核心与 UI 完全解耦** — `proxy-core` 纯 Rust、不依赖 Tauri，可独立测试和复用
 2. **三层同构命令架构** — Rust commands → TS commands → shared-types，一一对应、可审计
 3. **运行时类型边界校验** — `invoke<unknown>()` + parse 模式，前后端边界零信任
-4. **QuickJS 脚本沙箱** — 50ms 超时 + 独立线程 + AtomicBool 中断，安全且不阻塞
+4. **QuickJS 脚本沙箱** — 50ms 超时 + 16MB 内存限制 + 独立线程 + AtomicBool 中断，安全且不阻塞
 5. **大 body 自动 spool** — 超 20MB 写磁盘，`BodyStore` 超 256KB spill，防 OOM
 
 ## 架构风险 Top 5
 
-1. 🔴 **CSP 完全禁用** — `tauri.conf.json` 中 `"csp": null`，WebView 可执行任意脚本并访问本地资源
-2. 🔴 **JS 沙箱无内存限制** — 恶意脚本可无限分配内存导致 OOM
-3. **缺少 ErrorBoundary** — 任何组件渲染异常导致白屏
-4. **`proxy-core` 职责膨胀** — 6000+ 行核心代码集中在 3 个文件，`bootstrap/mod.rs` 同样混合了多种职责
-5. **API 契约漂移** — Insights 文档与实现不一致、`http2Enabled` 字段前后端不同步
+1. **`proxy-core` 职责膨胀** — 6000+ 行核心代码集中在 3 个文件，`bootstrap/mod.rs` 同样混合了多种职责
+2. **API 契约漂移** — Insights 文档与实现不一致
+3. **async 路径上的同步 IO** — SQLite 写入在持有 Mutex 期间阻塞 tokio 任务
+4. **regex 热路径重复编译** — `pattern_matches` 每次调用 `Regex::new()`
+5. **核心组件过大** — `AppShell`(770行)、`SessionsPage`(1130行) 维护困难
 
 ---
 
 ## 结论
 
-AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好；主要风险集中在 `proxy-core` / `bootstrap` 的职责膨胀、WebView CSP / 脚本内存限制、以及若干 API 契约漂移。当前更像是"工程质量较好的快速演进产品"，尚未架构失控，但需要一次面向稳定性和边界收敛的整理。
+**P0 安全与稳定性修复完成后，AIProxy 的整体健康度从 A-（偏上）提升至 A-（稳固）**。四个维度从前 B+ 提升至 A-：前端（ErrorBoundary 补齐最大短板）、Rust（沙箱内存限制加固）、API 契约（http2Enabled 修复）、跨横切关注点（CSP + 沙箱 + Cargo.lock 三项安全加固）。
 
-**P0 级别**（安全与稳定性，1-2 周）：CSP 配置、JS 沙箱内存限制、ErrorBoundary、`http2Enabled` 契约修复、Cargo.lock 追踪。
+当前项目状态：**工程基础扎实、安全基线达标、核心架构清晰**。剩余的主要工作是 P1 架构治理——`proxy-core` 拆分、`bootstrap` 职责分离、SQLite async 路径修正、regex 预编译、API 文档同步。这些是"让好的架构变得更好"的改进，而非紧急修复。
 
-**P1 级别**（架构治理，2-4 周）：proxy-core 拆分、bootstrap 职责分离、SQLite async 路径修正、regex 预编译、API 文档同步。除非近期会继续大改代理链路，否则 proxy-core 拆分更适合作为 P1 架构治理而非 P0 紧急修复。
+**P0 ✅ 已完成**（2026-06-07）：CSP 配置、JS 沙箱内存限制、ErrorBoundary、`http2Enabled` 契约修复、Cargo.lock 追踪。
+
+**P1 待推进**（架构治理，2-4 周）：proxy-core 拆分、bootstrap 职责分离、SQLite async 路径修正、regex 预编译、API 文档同步。除非近期会继续大改代理链路，否则 proxy-core 拆分更适合作为 P1 架构治理而非紧急修复。

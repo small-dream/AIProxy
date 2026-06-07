@@ -92,25 +92,16 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<'_, S> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn start_proxy_server(
-    config: ProxyRuntimeConfig,
-    tls_manager: Option<Arc<TlsManager>>,
-    breakpoint_manager: Option<Arc<BreakpointManager>>,
-    rewrite_manager: Option<Arc<RewriteManager>>,
-    map_manager: Option<Arc<MapManager>>,
-    script_manager: Option<Arc<ScriptManager>>,
-    throttle_manager: Option<Arc<ThrottleManager>>,
-    dns_manager: Option<Arc<DnsManager>>,
-    workspace_id: Option<String>,
-    event_emitter: Option<BreakpointEventEmitter>,
+    config: ProxyConfig,
+    managers: ProxyManagers,
 ) -> Result<StartedProxyServer, String> {
-    config.validate().map_err(str::to_string)?;
+    config.runtime.validate().map_err(str::to_string)?;
 
     let bind_addr: &str = DEFAULT_BIND_ADDRESS;
-    let listener = TcpListener::bind((bind_addr, config.port))
+    let listener = TcpListener::bind((bind_addr, config.runtime.port))
         .await
-        .map_err(|error| format_listener_bind_error(bind_addr, config.port, &error))?;
+        .map_err(|error| format_listener_bind_error(bind_addr, config.runtime.port, &error))?;
     let bound_port = listener
         .local_addr()
         .map_err(|error| format!("failed to read proxy listener address: {error}"))?
@@ -136,7 +127,7 @@ pub async fn start_proxy_server(
         &[
             ("host", bind_addr.to_string()),
             ("port", bound_port.to_string()),
-            ("ssl_enabled", config.ssl_enabled.to_string()),
+            ("ssl_enabled", config.runtime.ssl_enabled.to_string()),
             ("max_connections", MAX_CONCURRENT_CONNECTIONS.to_string()),
         ],
     );
@@ -172,15 +163,8 @@ pub async fn start_proxy_server(
 
                             let session_sender = session_sender.clone();
                             let ws_message_sender = ws_message_sender.clone();
-                            let tls_manager = tls_manager.clone();
-                            let breakpoint_manager = breakpoint_manager.clone();
-                            let rewrite_manager = rewrite_manager.clone();
-                            let map_manager = map_manager.clone();
-                            let script_manager = script_manager.clone();
-                            let throttle_manager = throttle_manager.clone();
-                            let dns_manager = dns_manager.clone();
-                            let workspace_id = workspace_id.clone();
-                            let event_emitter = event_emitter.clone();
+                            let managers = managers.clone();
+                            let config = config.clone();
                             let upstream_pool = upstream_pool.clone();
 
                             tokio::spawn(async move {
@@ -190,15 +174,8 @@ pub async fn start_proxy_server(
                                     client_addr,
                                     session_sender,
                                     ws_message_sender,
-                                    tls_manager,
-                                    breakpoint_manager,
-                                    rewrite_manager,
-                                    map_manager,
-                                    script_manager,
-                                    throttle_manager,
-                                    dns_manager,
-                                    workspace_id,
-                                    event_emitter,
+                                    managers,
+                                    config,
                                     upstream_pool,
                                 )
                                 .await
@@ -302,23 +279,27 @@ mod tests {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
     session_sender: mpsc::Sender<ProxySessionDetail>,
     ws_message_sender: mpsc::Sender<crate::ws::WsMessageData>,
-    tls_manager: Option<Arc<TlsManager>>,
-    breakpoint_manager: Option<Arc<BreakpointManager>>,
-    rewrite_manager: Option<Arc<RewriteManager>>,
-    map_manager: Option<Arc<MapManager>>,
-    script_manager: Option<Arc<ScriptManager>>,
-    throttle_manager: Option<Arc<ThrottleManager>>,
-    dns_manager: Option<Arc<DnsManager>>,
-    workspace_id: Option<String>,
-    event_emitter: Option<BreakpointEventEmitter>,
+    managers: ProxyManagers,
+    config: ProxyConfig,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
 ) -> Result<(), String> {
+    let ProxyManagers {
+        tls: tls_manager,
+        breakpoint: breakpoint_manager,
+        rewrite: rewrite_manager,
+        map: map_manager,
+        script: script_manager,
+        throttle: throttle_manager,
+        dns: dns_manager,
+    } = managers;
+    let workspace_id = config.workspace_id;
+    let event_emitter = config.event_emitter;
+
     // Header-only probe — reads until \r\n\r\n, returns (request, consumed, leftover).
     // consumed = full header bytes up to and including \r\n\r\n.
     // leftover = bytes accidentally read past the header (body/TLS ClientHello).

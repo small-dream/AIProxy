@@ -664,6 +664,167 @@ impl AsyncWrite for WsUpstream {
 }
 
 // ---------------------------------------------------------------------------
+// Pure helpers extracted from handle_http_request
+// ---------------------------------------------------------------------------
+
+/// Build a `ParsedProxyRequest` from the raw hyper request parts and body.
+fn build_parsed_request_from_hyper(
+    parts: hyper::http::request::Parts,
+    body_bytes: bytes::Bytes,
+    ctx: &ConnectionContext,
+    request_id: &str,
+) -> Result<ParsedProxyRequest, String> {
+    let method = Method::from_bytes(parts.method.as_str().as_bytes())
+        .map_err(|e| format!("invalid HTTP method: {e}"))?;
+
+    let is_h2 = ctx.mode.is_h2();
+
+    // Build URL from hyper parts according to ConnectionMode.
+    let url = build_url_from_hyper(&parts, &ctx.mode)?;
+
+    let host = url
+        .host_str()
+        .ok_or_else(|| "target URL does not contain a host".to_string())?
+        .to_string();
+    let path = build_request_path(&url);
+    let query_params = build_query_params(&url);
+
+    // Build header entries (for display/logging) and upstream HeaderMap.
+    let request_headers = build_request_headers_from_hyper(&parts, is_h2);
+    let headers = build_upstream_headers_from_hyper(&parts.headers)?;
+
+    let raw_request = build_raw_http_head(
+        &format!(
+            "{} {} HTTP/{}",
+            method.as_str(),
+            path,
+            if is_h2 { "2" } else { "1.1" },
+        ),
+        &request_headers,
+    );
+
+    Ok(ParsedProxyRequest {
+        body: body_bytes.to_vec(),
+        client_address: Some(ctx.client_addr.to_string()),
+        headers,
+        host: host.clone(),
+        method,
+        path,
+        protocol: ctx.mode.protocol().to_string(),
+        query_params,
+        raw_request,
+        request_headers,
+        request_id: request_id.to_string(),
+        url,
+        tls_cipher_suite: match &ctx.mode {
+            ConnectionMode::MitmHttps {
+                tls_cipher_suite, ..
+            } => tls_cipher_suite.clone(),
+            ConnectionMode::PlainHttp => None,
+        },
+        tls_protocol: match &ctx.mode {
+            ConnectionMode::MitmHttps { tls_protocol, .. } => tls_protocol.clone(),
+            ConnectionMode::PlainHttp => None,
+        },
+    })
+}
+
+/// Build a 502 Bad Gateway response and emit the associated session + logs
+/// when the upstream request fails entirely.
+async fn build_upstream_error_response_and_session(
+    request: &ParsedProxyRequest,
+    host: &str,
+    error: &str,
+    ctx: &ConnectionContext,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+    let response_message = "The proxy could not reach the upstream server.";
+
+    let detail = build_session_detail(
+        request,
+        StatusCode::BAD_GATEWAY.as_u16(),
+        &HeaderMap::new(),
+        response_message.as_bytes(),
+        response_message.len(),
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: None,
+            dns_ms: None,
+            request_send_ms: None,
+            response_read_ms: Some(0),
+            tls_ms: None,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+        },
+        false,
+    );
+    if ctx.session_sender.send(detail).await.is_err() {
+        emit_log(
+            "DEBUG",
+            "session_send_dropped",
+            &[("reason", "receiver_disconnected".to_string())],
+        );
+    }
+
+    emit_log(
+        "ERROR",
+        "upstream_request_failed",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("host", host.to_string()),
+            ("url", request.url.to_string()),
+            ("error", error.to_string()),
+        ],
+    );
+
+    build_plain_text_response(StatusCode::BAD_GATEWAY, response_message)
+}
+
+/// Build a `ProxySessionDetail` from an upstream response, attaching proxy
+/// timing, trace metadata, and an optional timing-source marker.
+fn build_upstream_session_detail(
+    request: &ParsedProxyRequest,
+    upstream_response: &UpstreamResponse,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+    map_traces: Vec<crate::MapTrace>,
+    rewrite_traces: Vec<crate::RewriteTrace>,
+    script_traces: Vec<crate::ScriptTrace>,
+    throttle_traces: Vec<crate::ThrottleTrace>,
+    set_timing_source: bool,
+) -> ProxySessionDetail {
+    let mut detail = build_session_detail(
+        request,
+        upstream_response.status_code.as_u16(),
+        &upstream_response.response_headers,
+        &upstream_response.response_body,
+        upstream_response.response_body_size_bytes,
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: Some(upstream_response.connect_ms),
+            dns_ms: Some(upstream_response.dns_ms),
+            request_send_ms: Some(upstream_response.request_send_ms),
+            response_read_ms: Some(upstream_response.response_read_ms),
+            tls_ms: upstream_response.tls_ms,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(upstream_response.waiting_ms),
+        },
+        upstream_response.body_truncated,
+    );
+    detail.map_traces = map_traces;
+    detail.rewrite_traces = rewrite_traces;
+    detail.script_traces = script_traces;
+    detail.throttle_traces = throttle_traces;
+    if set_timing_source {
+        detail.timing_source = Some("proxy".to_string());
+    }
+    detail
+}
+
+// ---------------------------------------------------------------------------
 // Core request handler
 // ---------------------------------------------------------------------------
 
@@ -703,59 +864,10 @@ pub(crate) async fn handle_http_request(
         .map_err(|e| format!("failed to read request body: {e}"))?
         .to_bytes();
 
-    let method = Method::from_bytes(parts.method.as_str().as_bytes())
-        .map_err(|e| format!("invalid HTTP method: {e}"))?;
+    let mut request = build_parsed_request_from_hyper(parts, body_bytes, ctx, &request_id)?;
 
+    let host = request.host.clone();
     let is_h2 = ctx.mode.is_h2();
-
-    // Build URL from hyper parts according to ConnectionMode.
-    let url = build_url_from_hyper(&parts, &ctx.mode)?;
-
-    let host = url
-        .host_str()
-        .ok_or_else(|| "target URL does not contain a host".to_string())?
-        .to_string();
-    let path = build_request_path(&url);
-    let query_params = build_query_params(&url);
-
-    // Build header entries (for display/logging) and upstream HeaderMap.
-    let request_headers = build_request_headers_from_hyper(&parts, is_h2);
-    let headers = build_upstream_headers_from_hyper(&parts.headers)?;
-
-    let raw_request = build_raw_http_head(
-        &format!(
-            "{} {} HTTP/{}",
-            method.as_str(),
-            path,
-            if is_h2 { "2" } else { "1.1" },
-        ),
-        &request_headers,
-    );
-
-    let mut request = ParsedProxyRequest {
-        body: body_bytes.to_vec(),
-        client_address: Some(ctx.client_addr.to_string()),
-        headers,
-        host: host.clone(),
-        method,
-        path,
-        protocol: ctx.mode.protocol().to_string(),
-        query_params,
-        raw_request,
-        request_headers,
-        request_id: request_id.clone(),
-        url,
-        tls_cipher_suite: match &ctx.mode {
-            ConnectionMode::MitmHttps {
-                tls_cipher_suite, ..
-            } => tls_cipher_suite.clone(),
-            ConnectionMode::PlainHttp => None,
-        },
-        tls_protocol: match &ctx.mode {
-            ConnectionMode::MitmHttps { tls_protocol, .. } => tls_protocol.clone(),
-            ConnectionMode::PlainHttp => None,
-        },
-    };
 
     // --- Apply request rules ---
     let RequestRuntimeOutcome {
@@ -1108,30 +1220,17 @@ pub(crate) async fn handle_http_request(
                 ));
             }
 
-            let mut session_detail = build_session_detail(
+            let mut session_detail = build_upstream_session_detail(
                 &request,
-                upstream_response.status_code.as_u16(),
-                &upstream_response.response_headers,
-                &upstream_response.response_body,
-                upstream_response.response_body_size_bytes,
+                &upstream_response,
                 started_at,
                 started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: Some(upstream_response.connect_ms),
-                    dns_ms: Some(upstream_response.dns_ms),
-                    request_send_ms: Some(upstream_response.request_send_ms),
-                    response_read_ms: Some(upstream_response.response_read_ms),
-                    tls_ms: upstream_response.tls_ms,
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(upstream_response.waiting_ms),
-                },
-                upstream_response.body_truncated,
+                map_traces.clone(),
+                rewrite_traces.clone(),
+                script_traces.clone(),
+                throttle_traces.clone(),
+                true,
             );
-            session_detail.map_traces = map_traces.clone();
-            session_detail.rewrite_traces = rewrite_traces.clone();
-            session_detail.script_traces = script_traces.clone();
-            session_detail.throttle_traces = throttle_traces.clone();
-            session_detail.timing_source = Some("proxy".to_string());
 
             // For h2, add response pseudo header :status.
             if is_h2 {
@@ -1178,62 +1277,33 @@ pub(crate) async fn handle_http_request(
                     BreakpointActionKind::Mock => {
                         if let Some(ref mock) = resolution.mock {
                             upstream_response = crate::build_mock_upstream_response(mock);
-                            session_detail = build_session_detail(
+                            session_detail = build_upstream_session_detail(
                                 &request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
+                                &upstream_response,
                                 started_at,
                                 started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(
-                                        started_at_instant.elapsed().as_millis(),
-                                    ),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
+                                map_traces.clone(),
+                                rewrite_traces.clone(),
+                                script_traces.clone(),
+                                throttle_traces.clone(),
+                                false,
                             );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
                         }
                     }
                     BreakpointActionKind::Forward => {
                         crate::apply_response_resolution(&resolution, &mut upstream_response);
                         if resolution.modified_response_body_base64.is_some() {
-                            session_detail = build_session_detail(
+                            session_detail = build_upstream_session_detail(
                                 &request,
-                                upstream_response.status_code.as_u16(),
-                                &upstream_response.response_headers,
-                                &upstream_response.response_body,
-                                upstream_response.response_body_size_bytes,
+                                &upstream_response,
                                 started_at,
                                 started_at_instant,
-                                ProxyTimingBreakdown {
-                                    connect_ms: Some(upstream_response.connect_ms),
-                                    dns_ms: Some(upstream_response.dns_ms),
-                                    request_send_ms: Some(upstream_response.request_send_ms),
-                                    response_read_ms: Some(upstream_response.response_read_ms),
-                                    tls_ms: upstream_response.tls_ms,
-                                    total_ms: Some(
-                                        started_at_instant.elapsed().as_millis(),
-                                    ),
-                                    waiting_ms: Some(upstream_response.waiting_ms),
-                                },
-                                upstream_response.body_truncated,
+                                map_traces.clone(),
+                                rewrite_traces.clone(),
+                                script_traces.clone(),
+                                throttle_traces.clone(),
+                                true,
                             );
-                            session_detail.map_traces = map_traces.clone();
-                            session_detail.rewrite_traces = rewrite_traces.clone();
-                            session_detail.script_traces = script_traces.clone();
-                            session_detail.throttle_traces = throttle_traces.clone();
-                            session_detail.timing_source = Some("proxy".to_string());
                         } else {
                             if resolution.modified_response_status_code.is_some() {
                                 session_detail.summary.status_code =
@@ -1331,48 +1401,16 @@ pub(crate) async fn handle_http_request(
             )
         }
         Err(error) => {
-            let response_message = "The proxy could not reach the upstream server.";
-
-            let detail = build_session_detail(
+            cancellation_guard.disarm();
+            build_upstream_error_response_and_session(
                 &request,
-                StatusCode::BAD_GATEWAY.as_u16(),
-                &HeaderMap::new(),
-                response_message.as_bytes(),
-                response_message.len(),
+                &host,
+                &error,
+                ctx,
                 started_at,
                 started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
-                    response_read_ms: Some(0),
-                    tls_ms: None,
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                },
-                false,
-            );
-            if ctx.session_sender.send(detail).await.is_err() {
-                emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
-                );
-            }
-
-            emit_log(
-                "ERROR",
-                "upstream_request_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("host", host.clone()),
-                    ("url", request.url.to_string()),
-                    ("error", error.clone()),
-                ],
-            );
-
-            cancellation_guard.disarm();
-            build_plain_text_response(StatusCode::BAD_GATEWAY, response_message)
+            )
+            .await
         }
     }
 }

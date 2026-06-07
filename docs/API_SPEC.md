@@ -1868,11 +1868,10 @@ type MenuEvent = unknown;
 type HostInsight = {
   host: string;
   requestCount: number;
-  avgDurationMs: number;
-  medianDurationMs: number;
-  p95DurationMs: number;
-  totalSizeBytes: number;
   errorCount: number;
+  avgDurationMs: number;
+  p95DurationMs: number;
+  totalBytes: number;
 };
 
 type StatusCodeDistribution = {
@@ -1887,22 +1886,24 @@ type MethodDistribution = {
 
 type SlowRequest = {
   sessionId: string;
+  url: string;
   method: string;
-  host: string;
-  path: string;
   statusCode: number;
   durationMs: number;
-  startedAt: string;
 };
 
 type InsightsResult = {
   totalRequests: number;
-  avgDurationMs: number;
+  totalErrors: number;
   errorRate: number;
-  totalSizeBytes: number;
-  hosts: HostInsight[];
-  statusCodes: StatusCodeDistribution[];
-  methods: MethodDistribution[];
+  avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  p99DurationMs: number;
+  totalBytes: number;
+  byHost: HostInsight[];
+  byStatusCode: StatusCodeDistribution[];
+  byMethod: MethodDistribution[];
   slowRequests: SlowRequest[];
 };
 ```
@@ -1913,10 +1914,10 @@ type InsightsResult = {
 
 ```ts
 type GetInsightsInput = {
-  workspaceId: string;
-  startTime?: string;   // ISO 8601，可选时间范围起始
-  endTime?: string;     // ISO 8601，可选时间范围结束
-  limit?: number;       // 慢请求返回数量上限，默认 10
+  sessionIds: string[];       // 需要分析的会话 ID 列表
+  excludedHosts?: string[];   // 排除的 host 列表
+  hostExact?: string;         // 精确匹配的 host
+  hostKeyword?: string;       // host 关键词筛选
 };
 ```
 
@@ -1928,12 +1929,13 @@ type GetInsightsOutput = InsightsResult;
 
 实现说明：
 
-- 后端通过 `session-store` 的 `compute_insights()` 函数执行 SQLite 聚合查询
-- `hosts` 按 host 分组聚合请求计数、平均/P95 耗时和错误数
-- `statusCodes` 统计各状态码出现次数
-- `methods` 统计各 HTTP 方法出现次数
-- `slowRequests` 按耗时降序返回最慢的请求列表
-- 查询仅覆盖当前 workspace 下的会话数据
+- 后端通过 `aiproxy-db` 的 `compute_insights()` 函数执行 SQLite 聚合查询（`crates/db/src/insights.rs`）
+- 输入以 `sessionIds` 确定查询范围，支持 `excludedHosts` / `hostExact` / `hostKeyword` 进一步过滤
+- `byHost` 按 host 分组聚合请求计数、平均/P95 耗时、错误数和总字节数
+- `byStatusCode` 统计各状态码出现次数
+- `byMethod` 统计各 HTTP 方法出现次数
+- `slowRequests` 按耗时降序返回最慢的 20 个请求（SQL LIMIT 20）
+- `InsightsResult` 包含全局统计：`totalErrors`、`avgDurationMs`、分位数 `p50` / `p95` / `p99`
 - 前端可通过 `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 导出分析结果
 
 ## 10.1 Script Rule Commands

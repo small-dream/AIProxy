@@ -11,10 +11,11 @@ pub(super) use crate::workspace::WorkspaceData;
 pub(super) use aiproxy_proxy_core::{
     compile_script_rule, get_local_ip_addresses, global_ws_registry, send_direct_request,
     start_proxy_server, BreakpointEventEmitter, BreakpointResolution, BreakpointRule,
-    BreakpointStage, DnsMappingRule, MapRule, ProxyHeaderEntry, ProxyRuntimeConfig,
-    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteRule, ScriptRule,
-    ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData, ThrottleRuleData,
-    ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection, WsOpcode,
+    BreakpointStage, DnsMappingRule, MapRule, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
+    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
+    RewriteRule, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData,
+    ThrottleRuleData, ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection,
+    WsOpcode,
 };
 pub(super) use aiproxy_tls_manager::{
     detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair,

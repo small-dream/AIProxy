@@ -4,6 +4,7 @@ use aiproxy_rule_engine::ScriptTrace;
 use serde::ser::SerializeStruct;
 use std::mem::size_of;
 
+#[derive(Clone)]
 pub struct ProxyRuntimeConfig {
     pub port: u16,
     pub ssl_enabled: bool,

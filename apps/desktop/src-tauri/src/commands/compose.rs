@@ -18,7 +18,7 @@ pub async fn send_composed_request(
 ) -> Result<ProxySessionDetail, String> {
     let detail = send_direct_request(input.method, input.url, input.headers, input.body).await?;
     let session_id = detail.id.clone();
-    state.upsert_session(detail.clone());
+    state.upsert_session_async(detail.clone()).await;
 
     log_info(
         "desktop.commands",

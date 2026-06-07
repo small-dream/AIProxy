@@ -7,10 +7,10 @@ use super::{
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
     override_upstream_request_timeout_for_test, resolve_target_url, send_direct_request,
     start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
-    ParsedProxyRequest, ProxyBodyReference, ProxyHeaderEntry, ProxyRuntimeConfig,
-    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteManager, RewriteRule,
-    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, UpstreamResponse,
-    MAX_CAPTURED_BODY_BYTES,
+    ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
+    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
+    RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
+    ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, StatusCode, Url};
@@ -832,6 +832,148 @@ fn rewrite_rule_respects_match_type_regex() {
 }
 
 #[test]
+fn invalid_regex_rule_is_skipped_gracefully() {
+    let manager = Arc::new(RewriteManager::new());
+    // Save a rule with an invalid regex pattern — it should not panic,
+    // and should simply be skipped during matching.
+    manager.save_rule(RewriteRule {
+        id: "bad-regex".to_string(),
+        enabled: true,
+        name: "Bad regex".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "[invalid(regex".to_string(),
+            match_type: Some("regex".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    let mut request = build_test_request("https://example.com/anything");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false)
+            .unwrap();
+    // Invalid regex rule should be skipped, not crash.
+    assert!(traces.is_empty());
+}
+
+#[test]
+fn compiled_regex_refreshes_after_rule_update() {
+    let manager = Arc::new(RewriteManager::new());
+    // Initially save a rule matching "staging"
+    manager.save_rule(RewriteRule {
+        id: "refresh-test".to_string(),
+        enabled: true,
+        name: "Refresh test".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: r"staging".to_string(),
+            match_type: Some("regex".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    let mut request1 = build_test_request("https://staging.example.com/api");
+    let traces1 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request1, false)
+            .unwrap();
+    assert_eq!(traces1.len(), 1, "should match 'staging' pattern");
+
+    // Update the same rule to match "production" instead
+    manager.save_rule(RewriteRule {
+        id: "refresh-test".to_string(),
+        enabled: true,
+        name: "Refresh test".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: r"production".to_string(),
+            match_type: Some("regex".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"2"}),
+    });
+
+    // Old URL should no longer match
+    let mut request2 = build_test_request("https://staging.example.com/api");
+    let traces2 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2, false)
+            .unwrap();
+    assert!(traces2.is_empty(), "old pattern should not match after update");
+
+    // New URL should match
+    let mut request3 = build_test_request("https://production.example.com/api");
+    let traces3 =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request3, false)
+            .unwrap();
+    assert_eq!(traces3.len(), 1, "new pattern should match after update");
+}
+
+#[test]
+fn non_regex_match_types_do_not_compile_regex() {
+    let manager = Arc::new(RewriteManager::new());
+    // Save a rule with match_type "contains" (not "regex")
+    manager.save_rule(RewriteRule {
+        id: "contains-rule".to_string(),
+        enabled: true,
+        name: "Contains test".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: Some("contains".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    // Save another with match_type "exact"
+    manager.save_rule(RewriteRule {
+        id: "exact-rule".to_string(),
+        enabled: true,
+        name: "Exact test".to_string(),
+        note: None,
+        priority: 5,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: "https://exact.example.com/path".to_string(),
+            match_type: Some("exact".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"2"}),
+    });
+
+    // Verify compiled_rules has None for compiled_match on non-regex rules
+    let compiled = manager.compiled_rules();
+    assert!(compiled.iter().all(|cr| cr.compiled_match.is_none()),
+        "non-regex rules should have no compiled regex");
+
+    // But the rules should still match correctly via pattern_matches fallback
+    let mut request = build_test_request("https://exact.example.com/path");
+    let traces =
+        apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false)
+            .unwrap();
+    assert!(traces.len() >= 1, "contains and exact rules should still match");
+}
+
+#[test]
 fn rewrite_rule_respects_match_type_wildcard() {
     let manager = Arc::new(RewriteManager::new());
     manager.save_rule(RewriteRule {
@@ -1058,20 +1200,24 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy: StartedProxyServer = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Option::<String>::None,
-        None,
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
@@ -1132,20 +1278,24 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy: StartedProxyServer = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Option::<String>::None,
-        None,
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
@@ -1204,20 +1354,24 @@ async fn forwards_large_http_responses_without_truncating_the_client_body() {
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Option::<String>::None,
-        None,
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
@@ -1518,20 +1672,24 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Option::<String>::None,
-        None,
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
@@ -1575,20 +1733,24 @@ async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Option::<String>::None,
-        None,
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
@@ -1669,20 +1831,24 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
 
     let proxy_port = allocate_unused_port();
     let mut started_proxy = start_proxy_server(
-        ProxyRuntimeConfig {
-            port: proxy_port,
-            ssl_enabled: false,
-            http2_enabled: None,
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: Some("default".to_string()),
+            event_emitter: None,
         },
-        None,                        // tls_manager
-        None,                        // breakpoint_manager
-        Some(rewrite_manager),       // rewrite_manager
-        None,                        // map_manager
-        None,                        // script_manager
-        None,                        // throttle_manager
-        None,                        // dns_manager
-        Some("default".to_string()), // workspace_id
-        None,                        // event_emitter
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: Some(rewrite_manager),
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
     )
     .await
     .unwrap();
