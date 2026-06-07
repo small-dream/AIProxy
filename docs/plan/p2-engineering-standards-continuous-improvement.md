@@ -2,10 +2,30 @@
 
 > 来源：`docs/ARCHITECTURE_REVIEW.md` P2 改进项 #14-#24 + P1 遗留项 + 工程基础设施改进
 > 创建日期：2026-06-07
-> 最后更新：2026-06-07 — 架构师审查修订
+> 最后更新：2026-06-08 — 对齐 `c675a5026bf1824e652ccaf06d91944df289992a..HEAD` 重构结果
 > 当前分支：dev
 
 ---
+
+## 当前执行状态（2026-06-08）
+
+本计划已有多项在 `dev` 分支落地，后续阅读时以本节为准：
+
+| 项目 | 状态 | 当前基线 |
+|------|------|----------|
+| Phase 0a/0b/0c | ✅ 已完成 | CI 加入 Rust cache、fmt、clippy、Prettier check；`rustfmt.toml` 与 `.prettierrc` 已落地；已完成全量格式化 |
+| #19 | ✅ 已完成 | `BodyType` / `RawLanguage` / session query key 已统一到共享位置 |
+| #20 | ✅ 已完成 | `emit_log` 已迁移为直接使用 `tracing` 宏 |
+| #21 | ✅ 已完成 | Script / Breakpoint regex 已采用 manager runtime wrapper 预编译缓存 |
+| #14 | ✅ 已完成 | `session-store` / `throttle-engine` / `exporter` 空壳 crate 已删除 |
+| Phase 2a | ✅ 已完成主体 | `ProxyError` 与 `app_error()` 基线已推进；局部纯 helper 仍可返回 `String` |
+| Phase 2b | ✅ 已完成 | 列表查询失败已向前端传播，并通过 notification store 做用户可见提示 |
+| Phase 3 | ✅ 已完成主体 | `SessionsPage` 已拆出 filters/selection/layout/import-export/repeat 等 hooks；Inspector 仍可继续瘦身 |
+| Phase 4 | ✅ 已完成 | `bootstrap` 已拆为 `repository.rs` / `cache.rs` / `converters.rs` / `events.rs` |
+| Phase 5 | ⏳ 待推进 | `TlsOrPlain<S>` 与 HTTP 客户端 TLS 策略审计仍待处理 |
+| Phase 6 | ⏳ 待推进 | Windows 网络接口枚举与 property-based 测试仍待处理 |
+
+**防回归要求**：已完成项不再按原方案重复执行；后续开发必须遵守 `docs/ENGINEERING_GUIDELINES.md` 与 `docs/ARCHITECTURE.md` 中新增的重构后边界约束。
 
 ## 目标
 

@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：接口规范文档
-- 当前阶段：`Phase 1 / 实现同步`
-- 文档状态：`Draft v1.1`
+- 当前阶段：`P2 / 重构后契约同步`
+- 文档状态：`Living Spec v1.2`
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`

@@ -1,7 +1,7 @@
 # AIProxy 全面架构审查报告
 
 > 审查日期：2026-06-07
-> 最后更新：2026-06-07 — P1 代码质量与架构治理完成
+> 最后更新：2026-06-08 — P2 部分治理落地并同步 living 文档
 > 审查范围：整体架构设计、前端代码质量、Rust 核心代码质量、API 契约与类型安全、跨横切关注点
 > 审查基准：顶级架构师标准，面向生产级桌面代理调试工具
 
@@ -9,7 +9,7 @@
 
 ## 总体健康度：A（生产级工程基础稳固）
 
-AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好。P0 安全与稳定性问题已全部修复，P1 代码质量与架构治理也已完成：async 路径同步 IO 已迁出、`proxy-core` 关键热点完成阶段化拆分、规则模块拆分、Rewrite regex 预编译、API 文档同步、错误格式收敛和 AppShell 前端拆分均已落地。当前项目已从"快速演进产品"进入"工程基础稳固、可持续演进"阶段。
+AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好。P0 安全与稳定性问题已全部修复，P1 代码质量与架构治理也已完成。自 commit `c675a5026bf1824e652ccaf06d91944df289992a` 之后，P2/P4 的一批治理继续落地：CI/格式化基线、空壳 crate 清理、`emit_log` 迁移、Script/Breakpoint regex 缓存、结构化错误推进、列表查询错误传播、`bootstrap` 拆分和 `SessionsPage` hooks 拆分。当前项目已从"快速演进产品"进入"工程基础稳固、可持续演进"阶段。
 
 ---
 
@@ -41,15 +41,15 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
 | A1 | ~~**`proxy-core` 是"上帝 crate"**~~ ✅ 已显著治理：`rules.rs` 已拆为 `rules/` 模块目录，`handle_http_request` 已拆为阶段函数；`server.rs`/`http_proxy.rs` 仍偏大但热点边界清晰 | ~~维护困难、变更风险高~~ | ~~P1~~ 已完成，后续持续瘦身 |
-| A2 | **空壳 crate**：`session-store`(34行)、`throttle-engine`(47行)、`exporter`(36行) 几乎无代码，但 `aiproxy-desktop` 仍声明依赖 | 编译时间浪费、新人困惑 | P2 |
-| A3 | **`bootstrap/mod.rs` 职责混合**：该文件约 2113 行，`AppState` 混合状态管理、DB↔domain 类型转换、session 缓存、事件 emit 等职责 | 职责不清 | P2 |
+| A2 | ~~**空壳 crate**：`session-store`、`throttle-engine`、`exporter` 几乎无代码~~ ✅ 已删除空壳 crate 与依赖声明 | ~~编译时间浪费、新人困惑~~ | ~~P2~~ 已完成 |
+| A3 | ~~**`bootstrap/mod.rs` 职责混合**~~ ✅ 已拆分为 `repository.rs` / `cache.rs` / `converters.rs` / `events.rs`，`AppState` 保留聚合与委托职责 | ~~职责不清~~ | ~~P2~~ 已完成，后续防回归 |
 | A4 | ~~**`start_proxy_server()` 参数偏多**~~ ✅ 已修复：已引入 `ProxyManagers` + `ProxyConfig` 收敛启动和连接处理参数 | ~~参数爆炸、扩展不友好~~ | ~~P1~~ 已完成 |
 | A5 | **`rule-engine` 职责偏离文档**：文档定义为"统一处理 Breakpoint/Rewrite/Map/DNS"，实际只做脚本执行 | 文档与实现不一致 | P2 |
 
 ### 改进建议
 
 - **A1**：P1 已完成第一轮拆分；后续可继续将 `http_proxy.rs` 的 WS/响应处理阶段移入独立模块
-- **A3**：将 DB 转换逻辑提取到 `aiproxy-db` 的 repository 层，将缓存逻辑提取到独立的 `SessionCache` 模块
+- **A3**：已拆分完成；后续新增 bootstrap 能力必须遵守 `docs/ARCHITECTURE.md` 的 Bootstrap 边界原则
 - **A5**：同步文档或调整 crate 命名
 
 ---
@@ -71,7 +71,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 |---|------|------|--------|
 | F1 | ~~**缺少 ErrorBoundary**~~ ✅ 已修复：已添加全局级 + 页面级 ErrorBoundary（`components/shared/ErrorBoundary.tsx`），包裹在 AppProviders 内部 | ~~生产稳定性风险~~ | ~~P0~~ 已完成 |
 | F2 | ~~**核心组件过大**：`AppShell`(770行) 承载过多逻辑~~ ✅ 已修复：`AppShell` 已降至约 245 行，代理生命周期、菜单、ADB、缩放、窗口控制均已拆为 Hook；`SessionsPage` 仍偏大 | 维护困难 | ~~P1~~ AppShell 已完成，SessionsPage 入 P2 |
-| F3 | **类型重复定义**：`BodyType`/`RawLanguage` 在两个 store 中重复；`SESSIONS_QUERY_KEY` 在两处各自定义 | 不一致风险 | P2 |
+| F3 | ~~**类型重复定义**：`BodyType`/`RawLanguage` 在两个 store 中重复；`SESSIONS_QUERY_KEY` 在两处各自定义~~ ✅ 已统一到共享类型/公共 query key | ~~不一致风险~~ | ~~P2~~ 已完成 |
 | F4 | **硬编码字符串**：`SessionsPage` 中的 `"All Sessions"` / `"Throttled"` 未走 i18n | 国际化缺陷 | P2 |
 | F5 | **Store 测试薄弱**：`session-container.store.test.ts` 仅覆盖 legacy 方法 | 测试覆盖不足 | P2 |
 
@@ -191,7 +191,7 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 - ✅ Rust 依赖选择合理：hyper 1.x + rustls 0.23 + tokio 1.x + QuickJS + deno_ast
 - ✅ 无已知废弃或高危依赖
 - ⚠️ 同时使用 reqwest 和 hyper 增加编译时间和二进制体积
-- ⚠️ 3 个空壳 crate 声明依赖但未实际使用
+- ✅ 空壳 crate 已删除；后续不得重新加入无真实职责的占位 crate
 
 ---
 
@@ -228,17 +228,17 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 | # | 改进项 |
 |---|--------|
-| 14 | 清理空壳 crate 依赖声明 |
+| 14 | ✅ 清理空壳 crate 依赖声明 |
 | 15 | 提取 `TlsOrPlain<S>` 共享类型 |
 | 16 | 统一 HTTP 客户端（reqwest vs hyper） |
 | 17 | 增强 Windows 网络接口枚举能力 |
 | 18 | 添加 property-based 测试（`proptest`） |
-| 19 | 统一 `BodyType`/`RawLanguage` 等重复类型定义 |
-| 20 | 将 `emit_log` 迁移到 `tracing` 宏 |
-| 21 | 将 Script/Breakpoint regex 编译缓存纳入 manager runtime wrapper |
-| 22 | 将 `ProxyError` 继续推进到 WS、rules、http_proxy 内部阶段 |
-| 23 | 拆分 `bootstrap/mod.rs` 为 repository/cache/event-emitter 边界 |
-| 24 | 拆分 `SessionsPage` 与 Session Inspector 大组件 |
+| 19 | ✅ 统一 `BodyType`/`RawLanguage` 等重复类型定义 |
+| 20 | ✅ 将 `emit_log` 迁移到 `tracing` 宏 |
+| 21 | ✅ 将 Script/Breakpoint regex 编译缓存纳入 manager runtime wrapper |
+| 22 | ✅ 将 `ProxyError` 继续推进到主要代理/command 错误路径；局部 helper 仍可返回 `String` |
+| 23 | ✅ 拆分 `bootstrap/mod.rs` 为 repository/cache/converters/events 边界 |
+| 24 | ✅ 拆分 `SessionsPage` hooks；Session Inspector 仍可继续瘦身 |
 
 ---
 
@@ -252,11 +252,11 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 ## 架构风险 Top 5
 
-1. **`bootstrap/mod.rs` 仍然职责偏重** — 状态、DB 转换、缓存、事件 emit 混合在单文件中
-2. **`server.rs` / `http_proxy.rs` 仍偏大** — P1 已拆热点阶段，但 WS、响应处理、连接细节还可继续模块化
-3. **空壳 crate 与依赖声明未清理** — `session-store` / `throttle-engine` / `exporter` 仍需明确去留
-4. **错误类型仍在渐进迁移中** — `ProxyError` 和 JSON command error 已建立基线，但尚未覆盖全部路径
-5. **前端大型业务页面仍需拆分** — `SessionsPage` / Session Inspector 仍是后续维护压力点
+1. **`server.rs` / `http_proxy.rs` 仍偏大** — 热点边界已清晰，但 WS、响应处理、连接细节还可继续模块化
+2. **错误类型仍需防回归** — `ProxyError` 和 JSON command error 已建立基线，局部 helper 可保留 `String`，但新增用户可见错误必须结构化
+3. **前端大型业务页面仍需继续瘦身** — `SessionsPage` hooks 已拆分，Session Inspector 子组件仍是后续维护压力点
+4. **`rule-engine` 命名与职责仍容易误导** — crate 实际负责脚本沙箱，运行时规则管线在 `proxy-core`
+5. **跨平台能力仍需实测补强** — Windows 网络接口枚举与证书/系统代理路径需要持续验证
 
 ---
 
@@ -264,8 +264,10 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 
 **P0 安全与稳定性修复 + P1 代码质量与架构治理完成后，AIProxy 的整体健康度提升至 A（生产级工程基础稳固）**。P0 解决了安全基线与稳定性缺口，P1 进一步完成了代理核心阶段化、规则模块拆分、async 阻塞 IO 迁移、错误格式基线、API 文档同步和前端 AppShell 拆分。
 
-当前项目状态：**工程基础扎实、安全基线达标、核心架构清晰、主要 P1 治理项已闭环**。剩余工作主要是 P2 持续改进：`bootstrap` 边界拆分、空壳 crate 清理、错误类型继续下沉、Script/Breakpoint regex 缓存、HTTP 客户端统一和大型页面继续拆分。
+当前项目状态：**工程基础扎实、安全基线达标、核心架构清晰、主要 P1 与多项 P2 治理已闭环**。剩余工作主要是持续防回归与少量深水区改进：`server.rs` / `http_proxy.rs` 继续瘦身、HTTP 客户端 TLS 策略审计、Windows 网络接口枚举、property-based 测试、Session Inspector 继续拆分，以及 `rule-engine` 命名/职责的 ADR 决策。
 
 **P0 ✅ 已完成**（2026-06-07）：CSP 配置、JS 沙箱内存限制、ErrorBoundary、`http2Enabled` 契约修复、Cargo.lock 追踪。
 
 **P1 ✅ 已完成**（2026-06-07）：SQLite async 路径修正、Rewrite regex 预编译、`handle_http_request` 阶段化、`rules.rs` 模块拆分、`ProxyError`/`ProxyManagers` 引入、Insights API 文档同步、Rust 错误格式基线、AppShell Hook 拆分。
+
+**P2/P4 部分 ✅ 已完成**（2026-06-08）：CI/格式化基线、重复共享类型统一、空壳 crate 删除、`emit_log` 迁移、Script/Breakpoint regex 缓存、列表查询错误传播、`bootstrap` 拆分、`SessionsPage` hooks 拆分。

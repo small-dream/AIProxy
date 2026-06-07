@@ -302,30 +302,33 @@ TLS 证书缓存机制：
 - Host 证书在首次 TLS 握手时签发并缓存，当缓存达到容量上限时按 LRU 策略淘汰最久未使用的条目
 - LRU 容量上限同时起到内存占用的硬边界作用，防止长运行时因大量不同 host 而无限膨胀
 
-## 6.3 `session-store`
+## 6.3 会话持久化与运行时缓存
 
 职责：
 
-- 将会话元数据写入 SQLite
-- 将大体积请求/响应内容按策略落盘
-- 提供搜索、过滤、排序、分页查询接口
-- 在当前 MVP 阶段，桌面运行时内存中保留最近会话的 `summary + detail`，供 `Inspector` 快速读取
-- 提供 `compute_insights()` 聚合查询函数，基于 SQLite 对会话数据按 host / status code / method 分组统计，支持平均/P95 耗时、错误率、慢请求排名等指标
+- `crates/db` 负责 SQLite schema、会话 summary/detail row、查询、批量写入、trace 落库与 Insights 聚合查询
+- `apps/desktop/src-tauri/src/bootstrap/repository.rs` 负责 Tauri 运行时到 DB/body store 的访问边界
+- `apps/desktop/src-tauri/src/bootstrap/cache.rs` 负责最近会话 summary/detail 的内存缓存，供 `Inspector` 快速读取
+- 大体积请求/响应内容通过 body store 按策略落盘，Session detail payload 保持轻量，body/raw 内容按需补丁加载
+- `compute_insights()` 基于 SQLite 对会话数据按 host / status code / method 分组统计，支持平均/P95 耗时、错误率、慢请求排名等指标
 
 批量持久化机制：
 
 - 会话持久化支持批量模式：collector task 每次批量写入最多 50 条会话到同一个 SQLite 事务，减少 DB 锁竞争，提升突发流量场景下的写入吞吐
-- 原有的单条 `upsert_session` 现在是 `upsert_session_batch` 的便捷封装（batch size = 1）
+- Tauri async 路径通过 `spawn_blocking` 执行 SQLite 写入，避免阻塞 async runtime
+- 新增持久化能力必须落在 `Repository`，`AppState` 只做编排与 API 委托
 
 ## 6.4 `rule-engine`
 
 职责：
 
-- 统一处理 Breakpoint、Rewrite、Map Local、Map Remote、DNS Mapping
-- 执行规则匹配、优先级排序、动作派发
-- 预留脚本化规则扩展点
+- `aiproxy-rule-engine` 只负责脚本规则模型、TypeScript 转译、导出校验、QuickJS 沙箱执行与 script trace 结构
+- Breakpoint、Rewrite、Map、DNS、Throttle 的运行时匹配与动作执行位于 `proxy-core/src/rules/` 以及对应 manager 中
+- 文档中提到“规则引擎”时需区分：
+  - crate `aiproxy-rule-engine`：脚本沙箱与脚本类型
+  - proxy-core rules pipeline：代理热路径中的规则匹配、执行与 trace
 
-## 6.5 `throttle-engine`
+## 6.5 弱网控制
 
 职责：
 
@@ -334,14 +337,18 @@ TLS 证书缓存机制：
 - 支持按 URL / Host / Method / Stage 命中的 Throttling Rule
 - 生成 Session 级 Throttling Trace，用于解释延迟、传输耗时与丢包结果
 - 维护运行期统计：命中请求数、丢包数、累计 request / response delay
+- 运行时实现位于 `proxy-core/src/rules/throttle.rs`，DB 与命令层分别位于 `crates/db` 和 `apps/desktop/src-tauri/src/commands/throttling.rs`
 
-## 6.6 `exporter`
+## 6.6 导入导出
 
 职责：
 
 - 导出 `HAR`
 - 导出 `cURL`
 - 导出自定义 JSON 会话包
+- 当前导出内容主要由前端纯函数生成，再通过 `save_text_file` / `save_media_file` 写入本地文件
+- HAR 导入通过 Tauri 文件读取命令进入前端解析与会话转换流程
+- 已删除旧的空壳 `exporter` crate；后续只有当导出逻辑具备跨端复用价值和独立测试面时，才允许重新抽出 Rust crate
 
 ## 7. 前后端交互设计
 
@@ -854,15 +861,18 @@ project-root/
 │        │  │  ├─ linux.rs
 │        │  │  └─ unsupported.rs (legacy, no longer compiled)
 │        │  ├─ bootstrap/
+│        │  │  ├─ mod.rs
+│        │  │  ├─ repository.rs
+│        │  │  ├─ cache.rs
+│        │  │  ├─ converters.rs
+│        │  │  └─ events.rs
 │        │  └─ main.rs
 │        └─ tauri.conf.json
 ├─ crates/
+│  ├─ db/
 │  ├─ proxy-core/
 │  ├─ tls-manager/
-│  ├─ session-store/
-│  ├─ rule-engine/
-│  ├─ throttle-engine/
-│  └─ exporter/
+│  └─ rule-engine/
 ├─ packages/
 │  ├─ shared-types/
 │  │  └─ src/
@@ -905,6 +915,15 @@ project-root/
 
 承载 Rust 领域模块，保证核心能力按单一职责拆分。
 
+当前 crate 边界：
+
+- `aiproxy-proxy-core`：代理监听、HTTP/HTTPS/WebSocket 管线、规则运行时、断点、上游连接池与 timing
+- `aiproxy-db`：SQLite schema、session/rule/workspace/collection/environment/trace 查询与写入
+- `aiproxy-tls-manager`：根证书、host 证书签发、证书存储与平台信任检测
+- `aiproxy-rule-engine`：脚本规则编译、校验、QuickJS 沙箱执行
+
+已删除的 `session-store`、`throttle-engine`、`exporter` 不再属于当前架构。后续不得仅为“预留”重新加入空壳 crate。
+
 ### `packages/shared-types/`
 
 承载前后端共享类型与契约定义。
@@ -918,6 +937,33 @@ project-root/
 - 共享类型：`packages/shared-types/src/<domain>.ts`，`index.ts` 仅做 barrel re-export，`common.ts` 承载跨域复用的基础类型
 
 新增命令时必须按业务域归位到对应模块，不允许在 `mod.rs` / `index.ts` 内直接添加实现；若新增独立业务域，三层必须同步建立同名模块。
+
+### Bootstrap 边界原则
+
+`AppState` 是桌面运行时聚合根，不是 repository、cache 或 converter：
+
+- `mod.rs`：只保留 `AppState` 字段、初始化、状态读取/更新和公共 API 委托
+- `repository.rs`：所有 DB/body store 读写、`spawn_blocking` 持久化和 row 查询 fallback
+- `cache.rs`：session summary/detail 内存缓存、增删查改、容量与失效策略
+- `converters.rs`：DB row、proxy-core domain 类型和 shared-types payload 的转换
+- `events.rs`：Tauri event 名称和 emit 载荷封装
+
+新增 bootstrap 能力时必须先判断归属，禁止把 DB SQL、row 转换、事件 emit 或缓存 HashMap 操作直接写回 `mod.rs`。
+
+### Proxy Core 边界原则
+
+`proxy-core` 的拆分边界如下：
+
+- `server.rs`：监听、CONNECT 分流、blind tunnel、内建 CA 下载端点和 proxy server 生命周期
+- `http_proxy.rs`：hyper Service、纯 HTTP 与 MITM HTTPS 共享请求管线、HTTP/WS upgrade 主流程
+- `connection.rs`：连接级上下文与 `ConnectionMode`
+- `context.rs`：跨请求共享的 proxy runtime context
+- `http_io.rs`：HTTP header/body I/O、prefixed stream、body limit 工具
+- `upstream_pool.rs`：HTTP/2 上游连接池与空闲连接清理
+- `rules/`：规则类型、manager、pattern、rewrite/map/script/throttle/json path 逻辑
+- `error.rs`：代理核心结构化错误
+
+新增代理功能时必须接入上述边界；不允许把新规则、新协议处理或新错误类型集中追加到 `http_proxy.rs` / `server.rs` 形成新的巨型文件。
 
 ### `packages/ui-tokens/`
 

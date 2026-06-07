@@ -1091,7 +1091,7 @@ InsightsPage
 | `features/insights/use-insights.ts` | React Query hook，调用 `getInsights` |
 | `features/insights/insights-export.helpers.ts` | `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 纯函数 |
 | `services/commands/insights.ts` | `getInsights` 命令包装 |
-| `crates/session-store/src/insights.rs` | `compute_insights()` SQLite 聚合查询实现 |
+| `crates/db/src/insights.rs` | `compute_insights()` SQLite 聚合查询实现 |
 
 ### 10.7.5 页面状态模型
 

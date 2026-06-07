@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：工程开发规范
-- 当前阶段：`Phase 1 / 初始化设计`
-- 文档状态：`Draft v1.1`（M1 更新：性能基线、tracing 日志框架）
+- 当前阶段：`P2 / 重构后治理基线`
+- 文档状态：`Living Spec v1.3`（P2 更新：proxy-core、bootstrap、错误格式、前端拆分约束）
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -101,6 +101,26 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 优先局部调整，而不是跨层重写
 - 禁止顺手修复与当前任务无关的问题，除非该问题会阻塞目标实现
 
+### 5.5 重构后模块边界硬约束
+
+以下边界是 `c675a5026bf1824e652ccaf06d91944df289992a` 之后的治理结果，后续开发必须维持：
+
+- `proxy-core` 不允许恢复单文件巨型实现：
+  - HTTP 代理主链路归入 `http_proxy.rs`
+  - 连接上下文归入 `connection.rs`
+  - 请求/响应 I/O 工具归入 `http_io.rs`
+  - 共享运行时上下文归入 `context.rs`
+  - 结构化代理错误归入 `error.rs`
+  - 规则能力归入 `rules/` 目录，不允许重新创建顶层 `rules.rs`
+- `bootstrap/mod.rs` 只保留 `AppState` 聚合、初始化、运行时状态和公共 API 编排：
+  - DB 读写与 body store 访问归入 `bootstrap/repository.rs`
+  - session 内存缓存归入 `bootstrap/cache.rs`
+  - DB row 与 domain/shared 类型转换归入 `bootstrap/converters.rs`
+  - Tauri event emit 归入 `bootstrap/events.rs`
+- 前端大型页面必须按“页面负责布局、hook 负责状态流程、helper 负责纯计算、service 负责命令调用”的方式拆分。新增复杂交互时优先扩展 `features/<domain>/` 下的 hook/helper/component，不把业务流程堆回 `pages/<domain>/index.tsx`。
+- 三层同构命令架构必须保持一致：Rust `commands/<domain>.rs`、前端 `services/commands/<domain>.ts`、共享类型 `packages/shared-types/src/<domain>.ts` 同步演进。
+- 已删除的空壳 crate（`session-store`、`throttle-engine`、`exporter`）不得仅为占位重新加入；只有当存在可独立测试、可复用的真实领域逻辑时，才允许新增 crate，并需同步架构文档或 ADR。
+
 ## 6. 可读性与可维护性要求
 
 ### 6.1 命名规范
@@ -137,6 +157,9 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 禁止直接吞掉异常
 - 需要降级时，应明确降级策略与用户可感知反馈
 - 错误信息必须包含足够上下文，便于定位
+- Tauri command 边界保持 `Result<T, String>`，但错误字符串必须使用 `commands/common.rs` 的 `app_error()` / `app_error_with_details()` 生成 JSON 错误载荷；禁止新增裸字符串错误作为用户可见 command 失败。
+- `proxy-core` 核心代理路径优先使用 `ProxyError` 表达错误语义。仅限解析/转换/纯 helper 等局部边界可返回 `String`，向代理主流程或 Tauri 边界传播前必须补足上下文并映射为结构化错误。
+- 列表查询失败不得静默返回空数组。真实空状态返回 `Ok(vec![])`，查询/解析/IO 失败返回结构化错误，并由前端展示用户可见通知。
 - React ErrorBoundary：所有页面级组件必须被 ErrorBoundary 包裹。全局 ErrorBoundary 位于 `AppProviders` 内（`CssBaseline` 之后），页面级 ErrorBoundary 包裹每个 lazy route。Fallback 必须使用 MUI 组件（禁止纯文本），并提供「重试」与「重载应用」两个操作按钮
 
 ### 7.3 结构化日志
@@ -149,6 +172,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - `tracing::warn!`：可恢复异常、降级处理、非致命风险
   - `tracing::error!`：失败、异常终止、数据不一致、关键流程中断
 - 结构化日志字段格式保持不变：timestamp、level、component、event、key=value pairs
+- Rust 核心 crate 必须直接使用 `tracing::debug!/info!/warn!/error!` 宏；禁止重新引入 `emit_log` 这类会提前分配字段的自定义日志函数。
 
 ### 7.4 日志约束
 
@@ -206,6 +230,18 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - `pnpm --filter @aiproxy/desktop lint` 可稳定通过
   - 不因规避 warning 而回退已启用的 lint 基线
 - 若后续插件发布明确支持 ESLint 10 的正式版本，应优先升级并移除该说明
+
+### 8.4 共享类型与查询 Key
+
+- `BodyType`、`RawLanguage`、会话查询 key 等跨组件契约必须集中定义，禁止在页面、store 或 hook 中重复声明同名常量/类型。
+- 前端与 Rust 命令载荷发生字段增删时，必须同步更新 `packages/shared-types`、命令客户端 parser、Rust command payload 以及 `docs/API_SPEC.md`。
+- Session detail 字段采用 deferred body/raw 策略时，轻量 payload 与补丁 payload 的字段边界必须在 API 文档中说明；禁止为省事直接返回大 body 导致 UI 卡顿或内存风险。
+
+### 8.5 规则热路径约束
+
+- Rewrite、Script、Breakpoint 等支持 regex 的规则必须在 manager 加载/保存阶段预编译并缓存，热路径禁止每次请求 `Regex::new()`。
+- 无效 regex 规则必须 fail-open：记录 `warn`，该规则不参与匹配，不得导致代理主链路 panic 或中断。
+- 规则执行顺序、fail-open/fail-closed 策略、trace 落库字段属于用户可解释性契约，修改前必须更新架构文档与相关测试。
 
 ## 9. 测试要求
 
