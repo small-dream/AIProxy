@@ -225,79 +225,19 @@ impl AppState {
             "session_detail_memory_cache_miss"
         );
 
-        // Fallback: load from DB
-        let detail = {
-            let conn = self
-                .repository
-                .db()
-                .lock()
-                .expect("db mutex should not be poisoned");
-            let row = match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
-                Ok(Some(row)) => {
-                    tracing::debug!(
-                        component = "desktop.persistence",
-                        event = "session_detail_db_hit",
-                        session_id = %session_id,
-                        "session_detail_db_hit"
-                    );
-                    row
-                }
-                Ok(None) => {
-                    tracing::warn!(
-                        component = "desktop.persistence",
-                        event = "session_detail_db_miss",
-                        session_id = %session_id,
-                        "session_detail_db_miss"
-                    );
-                    return None;
-                }
-                Err(error) => {
-                    tracing::error!(
-                        component = "desktop.persistence",
-                        event = "load_session_detail_failed",
-                        session_id = %session_id,
-                        error = %error,
-                        "load_session_detail_failed"
-                    );
-                    return None;
-                }
-            };
+        // Fallback: load from DB via Repository
+        let row = self.repository.load_session_detail_or_log(session_id)?;
 
-            let summary = self.cache.find_summary(session_id).or_else(|| {
-                match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
-                    Ok(Some(row)) => {
-                        tracing::debug!(
-                            component = "desktop.persistence",
-                            event = "session_summary_db_hit",
-                            session_id = %session_id,
-                            "session_summary_db_hit"
-                        );
-                        Some(summary_row_to_proxy(row))
-                    }
-                    Ok(None) => {
-                        tracing::warn!(
-                            component = "desktop.persistence",
-                            event = "session_summary_db_miss",
-                            session_id = %session_id,
-                            "session_summary_db_miss"
-                        );
-                        None
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            component = "desktop.persistence",
-                            event = "load_session_summary_failed",
-                            session_id = %session_id,
-                            error = %error,
-                            "load_session_summary_failed"
-                        );
-                        None
-                    }
-                }
+        let summary = self
+            .cache
+            .find_summary(session_id)
+            .or_else(|| {
+                self.repository
+                    .load_session_summary_or_log(session_id)
+                    .map(summary_row_to_proxy)
             })?;
 
-            detail_row_to_proxy(&row, summary, self.repository.body_store().as_ref())
-        };
+        let detail = detail_row_to_proxy(&row, summary, self.repository.body_store().as_ref());
 
         self.cache
             .insert_detail(session_id.to_string(), detail.clone());

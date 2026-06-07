@@ -200,7 +200,7 @@ impl SessionCache {
     }
 
     /// Clear all details (summaries are kept).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // only exercised by integration tests currently
     pub fn clear_details(&self) {
         self.details
             .lock()

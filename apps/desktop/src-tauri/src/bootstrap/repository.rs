@@ -125,8 +125,88 @@ impl Repository {
         });
     }
 
+    /// Load a session detail row from the database, with tracing.
+    /// Returns `None` when the row doesn't exist or an error occurs
+    /// (both cases are logged).
+    pub fn load_session_detail_or_log(
+        &self,
+        session_id: &str,
+    ) -> Option<aiproxy_db::sessions::SessionDetailRow> {
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
+            Ok(Some(row)) => {
+                tracing::debug!(
+                    component = "desktop.persistence",
+                    event = "session_detail_db_hit",
+                    session_id = %session_id,
+                    "session_detail_db_hit"
+                );
+                Some(row)
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    component = "desktop.persistence",
+                    event = "session_detail_db_miss",
+                    session_id = %session_id,
+                    "session_detail_db_miss"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "load_session_detail_failed",
+                    session_id = %session_id,
+                    error = %error,
+                    "load_session_detail_failed"
+                );
+                None
+            }
+        }
+    }
+
+    /// Load a session summary row from the database, with tracing.
+    pub fn load_session_summary_or_log(
+        &self,
+        session_id: &str,
+    ) -> Option<aiproxy_db::sessions::SessionSummaryRow> {
+        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
+            Ok(Some(row)) => {
+                tracing::debug!(
+                    component = "desktop.persistence",
+                    event = "session_summary_db_hit",
+                    session_id = %session_id,
+                    "session_summary_db_hit"
+                );
+                Some(row)
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    component = "desktop.persistence",
+                    event = "session_summary_db_miss",
+                    session_id = %session_id,
+                    "session_summary_db_miss"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "load_session_summary_failed",
+                    session_id = %session_id,
+                    error = %error,
+                    "load_session_summary_failed"
+                );
+                None
+            }
+        }
+    }
+
+    // -- low-level accessors (kept for callers that need raw Result) -----
+
     /// Load a session detail row from the database.
-    #[allow(dead_code)] // transitional — will wire into read_session_detail
+    #[allow(dead_code)] // available for callers that want raw Result
     pub fn load_session_detail_row(
         &self,
         session_id: &str,
@@ -137,7 +217,7 @@ impl Repository {
     }
 
     /// Load a session summary row from the database.
-    #[allow(dead_code)] // transitional
+    #[allow(dead_code)] // available for callers that want raw Result
     pub fn load_session_summary_row(
         &self,
         session_id: &str,
