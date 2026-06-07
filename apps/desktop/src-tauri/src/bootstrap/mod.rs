@@ -434,6 +434,8 @@ impl AppState {
         }
     }
 
+    /// Use `upsert_session_async` instead. This sync variant exists for tests only.
+    #[deprecated(note = "use upsert_session_async to avoid blocking the async runtime")]
     #[allow(dead_code)]
     pub fn upsert_session(&self, mut session_detail: ProxySessionDetail) {
         let active_workspace_id = self

@@ -171,7 +171,7 @@ Phase 8 — rules 行为整理（#9b）                 ~2 天    ← 依赖 #7,
 - 无效 regex 在加载时即可发现并 warn → 比运行时才发现更好
 
 **验收门槛**：
-- `cargo test -p proxy-core` — 全量通过
+- `cargo test -p aiproxy-proxy-core` — 全量通过
 - 新增测试覆盖：
   - 无效 regex → 降级为 skip，不 crash
   - 规则更新后 compiled regex 刷新
@@ -225,9 +225,9 @@ pub struct ProxyConfig {
 - 最大的好处：后续 #8、#9 可以直接享受参数收敛，不用再处理 14 参数函数
 
 **验证**：
-- `cargo test -p proxy-core` — 全量通过
+- `cargo test -p aiproxy-proxy-core` — 全量通过
 - `cargo test -p aiproxy-desktop` — 集成测试通过
-- `cargo clippy -p proxy-core -- -D warnings`
+- `cargo clippy -p aiproxy-proxy-core -- -D warnings`
 
 ---
 
@@ -265,9 +265,9 @@ crates/proxy-core/src/rules/
 4. 所有 `pub` 接口签名完全不变
 
 **验收门槛**：
-- **第一阶段验收**：`cargo build` 编译通过 + `cargo test -p proxy-core` 全量通过 = 搬迁成功
+- **第一阶段验收**：`cargo build` 编译通过 + `cargo test -p aiproxy-proxy-core` 全量通过 = 搬迁成功
 - **禁止项**：不允许在搬迁 PR 中修改任何函数签名、逻辑、命名
-- `cargo clippy -p proxy-core -- -D warnings` 无新增 warning
+- `cargo clippy -p aiproxy-proxy-core -- -D warnings` 无新增 warning
 
 ---
 
@@ -309,7 +309,7 @@ crates/proxy-core/src/rules/
 
 **验收门槛**：
 - 每个 PR（Step 1/2/3）合并前：
-  - `cargo test -p proxy-core` 全量通过
+  - `cargo test -p aiproxy-proxy-core` 全量通过
   - 保存拆分前一组 session detail JSON（覆盖 HTTP/HTTPS/WS/断点/规则/限速场景），拆分后对比关键字段一致
   - 手动测试矩阵：HTTP 请求 → HTTPS 请求 → WS 升级 → 断点拦截 → 规则重写 → 限速
 - **不设 diff 行数限制**，以行为等价为唯一验收标准
@@ -369,7 +369,7 @@ pub enum ProxyError {
 - 后续再逐步将 `ProxyError` 推到更上层
 
 **验证**：
-- `cargo test -p proxy-core` — 全量通过
+- `cargo test -p aiproxy-proxy-core` — 全量通过
 - `cargo test -p aiproxy-desktop` — 集成测试通过
 - 错误消息内容与迁移前一致（`.to_string()` 产出相同文本）
 
@@ -514,7 +514,7 @@ function AppShell() {
 - Manager 公共 API 仍暴露原始 rule 类型，内部使用 compiled wrapper
 
 **验收门槛**：
-- `cargo test -p proxy-core` — 全量通过（含 #7 新增的 regex 测试）
+- `cargo test -p aiproxy-proxy-core` — 全量通过（含 #7 新增的 regex 测试）
 - Manager 外部 API 不变（`pub` 签名、序列化格式）
 - 编译后 regex 在规则更新时正确刷新
 
@@ -577,9 +577,9 @@ Week 4:
 
 适用于：PR-2（#6）、PR-4（#10a）、PR-6a/b/c（#8）、PR-7（#10b）
 
-- [ ] `cargo test -p proxy-core` — Rust 核心测试
+- [ ] `cargo test -p aiproxy-proxy-core` — Rust 核心测试
 - [ ] `cargo test -p aiproxy-desktop` — 集成测试
-- [ ] `cargo clippy -p proxy-core -- -D warnings` — lint
+- [ ] `cargo clippy -p aiproxy-proxy-core -- -D warnings` — lint
 - [ ] `pnpm --filter @aiproxy/desktop typecheck` — 前端类型检查
 - [ ] `pnpm --filter @aiproxy/desktop lint` — 前端 lint
 - [ ] `pnpm --filter @aiproxy/desktop test` — 前端测试
