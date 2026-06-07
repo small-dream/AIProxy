@@ -1,9 +1,0 @@
-[package]
-name = "aiproxy-throttle-engine"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
-
-[lib]
-path = "src/lib.rs"
-

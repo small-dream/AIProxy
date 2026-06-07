@@ -44,11 +44,8 @@ name = "aiproxy-desktop"
 version = "0.1.0"
 dependencies = [
  "aiproxy-db",
- "aiproxy-exporter",
  "aiproxy-proxy-core",
  "aiproxy-rule-engine",
- "aiproxy-session-store",
- "aiproxy-throttle-engine",
  "aiproxy-tls-manager",
  "chrono",
  "dirs",
@@ -71,10 +68,6 @@ dependencies = [
  "windows-sys 0.61.2",
  "winreg",
 ]
-
-[[package]]
-name = "aiproxy-exporter"
-version = "0.1.0"
 
 [[package]]
 name = "aiproxy-proxy-core"
@@ -120,14 +113,6 @@ dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "aiproxy-session-store"
-version = "0.1.0"
-
-[[package]]
-name = "aiproxy-throttle-engine"
-version = "0.1.0"
 
 [[package]]
 name = "aiproxy-tls-manager"
