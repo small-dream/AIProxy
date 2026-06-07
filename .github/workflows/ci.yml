@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - dev
 
 jobs:
   verify:
@@ -41,6 +42,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates -> target
+            apps/desktop/src-tauri -> target
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -52,6 +60,12 @@ jobs:
 
       - name: Test frontend
         run: pnpm test
+
+      - name: Check Rust formatting
+        run: cargo fmt --check --all
+
+      - name: Check Rust clippy
+        run: cargo clippy --workspace -- -D warnings
 
       - name: Test Rust workspace
         run: cargo test --workspace
