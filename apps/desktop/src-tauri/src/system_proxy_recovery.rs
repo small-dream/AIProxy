@@ -6,7 +6,6 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     bootstrap::AppState,
-    dev_logger::{log_error, log_info, log_warn},
     system_proxy::{restore_system_proxy, SystemProxySnapshot},
 };
 
@@ -47,10 +46,11 @@ pub fn persist_pending_snapshot(
     fs::write(&path, json)
         .map_err(|error| format!("failed to write system proxy recovery snapshot: {error}"))?;
 
-    log_info(
-        "desktop.system_proxy_recovery",
-        "pending_snapshot_persisted",
-        &[("path", path.display().to_string())],
+    tracing::info!(
+        component = "desktop.system_proxy_recovery",
+        event = "pending_snapshot_persisted",
+        path = %path.display(),
+        "pending_snapshot_persisted"
     );
 
     Ok(())
@@ -60,10 +60,11 @@ pub fn clear_pending_snapshot(app: &AppHandle) -> Result<(), String> {
     let path = recovery_file_path(app)?;
     match fs::remove_file(&path) {
         Ok(()) => {
-            log_info(
-                "desktop.system_proxy_recovery",
-                "pending_snapshot_cleared",
-                &[("path", path.display().to_string())],
+            tracing::info!(
+                component = "desktop.system_proxy_recovery",
+                event = "pending_snapshot_cleared",
+                path = %path.display(),
+                "pending_snapshot_cleared"
             );
             Ok(())
         }
@@ -78,10 +79,11 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
     let path = match recovery_file_path(app) {
         Ok(path) => path,
         Err(error) => {
-            log_warn(
-                "desktop.system_proxy_recovery",
-                "recovery_path_unavailable",
-                &[("error", error)],
+            tracing::warn!(
+                component = "desktop.system_proxy_recovery",
+                event = "recovery_path_unavailable",
+                error = %error,
+                "recovery_path_unavailable"
             );
             return;
         }
@@ -93,10 +95,11 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
         Err(error) => {
             let message = format!("failed to read pending system proxy snapshot: {error}");
             state.set_system_proxy_recovery_warning(Some(message.clone()));
-            log_error(
-                "desktop.system_proxy_recovery",
-                "pending_snapshot_read_failed",
-                &[("error", message)],
+            tracing::error!(
+                component = "desktop.system_proxy_recovery",
+                event = "pending_snapshot_read_failed",
+                error = %message,
+                "pending_snapshot_read_failed"
             );
             return;
         }
@@ -107,10 +110,11 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
         Err(error) => {
             let message = format!("failed to parse pending system proxy snapshot: {error}");
             state.set_system_proxy_recovery_warning(Some(message.clone()));
-            log_error(
-                "desktop.system_proxy_recovery",
-                "pending_snapshot_parse_failed",
-                &[("error", message)],
+            tracing::error!(
+                component = "desktop.system_proxy_recovery",
+                event = "pending_snapshot_parse_failed",
+                error = %message,
+                "pending_snapshot_parse_failed"
             );
             return;
         }
@@ -120,13 +124,12 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
         let message =
             "pending system proxy snapshot is incompatible with this app build".to_string();
         state.set_system_proxy_recovery_warning(Some(message.clone()));
-        log_warn(
-            "desktop.system_proxy_recovery",
-            "pending_snapshot_incompatible",
-            &[
-                ("platform", record.platform),
-                ("schema_version", record.schema_version.to_string()),
-            ],
+        tracing::warn!(
+            component = "desktop.system_proxy_recovery",
+            event = "pending_snapshot_incompatible",
+            platform = %record.platform,
+            schema_version = record.schema_version,
+            "pending_snapshot_incompatible"
         );
         return;
     }
@@ -136,26 +139,29 @@ pub fn restore_pending_snapshot_on_startup(app: &AppHandle, state: &Arc<AppState
             state.set_system_proxy_enabled(false);
             state.set_system_proxy_recovery_warning(None);
             if let Err(error) = clear_pending_snapshot(app) {
-                log_warn(
-                    "desktop.system_proxy_recovery",
-                    "pending_snapshot_clear_failed",
-                    &[("error", error)],
+                tracing::warn!(
+                    component = "desktop.system_proxy_recovery",
+                    event = "pending_snapshot_clear_failed",
+                    error = %error,
+                    "pending_snapshot_clear_failed"
                 );
             }
-            log_info(
-                "desktop.system_proxy_recovery",
-                "pending_snapshot_restored",
-                &[("captured_at", record.captured_at)],
+            tracing::info!(
+                component = "desktop.system_proxy_recovery",
+                event = "pending_snapshot_restored",
+                captured_at = %record.captured_at,
+                "pending_snapshot_restored"
             );
         }
         Err(error) => {
             state.store_system_proxy_snapshot(record.snapshot);
             state.set_system_proxy_enabled(true);
             state.set_system_proxy_recovery_warning(Some(error.clone()));
-            log_error(
-                "desktop.system_proxy_recovery",
-                "pending_snapshot_restore_failed",
-                &[("error", error)],
+            tracing::error!(
+                component = "desktop.system_proxy_recovery",
+                event = "pending_snapshot_restore_failed",
+                error = %error,
+                "pending_snapshot_restore_failed"
             );
         }
     }

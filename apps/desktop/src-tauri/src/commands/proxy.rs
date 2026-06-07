@@ -70,25 +70,22 @@ async fn start_proxy_impl(
     .validate()
     .map_err(|message| message.to_string())?;
 
-    log_info(
-        "desktop.commands",
-        "start_proxy_requested",
-        &[
-            ("workspace_id", input.workspace_id.clone()),
-            ("port", port.to_string()),
-            ("ssl_enabled", enable_ssl.to_string()),
-            (
-                "system_proxy_enabled",
-                should_reapply_system_proxy.to_string(),
-            ),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "start_proxy_requested",
+        workspace_id = %input.workspace_id,
+        port = %port,
+        ssl_enabled = %enable_ssl,
+        system_proxy_enabled = %should_reapply_system_proxy,
+        "start_proxy_requested"
     );
 
     if shutdown_proxy_runtime(Arc::clone(&state)).await {
-        log_debug(
-            "desktop.commands",
-            "previous_proxy_runtime_found",
-            &[("workspace_id", input.workspace_id.clone())],
+        tracing::debug!(
+            component = "desktop.commands",
+            event = "previous_proxy_runtime_found",
+            workspace_id = %input.workspace_id,
+            "previous_proxy_runtime_found"
         );
     }
 
@@ -197,10 +194,11 @@ async fn start_proxy_impl(
                             let _ = tauri::async_runtime::spawn_blocking(move || {
                                 let conn = db.lock().expect("db mutex");
                                 if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
-                                    crate::dev_logger::log_error(
-                                        "desktop.ws_collector",
-                                        "insert_ws_message_failed",
-                                        &[("error", e)],
+                                    tracing::error!(
+                                        component = "desktop.ws_collector",
+                                        event = "insert_ws_message_failed",
+                                        error = %e,
+                                        "insert_ws_message_failed"
                                     );
                                 }
                             }).await;
@@ -242,17 +240,13 @@ async fn start_proxy_impl(
         apply_system_proxy_settings(&SystemProxySettings::localhost(status.port))?;
     }
 
-    log_info(
-        "desktop.commands",
-        "start_proxy_succeeded",
-        &[
-            (
-                "workspace_id",
-                status.active_workspace_id.clone().unwrap_or_default(),
-            ),
-            ("bound_port", status.port.to_string()),
-            ("ssl_enabled", status.ssl_enabled.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "start_proxy_succeeded",
+        workspace_id = %status.active_workspace_id.clone().unwrap_or_default(),
+        bound_port = %status.port,
+        ssl_enabled = %status.ssl_enabled,
+        "start_proxy_succeeded"
     );
 
     Ok(status)
@@ -262,24 +256,22 @@ async fn stop_proxy_impl(
     input: StopProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
-    log_info(
-        "desktop.commands",
-        "stop_proxy_requested",
-        &[
-            ("workspace_id", input.workspace_id.clone()),
-            ("reason", "user_request".to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "stop_proxy_requested",
+        workspace_id = %input.workspace_id,
+        reason = "user_request",
+        "stop_proxy_requested"
     );
 
     if state.read_status().system_proxy_enabled {
         if let Err(error) = disable_system_proxy_impl(Arc::clone(&state)).await {
-            log_warn(
-                "desktop.commands",
-                "stop_proxy_system_proxy_restore_failed",
-                &[
-                    ("workspace_id", input.workspace_id.clone()),
-                    ("error", error),
-                ],
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "stop_proxy_system_proxy_restore_failed",
+                workspace_id = %input.workspace_id,
+                error = %error,
+                "stop_proxy_system_proxy_restore_failed"
             );
         }
     }
@@ -288,16 +280,12 @@ async fn stop_proxy_impl(
 
     let status = state.stop_proxy(input.workspace_id);
 
-    log_info(
-        "desktop.commands",
-        "stop_proxy_succeeded",
-        &[
-            (
-                "workspace_id",
-                status.active_workspace_id.clone().unwrap_or_default(),
-            ),
-            ("running", status.running.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "stop_proxy_succeeded",
+        workspace_id = %status.active_workspace_id.clone().unwrap_or_default(),
+        running = %status.running,
+        "stop_proxy_succeeded"
     );
 
     Ok(status)
@@ -320,13 +308,11 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     let status = state.read_status();
 
     if !status.running {
-        log_warn(
-            "desktop.commands",
-            "enable_system_proxy_rejected",
-            &[(
-                "reason",
-                "proxy_must_be_running_before_enabling_system_proxy".to_string(),
-            )],
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "enable_system_proxy_rejected",
+            reason = "proxy_must_be_running_before_enabling_system_proxy",
+            "enable_system_proxy_rejected"
         );
         return Err(app_error(
             ERR_PROXY_NOT_RUNNING,
@@ -351,13 +337,12 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
         state.store_system_proxy_snapshot(snapshot);
     }
 
-    log_info(
-        "desktop.commands",
-        "enable_system_proxy_succeeded",
-        &[
-            ("port", status.port.to_string()),
-            ("endpoint", settings.endpoint()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "enable_system_proxy_succeeded",
+        port = %status.port,
+        endpoint = %settings.endpoint(),
+        "enable_system_proxy_succeeded"
     );
 
     state.set_system_proxy_recovery_warning(None);
@@ -369,10 +354,11 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
         if let Err(error) = restore_system_proxy(&snapshot) {
             state.store_system_proxy_snapshot(snapshot);
 
-            log_error(
-                "desktop.commands",
-                "disable_system_proxy_restore_failed",
-                &[("error", error.clone())],
+            tracing::error!(
+                component = "desktop.commands",
+                event = "disable_system_proxy_restore_failed",
+                error = %error,
+                "disable_system_proxy_restore_failed"
             );
 
             return Err(error);
@@ -381,18 +367,20 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
 
     if let Some(app_handle) = state.read_app_handle() {
         if let Err(error) = system_proxy_recovery::clear_pending_snapshot(&app_handle) {
-            log_warn(
-                "desktop.commands",
-                "disable_system_proxy_recovery_clear_failed",
-                &[("error", error)],
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "disable_system_proxy_recovery_clear_failed",
+                error = %error,
+                "disable_system_proxy_recovery_clear_failed"
             );
         }
     }
 
-    log_info(
-        "desktop.commands",
-        "disable_system_proxy_succeeded",
-        &[("reason", "user_request".to_string())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "disable_system_proxy_succeeded",
+        reason = "user_request",
+        "disable_system_proxy_succeeded"
     );
 
     Ok(state.set_system_proxy_enabled(false))

@@ -40,10 +40,11 @@ pub fn get_app_build_info() -> AppBuildInfo {
 pub fn show_log_file(app: tauri::AppHandle) -> Result<String, String> {
     let log_file_path = crate::dev_logger::current_log_file_path();
 
-    log_info(
-        "desktop.app",
-        "show_log_file_requested",
-        &[("log_file", log_file_path.display().to_string())],
+    tracing::info!(
+        component = "desktop.app",
+        event = "show_log_file_requested",
+        log_file = %log_file_path.display(),
+        "show_log_file_requested"
     );
 
     if let Some(parent) = log_file_path.parent() {
@@ -61,10 +62,11 @@ pub fn show_log_file(app: tauri::AppHandle) -> Result<String, String> {
         .reveal_item_in_dir(&log_file_path)
         .map_err(|error| format!("show log file {}: {error}", log_file_path.display()))?;
 
-    log_info(
-        "desktop.app",
-        "show_log_file_succeeded",
-        &[("log_file", log_file_path.display().to_string())],
+    tracing::info!(
+        component = "desktop.app",
+        event = "show_log_file_succeeded",
+        log_file = %log_file_path.display(),
+        "show_log_file_succeeded"
     );
 
     Ok(log_file_path.display().to_string())

@@ -5,7 +5,7 @@ use crate::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
     apply_response_rewrite_rules, apply_response_script_rules, apply_response_throttle,
     build_cookie_entries, build_header_entries_from_map, build_pending_session_detail,
-    build_query_params, build_raw_http_head, build_request_path, build_session_detail, emit_log,
+    build_query_params, build_raw_http_head, build_request_path, build_session_detail,
     intercept_request_stage, intercept_response_stage, throttle_selection_matches_stage,
     BreakpointActionKind, ParsedProxyRequest, ProxySessionDetail, ProxyTimingBreakdown,
     RequestRuntimeOutcome, UpstreamResponse,
@@ -104,22 +104,20 @@ async fn send_ws_upstream_error_session(
     detail.throttle_traces = throttle_traces;
 
     if ctx.session_sender.send(detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
         );
     }
 
-    emit_log(
-        "ERROR",
-        "ws_upstream_error",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("host", request.host.clone()),
-            ("url", request.url.to_string()),
-            ("error", error.to_string()),
-        ],
+    tracing::error!(
+        event = "ws_upstream_error",
+        request_id = %request.request_id,
+        host = %request.host,
+        url = %request.url,
+        error = %error,
+        "ws_upstream_error"
     );
 
     build_plain_text_response(StatusCode::BAD_GATEWAY, response_message)
@@ -162,13 +160,11 @@ async fn handle_ws_upgrade_via_hyper(
     let connect_host =
         match crate::resolve_dns_override(&ctx.dns_manager, &ctx.workspace_id, &request.host) {
             Some(ip) => {
-                emit_log(
-                    "INFO",
-                    "dns_override_ws",
-                    &[
-                        ("host", request.host.clone()),
-                        ("override_ip", ip.to_string()),
-                    ],
+                tracing::info!(
+                    event = "dns_override_ws",
+                    host = %request.host,
+                    override_ip = %ip,
+                    "dns_override_ws"
                 );
                 ip.to_string()
             }
@@ -176,13 +172,11 @@ async fn handle_ws_upgrade_via_hyper(
         };
     let connect_host_port = format!("{connect_host}:{port}");
 
-    emit_log(
-        "DEBUG",
-        "ws_hyper_connecting_upstream",
-        &[
-            ("request_id", request_id.clone()),
-            ("host_port", format!("{}:{}", request.host, port)),
-        ],
+    tracing::debug!(
+        event = "ws_hyper_connecting_upstream",
+        request_id = %request_id,
+        host_port = %format!("{}:{}", request.host, port),
+        "ws_hyper_connecting_upstream"
     );
 
     // Connect upstream — TCP, optionally TLS for wss://.
@@ -258,10 +252,10 @@ async fn handle_ws_upgrade_via_hyper(
             .await);
         }
     };
-    emit_log(
-        "DEBUG",
-        "ws_hyper_sending_upgrade",
-        &[("request_id", request_id.clone())],
+    tracing::debug!(
+        event = "ws_hyper_sending_upgrade",
+        request_id = %request_id,
+        "ws_hyper_sending_upgrade"
     );
     if let Err(e) = upstream.write_all(raw_req.as_bytes()).await {
         let error = format!("WebSocket upgrade send to upstream: {e}");
@@ -318,13 +312,11 @@ async fn handle_ws_upgrade_via_hyper(
         }
     };
 
-    emit_log(
-        "INFO",
-        "ws_hyper_upstream_response",
-        &[
-            ("request_id", request_id.clone()),
-            ("status_code", status_code.to_string()),
-        ],
+    tracing::info!(
+        event = "ws_hyper_upstream_response",
+        request_id = %request_id,
+        status_code = status_code,
+        "ws_hyper_upstream_response"
     );
 
     // Build session detail with upstream response headers.
@@ -375,13 +367,11 @@ async fn handle_ws_upgrade_via_hyper(
             .any(|(n, _)| n.eq_ignore_ascii_case("upgrade"))
     {
         // Upstream did not agree to upgrade — return its response as-is.
-        emit_log(
-            "WARN",
-            "ws_hyper_upstream_refused",
-            &[
-                ("request_id", request_id.clone()),
-                ("status_code", status_code.to_string()),
-            ],
+        tracing::warn!(
+            event = "ws_hyper_upstream_refused",
+            request_id = %request_id,
+            status_code = status_code,
+            "ws_hyper_upstream_refused"
         );
 
         // Build the non-101 response FIRST (before sending session).
@@ -431,10 +421,10 @@ async fn handle_ws_upgrade_via_hyper(
         detail.throttle_traces = throttle_traces;
 
         if ctx.session_sender.send(detail).await.is_err() {
-            emit_log(
-                "DEBUG",
-                "session_send_dropped",
-                &[("reason", "receiver_disconnected".to_string())],
+            tracing::debug!(
+                event = "session_send_dropped",
+                reason = "receiver_disconnected",
+                "session_send_dropped"
             );
         }
 
@@ -504,10 +494,11 @@ async fn handle_ws_upgrade_via_hyper(
         let client_io = match on_upgrade.await {
             Ok(io) => io,
             Err(e) => {
-                emit_log(
-                    "ERROR",
-                    "ws_hyper_on_upgrade_failed",
-                    &[("request_id", request_id.clone()), ("error", e.to_string())],
+                tracing::error!(
+                    event = "ws_hyper_on_upgrade_failed",
+                    request_id = %request_id,
+                    error = %e,
+                    "ws_hyper_on_upgrade_failed"
                 );
                 registry.mark_closed(&session_id_for_relay);
                 registry.unregister(&session_id_for_relay);
@@ -745,22 +736,20 @@ async fn build_upstream_error_response_and_session(
         false,
     );
     if ctx.session_sender.send(detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
         );
     }
 
-    emit_log(
-        "ERROR",
-        "upstream_request_failed",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("host", host.to_string()),
-            ("url", request.url.to_string()),
-            ("error", error.to_string()),
-        ],
+    tracing::error!(
+        event = "upstream_request_failed",
+        request_id = %request.request_id,
+        host = %host,
+        url = %request.url,
+        error = %error,
+        "upstream_request_failed"
     );
 
     build_plain_text_response(StatusCode::BAD_GATEWAY, response_message)
@@ -1224,15 +1213,13 @@ async fn stage_forward_upstream(
                     let timeout_secs = upstream_timeout.as_secs();
                     let response_message =
                         format!("The upstream server did not respond within {timeout_secs}s.",);
-                    emit_log(
-                        "WARN",
-                        "upstream_request_timed_out",
-                        &[
-                            ("request_id", request.request_id.clone()),
-                            ("host", host.clone()),
-                            ("url", request.url.to_string()),
-                            ("timeout_secs", timeout_secs.to_string()),
-                        ],
+                    tracing::warn!(
+                        event = "upstream_request_timed_out",
+                        request_id = %request.request_id,
+                        host = %host,
+                        url = %request.url,
+                        timeout_secs = timeout_secs,
+                        "upstream_request_timed_out"
                     );
                     let detail = build_session_detail(
                         request,
@@ -1299,17 +1286,12 @@ async fn stage_process_upstream_response(
     host: &str,
 ) -> Result<ProxyResponse, String> {
     if upstream_response.body_truncated {
-        emit_log(
-            "WARN",
-            "response_body_passthrough_mode",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("url", request.url.to_string()),
-                (
-                    "reason",
-                    "response body exceeded capture limit; skipping response mutations".to_string(),
-                ),
-            ],
+        tracing::warn!(
+            event = "response_body_passthrough_mode",
+            request_id = %request.request_id,
+            url = %request.url,
+            reason = "response body exceeded capture limit; skipping response mutations",
+            "response_body_passthrough_mode"
         );
     } else {
         let response_rewrite_traces = match apply_response_rewrite_rules(
@@ -1342,15 +1324,13 @@ async fn stage_process_upstream_response(
                     false,
                 );
                 let _ = ctx.session_sender.send(detail).await;
-                emit_log(
-                    "ERROR",
-                    "response_processing_failed",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("host", host.to_string()),
-                        ("url", request.url.to_string()),
-                        ("error", error),
-                    ],
+                tracing::error!(
+                    event = "response_processing_failed",
+                    request_id = %request.request_id,
+                    host = %host,
+                    url = %request.url,
+                    error = %error,
+                    "response_processing_failed"
                 );
                 cancellation_guard.disarm();
                 return build_plain_text_response(StatusCode::BAD_GATEWAY, response_message);
@@ -1510,19 +1490,14 @@ async fn stage_process_upstream_response(
     .await;
     cancellation_guard.disarm();
 
-    emit_log(
-        "DEBUG",
-        "request_forwarded",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("host", host.to_string()),
-            ("method", request.method.to_string()),
-            (
-                "status_code",
-                upstream_response.status_code.as_u16().to_string(),
-            ),
-            ("url", request.url.to_string()),
-        ],
+    tracing::debug!(
+        event = "request_forwarded",
+        request_id = %request.request_id,
+        host = %host,
+        method = %request.method,
+        status_code = upstream_response.status_code.as_u16(),
+        url = %request.url,
+        "request_forwarded"
     );
 
     // If the upstream response is spooled to disk, read it back into memory
@@ -2002,21 +1977,19 @@ async fn build_throttle_failure_response(
     detail.map_traces = map_traces;
     detail.throttle_traces = throttle_traces;
     if ctx.session_sender.send(detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
         );
     }
 
-    emit_log(
-        "WARN",
-        "request_throttled",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("url", request.url.to_string()),
-            ("error", error.to_string()),
-        ],
+    tracing::warn!(
+        event = "request_throttled",
+        request_id = %request.request_id,
+        url = %request.url,
+        error = %error,
+        "request_throttled"
     );
 
     build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, response_message)
@@ -2049,10 +2022,10 @@ async fn send_session(
     }
 
     if sender.send(detail).await.is_err() {
-        emit_log(
-            "DEBUG",
-            "session_send_dropped",
-            &[("reason", "receiver_disconnected".to_string())],
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
         );
     }
 }
@@ -2130,27 +2103,22 @@ impl Drop for PendingRequestCancellationGuard {
 
         tokio::spawn(async move {
             if sender.send(detail).await.is_err() {
-                emit_log(
-                    "DEBUG",
-                    "session_send_dropped",
-                    &[("reason", "receiver_disconnected".to_string())],
+                tracing::debug!(
+                    event = "session_send_dropped",
+                    reason = "receiver_disconnected",
+                    "session_send_dropped"
                 );
             }
 
-            emit_log(
-                "WARN",
-                "upstream_request_cancelled",
-                &[
-                    ("request_id", request_id),
-                    ("method", method),
-                    ("host", host),
-                    ("url", url),
-                    (
-                        "reason",
-                        "client_disconnected_or_request_cancelled".to_string(),
-                    ),
-                    ("elapsed_ms", elapsed_ms.to_string()),
-                ],
+            tracing::warn!(
+                event = "upstream_request_cancelled",
+                request_id = %request_id,
+                method = %method,
+                host = %host,
+                url = %url,
+                reason = "client_disconnected_or_request_cancelled",
+                elapsed_ms = elapsed_ms,
+                "upstream_request_cancelled"
             );
         });
     }

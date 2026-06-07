@@ -20,13 +20,12 @@ pub async fn send_composed_request(
     let session_id = detail.id.clone();
     state.upsert_session_async(detail.clone()).await;
 
-    log_info(
-        "desktop.commands",
-        "send_composed_request_succeeded",
-        &[
-            ("session_id", session_id),
-            ("status_code", detail.summary.status_code.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "send_composed_request_succeeded",
+        session_id = %session_id,
+        status_code = %detail.summary.status_code,
+        "send_composed_request_succeeded"
     );
 
     Ok(detail)

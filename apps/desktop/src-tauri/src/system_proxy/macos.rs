@@ -1,5 +1,4 @@
 use super::SystemProxySettings;
-use crate::dev_logger::{log_debug, log_error, log_info};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -50,10 +49,11 @@ pub fn capture_system_proxy_snapshot() -> Result<MacosSystemProxySnapshot, Strin
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    log_debug(
-        "desktop.system_proxy.macos",
-        "snapshot_captured",
-        &[("service_count", services.len().to_string())],
+    tracing::debug!(
+        component = "desktop.system_proxy.macos",
+        event = "snapshot_captured",
+        service_count = services.len(),
+        "snapshot_captured"
     );
 
     Ok(MacosSystemProxySnapshot { services })
@@ -70,19 +70,21 @@ pub fn apply_system_proxy_settings_with_pre_snapshot(
 ) -> Result<(), String> {
     match apply_system_proxy_settings_with_snapshot(settings, &snapshot) {
         Ok(()) => {
-            log_info(
-                "desktop.system_proxy.macos",
-                "proxy_settings_applied",
-                &[("endpoint", settings.endpoint())],
+            tracing::info!(
+                component = "desktop.system_proxy.macos",
+                event = "proxy_settings_applied",
+                endpoint = %settings.endpoint(),
+                "proxy_settings_applied"
             );
             Ok(())
         }
         Err(error) => {
             if let Err(restore_error) = restore_system_proxy(&snapshot) {
-                log_error(
-                    "desktop.system_proxy.macos",
-                    "apply_rollback_failed",
-                    &[("error", restore_error.clone())],
+                tracing::error!(
+                    component = "desktop.system_proxy.macos",
+                    event = "apply_rollback_failed",
+                    error = %restore_error,
+                    "apply_rollback_failed"
                 );
                 return Err(format!(
                     "{error}; rollback after failed apply also failed: {restore_error}"
@@ -99,13 +101,12 @@ pub fn restore_system_proxy(snapshot: &MacosSystemProxySnapshot) -> Result<(), S
 
     for service in &snapshot.services {
         if let Err(error) = restore_service_proxy_settings(service) {
-            log_error(
-                "desktop.system_proxy.macos",
-                "service_restore_failed",
-                &[
-                    ("service_name", service.service_name.clone()),
-                    ("error", error.clone()),
-                ],
+            tracing::error!(
+                component = "desktop.system_proxy.macos",
+                event = "service_restore_failed",
+                service_name = %service.service_name,
+                error = %error,
+                "service_restore_failed"
             );
             failures.push(format!("{}: {error}", service.service_name));
         }
@@ -118,10 +119,11 @@ pub fn restore_system_proxy(snapshot: &MacosSystemProxySnapshot) -> Result<(), S
         ));
     }
 
-    log_info(
-        "desktop.system_proxy.macos",
-        "proxy_settings_restored",
-        &[("service_count", snapshot.services.len().to_string())],
+    tracing::info!(
+        component = "desktop.system_proxy.macos",
+        event = "proxy_settings_restored",
+        service_count = snapshot.services.len(),
+        "proxy_settings_restored"
     );
 
     Ok(())

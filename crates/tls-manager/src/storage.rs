@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use lru::LruCache;
 
 use crate::generator::{self, RootCaPair};
-use crate::{emit_log, TlsManagerError};
+use crate::TlsManagerError;
 
 const CERT_DIR_NAME: &str = "aiproxy";
 const CERT_SUBDIR: &str = "certs";
@@ -94,19 +94,17 @@ impl CertStorage {
 
     /// Read the root certificate PEM from disk.
     pub fn load_root_cert_pem(&self) -> Result<String, TlsManagerError> {
-        emit_log(
-            "DEBUG",
-            "root_cert_load_started",
-            &[("path", self.root_cert_path.to_string_lossy().to_string())],
+        tracing::debug!(
+            event = "root_cert_load_started",
+            path = %self.root_cert_path.to_string_lossy(),
+            "root_cert_load_started"
         );
         std::fs::read_to_string(&self.root_cert_path).map_err(|e| {
-            emit_log(
-                "WARN",
-                "root_cert_load_failed",
-                &[
-                    ("path", self.root_cert_path.to_string_lossy().to_string()),
-                    ("error", e.to_string()),
-                ],
+            tracing::warn!(
+                event = "root_cert_load_failed",
+                path = %self.root_cert_path.to_string_lossy(),
+                error = %e,
+                "root_cert_load_failed"
             );
             TlsManagerError::StorageError(format!("failed to read root cert: {e}"))
         })
@@ -114,19 +112,17 @@ impl CertStorage {
 
     /// Read the root key PEM from disk.
     pub fn load_root_key_pem(&self) -> Result<String, TlsManagerError> {
-        emit_log(
-            "DEBUG",
-            "root_key_load_started",
-            &[("path", self.root_key_path.to_string_lossy().to_string())],
+        tracing::debug!(
+            event = "root_key_load_started",
+            path = %self.root_key_path.to_string_lossy(),
+            "root_key_load_started"
         );
         std::fs::read_to_string(&self.root_key_path).map_err(|e| {
-            emit_log(
-                "WARN",
-                "root_key_load_failed",
-                &[
-                    ("path", self.root_key_path.to_string_lossy().to_string()),
-                    ("error", e.to_string()),
-                ],
+            tracing::warn!(
+                event = "root_key_load_failed",
+                path = %self.root_key_path.to_string_lossy(),
+                error = %e,
+                "root_key_load_failed"
             );
             TlsManagerError::StorageError(format!("failed to read root key: {e}"))
         })
@@ -134,10 +130,10 @@ impl CertStorage {
 
     /// Save root certificate and key PEM files to disk.
     pub fn save_root_cert(&self, cert_pem: &str, key_pem: &str) -> Result<(), TlsManagerError> {
-        emit_log(
-            "INFO",
-            "root_cert_save_started",
-            &[("path", self.root_cert_path.to_string_lossy().to_string())],
+        tracing::info!(
+            event = "root_cert_save_started",
+            path = %self.root_cert_path.to_string_lossy(),
+            "root_cert_save_started"
         );
 
         std::fs::create_dir_all(&self.cert_dir).map_err(|e| {
@@ -155,7 +151,10 @@ impl CertStorage {
         std::fs::write(&self.root_key_path, key_pem)
             .map_err(|e| TlsManagerError::StorageError(format!("failed to write root key: {e}")))?;
 
-        emit_log("INFO", "root_cert_save_succeeded", &[]);
+        tracing::info!(
+            event = "root_cert_save_succeeded",
+            "root_cert_save_succeeded"
+        );
         Ok(())
     }
 

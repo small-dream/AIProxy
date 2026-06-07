@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use http_body_util::combinators::BoxBody;
 use tokio::sync::{watch, RwLock};
 
-use crate::emit_log;
 use crate::timing_connector::ConnectionTiming;
 
 /// Key used to look up pooled connections.
@@ -68,10 +67,11 @@ impl UpstreamConnectionPool {
             if let Some(pooled) = connections.get_mut(key) {
                 if !pooled.sender.is_closed() && pooled.last_used.elapsed() < self.idle_timeout {
                     pooled.last_used = Instant::now();
-                    emit_log(
-                        "DEBUG",
-                        "upstream_pool_reuse",
-                        &[("host", key.host.clone()), ("port", key.port.to_string())],
+                    tracing::debug!(
+                        event = "upstream_pool_reuse",
+                        host = %key.host,
+                        port = key.port,
+                        "upstream_pool_reuse"
                     );
                     // We don't have timing info for a reused connection.
                     return Ok(Some((pooled.sender.clone(), None)));
@@ -104,10 +104,11 @@ impl UpstreamConnectionPool {
                 // Another task is connecting — wait for it to finish.
                 if rx.changed().await.is_ok() {
                     if let Some(conn) = rx.borrow().as_ref() {
-                        emit_log(
-                            "DEBUG",
-                            "upstream_pool_awaited",
-                            &[("host", key.host.clone()), ("port", key.port.to_string())],
+                        tracing::debug!(
+                            event = "upstream_pool_awaited",
+                            host = %key.host,
+                            port = key.port,
+                            "upstream_pool_awaited"
                         );
                         return Ok(Some((conn.sender.clone(), None)));
                     } else {
@@ -116,10 +117,11 @@ impl UpstreamConnectionPool {
                 }
                 // Sender dropped without sending (task panicked). Fall through
                 // to connect ourselves — but first clean up the stale entry.
-                emit_log(
-                    "DEBUG",
-                    "upstream_pool_pending_dropped",
-                    &[("host", key.host.clone()), ("port", key.port.to_string())],
+                tracing::debug!(
+                    event = "upstream_pool_pending_dropped",
+                    host = %key.host,
+                    port = key.port,
+                    "upstream_pool_pending_dropped"
                 );
                 self.pending.write().await.remove(key);
                 // Retry from scratch: re-enter the logic by recursing once.
@@ -185,21 +187,12 @@ impl UpstreamConnectionPool {
         let negotiated_h2 = connection_timing.alpn_protocol.as_deref() == Some("h2");
 
         if !negotiated_h2 {
-            emit_log(
-                "DEBUG",
-                "upstream_pool_h1_fallback",
-                &[
-                    ("host", key.host.clone()),
-                    ("port", key.port.to_string()),
-                    (
-                        "alpn",
-                        connection_timing
-                            .alpn_protocol
-                            .as_deref()
-                            .unwrap_or("none")
-                            .to_string(),
-                    ),
-                ],
+            tracing::debug!(
+                event = "upstream_pool_h1_fallback",
+                host = %key.host,
+                port = key.port,
+                alpn = %connection_timing.alpn_protocol.as_deref().unwrap_or("none"),
+                "upstream_pool_h1_fallback"
             );
             return Ok(None);
         }
@@ -214,10 +207,11 @@ impl UpstreamConnectionPool {
             let _ = conn.await;
         });
 
-        emit_log(
-            "DEBUG",
-            "upstream_pool_new_connection",
-            &[("host", key.host.clone()), ("port", key.port.to_string())],
+        tracing::debug!(
+            event = "upstream_pool_new_connection",
+            host = %key.host,
+            port = key.port,
+            "upstream_pool_new_connection"
         );
 
         Ok(Some((sender, connection_timing)))
@@ -241,10 +235,11 @@ impl UpstreamConnectionPool {
         connections.retain(|key, pooled| {
             let alive = !pooled.sender.is_closed() && pooled.last_used.elapsed() < max_idle;
             if !alive {
-                emit_log(
-                    "DEBUG",
-                    "upstream_pool_evicted",
-                    &[("host", key.host.clone()), ("port", key.port.to_string())],
+                tracing::debug!(
+                    event = "upstream_pool_evicted",
+                    host = %key.host,
+                    port = key.port,
+                    "upstream_pool_evicted"
                 );
             }
             alive
@@ -255,10 +250,11 @@ impl UpstreamConnectionPool {
     pub(crate) async fn evict_key(&self, key: &UpstreamKey) {
         let mut connections = self.connections.write().await;
         if connections.remove(key).is_some() {
-            emit_log(
-                "DEBUG",
-                "upstream_pool_evicted",
-                &[("host", key.host.clone()), ("port", key.port.to_string())],
+            tracing::debug!(
+                event = "upstream_pool_evicted",
+                host = %key.host,
+                port = key.port,
+                "upstream_pool_evicted"
             );
         }
     }

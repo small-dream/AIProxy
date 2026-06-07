@@ -486,10 +486,10 @@ fn build_response_stage_hit(
 fn emit_breakpoint_event(emitter: &Option<BreakpointEventEmitter>, hit: &BreakpointHit) {
     if let Some(ref emit) = emitter {
         let payload = serde_json::to_value(hit).unwrap_or_else(|e| {
-            emit_log(
-                "ERROR",
-                "breakpoint_hit_serialize_failed",
-                &[("error", e.to_string())],
+            tracing::error!(
+                event = "breakpoint_hit_serialize_failed",
+                error = %e,
+                "breakpoint_hit_serialize_failed"
             );
             serde_json::Value::Null
         });
@@ -522,14 +522,12 @@ pub(crate) async fn intercept_request_stage(
     let receiver = bp.register_pending(session_id.clone(), rule_id);
 
     let hit = build_request_stage_hit(request);
-    emit_log(
-        "INFO",
-        "breakpoint_request_stage_hit",
-        &[
-            ("session_id", session_id.clone()),
-            ("method", request.method.to_string()),
-            ("url", request.url.to_string()),
-        ],
+    tracing::info!(
+        event = "breakpoint_request_stage_hit",
+        session_id = %session_id,
+        method = %request.method,
+        url = %request.url,
+        "breakpoint_request_stage_hit"
     );
     emit_breakpoint_event(event_emitter, &hit);
 
@@ -542,10 +540,10 @@ pub(crate) async fn intercept_request_stage(
             // The oneshot sender was dropped without sending — this should no
             // longer happen because cancel_all() sends a Forward resolution.
             // If it does, treat it as a graceful forward (no modifications).
-            emit_log(
-                "WARN",
-                "breakpoint_request_sender_dropped",
-                &[("session_id", session_id)],
+            tracing::warn!(
+                event = "breakpoint_request_sender_dropped",
+                session_id = %session_id,
+                "breakpoint_request_sender_dropped"
             );
             Ok(None)
         }
@@ -580,15 +578,13 @@ pub(crate) async fn intercept_response_stage(
     let receiver = bp.register_pending(session_id.clone(), rule_id);
 
     let hit = build_response_stage_hit(request, status_code, response_headers, response_body);
-    emit_log(
-        "INFO",
-        "breakpoint_response_stage_hit",
-        &[
-            ("session_id", session_id.clone()),
-            ("method", request.method.to_string()),
-            ("url", request.url.to_string()),
-            ("status_code", status_code.to_string()),
-        ],
+    tracing::info!(
+        event = "breakpoint_response_stage_hit",
+        session_id = %session_id,
+        method = %request.method,
+        url = %request.url,
+        status_code = status_code,
+        "breakpoint_response_stage_hit"
     );
     emit_breakpoint_event(event_emitter, &hit);
 
@@ -598,10 +594,10 @@ pub(crate) async fn intercept_response_stage(
             // The oneshot sender was dropped without sending — this should no
             // longer happen because cancel_all() sends a Forward resolution.
             // If it does, treat it as a graceful forward (no modifications).
-            emit_log(
-                "WARN",
-                "breakpoint_response_sender_dropped",
-                &[("session_id", session_id)],
+            tracing::warn!(
+                event = "breakpoint_response_sender_dropped",
+                session_id = %session_id,
+                "breakpoint_response_sender_dropped"
             );
             Ok(None)
         }

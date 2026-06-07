@@ -1,5 +1,4 @@
 use super::SystemProxySettings;
-use crate::dev_logger::{log_debug, log_error, log_info};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::process::Command;
@@ -82,10 +81,11 @@ pub fn capture_system_proxy_snapshot() -> Result<LinuxSystemProxySnapshot, Strin
     match desktop {
         LinuxDesktopEnvironment::Gnome => {
             let snapshot = capture_gnome_snapshot()?;
-            log_debug(
-                "desktop.system_proxy.linux",
-                "snapshot_captured",
-                &[("desktop", "gnome".to_string())],
+            tracing::debug!(
+                component = "desktop.system_proxy.linux",
+                event = "snapshot_captured",
+                desktop = "gnome",
+                "snapshot_captured"
             );
             Ok(LinuxSystemProxySnapshot {
                 desktop,
@@ -95,10 +95,11 @@ pub fn capture_system_proxy_snapshot() -> Result<LinuxSystemProxySnapshot, Strin
         }
         LinuxDesktopEnvironment::Kde => {
             let snapshot = capture_kde_snapshot()?;
-            log_debug(
-                "desktop.system_proxy.linux",
-                "snapshot_captured",
-                &[("desktop", "kde".to_string())],
+            tracing::debug!(
+                component = "desktop.system_proxy.linux",
+                event = "snapshot_captured",
+                desktop = "kde",
+                "snapshot_captured"
             );
             Ok(LinuxSystemProxySnapshot {
                 desktop,
@@ -159,13 +160,12 @@ fn apply_gnome_proxy(
     gsettings_set_ignore_hosts(&PROXY_BYPASS_DOMAINS)?;
     gsettings_set_value("mode", "'manual'")?;
 
-    log_info(
-        "desktop.system_proxy.linux",
-        "proxy_settings_applied",
-        &[
-            ("desktop", "gnome".to_string()),
-            ("endpoint", settings.endpoint()),
-        ],
+    tracing::info!(
+        component = "desktop.system_proxy.linux",
+        event = "proxy_settings_applied",
+        desktop = "gnome",
+        endpoint = %settings.endpoint(),
+        "proxy_settings_applied"
     );
 
     Ok(())
@@ -211,10 +211,11 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
         ));
     }
 
-    log_info(
-        "desktop.system_proxy.linux",
-        "proxy_settings_restored",
-        &[("desktop", "gnome".to_string())],
+    tracing::info!(
+        component = "desktop.system_proxy.linux",
+        event = "proxy_settings_restored",
+        desktop = "gnome",
+        "proxy_settings_restored"
     );
 
     Ok(())
@@ -350,13 +351,12 @@ fn apply_kde_proxy(
     kwrite_config("httpsProxy", &endpoint)?;
     kwrite_config("NoProxyFor", &PROXY_BYPASS_DOMAINS.join(","))?;
 
-    log_info(
-        "desktop.system_proxy.linux",
-        "proxy_settings_applied",
-        &[
-            ("desktop", "kde".to_string()),
-            ("endpoint", settings.endpoint()),
-        ],
+    tracing::info!(
+        component = "desktop.system_proxy.linux",
+        event = "proxy_settings_applied",
+        desktop = "kde",
+        endpoint = %settings.endpoint(),
+        "proxy_settings_applied"
     );
 
     Ok(())
@@ -390,10 +390,11 @@ fn restore_kde(snapshot: Option<&KdeProxySnapshot>) -> Result<(), String> {
         ));
     }
 
-    log_info(
-        "desktop.system_proxy.linux",
-        "proxy_settings_restored",
-        &[("desktop", "kde".to_string())],
+    tracing::info!(
+        component = "desktop.system_proxy.linux",
+        event = "proxy_settings_restored",
+        desktop = "kde",
+        "proxy_settings_restored"
     );
 
     Ok(())

@@ -1,4 +1,3 @@
-use crate::dev_logger::{log_info, log_warn};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -31,16 +30,15 @@ pub fn restore_main_window_state(window: &WebviewWindow) {
     let normalized_state = normalize_window_state(window, state);
     apply_window_state(window, &normalized_state);
 
-    log_info(
-        "desktop.window_state",
-        "window_state_restored",
-        &[
-            ("width", normalized_state.width.to_string()),
-            ("height", normalized_state.height.to_string()),
-            ("x", normalized_state.x.to_string()),
-            ("y", normalized_state.y.to_string()),
-            ("is_maximized", normalized_state.is_maximized.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.window_state",
+        event = "window_state_restored",
+        width = normalized_state.width,
+        height = normalized_state.height,
+        x = normalized_state.x,
+        y = normalized_state.y,
+        is_maximized = normalized_state.is_maximized,
+        "window_state_restored"
     );
 }
 
@@ -122,22 +120,15 @@ fn normalize_window_state(
         ..positioned_state
     };
 
-    log_info(
-        "desktop.window_state",
-        "window_state_repositioned_to_visible_area",
-        &[
-            ("x", centered_state.x.to_string()),
-            ("y", centered_state.y.to_string()),
-            ("width", centered_state.width.to_string()),
-            ("height", centered_state.height.to_string()),
-            (
-                "monitor",
-                target_monitor
-                    .name()
-                    .cloned()
-                    .unwrap_or_else(|| "unknown".to_string()),
-            ),
-        ],
+    tracing::info!(
+        component = "desktop.window_state",
+        event = "window_state_repositioned_to_visible_area",
+        x = centered_state.x,
+        y = centered_state.y,
+        width = centered_state.width,
+        height = centered_state.height,
+        monitor = %target_monitor.name().cloned().unwrap_or_else(|| "unknown".to_string()),
+        "window_state_repositioned_to_visible_area"
     );
 
     centered_state
@@ -148,20 +139,22 @@ fn apply_window_state(window: &WebviewWindow, state: &PersistedWindowState) {
         if let Err(error) =
             window.set_size(Size::Physical(PhysicalSize::new(state.width, state.height)))
         {
-            log_warn(
-                "desktop.window_state",
-                "restore_window_size_failed",
-                &[("error", error.to_string())],
+            tracing::warn!(
+                component = "desktop.window_state",
+                event = "restore_window_size_failed",
+                error = %error,
+                "restore_window_size_failed"
             );
         }
 
         if let Err(error) =
             window.set_position(Position::Physical(PhysicalPosition::new(state.x, state.y)))
         {
-            log_warn(
-                "desktop.window_state",
-                "restore_window_position_failed",
-                &[("error", error.to_string())],
+            tracing::warn!(
+                component = "desktop.window_state",
+                event = "restore_window_position_failed",
+                error = %error,
+                "restore_window_position_failed"
             );
         }
 
@@ -169,10 +162,11 @@ fn apply_window_state(window: &WebviewWindow, state: &PersistedWindowState) {
     }
 
     if let Err(error) = window.maximize() {
-        log_warn(
-            "desktop.window_state",
-            "restore_window_maximized_failed",
-            &[("error", error.to_string())],
+        tracing::warn!(
+            component = "desktop.window_state",
+            event = "restore_window_maximized_failed",
+            error = %error,
+            "restore_window_maximized_failed"
         );
     }
 }
@@ -181,10 +175,11 @@ fn resolve_target_monitor(window: &WebviewWindow, state: &PersistedWindowState) 
     let monitors = match window.available_monitors() {
         Ok(monitors) => monitors,
         Err(error) => {
-            log_warn(
-                "desktop.window_state",
-                "window_monitor_query_failed",
-                &[("error", error.to_string())],
+            tracing::warn!(
+                component = "desktop.window_state",
+                event = "window_monitor_query_failed",
+                error = %error,
+                "window_monitor_query_failed"
             );
             return None;
         }
@@ -258,31 +253,32 @@ pub fn persist_main_window_state(window: &WebviewWindow) {
     match capture_window_state(window) {
         Ok(state) => {
             if let Err(error) = save_window_state(&state) {
-                log_warn(
-                    "desktop.window_state",
-                    "persist_window_state_failed",
-                    &[("error", error)],
+                tracing::warn!(
+                    component = "desktop.window_state",
+                    event = "persist_window_state_failed",
+                    error = %error,
+                    "persist_window_state_failed"
                 );
                 return;
             }
 
-            log_info(
-                "desktop.window_state",
-                "window_state_persisted",
-                &[
-                    ("width", state.width.to_string()),
-                    ("height", state.height.to_string()),
-                    ("x", state.x.to_string()),
-                    ("y", state.y.to_string()),
-                    ("is_maximized", state.is_maximized.to_string()),
-                ],
+            tracing::info!(
+                component = "desktop.window_state",
+                event = "window_state_persisted",
+                width = state.width,
+                height = state.height,
+                x = state.x,
+                y = state.y,
+                is_maximized = state.is_maximized,
+                "window_state_persisted"
             );
         }
         Err(error) => {
-            log_warn(
-                "desktop.window_state",
-                "capture_window_state_failed",
-                &[("error", error)],
+            tracing::warn!(
+                component = "desktop.window_state",
+                event = "capture_window_state_failed",
+                error = %error,
+                "capture_window_state_failed"
             );
         }
     }
@@ -318,13 +314,12 @@ fn load_window_state() -> Option<PersistedWindowState> {
     match serde_json::from_str::<PersistedWindowState>(&contents) {
         Ok(state) => Some(state),
         Err(error) => {
-            log_warn(
-                "desktop.window_state",
-                "window_state_parse_failed",
-                &[
-                    ("path", file_path.display().to_string()),
-                    ("error", error.to_string()),
-                ],
+            tracing::warn!(
+                component = "desktop.window_state",
+                event = "window_state_parse_failed",
+                path = %file_path.display(),
+                error = %error,
+                "window_state_parse_failed"
             );
             None
         }

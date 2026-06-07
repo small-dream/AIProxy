@@ -9,7 +9,7 @@ mod window_state;
 mod workspace;
 
 use bootstrap::AppState;
-use dev_logger::{log_error, log_info, log_warn, write_stderr_line};
+use dev_logger::write_stderr_line;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -33,18 +33,20 @@ pub fn run() {
 
     match session_stats::initialize() {
         Ok(Some(path)) => {
-            log_info(
-                "desktop.app",
-                "session_stats_initialized",
-                &[("stats_file", path.display().to_string())],
+            tracing::info!(
+                component = "desktop.app",
+                event = "session_stats_initialized",
+                stats_file = %path.display(),
+                "session_stats_initialized"
             );
         }
         Ok(None) => {}
         Err(error) => {
-            log_warn(
-                "desktop.app",
-                "session_stats_init_failed",
-                &[("error", error)],
+            tracing::warn!(
+                component = "desktop.app",
+                event = "session_stats_init_failed",
+                error = %error,
+                "session_stats_init_failed"
             );
         }
     }
@@ -52,14 +54,19 @@ pub fn run() {
     // Initialize database before building the app
     let db_connection = match aiproxy_db::connection::open_database() {
         Ok(conn) => {
-            log_info("desktop.app", "database_opened", &[]);
+            tracing::info!(
+                component = "desktop.app",
+                event = "database_opened",
+                "database_opened"
+            );
             conn
         }
         Err(error) => {
-            log_error(
-                "desktop.app",
-                "database_open_failed",
-                &[("error", error.clone())],
+            tracing::error!(
+                component = "desktop.app",
+                event = "database_open_failed",
+                error = %error,
+                "database_open_failed"
             );
             write_stderr_line(&format!(
                 "level=ERROR component=desktop.app event=database_open_failed error=\"{error}\""
@@ -73,10 +80,11 @@ pub fn run() {
         .join("bodies");
     let body_store = aiproxy_db::body_store::BodyStore::new(body_store_dir);
     if let Err(error) = body_store.ensure_dir() {
-        log_error(
-            "desktop.app",
-            "body_store_init_failed",
-            &[("error", error.clone())],
+        tracing::error!(
+            component = "desktop.app",
+            event = "body_store_init_failed",
+            error = %error,
+            "body_store_init_failed"
         );
     }
 
@@ -103,10 +111,11 @@ pub fn run() {
                     updated_at: ws.updated_at.clone(),
                 };
                 if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
-                    log_error(
-                        "desktop.app",
-                        "seed_default_workspace_failed",
-                        &[("error", error)],
+                    tracing::error!(
+                        component = "desktop.app",
+                        event = "seed_default_workspace_failed",
+                        error = %error,
+                        "seed_default_workspace_failed"
                     );
                 }
             }
@@ -211,10 +220,11 @@ pub fn run() {
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
             if let Err(error) = menu::build_menu(app.handle()) {
-                log_warn(
-                    "desktop.app",
-                    "menu_build_failed",
-                    &[("error", error.to_string())],
+                tracing::warn!(
+                    component = "desktop.app",
+                    event = "menu_build_failed",
+                    error = %error,
+                    "menu_build_failed"
                 );
             }
             menu::register_menu_event_handler(app.handle());
@@ -259,10 +269,11 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
         .active_workspace_id
         .unwrap_or_else(|| "default".to_string());
 
-    log_info(
-        "desktop.app",
-        "shutdown_cleanup_started",
-        &[("workspace_id", workspace_id.clone())],
+    tracing::info!(
+        component = "desktop.app",
+        event = "shutdown_cleanup_started",
+        workspace_id = %workspace_id,
+        "shutdown_cleanup_started"
     );
 
     if let Some(runtime_handles) = app_state.take_runtime() {
@@ -272,10 +283,11 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
         });
 
         let _ = app_state.stop_proxy(workspace_id.clone());
-        log_info(
-            "desktop.app",
-            "shutdown_proxy_runtime_stopped",
-            &[("workspace_id", workspace_id.clone())],
+        tracing::info!(
+            component = "desktop.app",
+            event = "shutdown_proxy_runtime_stopped",
+            workspace_id = %workspace_id,
+            "shutdown_proxy_runtime_stopped"
         );
     }
 
@@ -284,36 +296,37 @@ fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
             Ok(()) => {
                 let _ = app_state.set_system_proxy_enabled(false);
                 if let Err(error) = system_proxy_recovery::clear_pending_snapshot(app_handle) {
-                    log_warn(
-                        "desktop.app",
-                        "shutdown_system_proxy_recovery_clear_failed",
-                        &[("error", error)],
+                    tracing::warn!(
+                        component = "desktop.app",
+                        event = "shutdown_system_proxy_recovery_clear_failed",
+                        error = %error,
+                        "shutdown_system_proxy_recovery_clear_failed"
                     );
                 }
-                log_info(
-                    "desktop.app",
-                    "shutdown_system_proxy_restored",
-                    &[("workspace_id", workspace_id)],
+                tracing::info!(
+                    component = "desktop.app",
+                    event = "shutdown_system_proxy_restored",
+                    workspace_id = %workspace_id,
+                    "shutdown_system_proxy_restored"
                 );
             }
             Err(error) => {
                 app_state.store_system_proxy_snapshot(snapshot);
-                log_error(
-                    "desktop.app",
-                    "shutdown_system_proxy_restore_failed",
-                    &[("error", error)],
+                tracing::error!(
+                    component = "desktop.app",
+                    event = "shutdown_system_proxy_restore_failed",
+                    error = %error,
+                    "shutdown_system_proxy_restore_failed"
                 );
             }
         }
     } else if app_state.read_status().system_proxy_enabled {
         let _ = app_state.set_system_proxy_enabled(false);
-        log_warn(
-            "desktop.app",
-            "shutdown_system_proxy_snapshot_missing",
-            &[(
-                "reason",
-                "system proxy was enabled but no snapshot remained for restore".to_string(),
-            )],
+        tracing::warn!(
+            component = "desktop.app",
+            event = "shutdown_system_proxy_snapshot_missing",
+            reason = "system proxy was enabled but no snapshot remained for restore",
+            "shutdown_system_proxy_snapshot_missing"
         );
     }
 

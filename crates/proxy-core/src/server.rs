@@ -121,25 +121,23 @@ pub async fn start_proxy_server(
         );
     }
 
-    emit_log(
-        "INFO",
-        "listener_started",
-        &[
-            ("host", bind_addr.to_string()),
-            ("port", bound_port.to_string()),
-            ("ssl_enabled", config.runtime.ssl_enabled.to_string()),
-            ("max_connections", MAX_CONCURRENT_CONNECTIONS.to_string()),
-        ],
+    tracing::info!(
+        event = "listener_started",
+        host = %bind_addr,
+        port = bound_port,
+        ssl_enabled = config.runtime.ssl_enabled,
+        max_connections = MAX_CONCURRENT_CONNECTIONS,
+        "listener_started"
     );
 
     let join_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_receiver => {
-                    emit_log(
-                        "INFO",
-                        "listener_stopped",
-                        &[("reason", "shutdown_requested".to_string())],
+                    tracing::info!(
+                        event = "listener_stopped",
+                        reason = "shutdown_requested",
+                        "listener_stopped"
                     );
                     break;
                 }
@@ -149,13 +147,11 @@ pub async fn start_proxy_server(
                             let permit = match connection_semaphore.clone().try_acquire_owned() {
                                 Ok(permit) => permit,
                                 Err(_) => {
-                                    emit_log(
-                                        "WARN",
-                                        "connection_rejected",
-                                        &[
-                                            ("client_addr", client_addr.to_string()),
-                                            ("reason", "max_connections_reached".to_string()),
-                                        ],
+                                    tracing::warn!(
+                                        event = "connection_rejected",
+                                        client_addr = %client_addr,
+                                        reason = "max_connections_reached",
+                                        "connection_rejected"
                                     );
                                     continue;
                                 }
@@ -180,22 +176,20 @@ pub async fn start_proxy_server(
                                 )
                                 .await
                                 {
-                                    emit_log(
-                                        "ERROR",
-                                        "connection_failed",
-                                        &[
-                                            ("client_addr", client_addr.to_string()),
-                                            ("error", error),
-                                        ],
+                                    tracing::error!(
+                                        event = "connection_failed",
+                                        client_addr = %client_addr,
+                                        error = %error,
+                                        "connection_failed"
                                     );
                                 }
                             });
                         }
                         Err(error) => {
-                            emit_log(
-                                "ERROR",
-                                "listener_accept_failed",
-                                &[("error", error.to_string())],
+                            tracing::error!(
+                                event = "listener_accept_failed",
+                                error = %error,
+                                "listener_accept_failed"
                             );
                             continue;
                         }
@@ -312,10 +306,11 @@ async fn handle_connection(
             )
             .await?;
 
-            emit_log(
-                "WARN",
-                "request_parse_failed",
-                &[("client_addr", client_addr.to_string()), ("error", error)],
+            tracing::warn!(
+                event = "request_parse_failed",
+                client_addr = %client_addr,
+                error = %error,
+                "request_parse_failed"
             );
 
             return Ok(());
@@ -330,13 +325,11 @@ async fn handle_connection(
     {
         if let Some(ref mgr) = tls_manager {
             let cert_pem = mgr.root_ca.cert_pem();
-            emit_log(
-                "INFO",
-                "cert_served",
-                &[
-                    ("client_addr", client_addr.to_string()),
-                    ("path", request.path.clone()),
-                ],
+            tracing::info!(
+                event = "cert_served",
+                client_addr = %client_addr,
+                path = %request.path,
+                "cert_served"
             );
 
             let response = format!(
@@ -367,19 +360,14 @@ async fn handle_connection(
         let host = request.host.clone();
         let port = request.url.port().unwrap_or(DEFAULT_HTTPS_PORT);
 
-        emit_log(
-            "DEBUG",
-            "connect_received",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("client_addr", client_addr.to_string()),
-                ("host", host.clone()),
-                ("port", port.to_string()),
-                (
-                    "ssl_interception_enabled",
-                    tls_manager.is_some().to_string(),
-                ),
-            ],
+        tracing::debug!(
+            event = "connect_received",
+            request_id = %request.request_id,
+            client_addr = %client_addr,
+            host = %host,
+            port = port,
+            ssl_interception_enabled = tls_manager.is_some(),
+            "connect_received"
         );
 
         // Replay ONLY leftover (TLS ClientHello bytes) into the stream.
@@ -388,15 +376,13 @@ async fn handle_connection(
 
         match tls_manager {
             None => {
-                emit_log(
-                    "WARN",
-                    "connect_tunneling_without_mitm",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("client_addr", client_addr.to_string()),
-                        ("host", host.clone()),
-                        ("port", port.to_string()),
-                    ],
+                tracing::warn!(
+                    event = "connect_tunneling_without_mitm",
+                    request_id = %request.request_id,
+                    client_addr = %client_addr,
+                    host = %host,
+                    port = port,
+                    "connect_tunneling_without_mitm"
                 );
 
                 // No TLS manager — blind tunnel (no decryption)
@@ -410,15 +396,13 @@ async fn handle_connection(
                 .await;
             }
             Some(mgr) => {
-                emit_log(
-                    "DEBUG",
-                    "connect_mitm_started",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("client_addr", client_addr.to_string()),
-                        ("host", host.clone()),
-                        ("port", port.to_string()),
-                    ],
+                tracing::debug!(
+                    event = "connect_mitm_started",
+                    request_id = %request.request_id,
+                    client_addr = %client_addr,
+                    host = %host,
+                    port = port,
+                    "connect_mitm_started"
                 );
 
                 // MITM: TLS terminate, capture, forward
@@ -484,27 +468,23 @@ pub(crate) async fn forward_request(
 ) -> Result<UpstreamResponse, ProxyError> {
     use http_body_util::BodyExt;
 
-    emit_log(
-        "INFO",
-        "upstream_request_started",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("method", request.method.to_string()),
-            ("scheme", request.url.scheme().to_string()),
-            ("host", request.host.clone()),
-            ("url", request.url.to_string()),
-        ],
+    tracing::info!(
+        event = "upstream_request_started",
+        request_id = %request.request_id,
+        method = %request.method,
+        scheme = %request.url.scheme(),
+        host = %request.host,
+        url = %request.url,
+        "upstream_request_started"
     );
 
     let dns_override_ip = resolve_dns_override(dns_manager, workspace_id, &request.host);
     if let Some(ip) = &dns_override_ip {
-        emit_log(
-            "INFO",
-            "dns_override_applied",
-            &[
-                ("host", request.host.clone()),
-                ("override_ip", ip.to_string()),
-            ],
+        tracing::info!(
+            event = "dns_override_applied",
+            host = %request.host,
+            override_ip = %ip,
+            "dns_override_applied"
         );
     }
 
@@ -596,17 +576,15 @@ pub(crate) async fn forward_request(
                     };
                     p.evict_key(&key).await;
                 }
-                emit_log(
-                    "ERROR",
-                    "upstream_request_send_failed",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("method", request.method.to_string()),
-                        ("scheme", request.url.scheme().to_string()),
-                        ("host", request.host.clone()),
-                        ("url", request.url.to_string()),
-                        ("error", error.to_string()),
-                    ],
+                tracing::error!(
+                    event = "upstream_request_send_failed",
+                    request_id = %request.request_id,
+                    method = %request.method,
+                    scheme = %request.url.scheme(),
+                    host = %request.host,
+                    url = %request.url,
+                    error = %error,
+                    "upstream_request_send_failed"
                 );
                 return Err(ProxyError::UpstreamError(format!(
                     "failed to send upstream h2 request: {error}"
@@ -628,15 +606,13 @@ pub(crate) async fn forward_request(
         let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
             .await
             .map_err(|error| {
-                emit_log(
-                    "ERROR",
-                    "upstream_connect_failed",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("host", request.host.clone()),
-                        ("url", request.url.to_string()),
-                        ("error", error.to_string()),
-                    ],
+                tracing::error!(
+                    event = "upstream_connect_failed",
+                    request_id = %request.request_id,
+                    host = %request.host,
+                    url = %request.url,
+                    error = %error,
+                    "upstream_connect_failed"
                 );
                 ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
             })?;
@@ -644,14 +620,12 @@ pub(crate) async fn forward_request(
         let (sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
             .await
             .map_err(|error| {
-                emit_log(
-                    "ERROR",
-                    "upstream_http_handshake_failed",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("host", request.host.clone()),
-                        ("error", error.to_string()),
-                    ],
+                tracing::error!(
+                    event = "upstream_http_handshake_failed",
+                    request_id = %request.request_id,
+                    host = %request.host,
+                    error = %error,
+                    "upstream_http_handshake_failed"
                 );
                 ProxyError::UpstreamError(format!("upstream HTTP handshake failed: {error}"))
             })?;
@@ -687,17 +661,15 @@ pub(crate) async fn forward_request(
     // streaming send API that can report flush completion.
     let waiting_started_at = Instant::now();
     let response = sender.send_request(http_req).await.map_err(|error| {
-        emit_log(
-            "ERROR",
-            "upstream_request_send_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("method", request.method.to_string()),
-                ("scheme", request.url.scheme().to_string()),
-                ("host", request.host.clone()),
-                ("url", request.url.to_string()),
-                ("error", error.to_string()),
-            ],
+        tracing::error!(
+            event = "upstream_request_send_failed",
+            request_id = %request.request_id,
+            method = %request.method,
+            scheme = %request.url.scheme(),
+            host = %request.host,
+            url = %request.url,
+            error = %error,
+            "upstream_request_send_failed"
         );
         ProxyError::UpstreamError(format!("failed to send upstream request: {error}"))
     })?;
@@ -731,44 +703,35 @@ async fn build_upstream_response_from_hyper(
         read_hyper_response_body_with_limit(response, &request.request_id, true)
             .await
             .map_err(|error| {
-                emit_log(
-                    "ERROR",
-                    "upstream_response_read_failed",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("method", request.method.to_string()),
-                        ("scheme", request.url.scheme().to_string()),
-                        ("host", request.host.clone()),
-                        ("url", request.url.to_string()),
-                        ("status_code", status_code.as_u16().to_string()),
-                        ("error", error.clone()),
-                    ],
+                tracing::error!(
+                    event = "upstream_response_read_failed",
+                    request_id = %request.request_id,
+                    method = %request.method,
+                    scheme = %request.url.scheme(),
+                    host = %request.host,
+                    url = %request.url,
+                    status_code = status_code.as_u16(),
+                    error = %error,
+                    "upstream_response_read_failed"
                 );
                 ProxyError::UpstreamError(format!("failed to read upstream response body: {error}"))
             })?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
-    emit_log(
-        "INFO",
-        "upstream_request_succeeded",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("method", request.method.to_string()),
-            ("scheme", request.url.scheme().to_string()),
-            ("host", request.host.clone()),
-            ("url", request.url.to_string()),
-            ("status_code", status_code.as_u16().to_string()),
-            ("dns_ms", connection_timing.dns_ms.to_string()),
-            ("connect_ms", connection_timing.connect_ms.to_string()),
-            (
-                "tls_ms",
-                connection_timing
-                    .tls_ms
-                    .map_or_else(|| "n/a".to_string(), |v| v.to_string()),
-            ),
-            ("waiting_ms", waiting_ms.to_string()),
-            ("response_read_ms", response_read_ms.to_string()),
-        ],
+    tracing::info!(
+        event = "upstream_request_succeeded",
+        request_id = %request.request_id,
+        method = %request.method,
+        scheme = %request.url.scheme(),
+        host = %request.host,
+        url = %request.url,
+        status_code = status_code.as_u16(),
+        dns_ms = connection_timing.dns_ms,
+        connect_ms = connection_timing.connect_ms,
+        tls_ms = %connection_timing.tls_ms.map_or_else(|| "n/a".to_string(), |v| v.to_string()),
+        waiting_ms = waiting_ms,
+        response_read_ms = response_read_ms,
+        "upstream_request_succeeded"
     );
 
     Ok(UpstreamResponse {
@@ -849,15 +812,13 @@ async fn read_response_body_with_limit(
     }
 
     if body_truncated {
-        emit_log(
-            "WARN",
-            "response_body_truncated",
-            &[
-                ("request_id", request_id.to_string()),
-                ("original_size", response_body_size_bytes.to_string()),
-                ("captured_size", MAX_CAPTURED_BODY_BYTES.to_string()),
-                ("spooled", preserve_full_body.to_string()),
-            ],
+        tracing::warn!(
+            event = "response_body_truncated",
+            request_id = %request_id,
+            original_size = response_body_size_bytes,
+            captured_size = MAX_CAPTURED_BODY_BYTES,
+            spooled = preserve_full_body,
+            "response_body_truncated"
         );
     }
 
@@ -935,15 +896,13 @@ async fn read_hyper_response_body_with_limit(
     }
 
     if body_truncated {
-        emit_log(
-            "WARN",
-            "response_body_truncated",
-            &[
-                ("request_id", request_id.to_string()),
-                ("original_size", response_body_size_bytes.to_string()),
-                ("captured_size", MAX_CAPTURED_BODY_BYTES.to_string()),
-                ("spooled", preserve_full_body.to_string()),
-            ],
+        tracing::warn!(
+            event = "response_body_truncated",
+            request_id = %request_id,
+            original_size = response_body_size_bytes,
+            captured_size = MAX_CAPTURED_BODY_BYTES,
+            spooled = preserve_full_body,
+            "response_body_truncated"
         );
     }
 
@@ -993,10 +952,11 @@ async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
 
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
         Some(ip) => {
-            emit_log(
-                "INFO",
-                "dns_override_applied",
-                &[("host", host.to_string()), ("override_ip", ip.to_string())],
+            tracing::info!(
+                event = "dns_override_applied",
+                host = %host,
+                override_ip = %ip,
+                "dns_override_applied"
             );
             ip.to_string()
         }
@@ -1016,12 +976,12 @@ async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     tokio::select! {
         r = client_to_upstream => {
             if let Err(e) = r {
-                emit_log("WARN", "tunnel_client_to_upstream_error", &[("error", e.to_string())]);
+                tracing::warn!(event = "tunnel_client_to_upstream_error", error = %e, "tunnel_client_to_upstream_error");
             }
         }
         r = upstream_to_client => {
             if let Err(e) = r {
-                emit_log("WARN", "tunnel_upstream_to_client_error", &[("error", e.to_string())]);
+                tracing::warn!(event = "tunnel_upstream_to_client_error", error = %e, "tunnel_upstream_to_client_error");
             }
         }
     }
@@ -1113,13 +1073,11 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let host_port = format!("{}:{}", request.host, port);
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
         Some(ip) => {
-            emit_log(
-                "INFO",
-                "dns_override_wss",
-                &[
-                    ("host", request.host.clone()),
-                    ("override_ip", ip.to_string()),
-                ],
+            tracing::info!(
+                event = "dns_override_wss",
+                host = %request.host,
+                override_ip = %ip,
+                "dns_override_wss"
             );
             ip.to_string()
         }
@@ -1127,32 +1085,28 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     };
     let connect_host_port = format!("{}:{}", connect_host, port);
 
-    emit_log(
-        "DEBUG",
-        "wss_connecting_upstream",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("host_port", host_port.clone()),
-        ],
+    tracing::debug!(
+        event = "wss_connecting_upstream",
+        request_id = %request.request_id,
+        host_port = %host_port,
+        "wss_connecting_upstream"
     );
 
     let ws_tcp = TcpStream::connect(&*connect_host_port).await.map_err(|e| {
-        emit_log(
-            "ERROR",
-            "wss_upstream_connect_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("host_port", host_port.clone()),
-                ("error", e.to_string()),
-            ],
+        tracing::error!(
+            event = "wss_upstream_connect_failed",
+            request_id = %request.request_id,
+            host_port = %host_port,
+            error = %e,
+            "wss_upstream_connect_failed"
         );
         format!("wss upstream connect: {e}")
     })?;
 
-    emit_log(
-        "DEBUG",
-        "wss_tcp_connected",
-        &[("request_id", request.request_id.clone())],
+    tracing::debug!(
+        event = "wss_tcp_connected",
+        request_id = %request.request_id,
+        "wss_tcp_connected"
     );
 
     let client_config = build_dangerous_client_tls_config();
@@ -1165,60 +1119,50 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
             )
         });
 
-    emit_log(
-        "DEBUG",
-        "wss_starting_tls_handshake",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("ws_host", ws_host.clone()),
-        ],
+    tracing::debug!(
+        event = "wss_starting_tls_handshake",
+        request_id = %request.request_id,
+        ws_host = %ws_host,
+        "wss_starting_tls_handshake"
     );
 
     let mut upstream = tls_connector.connect(dns_name, ws_tcp).await.map_err(|e| {
-        emit_log(
-            "ERROR",
-            "wss_tls_handshake_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("ws_host", ws_host.clone()),
-                ("error", e.to_string()),
-            ],
+        tracing::error!(
+            event = "wss_tls_handshake_failed",
+            request_id = %request.request_id,
+            ws_host = %ws_host,
+            error = %e,
+            "wss_tls_handshake_failed"
         );
         format!("wss upstream tls handshake: {e}")
     })?;
 
-    emit_log(
-        "DEBUG",
-        "wss_tls_connected",
-        &[("request_id", request.request_id.clone())],
+    tracing::debug!(
+        event = "wss_tls_connected",
+        request_id = %request.request_id,
+        "wss_tls_connected"
     );
 
     let raw_req = build_raw_upgrade_request(request)?;
-    emit_log(
-        "DEBUG",
-        "wss_sending_upgrade",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("raw_req_len", raw_req.len().to_string()),
-        ],
+    tracing::debug!(
+        event = "wss_sending_upgrade",
+        request_id = %request.request_id,
+        raw_req_len = raw_req.len(),
+        "wss_sending_upgrade"
     );
-    emit_log(
-        "DEBUG",
-        "wss_raw_request",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("raw_req", raw_req.clone()),
-        ],
+    tracing::debug!(
+        event = "wss_raw_request",
+        request_id = %request.request_id,
+        raw_req = %raw_req,
+        "wss_raw_request"
     );
 
     upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
-        emit_log(
-            "ERROR",
-            "wss_upgrade_send_failed",
-            &[
-                ("request_id", request.request_id.clone()),
-                ("error", e.to_string()),
-            ],
+        tracing::error!(
+            event = "wss_upgrade_send_failed",
+            request_id = %request.request_id,
+            error = %e,
+            "wss_upgrade_send_failed"
         );
         format!("wss upgrade send: {e}")
     })?;
@@ -1227,23 +1171,19 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     let (response_head, response_prefix) = read_http_response_head(&mut upstream)
         .await
         .inspect_err(|e| {
-            emit_log(
-                "ERROR",
-                "wss_read_response_head_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("error", e.clone()),
-                ],
+            tracing::error!(
+                event = "wss_read_response_head_failed",
+                request_id = %request.request_id,
+                error = %e,
+                "wss_read_response_head_failed"
             );
         })?;
 
-    emit_log(
-        "DEBUG",
-        "wss_got_response_head",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("response_head", response_head.clone()),
-        ],
+    tracing::debug!(
+        event = "wss_got_response_head",
+        request_id = %request.request_id,
+        response_head = %response_head,
+        "wss_got_response_head"
     );
 
     let status_line = response_head.lines().next().unwrap_or("");
@@ -1253,26 +1193,22 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         .and_then(|v| v.parse().ok())
         .unwrap_or(502);
 
-    emit_log(
-        "INFO",
-        "wss_upstream_status",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("status_code", status_code.to_string()),
-        ],
+    tracing::info!(
+        event = "wss_upstream_status",
+        request_id = %request.request_id,
+        status_code = status_code,
+        "wss_upstream_status"
     );
 
     client_stream
         .write_all(response_head.as_bytes())
         .await
         .map_err(|e| {
-            emit_log(
-                "ERROR",
-                "wss_write_to_client_failed",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("error", e.to_string()),
-                ],
+            tracing::error!(
+                event = "wss_write_to_client_failed",
+                request_id = %request.request_id,
+                error = %e,
+                "wss_write_to_client_failed"
             );
             format!("wss response write to client: {e}")
         })?;
@@ -1281,13 +1217,11 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         .await
         .map_err(|e| format!("wss flush: {e}"))?;
 
-    emit_log(
-        "INFO",
-        "wss_entering_relay",
-        &[
-            ("request_id", request.request_id.clone()),
-            ("session_id", request.request_id.clone()),
-        ],
+    tracing::info!(
+        event = "wss_entering_relay",
+        request_id = %request.request_id,
+        session_id = %request.request_id,
+        "wss_entering_relay"
     );
 
     let mut detail = build_session_detail(
@@ -1432,14 +1366,12 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
     let tls_stream = match tls_acceptor.accept(stream).await {
         Ok(stream) => stream,
         Err(error) => {
-            emit_log(
-                "WARN",
-                "tls_handshake_failed",
-                &[
-                    ("host", host.clone()),
-                    ("port", port.to_string()),
-                    ("error", error.to_string()),
-                ],
+            tracing::warn!(
+                event = "tls_handshake_failed",
+                host = %host,
+                port = port,
+                error = %error,
+                "tls_handshake_failed"
             );
             return Err(format!("TLS handshake failed for {host}:{port}: {error}"));
         }
@@ -1461,17 +1393,12 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
         .alpn_protocol()
         .map(|proto| String::from_utf8_lossy(proto).to_string());
 
-    emit_log(
-        "DEBUG",
-        "tls_handshake_succeeded",
-        &[
-            ("host", host.clone()),
-            ("port", port.to_string()),
-            (
-                "alpn",
-                alpn_protocol.as_deref().unwrap_or("(none)").to_string(),
-            ),
-        ],
+    tracing::debug!(
+        event = "tls_handshake_succeeded",
+        host = %host,
+        port = port,
+        alpn = %alpn_protocol.as_deref().unwrap_or("(none)"),
+        "tls_handshake_succeeded"
     );
 
     let is_h2 = alpn_protocol.as_deref() == Some("h2");
@@ -1520,10 +1447,11 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
             .serve_connection(io, service)
             .await
             .map_err(|e| {
-                emit_log(
-                    "WARN",
-                    "h2_serve_error",
-                    &[("host", host.clone()), ("error", e.to_string())],
+                tracing::warn!(
+                    event = "h2_serve_error",
+                    host = %host,
+                    error = %e,
+                    "h2_serve_error"
                 );
                 format!("HTTP/2 server connection error for {host}:{port}: {e}")
             })?;
@@ -1533,10 +1461,11 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
             .with_upgrades()
             .await
             .map_err(|e| {
-                emit_log(
-                    "WARN",
-                    "h1_serve_error",
-                    &[("host", host.clone()), ("error", e.to_string())],
+                tracing::warn!(
+                    event = "h1_serve_error",
+                    host = %host,
+                    error = %e,
+                    "h1_serve_error"
                 );
                 format!("HTTP/1.1 server connection error for {host}:{port}: {e}")
             })?;
@@ -1756,17 +1685,15 @@ pub async fn send_direct_request(
             .map_err(|error| format!("failed to read response body: {error}"))?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
-    emit_log(
-        "DEBUG",
-        "direct_request_completed",
-        &[
-            ("request_id", request_id.clone()),
-            ("method", method.clone()),
-            ("url", url.clone()),
-            ("status_code", status_code.as_u16().to_string()),
-            ("waiting_ms", waiting_ms.to_string()),
-            ("response_read_ms", response_read_ms.to_string()),
-        ],
+    tracing::debug!(
+        event = "direct_request_completed",
+        request_id = %request_id,
+        method = %method,
+        url = %url,
+        status_code = status_code.as_u16(),
+        waiting_ms = waiting_ms,
+        response_read_ms = response_read_ms,
+        "direct_request_completed"
     );
 
     let timing = ProxyTimingBreakdown {

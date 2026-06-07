@@ -559,18 +559,21 @@ pub async fn batch_execute_collection_items(
             Ok(detail) => {
                 let session_id = detail.id.clone();
                 state.upsert_session_async(detail.clone()).await;
-                log_debug(
-                    "desktop.commands",
-                    "batch_execute_item_succeeded",
-                    &[("session_id", session_id)],
+                tracing::debug!(
+                    component = "desktop.commands",
+                    event = "batch_execute_item_succeeded",
+                    session_id = %session_id,
+                    "batch_execute_item_succeeded"
                 );
                 results.push(detail);
             }
             Err(e) => {
-                log_error(
-                    "desktop.commands",
-                    "batch_execute_item_failed",
-                    &[("item_id", item.id), ("error", e.clone())],
+                tracing::error!(
+                    component = "desktop.commands",
+                    event = "batch_execute_item_failed",
+                    item_id = %item.id,
+                    error = %e,
+                    "batch_execute_item_failed"
                 );
                 return Err(format!(
                     "batch execute failed at item '{}': {}",

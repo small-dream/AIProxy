@@ -53,7 +53,6 @@ mod context;
 mod error;
 mod http_io;
 mod http_proxy;
-mod logging;
 mod rules;
 mod server;
 mod timing_connector;
@@ -138,7 +137,6 @@ pub(crate) use http_io::{
     SessionSummaryInput,
 };
 pub(crate) use http_proxy::HttpProxyService;
-pub(crate) use logging::emit_log;
 pub(crate) use rules::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
     apply_response_rewrite_rules, apply_response_script_rules, apply_response_throttle,

@@ -133,23 +133,29 @@ impl AppState {
         {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
             if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "clear_session_storage_db_failed",
-                    &[("error", error)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "clear_session_storage_db_failed",
+                    error = %error,
+                    "clear_session_storage_db_failed"
                 );
             }
         }
 
         if let Err(error) = self.body_store.clear_all() {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "clear_session_storage_bodies_failed",
-                &[("error", error)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "clear_session_storage_bodies_failed",
+                error = %error,
+                "clear_session_storage_bodies_failed"
             );
         }
 
-        crate::dev_logger::log_info("desktop.persistence", "session_storage_cleared", &[]);
+        tracing::info!(
+            component = "desktop.persistence",
+            event = "session_storage_cleared",
+            "session_storage_cleared"
+        );
     }
 
     /// Load all persisted data from SQLite into the in-memory managers.
@@ -233,17 +239,19 @@ impl AppState {
             .cloned()
         {
             self.touch_session_detail_cache(session_id);
-            crate::dev_logger::log_debug(
-                "desktop.sessions",
-                "session_detail_memory_cache_hit",
-                &[("session_id", session_id.to_string())],
+            tracing::debug!(
+                component = "desktop.sessions",
+                event = "session_detail_memory_cache_hit",
+                session_id = %session_id,
+                "session_detail_memory_cache_hit"
             );
             return Some(detail);
         }
-        crate::dev_logger::log_debug(
-            "desktop.sessions",
-            "session_detail_memory_cache_miss",
-            &[("session_id", session_id.to_string())],
+        tracing::debug!(
+            component = "desktop.sessions",
+            event = "session_detail_memory_cache_miss",
+            session_id = %session_id,
+            "session_detail_memory_cache_miss"
         );
 
         // Fallback: load from DB
@@ -251,26 +259,30 @@ impl AppState {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
             let row = match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
                 Ok(Some(row)) => {
-                    crate::dev_logger::log_debug(
-                        "desktop.persistence",
-                        "session_detail_db_hit",
-                        &[("session_id", session_id.to_string())],
+                    tracing::debug!(
+                        component = "desktop.persistence",
+                        event = "session_detail_db_hit",
+                        session_id = %session_id,
+                        "session_detail_db_hit"
                     );
                     row
                 }
                 Ok(None) => {
-                    crate::dev_logger::log_warn(
-                        "desktop.persistence",
-                        "session_detail_db_miss",
-                        &[("session_id", session_id.to_string())],
+                    tracing::warn!(
+                        component = "desktop.persistence",
+                        event = "session_detail_db_miss",
+                        session_id = %session_id,
+                        "session_detail_db_miss"
                     );
                     return None;
                 }
                 Err(error) => {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "load_session_detail_failed",
-                        &[("session_id", session_id.to_string()), ("error", error)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "load_session_detail_failed",
+                        session_id = %session_id,
+                        error = %error,
+                        "load_session_detail_failed"
                     );
                     return None;
                 }
@@ -286,26 +298,30 @@ impl AppState {
                 .or_else(|| {
                     match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
                         Ok(Some(row)) => {
-                            crate::dev_logger::log_debug(
-                                "desktop.persistence",
-                                "session_summary_db_hit",
-                                &[("session_id", session_id.to_string())],
+                            tracing::debug!(
+                                component = "desktop.persistence",
+                                event = "session_summary_db_hit",
+                                session_id = %session_id,
+                                "session_summary_db_hit"
                             );
                             Some(summary_row_to_proxy(row))
                         }
                         Ok(None) => {
-                            crate::dev_logger::log_warn(
-                                "desktop.persistence",
-                                "session_summary_db_miss",
-                                &[("session_id", session_id.to_string())],
+                            tracing::warn!(
+                                component = "desktop.persistence",
+                                event = "session_summary_db_miss",
+                                session_id = %session_id,
+                                "session_summary_db_miss"
                             );
                             None
                         }
                         Err(error) => {
-                            crate::dev_logger::log_error(
-                                "desktop.persistence",
-                                "load_session_summary_failed",
-                                &[("session_id", session_id.to_string()), ("error", error)],
+                            tracing::error!(
+                                component = "desktop.persistence",
+                                event = "load_session_summary_failed",
+                                session_id = %session_id,
+                                error = %error,
+                                "load_session_summary_failed"
                             );
                             None
                         }
@@ -316,10 +332,11 @@ impl AppState {
         };
 
         self.insert_session_detail_cache(session_id.to_string(), detail.clone());
-        crate::dev_logger::log_debug(
-            "desktop.sessions",
-            "session_detail_db_backfill_succeeded",
-            &[("session_id", session_id.to_string())],
+        tracing::debug!(
+            component = "desktop.sessions",
+            event = "session_detail_db_backfill_succeeded",
+            session_id = %session_id,
+            "session_detail_db_backfill_succeeded"
         );
 
         Some(detail)
@@ -369,20 +386,23 @@ impl AppState {
                 if let Err(error) =
                     aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_clear)
                 {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "clear_sessions_db_failed",
-                        &[("error", error)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "clear_sessions_db_failed",
+                        error = %error,
+                        "clear_sessions_db_failed"
                     );
                 }
             }
 
             for id in &ids_to_clear {
                 if let Err(error) = body_store.remove_bodies(id) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "clear_sessions_body_remove_failed",
-                        &[("session_id", id.clone()), ("error", error)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "clear_sessions_body_remove_failed",
+                        session_id = %id,
+                        error = %error,
+                        "clear_sessions_body_remove_failed"
                     );
                 }
             }
@@ -469,10 +489,11 @@ impl AppState {
         let session_detail = tauri::async_runtime::spawn_blocking(move || {
             let spill_started_at = Instant::now();
             if let Err(error) = spill_session_bodies_to_disk(&mut session_detail, &body_store) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "session_body_spill_failed",
-                    &[("error", error)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_body_spill_failed",
+                    error = %error,
+                    "session_body_spill_failed"
                 );
             }
             let spill_elapsed_us = spill_started_at.elapsed().as_micros();
@@ -490,10 +511,11 @@ impl AppState {
 
             let conn = db.lock().expect("db mutex should not be poisoned");
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "session_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_upsert_db_failed",
+                    error = %e,
+                    "session_upsert_db_failed"
                 );
             }
 
@@ -504,10 +526,11 @@ impl AppState {
                 &session_detail.summary,
                 &session_detail.script_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "script_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "script_trace_upsert_db_failed",
+                    error = %e,
+                    "script_trace_upsert_db_failed"
                 );
             }
 
@@ -518,10 +541,11 @@ impl AppState {
                 &session_detail.summary,
                 &session_detail.rewrite_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "rewrite_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "rewrite_trace_upsert_db_failed",
+                    error = %e,
+                    "rewrite_trace_upsert_db_failed"
                 );
             }
 
@@ -532,10 +556,11 @@ impl AppState {
                 &session_detail.summary,
                 &session_detail.map_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "map_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "map_trace_upsert_db_failed",
+                    error = %e,
+                    "map_trace_upsert_db_failed"
                 );
             }
 
@@ -545,10 +570,11 @@ impl AppState {
                 &active_workspace_id,
                 &session_detail.throttle_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "throttle_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "throttle_trace_upsert_db_failed",
+                    error = %e,
+                    "throttle_trace_upsert_db_failed"
                 );
             }
 
@@ -572,10 +598,11 @@ impl AppState {
     ) {
         let spill_started_at = Instant::now();
         if let Err(error) = spill_session_bodies_to_disk(session_detail, &self.body_store) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "session_body_spill_failed",
-                &[("error", error)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "session_body_spill_failed",
+                error = %error,
+                "session_body_spill_failed"
             );
         }
         let spill_elapsed_us = spill_started_at.elapsed().as_micros();
@@ -593,10 +620,11 @@ impl AppState {
 
         let conn = self.db.lock().expect("db mutex should not be poisoned");
         if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "session_upsert_db_failed",
-                &[("error", e)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "session_upsert_db_failed",
+                error = %e,
+                "session_upsert_db_failed"
             );
         }
 
@@ -607,10 +635,11 @@ impl AppState {
             &session_detail.summary,
             &session_detail.script_traces,
         ) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "script_trace_upsert_db_failed",
-                &[("error", e)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "script_trace_upsert_db_failed",
+                error = %e,
+                "script_trace_upsert_db_failed"
             );
         }
 
@@ -621,10 +650,11 @@ impl AppState {
             &session_detail.summary,
             &session_detail.rewrite_traces,
         ) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "rewrite_trace_upsert_db_failed",
-                &[("error", e)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "rewrite_trace_upsert_db_failed",
+                error = %e,
+                "rewrite_trace_upsert_db_failed"
             );
         }
 
@@ -635,10 +665,11 @@ impl AppState {
             &session_detail.summary,
             &session_detail.map_traces,
         ) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "map_trace_upsert_db_failed",
-                &[("error", e)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "map_trace_upsert_db_failed",
+                error = %e,
+                "map_trace_upsert_db_failed"
             );
         }
 
@@ -648,10 +679,11 @@ impl AppState {
             active_workspace_id,
             &session_detail.throttle_traces,
         ) {
-            crate::dev_logger::log_error(
-                "desktop.persistence",
-                "throttle_trace_upsert_db_failed",
-                &[("error", e)],
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "throttle_trace_upsert_db_failed",
+                error = %e,
+                "throttle_trace_upsert_db_failed"
             );
         }
 
@@ -691,28 +723,16 @@ impl AppState {
         };
 
         if !removed_session_ids.is_empty() {
-            crate::dev_logger::log_warn(
-                "desktop.sessions",
-                "session_summary_evicted",
-                &[
-                    ("session_id", session_id.clone()),
-                    ("removed_count", removed_session_ids.len().to_string()),
-                    ("removed_session_ids", removed_session_ids.join(",")),
-                    (
-                        "session_count_after",
-                        session_count_after_update.to_string(),
-                    ),
-                    ("focused_hosts_count", focused_hosts.len().to_string()),
-                    (
-                        "focused_hosts_sample",
-                        focused_hosts
-                            .iter()
-                            .take(10)
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    ),
-                ],
+            tracing::warn!(
+                component = "desktop.sessions",
+                event = "session_summary_evicted",
+                session_id = %session_id,
+                removed_count = removed_session_ids.len(),
+                removed_session_ids = %removed_session_ids.join(","),
+                session_count_after = session_count_after_update,
+                focused_hosts_count = focused_hosts.len(),
+                focused_hosts_sample = %focused_hosts.iter().take(10).cloned().collect::<Vec<_>>().join(","),
+                "session_summary_evicted"
             );
             {
                 let mut details = self
@@ -755,10 +775,11 @@ impl AppState {
         // Spill bodies to disk before acquiring DB lock.
         for session in sessions.iter_mut() {
             if let Err(error) = spill_session_bodies_to_disk(session, &self.body_store) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "session_body_spill_failed",
-                    &[("error", error)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_body_spill_failed",
+                    error = %error,
+                    "session_body_spill_failed"
                 );
             }
         }
@@ -770,10 +791,11 @@ impl AppState {
             let detail_row = proxy_detail_to_row(session, &self.body_store);
 
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "session_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_upsert_db_failed",
+                    error = %e,
+                    "session_upsert_db_failed"
                 );
             }
 
@@ -784,10 +806,11 @@ impl AppState {
                 &session.summary,
                 &session.script_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "script_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "script_trace_upsert_db_failed",
+                    error = %e,
+                    "script_trace_upsert_db_failed"
                 );
             }
 
@@ -798,10 +821,11 @@ impl AppState {
                 &session.summary,
                 &session.rewrite_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "rewrite_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "rewrite_trace_upsert_db_failed",
+                    error = %e,
+                    "rewrite_trace_upsert_db_failed"
                 );
             }
 
@@ -812,10 +836,11 @@ impl AppState {
                 &session.summary,
                 &session.map_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "map_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "map_trace_upsert_db_failed",
+                    error = %e,
+                    "map_trace_upsert_db_failed"
                 );
             }
 
@@ -825,10 +850,11 @@ impl AppState {
                 &active_workspace_id,
                 &session.throttle_traces,
             ) {
-                crate::dev_logger::log_error(
-                    "desktop.persistence",
-                    "throttle_trace_upsert_db_failed",
-                    &[("error", e)],
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "throttle_trace_upsert_db_failed",
+                    error = %e,
+                    "throttle_trace_upsert_db_failed"
                 );
             }
         }
@@ -857,10 +883,11 @@ impl AppState {
             // Spill bodies to disk.
             for session in sessions.iter_mut() {
                 if let Err(error) = spill_session_bodies_to_disk(session, &body_store) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "session_body_spill_failed",
-                        &[("error", error)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "session_body_spill_failed",
+                        error = %error,
+                        "session_body_spill_failed"
                     );
                 }
             }
@@ -874,10 +901,11 @@ impl AppState {
                 if let Err(e) =
                     aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
                 {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "session_upsert_db_failed",
-                        &[("error", e)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "session_upsert_db_failed",
+                        error = %e,
+                        "session_upsert_db_failed"
                     );
                 }
 
@@ -888,10 +916,11 @@ impl AppState {
                     &session.summary,
                     &session.script_traces,
                 ) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "script_trace_upsert_db_failed",
-                        &[("error", e)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "script_trace_upsert_db_failed",
+                        error = %e,
+                        "script_trace_upsert_db_failed"
                     );
                 }
 
@@ -902,10 +931,11 @@ impl AppState {
                     &session.summary,
                     &session.rewrite_traces,
                 ) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "rewrite_trace_upsert_db_failed",
-                        &[("error", e)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "rewrite_trace_upsert_db_failed",
+                        error = %e,
+                        "rewrite_trace_upsert_db_failed"
                     );
                 }
 
@@ -916,10 +946,11 @@ impl AppState {
                     &session.summary,
                     &session.map_traces,
                 ) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "map_trace_upsert_db_failed",
-                        &[("error", e)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "map_trace_upsert_db_failed",
+                        error = %e,
+                        "map_trace_upsert_db_failed"
                     );
                 }
 
@@ -929,10 +960,11 @@ impl AppState {
                     &active_workspace_id,
                     &session.throttle_traces,
                 ) {
-                    crate::dev_logger::log_error(
-                        "desktop.persistence",
-                        "throttle_trace_upsert_db_failed",
-                        &[("error", e)],
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "throttle_trace_upsert_db_failed",
+                        error = %e,
+                        "throttle_trace_upsert_db_failed"
                     );
                 }
             }
@@ -989,15 +1021,14 @@ impl AppState {
         }
 
         if !evicted_ids.is_empty() {
-            crate::dev_logger::log_info(
-                "desktop.sessions",
-                "session_detail_lru_evicted",
-                &[
-                    ("inserted_session_id", session_id.clone()),
-                    ("evicted_count", evicted_ids.len().to_string()),
-                    ("evicted_session_ids", evicted_ids.join(",")),
-                    ("cache_capacity", SESSION_DETAIL_CACHE_CAPACITY.to_string()),
-                ],
+            tracing::info!(
+                component = "desktop.sessions",
+                event = "session_detail_lru_evicted",
+                inserted_session_id = %session_id,
+                evicted_count = evicted_ids.len(),
+                evicted_session_ids = %evicted_ids.join(","),
+                cache_capacity = SESSION_DETAIL_CACHE_CAPACITY,
+                "session_detail_lru_evicted"
             );
             let mut details = self
                 .session_details

@@ -48,16 +48,12 @@ pub fn initialize() -> Result<PathBuf, String> {
 
     install_panic_hook();
 
-    log_info(
-        "desktop.app",
-        "logger_initialized",
-        &[
-            ("log_file", current_log_file_path.display().to_string()),
-            (
-                "log_file_retention_count",
-                RETAINED_LOG_FILE_COUNT.to_string(),
-            ),
-        ],
+    tracing::info!(
+        component = "desktop.app",
+        event = "logger_initialized",
+        log_file = %current_log_file_path.display(),
+        log_file_retention_count = RETAINED_LOG_FILE_COUNT,
+        "logger_initialized"
     );
 
     Ok(current_log_file_path)
@@ -67,35 +63,9 @@ pub fn current_log_file_path() -> PathBuf {
     current_rolling_log_file_path(&resolve_log_file_base_path())
 }
 
-pub fn log_debug(component: &str, event: &str, fields: &[(&str, String)]) {
-    emit_log("DEBUG", component, event, fields);
-}
-
-pub fn log_info(component: &str, event: &str, fields: &[(&str, String)]) {
-    emit_log("INFO", component, event, fields);
-}
-
-pub fn log_warn(component: &str, event: &str, fields: &[(&str, String)]) {
-    emit_log("WARN", component, event, fields);
-}
-
-pub fn log_error(component: &str, event: &str, fields: &[(&str, String)]) {
-    emit_log("ERROR", component, event, fields);
-}
-
 pub fn write_stderr_line(line: &str) {
     let mut stderr = std::io::stderr().lock();
     let _ = writeln!(stderr, "{line}");
-}
-
-fn emit_log(level: &str, component: &str, event: &str, fields: &[(&str, String)]) {
-    let fields_ref: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    match level {
-        "ERROR" => tracing::error!(component, event, fields = ?fields_ref),
-        "WARN" => tracing::warn!(component, event, fields = ?fields_ref),
-        "INFO" => tracing::info!(component, event, fields = ?fields_ref),
-        _ => tracing::debug!(component, event, fields = ?fields_ref),
-    }
 }
 
 fn install_panic_hook() {

@@ -248,10 +248,11 @@ fn generate_root_certificate_impl(
     #[cfg(target_os = "macos")]
     if let Some(cert_path) = status.cert_path.as_deref() {
         if let Err(error) = open_certificate_file(cert_path) {
-            log_warn(
-                "desktop.commands",
-                "generate_root_certificate_auto_open_failed",
-                &[("error", error)],
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "generate_root_certificate_auto_open_failed",
+                error = %error,
+                "generate_root_certificate_auto_open_failed"
             );
         }
     }
@@ -370,13 +371,12 @@ fn install_android_certificate_via_adb_impl(
         ));
     }
 
-    log_info(
-        "desktop.commands",
-        "install_android_certificate_via_adb_succeeded",
-        &[
-            ("device_serial", device_serial.clone()),
-            ("remote_path", remote_path.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "install_android_certificate_via_adb_succeeded",
+        device_serial = %device_serial,
+        remote_path = %remote_path,
+        "install_android_certificate_via_adb_succeeded"
     );
 
     Ok(AndroidAdbInstallResult {
@@ -417,13 +417,12 @@ fn install_ios_certificate_via_simulator_impl(
         ));
     }
 
-    log_info(
-        "desktop.commands",
-        "install_ios_certificate_via_simulator_succeeded",
-        &[
-            ("simulator_name", simulator.name.clone()),
-            ("simulator_udid", simulator.udid.clone()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "install_ios_certificate_via_simulator_succeeded",
+        simulator_name = %simulator.name,
+        simulator_udid = %simulator.udid,
+        "install_ios_certificate_via_simulator_succeeded"
     );
 
     Ok(IosSimulatorInstallResult {
@@ -449,13 +448,12 @@ fn set_android_proxy_via_adb_impl(
         &["settings", "put", "global", "http_proxy", &proxy_address],
     )?;
 
-    log_info(
-        "desktop.commands",
-        "set_android_proxy_via_adb_succeeded",
-        &[
-            ("device_serial", device_serial.clone()),
-            ("proxy_address", proxy_address.clone()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "set_android_proxy_via_adb_succeeded",
+        device_serial = %device_serial,
+        proxy_address = %proxy_address,
+        "set_android_proxy_via_adb_succeeded"
     );
 
     Ok(AndroidAdbProxyResult {
@@ -475,10 +473,11 @@ fn clear_android_proxy_via_adb_impl(
         &["settings", "put", "global", "http_proxy", ":0"],
     )?;
 
-    log_info(
-        "desktop.commands",
-        "clear_android_proxy_via_adb_succeeded",
-        &[("device_serial", device_serial.clone())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "clear_android_proxy_via_adb_succeeded",
+        device_serial = %device_serial,
+        "clear_android_proxy_via_adb_succeeded"
     );
 
     Ok(AndroidAdbProxyResult {

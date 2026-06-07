@@ -1,7 +1,6 @@
 pub(super) use crate::bootstrap::{
     AppState, BootstrapStatus, CertificateStateSnapshot, RuntimeHandles, SESSION_BATCH_SIZE,
 };
-pub(super) use crate::dev_logger::{log_debug, log_error, log_info, log_warn};
 pub(super) use crate::session_stats;
 pub(super) use crate::system_proxy::{
     apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,

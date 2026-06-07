@@ -5,7 +5,7 @@ use rustls::server::ResolvesServerCert;
 use rustls::sign::CertifiedKey;
 
 use crate::generator::RootCaSignData;
-use crate::{emit_log, storage::CertStorage};
+use crate::storage::CertStorage;
 
 /// Dynamic certificate resolver that signs per-host certificates on demand.
 pub struct DynamicCertResolver {
@@ -51,13 +51,11 @@ impl ResolvesServerCert for DynamicCertResolver {
         ) {
             Ok(pair) => pair,
             Err(error) => {
-                emit_log(
-                    "WARN",
-                    "host_cert_generation_failed",
-                    &[
-                        ("hostname", hostname.to_string()),
-                        ("error", error.to_string()),
-                    ],
+                tracing::warn!(
+                    event = "host_cert_generation_failed",
+                    hostname = %hostname,
+                    error = %error,
+                    "host_cert_generation_failed"
                 );
                 return None;
             }
@@ -66,22 +64,20 @@ impl ResolvesServerCert for DynamicCertResolver {
         let signing_key = match rustls::crypto::ring::sign::any_supported_type(&key_der) {
             Ok(key) => key,
             Err(error) => {
-                emit_log(
-                    "WARN",
-                    "host_cert_signing_key_failed",
-                    &[
-                        ("hostname", hostname.to_string()),
-                        ("error", error.to_string()),
-                    ],
+                tracing::warn!(
+                    event = "host_cert_signing_key_failed",
+                    hostname = %hostname,
+                    error = %error,
+                    "host_cert_signing_key_failed"
                 );
                 return None;
             }
         };
 
-        emit_log(
-            "DEBUG",
-            "host_cert_generated",
-            &[("hostname", hostname.to_string())],
+        tracing::debug!(
+            event = "host_cert_generated",
+            hostname = %hostname,
+            "host_cert_generated"
         );
 
         let certified_key = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));

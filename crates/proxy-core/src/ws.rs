@@ -354,10 +354,10 @@ impl WsConnectionRegistry {
     pub fn register(&self, session_id: String, sender: mpsc::UnboundedSender<WsInjectRequest>) {
         let mut map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         if map.contains_key(&session_id) {
-            crate::logging::emit_log(
-                "WARN",
-                "ws_registry_duplicate_session",
-                &[("session_id", session_id.clone())],
+            tracing::warn!(
+                event = "ws_registry_duplicate_session",
+                session_id = %session_id,
+                "ws_registry_duplicate_session"
             );
         }
         map.insert(
@@ -429,8 +429,6 @@ pub async fn relay_websocket_frames<C, U>(
     C: AsyncReadExt + AsyncWriteExt + Unpin,
     U: AsyncReadExt + AsyncWriteExt + Unpin,
 {
-    use crate::logging::emit_log;
-
     let mut client_done = false;
     let mut upstream_done = false;
 
@@ -454,7 +452,7 @@ pub async fn relay_websocket_frames<C, U>(
                         } else {
                             // Forward to upstream masked per RFC 6455 §5.1 (proxy acts as client to upstream)
                             if let Err(e) = write_ws_frame(upstream_stream, &frame, true).await {
-                                emit_log("DEBUG", "ws_relay_client_to_upstream_write_failed", &[("error", e)]);
+                                tracing::debug!(event = "ws_relay_client_to_upstream_write_failed", error = %e, "ws_relay_client_to_upstream_write_failed");
                                 break;
                             }
                         }
@@ -481,7 +479,7 @@ pub async fn relay_websocket_frames<C, U>(
                             upstream_done = true;
                         } else {
                             if let Err(e) = forward_raw_frame(client_stream, &frame).await {
-                                emit_log("DEBUG", "ws_relay_upstream_to_client_write_failed", &[("error", e)]);
+                                tracing::debug!(event = "ws_relay_upstream_to_client_write_failed", error = %e, "ws_relay_upstream_to_client_write_failed");
                                 break;
                             }
                         }
@@ -509,7 +507,7 @@ pub async fn relay_websocket_frames<C, U>(
                             }
                         };
                         if let Err(e) = write_result {
-                            emit_log("DEBUG", "ws_inject_write_failed", &[("error", e)]);
+                            tracing::debug!(event = "ws_inject_write_failed", error = %e, "ws_inject_write_failed");
                             break;
                         }
                         let msg = build_ws_message(session_id, req.direction, &frame);
@@ -527,10 +525,10 @@ pub async fn relay_websocket_frames<C, U>(
         }
     }
 
-    emit_log(
-        "DEBUG",
-        "ws_relay_ended",
-        &[("session_id", session_id.to_string())],
+    tracing::debug!(
+        event = "ws_relay_ended",
+        session_id = %session_id,
+        "ws_relay_ended"
     );
 }
 

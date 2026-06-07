@@ -213,26 +213,23 @@ fn session_not_found_error(session_id: &str) -> String {
 fn log_session_not_found(command_name: &str, session_id: &str, state: &AppState) {
     let sessions = state.read_sessions();
     let summary = sessions.iter().find(|session| session.id == session_id);
-    let mut fields = vec![
-        ("command_name", command_name.to_string()),
-        ("session_id", session_id.to_string()),
-        ("session_count", sessions.len().to_string()),
-        ("summary_in_memory", summary.is_some().to_string()),
-    ];
 
-    if let Some(summary) = summary {
-        fields.extend([
-            ("method", summary.method.clone()),
-            ("host", summary.host.clone()),
-            ("path", summary.path.clone()),
-            ("url", summary.url.clone()),
-            ("status_code", summary.status_code.to_string()),
-            ("started_at", summary.started_at.clone()),
-            ("finished_at", summary.finished_at.clone()),
-        ]);
-    }
-
-    log_warn("desktop.sessions", "session_detail_not_found", &fields);
+    tracing::warn!(
+        component = "desktop.sessions",
+        event = "session_detail_not_found",
+        command_name = %command_name,
+        session_id = %session_id,
+        session_count = sessions.len(),
+        summary_in_memory = summary.is_some(),
+        method = summary.as_ref().map_or("", |s| s.method.as_str()),
+        host = summary.as_ref().map_or("", |s| s.host.as_str()),
+        path = summary.as_ref().map_or("", |s| s.path.as_str()),
+        url = summary.as_ref().map_or("", |s| s.url.as_str()),
+        status_code = summary.as_ref().map_or(0, |s| s.status_code),
+        started_at = summary.as_ref().map_or("", |s| s.started_at.as_str()),
+        finished_at = summary.as_ref().map_or("", |s| s.finished_at.as_str()),
+        "session_detail_not_found"
+    );
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
 use super::SystemProxySettings;
-use crate::dev_logger::{log_debug, log_error, log_info};
 use serde::{Deserialize, Serialize};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Networking::WinInet::{
@@ -32,26 +31,13 @@ pub fn capture_system_proxy_snapshot() -> Result<WindowsSystemProxySnapshot, Str
         proxy_server: read_optional_string(&key, "ProxyServer")?,
     };
 
-    log_debug(
-        "desktop.system_proxy.windows",
-        "snapshot_captured",
-        &[
-            ("proxy_enable", snapshot.proxy_enable.to_string()),
-            (
-                "proxy_server",
-                snapshot
-                    .proxy_server
-                    .clone()
-                    .unwrap_or_else(|| "<missing>".to_string()),
-            ),
-            (
-                "proxy_override",
-                snapshot
-                    .proxy_override
-                    .clone()
-                    .unwrap_or_else(|| "<missing>".to_string()),
-            ),
-        ],
+    tracing::debug!(
+        component = "desktop.system_proxy.windows",
+        event = "snapshot_captured",
+        proxy_enable = snapshot.proxy_enable,
+        proxy_server = %snapshot.proxy_server.clone().unwrap_or_else(|| "<missing>".to_string()),
+        proxy_override = %snapshot.proxy_override.clone().unwrap_or_else(|| "<missing>".to_string()),
+        "snapshot_captured"
     );
 
     Ok(snapshot)
@@ -81,10 +67,11 @@ pub fn apply_system_proxy_settings_with_pre_snapshot(
 
     refresh_system_proxy()?;
 
-    log_info(
-        "desktop.system_proxy.windows",
-        "proxy_settings_applied",
-        &[("endpoint", endpoint)],
+    tracing::info!(
+        component = "desktop.system_proxy.windows",
+        event = "proxy_settings_applied",
+        endpoint = %endpoint,
+        "proxy_settings_applied"
     );
 
     Ok(())
@@ -108,10 +95,11 @@ pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(),
 
     refresh_system_proxy()?;
 
-    log_info(
-        "desktop.system_proxy.windows",
-        "proxy_settings_restored",
-        &[("proxy_enable", snapshot.proxy_enable.to_string())],
+    tracing::info!(
+        component = "desktop.system_proxy.windows",
+        event = "proxy_settings_restored",
+        proxy_enable = snapshot.proxy_enable,
+        "proxy_settings_restored"
     );
 
     Ok(())
@@ -170,10 +158,11 @@ fn refresh_system_proxy() -> Result<(), String> {
             "failed to notify WinINet about proxy setting changes: {}",
             std::io::Error::last_os_error()
         );
-        log_error(
-            "desktop.system_proxy.windows",
-            "wininet_settings_changed_failed",
-            &[("error", error.clone())],
+        tracing::error!(
+            component = "desktop.system_proxy.windows",
+            event = "wininet_settings_changed_failed",
+            error = %error,
+            "wininet_settings_changed_failed"
         );
         return Err(error);
     }
@@ -184,10 +173,11 @@ fn refresh_system_proxy() -> Result<(), String> {
             "failed to refresh WinINet proxy settings: {}",
             std::io::Error::last_os_error()
         );
-        log_error(
-            "desktop.system_proxy.windows",
-            "wininet_refresh_failed",
-            &[("error", error.clone())],
+        tracing::error!(
+            component = "desktop.system_proxy.windows",
+            event = "wininet_refresh_failed",
+            error = %error,
+            "wininet_refresh_failed"
         );
         return Err(error);
     }

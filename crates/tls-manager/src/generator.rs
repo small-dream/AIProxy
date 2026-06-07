@@ -9,7 +9,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
 
 use crate::storage::CertStorage;
-use crate::{emit_log, TlsManagerError, DYNAMIC_CERT_VALIDITY_YEARS, ROOT_CA_VALIDITY_YEARS};
+use crate::{TlsManagerError, DYNAMIC_CERT_VALIDITY_YEARS, ROOT_CA_VALIDITY_YEARS};
 
 const ROOT_CA_CN: &str = "AIProxy Root CA";
 
@@ -54,10 +54,10 @@ impl RootCaPair {
 
         let fingerprint = compute_fingerprint(&cert_der);
 
-        emit_log(
-            "INFO",
-            "root_ca_generated",
-            &[("fingerprint", fingerprint.clone())],
+        tracing::info!(
+            event = "root_ca_generated",
+            fingerprint = %fingerprint,
+            "root_ca_generated"
         );
 
         Ok(Self {

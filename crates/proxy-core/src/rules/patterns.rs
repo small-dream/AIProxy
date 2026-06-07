@@ -1,4 +1,3 @@
-use super::*;
 use regex::Regex;
 
 pub(crate) fn pattern_matches(pattern: &str, candidate: &str, match_type: Option<&str>) -> bool {
@@ -22,13 +21,11 @@ pub(crate) fn compile_match_regex(match_type: &Option<String>, url_pattern: &str
     match Regex::new(normalized) {
         Ok(re) => Some(re),
         Err(e) => {
-            emit_log(
-                "WARN",
-                "rules.regex_compile_failed",
-                &[
-                    ("pattern", normalized.to_string()),
-                    ("error", e.to_string()),
-                ],
+            tracing::warn!(
+                event = "rules.regex_compile_failed",
+                pattern = normalized,
+                error = %e,
+                "regex compile failed"
             );
             None
         }

@@ -22,15 +22,14 @@ pub fn create_workspace(
     let ssl_enabled = input.ssl_enabled.unwrap_or(true);
     let http2_enabled = input.http2_enabled.unwrap_or(true);
 
-    log_info(
-        "desktop.commands",
-        "create_workspace_requested",
-        &[
-            ("name", input.name.clone()),
-            ("port", input.proxy_port.to_string()),
-            ("ssl_enabled", ssl_enabled.to_string()),
-            ("http2_enabled", http2_enabled.to_string()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "create_workspace_requested",
+        name = %input.name,
+        port = %input.proxy_port,
+        ssl_enabled = %ssl_enabled,
+        http2_enabled = %http2_enabled,
+        "create_workspace_requested"
     );
 
     let workspace = state.read_workspace_manager().create(
@@ -58,18 +57,20 @@ pub fn create_workspace(
             updated_at: workspace.updated_at.clone(),
         };
         if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
-            log_error(
-                "desktop.commands",
-                "create_workspace_db_failed",
-                &[("error", error)],
+            tracing::error!(
+                component = "desktop.commands",
+                event = "create_workspace_db_failed",
+                error = %error,
+                "create_workspace_db_failed"
             );
         }
     }
 
-    log_info(
-        "desktop.commands",
-        "create_workspace_succeeded",
-        &[("workspace_id", workspace.id.clone())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "create_workspace_succeeded",
+        workspace_id = %workspace.id,
+        "create_workspace_succeeded"
     );
 
     workspace
@@ -86,10 +87,11 @@ pub fn load_workspace(
     input: LoadWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<WorkspaceData, String> {
-    log_info(
-        "desktop.commands",
-        "load_workspace_requested",
-        &[("workspace_id", input.workspace_id.clone())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "load_workspace_requested",
+        workspace_id = %input.workspace_id,
+        "load_workspace_requested"
     );
 
     let workspace = state
@@ -97,13 +99,12 @@ pub fn load_workspace(
         .load(&input.workspace_id)
         .ok_or_else(|| format!("workspace {} not found", input.workspace_id))?;
 
-    log_info(
-        "desktop.commands",
-        "load_workspace_succeeded",
-        &[
-            ("workspace_id", workspace.id.clone()),
-            ("name", workspace.name.clone()),
-        ],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "load_workspace_succeeded",
+        workspace_id = %workspace.id,
+        name = %workspace.name,
+        "load_workspace_succeeded"
     );
 
     Ok(workspace)
@@ -124,10 +125,11 @@ pub fn update_workspace(
     input: UpdateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<WorkspaceData, String> {
-    log_info(
-        "desktop.commands",
-        "update_workspace_requested",
-        &[("workspace_id", input.workspace_id.clone())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "update_workspace_requested",
+        workspace_id = %input.workspace_id,
+        "update_workspace_requested"
     );
 
     let workspace = state.read_workspace_manager().update(
@@ -153,18 +155,20 @@ pub fn update_workspace(
             input.http2_enabled,
             &workspace.updated_at,
         ) {
-            log_error(
-                "desktop.commands",
-                "update_workspace_db_failed",
-                &[("error", error)],
+            tracing::error!(
+                component = "desktop.commands",
+                event = "update_workspace_db_failed",
+                error = %error,
+                "update_workspace_db_failed"
             );
         }
     }
 
-    log_info(
-        "desktop.commands",
-        "update_workspace_succeeded",
-        &[("workspace_id", workspace.id.clone())],
+    tracing::info!(
+        component = "desktop.commands",
+        event = "update_workspace_succeeded",
+        workspace_id = %workspace.id,
+        "update_workspace_succeeded"
     );
 
     Ok(workspace)
