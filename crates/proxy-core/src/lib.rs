@@ -142,5 +142,6 @@ pub(crate) use rules::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
     apply_response_rewrite_rules, apply_response_script_rules, apply_response_throttle,
     resolve_dns_override, throttle_selection_matches_stage, RequestRuntimeOutcome,
+    ThrottleRuntimeSelection,
 };
 pub(crate) use types::{ParsedProxyRequest, UpstreamResponse};

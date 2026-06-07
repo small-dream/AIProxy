@@ -20,6 +20,9 @@ use tokio::io::ReadBuf;
 
 const CLIENT_CLOSED_REQUEST_STATUS: u16 = 499;
 
+/// Shorthand for the boxed response body type used throughout the proxy.
+type ProxyResponse = hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
+
 // ---------------------------------------------------------------------------
 // HttpProxyService
 // ---------------------------------------------------------------------------
@@ -825,18 +828,23 @@ fn build_upstream_session_detail(
 }
 
 // ---------------------------------------------------------------------------
-// Core request handler
+// Stage 1: Parse request
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn handle_http_request(
-    mut req: hyper::Request<hyper::body::Incoming>,
+/// Return value for [`stage_parse_request`].
+struct ParsedRequest {
+    request: ParsedProxyRequest,
+    ws_on_upgrade: Option<hyper::upgrade::OnUpgrade>,
+}
+
+/// Detect WebSocket upgrades, read the body, and build a [`ParsedProxyRequest`].
+async fn stage_parse_request(
+    req: hyper::Request<hyper::body::Incoming>,
     ctx: &ConnectionContext,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<ParsedRequest, String> {
     let request_id = Uuid::new_v4().to_string();
 
-    // --- Detect WebSocket upgrade and capture OnUpgrade before consuming req ---
+    // Detect WebSocket upgrade and capture OnUpgrade before consuming req.
     let is_ws_upgrade = req
         .headers()
         .get("upgrade")
@@ -850,13 +858,15 @@ pub(crate) async fn handle_http_request(
                     .to_ascii_lowercase()
                     .contains("upgrade")
             });
+
+    let mut req = req;
     let ws_on_upgrade = if is_ws_upgrade {
         Some(hyper::upgrade::on(&mut req))
     } else {
         None
     };
 
-    // --- Build ParsedProxyRequest from the hyper Request ---
+    // Build ParsedProxyRequest from the hyper Request.
     let (parts, body) = req.into_parts();
     let limited_body = http_body_util::Limited::new(body, MAX_CAPTURED_BODY_BYTES);
     let body_bytes = BodyExt::collect(limited_body)
@@ -864,14 +874,35 @@ pub(crate) async fn handle_http_request(
         .map_err(|e| format!("failed to read request body: {e}"))?
         .to_bytes();
 
-    let mut request = build_parsed_request_from_hyper(parts, body_bytes, ctx, &request_id)?;
+    let request = build_parsed_request_from_hyper(parts, body_bytes, ctx, &request_id)?;
 
-    let host = request.host.clone();
-    let is_h2 = ctx.mode.is_h2();
+    Ok(ParsedRequest {
+        request,
+        ws_on_upgrade,
+    })
+}
 
-    // --- Apply request rules ---
+// ---------------------------------------------------------------------------
+// Stage 2: Apply request rules
+// ---------------------------------------------------------------------------
+
+/// Return value for [`stage_apply_request_rules`].
+struct RequestRulesResult {
+    local_response: Option<UpstreamResponse>,
+    map_traces: Vec<crate::MapTrace>,
+    rewrite_traces: Vec<crate::RewriteTrace>,
+    script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
+    throttle_selection: Option<crate::ThrottleRuntimeSelection>,
+}
+
+/// Apply runtime rewrite/map/throttle rules, then script rules if no local response yet.
+fn stage_apply_request_rules(
+    ctx: &ConnectionContext,
+    request: &mut ParsedProxyRequest,
+    is_h2: bool,
+) -> Result<RequestRulesResult, String> {
     let RequestRuntimeOutcome {
-        mut local_response,
+        local_response,
         map_traces,
         rewrite_traces,
         throttle_selection,
@@ -880,146 +911,248 @@ pub(crate) async fn handle_http_request(
         &ctx.map_manager,
         &ctx.throttle_manager,
         &ctx.workspace_id,
-        &mut request,
+        request,
         is_h2,
     )?;
 
-    let map_traces = map_traces;
-    let mut rewrite_traces = rewrite_traces;
+    let mut local_response = local_response;
     let mut script_traces = Vec::new();
-    let mut throttle_traces = Vec::new();
 
     if local_response.is_none() {
         let script_outcome = apply_request_script_rules(
             &ctx.script_manager,
             &ctx.workspace_id,
-            &mut request,
+            request,
         );
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
 
-    // --- Request-stage breakpoint ---
-    if let Some(resolution) =
-        intercept_request_stage(&ctx.breakpoint_manager, &ctx.event_emitter, &mut request).await?
-    {
-        match resolution.action {
-            BreakpointActionKind::Drop => {
-                return handle_drop_action(ctx);
-            }
-            BreakpointActionKind::Mock => {
-                if let Some(ref mock) = resolution.mock {
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|s| throttle_selection_matches_stage(s, "request"))
-                    {
-                        match apply_request_throttle(selection, request.body.len()).await {
-                            Ok(trace) => {
-                                if let Some(manager) = ctx.throttle_manager.as_ref() {
-                                    manager.record_trace(&trace);
-                                }
-                                throttle_traces.push(trace);
-                            }
-                            Err(failure) => {
-                                if let Some(manager) = ctx.throttle_manager.as_ref() {
-                                    manager.record_trace(&failure.trace);
-                                }
-                                throttle_traces.push(failure.trace);
-                                return build_throttle_failure_response(
-                                    &request,
-                                    ctx,
-                                    started_at,
-                                    started_at_instant,
-                                    &failure.error,
-                                    map_traces,
-                                    throttle_traces,
-                                )
-                                .await;
-                            }
-                        }
-                    }
+    Ok(RequestRulesResult {
+        local_response,
+        map_traces,
+        rewrite_traces,
+        script_traces,
+        throttle_selection,
+    })
+}
 
-                    let mut mock_response = crate::build_mock_upstream_response(mock);
-                    rewrite_traces.extend(apply_response_rewrite_rules(
-                        &ctx.rewrite_manager,
-                        &ctx.workspace_id,
-                        &request,
-                        &mut mock_response,
-                        is_h2,
-                    )?);
-                    script_traces.extend(apply_response_script_rules(
-                        &ctx.script_manager,
-                        &ctx.workspace_id,
-                        &request,
-                        &mut mock_response,
-                    ));
+// ---------------------------------------------------------------------------
+// Stage 3: Request-stage breakpoint interception
+// ---------------------------------------------------------------------------
 
-                    if let Some(selection) = throttle_selection
-                        .as_ref()
-                        .filter(|s| throttle_selection_matches_stage(s, "response"))
-                    {
-                        let trace =
-                            apply_response_throttle(selection, mock_response.response_body.len())
-                                .await;
+/// Outcome of request-stage breakpoint interception.
+enum BreakpointRequestOutcome {
+    /// The request was dropped by a breakpoint.
+    Drop(ProxyResponse),
+    /// A mock response was produced by a breakpoint (session already sent).
+    Mock(ProxyResponse),
+    /// No breakpoint matched or Forward was chosen — continue the pipeline.
+    Forward {
+        map_traces: Vec<crate::MapTrace>,
+        rewrite_traces: Vec<crate::RewriteTrace>,
+        script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
+        throttle_traces: Vec<crate::ThrottleTrace>,
+    },
+}
+
+/// Intercept the request at breakpoint stage. Handles Drop/Mock/Forward.
+///
+/// For Mock, also applies response rewrite/script rules and response throttle
+/// (because a mock breakpoint directly creates a response).
+async fn stage_intercept_request_breakpoint(
+    ctx: &ConnectionContext,
+    request: &ParsedProxyRequest,
+    is_h2: bool,
+    throttle_selection: &Option<crate::ThrottleRuntimeSelection>,
+    map_traces: Vec<crate::MapTrace>,
+    rewrite_traces: Vec<crate::RewriteTrace>,
+    script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<BreakpointRequestOutcome, String> {
+    let mut rewrite_traces = rewrite_traces;
+    let mut script_traces = script_traces;
+    let mut throttle_traces = Vec::new();
+
+    // Clone request mutably for intercept_request_stage (needs &mut).
+    let mut request_mut = request.clone();
+    let resolution =
+        intercept_request_stage(&ctx.breakpoint_manager, &ctx.event_emitter, &mut request_mut)
+            .await?;
+    let Some(resolution) = resolution else {
+        return Ok(BreakpointRequestOutcome::Forward {
+            map_traces,
+            rewrite_traces,
+            script_traces,
+            throttle_traces,
+        });
+    };
+
+    match resolution.action {
+        BreakpointActionKind::Drop => {
+            let response = handle_drop_action(ctx)?;
+            Ok(BreakpointRequestOutcome::Drop(response))
+        }
+        BreakpointActionKind::Mock => {
+            let Some(ref mock) = resolution.mock else {
+                return Ok(BreakpointRequestOutcome::Forward {
+                    map_traces,
+                    rewrite_traces,
+                    script_traces,
+                    throttle_traces,
+                });
+            };
+
+            // Apply request throttle if configured for request stage.
+            if let Some(selection) = throttle_selection
+                .as_ref()
+                .filter(|s| throttle_selection_matches_stage(s, "request"))
+            {
+                match apply_request_throttle(selection, request.body.len()).await {
+                    Ok(trace) => {
                         if let Some(manager) = ctx.throttle_manager.as_ref() {
                             manager.record_trace(&trace);
                         }
                         throttle_traces.push(trace);
                     }
-
-                    let detail = build_session_detail(
-                        &request,
-                        mock_response.status_code.as_u16(),
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                        mock_response.response_body_size_bytes,
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: None,
-                            response_read_ms: Some(0),
-                            tls_ms: None,
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(0),
-                        },
-                        mock_response.body_truncated,
-                    );
-                    send_session(
-                        &ctx.session_sender,
-                        detail,
-                        map_traces,
-                        rewrite_traces,
-                        script_traces,
-                        throttle_traces,
-                    )
-                    .await;
-
-                    return build_hyper_response_from_upstream(
-                        mock_response.status_code,
-                        &mock_response.response_headers,
-                        &mock_response.response_body,
-                    );
+                    Err(failure) => {
+                        if let Some(manager) = ctx.throttle_manager.as_ref() {
+                            manager.record_trace(&failure.trace);
+                        }
+                        throttle_traces.push(failure.trace);
+                        let response = build_throttle_failure_response(
+                            request,
+                            ctx,
+                            started_at,
+                            started_at_instant,
+                            &failure.error,
+                            map_traces,
+                            throttle_traces,
+                        )
+                        .await?;
+                        return Ok(BreakpointRequestOutcome::Drop(response));
+                    }
                 }
             }
-            BreakpointActionKind::Forward => {}
-        }
-    }
 
-    // --- Send pending session ---
-    let mut pending_detail = build_pending_session_detail(&request, started_at);
-    pending_detail.map_traces = map_traces.clone();
+            let mut mock_response = crate::build_mock_upstream_response(mock);
+            rewrite_traces.extend(apply_response_rewrite_rules(
+                &ctx.rewrite_manager,
+                &ctx.workspace_id,
+                request,
+                &mut mock_response,
+                is_h2,
+            )?);
+            script_traces.extend(apply_response_script_rules(
+                &ctx.script_manager,
+                &ctx.workspace_id,
+                request,
+                &mut mock_response,
+            ));
+
+            // Apply response throttle if configured for response stage.
+            if let Some(selection) = throttle_selection
+                .as_ref()
+                .filter(|s| throttle_selection_matches_stage(s, "response"))
+            {
+                let trace =
+                    apply_response_throttle(selection, mock_response.response_body.len()).await;
+                if let Some(manager) = ctx.throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+            }
+
+            let detail = build_session_detail(
+                request,
+                mock_response.status_code.as_u16(),
+                &mock_response.response_headers,
+                &mock_response.response_body,
+                mock_response.response_body_size_bytes,
+                started_at,
+                started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: None,
+                    response_read_ms: Some(0),
+                    tls_ms: None,
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(0),
+                },
+                mock_response.body_truncated,
+            );
+            send_session(
+                &ctx.session_sender,
+                detail,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            )
+            .await;
+
+            let response = build_hyper_response_from_upstream(
+                mock_response.status_code,
+                &mock_response.response_headers,
+                &mock_response.response_body,
+            )?;
+            Ok(BreakpointRequestOutcome::Mock(response))
+        }
+        BreakpointActionKind::Forward => Ok(BreakpointRequestOutcome::Forward {
+            map_traces,
+            rewrite_traces,
+            script_traces,
+            throttle_traces,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: Pending session + request throttle
+// ---------------------------------------------------------------------------
+
+/// Outcome of [`stage_send_pending_and_throttle`].
+enum PendingThrottleOutcome {
+    /// Throttle failed — caller must disarm the guard, then return the response.
+    ThrottleFailed {
+        response: ProxyResponse,
+        guard: PendingRequestCancellationGuard,
+    },
+    /// Success — pending session sent, throttle applied (or not configured).
+    Proceed {
+        guard: PendingRequestCancellationGuard,
+    },
+}
+
+/// Send the pending session detail and apply request throttle.
+///
+/// On throttle failure, returns the response and guard so the caller can
+/// disarm the guard before returning. On success, returns the guard.
+/// `throttle_traces` is updated in place via mutable reference.
+async fn stage_send_pending_and_throttle(
+    ctx: &ConnectionContext,
+    request: &ParsedProxyRequest,
+    throttle_selection: &Option<crate::ThrottleRuntimeSelection>,
+    map_traces: &[crate::MapTrace],
+    throttle_traces: &mut Vec<crate::ThrottleTrace>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<PendingThrottleOutcome, String> {
+    // Send pending session.
+    let mut pending_detail = build_pending_session_detail(request, started_at);
+    pending_detail.map_traces = map_traces.to_vec();
     let _ = ctx.session_sender.send(pending_detail).await;
-    let mut cancellation_guard = PendingRequestCancellationGuard::new(
+    let guard = PendingRequestCancellationGuard::new(
         request.clone(),
         ctx.session_sender.clone(),
         started_at,
         started_at_instant,
-        map_traces.clone(),
+        map_traces.to_vec(),
     );
 
-    // --- Request throttle ---
+    // Apply request throttle.
     if let Some(selection) = throttle_selection
         .as_ref()
         .filter(|s| throttle_selection_matches_stage(s, "request"))
@@ -1035,23 +1168,477 @@ pub(crate) async fn handle_http_request(
                 if let Some(manager) = ctx.throttle_manager.as_ref() {
                     manager.record_trace(&failure.trace);
                 }
-                throttle_traces.push(failure.trace);
-                cancellation_guard.disarm();
-                return build_throttle_failure_response(
-                    &request,
+                throttle_traces.push(failure.trace.clone());
+                let response = build_throttle_failure_response(
+                    request,
                     ctx,
                     started_at,
                     started_at_instant,
                     &failure.error,
-                    map_traces,
-                    throttle_traces,
+                    map_traces.to_vec(),
+                    throttle_traces.clone(),
                 )
-                .await;
+                .await?;
+                return Ok(PendingThrottleOutcome::ThrottleFailed { response, guard });
             }
         }
     }
 
-    // --- WebSocket upgrade (after full request-stage pipeline) ---
+    Ok(PendingThrottleOutcome::Proceed { guard })
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5: Forward upstream (WS dispatch + upstream forward + timeout)
+// ---------------------------------------------------------------------------
+
+/// Outcome of [`stage_forward_upstream`].
+enum ForwardOutcome {
+    /// Upstream request completed — caller should process the response via
+    /// Stage 6.
+    Completed {
+        upstream_response: UpstreamResponse,
+        cancellation_guard: PendingRequestCancellationGuard,
+    },
+    /// A terminal response has been built (e.g. 504 Gateway Timeout).
+    /// The guard was already disarmed.  The caller should return this response.
+    Response(ProxyResponse),
+    /// Upstream forward failed with an error.  The guard is passed back so the
+    /// caller can disarm it before building the error response.
+    UpstreamError {
+        error: String,
+        cancellation_guard: PendingRequestCancellationGuard,
+    },
+}
+
+/// Forward the request upstream with timeout handling.
+///
+/// If a `local_response` was produced by request rules it is wrapped in
+/// [`ForwardOutcome::Completed`] without making an upstream call.
+async fn stage_forward_upstream(
+    request: &ParsedProxyRequest,
+    local_response: Option<UpstreamResponse>,
+    ctx: &ConnectionContext,
+    mut cancellation_guard: PendingRequestCancellationGuard,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<ForwardOutcome, String> {
+    // --- Forward upstream ---
+    let upstream_result: Result<UpstreamResponse, String> = match local_response {
+        Some(local_response) => Ok(local_response),
+        None => {
+            let host = request.host.clone();
+            let upstream_timeout = crate::upstream_request_timeout();
+            match tokio::time::timeout(
+                upstream_timeout,
+                crate::server::forward_request(
+                    request,
+                    &ctx.dns_manager,
+                    &ctx.workspace_id,
+                    Some(ctx.upstream_pool.clone()),
+                ),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    let timeout_secs = upstream_timeout.as_secs();
+                    let response_message =
+                        format!("The upstream server did not respond within {timeout_secs}s.",);
+                    emit_log(
+                        "WARN",
+                        "upstream_request_timed_out",
+                        &[
+                            ("request_id", request.request_id.clone()),
+                            ("host", host.clone()),
+                            ("url", request.url.to_string()),
+                            ("timeout_secs", timeout_secs.to_string()),
+                        ],
+                    );
+                    let detail = build_session_detail(
+                        request,
+                        StatusCode::GATEWAY_TIMEOUT.as_u16(),
+                        &HeaderMap::new(),
+                        response_message.as_bytes(),
+                        response_message.len(),
+                        started_at,
+                        started_at_instant,
+                        ProxyTimingBreakdown {
+                            connect_ms: None,
+                            dns_ms: None,
+                            request_send_ms: None,
+                            response_read_ms: Some(0),
+                            tls_ms: None,
+                            total_ms: Some(started_at_instant.elapsed().as_millis()),
+                            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                        },
+                        false,
+                    );
+                    let _ = ctx.session_sender.send(detail).await;
+                    cancellation_guard.disarm();
+                    let response = build_plain_text_response(
+                        StatusCode::GATEWAY_TIMEOUT,
+                        &response_message,
+                    )?;
+                    return Ok(ForwardOutcome::Response(response));
+                }
+            }
+        }
+    };
+
+    match upstream_result {
+        Ok(upstream_response) => Ok(ForwardOutcome::Completed {
+            upstream_response,
+            cancellation_guard,
+        }),
+        Err(error) => Ok(ForwardOutcome::UpstreamError {
+            error,
+            cancellation_guard,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6: Process upstream response (rules + session + breakpoint + throttle)
+// ---------------------------------------------------------------------------
+
+/// Apply response rewrite/script rules, build session detail, handle
+/// response-stage breakpoint (Drop/Mock/Forward), apply response throttle,
+/// send the final session, and build the hyper response.
+async fn stage_process_upstream_response(
+    request: &ParsedProxyRequest,
+    mut upstream_response: UpstreamResponse,
+    ctx: &ConnectionContext,
+    is_h2: bool,
+    map_traces: Vec<crate::MapTrace>,
+    mut rewrite_traces: Vec<crate::RewriteTrace>,
+    mut script_traces: Vec<crate::ScriptTrace>,
+    mut throttle_traces: Vec<crate::ThrottleTrace>,
+    throttle_selection: &Option<crate::ThrottleRuntimeSelection>,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+    mut cancellation_guard: PendingRequestCancellationGuard,
+    host: &str,
+) -> Result<ProxyResponse, String> {
+    if upstream_response.body_truncated {
+        emit_log(
+            "WARN",
+            "response_body_passthrough_mode",
+            &[
+                ("request_id", request.request_id.clone()),
+                ("url", request.url.to_string()),
+                (
+                    "reason",
+                    "response body exceeded capture limit; skipping response mutations"
+                        .to_string(),
+                ),
+            ],
+        );
+    } else {
+        let response_rewrite_traces = match apply_response_rewrite_rules(
+            &ctx.rewrite_manager,
+            &ctx.workspace_id,
+            request,
+            &mut upstream_response,
+            is_h2,
+        ) {
+            Ok(traces) => traces,
+            Err(error) => {
+                let response_message = "The proxy could not process the upstream response.";
+                let detail = build_session_detail(
+                    request,
+                    StatusCode::BAD_GATEWAY.as_u16(),
+                    &HeaderMap::new(),
+                    response_message.as_bytes(),
+                    response_message.len(),
+                    started_at,
+                    started_at_instant,
+                    ProxyTimingBreakdown {
+                        connect_ms: Some(upstream_response.connect_ms),
+                        dns_ms: Some(upstream_response.dns_ms),
+                        request_send_ms: Some(upstream_response.request_send_ms),
+                        response_read_ms: Some(upstream_response.response_read_ms),
+                        tls_ms: upstream_response.tls_ms,
+                        total_ms: Some(started_at_instant.elapsed().as_millis()),
+                        waiting_ms: Some(upstream_response.waiting_ms),
+                    },
+                    false,
+                );
+                let _ = ctx.session_sender.send(detail).await;
+                emit_log(
+                    "ERROR",
+                    "response_processing_failed",
+                    &[
+                        ("request_id", request.request_id.clone()),
+                        ("host", host.to_string()),
+                        ("url", request.url.to_string()),
+                        ("error", error),
+                    ],
+                );
+                cancellation_guard.disarm();
+                return build_plain_text_response(StatusCode::BAD_GATEWAY, response_message);
+            }
+        };
+        rewrite_traces.extend(response_rewrite_traces);
+        script_traces.extend(apply_response_script_rules(
+            &ctx.script_manager,
+            &ctx.workspace_id,
+            request,
+            &mut upstream_response,
+        ));
+    }
+
+    let mut session_detail = build_upstream_session_detail(
+        request,
+        &upstream_response,
+        started_at,
+        started_at_instant,
+        map_traces.clone(),
+        rewrite_traces.clone(),
+        script_traces.clone(),
+        throttle_traces.clone(),
+        true,
+    );
+
+    // For h2, add response pseudo header :status.
+    if is_h2 {
+        session_detail.response_headers.insert(
+            0,
+            ProxyHeaderEntry {
+                name: ":status".to_string(),
+                value: upstream_response.status_code.as_u16().to_string(),
+                is_pseudo: Some(true),
+            },
+        );
+    }
+
+    // --- Response-stage breakpoint ---
+    let breakpoint_resolution = if upstream_response.body_truncated {
+        None
+    } else {
+        match intercept_response_stage(
+            &ctx.breakpoint_manager,
+            &ctx.event_emitter,
+            request,
+            upstream_response.status_code.as_u16(),
+            &upstream_response.response_headers,
+            &upstream_response.response_body,
+        )
+        .await
+        {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                let _ = ctx.session_sender.send(session_detail).await;
+                cancellation_guard.disarm();
+                return Err(error);
+            }
+        }
+    };
+
+    if let Some(resolution) = breakpoint_resolution {
+        match resolution.action {
+            BreakpointActionKind::Drop => {
+                let _ = ctx.session_sender.send(session_detail).await;
+                cancellation_guard.disarm();
+                return handle_drop_action(ctx);
+            }
+            BreakpointActionKind::Mock => {
+                if let Some(ref mock) = resolution.mock {
+                    upstream_response = crate::build_mock_upstream_response(mock);
+                    session_detail = build_upstream_session_detail(
+                        request,
+                        &upstream_response,
+                        started_at,
+                        started_at_instant,
+                        map_traces.clone(),
+                        rewrite_traces.clone(),
+                        script_traces.clone(),
+                        throttle_traces.clone(),
+                        false,
+                    );
+                }
+            }
+            BreakpointActionKind::Forward => {
+                crate::apply_response_resolution(&resolution, &mut upstream_response);
+                if resolution.modified_response_body_base64.is_some() {
+                    session_detail = build_upstream_session_detail(
+                        request,
+                        &upstream_response,
+                        started_at,
+                        started_at_instant,
+                        map_traces.clone(),
+                        rewrite_traces.clone(),
+                        script_traces.clone(),
+                        throttle_traces.clone(),
+                        true,
+                    );
+                } else {
+                    if resolution.modified_response_status_code.is_some() {
+                        session_detail.summary.status_code =
+                            upstream_response.status_code.as_u16();
+                    }
+                    if resolution.modified_response_headers.is_some() {
+                        session_detail.response_headers = build_header_entries_from_map(
+                            &upstream_response.response_headers,
+                        );
+                        session_detail.cookies = build_cookie_entries(
+                            &request.request_headers,
+                            &session_detail.response_headers,
+                        );
+                    }
+                    if resolution.modified_response_status_code.is_some()
+                        || resolution.modified_response_headers.is_some()
+                    {
+                        session_detail.raw_response_head = Some(build_raw_http_head(
+                            &format!(
+                                "HTTP/1.1 {} {}",
+                                upstream_response.status_code.as_u16(),
+                                upstream_response
+                                    .status_code
+                                    .canonical_reason()
+                                    .unwrap_or("Unknown"),
+                            ),
+                            &session_detail.response_headers,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Response throttle ---
+    if let Some(selection) = throttle_selection
+        .as_ref()
+        .filter(|s| throttle_selection_matches_stage(s, "response"))
+    {
+        let trace =
+            apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
+        if let Some(manager) = ctx.throttle_manager.as_ref() {
+            manager.record_trace(&trace);
+        }
+        throttle_traces.push(trace);
+        session_detail.throttle_traces = throttle_traces.clone();
+    }
+
+    session_detail.rewrite_traces = rewrite_traces;
+    session_detail.script_traces = script_traces;
+    session_detail.map_traces = map_traces;
+
+    send_session(
+        &ctx.session_sender,
+        session_detail,
+        Vec::new(), // already set above
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await;
+    cancellation_guard.disarm();
+
+    emit_log(
+        "DEBUG",
+        "request_forwarded",
+        &[
+            ("request_id", request.request_id.clone()),
+            ("host", host.to_string()),
+            ("method", request.method.to_string()),
+            (
+                "status_code",
+                upstream_response.status_code.as_u16().to_string(),
+            ),
+            ("url", request.url.to_string()),
+        ],
+    );
+
+    // If the upstream response is spooled to disk, read it back into memory
+    // for the hyper response body.
+    let response_body = if let Some(ref spool_path) = upstream_response.spooled_response_path {
+        tokio::fs::read(spool_path)
+            .await
+            .map_err(|e| format!("read spooled response: {e}"))?
+    } else {
+        upstream_response.response_body.clone()
+    };
+
+    build_hyper_response_from_upstream(
+        upstream_response.status_code,
+        &upstream_response.response_headers,
+        &response_body,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Core request handler
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn handle_http_request(
+    req: hyper::Request<hyper::body::Incoming>,
+    ctx: &ConnectionContext,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<ProxyResponse, String> {
+    // --- Stage 1: Parse request ---
+    let ParsedRequest {
+        mut request,
+        ws_on_upgrade,
+    } = stage_parse_request(req, ctx).await?;
+
+    let host = request.host.clone();
+    let is_h2 = ctx.mode.is_h2();
+
+    // --- Stage 2: Apply request rules ---
+    let RequestRulesResult {
+        local_response,
+        map_traces,
+        rewrite_traces,
+        script_traces,
+        throttle_selection,
+    } = stage_apply_request_rules(ctx, &mut request, is_h2)?;
+
+    // --- Stage 3: Request-stage breakpoint ---
+    let (map_traces, rewrite_traces, script_traces, mut throttle_traces) =
+        match stage_intercept_request_breakpoint(
+            ctx,
+            &request,
+            is_h2,
+            &throttle_selection,
+            map_traces,
+            rewrite_traces,
+            script_traces,
+            started_at,
+            started_at_instant,
+        )
+        .await?
+        {
+            BreakpointRequestOutcome::Drop(response) => return Ok(response),
+            BreakpointRequestOutcome::Mock(response) => return Ok(response),
+            BreakpointRequestOutcome::Forward {
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            } => (map_traces, rewrite_traces, script_traces, throttle_traces),
+        };
+
+    // --- Stage 4: Pending session + request throttle ---
+    let mut cancellation_guard = match stage_send_pending_and_throttle(
+        ctx,
+        &request,
+        &throttle_selection,
+        &map_traces,
+        &mut throttle_traces,
+        started_at,
+        started_at_instant,
+    )
+    .await?
+    {
+        PendingThrottleOutcome::ThrottleFailed { response, mut guard } => {
+            guard.disarm();
+            return Ok(response);
+        }
+        PendingThrottleOutcome::Proceed { guard } => guard,
+    };
+
+    // --- Stage 5a: WebSocket upgrade (after full request-stage pipeline) ---
     // Only enter WS relay if no local response was produced by rules.
     if let Some(on_upgrade) = ws_on_upgrade {
         if local_response.is_none() {
@@ -1088,321 +1675,24 @@ pub(crate) async fn handle_http_request(
         // local_response is set — fall through to normal response handling below.
     }
 
-    // --- Forward upstream ---
-    let upstream_result: Result<UpstreamResponse, String> = match local_response {
-        Some(local_response) => Ok(local_response),
-        None => {
-            let upstream_timeout = crate::upstream_request_timeout();
-            match tokio::time::timeout(
-                upstream_timeout,
-                crate::server::forward_request(
-                    &request,
-                    &ctx.dns_manager,
-                    &ctx.workspace_id,
-                    Some(ctx.upstream_pool.clone()),
-                ),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    let timeout_secs = upstream_timeout.as_secs();
-                    let response_message =
-                        format!("The upstream server did not respond within {timeout_secs}s.",);
-                    emit_log(
-                        "WARN",
-                        "upstream_request_timed_out",
-                        &[
-                            ("request_id", request.request_id.clone()),
-                            ("host", host.clone()),
-                            ("url", request.url.to_string()),
-                            ("timeout_secs", timeout_secs.to_string()),
-                        ],
-                    );
-                    let detail = build_session_detail(
-                        &request,
-                        StatusCode::GATEWAY_TIMEOUT.as_u16(),
-                        &HeaderMap::new(),
-                        response_message.as_bytes(),
-                        response_message.len(),
-                        started_at,
-                        started_at_instant,
-                        ProxyTimingBreakdown {
-                            connect_ms: None,
-                            dns_ms: None,
-                            request_send_ms: None,
-                            response_read_ms: Some(0),
-                            tls_ms: None,
-                            total_ms: Some(started_at_instant.elapsed().as_millis()),
-                            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                        },
-                        false,
-                    );
-                    let _ = ctx.session_sender.send(detail).await;
-                    cancellation_guard.disarm();
-                    return build_plain_text_response(
-                        StatusCode::GATEWAY_TIMEOUT,
-                        &response_message,
-                    );
-                }
-            }
-        }
-    };
-
-    match upstream_result {
-        Ok(mut upstream_response) => {
-            if upstream_response.body_truncated {
-                emit_log(
-                    "WARN",
-                    "response_body_passthrough_mode",
-                    &[
-                        ("request_id", request.request_id.clone()),
-                        ("url", request.url.to_string()),
-                        (
-                            "reason",
-                            "response body exceeded capture limit; skipping response mutations"
-                                .to_string(),
-                        ),
-                    ],
-                );
-            } else {
-                let response_rewrite_traces = match apply_response_rewrite_rules(
-                    &ctx.rewrite_manager,
-                    &ctx.workspace_id,
-                    &request,
-                    &mut upstream_response,
-                    is_h2,
-                ) {
-                    Ok(traces) => traces,
-                    Err(error) => {
-                        let response_message =
-                            "The proxy could not process the upstream response.";
-                        let detail = build_session_detail(
-                            &request,
-                            StatusCode::BAD_GATEWAY.as_u16(),
-                            &HeaderMap::new(),
-                            response_message.as_bytes(),
-                            response_message.len(),
-                            started_at,
-                            started_at_instant,
-                            ProxyTimingBreakdown {
-                                connect_ms: Some(upstream_response.connect_ms),
-                                dns_ms: Some(upstream_response.dns_ms),
-                                request_send_ms: Some(upstream_response.request_send_ms),
-                                response_read_ms: Some(upstream_response.response_read_ms),
-                                tls_ms: upstream_response.tls_ms,
-                                total_ms: Some(started_at_instant.elapsed().as_millis()),
-                                waiting_ms: Some(upstream_response.waiting_ms),
-                            },
-                            false,
-                        );
-                        let _ = ctx.session_sender.send(detail).await;
-                        emit_log(
-                            "ERROR",
-                            "response_processing_failed",
-                            &[
-                                ("request_id", request.request_id.clone()),
-                                ("host", host.clone()),
-                                ("url", request.url.to_string()),
-                                ("error", error),
-                            ],
-                        );
-                        cancellation_guard.disarm();
-                        return build_plain_text_response(StatusCode::BAD_GATEWAY, response_message);
-                    }
-                };
-                rewrite_traces.extend(response_rewrite_traces);
-                script_traces.extend(apply_response_script_rules(
-                    &ctx.script_manager,
-                    &ctx.workspace_id,
-                    &request,
-                    &mut upstream_response,
-                ));
-            }
-
-            let mut session_detail = build_upstream_session_detail(
-                &request,
-                &upstream_response,
-                started_at,
-                started_at_instant,
-                map_traces.clone(),
-                rewrite_traces.clone(),
-                script_traces.clone(),
-                throttle_traces.clone(),
-                true,
-            );
-
-            // For h2, add response pseudo header :status.
-            if is_h2 {
-                session_detail.response_headers.insert(
-                    0,
-                    ProxyHeaderEntry {
-                        name: ":status".to_string(),
-                        value: upstream_response.status_code.as_u16().to_string(),
-                        is_pseudo: Some(true),
-                    },
-                );
-            }
-
-            // --- Response-stage breakpoint ---
-            let breakpoint_resolution = if upstream_response.body_truncated {
-                None
-            } else {
-                match intercept_response_stage(
-                    &ctx.breakpoint_manager,
-                    &ctx.event_emitter,
-                    &request,
-                    upstream_response.status_code.as_u16(),
-                    &upstream_response.response_headers,
-                    &upstream_response.response_body,
-                )
-                .await
-                {
-                    Ok(resolution) => resolution,
-                    Err(error) => {
-                        let _ = ctx.session_sender.send(session_detail).await;
-                        cancellation_guard.disarm();
-                        return Err(error);
-                    }
-                }
-            };
-
-            if let Some(resolution) = breakpoint_resolution {
-                match resolution.action {
-                    BreakpointActionKind::Drop => {
-                        let _ = ctx.session_sender.send(session_detail).await;
-                        cancellation_guard.disarm();
-                        return handle_drop_action(ctx);
-                    }
-                    BreakpointActionKind::Mock => {
-                        if let Some(ref mock) = resolution.mock {
-                            upstream_response = crate::build_mock_upstream_response(mock);
-                            session_detail = build_upstream_session_detail(
-                                &request,
-                                &upstream_response,
-                                started_at,
-                                started_at_instant,
-                                map_traces.clone(),
-                                rewrite_traces.clone(),
-                                script_traces.clone(),
-                                throttle_traces.clone(),
-                                false,
-                            );
-                        }
-                    }
-                    BreakpointActionKind::Forward => {
-                        crate::apply_response_resolution(&resolution, &mut upstream_response);
-                        if resolution.modified_response_body_base64.is_some() {
-                            session_detail = build_upstream_session_detail(
-                                &request,
-                                &upstream_response,
-                                started_at,
-                                started_at_instant,
-                                map_traces.clone(),
-                                rewrite_traces.clone(),
-                                script_traces.clone(),
-                                throttle_traces.clone(),
-                                true,
-                            );
-                        } else {
-                            if resolution.modified_response_status_code.is_some() {
-                                session_detail.summary.status_code =
-                                    upstream_response.status_code.as_u16();
-                            }
-                            if resolution.modified_response_headers.is_some() {
-                                session_detail.response_headers = build_header_entries_from_map(
-                                    &upstream_response.response_headers,
-                                );
-                                session_detail.cookies = build_cookie_entries(
-                                    &request.request_headers,
-                                    &session_detail.response_headers,
-                                );
-                            }
-                            if resolution.modified_response_status_code.is_some()
-                                || resolution.modified_response_headers.is_some()
-                            {
-                                session_detail.raw_response_head = Some(build_raw_http_head(
-                                    &format!(
-                                        "HTTP/1.1 {} {}",
-                                        upstream_response.status_code.as_u16(),
-                                        upstream_response
-                                            .status_code
-                                            .canonical_reason()
-                                            .unwrap_or("Unknown"),
-                                    ),
-                                    &session_detail.response_headers,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- Response throttle ---
-            if let Some(selection) = throttle_selection
-                .as_ref()
-                .filter(|s| throttle_selection_matches_stage(s, "response"))
-            {
-                let trace =
-                    apply_response_throttle(selection, upstream_response.response_body_size_bytes)
-                        .await;
-                if let Some(manager) = ctx.throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
-                }
-                throttle_traces.push(trace);
-                session_detail.throttle_traces = throttle_traces.clone();
-            }
-
-            session_detail.rewrite_traces = rewrite_traces;
-            session_detail.script_traces = script_traces;
-            session_detail.map_traces = map_traces;
-
-            send_session(
-                &ctx.session_sender,
-                session_detail,
-                Vec::new(), // already set above
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            )
-            .await;
+    // --- Stage 5b: Forward upstream ---
+    let (upstream_response, cancellation_guard) = match stage_forward_upstream(
+        &request,
+        local_response,
+        ctx,
+        cancellation_guard,
+        started_at,
+        started_at_instant,
+    )
+    .await?
+    {
+        ForwardOutcome::Response(response) => return Ok(response),
+        ForwardOutcome::UpstreamError {
+            error,
+            mut cancellation_guard,
+        } => {
             cancellation_guard.disarm();
-
-            emit_log(
-                "DEBUG",
-                "request_forwarded",
-                &[
-                    ("request_id", request.request_id.clone()),
-                    ("host", host.clone()),
-                    ("method", request.method.to_string()),
-                    (
-                        "status_code",
-                        upstream_response.status_code.as_u16().to_string(),
-                    ),
-                    ("url", request.url.to_string()),
-                ],
-            );
-
-            // If the upstream response is spooled to disk, read it back into memory
-            // for the hyper response body.
-            let response_body =
-                if let Some(ref spool_path) = upstream_response.spooled_response_path {
-                    tokio::fs::read(spool_path)
-                        .await
-                        .map_err(|e| format!("read spooled response: {e}"))?
-                } else {
-                    upstream_response.response_body.clone()
-                };
-
-            build_hyper_response_from_upstream(
-                upstream_response.status_code,
-                &upstream_response.response_headers,
-                &response_body,
-            )
-        }
-        Err(error) => {
-            cancellation_guard.disarm();
-            build_upstream_error_response_and_session(
+            return build_upstream_error_response_and_session(
                 &request,
                 &host,
                 &error,
@@ -1410,9 +1700,31 @@ pub(crate) async fn handle_http_request(
                 started_at,
                 started_at_instant,
             )
-            .await
+            .await;
         }
-    }
+        ForwardOutcome::Completed {
+            upstream_response,
+            cancellation_guard,
+        } => (upstream_response, cancellation_guard),
+    };
+
+    // --- Stage 6: Process upstream response ---
+    stage_process_upstream_response(
+        &request,
+        upstream_response,
+        ctx,
+        is_h2,
+        map_traces,
+        rewrite_traces,
+        script_traces,
+        throttle_traces,
+        &throttle_selection,
+        started_at,
+        started_at_instant,
+        cancellation_guard,
+        &host,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
