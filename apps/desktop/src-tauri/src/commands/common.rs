@@ -78,3 +78,53 @@ where
         .await
         .map_err(|error| format!("{command_name} blocking task failed: {error}"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_error_produces_valid_json_with_code_and_message() {
+        let result = app_error("TEST_CODE", "Something went wrong");
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid JSON");
+
+        assert_eq!(parsed["code"], "TEST_CODE");
+        assert_eq!(parsed["message"], "Something went wrong");
+        assert!(parsed.get("details").is_none(), "no details field expected");
+    }
+
+    #[test]
+    fn app_error_accepts_string_expression() {
+        let result = app_error(ERR_PROXY_NOT_RUNNING, format!("Port {} is in use", 8080));
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid JSON");
+
+        assert_eq!(parsed["code"], "PROXY_NOT_RUNNING");
+        assert_eq!(parsed["message"], "Port 8080 is in use");
+    }
+
+    #[test]
+    fn app_error_with_details_includes_details_object() {
+        let result = app_error_with_details(
+            "NOT_FOUND",
+            "Resource missing",
+            serde_json::json!({ "resourceId": "abc-123" }),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid JSON");
+
+        assert_eq!(parsed["code"], "NOT_FOUND");
+        assert_eq!(parsed["message"], "Resource missing");
+        assert_eq!(parsed["details"]["resourceId"], "abc-123");
+    }
+
+    #[test]
+    fn app_error_format_matches_frontend_coerce_app_error() {
+        // The frontend coerceAppError expects JSON strings with code + message.
+        // Verify the output is parseable by simulating the frontend logic.
+        let error = app_error("INVALID_INPUT", "Bad request");
+        let parsed: serde_json::Value = serde_json::from_str(&error).unwrap();
+
+        // Frontend checks: isAppError → has string code + string message
+        assert!(parsed.get("code").and_then(|v| v.as_str()).is_some());
+        assert!(parsed.get("message").and_then(|v| v.as_str()).is_some());
+    }
+}
