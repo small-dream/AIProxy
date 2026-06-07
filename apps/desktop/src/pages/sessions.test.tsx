@@ -100,6 +100,7 @@ vi.mock("@/services/events", () => ({
 }));
 
 vi.mock("@/services/commands", () => ({
+  isCapturedSessionNotFoundError: () => false,
   setFocusedHosts: () => Promise.resolve(),
 }));
 

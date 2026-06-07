@@ -55,6 +55,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Check frontend formatting
+        run: |
+          pnpm --filter @aiproxy/desktop format:check
+          pnpm --filter @aiproxy/shared-types format:check
+
       - name: Typecheck
         run: pnpm typecheck
 

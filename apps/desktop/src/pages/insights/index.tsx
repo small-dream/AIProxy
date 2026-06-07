@@ -529,7 +529,7 @@ export function InsightsPage() {
     debounceTimerRef.current = setTimeout(() => {
       setDebouncedDomain(value);
     }, 300);
-  }, []);
+  }, [setDomainFilter]);
 
   const applyImmediateDomainFilter = useCallback((value: string) => {
     if (debounceTimerRef.current) {
@@ -539,49 +539,55 @@ export function InsightsPage() {
 
     setDomainFilter(value);
     setDebouncedDomain(value);
-  }, []);
+  }, [setDomainFilter]);
 
-  const handleFilterHost = useCallback((host: string) => {
-    const trimmedHost = host.trim();
+  const handleFilterHost = useCallback(
+    (host: string) => {
+      const trimmedHost = host.trim();
 
-    if (!trimmedHost) {
-      return;
-    }
+      if (!trimmedHost) {
+        return;
+      }
 
-    setHostExact(trimmedHost);
-    setExcludedHosts(
-      excludedHosts.filter(
-        (currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost),
-      ),
-    );
-  }, []);
+      setHostExact(trimmedHost);
+      setExcludedHosts(
+        excludedHosts.filter(
+          (currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost),
+        ),
+      );
+    },
+    [setHostExact, setExcludedHosts, excludedHosts],
+  );
 
   const handleFilterSelectedHostText = useCallback(
     (value: string) => {
       applyImmediateDomainFilter(value.trim());
       setHostExact(null);
     },
-    [applyImmediateDomainFilter],
+    [applyImmediateDomainFilter, setHostExact],
   );
 
-  const handleExcludeHost = useCallback((host: string) => {
-    const trimmedHost = host.trim();
+  const handleExcludeHost = useCallback(
+    (host: string) => {
+      const trimmedHost = host.trim();
 
-    if (!trimmedHost) {
-      return;
-    }
+      if (!trimmedHost) {
+        return;
+      }
 
-    setHostExact(
-      normalizeHostValue(hostExact ?? "") === normalizeHostValue(trimmedHost) ? null : hostExact,
-    );
-    setExcludedHosts(
-      excludedHosts.some(
-        (currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost),
-      )
-        ? excludedHosts
-        : [...excludedHosts, trimmedHost],
-    );
-  }, []);
+      setHostExact(
+        normalizeHostValue(hostExact ?? "") === normalizeHostValue(trimmedHost) ? null : hostExact,
+      );
+      setExcludedHosts(
+        excludedHosts.some(
+          (currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost),
+        )
+          ? excludedHosts
+          : [...excludedHosts, trimmedHost],
+      );
+    },
+    [setHostExact, setExcludedHosts, hostExact, excludedHosts],
+  );
 
   const handleCopyHost = useCallback(
     (host: string) => {

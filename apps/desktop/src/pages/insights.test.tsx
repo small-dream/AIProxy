@@ -161,7 +161,7 @@ describe("InsightsPage host filters", () => {
     });
     fireEvent.click(await screen.findByText("Show requests for this host"));
 
-    expect(mockNavigate).toHaveBeenCalledWith("/sessions", {
+    expect(mockNavigate).toHaveBeenCalledWith("/", {
       state: {
         sessionHostFilter: {
           host: "api.example.com",
