@@ -13,15 +13,9 @@ import {
   type ThrottleSessionTrace,
 } from "@aiproxy/shared-types";
 
-import {
-  getImportedSessionDetail,
-} from "@/features/sessions/imported-sessions.store";
+import { getImportedSessionDetail } from "@/features/sessions/imported-sessions.store";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-  shouldFallbackToLocalStore,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure, shouldFallbackToLocalStore } from "./runtime";
 
 const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 const THROTTLE_RULES_STORAGE_KEY = "aiproxy.throttle.rules";
@@ -108,7 +102,9 @@ function createDefaultThrottleProfiles(workspaceId: string): ThrottleProfile[] {
 // Workspace commands
 // ---------------------------------------------------------------------------
 
-export async function listThrottleProfiles(workspaceId = DEFAULT_WORKSPACE_ID): Promise<ThrottleProfile[]> {
+export async function listThrottleProfiles(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Promise<ThrottleProfile[]> {
   if (isTauriRuntime()) {
     try {
       const payload = await invoke<unknown>("list_throttle_profiles", {
@@ -163,9 +159,10 @@ export async function saveThrottleProfile(
   };
   const nextProfiles = upsertStoredEntity(profiles, nextProfile).map((profile) => ({
     ...profile,
-    enabled: nextProfile.enabled && profile.workspaceId === nextProfile.workspaceId
-      ? profile.id === nextProfile.id
-      : profile.enabled,
+    enabled:
+      nextProfile.enabled && profile.workspaceId === nextProfile.workspaceId
+        ? profile.id === nextProfile.id
+        : profile.enabled,
   }));
 
   writeStoredRules(THROTTLE_PROFILES_STORAGE_KEY, nextProfiles);
@@ -173,7 +170,9 @@ export async function saveThrottleProfile(
   return nextProfiles.find((profile) => profile.id === nextProfile.id) ?? nextProfile;
 }
 
-export async function listThrottleRules(workspaceId = DEFAULT_WORKSPACE_ID): Promise<ThrottleRule[]> {
+export async function listThrottleRules(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Promise<ThrottleRule[]> {
   if (isTauriRuntime()) {
     try {
       const payload = await invoke<unknown>("list_throttle_rules", {
@@ -190,8 +189,9 @@ export async function listThrottleRules(workspaceId = DEFAULT_WORKSPACE_ID): Pro
     }
   }
 
-  return readStoredRules(THROTTLE_RULES_STORAGE_KEY, parseThrottleRules)
-    .filter((rule) => rule.workspaceId === workspaceId);
+  return readStoredRules(THROTTLE_RULES_STORAGE_KEY, parseThrottleRules).filter(
+    (rule) => rule.workspaceId === workspaceId,
+  );
 }
 
 export async function saveThrottleRule(
@@ -243,7 +243,9 @@ export async function deleteThrottleRule(ruleId: string): Promise<void> {
 
   writeStoredRules(
     THROTTLE_RULES_STORAGE_KEY,
-    readStoredRules(THROTTLE_RULES_STORAGE_KEY, parseThrottleRules).filter((rule) => rule.id !== ruleId),
+    readStoredRules(THROTTLE_RULES_STORAGE_KEY, parseThrottleRules).filter(
+      (rule) => rule.id !== ruleId,
+    ),
   );
 }
 
@@ -333,14 +335,18 @@ export async function listThrottleSessionTrace(sessionId: string): Promise<Throt
   return [];
 }
 
-export async function listThrottledSessionIds(workspaceId = DEFAULT_WORKSPACE_ID): Promise<string[]> {
+export async function listThrottledSessionIds(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Promise<string[]> {
   if (isTauriRuntime()) {
     try {
       const payload = await invoke<unknown>("list_throttled_session_ids", {
         input: { workspaceId },
       });
 
-      return Array.isArray(payload) ? payload.filter((id): id is string => typeof id === "string") : [];
+      return Array.isArray(payload)
+        ? payload.filter((id): id is string => typeof id === "string")
+        : [];
     } catch (error) {
       reportCommandFailure("list_throttled_session_ids", error, workspaceId);
 

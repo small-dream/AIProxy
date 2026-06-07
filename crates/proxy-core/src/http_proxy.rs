@@ -159,24 +159,21 @@ async fn handle_ws_upgrade_via_hyper(
     });
 
     // Resolve DNS override.
-    let connect_host = match crate::resolve_dns_override(
-        &ctx.dns_manager,
-        &ctx.workspace_id,
-        &request.host,
-    ) {
-        Some(ip) => {
-            emit_log(
-                "INFO",
-                "dns_override_ws",
-                &[
-                    ("host", request.host.clone()),
-                    ("override_ip", ip.to_string()),
-                ],
-            );
-            ip.to_string()
-        }
-        None => request.host.clone(),
-    };
+    let connect_host =
+        match crate::resolve_dns_override(&ctx.dns_manager, &ctx.workspace_id, &request.host) {
+            Some(ip) => {
+                emit_log(
+                    "INFO",
+                    "dns_override_ws",
+                    &[
+                        ("host", request.host.clone()),
+                        ("override_ip", ip.to_string()),
+                    ],
+                );
+                ip.to_string()
+            }
+            None => request.host.clone(),
+        };
     let connect_host_port = format!("{connect_host}:{port}");
 
     emit_log(
@@ -364,8 +361,7 @@ async fn handle_ws_upgrade_via_hyper(
         ConnectionMode::PlainHttp => "ws".to_string(),
         ConnectionMode::MitmHttps { .. } => "wss".to_string(),
     };
-    let protocol_metadata =
-        infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
+    let protocol_metadata = infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
     detail.summary.scheme = protocol_metadata.scheme;
     detail.summary.http_version = protocol_metadata.http_version;
     detail.summary.transport_protocol = protocol_metadata.transport_protocol;
@@ -393,9 +389,7 @@ async fn handle_ws_upgrade_via_hyper(
         // of leaving the pending session stuck or creating a duplicate.
         let body_bytes = bytes::Bytes::copy_from_slice(leftover_bytes.as_slice());
         let mut builder = hyper::Response::builder()
-            .status(
-                StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_GATEWAY),
-            )
+            .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_GATEWAY))
             .header("Content-Length", body_bytes.len());
         for (name, value) in &upstream_headers {
             if name.eq_ignore_ascii_case("connection")
@@ -406,12 +400,11 @@ async fn handle_ws_upgrade_via_hyper(
             }
             builder = builder.header(name.as_str(), value.as_str());
         }
-        let response = match builder
-            .body(
-                http_body_util::Full::new(body_bytes)
-                    .map_err(|_: std::convert::Infallible| unreachable!())
-                    .boxed(),
-            ) {
+        let response = match builder.body(
+            http_body_util::Full::new(body_bytes)
+                .map_err(|_: std::convert::Infallible| unreachable!())
+                .boxed(),
+        ) {
             Ok(r) => r,
             Err(e) => {
                 let error = format!("failed to build upstream error response: {e}");
@@ -458,19 +451,17 @@ async fn handle_ws_upgrade_via_hyper(
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .header("connection", "upgrade");
     for (name, value) in &upstream_headers {
-        if name.eq_ignore_ascii_case("connection")
-            || name.eq_ignore_ascii_case("transfer-encoding")
+        if name.eq_ignore_ascii_case("connection") || name.eq_ignore_ascii_case("transfer-encoding")
         {
             continue;
         }
         response_builder = response_builder.header(name.as_str(), value.as_str());
     }
-    let ws_response = match response_builder
-        .body(
-            http_body_util::Empty::<bytes::Bytes>::new()
-                .map_err(|_: std::convert::Infallible| unreachable!())
-                .boxed(),
-        ) {
+    let ws_response = match response_builder.body(
+        http_body_util::Empty::<bytes::Bytes>::new()
+            .map_err(|_: std::convert::Infallible| unreachable!())
+            .boxed(),
+    ) {
         Ok(r) => r,
         Err(e) => {
             let error = format!("failed to build 101 response: {e}");
@@ -516,10 +507,7 @@ async fn handle_ws_upgrade_via_hyper(
                 emit_log(
                     "ERROR",
                     "ws_hyper_on_upgrade_failed",
-                    &[
-                        ("request_id", request_id.clone()),
-                        ("error", e.to_string()),
-                    ],
+                    &[("request_id", request_id.clone()), ("error", e.to_string())],
                 );
                 registry.mark_closed(&session_id_for_relay);
                 registry.unregister(&session_id_for_relay);
@@ -548,9 +536,7 @@ async fn handle_ws_upgrade_via_hyper(
 
 /// Parse an HTTP response head string into a status code and header list.
 /// Input: "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n...\r\n\r\n"
-fn parse_upstream_response_head(
-    head: &str,
-) -> Result<(u16, Vec<(String, String)>), String> {
+fn parse_upstream_response_head(head: &str) -> Result<(u16, Vec<(String, String)>), String> {
     let mut lines = head.lines();
     let status_line = lines.next().unwrap_or("");
 
@@ -845,15 +831,12 @@ async fn stage_parse_request(
         .headers()
         .get("upgrade")
         .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
-        && req
-            .headers()
-            .get("connection")
-            .is_some_and(|v| {
-                v.to_str()
-                    .unwrap_or("")
-                    .to_ascii_lowercase()
-                    .contains("upgrade")
-            });
+        && req.headers().get("connection").is_some_and(|v| {
+            v.to_str()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("upgrade")
+        });
 
     let mut req = req;
     let ws_on_upgrade = if is_ws_upgrade {
@@ -915,11 +898,8 @@ fn stage_apply_request_rules(
     let mut script_traces = Vec::new();
 
     if local_response.is_none() {
-        let script_outcome = apply_request_script_rules(
-            &ctx.script_manager,
-            &ctx.workspace_id,
-            request,
-        );
+        let script_outcome =
+            apply_request_script_rules(&ctx.script_manager, &ctx.workspace_id, request);
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
@@ -974,9 +954,12 @@ async fn stage_intercept_request_breakpoint(
 
     // Clone request mutably for intercept_request_stage (needs &mut).
     let mut request_mut = request.clone();
-    let resolution =
-        intercept_request_stage(&ctx.breakpoint_manager, &ctx.event_emitter, &mut request_mut)
-            .await?;
+    let resolution = intercept_request_stage(
+        &ctx.breakpoint_manager,
+        &ctx.event_emitter,
+        &mut request_mut,
+    )
+    .await?;
     let Some(resolution) = resolution else {
         return Ok(BreakpointRequestOutcome::Forward {
             map_traces,
@@ -1272,10 +1255,8 @@ async fn stage_forward_upstream(
                     );
                     let _ = ctx.session_sender.send(detail).await;
                     cancellation_guard.disarm();
-                    let response = build_plain_text_response(
-                        StatusCode::GATEWAY_TIMEOUT,
-                        &response_message,
-                    )?;
+                    let response =
+                        build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, &response_message)?;
                     return Ok(ForwardOutcome::Response(response));
                 }
             }
@@ -1326,8 +1307,7 @@ async fn stage_process_upstream_response(
                 ("url", request.url.to_string()),
                 (
                     "reason",
-                    "response body exceeded capture limit; skipping response mutations"
-                        .to_string(),
+                    "response body exceeded capture limit; skipping response mutations".to_string(),
                 ),
             ],
         );
@@ -1471,13 +1451,11 @@ async fn stage_process_upstream_response(
                     );
                 } else {
                     if resolution.modified_response_status_code.is_some() {
-                        session_detail.summary.status_code =
-                            upstream_response.status_code.as_u16();
+                        session_detail.summary.status_code = upstream_response.status_code.as_u16();
                     }
                     if resolution.modified_response_headers.is_some() {
-                        session_detail.response_headers = build_header_entries_from_map(
-                            &upstream_response.response_headers,
-                        );
+                        session_detail.response_headers =
+                            build_header_entries_from_map(&upstream_response.response_headers);
                         session_detail.cookies = build_cookie_entries(
                             &request.request_headers,
                             &session_detail.response_headers,
@@ -1629,7 +1607,10 @@ pub(crate) async fn handle_http_request(
     )
     .await?
     {
-        PendingThrottleOutcome::ThrottleFailed { response, mut guard } => {
+        PendingThrottleOutcome::ThrottleFailed {
+            response,
+            mut guard,
+        } => {
             guard.disarm();
             return Ok(response);
         }
@@ -1751,10 +1732,13 @@ fn build_url_from_hyper(
     match mode {
         ConnectionMode::PlainHttp => {
             let uri_str = parts.uri.to_string();
-            if uri_str.starts_with("http://") || uri_str.starts_with("https://") || uri_str.starts_with("ws://") || uri_str.starts_with("wss://") {
+            if uri_str.starts_with("http://")
+                || uri_str.starts_with("https://")
+                || uri_str.starts_with("ws://")
+                || uri_str.starts_with("wss://")
+            {
                 // absolute-form — use as-is
-                Url::parse(&uri_str)
-                    .map_err(|e| format!("invalid absolute-form URL: {e}"))
+                Url::parse(&uri_str).map_err(|e| format!("invalid absolute-form URL: {e}"))
             } else {
                 // origin-form — reconstruct from Host header
                 let host = parts
@@ -1773,11 +1757,7 @@ fn build_url_from_hyper(
         } => {
             if alpn_protocol.as_deref() == Some("h2") {
                 // h2: :authority + :path pseudo-headers
-                let authority = parts
-                    .uri
-                    .authority()
-                    .map(|a| a.as_str())
-                    .unwrap_or(host);
+                let authority = parts.uri.authority().map(|a| a.as_str()).unwrap_or(host);
                 let path = parts
                     .uri
                     .path_and_query()
@@ -1788,7 +1768,11 @@ fn build_url_from_hyper(
             } else {
                 // h1 MITM: URI may be absolute-form or origin-form
                 let uri_str = parts.uri.to_string();
-                let target = if uri_str.starts_with("http://") || uri_str.starts_with("https://") || uri_str.starts_with("ws://") || uri_str.starts_with("wss://") {
+                let target = if uri_str.starts_with("http://")
+                    || uri_str.starts_with("https://")
+                    || uri_str.starts_with("ws://")
+                    || uri_str.starts_with("wss://")
+                {
                     uri_str
                 } else if uri_str.starts_with('/') {
                     // origin-form — host priority: URI authority > Host header > CONNECT host
@@ -1947,12 +1931,8 @@ fn handle_drop_action(
     ctx: &ConnectionContext,
 ) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
     match ctx.mode {
-        ConnectionMode::PlainHttp => {
-            Err("request dropped by breakpoint".to_string())
-        }
-        ConnectionMode::MitmHttps { .. } => {
-            Ok(build_empty_response(StatusCode::NO_CONTENT))
-        }
+        ConnectionMode::PlainHttp => Err("request dropped by breakpoint".to_string()),
+        ConnectionMode::MitmHttps { .. } => Ok(build_empty_response(StatusCode::NO_CONTENT)),
     }
 }
 
@@ -2219,15 +2199,15 @@ mod tests {
         );
         let (status, headers) = parse_upstream_response_head(head).unwrap();
         assert_eq!(status, 101);
-        assert!(headers.iter().any(|(n, v)| {
-            n.eq_ignore_ascii_case("upgrade") && v == "websocket"
-        }));
+        assert!(headers
+            .iter()
+            .any(|(n, v)| { n.eq_ignore_ascii_case("upgrade") && v == "websocket" }));
         assert!(headers
             .iter()
             .any(|(n, _)| n.eq_ignore_ascii_case("sec-websocket-accept")));
-        assert!(headers.iter().any(|(n, v)| {
-            n.eq_ignore_ascii_case("sec-websocket-protocol") && v == "chat"
-        }));
+        assert!(headers
+            .iter()
+            .any(|(n, v)| { n.eq_ignore_ascii_case("sec-websocket-protocol") && v == "chat" }));
     }
 
     #[test]
@@ -2268,22 +2248,13 @@ mod tests {
     fn converts_header_pairs_to_header_map() {
         let pairs = vec![
             ("upgrade".to_string(), "websocket".to_string()),
-            (
-                "sec-websocket-accept".to_string(),
-                "abc123==".to_string(),
-            ),
+            ("sec-websocket-accept".to_string(), "abc123==".to_string()),
         ];
         let map = ws_headers_to_header_map(&pairs);
         assert_eq!(map.len(), 2);
+        assert_eq!(map.get("upgrade").unwrap().to_str().unwrap(), "websocket");
         assert_eq!(
-            map.get("upgrade").unwrap().to_str().unwrap(),
-            "websocket"
-        );
-        assert_eq!(
-            map.get("sec-websocket-accept")
-                .unwrap()
-                .to_str()
-                .unwrap(),
+            map.get("sec-websocket-accept").unwrap().to_str().unwrap(),
             "abc123=="
         );
     }

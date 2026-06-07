@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  Box,
-  Stack,
-  Tab,
-  Tabs,
-  Typography,
-} from "@mui/material";
+import { Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
 
@@ -21,7 +15,11 @@ export function MobileDeviceGuide() {
       : tList("certificatesPage.mobile.androidSteps");
 
   return (
-    <SectionCard compact title={t("certificatesPage.mobile.setupGuide")} description={t("certificatesPage.mobile.sectionDescription")}>
+    <SectionCard
+      compact
+      title={t("certificatesPage.mobile.setupGuide")}
+      description={t("certificatesPage.mobile.sectionDescription")}
+    >
       <Stack spacing={1.25}>
         <Tabs
           value={activeTab}
@@ -32,10 +30,15 @@ export function MobileDeviceGuide() {
           <Tab label={t("certificatesPage.mobile.android")} value="android" />
         </Tabs>
 
-        <Box component="ol" sx={{ maxHeight: { xl: 300 }, overflow: "auto", pl: 2.25, pr: 1, m: 0 }}>
+        <Box
+          component="ol"
+          sx={{ maxHeight: { xl: 300 }, overflow: "auto", pl: 2.25, pr: 1, m: 0 }}
+        >
           {guideSteps.map((step, index) => (
             <li key={`${activeTab}-${index}`}>
-              <Typography variant="body2" sx={{ fontSize: 13, mb: 0.85 }}>{step}</Typography>
+              <Typography variant="body2" sx={{ fontSize: 13, mb: 0.85 }}>
+                {step}
+              </Typography>
             </li>
           ))}
         </Box>

@@ -8,15 +8,9 @@ import {
   type SessionDetail,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function sendComposedRequest(input: ComposedRequestInput): Promise<SessionDetail> {
   if (!isTauriRuntime()) {
@@ -25,7 +19,10 @@ export async function sendComposedRequest(input: ComposedRequestInput): Promise<
   }
 
   try {
-    logDevInfo("ui.commands", "send_composed_request_requested", { url: input.url, method: input.method });
+    logDevInfo("ui.commands", "send_composed_request_requested", {
+      url: input.url,
+      method: input.method,
+    });
     const payload = await invoke<unknown>("send_composed_request", { input });
     const detail = parseSessionDetail(payload);
 

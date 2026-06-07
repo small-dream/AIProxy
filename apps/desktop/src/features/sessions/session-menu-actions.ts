@@ -40,10 +40,7 @@ export function readSessionsMenuAction(state: unknown): SessionsMenuAction | und
 
   const format = (menuAction as { format?: unknown }).format;
 
-  if (
-    kind === "export"
-    && (format === "curl" || format === "har" || format === "json")
-  ) {
+  if (kind === "export" && (format === "curl" || format === "har" || format === "json")) {
     return {
       format,
       kind,

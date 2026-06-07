@@ -70,7 +70,9 @@ export function markTimedOutPendingSession(
   return {
     ...session,
     durationMs,
-    finishedAt: new Date(Number.isFinite(startedAtMs) ? startedAtMs + durationMs : nowMs).toISOString(),
+    finishedAt: new Date(
+      Number.isFinite(startedAtMs) ? startedAtMs + durationMs : nowMs,
+    ).toISOString(),
     statusCode: 504,
   };
 }
@@ -115,7 +117,10 @@ export function buildPendingComposedSessionDetail(
   return {
     cookies: [],
     id: sessionId,
-    queryParams: Array.from(parsedUrl.searchParams.entries()).map(([name, value]) => ({ name, value })),
+    queryParams: Array.from(parsedUrl.searchParams.entries()).map(([name, value]) => ({
+      name,
+      value,
+    })),
     rawRequest: buildRawRequest(input.method, path, input.headers, bodyText),
     requestHeaders: input.headers,
     responseHeaders: [],

@@ -143,9 +143,7 @@ export function substituteVariables(
 /**
  * Build a Map of enabled variables for quick lookup.
  */
-export function buildVariableMap(
-  variables: ApiEnvironmentVariable[],
-): Map<string, string> {
+export function buildVariableMap(variables: ApiEnvironmentVariable[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const v of variables) {
     if (v.enabled) {

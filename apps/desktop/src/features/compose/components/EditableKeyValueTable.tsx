@@ -52,7 +52,10 @@ export function EditableKeyValueTable({
         <Stack spacing={0.5}>
           <Box
             sx={(theme) => ({
-              bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
+              bgcolor: alpha(
+                theme.palette.text.primary,
+                theme.palette.mode === "dark" ? 0.05 : 0.035,
+              ),
               borderRadius: 1,
               display: "grid",
               gridTemplateColumns: EDITOR_GRID_TEMPLATE,

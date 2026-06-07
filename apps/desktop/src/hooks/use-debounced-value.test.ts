@@ -20,10 +20,14 @@ describe("useDebouncedValue", () => {
     rerender({ value: "ab" });
     expect(result.current).toBe("a");
 
-    act(() => { vi.advanceTimersByTime(100); });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
     expect(result.current).toBe("a");
 
-    act(() => { vi.advanceTimersByTime(50); });
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
     expect(result.current).toBe("ab");
 
     vi.useRealTimers();
@@ -36,12 +40,18 @@ describe("useDebouncedValue", () => {
     });
 
     rerender({ value: "ab" });
-    act(() => { vi.advanceTimersByTime(100); });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
     rerender({ value: "abc" });
-    act(() => { vi.advanceTimersByTime(100); });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
     expect(result.current).toBe("a");
 
-    act(() => { vi.advanceTimersByTime(50); });
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
     expect(result.current).toBe("abc");
 
     vi.useRealTimers();

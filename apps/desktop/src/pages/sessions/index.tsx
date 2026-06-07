@@ -1,8 +1,4 @@
-import {
-  coerceAppError,
-  isAppError,
-  type SessionDetail,
-} from "@aiproxy/shared-types";
+import { coerceAppError, isAppError, type SessionDetail } from "@aiproxy/shared-types";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Snackbar, Stack } from "@mui/material";
@@ -10,7 +6,15 @@ import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
@@ -45,9 +49,16 @@ import {
   filterSessionsByHostKeyword,
   reconcileExpandedKeys,
 } from "@/features/sessions/session-explorer.helpers";
-import { buildHarArchive, buildHarExportFilename, loadSessionDetailsBatched } from "@/features/sessions/session-export.helpers";
+import {
+  buildHarArchive,
+  buildHarExportFilename,
+  loadSessionDetailsBatched,
+} from "@/features/sessions/session-export.helpers";
 import { parseHarArchive } from "@/features/sessions/session-import.helpers";
-import { readSessionsHostFilterAction, readSessionsMenuAction } from "@/features/sessions/session-menu-actions";
+import {
+  readSessionsHostFilterAction,
+  readSessionsMenuAction,
+} from "@/features/sessions/session-menu-actions";
 import {
   readStorageValue,
   readStoredHosts,
@@ -61,7 +72,12 @@ import { SESSION_DETAIL_QUERY_KEY, useSessionDetail } from "@/features/sessions/
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { isCapturedSessionNotFoundError, listThrottledSessionIds, readHarFile, setFocusedHosts as syncFocusedHosts } from "@/services/commands";
+import {
+  isCapturedSessionNotFoundError,
+  listThrottledSessionIds,
+  readHarFile,
+  setFocusedHosts as syncFocusedHosts,
+} from "@/services/commands";
 import { logDevWarn } from "@/services/logger/dev-logger";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
@@ -134,8 +150,11 @@ export function SessionsPage() {
   });
   const lastHandledMenuActionRef = useRef(0);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportDialogInitialScope, setExportDialogInitialScope] = useState<SessionExportDialogScope>();
-  const [exportDialogHostScope, setExportDialogHostScope] = useState<SessionExportHostScope | null>(null);
+  const [exportDialogInitialScope, setExportDialogInitialScope] =
+    useState<SessionExportDialogScope>();
+  const [exportDialogHostScope, setExportDialogHostScope] = useState<SessionExportHostScope | null>(
+    null,
+  );
   const [importSnackbarMessage, setImportSnackbarMessage] = useState<string | null>(null);
   const [focusedHosts, setFocusedHosts] = useState<Set<string>>(() =>
     readFocusedHostsFromStorage(),
@@ -144,10 +163,12 @@ export function SessionsPage() {
     () => new Set(readStoredHosts(IGNORED_HOSTS_STORAGE_KEY)),
   );
   const [showOnlyThrottled, setShowOnlyThrottled] = useState(false);
-  const [compareBaseSessionId, setCompareBaseSessionId] = useState(() =>
-    readStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY) ?? "",
+  const [compareBaseSessionId, setCompareBaseSessionId] = useState(
+    () => readStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY) ?? "",
   );
-  const [locallyTimedOutSessionIds, setLocallyTimedOutSessionIds] = useState<Set<string>>(() => new Set());
+  const [locallyTimedOutSessionIds, setLocallyTimedOutSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [pendingTimeoutNowMs, setPendingTimeoutNowMs] = useState(() => Date.now());
   const [sessionSelectionNonce, setSessionSelectionNonce] = useState(0);
   const { data: throttledSessionIds = [] } = useQuery({
@@ -160,8 +181,7 @@ export function SessionsPage() {
   // Workspace ref for Cmd+F
   const workspaceRef = useRef<WorkspaceHandle>(null);
 
-  const activeContainer =
-    containers.find((c) => c.id === activeContainerId) ?? containers[0];
+  const activeContainer = containers.find((c) => c.id === activeContainerId) ?? containers[0];
 
   const activeSessions = useMemo(
     () =>
@@ -171,18 +191,17 @@ export function SessionsPage() {
     [activeContainer?.sessionIds, sessionSummaryById],
   );
   const displayActiveSessions = useMemo(
-    () => activeSessions.map((session) =>
-      locallyTimedOutSessionIds.has(session.id)
-        ? markTimedOutPendingSession(session, pendingTimeoutNowMs, 0)
-        : markTimedOutPendingSession(session, pendingTimeoutNowMs),
-    ),
+    () =>
+      activeSessions.map((session) =>
+        locallyTimedOutSessionIds.has(session.id)
+          ? markTimedOutPendingSession(session, pendingTimeoutNowMs, 0)
+          : markTimedOutPendingSession(session, pendingTimeoutNowMs),
+      ),
     [activeSessions, locallyTimedOutSessionIds, pendingTimeoutNowMs],
   );
   useEffect(() => {
     const activePendingIds = new Set(
-      activeSessions
-        .filter((session) => session.statusCode <= 0)
-        .map((session) => session.id),
+      activeSessions.filter((session) => session.statusCode <= 0).map((session) => session.id),
     );
 
     setLocallyTimedOutSessionIds((currentIds) => {
@@ -294,18 +313,26 @@ export function SessionsPage() {
     return filteredByIgnoreSessions.filter((session) => throttledSessionIdSet.has(session.id));
   }, [filteredByIgnoreSessions, showOnlyThrottled, throttledSessionIdSet]);
   const domainFilteredSessions = useMemo(
-    () => filterSessionsByHostKeyword(filteredByThrottleSessions, activeContainer?.domainFilterValue ?? ""),
+    () =>
+      filterSessionsByHostKeyword(
+        filteredByThrottleSessions,
+        activeContainer?.domainFilterValue ?? "",
+      ),
     [activeContainer?.domainFilterValue, filteredByThrottleSessions],
   );
   const hostGroups = useMemo(
-    () => buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
-      focusedHosts,
-      unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
-      unknownHostLabel: t("sessionExplorer.unknownHost"),
-    }),
+    () =>
+      buildSessionHostGroups(domainFilteredSessions, activeContainer?.searchValue ?? "", {
+        focusedHosts,
+        unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
+        unknownHostLabel: t("sessionExplorer.unknownHost"),
+      }),
     [activeContainer?.searchValue, domainFilteredSessions, focusedHosts, t],
   );
-  const visibleSessions = useMemo(() => hostGroups.flatMap((group) => group.sessions), [hostGroups]);
+  const visibleSessions = useMemo(
+    () => hostGroups.flatMap((group) => group.sessions),
+    [hostGroups],
+  );
   const selectedSession = useMemo(
     () => visibleSessions.find((session) => session.id === activeContainer?.selectedSessionId),
     [activeContainer?.selectedSessionId, visibleSessions],
@@ -316,9 +343,9 @@ export function SessionsPage() {
   );
   const isSelectedSessionLocallyTimedOut = Boolean(
     selectedRawSession &&
-      selectedRawSession.statusCode <= 0 &&
-      selectedSession &&
-      (selectedSession.statusCode > 0 || locallyTimedOutSessionIds.has(selectedRawSession.id)),
+    selectedRawSession.statusCode <= 0 &&
+    selectedSession &&
+    (selectedSession.statusCode > 0 || locallyTimedOutSessionIds.has(selectedRawSession.id)),
   );
   const selectedSessionIdValue = selectedSession?.id;
   const {
@@ -350,7 +377,13 @@ export function SessionsPage() {
     });
     setLocallyTimedOutSessionIds((currentIds) => new Set(currentIds).add(selectedSession.id));
     queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, selectedSessionIdValue] });
-  }, [isStaleSessionDetailError, queryClient, selectedRawSession, selectedSession, selectedSessionIdValue]);
+  }, [
+    isStaleSessionDetailError,
+    queryClient,
+    selectedRawSession,
+    selectedSession,
+    selectedSessionIdValue,
+  ]);
   const sessionsErrorMessage = getOperationErrorMessage(
     sessionsError,
     t("sessionsPage.sessionsLoadError"),
@@ -389,7 +422,10 @@ export function SessionsPage() {
   }, [activeContainer?.inspectorSplitRatio, defaultInspectorSplitRatio]);
 
   useEffect(() => {
-    writeStorageValue(REQUEST_COLLAPSED_STORAGE_KEY, String(activeContainer?.requestCollapsed ?? false));
+    writeStorageValue(
+      REQUEST_COLLAPSED_STORAGE_KEY,
+      String(activeContainer?.requestCollapsed ?? false),
+    );
   }, [activeContainer?.requestCollapsed]);
 
   useEffect(() => {
@@ -481,40 +517,43 @@ export function SessionsPage() {
     }));
   }
 
-  const handleRepeatSession = useCallback((session: SessionSummary) => {
-    const selectRepeatedSummary = (summary: SessionSummary) => {
-      store.getState().upsertSummary(summary);
-      updateContainer((container) => ({
-        ...container,
-        selectedSessionId: summary.id,
-      }));
-      setSessionSelectionNonce((currentValue) => currentValue + 1);
-    };
-
-    void handleRepeatDirect(session, {
-      onFailure: (pendingSessionId) => {
-        store.getState().removeSummary(pendingSessionId);
-        updateContainer((container) =>
-          container.selectedSessionId === pendingSessionId
-            ? {
-                ...container,
-                selectedSessionId: session.id,
-              }
-            : container,
-        );
-      },
-      onPending: selectRepeatedSummary,
-      onSuccess: (pendingSessionId, summary) => {
-        store.getState().removeSummary(pendingSessionId);
+  const handleRepeatSession = useCallback(
+    (session: SessionSummary) => {
+      const selectRepeatedSummary = (summary: SessionSummary) => {
         store.getState().upsertSummary(summary);
         updateContainer((container) => ({
           ...container,
           selectedSessionId: summary.id,
         }));
         setSessionSelectionNonce((currentValue) => currentValue + 1);
-      },
-    });
-  }, [handleRepeatDirect]);
+      };
+
+      void handleRepeatDirect(session, {
+        onFailure: (pendingSessionId) => {
+          store.getState().removeSummary(pendingSessionId);
+          updateContainer((container) =>
+            container.selectedSessionId === pendingSessionId
+              ? {
+                  ...container,
+                  selectedSessionId: session.id,
+                }
+              : container,
+          );
+        },
+        onPending: selectRepeatedSummary,
+        onSuccess: (pendingSessionId, summary) => {
+          store.getState().removeSummary(pendingSessionId);
+          store.getState().upsertSummary(summary);
+          updateContainer((container) => ({
+            ...container,
+            selectedSessionId: summary.id,
+          }));
+          setSessionSelectionNonce((currentValue) => currentValue + 1);
+        },
+      });
+    },
+    [handleRepeatDirect],
+  );
 
   const handleRepeat = useCallback(() => {
     if (!selectedSession) {
@@ -524,12 +563,20 @@ export function SessionsPage() {
     handleRepeatSession(selectedSession);
   }, [handleRepeatSession, selectedSession]);
 
-  const handleExportSession = useCallback((session: SessionSummary) => {
-    void exportSessionsAsHar(queryClient, [session], buildHarExportFilename("request", session.host))
-      .catch((error) => {
-        setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+  const handleExportSession = useCallback(
+    (session: SessionSummary) => {
+      void exportSessionsAsHar(
+        queryClient,
+        [session],
+        buildHarExportFilename("request", session.host),
+      ).catch((error) => {
+        setImportSnackbarMessage(
+          error instanceof Error ? error.message : t("common.errors.unexpected"),
+        );
       });
-  }, [queryClient, t]);
+    },
+    [queryClient, t],
+  );
 
   const handleOpenExportDialog = useCallback((scope?: SessionExportDialogScope) => {
     setExportDialogHostScope(null);
@@ -537,49 +584,62 @@ export function SessionsPage() {
     setExportDialogOpen(true);
   }, []);
 
-  const handleExportHost = useCallback((host: string) => {
-    const hostSessions = visibleSessions.filter((session) => session.host === host);
-    void exportSessionsAsHar(queryClient, hostSessions, buildHarExportFilename("host", host))
-      .catch((error) => {
-        setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+  const handleExportHost = useCallback(
+    (host: string) => {
+      const hostSessions = visibleSessions.filter((session) => session.host === host);
+      void exportSessionsAsHar(
+        queryClient,
+        hostSessions,
+        buildHarExportFilename("host", host),
+      ).catch((error) => {
+        setImportSnackbarMessage(
+          error instanceof Error ? error.message : t("common.errors.unexpected"),
+        );
       });
-  }, [queryClient, t, visibleSessions]);
+    },
+    [queryClient, t, visibleSessions],
+  );
 
-  const handleImportSessions = useCallback((details: SessionDetail[]) => {
-    if (details.length === 0) {
-      return;
-    }
-
-    upsertImportedSessions(details);
-
-    queryClient.setQueryData<SessionSummary[]>(["sessions"], (currentSessions = []) => {
-      let nextSessions = currentSessions;
-
-      for (const detail of details) {
-        nextSessions = upsertSessionSummary(nextSessions, detail.summary);
+  const handleImportSessions = useCallback(
+    (details: SessionDetail[]) => {
+      if (details.length === 0) {
+        return;
       }
 
-      return nextSessions;
-    });
+      upsertImportedSessions(details);
 
-    for (const detail of details) {
-      queryClient.setQueryData(["session-detail", detail.id], detail);
-    }
+      queryClient.setQueryData<SessionSummary[]>(["sessions"], (currentSessions = []) => {
+        let nextSessions = currentSessions;
 
-    for (const detail of details) {
-      store.getState().upsertSummary(detail.summary);
-    }
+        for (const detail of details) {
+          nextSessions = upsertSessionSummary(nextSessions, detail.summary);
+        }
 
-    updateContainer((container) => ({
-      ...container,
-      ...(details[0]?.id ? { selectedSessionId: details[0].id } : {}),
-    }));
+        return nextSessions;
+      });
 
-    setSessionSelectionNonce((currentValue) => currentValue + 1);
-    setImportSnackbarMessage(t("sessionsImport.messages.importedHar", {
-      count: details.length,
-    }));
-  }, [queryClient, t]);
+      for (const detail of details) {
+        queryClient.setQueryData(["session-detail", detail.id], detail);
+      }
+
+      for (const detail of details) {
+        store.getState().upsertSummary(detail.summary);
+      }
+
+      updateContainer((container) => ({
+        ...container,
+        ...(details[0]?.id ? { selectedSessionId: details[0].id } : {}),
+      }));
+
+      setSessionSelectionNonce((currentValue) => currentValue + 1);
+      setImportSnackbarMessage(
+        t("sessionsImport.messages.importedHar", {
+          count: details.length,
+        }),
+      );
+    },
+    [queryClient, t],
+  );
 
   const handleImportHarPickerOpen = useCallback(async () => {
     try {
@@ -602,13 +662,18 @@ export function SessionsPage() {
       const details = parseHarArchive(contents);
       handleImportSessions(details);
     } catch (error) {
-      setImportSnackbarMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+      setImportSnackbarMessage(
+        error instanceof Error ? error.message : t("common.errors.unexpected"),
+      );
     }
   }, [handleImportSessions, t]);
 
-  const handleClearOthers = useCallback((session: SessionSummary) => {
-    clearOtherSessions(session.id);
-  }, [clearOtherSessions]);
+  const handleClearOthers = useCallback(
+    (session: SessionSummary) => {
+      clearOtherSessions(session.id);
+    },
+    [clearOtherSessions],
+  );
 
   const handleGoToBreakpoints = useCallback(() => {
     navigate("/rules");
@@ -618,125 +683,162 @@ export function SessionsPage() {
     navigate("/rules");
   }, [navigate]);
 
-  const handleCreateRewrite = useCallback((session: SessionSummary) => {
-    navigate("/rules", {
-      state: {
-        rewriteSeed: {
-          host: session.host,
+  const handleCreateRewrite = useCallback(
+    (session: SessionSummary) => {
+      navigate("/rules", {
+        state: {
+          rewriteSeed: {
+            host: session.host,
+            method: session.method,
+            path: session.path,
+            url: session.url,
+          },
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const handleCreateThrottleRule = useCallback(
+    (session: SessionSummary) => {
+      navigate("/throttling", {
+        state: {
+          throttleSeed: {
+            host: session.host,
+            method: session.method,
+            path: session.path,
+            url: session.url,
+          },
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const handleSetCompareBase = useCallback(
+    (session: SessionSummary) => {
+      setCompareBaseSessionId(session.id);
+      writeStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY, session.id);
+      setImportSnackbarMessage(
+        t("sessionsPage.compareBaseSet", {
           method: session.method,
           path: session.path,
-          url: session.url,
-        },
-      },
-    });
-  }, [navigate]);
+        }),
+      );
+    },
+    [t],
+  );
 
-  const handleCreateThrottleRule = useCallback((session: SessionSummary) => {
-    navigate("/throttling", {
-      state: {
-        throttleSeed: {
-          host: session.host,
-          method: session.method,
-          path: session.path,
-          url: session.url,
-        },
-      },
-    });
-  }, [navigate]);
+  const handleCompareWith = useCallback(
+    (session: SessionSummary) => {
+      const left =
+        compareBaseSessionId && compareBaseSessionId !== session.id
+          ? compareBaseSessionId
+          : selectedSession?.id && selectedSession.id !== session.id
+            ? selectedSession.id
+            : "";
 
-  const handleSetCompareBase = useCallback((session: SessionSummary) => {
-    setCompareBaseSessionId(session.id);
-    writeStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY, session.id);
-    setImportSnackbarMessage(t("sessionsPage.compareBaseSet", {
-      method: session.method,
-      path: session.path,
-    }));
-  }, [t]);
+      if (!left) {
+        handleSetCompareBase(session);
+        return;
+      }
 
-  const handleCompareWith = useCallback((session: SessionSummary) => {
-    const left = compareBaseSessionId && compareBaseSessionId !== session.id
-      ? compareBaseSessionId
-      : selectedSession?.id && selectedSession.id !== session.id
-        ? selectedSession.id
-        : "";
-
-    if (!left) {
-      handleSetCompareBase(session);
-      return;
-    }
-
-    navigate(`/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(session.id)}`);
-  }, [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession?.id]);
+      navigate(`/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(session.id)}`);
+    },
+    [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession?.id],
+  );
 
   const handleAddContainer = useCallback(() => {
     addContainer();
   }, [addContainer]);
 
-  const handleSelectContainer = useCallback((containerId: string) => {
-    selectContainer(containerId);
-  }, [selectContainer]);
+  const handleSelectContainer = useCallback(
+    (containerId: string) => {
+      selectContainer(containerId);
+    },
+    [selectContainer],
+  );
 
-  const handleCloseContainer = useCallback((containerId: string) => {
-    closeContainer(containerId);
-  }, [closeContainer]);
+  const handleCloseContainer = useCallback(
+    (containerId: string) => {
+      closeContainer(containerId);
+    },
+    [closeContainer],
+  );
 
-  const handleSelectedSessionChange = useCallback((sessionId: string) => {
-    setSessionSelectionNonce((currentValue) => currentValue + 1);
-    updateContainer((container) => ({
-      ...container,
-      selectedSessionId: sessionId,
-    }));
-    writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
-  }, [updateContainer]);
+  const handleSelectedSessionChange = useCallback(
+    (sessionId: string) => {
+      setSessionSelectionNonce((currentValue) => currentValue + 1);
+      updateContainer((container) => ({
+        ...container,
+        selectedSessionId: sessionId,
+      }));
+      writeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY, sessionId);
+    },
+    [updateContainer],
+  );
 
-  const handleRequestTabChange = useCallback((tab: RequestInspectorTab) => {
-    updateContainer((container) => ({
-      ...container,
-      requestTab: tab,
-    }));
-  }, [updateContainer]);
+  const handleRequestTabChange = useCallback(
+    (tab: RequestInspectorTab) => {
+      updateContainer((container) => ({
+        ...container,
+        requestTab: tab,
+      }));
+    },
+    [updateContainer],
+  );
 
-  const handleResponseTabChange = useCallback((tab: ResponseInspectorTab) => {
-    updateContainer((container) => ({
-      ...container,
-      responseTab: tab,
-    }));
-  }, [updateContainer]);
+  const handleResponseTabChange = useCallback(
+    (tab: ResponseInspectorTab) => {
+      updateContainer((container) => ({
+        ...container,
+        responseTab: tab,
+      }));
+    },
+    [updateContainer],
+  );
 
-  const handleRequestCollapsedChange = useCallback((collapsed: boolean) => {
-    updateContainer((container) => ({
-      ...container,
-      requestCollapsed: collapsed,
-    }));
-  }, [updateContainer]);
+  const handleRequestCollapsedChange = useCallback(
+    (collapsed: boolean) => {
+      updateContainer((container) => ({
+        ...container,
+        requestCollapsed: collapsed,
+      }));
+    },
+    [updateContainer],
+  );
 
-  const handleDomainFilterChange = useCallback((value: string) => {
-    updateContainer((container) => ({
-      ...container,
-      domainFilterValue: value,
-    }));
-  }, [updateContainer]);
+  const handleDomainFilterChange = useCallback(
+    (value: string) => {
+      updateContainer((container) => ({
+        ...container,
+        domainFilterValue: value,
+      }));
+    },
+    [updateContainer],
+  );
 
-  const handleInspectorSplitRatioChange = useCallback((ratio: number) => {
-    updateContainer((container) => ({
-      ...container,
-      inspectorSplitRatio: ratio,
-    }));
-  }, [updateContainer]);
+  const handleInspectorSplitRatioChange = useCallback(
+    (ratio: number) => {
+      updateContainer((container) => ({
+        ...container,
+        inspectorSplitRatio: ratio,
+      }));
+    },
+    [updateContainer],
+  );
 
   const handleClearActiveContainer = useCallback(() => {
     clearSessions(undefined, {
       onSuccess: () => {
         removeStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
         clearStoreSessions({
-          inspectorSplitRatio:
-            activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio,
+          inspectorSplitRatio: activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio,
           requestCollapsed:
-            activeContainer?.requestCollapsed ?? readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
-          requestTab:
-            activeContainer?.requestTab ?? "headers",
-          responseTab:
-            activeContainer?.responseTab ?? "overview",
+            activeContainer?.requestCollapsed ??
+            readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+          requestTab: activeContainer?.requestTab ?? "headers",
+          responseTab: activeContainer?.responseTab ?? "overview",
         });
       },
     });
@@ -771,7 +873,14 @@ export function SessionsPage() {
         />
       </Stack>
     ),
-    [activeSessions.length, handleClearActiveContainer, handleOpenExportDialog, isClearingSessions, showOnlyThrottled, t],
+    [
+      activeSessions.length,
+      handleClearActiveContainer,
+      handleOpenExportDialog,
+      isClearingSessions,
+      showOnlyThrottled,
+      t,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -823,51 +932,54 @@ export function SessionsPage() {
     window.addEventListener("pointercancel", stopResize);
   }
 
-  const startInspectorResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const container = event.currentTarget.parentElement;
+  const startInspectorResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const container = event.currentTarget.parentElement;
 
-    if (!container || activeContainer?.requestCollapsed) {
-      return;
-    }
-
-    event.preventDefault();
-    const pointerId = event.pointerId;
-    event.currentTarget.setPointerCapture(pointerId);
-
-    const updateRatio = (clientY: number) => {
-      const bounds = container.getBoundingClientRect();
-
-      if (bounds.height <= 0) {
+      if (!container || activeContainer?.requestCollapsed) {
         return;
       }
 
-      const nextRatio = clampInspectorSplitRatio((clientY - bounds.top) / bounds.height);
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      event.currentTarget.setPointerCapture(pointerId);
 
-      if (inspectorDragFrameRef.current) {
-        window.cancelAnimationFrame(inspectorDragFrameRef.current);
-      }
+      const updateRatio = (clientY: number) => {
+        const bounds = container.getBoundingClientRect();
 
-      inspectorDragFrameRef.current = window.requestAnimationFrame(() => {
-        handleInspectorSplitRatioChange(nextRatio);
-      });
-    };
+        if (bounds.height <= 0) {
+          return;
+        }
 
-    updateRatio(event.clientY);
+        const nextRatio = clampInspectorSplitRatio((clientY - bounds.top) / bounds.height);
 
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      updateRatio(moveEvent.clientY);
-    };
+        if (inspectorDragFrameRef.current) {
+          window.cancelAnimationFrame(inspectorDragFrameRef.current);
+        }
 
-    const stopResize = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
-    };
+        inspectorDragFrameRef.current = window.requestAnimationFrame(() => {
+          handleInspectorSplitRatioChange(nextRatio);
+        });
+      };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
-  }, [activeContainer?.requestCollapsed, handleInspectorSplitRatioChange]);
+      updateRatio(event.clientY);
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateRatio(moveEvent.clientY);
+      };
+
+      const stopResize = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [activeContainer?.requestCollapsed, handleInspectorSplitRatioChange],
+  );
 
   useEffect(() => {
     const menuAction = readSessionsMenuAction(location.state);
@@ -955,10 +1067,7 @@ export function SessionsPage() {
         }))}
         detailErrorMessage={
           sessionDetailError && !(isStaleSessionDetailError && selectedRawSession?.statusCode === 0)
-            ? getOperationErrorMessage(
-                sessionDetailError,
-                t("sessionsPage.detailLoadError"),
-              )
+            ? getOperationErrorMessage(sessionDetailError, t("sessionsPage.detailLoadError"))
             : undefined
         }
         domainFilterValue={activeContainer?.domainFilterValue ?? ""}
@@ -973,8 +1082,20 @@ export function SessionsPage() {
         onCloseContainer={handleCloseContainer}
         onContextMenuHost={handleHostContextMenu}
         onContextMenuSession={handleContextMenu}
-        onCopyCurl={selectedSession ? () => { void handleCopyCurl(selectedSession); } : undefined}
-        onCopyUrl={selectedSession ? () => { handleCopyUrl(selectedSession); } : undefined}
+        onCopyCurl={
+          selectedSession
+            ? () => {
+                void handleCopyCurl(selectedSession);
+              }
+            : undefined
+        }
+        onCopyUrl={
+          selectedSession
+            ? () => {
+                handleCopyUrl(selectedSession);
+              }
+            : undefined
+        }
         onDomainFilterChange={handleDomainFilterChange}
         onInspectorResizeStart={startInspectorResize}
         onRepeat={selectedSession ? handleRepeat : undefined}
@@ -1041,7 +1162,11 @@ export function SessionsPage() {
 
       <SaveToCollectionDialog
         open={saveToCollectionSession !== null}
-        sessionName={saveToCollectionSession ? `${saveToCollectionSession.method} ${saveToCollectionSession.host}${saveToCollectionSession.path}` : ""}
+        sessionName={
+          saveToCollectionSession
+            ? `${saveToCollectionSession.method} ${saveToCollectionSession.host}${saveToCollectionSession.path}`
+            : ""
+        }
         onCancel={handleSaveToCollectionCancel}
         onConfirm={handleSaveToCollectionConfirm}
       />

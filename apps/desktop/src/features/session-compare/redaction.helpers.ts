@@ -1,6 +1,11 @@
-import type { SessionDiffEntry, SessionDiffPayload, SessionDiffSection } from "@aiproxy/shared-types";
+import type {
+  SessionDiffEntry,
+  SessionDiffPayload,
+  SessionDiffSection,
+} from "@aiproxy/shared-types";
 
-const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|token|access_token|refresh_token|api[-_]?key|password|passwd|secret|session|jwt)/i;
+const SENSITIVE_KEY_PATTERN =
+  /(authorization|cookie|set-cookie|token|access_token|refresh_token|api[-_]?key|password|passwd|secret|session|jwt)/i;
 const REDACTED = "[REDACTED]";
 
 export function redactDiffPayload(payload: SessionDiffPayload): SessionDiffPayload {

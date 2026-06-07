@@ -58,9 +58,7 @@ export type WsInjectInput = {
   fin?: boolean;
 };
 
-export function isWsConnectionStatusEvent(
-  value: unknown,
-): value is WsConnectionStatusEvent {
+export function isWsConnectionStatusEvent(value: unknown): value is WsConnectionStatusEvent {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<WsConnectionStatusEvent>;
   return (

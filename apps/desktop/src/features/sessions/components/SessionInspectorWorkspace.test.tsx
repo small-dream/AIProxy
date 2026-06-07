@@ -32,13 +32,13 @@ function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDet
     rawRequest: "POST /books HTTP/1.1",
     rawResponse: "HTTP/1.1 200 OK",
     requestBody: {
-      inlineText: "{\"title\":\"AI\"}",
+      inlineText: '{"title":"AI"}',
       mimeType: "application/json",
       sizeBytes: 14,
     },
     requestHeaders: [{ name: "content-type", value: "application/json" }],
     responseBody: {
-      inlineText: "{\"ok\":true}",
+      inlineText: '{"ok":true}',
       mimeType: "application/json",
       sizeBytes: 11,
     },
@@ -51,12 +51,12 @@ function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDet
 function createMultipartRequestBody() {
   const encoder = new TextEncoder();
   const head = encoder.encode(
-    "--boundary\r\n"
-      + "Content-Disposition: form-data; name=\"email\"\r\n\r\n"
-      + "user@example.com\r\n"
-      + "--boundary\r\n"
-      + "Content-Disposition: form-data; name=\"Filedata\"; filename=\"submit.gz\"\r\n"
-      + "Content-Type: application/gzip\r\n\r\n",
+    "--boundary\r\n" +
+      'Content-Disposition: form-data; name="email"\r\n\r\n' +
+      "user@example.com\r\n" +
+      "--boundary\r\n" +
+      'Content-Disposition: form-data; name="Filedata"; filename="submit.gz"\r\n' +
+      "Content-Type: application/gzip\r\n\r\n",
   );
   const fileBytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
   const tail = encoder.encode("\r\n--boundary--\r\n");
@@ -332,11 +332,7 @@ describe("SessionInspectorWorkspace", () => {
     const responseTabList = screen.getAllByRole("tablist")[1];
     const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
 
-    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
-      "Overview",
-      "Preview",
-      "Headers",
-    ]);
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual(["Overview", "Preview", "Headers"]);
   });
 
   it("renders Preview tab alongside Text tab for SVG responses", () => {
@@ -359,7 +355,7 @@ describe("SessionInspectorWorkspace", () => {
           selectedSession={createSessionSummary({ responseMimeType: "image/svg+xml" })}
           selectedSessionDetail={createSessionDetail({
             responseBody: {
-              inlineText: "<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"10\"/></svg>",
+              inlineText: '<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>',
               mimeType: "image/svg+xml",
               sizeBytes: 60,
             },
@@ -415,11 +411,7 @@ describe("SessionInspectorWorkspace", () => {
     const responseTabList = screen.getAllByRole("tablist")[1];
     const responseTabs = within(responseTabList as HTMLElement).getAllByRole("tab");
 
-    expect(responseTabs.map((tab) => tab.textContent)).toEqual([
-      "Overview",
-      "Preview",
-      "Headers",
-    ]);
+    expect(responseTabs.map((tab) => tab.textContent)).toEqual(["Overview", "Preview", "Headers"]);
   });
 
   it("does not render Preview tab for non-media binary responses", () => {
@@ -514,7 +506,7 @@ describe("SessionInspectorWorkspace", () => {
           selectedSession={createSessionSummary()}
           selectedSessionDetail={createSessionDetail({
             requestBody: {
-              inlineText: "{\"title\":\"AI\",\"published\":true}",
+              inlineText: '{"title":"AI","published":true}',
               mimeType: "application/json; charset=utf-8",
               sizeBytes: 31,
             },
@@ -550,7 +542,7 @@ describe("SessionInspectorWorkspace", () => {
           selectedSession={createSessionSummary({ responseMimeType: "text/plain" })}
           selectedSessionDetail={createSessionDetail({
             requestBody: {
-              inlineText: "{\"title\":\"AI\"}",
+              inlineText: '{"title":"AI"}',
               mimeType: "application/json",
               sizeBytes: 14,
             },
@@ -659,7 +651,9 @@ describe("SessionInspectorWorkspace", () => {
           selectedSession={createSessionSummary()}
           selectedSessionDetail={createSessionDetail({
             requestBody: createMultipartRequestBody(),
-            requestHeaders: [{ name: "content-type", value: "multipart/form-data; boundary=boundary" }],
+            requestHeaders: [
+              { name: "content-type", value: "multipart/form-data; boundary=boundary" },
+            ],
           })}
           sessionSelectionNonce={0}
         />

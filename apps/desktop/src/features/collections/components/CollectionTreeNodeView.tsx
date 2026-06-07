@@ -4,7 +4,18 @@ import ArrowRightRoundedIcon from "@mui/icons-material/ArrowRightRounded";
 import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import NoteAddRoundedIcon from "@mui/icons-material/NoteAddRounded";
-import { Box, CircularProgress, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Tooltip, Typography } from "@mui/material";
+import {
+  Box,
+  CircularProgress,
+  IconButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
@@ -132,12 +143,14 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
             onSelect(node.id);
             if (!isExpanded) onToggleExpand(node.id, true);
           }}
-          onContextMenu={(event) => onContextMenu(event, {
-            kind: "collection",
-            id: node.id,
-            name: node.name,
-            parentId: node.parentId,
-          })}
+          onContextMenu={(event) =>
+            onContextMenu(event, {
+              kind: "collection",
+              id: node.id,
+              name: node.name,
+              parentId: node.parentId,
+            })
+          }
           sx={(theme) => ({
             alignItems: "center",
             borderRadius: 1,
@@ -180,9 +193,11 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
               "&:hover": { color: "text.primary" },
             }}
           >
-            {isExpanded
-              ? <ArrowDropDownRoundedIcon sx={{ fontSize: 18 }} />
-              : <ArrowRightRoundedIcon sx={{ fontSize: 18 }} />}
+            {isExpanded ? (
+              <ArrowDropDownRoundedIcon sx={{ fontSize: 18 }} />
+            ) : (
+              <ArrowRightRoundedIcon sx={{ fontSize: 18 }} />
+            )}
           </Box>
           <Typography
             sx={{

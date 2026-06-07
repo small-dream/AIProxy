@@ -28,11 +28,7 @@ type Props = {
   devicesQueryEnabled?: boolean;
 };
 
-function formatSimulatorLabel(simulator: {
-  name: string;
-  runtime: string;
-  state: string;
-}) {
+function formatSimulatorLabel(simulator: { name: string; runtime: string; state: string }) {
   return `${simulator.name} · ${simulator.runtime} · ${simulator.state}`;
 }
 
@@ -47,10 +43,13 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
 
   const simulators = simulatorsQuery.data;
   const effectiveSelectedSimulatorUdid =
-    selectedSimulatorUdid && simulators?.some((simulator) => simulator.udid === selectedSimulatorUdid)
+    selectedSimulatorUdid &&
+    simulators?.some((simulator) => simulator.udid === selectedSimulatorUdid)
       ? selectedSimulatorUdid
-      : simulators?.[0]?.udid ?? "";
-  const selectedSimulator = simulators?.find((simulator) => simulator.udid === effectiveSelectedSimulatorUdid);
+      : (simulators?.[0]?.udid ?? "");
+  const selectedSimulator = simulators?.find(
+    (simulator) => simulator.udid === effectiveSelectedSimulatorUdid,
+  );
   const canInstall =
     hasCert &&
     Boolean(selectedSimulator?.udid) &&
@@ -59,19 +58,22 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
 
   function handleInstall() {
     if (!selectedSimulator?.udid) return;
-    installMutation.mutate({
-      simulatorUdid: selectedSimulator.udid,
-    }, {
-      onSuccess: () => {
-        setShowTrustSteps(true);
+    installMutation.mutate(
+      {
+        simulatorUdid: selectedSimulator.udid,
       },
-    });
+      {
+        onSuccess: () => {
+          setShowTrustSteps(true);
+        },
+      },
+    );
   }
 
   return (
     <SectionCard
       title={t("certificatesPage.mobile.iosQuickActionsTitle")}
-      toolbar={(
+      toolbar={
         <Tooltip arrow title={t("certificatesPage.mobile.quickActionsInfoAction")}>
           <IconButton
             aria-label={t("certificatesPage.mobile.quickActionsInfoAction")}
@@ -81,16 +83,22 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
             <InfoOutlinedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-      )}
+      }
     >
       <Stack spacing={1.5}>
         {showInfo ? (
           <Alert severity="info">
             <AlertTitle>{t("certificatesPage.mobile.iosQuickActionsInfoTitle")}</AlertTitle>
             <Stack spacing={0.5}>
-              <Typography variant="body2">{t("certificatesPage.mobile.iosSimulatorInstallBody")}</Typography>
-              <Typography variant="body2">{t("certificatesPage.mobile.iosSimulatorInstallHint")}</Typography>
-              <Typography variant="body2">{t("certificatesPage.mobile.iosDeviceManualHint")}</Typography>
+              <Typography variant="body2">
+                {t("certificatesPage.mobile.iosSimulatorInstallBody")}
+              </Typography>
+              <Typography variant="body2">
+                {t("certificatesPage.mobile.iosSimulatorInstallHint")}
+              </Typography>
+              <Typography variant="body2">
+                {t("certificatesPage.mobile.iosDeviceManualHint")}
+              </Typography>
             </Stack>
           </Alert>
         ) : null}
@@ -102,7 +110,11 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           </Alert>
         ) : null}
 
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "stretch", md: "center" }}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "stretch", md: "center" }}
+        >
           <FormControl
             size="small"
             disabled={simulatorsQuery.isLoading || (simulators?.length ?? 0) === 0}
@@ -150,7 +162,9 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
             size="small"
             onClick={handleInstall}
             disabled={!canInstall}
-            startIcon={installMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+            startIcon={
+              installMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined
+            }
           >
             {installMutation.isPending
               ? t("certificatesPage.mobile.iosSimulatorInstalling")
@@ -164,7 +178,9 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           </Typography>
         ) : null}
 
-        {!simulatorsQuery.isLoading && !simulatorsQuery.isError && (simulators?.length ?? 0) === 0 ? (
+        {!simulatorsQuery.isLoading &&
+        !simulatorsQuery.isError &&
+        (simulators?.length ?? 0) === 0 ? (
           <Typography variant="body2" color="text.secondary">
             {t("certificatesPage.mobile.iosSimulatorNoDevices")}
           </Typography>
@@ -187,13 +203,17 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
 
             <Alert
               severity="warning"
-              action={(
-                <Button color="inherit" onClick={() => setShowTrustSteps((current) => !current)} size="small">
-                    {showTrustSteps
-                      ? t("certificatesPage.mobile.iosTrustStepsHideAction")
-                      : t("certificatesPage.mobile.iosTrustStepsShowAction")}
+              action={
+                <Button
+                  color="inherit"
+                  onClick={() => setShowTrustSteps((current) => !current)}
+                  size="small"
+                >
+                  {showTrustSteps
+                    ? t("certificatesPage.mobile.iosTrustStepsHideAction")
+                    : t("certificatesPage.mobile.iosTrustStepsShowAction")}
                 </Button>
-              )}
+              }
             >
               <AlertTitle>{t("certificatesPage.mobile.iosTrustStepsTitle")}</AlertTitle>
               <Stack spacing={0.75}>

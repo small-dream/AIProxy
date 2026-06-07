@@ -26,18 +26,34 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
 
 describe("session-behavior-diff.helpers", () => {
   it("normalizes endpoints without noisy query parameters while preserving method-like keys", () => {
-    expect(normalizeEndpoint(summary({
-      method: "POST",
-      host: "pb.photoaffections.com",
-      path: "/api/",
-      url: "https://pb.photoaffections.com/api/?_method=site.track_events&_device=abc&_full_version=1.2.3",
-    }))).toBe("POST pb.photoaffections.com/api/ _method=site.track_events");
+    expect(
+      normalizeEndpoint(
+        summary({
+          method: "POST",
+          host: "pb.photoaffections.com",
+          path: "/api/",
+          url: "https://pb.photoaffections.com/api/?_method=site.track_events&_device=abc&_full_version=1.2.3",
+        }),
+      ),
+    ).toBe("POST pb.photoaffections.com/api/ _method=site.track_events");
   });
 
   it("applies a shared domain filter to both sides", () => {
-    const leftApi = summary({ id: "left-api", host: "api.example.com", url: "https://api.example.com/v1/users" });
-    const leftCdn = summary({ id: "left-cdn", host: "cdn.example.com", url: "https://cdn.example.com/app.js" });
-    const rightApi = summary({ id: "right-api", host: "api.example.com", url: "https://api.example.com/v1/users" });
+    const leftApi = summary({
+      id: "left-api",
+      host: "api.example.com",
+      url: "https://api.example.com/v1/users",
+    });
+    const leftCdn = summary({
+      id: "left-cdn",
+      host: "cdn.example.com",
+      url: "https://cdn.example.com/app.js",
+    });
+    const rightApi = summary({
+      id: "right-api",
+      host: "api.example.com",
+      url: "https://api.example.com/v1/users",
+    });
 
     const payload = buildSessionComparePayload(
       { id: "left", label: "Left", sessions: [leftApi, leftCdn] },
@@ -45,7 +61,10 @@ describe("session-behavior-diff.helpers", () => {
       ["api.example.com"],
     );
 
-    expect(getAvailableDomains([leftApi, leftCdn], [rightApi])).toEqual(["api.example.com", "cdn.example.com"]);
+    expect(getAvailableDomains([leftApi, leftCdn], [rightApi])).toEqual([
+      "api.example.com",
+      "cdn.example.com",
+    ]);
     expect(payload.overview.left.requestCount).toBe(1);
     expect(payload.overview.right.requestCount).toBe(1);
     expect(payload.domains).toHaveLength(1);
@@ -58,17 +77,51 @@ describe("session-behavior-diff.helpers", () => {
         id: "left",
         label: "Left",
         sessions: [
-          summary({ id: "left-1", method: "GET", path: "/config", url: "https://api.example.com/config", durationMs: 50 }),
-          summary({ id: "left-2", method: "POST", path: "/track", url: "https://api.example.com/track", statusCode: 204, durationMs: 20 }),
+          summary({
+            id: "left-1",
+            method: "GET",
+            path: "/config",
+            url: "https://api.example.com/config",
+            durationMs: 50,
+          }),
+          summary({
+            id: "left-2",
+            method: "POST",
+            path: "/track",
+            url: "https://api.example.com/track",
+            statusCode: 204,
+            durationMs: 20,
+          }),
         ],
       },
       {
         id: "right",
         label: "Right",
         sessions: [
-          summary({ id: "right-1", method: "POST", path: "/track", url: "https://api.example.com/track", statusCode: 204, durationMs: 30 }),
-          summary({ id: "right-2", method: "POST", path: "/track", url: "https://api.example.com/track", statusCode: 204, durationMs: 40 }),
-          summary({ id: "right-3", method: "GET", path: "/books", url: "https://api.example.com/books", statusCode: 500, durationMs: 90 }),
+          summary({
+            id: "right-1",
+            method: "POST",
+            path: "/track",
+            url: "https://api.example.com/track",
+            statusCode: 204,
+            durationMs: 30,
+          }),
+          summary({
+            id: "right-2",
+            method: "POST",
+            path: "/track",
+            url: "https://api.example.com/track",
+            statusCode: 204,
+            durationMs: 40,
+          }),
+          summary({
+            id: "right-3",
+            method: "GET",
+            path: "/books",
+            url: "https://api.example.com/books",
+            statusCode: 500,
+            durationMs: 90,
+          }),
         ],
       },
       [],
@@ -77,12 +130,16 @@ describe("session-behavior-diff.helpers", () => {
     expect(payload.overview.left.requestCount).toBe(2);
     expect(payload.overview.right.requestCount).toBe(3);
     expect(payload.overview.right.failureCount).toBe(1);
-    expect(payload.endpoints.find((row) => row.endpoint === "GET api.example.com/config")).toMatchObject({
+    expect(
+      payload.endpoints.find((row) => row.endpoint === "GET api.example.com/config"),
+    ).toMatchObject({
       kind: "removed",
       leftCount: 1,
       rightCount: 0,
     });
-    expect(payload.endpoints.find((row) => row.endpoint === "POST api.example.com/track")).toMatchObject({
+    expect(
+      payload.endpoints.find((row) => row.endpoint === "POST api.example.com/track"),
+    ).toMatchObject({
       kind: "changed",
       leftCount: 1,
       rightCount: 2,

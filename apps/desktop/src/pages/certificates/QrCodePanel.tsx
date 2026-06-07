@@ -18,17 +18,33 @@ export function QrCodePanel({ certDownloadUrl, proxyAddress, sslEnabled, hasCert
   const showProxyQr = !sslEnabled && proxyAddress;
 
   return (
-    <SectionCard compact title={t("certificatesPage.mobile.downloadCertificate")} description={t("certificatesPage.mobile.certQrHint")}>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: showCertQr && showProxyQr ? "1fr 1fr" : "1fr" }, gap: 1.5 }}>
+    <SectionCard
+      compact
+      title={t("certificatesPage.mobile.downloadCertificate")}
+      description={t("certificatesPage.mobile.certQrHint")}
+    >
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: showCertQr && showProxyQr ? "1fr 1fr" : "1fr" },
+          gap: 1.5,
+        }}
+      >
         {showCertQr && (
           <Box sx={{ textAlign: "center" }}>
-            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{t("certificatesPage.mobile.downloadCertificate")}</Typography>
+            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+              {t("certificatesPage.mobile.downloadCertificate")}
+            </Typography>
             <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
               <Box sx={{ p: 2, bgcolor: "white", borderRadius: 1, display: "inline-block" }}>
                 <QRCodeSVG value={certDownloadUrl} size={132} />
               </Box>
             </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: fontFamilies.mono, wordBreak: "break-all", mt: 1 }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontFamily: fontFamilies.mono, wordBreak: "break-all", mt: 1 }}
+            >
               {certDownloadUrl}
             </Typography>
           </Box>
@@ -36,7 +52,9 @@ export function QrCodePanel({ certDownloadUrl, proxyAddress, sslEnabled, hasCert
 
         {showProxyQr && (
           <Box sx={{ textAlign: "center" }}>
-            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{t("certificatesPage.mobile.proxyConfiguration")}</Typography>
+            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+              {t("certificatesPage.mobile.proxyConfiguration")}
+            </Typography>
             <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
               <Box sx={{ p: 2, bgcolor: "white", borderRadius: 1, display: "inline-block" }}>
                 <QRCodeSVG value={`proxy:${proxyAddress}`} size={132} />

@@ -1,4 +1,12 @@
-import { createContext, useCallback, useMemo, type PropsWithChildren, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useMemo,
+  type PropsWithChildren,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
 import { useAppPreferencesStore, type LanguagePreference } from "@/app/store/app-preferences.store";
 
@@ -38,13 +46,11 @@ type GlobalWithI18nContext = typeof globalThis & {
   [I18N_CONTEXT_KEY]?: ReturnType<typeof createContext<I18nContextValue | null>>;
 };
 
-const I18nContext = (
-  globalThis as GlobalWithI18nContext
-)[I18N_CONTEXT_KEY] ?? createContext<I18nContextValue | null>(null);
+const I18nContext =
+  (globalThis as GlobalWithI18nContext)[I18N_CONTEXT_KEY] ??
+  createContext<I18nContextValue | null>(null);
 
-(
-  globalThis as GlobalWithI18nContext
-)[I18N_CONTEXT_KEY] = I18nContext;
+(globalThis as GlobalWithI18nContext)[I18N_CONTEXT_KEY] = I18nContext;
 
 export function resolveLocale(
   preference: LanguagePreference,
@@ -55,8 +61,8 @@ export function resolveLocale(
     return preference;
   }
 
-  const candidates = [...(languages ?? []), fallbackLanguage].filter(
-    (value): value is string => Boolean(value && value.trim()),
+  const candidates = [...(languages ?? []), fallbackLanguage].filter((value): value is string =>
+    Boolean(value && value.trim()),
   );
 
   for (const candidate of candidates) {

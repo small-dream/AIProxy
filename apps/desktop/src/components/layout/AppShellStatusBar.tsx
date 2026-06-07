@@ -47,8 +47,16 @@ function StatusSeparator() {
   );
 }
 
-function StatusItem({ active = true, icon, label, monospaced = false, onClick, title }: StatusItemProps) {
-  const getStatusFontSize = (themeFontSize: number) => `${(themeFontSize / defaultAppFontSize) * 12}px`;
+function StatusItem({
+  active = true,
+  icon,
+  label,
+  monospaced = false,
+  onClick,
+  title,
+}: StatusItemProps) {
+  const getStatusFontSize = (themeFontSize: number) =>
+    `${(themeFontSize / defaultAppFontSize) * 12}px`;
   const content = (
     <Stack
       alignItems="center"
@@ -67,9 +75,9 @@ function StatusItem({ active = true, icon, label, monospaced = false, onClick, t
       {icon ? (
         <Box
           sx={{
-          alignItems: "center",
-          color: active ? "primary.main" : "text.disabled",
-          display: "flex",
+            alignItems: "center",
+            color: active ? "primary.main" : "text.disabled",
+            display: "flex",
             flexShrink: 0,
             "& > svg": {
               fontSize: 14,
@@ -157,9 +165,10 @@ export function AppShellStatusBar({
         direction="row"
         spacing={0.5}
         sx={(theme) => ({
-          bgcolor: theme.palette.mode === "dark"
-            ? alpha(theme.palette.background.paper, 0.82)
-            : alpha(theme.palette.background.paper, 0.92),
+          bgcolor:
+            theme.palette.mode === "dark"
+              ? alpha(theme.palette.background.paper, 0.82)
+              : alpha(theme.palette.background.paper, 0.92),
           minHeight: 32,
           overflowX: "auto",
           px: 1.25,
@@ -189,7 +198,11 @@ export function AppShellStatusBar({
         <StatusItem
           active={proxyStatus?.systemProxyEnabled ?? false}
           icon={<LanguageRoundedIcon />}
-          label={proxyStatus?.systemProxyEnabled ? t("appShell.systemProxyOn") : t("appShell.systemProxyOff")}
+          label={
+            proxyStatus?.systemProxyEnabled
+              ? t("appShell.systemProxyOn")
+              : t("appShell.systemProxyOff")
+          }
           onClick={onSystemProxyToggle}
           title={
             proxyStatus?.systemProxyEnabled

@@ -47,9 +47,11 @@ export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbAc
       }
 
       if (targetDevice.state !== "device") {
-        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
-          state: targetDevice.state,
-        }));
+        throw new Error(
+          t("certificatesPage.mobile.adbDeviceStateHint", {
+            state: targetDevice.state,
+          }),
+        );
       }
 
       const localIps = await getLocalIp();
@@ -65,10 +67,12 @@ export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbAc
         port,
       });
 
-      onSnackbarMessage(t("certificatesPage.mobile.adbSetProxySuccessBody", {
-        deviceSerial: result.deviceSerial,
-        proxyAddress: result.proxyAddress ?? `${localIp}:${port}`,
-      }));
+      onSnackbarMessage(
+        t("certificatesPage.mobile.adbSetProxySuccessBody", {
+          deviceSerial: result.deviceSerial,
+          proxyAddress: result.proxyAddress ?? `${localIp}:${port}`,
+        }),
+      );
     } catch (error) {
       onSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbSetProxyErrorTitle")));
     } finally {
@@ -92,19 +96,25 @@ export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbAc
       }
 
       if (targetDevice.state !== "device") {
-        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
-          state: targetDevice.state,
-        }));
+        throw new Error(
+          t("certificatesPage.mobile.adbDeviceStateHint", {
+            state: targetDevice.state,
+          }),
+        );
       }
 
       const result = await clearAndroidProxyViaAdb({
         deviceSerial: targetDevice.serial,
       });
-      onSnackbarMessage(t("certificatesPage.mobile.adbClearProxySuccessBody", {
-        deviceSerial: result.deviceSerial,
-      }));
+      onSnackbarMessage(
+        t("certificatesPage.mobile.adbClearProxySuccessBody", {
+          deviceSerial: result.deviceSerial,
+        }),
+      );
     } catch (error) {
-      onSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbClearProxyErrorTitle")));
+      onSnackbarMessage(
+        getErrorMessage(error, t("certificatesPage.mobile.adbClearProxyErrorTitle")),
+      );
     } finally {
       setAdbMenuActionPending(false);
     }

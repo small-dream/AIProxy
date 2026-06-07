@@ -1,8 +1,27 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Divider, IconButton, Snackbar, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Divider,
+  IconButton,
+  Snackbar,
+  Stack,
+  Tab,
+  Tabs,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -10,7 +29,12 @@ import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
 import { SessionInspectorAutomationPane } from "./SessionInspectorAutomationPane";
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
-import { InspectorKeyValueTable, InspectorScrollArea, SearchableCodeBlock, inspectorTabsSx } from "./SessionInspectorShared";
+import {
+  InspectorKeyValueTable,
+  InspectorScrollArea,
+  SearchableCodeBlock,
+  inspectorTabsSx,
+} from "./SessionInspectorShared";
 import {
   describeBody,
   getBodyText,
@@ -29,7 +53,12 @@ export type ResponsePaneHandle = {
   activateSearch: () => void;
 };
 
-const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set(["json", "jsonText", "raw", "text"]);
+const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set([
+  "json",
+  "jsonText",
+  "raw",
+  "text",
+]);
 type ResponseContentKind = "binary" | "json" | "text";
 
 function getResponseContentKind(
@@ -43,14 +72,14 @@ function getResponseContentKind(
   }
 
   if (
-    mimeType.startsWith("text/")
-    || mimeType.includes("xml")
-    || mimeType.includes("javascript")
-    || mimeType.includes("ecmascript")
-    || mimeType.includes("svg")
-    || mimeType.includes("x-www-form-urlencoded")
-    || detail?.responseBody?.inlineText !== undefined
-    || detail?.responseBody?.textDeferred
+    mimeType.startsWith("text/") ||
+    mimeType.includes("xml") ||
+    mimeType.includes("javascript") ||
+    mimeType.includes("ecmascript") ||
+    mimeType.includes("svg") ||
+    mimeType.includes("x-www-form-urlencoded") ||
+    detail?.responseBody?.inlineText !== undefined ||
+    detail?.responseBody?.textDeferred
   ) {
     return "text";
   }
@@ -94,29 +123,35 @@ function getVisibleResponseTabs(
   return tabs;
 }
 
-export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
-  detail: SessionDetail | undefined;
-  isResponseBodyBase64Loading: boolean;
-  isResponseBodyLoading: boolean;
-  isResponseRawLoading: boolean;
-  onResponseTabChange: (tab: ResponseInspectorTab) => void;
-  responseMeta?: ReactNode;
-  responseJsonDisplayText: string | undefined;
-  responseJsonResult: JsonParseResult;
-  responseTab: ResponseInspectorTab;
-  session: SessionSummary;
-}>(function SessionInspectorResponsePane({
-  detail,
-  isResponseBodyBase64Loading,
-  isResponseBodyLoading,
-  isResponseRawLoading,
-  onResponseTabChange,
-  responseMeta,
-  responseJsonDisplayText,
-  responseJsonResult,
-  responseTab,
-  session,
-}, ref) {
+export const SessionInspectorResponsePane = forwardRef<
+  ResponsePaneHandle,
+  {
+    detail: SessionDetail | undefined;
+    isResponseBodyBase64Loading: boolean;
+    isResponseBodyLoading: boolean;
+    isResponseRawLoading: boolean;
+    onResponseTabChange: (tab: ResponseInspectorTab) => void;
+    responseMeta?: ReactNode;
+    responseJsonDisplayText: string | undefined;
+    responseJsonResult: JsonParseResult;
+    responseTab: ResponseInspectorTab;
+    session: SessionSummary;
+  }
+>(function SessionInspectorResponsePane(
+  {
+    detail,
+    isResponseBodyBase64Loading,
+    isResponseBodyLoading,
+    isResponseRawLoading,
+    onResponseTabChange,
+    responseMeta,
+    responseJsonDisplayText,
+    responseJsonResult,
+    responseTab,
+    session,
+  },
+  ref,
+) {
   const { t } = useI18n();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -158,17 +193,22 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
   useImperativeHandle(ref, () => ({ activateSearch }), [activateSearch]);
 
   const searchPlaceholder =
-    activeResponseTab === "json" ? t("inspector.response.jsonSearchPlaceholder") :
-    activeResponseTab === "jsonText" ? t("inspector.response.jsonTextSearchPlaceholder") :
-    activeResponseTab === "raw" ? t("inspector.response.rawSearchPlaceholder") :
-    t("inspector.response.rawSearchPlaceholder");
+    activeResponseTab === "json"
+      ? t("inspector.response.jsonSearchPlaceholder")
+      : activeResponseTab === "jsonText"
+        ? t("inspector.response.jsonTextSearchPlaceholder")
+        : activeResponseTab === "raw"
+          ? t("inspector.response.rawSearchPlaceholder")
+          : t("inspector.response.rawSearchPlaceholder");
   const copyValue = useMemo(() => {
     if (activeResponseTab === "json" || activeResponseTab === "jsonText") {
       return responseJsonDisplayText ?? getBodyText(detail?.responseBody) ?? "";
     }
 
     if (activeResponseTab === "raw") {
-      return getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody) ?? "";
+      return (
+        getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody) ?? ""
+      );
     }
 
     if (activeResponseTab === "text") {
@@ -176,7 +216,13 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     }
 
     return "";
-  }, [activeResponseTab, detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody, responseJsonDisplayText]);
+  }, [
+    activeResponseTab,
+    detail?.rawResponse,
+    detail?.rawResponseHead,
+    detail?.responseBody,
+    responseJsonDisplayText,
+  ]);
 
   const handleCopy = useCallback(async () => {
     if (!copyValue) return;
@@ -189,18 +235,27 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
     searchController.onQueryChange("");
   }, [searchController]);
 
-  const handleSearchWithText = useCallback((text: string) => {
-    setIsSearchOpen(true);
-    searchController.onQueryChange(text);
-  }, [searchController]);
+  const handleSearchWithText = useCallback(
+    (text: string) => {
+      setIsSearchOpen(true);
+      searchController.onQueryChange(text);
+    },
+    [searchController],
+  );
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
-
+    <Stack
+      minHeight={0}
+      spacing={0}
+      sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.72 : 0.86,
+          ),
           display: "flex",
           minHeight: 40,
           pr: 0.75,
@@ -243,17 +298,24 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           ) : null}
         </Tabs>
 
-        {responseMeta ? (
-          <Box sx={{ flex: "0 0 auto", mr: 0.5 }}>
-            {responseMeta}
-          </Box>
-        ) : null}
+        {responseMeta ? <Box sx={{ flex: "0 0 auto", mr: 0.5 }}>{responseMeta}</Box> : null}
 
         {isSearchable ? (
           <Stack alignItems="center" direction="row" spacing={0.25}>
-            <Tooltip arrow title={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
+            <Tooltip
+              arrow
+              title={
+                isSearchOpen
+                  ? t("inspector.response.actions.closeSearch")
+                  : t("inspector.response.actions.openSearch")
+              }
+            >
               <IconButton
-                aria-label={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
+                aria-label={
+                  isSearchOpen
+                    ? t("inspector.response.actions.closeSearch")
+                    : t("inspector.response.actions.openSearch")
+                }
                 onClick={() => {
                   if (isSearchOpen) {
                     closeSearch();
@@ -295,9 +357,9 @@ export const SessionInspectorResponsePane = forwardRef<ResponsePaneHandle, {
           flex: 1,
           minHeight: 0,
           overflow: "hidden",
-          pl: (activeResponseTab === "json" || activeResponseTab === "preview") ? 0 : 2,
+          pl: activeResponseTab === "json" || activeResponseTab === "preview" ? 0 : 2,
           pr: 0.5,
-          py: (activeResponseTab === "json" || activeResponseTab === "preview") ? 0 : 2,
+          py: activeResponseTab === "json" || activeResponseTab === "preview" ? 0 : 2,
         }}
       >
         {detail?.responseBody?.truncated && (
@@ -392,12 +454,7 @@ function ResponseTabContent({
   });
 
   if (responseTab === "overview") {
-    return (
-      <SessionInspectorOverview
-        detail={detail}
-        session={session}
-      />
-    );
+    return <SessionInspectorOverview detail={detail} session={session} />;
   }
 
   if (responseTab === "preview") {
@@ -419,7 +476,13 @@ function ResponseTabContent({
       <InspectorScrollArea>
         <InspectorKeyValueTable
           emptyMessage={t("inspector.response.emptyHeaders")}
-          items={detail?.responseHeaders.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
+          items={
+            detail?.responseHeaders.map((entry) => ({
+              name: entry.name,
+              value: entry.value,
+              isPseudo: entry.isPseudo,
+            })) ?? []
+          }
           title={t("inspector.response.headersTitle")}
         />
       </InspectorScrollArea>
@@ -435,14 +498,24 @@ function ResponseTabContent({
       <InspectorScrollArea>
         <InspectorKeyValueTable
           emptyMessage={t("inspector.response.emptyTrailers")}
-          items={detail?.trailers?.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
+          items={
+            detail?.trailers?.map((entry) => ({
+              name: entry.name,
+              value: entry.value,
+              isPseudo: entry.isPseudo,
+            })) ?? []
+          }
         />
       </InspectorScrollArea>
     );
   }
 
   if (responseTab === "raw") {
-    const rawResponseText = getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody);
+    const rawResponseText = getRawMessageText(
+      detail?.rawResponse,
+      detail?.rawResponseHead,
+      detail?.responseBody,
+    );
 
     if (isResponseRawLoading && detail?.rawResponseDeferred) {
       return (
@@ -540,7 +613,11 @@ function ResponseTabContent({
 
     return (
       <SearchableCodeBlock
-        code={responseJsonResult.status === "success" ? (responseJsonDisplayText ?? t("inspector.response.noJsonBody")) : t("inspector.response.noJsonBody")}
+        code={
+          responseJsonResult.status === "success"
+            ? (responseJsonDisplayText ?? t("inspector.response.noJsonBody"))
+            : t("inspector.response.noJsonBody")
+        }
         currentMatchIndex={currentMatchIndex}
         language="json"
         matcher={searchMatcher}

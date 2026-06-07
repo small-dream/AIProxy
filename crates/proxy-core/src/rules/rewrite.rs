@@ -1,12 +1,12 @@
-use super::*;
+use super::json_path::{
+    coerce_body_field_value, get_json_path_value, json_value_preview, parse_json_field_path,
+    remove_json_path_value, set_json_path_value,
+};
 use super::types::{
-    RewriteHeaderPayload, RewriteQueryPayload, RewriteBodyPayload, RewriteBodyFieldPayload,
+    RewriteBodyFieldPayload, RewriteBodyPayload, RewriteHeaderPayload, RewriteQueryPayload,
     RewriteRedirectPayload,
 };
-use super::json_path::{
-    parse_json_field_path, get_json_path_value, set_json_path_value,
-    remove_json_path_value, coerce_body_field_value, json_value_preview,
-};
+use super::*;
 
 pub(crate) fn method_matches(methods: &[String], method: &Method) -> bool {
     methods.is_empty()
@@ -154,7 +154,9 @@ fn build_rewrite_trace(
     }
 }
 
-pub(crate) fn rebuild_request_runtime_state(request: &mut ParsedProxyRequest) -> Result<(), String> {
+pub(crate) fn rebuild_request_runtime_state(
+    request: &mut ParsedProxyRequest,
+) -> Result<(), String> {
     request.headers = build_upstream_headers_from_entries(&request.request_headers)?;
     request.host = request
         .url

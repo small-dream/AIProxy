@@ -10,7 +10,10 @@ import {
   type FontLocale,
 } from "@/themes/fonts";
 
-export function resolveThemeMode(preference: ThemePreference, systemPrefersDark: boolean | undefined): PaletteMode {
+export function resolveThemeMode(
+  preference: ThemePreference,
+  systemPrefersDark: boolean | undefined,
+): PaletteMode {
   if (preference === "light" || preference === "dark") {
     return preference;
   }
@@ -19,15 +22,11 @@ export function resolveThemeMode(preference: ThemePreference, systemPrefersDark:
 }
 
 export function getSurfaceShadow(mode: PaletteMode) {
-  return mode === "dark"
-    ? "0 14px 40px rgba(0, 0, 0, 0.28)"
-    : "0 10px 30px rgba(15, 23, 42, 0.06)";
+  return mode === "dark" ? "0 14px 40px rgba(0, 0, 0, 0.28)" : "0 10px 30px rgba(15, 23, 42, 0.06)";
 }
 
 export function getHoverShadow(mode: PaletteMode) {
-  return mode === "dark"
-    ? "0 10px 26px rgba(0, 0, 0, 0.32)"
-    : "0 8px 20px rgba(15, 23, 42, 0.08)";
+  return mode === "dark" ? "0 10px 26px rgba(0, 0, 0, 0.32)" : "0 8px 20px rgba(15, 23, 42, 0.08)";
 }
 
 export function getSyntaxColors(mode: PaletteMode) {
@@ -279,10 +278,10 @@ export function createAppTheme(
       MuiListItemButton: {
         styleOverrides: {
           root: {
-            '&.Mui-selected': {
+            "&.Mui-selected": {
               backgroundColor: alpha(colors.primary, mode === "dark" ? 0.18 : 0.08),
             },
-            '&.Mui-selected:hover': {
+            "&.Mui-selected:hover": {
               backgroundColor: alpha(colors.primary, mode === "dark" ? 0.24 : 0.12),
             },
           },

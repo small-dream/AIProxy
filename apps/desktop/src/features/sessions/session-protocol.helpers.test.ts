@@ -64,12 +64,16 @@ describe("inferProtocolMetadata", () => {
 
 describe("getSessionProtocolMetadata", () => {
   it("uses explicit session metadata before legacy fallback", () => {
-    expect(getSessionProtocolMetadata(createSessionSummary({
-      applicationProtocol: "grpc",
-      httpVersion: "2",
-      scheme: "https",
-      transportProtocol: "tcp",
-    }))).toEqual({
+    expect(
+      getSessionProtocolMetadata(
+        createSessionSummary({
+          applicationProtocol: "grpc",
+          httpVersion: "2",
+          scheme: "https",
+          transportProtocol: "tcp",
+        }),
+      ),
+    ).toEqual({
       scheme: "https",
       httpVersion: "2",
       transportProtocol: "tcp",
@@ -79,27 +83,39 @@ describe("getSessionProtocolMetadata", () => {
 
   it("formats protocol labels from structured metadata", () => {
     expect(formatSessionProtocol(createSessionSummary())).toBe("HTTP/1.1");
-    expect(formatSessionProtocol(createSessionSummary({
-      applicationProtocol: "grpc",
-      httpVersion: "2",
-    }))).toBe("GRPC/2");
+    expect(
+      formatSessionProtocol(
+        createSessionSummary({
+          applicationProtocol: "grpc",
+          httpVersion: "2",
+        }),
+      ),
+    ).toBe("GRPC/2");
   });
 
   it("detects websocket sessions from new or legacy fields", () => {
-    expect(isWebSocketSessionProtocol(createSessionSummary({ applicationProtocol: "websocket" }))).toBe(true);
+    expect(
+      isWebSocketSessionProtocol(createSessionSummary({ applicationProtocol: "websocket" })),
+    ).toBe(true);
     expect(isWebSocketSessionProtocol(createSessionSummary({ protocol: "wss" }))).toBe(true);
   });
 
   it("displays HTTP/2 for h2 session with structured metadata", () => {
-    expect(formatSessionProtocol(createSessionSummary({ protocol: "h2", httpVersion: "2" }))).toBe("HTTP/2");
+    expect(formatSessionProtocol(createSessionSummary({ protocol: "h2", httpVersion: "2" }))).toBe(
+      "HTTP/2",
+    );
   });
 
   it("displays HTTP/2 with only httpVersion field", () => {
-    expect(formatSessionProtocol(createSessionSummary({ protocol: "https", httpVersion: "2" }))).toBe("HTTP/2");
+    expect(
+      formatSessionProtocol(createSessionSummary({ protocol: "https", httpVersion: "2" })),
+    ).toBe("HTTP/2");
   });
 
   it("prefers explicit httpVersion over protocol inference", () => {
-    const meta = getSessionProtocolMetadata(createSessionSummary({ protocol: "https", httpVersion: "2" }));
+    const meta = getSessionProtocolMetadata(
+      createSessionSummary({ protocol: "https", httpVersion: "2" }),
+    );
     expect(meta.httpVersion).toBe("2");
     expect(meta.scheme).toBe("https");
     expect(meta.transportProtocol).toBe("tcp");

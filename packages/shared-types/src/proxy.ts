@@ -46,19 +46,34 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
     return false;
   }
 
-  if (typeof candidate.port !== "number" || !Number.isInteger(candidate.port) || candidate.port <= 0) {
+  if (
+    typeof candidate.port !== "number" ||
+    !Number.isInteger(candidate.port) ||
+    candidate.port <= 0
+  ) {
     return false;
   }
 
-  if (typeof candidate.sslEnabled !== "boolean" || typeof candidate.systemProxyEnabled !== "boolean") {
+  if (
+    typeof candidate.sslEnabled !== "boolean" ||
+    typeof candidate.systemProxyEnabled !== "boolean"
+  ) {
     return false;
   }
 
-  if (candidate.activeWorkspaceId !== undefined && candidate.activeWorkspaceId !== null && typeof candidate.activeWorkspaceId !== "string") {
+  if (
+    candidate.activeWorkspaceId !== undefined &&
+    candidate.activeWorkspaceId !== null &&
+    typeof candidate.activeWorkspaceId !== "string"
+  ) {
     return false;
   }
 
-  if (candidate.startedAt !== undefined && candidate.startedAt !== null && typeof candidate.startedAt !== "string") {
+  if (
+    candidate.startedAt !== undefined &&
+    candidate.startedAt !== null &&
+    typeof candidate.startedAt !== "string"
+  ) {
     return false;
   }
 

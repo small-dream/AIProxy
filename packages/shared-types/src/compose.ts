@@ -1,4 +1,9 @@
-import { type BodyReference, type HeaderEntry, isHeaderEntry, type SessionDetail } from "./sessions";
+import {
+  type BodyReference,
+  type HeaderEntry,
+  isHeaderEntry,
+  type SessionDetail,
+} from "./sessions";
 
 export type ComposedRequestInput = {
   workspaceId: string;
@@ -57,9 +62,21 @@ export function createMockComposeSessionDetail(input: ComposedRequestInput): Ses
     ],
     queryParams: [],
     cookies: [],
-    ...(input.body ? { requestBody: { inlineText: input.body, sizeBytes: input.body.length, mimeType: "text/plain" } as BodyReference } : {}),
+    ...(input.body
+      ? {
+          requestBody: {
+            inlineText: input.body,
+            sizeBytes: input.body.length,
+            mimeType: "text/plain",
+          } as BodyReference,
+        }
+      : {}),
     responseBody: {
-      inlineText: JSON.stringify({ ok: true, method: input.method, url: input.url, mock: true }, null, 2),
+      inlineText: JSON.stringify(
+        { ok: true, method: input.method, url: input.url, mock: true },
+        null,
+        2,
+      ),
       sizeBytes: 128,
       mimeType: "application/json",
     },

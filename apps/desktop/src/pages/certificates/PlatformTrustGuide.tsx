@@ -10,7 +10,9 @@ function StepList({ steps }: { steps: Step[] }) {
     <Box component="ol" sx={{ pl: 2, m: 0 }}>
       {steps.map((step) => (
         <li key={step.order}>
-          <Typography variant="body2" sx={{ mb: 1 }}>{step.description}</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {step.description}
+          </Typography>
         </li>
       ))}
     </Box>
@@ -18,7 +20,7 @@ function StepList({ steps }: { steps: Step[] }) {
 }
 
 const PLATFORMS = ["windows", "macos", "linux"] as const;
-type PlatformKey = typeof PLATFORMS[number];
+type PlatformKey = (typeof PLATFORMS)[number];
 
 type Props = {
   currentPlatform: string;
@@ -33,9 +35,18 @@ export function PlatformTrustGuide({ currentPlatform }: Props) {
   const [otherTab, setOtherTab] = useState<PlatformKey>(detectedPlatform);
 
   const platformSteps: Record<PlatformKey, Step[]> = {
-    windows: tList("certificatesPage.platformSteps.windows").map((desc, i) => ({ order: i + 1, description: desc })),
-    macos: tList("certificatesPage.platformSteps.macos").map((desc, i) => ({ order: i + 1, description: desc })),
-    linux: tList("certificatesPage.platformSteps.linux").map((desc, i) => ({ order: i + 1, description: desc })),
+    windows: tList("certificatesPage.platformSteps.windows").map((desc, i) => ({
+      order: i + 1,
+      description: desc,
+    })),
+    macos: tList("certificatesPage.platformSteps.macos").map((desc, i) => ({
+      order: i + 1,
+      description: desc,
+    })),
+    linux: tList("certificatesPage.platformSteps.linux").map((desc, i) => ({
+      order: i + 1,
+      description: desc,
+    })),
   };
 
   const platformLabels: Record<PlatformKey, string> = {
@@ -53,12 +64,7 @@ export function PlatformTrustGuide({ currentPlatform }: Props) {
       </Typography>
       <StepList steps={platformSteps[detectedPlatform]} />
 
-      <Button
-        size="small"
-        variant="text"
-        onClick={() => setShowOthers((v) => !v)}
-        sx={{ mt: 1 }}
-      >
+      <Button size="small" variant="text" onClick={() => setShowOthers((v) => !v)} sx={{ mt: 1 }}>
         {showOthers
           ? t("certificatesPage.hideOtherPlatforms")
           : t("certificatesPage.showOtherPlatforms")}

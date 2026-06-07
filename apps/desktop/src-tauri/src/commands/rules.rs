@@ -445,18 +445,31 @@ fn validate_map_rule(input: &MapRule) -> Result<(), String> {
         return Err(app_error(ERR_INVALID_INPUT, "Map rule name is required."));
     }
     if input.source_pattern.trim().is_empty() {
-        return Err(app_error(ERR_INVALID_INPUT, "Map rule source pattern is required."));
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "Map rule source pattern is required.",
+        ));
     }
     if input.target_value.trim().is_empty() {
-        return Err(app_error(ERR_INVALID_INPUT, "Map rule target value is required."));
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "Map rule target value is required.",
+        ));
     }
 
     match input.mode.as_str() {
         "remote" => {
-            let url = Url::parse(input.target_value.trim())
-                .map_err(|error| app_error(ERR_INVALID_INPUT, format!("Map remote target URL is invalid: {error}")))?;
+            let url = Url::parse(input.target_value.trim()).map_err(|error| {
+                app_error(
+                    ERR_INVALID_INPUT,
+                    format!("Map remote target URL is invalid: {error}"),
+                )
+            })?;
             if url.scheme() != "http" && url.scheme() != "https" {
-                return Err(app_error(ERR_INVALID_INPUT, "Map remote target URL must start with http:// or https://."));
+                return Err(app_error(
+                    ERR_INVALID_INPUT,
+                    "Map remote target URL must start with http:// or https://.",
+                ));
             }
         }
         "local" => {
@@ -470,11 +483,19 @@ fn validate_map_rule(input: &MapRule) -> Result<(), String> {
             if !path.is_file() && !path.is_dir() {
                 return Err(app_error(
                     ERR_INVALID_INPUT,
-                    format!("Map local target path must be a file or folder: {}", path.display()),
+                    format!(
+                        "Map local target path must be a file or folder: {}",
+                        path.display()
+                    ),
                 ));
             }
         }
-        other => return Err(app_error(ERR_INVALID_INPUT, format!("Unsupported map rule mode: {other}"))),
+        other => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                format!("Unsupported map rule mode: {other}"),
+            ))
+        }
     }
 
     Ok(())
@@ -557,23 +578,41 @@ pub fn read_script_source_file(
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
-        .ok_or_else(|| app_error(ERR_INVALID_INPUT, "Script file must end with .js, .mjs, .ts, or .mts."))?;
+        .ok_or_else(|| {
+            app_error(
+                ERR_INVALID_INPUT,
+                "Script file must end with .js, .mjs, .ts, or .mts.",
+            )
+        })?;
     let language = match extension.as_str() {
         "js" | "mjs" => "javascript",
         "ts" | "mts" => "typescript",
-        _ => return Err(app_error(ERR_INVALID_INPUT, "Unsupported script file extension.")),
+        _ => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                "Unsupported script file extension.",
+            ))
+        }
     };
 
-    let bytes = std::fs::read(path).map_err(|error| app_error(ERR_INTERNAL, format!("Read script file: {error}")))?;
+    let bytes = std::fs::read(path)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Read script file: {error}")))?;
     if bytes.len() > MAX_IMPORTED_SCRIPT_BYTES {
         return Err(app_error(
             ERR_INVALID_INPUT,
-            format!("Script file exceeds the {} KB limit", MAX_IMPORTED_SCRIPT_BYTES / 1024),
+            format!(
+                "Script file exceeds the {} KB limit",
+                MAX_IMPORTED_SCRIPT_BYTES / 1024
+            ),
         ));
     }
 
-    let source_code = String::from_utf8(bytes)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Decode script file as UTF-8: {error}")))?;
+    let source_code = String::from_utf8(bytes).map_err(|error| {
+        app_error(
+            ERR_INTERNAL,
+            format!("Decode script file as UTF-8: {error}"),
+        )
+    })?;
 
     Ok(ScriptSourceFileOutput {
         file_name: path
@@ -619,7 +658,12 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         "script" => state.read_script_manager().delete_rule(&input.rule_id),
-        _ => return Err(app_error(ERR_INVALID_INPUT, format!("Unknown rule type: {}", input.rule_type))),
+        _ => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                format!("Unknown rule type: {}", input.rule_type),
+            ))
+        }
     }
 
     Ok(())

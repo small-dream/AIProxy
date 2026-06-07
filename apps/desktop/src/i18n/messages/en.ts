@@ -121,7 +121,8 @@ export const enMessages = {
     moreActions: "More actions",
     openCertificatesPage: "Open the Certificates page",
     portChangesStartOnNewPort: "Port changes are applied by starting the proxy on the new port.",
-    portChangesRestartImmediately: "Port changes restart the proxy and rebind the listener immediately.",
+    portChangesRestartImmediately:
+      "Port changes restart the proxy and rebind the listener immediately.",
     portStatus: ":{{port}}",
     proxyPortInUse: "Port {{port}} is already in use. Choose another port and try again.",
     proxyPortValidation: "Enter a valid TCP port between 1 and 65535.",
@@ -179,7 +180,8 @@ export const enMessages = {
     aiTest: "Test Connection",
     aiTesting: "Testing...",
     aiTimeout: "Timeout (ms)",
-    systemProxyRecoveryWarning: "AIProxy found a pending system proxy recovery snapshot but could not restore it automatically: {{message}}",
+    systemProxyRecoveryWarning:
+      "AIProxy found a pending system proxy recovery snapshot but could not restore it automatically: {{message}}",
     themeLabel: "Appearance Theme",
     themeOptionDark: "Dark",
     themeOptionLight: "Light",
@@ -191,7 +193,8 @@ export const enMessages = {
     updatesCheckAction: "Check for Updates",
     updatesChecking: "Checking GitHub Releases for an update...",
     updatesCheckingAction: "Checking...",
-    updatesDescription: "Check GitHub Releases manually and install a signed updater package when one is available.",
+    updatesDescription:
+      "Check GitHub Releases manually and install a signed updater package when one is available.",
     updatesIdle: "No update check has run in this session.",
     updatesInstallAction: "Install & Restart",
     updatesInstalling: "Downloading and installing the update...",
@@ -209,7 +212,7 @@ export const enMessages = {
     creating: "Creating...",
     description: "Manage the current proxy port and SSL behavior.",
     namePlaceholder: "e.g. Mobile QA, Web Dev",
-    loadSuccess: "Preset \"{{name}}\" applied.",
+    loadSuccess: 'Preset "{{name}}" applied.',
     nameRequired: "Preset name is required.",
     newName: "New Preset",
     portValidation: "Port must be between 1 and 65535.",
@@ -219,7 +222,8 @@ export const enMessages = {
     saveSuccess: "Proxy settings saved.",
     saving: "Saving...",
     http2Enabled: "HTTP/2 Support",
-    http2EnabledDescription: "Enable HTTP/2 protocol for captured connections. When disabled, all connections fall back to HTTP/1.1.",
+    http2EnabledDescription:
+      "Enable HTTP/2 protocol for captured connections. When disabled, all connections fall back to HTTP/1.1.",
     sslEnabled: "SSL Enabled",
     runningHint: "Saving restarts the running proxy immediately.",
     stoppedHint: "Saved settings will be used the next time the proxy starts.",
@@ -276,18 +280,21 @@ export const enMessages = {
     responseRead: "Response Read",
   },
   rulesPage: {
-    centerDescription: "Create rules from ready-made templates, edit them inline, and keep priority plus enablement visible while you work.",
+    centerDescription:
+      "Create rules from ready-made templates, edit them inline, and keep priority plus enablement visible while you work.",
     centerTitle: "Rule Center",
     addDialogTitle: "Add Breakpoint Rule",
     addRule: "Add Rule",
     allMethods: "All methods",
     breakOnAllRequests: "Break on All Requests",
     breakOnAllResponses: "Break on All Responses",
-    breakpointRulesDescription: "Rules are evaluated in order. The first matching rule triggers the breakpoint.",
+    breakpointRulesDescription:
+      "Rules are evaluated in order. The first matching rule triggers the breakpoint.",
     breakpointRulesTitle: "Breakpoint Rules",
     description: "Manage breakpoints and request/response interception rules.",
     empty: "No rules defined. Add a rule or use the quick actions above.",
-    quickBreakpointDescription: "Enable catch-all breakpoints to intercept every request or response.",
+    quickBreakpointDescription:
+      "Enable catch-all breakpoints to intercept every request or response.",
     quickBreakpointTitle: "Quick Breakpoint",
     untitledRule: "Untitled Rule",
     notConfigured: "Not configured",
@@ -326,18 +333,22 @@ export const enMessages = {
       required: "required",
     },
     editor: {
-      actionDescription: "Configure the actual rewrite or mapping result the user will see once the match succeeds.",
+      actionDescription:
+        "Configure the actual rewrite or mapping result the user will see once the match succeeds.",
       actionTitle: "Action Configuration",
-      basicDescription: "Keep the name, priority, note, and enable switch close together so the rule stays easy to scan in a long list.",
+      basicDescription:
+        "Keep the name, priority, note, and enable switch close together so the rule stays easy to scan in a long list.",
       basicTitle: "Basic Information",
       demote: "Lower Priority",
       enabled: "Enabled",
-      matchDescription: "Use URL, method, and stage together so you can keep broad rule sets understandable.",
+      matchDescription:
+        "Use URL, method, and stage together so you can keep broad rule sets understandable.",
       matchStage: "Match Stage",
       matchStageEither: "Request or Response",
       matchTitle: "Match Conditions",
       note: "Notes",
-      previewDescription: "A short natural-language preview makes it easier to sanity-check a rule before saving it.",
+      previewDescription:
+        "A short natural-language preview makes it easier to sanity-check a rule before saving it.",
       previewTitle: "Preview & Validation",
       priority: "Priority",
       promote: "Raise Priority",
@@ -361,7 +372,8 @@ export const enMessages = {
     },
     rewrite: {
       title: "Rewrite Rules",
-      description: "Handle header, query, body, and redirect rewrites in one workspace without losing the rule list context.",
+      description:
+        "Handle header, query, body, and redirect rewrites in one workspace without losing the rule list context.",
       searchPlaceholder: "Search rewrite rules",
       fromTemplate: "From Template",
       templatesTitle: "Rewrite Templates",
@@ -369,7 +381,8 @@ export const enMessages = {
       quickCreateQuery: "Query Rewrite",
       quickCreateBody: "Body Rewrite",
       quickCreateRedirect: "Redirect",
-      emptyDescription: "Create a rewrite rule from a quick template to start changing headers, query strings, bodies, or destinations.",
+      emptyDescription:
+        "Create a rewrite rule from a quick template to start changing headers, query strings, bodies, or destinations.",
       headerTarget: "Rewrite Target",
       operation: "Operation",
       operations: {
@@ -421,8 +434,10 @@ export const enMessages = {
     },
     mapLocal: {
       createRule: "New Local Mapping",
-      description: "Swap remote resources for local files or folders while keeping the matching source visible beside the target path.",
-      emptyDescription: "Create a local mapping for static assets, mock payload files, or entire build output folders.",
+      description:
+        "Swap remote resources for local files or folders while keeping the matching source visible beside the target path.",
+      emptyDescription:
+        "Create a local mapping for static assets, mock payload files, or entire build output folders.",
       previewLineOne: "Local mapping: {{source}} -> {{target}}",
       searchPlaceholder: "Search local mappings",
       targetPath: "Local File or Folder",
@@ -433,8 +448,10 @@ export const enMessages = {
     },
     mapRemote: {
       createRule: "New Remote Mapping",
-      description: "Route matching traffic to a different upstream environment without losing the original capture context.",
-      emptyDescription: "Create a remote mapping for staging, mock gateways, or temporary environment switching.",
+      description:
+        "Route matching traffic to a different upstream environment without losing the original capture context.",
+      emptyDescription:
+        "Create a remote mapping for staging, mock gateways, or temporary environment switching.",
       previewLineOne: "Remote mapping: {{source}} -> {{target}}",
       searchPlaceholder: "Search remote mappings",
       targetUrl: "Remote Base URL",
@@ -442,7 +459,8 @@ export const enMessages = {
       title: "Map Remote",
     },
     mapEditor: {
-      matchDescription: "Keep source and target in the same card so local and remote replacements stay easy to reason about.",
+      matchDescription:
+        "Keep source and target in the same card so local and remote replacements stay easy to reason about.",
       matchTitle: "Source & Target",
       off: "off",
       on: "on",
@@ -454,7 +472,8 @@ export const enMessages = {
     },
     dns: {
       createRule: "New DNS Mapping",
-      emptyDescription: "Create a DNS mapping to redirect hostname resolution to a custom IP address.",
+      emptyDescription:
+        "Create a DNS mapping to redirect hostname resolution to a custom IP address.",
       hostPattern: "Hostname Pattern",
       hostPatternExample: "*.example.com",
       searchPlaceholder: "Search DNS mappings",
@@ -464,7 +483,8 @@ export const enMessages = {
     },
     script: {
       createRule: "New Script Rule",
-      emptyDescription: "Create a script rule to customize request and response handling with JavaScript or TypeScript.",
+      emptyDescription:
+        "Create a script rule to customize request and response handling with JavaScript or TypeScript.",
       importFile: "Import File",
       importedFrom: "Imported from: {{path}}",
       language: "Language",
@@ -510,7 +530,8 @@ export const enMessages = {
       opening: "Opening...",
       regenerate: "Regenerate Root Certificate",
     },
-    description: "Prepare HTTPS decryption and platform trust flows before capturing secure traffic.",
+    description:
+      "Prepare HTTPS decryption and platform trust flows before capturing secure traffic.",
     guideDescription: "Steps to trust the root CA certificate on your platform.",
     guideTitle: "Installation Guide",
     mobile: {
@@ -523,36 +544,49 @@ export const enMessages = {
       adbDeviceLoadErrorTitle: "ADB Device Detection Failed",
       adbDevicePlaceholder: "Select a device",
       adbDeviceSelectorLabel: "ADB Device",
-      adbDeviceStateHint: "The selected target is in {{state}} state. Only devices in \"device\" state can install the certificate.",
+      adbDeviceStateHint:
+        'The selected target is in {{state}} state. Only devices in "device" state can install the certificate.',
       adbInstallAction: "Install via ADB",
-      adbInstallBody: "Connect one Android device over USB, enable USB debugging, then click the button. AIProxy will push the root certificate into Downloads and open Android Security settings. Continue the install from the system certificate management entry such as Security, Encryption & credentials, or Install a certificate.",
-      adbInstallHint: "This is not a silent install. On most Android devices you need to continue inside the system certificate management screen, then choose the certificate file from Downloads.",
+      adbInstallBody:
+        "Connect one Android device over USB, enable USB debugging, then click the button. AIProxy will push the root certificate into Downloads and open Android Security settings. Continue the install from the system certificate management entry such as Security, Encryption & credentials, or Install a certificate.",
+      adbInstallHint:
+        "This is not a silent install. On most Android devices you need to continue inside the system certificate management screen, then choose the certificate file from Downloads.",
       adbInstalling: "Installing via ADB...",
-      adbInstallRequirements: "Requires Android Platform Tools in PATH. The selected target must be in the \"device\" state.",
+      adbInstallRequirements:
+        'Requires Android Platform Tools in PATH. The selected target must be in the "device" state.',
       adbInstallTitle: "ADB Push & Open Settings",
       adbInstallUnavailable: "Generate a root certificate first to enable ADB install.",
       adbLoadingDevices: "Detecting adb devices...",
-      adbNoDevices: "No adb devices found yet. Connect a phone or emulator, enable USB debugging, then refresh.",
+      adbNoDevices:
+        "No adb devices found yet. Connect a phone or emulator, enable USB debugging, then refresh.",
       adbProxyAddressHint: "Android proxy address that will be written: {{proxyAddress}}",
-      adbProxyBody: "If your Android phone is connected over USB and USB debugging is enabled, you can write or clear the system HTTP proxy directly through ADB instead of opening Wi-Fi proxy settings manually.",
-      adbProxyRequiresLocalIp: "Detect a local network IP first before setting the Android proxy through ADB.",
-      adbProxyRequiresRunningProxy: "Start the proxy first before pointing Android to this computer through ADB.",
+      adbProxyBody:
+        "If your Android phone is connected over USB and USB debugging is enabled, you can write or clear the system HTTP proxy directly through ADB instead of opening Wi-Fi proxy settings manually.",
+      adbProxyRequiresLocalIp:
+        "Detect a local network IP first before setting the Android proxy through ADB.",
+      adbProxyRequiresRunningProxy:
+        "Start the proxy first before pointing Android to this computer through ADB.",
       adbProxyTitle: "ADB Proxy Shortcuts",
       adbRefreshDevices: "Refresh Devices",
       adbRefreshingDevices: "Refreshing...",
-      adbSelectedDeviceHint: "When both a phone and an emulator are connected, choose the exact target device here.",
+      adbSelectedDeviceHint:
+        "When both a phone and an emulator are connected, choose the exact target device here.",
       adbSetProxyAction: "Set Proxy via ADB",
       adbSetProxyErrorTitle: "ADB Proxy Setup Failed",
-      adbSetProxySuccessBody: "Set the Android global HTTP proxy on {{deviceSerial}} to {{proxyAddress}}.",
+      adbSetProxySuccessBody:
+        "Set the Android global HTTP proxy on {{deviceSerial}} to {{proxyAddress}}.",
       adbSetProxySuccessTitle: "ADB Proxy Set",
       adbSettingProxy: "Setting proxy via ADB...",
-      adbSuccessBody: "The certificate was copied to {{remotePath}} on {{deviceSerial}}, and Android Security settings were opened. Continue from the system certificate management screen, choose install from storage, then pick this file from Downloads.",
+      adbSuccessBody:
+        "The certificate was copied to {{remotePath}} on {{deviceSerial}}, and Android Security settings were opened. Continue from the system certificate management screen, choose install from storage, then pick this file from Downloads.",
       adbSuccessTitle: "Certificate Pushed, Settings Opened",
       android: "Android",
-      certQrHint: "Scan the QR code on your phone to download the root CA certificate, then follow the guide below to install it.",
+      certQrHint:
+        "Scan the QR code on your phone to download the root CA certificate, then follow the guide below to install it.",
       copyProxyAddress: "Copy Proxy Address",
       downloadCertificate: "Download Certificate",
-      httpOnlyBody: "SSL is disabled. Only plain HTTP traffic will be captured. Enable SSL to capture HTTPS traffic.",
+      httpOnlyBody:
+        "SSL is disabled. Only plain HTTP traffic will be captured. Enable SSL to capture HTTPS traffic.",
       httpOnlyTitle: "HTTP Only",
       ios: "iOS",
       localIp: "Local IP:",
@@ -564,20 +598,26 @@ export const enMessages = {
       proxyPort: "Proxy Port:",
       quickActionsInfoAction: "Show quick action help",
       quickActionsInfoTitle: "Android Quick Action Notes",
-      quickActionsDescription: "When an Android device is connected, use this area to set the proxy, clear it, and open the system certificate install flow through ADB.",
+      quickActionsDescription:
+        "When an Android device is connected, use this area to set the proxy, clear it, and open the system certificate install flow through ADB.",
       quickActionsTitle: "Android Quick Actions",
       sectionDescription: "Configure your phone to capture traffic through AIProxy.",
       sectionTitle: "Mobile Capture Setup",
       setupGuide: "Setup Guide",
-      iosDeviceManualHint: "For physical iPhones, certificate install and proxy setup should still be done through Safari/profiles, Apple Configurator, or MDM rather than a local one-click command.",
-      iosQuickActionsDescription: "If an iOS Simulator is already booted, install the AIProxy root certificate here.",
+      iosDeviceManualHint:
+        "For physical iPhones, certificate install and proxy setup should still be done through Safari/profiles, Apple Configurator, or MDM rather than a local one-click command.",
+      iosQuickActionsDescription:
+        "If an iOS Simulator is already booted, install the AIProxy root certificate here.",
       iosQuickActionsInfoTitle: "iOS Quick Action Notes",
       iosQuickActionsTitle: "iOS Quick Actions",
       iosSimulatorErrorTitle: "Simulator Certificate Install Failed",
       iosSimulatorInstallAction: "Install Cert to Simulator",
-      iosSimulatorInstallBody: "AIProxy calls `xcrun simctl keychain ... add-root-cert` to install the root certificate into a booted iOS Simulator.",
-      iosSimulatorInstallHint: "After install, you usually still need to open Settings > General > About > Certificate Trust Settings inside the Simulator and enable full trust for the root certificate.",
-      iosSimulatorInstallUnavailable: "Generate a root certificate first to enable Simulator install.",
+      iosSimulatorInstallBody:
+        "AIProxy calls `xcrun simctl keychain ... add-root-cert` to install the root certificate into a booted iOS Simulator.",
+      iosSimulatorInstallHint:
+        "After install, you usually still need to open Settings > General > About > Certificate Trust Settings inside the Simulator and enable full trust for the root certificate.",
+      iosSimulatorInstallUnavailable:
+        "Generate a root certificate first to enable Simulator install.",
       iosSimulatorInstalling: "Installing into Simulator...",
       iosSimulatorLoadErrorTitle: "Simulator Detection Failed",
       iosSimulatorLoading: "Detecting booted iOS Simulators...",
@@ -586,14 +626,16 @@ export const enMessages = {
       iosSimulatorRefreshAction: "Refresh Simulators",
       iosSimulatorRefreshing: "Refreshing...",
       iosSimulatorSelectorLabel: "iOS Simulator",
-      iosSimulatorSuccessBody: "The root certificate was installed into {{simulatorName}}. Next, open Certificate Trust Settings in the Simulator and enable full trust manually.",
+      iosSimulatorSuccessBody:
+        "The root certificate was installed into {{simulatorName}}. Next, open Certificate Trust Settings in the Simulator and enable full trust manually.",
       iosSimulatorSuccessTitle: "Certificate Installed to Simulator",
       iosSimulatorTrustSteps: [
         "Open Settings inside the current iOS Simulator.",
         "Go to General > About > Certificate Trust Settings.",
         "Find AIProxy Root CA and enable full trust.",
       ],
-      iosTrustStepsBody: "After certificate install, iOS Simulator usually still requires you to enable full trust for the root certificate in Settings.",
+      iosTrustStepsBody:
+        "After certificate install, iOS Simulator usually still requires you to enable full trust for the root certificate in Settings.",
       iosTrustStepsHideAction: "Hide Steps",
       iosTrustStepsShowAction: "Show Trust Steps",
       iosTrustStepsTitle: "Next: Enable Certificate Trust",
@@ -601,7 +643,7 @@ export const enMessages = {
       iosSteps: [
         "Make sure your iPhone/iPad is connected to the same Wi-Fi network as this computer.",
         "Go to Settings > Wi-Fi, tap the (i) button next to your connected network.",
-        "Scroll to the bottom, tap \"Configure Proxy\", then select \"Manual\".",
+        'Scroll to the bottom, tap "Configure Proxy", then select "Manual".',
         "Enter the Local IP shown above as the Server, and the Proxy Port as the Port. Tap Save.",
         "Scan the QR code above on your phone (or open the URL in Safari) to download the root CA certificate.",
         "Go to Settings > General > VPN & Device Management. Tap the AIProxy Root CA profile, then tap Install and enter your passcode.",
@@ -610,11 +652,11 @@ export const enMessages = {
       ],
       androidSteps: [
         "Make sure your Android device is connected to the same Wi-Fi network as this computer.",
-        "Go to Settings > Wi-Fi (or Network & Internet > Wi-Fi), long-press your connected network and select \"Modify network\".",
-        "Expand \"Advanced options\", set Proxy to \"Manual\".",
+        'Go to Settings > Wi-Fi (or Network & Internet > Wi-Fi), long-press your connected network and select "Modify network".',
+        'Expand "Advanced options", set Proxy to "Manual".',
         "Enter the Local IP shown above as the Proxy hostname, and the Proxy Port as the Port. Tap Save.",
         "Scan the QR code above (or open the URL in your browser) to download the root CA certificate.",
-        "Open the downloaded .crt file. When prompted, name it \"AIProxy Root CA\" and install it under \"VPN & app user certificate\" (Android 7+) or as a trusted credential.",
+        'Open the downloaded .crt file. When prompted, name it "AIProxy Root CA" and install it under "VPN & app user certificate" (Android 7+) or as a trusted credential.',
         "Note: Starting from Android 7 (Nougat), apps do not trust user-installed certificates by default. You may need to configure network_security_config.xml in your app, or use an Android emulator with a writable system partition for full HTTPS capture.",
         "You can now capture traffic from your Android device. Return to this page to view captured sessions.",
       ],
@@ -647,13 +689,16 @@ export const enMessages = {
       ],
     },
     risks: {
-      mitmBody: "HTTPS decryption works by acting as a trusted middleman between your browser and the target server. All HTTPS traffic sent through the proxy can be inspected in plaintext. This is the intended behavior for debugging, but the root CA private key must be kept secure.",
+      mitmBody:
+        "HTTPS decryption works by acting as a trusted middleman between your browser and the target server. All HTTPS traffic sent through the proxy can be inspected in plaintext. This is the intended behavior for debugging, but the root CA private key must be kept secure.",
       mitmTitle: "Man-in-the-Middle by Design",
-      pinningBody: "Some applications use certificate pinning and will refuse to connect through a proxy with a custom root CA. This is a client-side security feature and cannot be bypassed by the proxy.",
+      pinningBody:
+        "Some applications use certificate pinning and will refuse to connect through a proxy with a custom root CA. This is a client-side security feature and cannot be bypassed by the proxy.",
       pinningTitle: "Certificate Pinning",
       sectionDescription: "Important information about HTTPS interception.",
       sectionTitle: "Risk Notes",
-      undoBody: "Removing the AIProxy root CA from your system trust store restores normal HTTPS behavior. All traffic intercepted through this proxy stops the moment you stop the proxy or remove the certificate.",
+      undoBody:
+        "Removing the AIProxy root CA from your system trust store restores normal HTTPS behavior. All traffic intercepted through this proxy stops the moment you stop the proxy or remove the certificate.",
       undoTitle: "How to Undo",
     },
     status: {
@@ -690,10 +735,12 @@ export const enMessages = {
       sessionCount: "{{count}} captured requests",
       sessionTitle: "Session {{index}}",
     },
-    description: "Inspect captured traffic, keep the current filter context, and export exactly the slice you need.",
+    description:
+      "Inspect captured traffic, keep the current filter context, and export exactly the slice you need.",
     detailLoadError: "Unable to load the selected session detail from the desktop runtime.",
     export: "Export",
-    runtimeError: "Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.",
+    runtimeError:
+      "Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.",
     sessionsLoadError: "Unable to load captured sessions from the proxy runtime.",
     compareBaseSet: "Compare base set to {{method}} {{path}}.",
     title: "Sessions",
@@ -709,7 +756,8 @@ export const enMessages = {
     configureAi: "Configure AI Model",
     collapseBodyDiff: "Collapse body diff",
     delta: "Delta",
-    description: "Compare two captured sessions and ask AI to explain the meaningful request and response differences.",
+    description:
+      "Compare two captured sessions and ask AI to explain the meaningful request and response differences.",
     detailLoadError: "Unable to load one of the selected sessions.",
     diffTruncated: "The diff was truncated.",
     diffWorkbench: "Diff Workbench",
@@ -733,7 +781,8 @@ export const enMessages = {
     loadingDetails: "Loading details",
     loadingSessions: "Loading sessions...",
     missingSession: "Selected session is no longer available",
-    noSessionScopes: "No session scopes are available yet. Open Sessions and use workspace tabs to create session groups.",
+    noSessionScopes:
+      "No session scopes are available yet. Open Sessions and use workspace tabs to create session groups.",
     noVisibleChanges: "No visible changes.",
     orderChanges: "Order changes",
     overview: "Overview",
@@ -745,7 +794,8 @@ export const enMessages = {
     repeatedEndpoints: "Repeated endpoints",
     requestCompare: "Request Compare",
     requestCount: "{{count}} requests",
-    requestDescription: "Compare two individual requests, focusing on parameters, headers, body, response, and timing.",
+    requestDescription:
+      "Compare two individual requests, focusing on parameters, headers, body, response, and timing.",
     requestEmptyState: "Select two different requests to start comparing.",
     rightCount: "Right count",
     rightEndpoint: "Right endpoint",
@@ -759,12 +809,14 @@ export const enMessages = {
     sequence: "Sequence",
     sessionBehaviorReady: "Session behavior comparison is ready",
     sessionCompare: "Session Compare",
-    sessionDescription: "Compare two request groups, focusing on request frequency, call counts, endpoint coverage, and call order.",
+    sessionDescription:
+      "Compare two request groups, focusing on request frequency, call counts, endpoint coverage, and call order.",
     sessionEmptyState: "Select two different session scopes to compare behavior.",
     share: "Share",
     showAllChanges: "Show all {{count}} changes",
     showFewerChanges: "Show fewer changes",
-    summaryIdle: "Generate a summary after the diff is ready. AI receives the redacted payload shown in Preview.",
+    summaryIdle:
+      "Generate a summary after the diff is ready. AI receives the redacted payload shown in Preview.",
     timeline: "Timeline",
     title: "Compare",
   },
@@ -792,7 +844,8 @@ export const enMessages = {
     title: "Export Sessions",
   },
   sessionsImport: {
-    description: "Load a HAR archive into the Sessions workspace so we can inspect and re-export captured traffic.",
+    description:
+      "Load a HAR archive into the Sessions workspace so we can inspect and re-export captured traffic.",
     invalidFileType: "Please choose a .har file.",
     messages: {
       importedHar: "Imported {{count}} HAR entrie(s).",
@@ -805,16 +858,20 @@ export const enMessages = {
     activeSummary: "Global throttling is on. Active profile: {{name}}.",
     applyPreset: "Apply",
     customSummary: "{{latency}} ms • ↓ {{download}} kbps • ↑ {{upload}} kbps",
-    customDescription: "Save team-specific network profiles without replacing the built-in presets.",
-    customEmpty: "No custom profiles yet. Create one when you need exact bandwidth, latency, or packet loss values.",
+    customDescription:
+      "Save team-specific network profiles without replacing the built-in presets.",
+    customEmpty:
+      "No custom profiles yet. Create one when you need exact bandwidth, latency, or packet loss values.",
     customTitle: "Custom Profiles",
     customUntitled: "Untitled Profile",
     deleteRule: "Delete",
-    description: "Switch between realistic network presets or fine-tune upload, download, latency, and packet loss for a specific test case.",
+    description:
+      "Switch between realistic network presets or fine-tune upload, download, latency, and packet loss for a specific test case.",
     disableGlobal: "Disable Throttling",
     downloadChip: "Down {{value}} kbps",
     duplicateRule: "Duplicate",
-    editorDescription: "Keep all four network controls in one compact form so the user can tune a scenario without hopping between dialogs.",
+    editorDescription:
+      "Keep all four network controls in one compact form so the user can tune a scenario without hopping between dialogs.",
     editorTitle: "Profile Editor",
     fields: {
       download: "Download (kbps)",
@@ -825,7 +882,8 @@ export const enMessages = {
       note: "Notes",
       upload: "Upload (kbps)",
     },
-    globalDescription: "Use presets for quick checks, or keep throttling disabled until you want to simulate a slower network.",
+    globalDescription:
+      "Use presets for quick checks, or keep throttling disabled until you want to simulate a slower network.",
     globalSwitch: "Global",
     globalTitle: "Global Control",
     inactiveSummary: "Global throttling is currently off.",
@@ -836,15 +894,19 @@ export const enMessages = {
     newRule: "New rule",
     off: "off",
     on: "on",
-    presetsDescription: "Start from realistic defaults first, then create a custom profile when you need exact values.",
+    presetsDescription:
+      "Start from realistic defaults first, then create a custom profile when you need exact values.",
     presetsTitle: "Preset Profiles",
-    previewDescription: "A short summary helps confirm the final simulated conditions before you apply them globally.",
-    previewLineOne: "Simulated network: {{latency}} ms latency, {{download}} kbps download, {{upload}} kbps upload.",
+    previewDescription:
+      "A short summary helps confirm the final simulated conditions before you apply them globally.",
+    previewLineOne:
+      "Simulated network: {{latency}} ms latency, {{download}} kbps download, {{upload}} kbps upload.",
     previewLineTwo: "Packet loss: {{loss}}% • Enable after save: {{enabled}}.",
     previewReady: "This profile is ready to save.",
     previewTitle: "Preview & Validation",
     profileEditorActiveHint: "This profile is currently applied globally.",
-    profileEditorInactiveHint: "Tune the profile, then apply it globally or use it from targeted rules.",
+    profileEditorInactiveHint:
+      "Tune the profile, then apply it globally or use it from targeted rules.",
     ruleFields: {
       enabled: "Enabled",
       enabledHint: "Only matching traffic uses this profile.",
@@ -856,8 +918,10 @@ export const enMessages = {
       urlPattern: "URL / Host pattern",
     },
     rulesDescription: "Rules run before the global profile. Highest priority matching rule wins.",
-    rulesEmptyHint: "Create a host, URL, or method scoped rule when global throttling is too broad.",
-    rulesSelectHint: "Select a rule, or create one from a captured Session to scope weak-network simulation precisely.",
+    rulesEmptyHint:
+      "Create a host, URL, or method scoped rule when global throttling is too broad.",
+    rulesSelectHint:
+      "Select a rule, or create one from a captured Session to scope weak-network simulation precisely.",
     rulesTitle: "Targeted rules",
     saveAndApply: "Save & Apply",
     saveProfile: "Save Profile",
@@ -877,7 +941,8 @@ export const enMessages = {
     },
   },
   proxyRuntime: {
-    description: "This card is backed by the shared bootstrap command contract and will later reflect live runtime data.",
+    description:
+      "This card is backed by the shared bootstrap command contract and will later reflect live runtime data.",
     sslOff: "SSL Off",
     sslOn: "SSL On",
     systemProxyOff: "System Proxy Off",
@@ -891,8 +956,10 @@ export const enMessages = {
     runningWithPort: "Proxy Running :{{port}}",
   },
   sessionExplorer: {
-    emptyDescription: "Start the proxy, then open a page or app request. Captured traffic will appear here in real time.",
-    emptyTip: "Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.",
+    emptyDescription:
+      "Start the proxy, then open a page or app request. Captured traffic will appear here in real time.",
+    emptyTip:
+      "Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.",
     emptyTitle: "No captured sessions yet.",
     filterPlaceholder: "Filter",
     loading: "Loading captured sessions...",
@@ -1081,15 +1148,18 @@ export const enMessages = {
       countLabel: "{{label}} ({{count}})",
     },
     workspace: {
-      emptyDescription: "Select a captured request to inspect headers, body, timing, and raw HTTP messages.",
+      emptyDescription:
+        "Select a captured request to inspect headers, body, timing, and raw HTTP messages.",
       emptyTitle: "Inspector Workspace",
       loading: "Loading selected session detail...",
     },
     jsonParse: {
       requestFallback: "Unable to parse this body as JSON. Showing the original text instead.",
       responseError: "Unable to parse the response body as JSON.",
-      tooLarge: "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
-      truncated: "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
+      tooLarge:
+        "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
+      truncated:
+        "JSON body was truncated during capture. Use JSON Text or Raw to inspect the partial payload.",
     },
     sessionInspector: {
       bodyTruncatedWarning: "Body was truncated at 20MB. Full content was not captured.",
@@ -1295,8 +1365,10 @@ export const enMessages = {
     noItemSelected: "Select a request to view and edit",
     noCollectionSelected: "Select a collection",
     readyToCreateRequest: "Ready to build a request",
-    createRequestHint: "Create a saved request, send it with environment variables, and review the response without leaving the collection.",
-    selectCollectionHint: "Choose a collection from the library to browse saved requests or create a new one.",
+    createRequestHint:
+      "Create a saved request, send it with environment variables, and review the response without leaving the collection.",
+    selectCollectionHint:
+      "Choose a collection from the library to browse saved requests or create a new one.",
     requestBuilder: "Request Builder",
     responsePreview: "Response Preview",
     environmentSelector: "Environment",
@@ -1318,7 +1390,7 @@ export const enMessages = {
     globalVariables: "Global Variables",
     environmentVariables: "Variables",
     deleteEnvironment: "Delete Environment",
-    deleteEnvironmentConfirm: "Are you sure you want to delete \"{{name}}\"?",
+    deleteEnvironmentConfirm: 'Are you sure you want to delete "{{name}}"?',
     environmentDeleted: "Environment deleted",
     variablesSaved: "Variables saved",
     collectionCount: "{{count}} collections",

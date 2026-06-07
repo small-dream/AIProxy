@@ -15,11 +15,7 @@ import {
   type SessionSummary,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-  logDevWarn,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo, logDevWarn } from "@/services/logger/dev-logger";
 
 import {
   clearImportedSessions,
@@ -28,10 +24,7 @@ import {
   listImportedSessionSummaries,
 } from "@/features/sessions/imported-sessions.store";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function listSessions(): Promise<SessionSummary[]> {
   const importedSessions = listImportedSessionSummaries();
@@ -44,7 +37,10 @@ export async function listSessions(): Promise<SessionSummary[]> {
   try {
     logDevDebug("ui.commands", "list_sessions_requested");
     const payload = await invoke<unknown>("list_sessions");
-    const sessions = mergeImportedSessionSummaries(parseSessionSummaries(payload), importedSessions);
+    const sessions = mergeImportedSessionSummaries(
+      parseSessionSummaries(payload),
+      importedSessions,
+    );
 
     logDevDebug("ui.commands", "list_sessions_succeeded", {
       sessionCount: sessions.length,
@@ -125,16 +121,20 @@ export async function getSessionDetailContent(
       ...(input.includeRequestBodyText || input.includeRequestBodyBase64
         ? {
             requestBody: {
-              ...(input.includeRequestBodyText && importedDetail.requestBody?.inlineText !== undefined
+              ...(input.includeRequestBodyText &&
+              importedDetail.requestBody?.inlineText !== undefined
                 ? { inlineText: importedDetail.requestBody.inlineText }
                 : {}),
-              ...(input.includeRequestBodyText && importedDetail.requestBody?.textDeferred !== undefined
+              ...(input.includeRequestBodyText &&
+              importedDetail.requestBody?.textDeferred !== undefined
                 ? { textDeferred: importedDetail.requestBody.textDeferred }
                 : {}),
-              ...(input.includeRequestBodyBase64 && importedDetail.requestBody?.base64Text !== undefined
+              ...(input.includeRequestBodyBase64 &&
+              importedDetail.requestBody?.base64Text !== undefined
                 ? { base64Text: importedDetail.requestBody.base64Text }
                 : {}),
-              ...(input.includeRequestBodyBase64 && importedDetail.requestBody?.base64Deferred !== undefined
+              ...(input.includeRequestBodyBase64 &&
+              importedDetail.requestBody?.base64Deferred !== undefined
                 ? { base64Deferred: importedDetail.requestBody.base64Deferred }
                 : {}),
             },
@@ -143,16 +143,20 @@ export async function getSessionDetailContent(
       ...(input.includeResponseBodyText || input.includeResponseBodyBase64
         ? {
             responseBody: {
-              ...(input.includeResponseBodyText && importedDetail.responseBody?.inlineText !== undefined
+              ...(input.includeResponseBodyText &&
+              importedDetail.responseBody?.inlineText !== undefined
                 ? { inlineText: importedDetail.responseBody.inlineText }
                 : {}),
-              ...(input.includeResponseBodyText && importedDetail.responseBody?.textDeferred !== undefined
+              ...(input.includeResponseBodyText &&
+              importedDetail.responseBody?.textDeferred !== undefined
                 ? { textDeferred: importedDetail.responseBody.textDeferred }
                 : {}),
-              ...(input.includeResponseBodyBase64 && importedDetail.responseBody?.base64Text !== undefined
+              ...(input.includeResponseBodyBase64 &&
+              importedDetail.responseBody?.base64Text !== undefined
                 ? { base64Text: importedDetail.responseBody.base64Text }
                 : {}),
-              ...(input.includeResponseBodyBase64 && importedDetail.responseBody?.base64Deferred !== undefined
+              ...(input.includeResponseBodyBase64 &&
+              importedDetail.responseBody?.base64Deferred !== undefined
                 ? { base64Deferred: importedDetail.responseBody.base64Deferred }
                 : {}),
             },

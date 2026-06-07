@@ -8,11 +8,7 @@ import { useSessionEvents } from "./use-session-events";
 function createWrapper() {
   const queryClient = new QueryClient();
   return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    );
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
 }
 

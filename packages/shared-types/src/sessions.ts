@@ -1,5 +1,12 @@
 import { AppError, isNullableBoolean, isNullableNumber, isNullableString } from "./common";
-import { isMapSessionTrace, type MapSessionTrace, type RewriteSessionTrace, isRewriteSessionTrace, type ScriptSessionTrace, isScriptSessionTrace } from "./rules";
+import {
+  isMapSessionTrace,
+  type MapSessionTrace,
+  type RewriteSessionTrace,
+  isRewriteSessionTrace,
+  type ScriptSessionTrace,
+  isScriptSessionTrace,
+} from "./rules";
 import { isThrottleSessionTrace, type ThrottleSessionTrace } from "./throttling";
 
 export type SessionSummary = {
@@ -338,14 +345,33 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     Array.isArray(candidate.cookies) &&
     candidate.cookies.every(isHeaderEntry) &&
     isNullableString(candidate.clientAddress) &&
-    (candidate.requestBody === undefined || candidate.requestBody === null || isBodyReference(candidate.requestBody)) &&
-    (candidate.responseBody === undefined || candidate.responseBody === null || isBodyReference(candidate.responseBody)) &&
-    (candidate.mapTraces === undefined || candidate.mapTraces === null || (Array.isArray(candidate.mapTraces) && candidate.mapTraces.every(isMapSessionTrace))) &&
-    (candidate.rewriteTraces === undefined || candidate.rewriteTraces === null || (Array.isArray(candidate.rewriteTraces) && candidate.rewriteTraces.every(isRewriteSessionTrace))) &&
-    (candidate.scriptTraces === undefined || candidate.scriptTraces === null || (Array.isArray(candidate.scriptTraces) && candidate.scriptTraces.every(isScriptSessionTrace))) &&
-    (candidate.throttleTraces === undefined || candidate.throttleTraces === null || (Array.isArray(candidate.throttleTraces) && candidate.throttleTraces.every(isThrottleSessionTrace))) &&
-    (candidate.timing === undefined || candidate.timing === null || isTimingBreakdown(candidate.timing)) &&
-    (candidate.trailers === undefined || candidate.trailers === null || (Array.isArray(candidate.trailers) && candidate.trailers.every(isHeaderEntry))) &&
+    (candidate.requestBody === undefined ||
+      candidate.requestBody === null ||
+      isBodyReference(candidate.requestBody)) &&
+    (candidate.responseBody === undefined ||
+      candidate.responseBody === null ||
+      isBodyReference(candidate.responseBody)) &&
+    (candidate.mapTraces === undefined ||
+      candidate.mapTraces === null ||
+      (Array.isArray(candidate.mapTraces) && candidate.mapTraces.every(isMapSessionTrace))) &&
+    (candidate.rewriteTraces === undefined ||
+      candidate.rewriteTraces === null ||
+      (Array.isArray(candidate.rewriteTraces) &&
+        candidate.rewriteTraces.every(isRewriteSessionTrace))) &&
+    (candidate.scriptTraces === undefined ||
+      candidate.scriptTraces === null ||
+      (Array.isArray(candidate.scriptTraces) &&
+        candidate.scriptTraces.every(isScriptSessionTrace))) &&
+    (candidate.throttleTraces === undefined ||
+      candidate.throttleTraces === null ||
+      (Array.isArray(candidate.throttleTraces) &&
+        candidate.throttleTraces.every(isThrottleSessionTrace))) &&
+    (candidate.timing === undefined ||
+      candidate.timing === null ||
+      isTimingBreakdown(candidate.timing)) &&
+    (candidate.trailers === undefined ||
+      candidate.trailers === null ||
+      (Array.isArray(candidate.trailers) && candidate.trailers.every(isHeaderEntry))) &&
     isNullableNumber(candidate.h2StreamId) &&
     isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
@@ -462,15 +488,17 @@ export function parseSessionDetail(value: unknown): SessionDetail {
   } satisfies AppError;
 }
 
-export function normalizeBodyReference(bodyReference: BodyReference & {
-  base64Deferred?: boolean | null;
-  base64Text?: string | null;
-  encoding?: string | null;
-  inlineText?: string | null;
-  mimeType?: string | null;
-  textDeferred?: boolean | null;
-  truncated?: boolean | null;
-}): BodyReference {
+export function normalizeBodyReference(
+  bodyReference: BodyReference & {
+    base64Deferred?: boolean | null;
+    base64Text?: string | null;
+    encoding?: string | null;
+    inlineText?: string | null;
+    mimeType?: string | null;
+    textDeferred?: boolean | null;
+    truncated?: boolean | null;
+  },
+): BodyReference {
   return {
     sizeBytes: bodyReference.sizeBytes,
     ...(bodyReference.base64Deferred !== null && bodyReference.base64Deferred !== undefined
@@ -537,8 +565,12 @@ export function isSessionDetailContentPatch(value: unknown): value is SessionDet
     isNullableBoolean(candidate.rawRequestDeferred) &&
     isNullableString(candidate.rawResponse) &&
     isNullableBoolean(candidate.rawResponseDeferred) &&
-    (candidate.requestBody === undefined || candidate.requestBody === null || isSessionBodyContentPatch(candidate.requestBody)) &&
-    (candidate.responseBody === undefined || candidate.responseBody === null || isSessionBodyContentPatch(candidate.responseBody))
+    (candidate.requestBody === undefined ||
+      candidate.requestBody === null ||
+      isSessionBodyContentPatch(candidate.requestBody)) &&
+    (candidate.responseBody === undefined ||
+      candidate.responseBody === null ||
+      isSessionBodyContentPatch(candidate.responseBody))
   );
 }
 
@@ -594,10 +626,18 @@ function normalizeSessionBodyContentPatch(
   },
 ): SessionBodyContentPatch {
   return {
-    ...(patch.inlineText !== null && patch.inlineText !== undefined ? { inlineText: patch.inlineText } : {}),
-    ...(patch.base64Text !== null && patch.base64Text !== undefined ? { base64Text: patch.base64Text } : {}),
-    ...(patch.textDeferred !== null && patch.textDeferred !== undefined ? { textDeferred: patch.textDeferred } : {}),
-    ...(patch.base64Deferred !== null && patch.base64Deferred !== undefined ? { base64Deferred: patch.base64Deferred } : {}),
+    ...(patch.inlineText !== null && patch.inlineText !== undefined
+      ? { inlineText: patch.inlineText }
+      : {}),
+    ...(patch.base64Text !== null && patch.base64Text !== undefined
+      ? { base64Text: patch.base64Text }
+      : {}),
+    ...(patch.textDeferred !== null && patch.textDeferred !== undefined
+      ? { textDeferred: patch.textDeferred }
+      : {}),
+    ...(patch.base64Deferred !== null && patch.base64Deferred !== undefined
+      ? { base64Deferred: patch.base64Deferred }
+      : {}),
   };
 }
 
@@ -687,12 +727,8 @@ function normalizeTimingBreakdown(timing: WireTimingBreakdown): TimingBreakdown 
   return {
     ...(connectMs !== null && connectMs !== undefined ? { connectMs } : {}),
     ...(dnsMs !== null && dnsMs !== undefined ? { dnsMs } : {}),
-    ...(requestSendMs !== null && requestSendMs !== undefined
-      ? { requestSendMs }
-      : {}),
-    ...(responseReadMs !== null && responseReadMs !== undefined
-      ? { responseReadMs }
-      : {}),
+    ...(requestSendMs !== null && requestSendMs !== undefined ? { requestSendMs } : {}),
+    ...(responseReadMs !== null && responseReadMs !== undefined ? { responseReadMs } : {}),
     ...(tlsMs !== null && tlsMs !== undefined ? { tlsMs } : {}),
     ...(totalMs !== null && totalMs !== undefined ? { totalMs } : {}),
     ...(waitingMs !== null && waitingMs !== undefined ? { waitingMs } : {}),
@@ -809,12 +845,8 @@ export function isGetInsightsInput(value: unknown): value is GetInsightsInput {
     candidate.sessionIds.every((id) => typeof id === "string") &&
     (candidate.hostKeyword === undefined || typeof candidate.hostKeyword === "string") &&
     (candidate.hostExact === undefined || typeof candidate.hostExact === "string") &&
-    (
-      candidate.excludedHosts === undefined ||
-      (
-        Array.isArray(candidate.excludedHosts) &&
-        candidate.excludedHosts.every((host) => typeof host === "string")
-      )
-    )
+    (candidate.excludedHosts === undefined ||
+      (Array.isArray(candidate.excludedHosts) &&
+        candidate.excludedHosts.every((host) => typeof host === "string")))
   );
 }

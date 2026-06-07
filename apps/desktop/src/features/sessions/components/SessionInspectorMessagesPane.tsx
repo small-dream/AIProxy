@@ -31,11 +31,7 @@ import type {
 
 import { useI18n } from "@/i18n";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import {
-  getWsConnectionStatus,
-  injectWsMessage,
-  listWsMessages,
-} from "@/services/commands/ws";
+import { getWsConnectionStatus, injectWsMessage, listWsMessages } from "@/services/commands/ws";
 import { onWsConnectionStatus, onWsMessage } from "@/services/events";
 import { SearchableCodeBlock } from "./SessionInspectorShared";
 
@@ -96,9 +92,7 @@ function toHexString(text: string): string {
   for (let i = 0; i < bytes.length; i += 16) {
     const chunk = Array.from(bytes.slice(i, i + 16));
     const hex = chunk.map((b) => b.toString(16).padStart(2, "0")).join(" ");
-    const ascii = chunk
-      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
-      .join("");
+    const ascii = chunk.map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".")).join("");
     const offset = i.toString(16).padStart(8, "0");
     lines.push(`${offset}  ${hex.padEnd(48, " ")}  |${ascii}|`);
   }
@@ -145,7 +139,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     listWsMessages(sessionId).then((loaded) => {
       if (!cancelled) setMessages(trimWsMessages(loaded));
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
   // Live updates
@@ -155,7 +151,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
         setMessages((prev) => trimWsMessages([...prev, msg]));
       }
     });
-    return () => { void unlisten.then((fn) => fn()); };
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
   }, [sessionId]);
 
   // Connection status
@@ -166,7 +164,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
         setConnectionStatus(evt.status);
       }
     });
-    return () => { void unlisten.then((fn) => fn()); };
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
   }, [sessionId]);
 
   const isActive = connectionStatus === "active";
@@ -174,7 +174,8 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const filtered = useMemo(() => {
     return messages.filter((msg) => {
       if (directionFilter !== "all" && msg.direction !== directionFilter) return false;
-      if (opcodeFilter === "text" && msg.opcode !== "text" && msg.opcode !== "continuation") return false;
+      if (opcodeFilter === "text" && msg.opcode !== "text" && msg.opcode !== "continuation")
+        return false;
       if (opcodeFilter === "binary" && msg.opcode !== "binary") return false;
       if (opcodeFilter === "control" && !CONTROL_OPCODES.has(msg.opcode as WsOpcode)) return false;
       if (debouncedSearch) {
@@ -186,10 +187,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     });
   }, [messages, directionFilter, opcodeFilter, debouncedSearch]);
 
-  const selected = useMemo(
-    () => messages.find((m) => m.id === selectedId),
-    [messages, selectedId],
-  );
+  const selected = useMemo(() => messages.find((m) => m.id === selectedId), [messages, selectedId]);
 
   const listVirtualizer = useVirtualizer({
     count: filtered.length,
@@ -206,18 +204,23 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
     setOpcodeFilter(val as OpcodeFilter);
   }, []);
 
-  const handleCopy = useCallback(async (text: string) => {
-    if (!text) return;
-    await navigator.clipboard?.writeText(text);
-    setSnackbarMsg(t("contextMenu.copiedToClipboard"));
-    setSnackbarOpen(true);
-  }, [t]);
+  const handleCopy = useCallback(
+    async (text: string) => {
+      if (!text) return;
+      await navigator.clipboard?.writeText(text);
+      setSnackbarMsg(t("contextMenu.copiedToClipboard"));
+      setSnackbarOpen(true);
+    },
+    [t],
+  );
 
   const handleEditReplay = useCallback((msg: WsMessage) => {
     if (!msg.payloadText) return;
     setComposeDirection(msg.direction);
     setComposePayload(msg.payloadText);
-    setComposeOpcode(msg.opcode === "ping" || msg.opcode === "pong" ? msg.opcode as ComposeOpcode : "text");
+    setComposeOpcode(
+      msg.opcode === "ping" || msg.opcode === "pong" ? (msg.opcode as ComposeOpcode) : "text",
+    );
     setComposeOpen(true);
   }, []);
 
@@ -268,8 +271,16 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       <Stack direction="row" spacing={1} sx={{ px: 1, py: 0.5, alignItems: "center" }}>
         <Tabs onChange={handleDirectionChange} sx={{ minHeight: 28 }} value={directionFilter}>
           <Tab label={t("websocket.directionAll")} sx={{ minHeight: 28, py: 0 }} value="all" />
-          <Tab label={t("websocket.directionSent")} sx={{ minHeight: 28, py: 0 }} value="clientToServer" />
-          <Tab label={t("websocket.directionReceived")} sx={{ minHeight: 28, py: 0 }} value="serverToClient" />
+          <Tab
+            label={t("websocket.directionSent")}
+            sx={{ minHeight: 28, py: 0 }}
+            value="clientToServer"
+          />
+          <Tab
+            label={t("websocket.directionReceived")}
+            sx={{ minHeight: 28, py: 0 }}
+            value="serverToClient"
+          />
         </Tabs>
         <Tabs onChange={handleOpcodeChange} sx={{ minHeight: 28 }} value={opcodeFilter}>
           <Tab label={t("websocket.opcodeAll")} sx={{ minHeight: 28, py: 0 }} value="all" />
@@ -286,7 +297,12 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
         />
         <Box sx={{ flex: 1 }} />
         {/* Connection status */}
-        <Tooltip arrow title={t("websocket.connectionStatusTooltip", { status: isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed") })}>
+        <Tooltip
+          arrow
+          title={t("websocket.connectionStatusTooltip", {
+            status: isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed"),
+          })}
+        >
           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: "default" }}>
             <FiberManualRecordRoundedIcon
               sx={{ fontSize: 12, color: isActive ? "success.main" : "action.disabled" }}
@@ -299,12 +315,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
         {/* Compose button */}
         <Tooltip arrow title={t("websocket.composeButton")}>
           <span>
-            <IconButton
-              size="small"
-              onClick={handleCompose}
-              disabled={!isActive}
-              sx={{ p: 0.5 }}
-            >
+            <IconButton size="small" onClick={handleCompose} disabled={!isActive} sx={{ p: 0.5 }}>
               <SendRoundedIcon fontSize="small" />
             </IconButton>
           </span>
@@ -349,10 +360,7 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
           {selected ? (
-            <MessageDetail
-              message={selected}
-              onCopy={handleCopy}
-            />
+            <MessageDetail message={selected} onCopy={handleCopy} />
           ) : (
             <Typography color="text.secondary" variant="body2" sx={{ pt: 2, textAlign: "center" }}>
               {t("websocket.selectMessage")}
@@ -381,13 +389,21 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
               size="small"
               value={composeDirection}
               exclusive
-              onChange={(_, val) => { if (val) setComposeDirection(val as WsMessageDirection); }}
+              onChange={(_, val) => {
+                if (val) setComposeDirection(val as WsMessageDirection);
+              }}
               sx={{ height: 28 }}
             >
-              <ToggleButton value="clientToServer" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+              <ToggleButton
+                value="clientToServer"
+                sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+              >
                 {t("websocket.sendToServer")}
               </ToggleButton>
-              <ToggleButton value="serverToClient" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+              <ToggleButton
+                value="serverToClient"
+                sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+              >
                 {t("websocket.sendToClient")}
               </ToggleButton>
             </ToggleButtonGroup>
@@ -395,16 +411,27 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
               size="small"
               value={composeOpcode}
               exclusive
-              onChange={(_, val) => { if (val) setComposeOpcode(val as ComposeOpcode); }}
+              onChange={(_, val) => {
+                if (val) setComposeOpcode(val as ComposeOpcode);
+              }}
               sx={{ height: 28 }}
             >
-              <ToggleButton value="text" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+              <ToggleButton
+                value="text"
+                sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+              >
                 Text
               </ToggleButton>
-              <ToggleButton value="ping" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+              <ToggleButton
+                value="ping"
+                sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+              >
                 Ping
               </ToggleButton>
-              <ToggleButton value="pong" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+              <ToggleButton
+                value="pong"
+                sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+              >
                 Pong
               </ToggleButton>
             </ToggleButtonGroup>
@@ -496,13 +523,19 @@ function MessageRowImpl({
         borderLeft: 2,
         borderColor: isSent ? "primary.main" : "transparent",
         "&:hover": {
-          bgcolor: selected ? "action.selected" : isSent
-            ? alpha(theme.palette.primary.main, 0.1)
-            : "action.hover",
+          bgcolor: selected
+            ? "action.selected"
+            : isSent
+              ? alpha(theme.palette.primary.main, 0.1)
+              : "action.hover",
         },
       }}
     >
-      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 52, fontVariantNumeric: "tabular-nums" }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ minWidth: 52, fontVariantNumeric: "tabular-nums" }}
+      >
         {formatTimestamp(message.timestamp)}
       </Typography>
       <Chip
@@ -513,18 +546,31 @@ function MessageRowImpl({
       />
       <Typography
         variant="caption"
-        sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
       >
         {preview}
       </Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ fontVariantNumeric: "tabular-nums" }}
+      >
         {formatBytes(message.payloadSize)}
       </Typography>
       {canReplay && (
         <Tooltip arrow title={t("websocket.replayTooltip")}>
           <IconButton
             size="small"
-            onClick={(e) => { e.stopPropagation(); onReplay(message); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onReplay(message);
+            }}
             sx={{ p: 0.25 }}
           >
             <PlayArrowRoundedIcon sx={{ fontSize: 16 }} />
@@ -547,7 +593,8 @@ function MessageDetail({
   const { t } = useI18n();
   const isSent = message.direction === "clientToServer";
   const canJson = isJsonString(message.payloadText);
-  const defaultFormat: PayloadFormat = message.opcode === "binary" ? "hex" : canJson ? "json" : "text";
+  const defaultFormat: PayloadFormat =
+    message.opcode === "binary" ? "hex" : canJson ? "json" : "text";
   const [format, setFormat] = useState<PayloadFormat>(defaultFormat);
 
   // Reset format when selected message changes
@@ -584,12 +631,18 @@ function MessageDetail({
           p: 1.5,
         }}
       >
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.75, display: "block", fontWeight: 500 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ mb: 0.75, display: "block", fontWeight: 500 }}
+        >
           {t("websocket.frameDetails")}
         </Typography>
         <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">{t("websocket.direction")}:</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {t("websocket.direction")}:
+            </Typography>
             <Chip
               size="small"
               label={isSent ? t("websocket.directionSent") : t("websocket.directionReceived")}
@@ -599,7 +652,9 @@ function MessageDetail({
             />
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">{t("websocket.opcode")}:</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {t("websocket.opcode")}:
+            </Typography>
             <Chip
               size="small"
               label={message.opcode}
@@ -608,19 +663,29 @@ function MessageDetail({
             />
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">{t("websocket.fin")}:</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {t("websocket.fin")}:
+            </Typography>
             <Typography variant="caption" fontWeight={500}>
               {message.fin ? "true" : "false"}
             </Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">{t("websocket.timestamp")}:</Typography>
-            <Typography variant="caption" fontFamily="monospace" sx={{ fontVariantNumeric: "tabular-nums" }}>
+            <Typography variant="caption" color="text.secondary">
+              {t("websocket.timestamp")}:
+            </Typography>
+            <Typography
+              variant="caption"
+              fontFamily="monospace"
+              sx={{ fontVariantNumeric: "tabular-nums" }}
+            >
               {new Date(message.timestamp).toLocaleString()}
             </Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">{t("websocket.payloadSize")}:</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {t("websocket.payloadSize")}:
+            </Typography>
             <Typography variant="caption" fontWeight={500}>
               {formatBytes(message.payloadSize)}
             </Typography>
@@ -634,10 +699,15 @@ function MessageDetail({
           size="small"
           value={format}
           exclusive
-          onChange={(_, val) => { if (val) setFormat(val as PayloadFormat); }}
+          onChange={(_, val) => {
+            if (val) setFormat(val as PayloadFormat);
+          }}
           sx={{ height: 28 }}
         >
-          <ToggleButton value="text" sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}>
+          <ToggleButton
+            value="text"
+            sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
+          >
             {t("websocket.formatText")}
           </ToggleButton>
           <ToggleButton
@@ -668,7 +738,15 @@ function MessageDetail({
       </Stack>
 
       {/* Payload content */}
-      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", borderRadius: 1, bgcolor: "background.paper" }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "auto",
+          borderRadius: 1,
+          bgcolor: "background.paper",
+        }}
+      >
         {isBinaryWithoutText ? (
           <Typography color="text.secondary" variant="body2" sx={{ p: 2, textAlign: "center" }}>
             {t("websocket.binaryHexUnavailable", { size: formatBytes(message.payloadSize) })}
@@ -693,7 +771,8 @@ function HexCodeBlock({ hex }: { hex: string }) {
       sx={{
         bgcolor: "background.paper",
         color: "text.primary",
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace",
+        fontFamily:
+          "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace",
         fontSize: 12.5,
         lineHeight: 1.6,
         m: 0,

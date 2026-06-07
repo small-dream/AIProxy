@@ -28,15 +28,15 @@ export function buildContextMenuSlotProps(minWidth: number) {
         boxShadow:
           theme.palette.mode === "dark"
             ? [
-              `0 24px 58px ${alpha(theme.palette.common.black, 0.52)}`,
-              `0 8px 18px ${alpha(theme.palette.common.black, 0.34)}`,
-              `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.08)}`,
-            ].join(", ")
+                `0 24px 58px ${alpha(theme.palette.common.black, 0.52)}`,
+                `0 8px 18px ${alpha(theme.palette.common.black, 0.34)}`,
+                `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.08)}`,
+              ].join(", ")
             : [
-              `0 24px 58px ${alpha(theme.palette.common.black, 0.18)}`,
-              `0 8px 18px ${alpha(theme.palette.common.black, 0.1)}`,
-              `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.72)}`,
-            ].join(", "),
+                `0 24px 58px ${alpha(theme.palette.common.black, 0.18)}`,
+                `0 8px 18px ${alpha(theme.palette.common.black, 0.1)}`,
+                `inset 0 1px 0 ${alpha(theme.palette.common.white, 0.72)}`,
+              ].join(", "),
         minWidth,
         mt: 0.5,
         overflow: "hidden",

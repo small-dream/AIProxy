@@ -1,14 +1,25 @@
 import { Alert, Box, Divider, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
 import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
-import { type ResponsePaneHandle, SessionInspectorResponsePane } from "./SessionInspectorResponsePane";
+import {
+  type ResponsePaneHandle,
+  SessionInspectorResponsePane,
+} from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
 import {
   formatJsonText,
@@ -44,25 +55,30 @@ type SessionInspectorWorkspaceProps = {
   selectedSessionDetail: SessionDetail | undefined;
 };
 
-export const SessionInspectorWorkspace = forwardRef<WorkspaceHandle, SessionInspectorWorkspaceProps>(
-function SessionInspectorWorkspace({
-  detailErrorMessage,
-  inspectorSplitRatio,
-  isDetailLoading,
-  onCopyCurl,
-  onCopyUrl,
-  onInspectorResizeStart,
-  onRepeat,
-  onRequestCollapsedChange,
-  onRequestTabChange,
-  onResponseTabChange,
-  requestCollapsed,
-  requestTab,
-  responseTab,
-  sessionSelectionNonce,
-  selectedSession,
-  selectedSessionDetail,
-}, ref) {
+export const SessionInspectorWorkspace = forwardRef<
+  WorkspaceHandle,
+  SessionInspectorWorkspaceProps
+>(function SessionInspectorWorkspace(
+  {
+    detailErrorMessage,
+    inspectorSplitRatio,
+    isDetailLoading,
+    onCopyCurl,
+    onCopyUrl,
+    onInspectorResizeStart,
+    onRepeat,
+    onRequestCollapsedChange,
+    onRequestTabChange,
+    onResponseTabChange,
+    requestCollapsed,
+    requestTab,
+    responseTab,
+    sessionSelectionNonce,
+    selectedSession,
+    selectedSessionDetail,
+  },
+  ref,
+) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [activePane, setActivePane] = useState<"request" | "response">("response");
@@ -81,8 +97,13 @@ function SessionInspectorWorkspace({
 
   const requestBodyText = getBodyText(detail?.requestBody);
   const responseBodyText = getBodyText(detail?.responseBody);
-  const isMultipartRequestBody = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes("multipart/form-data");
-  const requestFormEntries = useMemo(() => parseFormEntries(detail?.requestBody), [detail?.requestBody]);
+  const isMultipartRequestBody = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes(
+    "multipart/form-data",
+  );
+  const requestFormEntries = useMemo(
+    () => parseFormEntries(detail?.requestBody),
+    [detail?.requestBody],
+  );
 
   const responseJsonResult = useMemo<JsonParseResult>(() => {
     if (responseTab !== "json" && responseTab !== "jsonText") {
@@ -132,74 +153,90 @@ function SessionInspectorWorkspace({
     }
   }, [activePane]);
 
-  const loadDeferredContent = useCallback(async (
-    key: "requestBodyText" | "requestBodyBase64" | "requestRaw" | "responseBodyText" | "responseBodyBase64" | "responseRaw",
-    request: {
-      includeRequestBodyText?: boolean;
-      includeRequestBodyBase64?: boolean;
-      includeRawRequest?: boolean;
-      includeResponseBodyText?: boolean;
-      includeResponseBodyBase64?: boolean;
-      includeRawResponse?: boolean;
-    },
-  ) => {
-    if (!selectedSession) {
-      return;
-    }
-
-    setContentLoading((current) => {
-      if (current[key]) {
-        return current;
+  const loadDeferredContent = useCallback(
+    async (
+      key:
+        | "requestBodyText"
+        | "requestBodyBase64"
+        | "requestRaw"
+        | "responseBodyText"
+        | "responseBodyBase64"
+        | "responseRaw",
+      request: {
+        includeRequestBodyText?: boolean;
+        includeRequestBodyBase64?: boolean;
+        includeRawRequest?: boolean;
+        includeResponseBodyText?: boolean;
+        includeResponseBodyBase64?: boolean;
+        includeRawResponse?: boolean;
+      },
+    ) => {
+      if (!selectedSession) {
+        return;
       }
 
-      return {
-        ...current,
-        [key]: true,
-      };
-    });
-
-    try {
-      await ensureSessionDetailContent(queryClient, selectedSession.id, request);
-    } finally {
       setContentLoading((current) => {
-        if (!current[key]) {
+        if (current[key]) {
           return current;
         }
 
-        const next = { ...current };
-        delete next[key];
-        return next;
+        return {
+          ...current,
+          [key]: true,
+        };
       });
-    }
-  }, [queryClient, selectedSession]);
+
+      try {
+        await ensureSessionDetailContent(queryClient, selectedSession.id, request);
+      } finally {
+        setContentLoading((current) => {
+          if (!current[key]) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
+      }
+    },
+    [queryClient, selectedSession],
+  );
 
   useEffect(() => {
     if (!selectedSession || !detail) {
       return;
     }
 
-    if ((requestTab === "body" || requestTab === "form")
-      && !isMultipartRequestBody
-      && detail.requestBody?.textDeferred
-      && detail.requestBody.inlineText === undefined
-      && !contentLoading.requestBodyText
-      && !contentLoading.requestRaw) {
+    if (
+      (requestTab === "body" || requestTab === "form") &&
+      !isMultipartRequestBody &&
+      detail.requestBody?.textDeferred &&
+      detail.requestBody.inlineText === undefined &&
+      !contentLoading.requestBodyText &&
+      !contentLoading.requestRaw
+    ) {
       void loadDeferredContent("requestBodyText", { includeRequestBodyText: true });
     }
 
-    if (requestTab === "form"
-      && isMultipartRequestBody
-      && detail.requestBody?.base64Deferred
-      && detail.requestBody.base64Text === undefined
-      && !contentLoading.requestBodyBase64) {
+    if (
+      requestTab === "form" &&
+      isMultipartRequestBody &&
+      detail.requestBody?.base64Deferred &&
+      detail.requestBody.base64Text === undefined &&
+      !contentLoading.requestBodyBase64
+    ) {
       void loadDeferredContent("requestBodyBase64", { includeRequestBodyBase64: true });
     }
 
-    if (requestTab === "raw"
-      && detail.rawRequestDeferred
-      && getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody) === undefined
-      && !contentLoading.requestRaw
-      && !(detail.requestBody?.textDeferred && contentLoading.requestBodyText)) {
+    if (
+      requestTab === "raw" &&
+      detail.rawRequestDeferred &&
+      getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody) ===
+        undefined &&
+      !contentLoading.requestRaw &&
+      !(detail.requestBody?.textDeferred && contentLoading.requestBodyText)
+    ) {
       void loadDeferredContent(
         "requestRaw",
         detail.requestBody?.textDeferred && detail.rawRequestHead
@@ -208,19 +245,24 @@ function SessionInspectorWorkspace({
       );
     }
 
-    if ((responseTab === "text" || responseTab === "json" || responseTab === "jsonText")
-      && detail.responseBody?.textDeferred
-      && detail.responseBody.inlineText === undefined
-      && !contentLoading.responseBodyText
-      && !contentLoading.responseRaw) {
+    if (
+      (responseTab === "text" || responseTab === "json" || responseTab === "jsonText") &&
+      detail.responseBody?.textDeferred &&
+      detail.responseBody.inlineText === undefined &&
+      !contentLoading.responseBodyText &&
+      !contentLoading.responseRaw
+    ) {
       void loadDeferredContent("responseBodyText", { includeResponseBodyText: true });
     }
 
-    if (responseTab === "raw"
-      && detail.rawResponseDeferred
-      && getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody) === undefined
-      && !contentLoading.responseRaw
-      && !(detail.responseBody?.textDeferred && contentLoading.responseBodyText)) {
+    if (
+      responseTab === "raw" &&
+      detail.rawResponseDeferred &&
+      getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody) ===
+        undefined &&
+      !contentLoading.responseRaw &&
+      !(detail.responseBody?.textDeferred && contentLoading.responseBodyText)
+    ) {
       void loadDeferredContent(
         "responseRaw",
         detail.responseBody?.textDeferred && detail.rawResponseHead
@@ -229,10 +271,12 @@ function SessionInspectorWorkspace({
       );
     }
 
-    if (responseTab === "preview"
-      && detail.responseBody?.base64Deferred
-      && detail.responseBody.base64Text === undefined
-      && !contentLoading.responseBodyBase64) {
+    if (
+      responseTab === "preview" &&
+      detail.responseBody?.base64Deferred &&
+      detail.responseBody.base64Text === undefined &&
+      !contentLoading.responseBodyBase64
+    ) {
       void loadDeferredContent("responseBodyBase64", { includeResponseBodyBase64: true });
     }
   }, [
@@ -370,7 +414,8 @@ function SessionInspectorWorkspace({
               touchAction: "none",
               userSelect: "none",
               "&::before": {
-                bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
+                bgcolor: (theme) =>
+                  alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
                 content: '""',
                 height: 1,
                 opacity: 1,

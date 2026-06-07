@@ -2,7 +2,11 @@ import { coerceAppError } from "@aiproxy/shared-types";
 
 import { logDevError } from "@/services/logger/dev-logger";
 
-export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+export function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
       reject(new Error(message));

@@ -1,4 +1,9 @@
-import type { BodyReference, HeaderEntry, SessionDetail, TimingBreakdown } from "@aiproxy/shared-types";
+import type {
+  BodyReference,
+  HeaderEntry,
+  SessionDetail,
+  TimingBreakdown,
+} from "@aiproxy/shared-types";
 
 import { inferProtocolMetadata, resolveHttpVersion } from "./session-protocol.helpers";
 
@@ -53,7 +58,10 @@ function coerceHeaders(headers: HarHeader[] | undefined): HeaderEntry[] {
   });
 }
 
-function buildBodyReference(body: HarBody | undefined, fallbackSize = 0): BodyReference | undefined {
+function buildBodyReference(
+  body: HarBody | undefined,
+  fallbackSize = 0,
+): BodyReference | undefined {
   if (!body || typeof body.text !== "string") {
     return undefined;
   }
@@ -82,26 +90,31 @@ function buildTimingBreakdown(entry: HarEntry): TimingBreakdown | undefined {
     return undefined;
   }
 
-  const connectMs = typeof timings.connect === "number" && timings.connect >= 0 ? timings.connect : undefined;
+  const connectMs =
+    typeof timings.connect === "number" && timings.connect >= 0 ? timings.connect : undefined;
   const dnsMs = typeof timings.dns === "number" && timings.dns >= 0 ? timings.dns : undefined;
-  const requestSendMs = typeof timings.send === "number" && timings.send >= 0 ? timings.send : undefined;
-  const responseReadMs = typeof timings.receive === "number" && timings.receive >= 0 ? timings.receive : undefined;
+  const requestSendMs =
+    typeof timings.send === "number" && timings.send >= 0 ? timings.send : undefined;
+  const responseReadMs =
+    typeof timings.receive === "number" && timings.receive >= 0 ? timings.receive : undefined;
   const tlsMs = typeof timings.ssl === "number" && timings.ssl >= 0 ? timings.ssl : undefined;
-  const waitingMs = typeof timings.wait === "number" && timings.wait >= 0 ? timings.wait : undefined;
-  const totalMs = typeof entry.time === "number" && entry.time >= 0
-    ? entry.time
-    : [connectMs, dnsMs, requestSendMs, responseReadMs, tlsMs, waitingMs]
-      .filter((value): value is number => typeof value === "number")
-      .reduce((sum, value) => sum + value, 0);
+  const waitingMs =
+    typeof timings.wait === "number" && timings.wait >= 0 ? timings.wait : undefined;
+  const totalMs =
+    typeof entry.time === "number" && entry.time >= 0
+      ? entry.time
+      : [connectMs, dnsMs, requestSendMs, responseReadMs, tlsMs, waitingMs]
+          .filter((value): value is number => typeof value === "number")
+          .reduce((sum, value) => sum + value, 0);
 
   if (
-    connectMs === undefined
-    && dnsMs === undefined
-    && requestSendMs === undefined
-    && responseReadMs === undefined
-    && tlsMs === undefined
-    && waitingMs === undefined
-    && totalMs === 0
+    connectMs === undefined &&
+    dnsMs === undefined &&
+    requestSendMs === undefined &&
+    responseReadMs === undefined &&
+    tlsMs === undefined &&
+    waitingMs === undefined &&
+    totalMs === 0
   ) {
     return undefined;
   }
@@ -133,16 +146,18 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
   }
 
   const parsedUrl = new URL(request.url);
-  const startedAt = typeof entry.startedDateTime === "string"
-    && !Number.isNaN(new Date(entry.startedDateTime).getTime())
-    ? entry.startedDateTime
-    : new Date().toISOString();
+  const startedAt =
+    typeof entry.startedDateTime === "string" &&
+    !Number.isNaN(new Date(entry.startedDateTime).getTime())
+      ? entry.startedDateTime
+      : new Date().toISOString();
   const durationMs = typeof entry.time === "number" && entry.time >= 0 ? entry.time : 0;
   const finishedAt = new Date(new Date(startedAt).getTime() + durationMs).toISOString();
   const sessionId = buildImportedId(index);
-  const queryParams = request.queryString && request.queryString.length > 0
-    ? coerceHeaders(request.queryString)
-    : Array.from(parsedUrl.searchParams.entries(), ([name, value]) => ({ name, value }));
+  const queryParams =
+    request.queryString && request.queryString.length > 0
+      ? coerceHeaders(request.queryString)
+      : Array.from(parsedUrl.searchParams.entries(), ([name, value]) => ({ name, value }));
   const requestHeaders = coerceHeaders(request.headers);
   const responseHeaders = coerceHeaders(entry.response?.headers);
   const requestBody = buildBodyReference(request.postData);
@@ -173,12 +188,14 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
       transportProtocol: protocolMetadata.transportProtocol,
       applicationProtocol: protocolMetadata.applicationProtocol,
       sizeBytes:
-        responseBody?.sizeBytes
-        ?? (typeof entry.response?.content?.size === "number" ? entry.response.content.size : 0),
+        responseBody?.sizeBytes ??
+        (typeof entry.response?.content?.size === "number" ? entry.response.content.size : 0),
       startedAt,
       statusCode: typeof entry.response?.status === "number" ? entry.response.status : 0,
       url: request.url,
-      ...(entry.response?.content?.mimeType ? { responseMimeType: entry.response.content.mimeType } : {}),
+      ...(entry.response?.content?.mimeType
+        ? { responseMimeType: entry.response.content.mimeType }
+        : {}),
     },
     ...(timing ? { timing } : {}),
   };
@@ -194,13 +211,13 @@ export function parseHarArchive(contents: string): SessionDetail[] {
   }
 
   if (
-    typeof parsed !== "object"
-    || parsed === null
-    || !("log" in parsed)
-    || typeof parsed.log !== "object"
-    || parsed.log === null
-    || !("entries" in parsed.log)
-    || !Array.isArray(parsed.log.entries)
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("log" in parsed) ||
+    typeof parsed.log !== "object" ||
+    parsed.log === null ||
+    !("entries" in parsed.log) ||
+    !Array.isArray(parsed.log.entries)
   ) {
     throw new Error("The selected file is not a valid HAR archive.");
   }

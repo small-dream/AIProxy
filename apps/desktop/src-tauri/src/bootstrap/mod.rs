@@ -489,8 +489,7 @@ impl AppState {
             );
 
             let conn = db.lock().expect("db mutex should not be poisoned");
-            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
-            {
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 crate::dev_logger::log_error(
                     "desktop.persistence",
                     "session_upsert_db_failed",
@@ -2029,10 +2028,7 @@ mod tests {
         let summary_row = proxy_summary_to_row(&summary);
         let detail_row = proxy_detail_to_row(&detail, state.body_store.as_ref());
         {
-            let conn = state
-                .db
-                .lock()
-                .expect("db mutex should not be poisoned");
+            let conn = state.db.lock().expect("db mutex should not be poisoned");
             aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
         }
 

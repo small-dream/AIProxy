@@ -60,7 +60,7 @@ function generateWsMessages(count: number): WsMessage[] {
   const baseTime = new Date("2026-05-24T10:00:00.000Z").getTime();
 
   for (let i = 0; i < count; i++) {
-    const direction = i % 3 === 0 ? "clientToServer" as const : "serverToClient" as const;
+    const direction = i % 3 === 0 ? ("clientToServer" as const) : ("serverToClient" as const);
     const timestamp = new Date(baseTime + i * 50).toISOString();
     let opcode: WsMessage["opcode"];
     let payloadText: string | undefined;

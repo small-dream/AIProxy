@@ -11,7 +11,13 @@ type SectionCardProps = PropsWithChildren<{
   toolbar?: ReactNode;
 }>;
 
-export function SectionCard({ children, compact = false, description, title, toolbar }: SectionCardProps) {
+export function SectionCard({
+  children,
+  compact = false,
+  description,
+  title,
+  toolbar,
+}: SectionCardProps) {
   return (
     <Card
       elevation={0}
@@ -38,10 +44,7 @@ export function SectionCard({ children, compact = false, description, title, too
       >
         <Stack direction="row" justifyContent="space-between" spacing={2}>
           <Stack spacing={compact ? 0.25 : 0.5}>
-            <Typography
-              variant="h6"
-              sx={compact ? { fontSize: 17, lineHeight: 1.25 } : undefined}
-            >
+            <Typography variant="h6" sx={compact ? { fontSize: 17, lineHeight: 1.25 } : undefined}>
               {title}
             </Typography>
             {description ? (

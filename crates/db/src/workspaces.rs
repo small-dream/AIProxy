@@ -226,11 +226,22 @@ mod tests {
         upsert_workspace(&conn, &ws).unwrap();
 
         // Update name only, http2_enabled should be preserved
-        update_workspace(&conn, "ws-p", Some("Updated"), None, None, None, "2026-01-02T00:00:00Z")
-            .unwrap();
+        update_workspace(
+            &conn,
+            "ws-p",
+            Some("Updated"),
+            None,
+            None,
+            None,
+            "2026-01-02T00:00:00Z",
+        )
+        .unwrap();
 
         let loaded = load_workspace(&conn, "ws-p").unwrap().unwrap();
         assert_eq!(loaded.name, "Updated");
-        assert!(!loaded.http2_enabled, "http2_enabled should be preserved as false");
+        assert!(
+            !loaded.http2_enabled,
+            "http2_enabled should be preserved as false"
+        );
     }
 }

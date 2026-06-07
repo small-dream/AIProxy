@@ -1,7 +1,18 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
-import { Alert, Box, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Stack, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Divider,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Snackbar,
+  Stack,
+  Typography,
+} from "@mui/material";
 import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -10,7 +21,13 @@ import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shar
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "@/i18n";
 import { guessExtension } from "@/features/sessions/session-ui.helpers";
-import { buildContextMenuSlotProps, contextMenuItemTextProps, getContextMenuDividerSx, getContextMenuIconSx, getContextMenuItemSx } from "./context-menu.styles";
+import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuDividerSx,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "./context-menu.styles";
 import { InspectorScrollArea } from "./SessionInspectorShared";
 
 type PreviewProps = {
@@ -55,11 +72,18 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
   const mimeType = body?.mimeType;
   const mediaKind = getMediaKind(mimeType);
   const isDeferred = body?.base64Deferred && body.base64Text === undefined;
-  const isSvgWithoutText = mimeType?.toLowerCase().includes("svg") && body?.inlineText === undefined && body?.base64Text === undefined;
+  const isSvgWithoutText =
+    mimeType?.toLowerCase().includes("svg") &&
+    body?.inlineText === undefined &&
+    body?.base64Text === undefined;
 
-  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(
+    null,
+  );
   const [loadError, setLoadError] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ anchorPosition: { left: number; top: number } } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    anchorPosition: { left: number; top: number };
+  } | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
 
@@ -87,12 +111,15 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
     setSnackbarOpen(true);
   }, []);
 
-  const handleContextMenu = useCallback((event: React.MouseEvent) => {
-    if (!dataUri) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setContextMenu({ anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 } });
-  }, [dataUri]);
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      if (!dataUri) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setContextMenu({ anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 } });
+    },
+    [dataUri],
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -121,10 +148,12 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
 
     const selected = await save({
       defaultPath: defaultName,
-      filters: [{
-        extensions: [ext],
-        name: mimeType ?? "*",
-      }],
+      filters: [
+        {
+          extensions: [ext],
+          name: mimeType ?? "*",
+        },
+      ],
     });
 
     if (!selected) return;
@@ -203,7 +232,10 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
 
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
-      <Box onContextMenu={handleContextMenu} sx={{ flex: 1, minHeight: 0, overflow: "auto", textAlign: "center" }}>
+      <Box
+        onContextMenu={handleContextMenu}
+        sx={{ flex: 1, minHeight: 0, overflow: "auto", textAlign: "center" }}
+      >
         {mediaKind === "image" && (
           <Box
             component="img"
@@ -255,7 +287,8 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
       <Stack direction="row" spacing={2} sx={{ px: 1, pb: 0.5 }}>
         {imageDimensions && (
           <Typography color="text.secondary" variant="caption">
-            {t("inspector.response.preview.dimensions")}: {imageDimensions.width} x {imageDimensions.height}
+            {t("inspector.response.preview.dimensions")}: {imageDimensions.width} x{" "}
+            {imageDimensions.height}
           </Typography>
         )}
         {body.sizeBytes > 0 && (
@@ -279,31 +312,67 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
         sx={(theme) => ({ "& .MuiMenuItem-root": getContextMenuItemSx(theme) })}
       >
         {isImage && (
-          <MenuItem onClick={() => { void handleCopyImage(); }}>
+          <MenuItem
+            onClick={() => {
+              void handleCopyImage();
+            }}
+          >
             <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
               <ContentCopyRoundedIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText {...contextMenuItemTextProps} primary={t("inspector.response.preview.contextMenu.copyImage")} />
+            <ListItemText
+              {...contextMenuItemTextProps}
+              primary={t("inspector.response.preview.contextMenu.copyImage")}
+            />
           </MenuItem>
         )}
-        <MenuItem onClick={() => { void handleSaveAs(); }}>
+        <MenuItem
+          onClick={() => {
+            void handleSaveAs();
+          }}
+        >
           <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
             <SaveAltRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps} primary={isImage ? t("inspector.response.preview.contextMenu.saveImageAs") : t("inspector.response.preview.contextMenu.saveAs")} />
+          <ListItemText
+            {...contextMenuItemTextProps}
+            primary={
+              isImage
+                ? t("inspector.response.preview.contextMenu.saveImageAs")
+                : t("inspector.response.preview.contextMenu.saveAs")
+            }
+          />
         </MenuItem>
         <Divider sx={(theme) => getContextMenuDividerSx(theme)} />
-        <MenuItem onClick={() => { void handleCopyUrl(); }}>
+        <MenuItem
+          onClick={() => {
+            void handleCopyUrl();
+          }}
+        >
           <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
             <ContentCopyRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps} primary={isImage ? t("inspector.response.preview.contextMenu.copyImageUrl") : t("inspector.response.preview.contextMenu.copyUrl")} />
+          <ListItemText
+            {...contextMenuItemTextProps}
+            primary={
+              isImage
+                ? t("inspector.response.preview.contextMenu.copyImageUrl")
+                : t("inspector.response.preview.contextMenu.copyUrl")
+            }
+          />
         </MenuItem>
-        <MenuItem onClick={() => { void handleOpenInBrowser(); }}>
+        <MenuItem
+          onClick={() => {
+            void handleOpenInBrowser();
+          }}
+        >
           <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
             <OpenInNewRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps} primary={t("inspector.response.preview.contextMenu.openInBrowser")} />
+          <ListItemText
+            {...contextMenuItemTextProps}
+            primary={t("inspector.response.preview.contextMenu.openInBrowser")}
+          />
         </MenuItem>
       </Menu>
 

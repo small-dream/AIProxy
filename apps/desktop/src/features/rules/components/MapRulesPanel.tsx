@@ -26,7 +26,11 @@ import {
   ManagedRulesWorkbench,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
-import { useDeleteManagedRule, useMapRules, useSaveMapRule } from "@/features/rules/use-rule-center";
+import {
+  useDeleteManagedRule,
+  useMapRules,
+  useSaveMapRule,
+} from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
 
 export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
@@ -41,20 +45,31 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
-    return [...rules].sort((a, b) => b.priority - a.priority).filter((r) => {
-      if (!q) return true;
-      return `${r.name} ${r.sourcePattern} ${r.targetValue}`.toLowerCase().includes(q);
-    });
+    return [...rules]
+      .sort((a, b) => b.priority - a.priority)
+      .filter((r) => {
+        if (!q) return true;
+        return `${r.name} ${r.sourcePattern} ${r.targetValue}`.toLowerCase().includes(q);
+      });
   }, [rules, searchValue]);
 
   useEffect(() => {
-    if (draft.mode !== mode) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); setValidationAttempted(false); }
+    if (draft.mode !== mode) {
+      setDraft(createEmptyMapRule(mode));
+      setSelectedRuleId(undefined);
+      setValidationAttempted(false);
+    }
   }, [draft.mode, mode]);
 
   useEffect(() => {
     if (selectedRuleId && rules.some((r) => r.id === selectedRuleId)) return;
     const next = filteredRules[0];
-    if (next) { setSelectedRuleId(next.id); setDraft(next); setValidationAttempted(false); return; }
+    if (next) {
+      setSelectedRuleId(next.id);
+      setDraft(next);
+      setValidationAttempted(false);
+      return;
+    }
     setSelectedRuleId(undefined);
     setValidationAttempted(false);
   }, [filteredRules, rules, selectedRuleId]);
@@ -85,22 +100,44 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }
 
   function handleDelete() {
-    if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) { setDraft(createEmptyMapRule(mode)); setSelectedRuleId(undefined); setValidationAttempted(false); return; }
-    deleteMutation.mutate({ ruleId: selectedRuleId, ruleType: "map" }, { onSuccess: () => { setSelectedRuleId(undefined); setDraft(createEmptyMapRule(mode)); setValidationAttempted(false); } });
+    if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
+      setDraft(createEmptyMapRule(mode));
+      setSelectedRuleId(undefined);
+      setValidationAttempted(false);
+      return;
+    }
+    deleteMutation.mutate(
+      { ruleId: selectedRuleId, ruleType: "map" },
+      {
+        onSuccess: () => {
+          setSelectedRuleId(undefined);
+          setDraft(createEmptyMapRule(mode));
+          setValidationAttempted(false);
+        },
+      },
+    );
   }
 
   const errors = getMapValidationErrors(draft, t);
   const isLocal = mode === "local";
 
   const handlePickFile = useCallback(async () => {
-    const selected = await open({ directory: false, multiple: false, title: t("rulesPage.mapLocal.pickFile") });
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      title: t("rulesPage.mapLocal.pickFile"),
+    });
     if (selected) {
       setDraft((d) => ({ ...d, targetValue: selected }));
     }
   }, [t]);
 
   const handlePickFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false, title: t("rulesPage.mapLocal.pickFolder") });
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: t("rulesPage.mapLocal.pickFolder"),
+    });
     if (selected) {
       setDraft((d) => ({ ...d, targetValue: selected }));
     }
@@ -108,17 +145,30 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
 
   return (
     <ManagedRulesWorkbench
-      searchPlaceholder={isLocal ? t("rulesPage.mapLocal.searchPlaceholder") : t("rulesPage.mapRemote.searchPlaceholder")}
+      searchPlaceholder={
+        isLocal
+          ? t("rulesPage.mapLocal.searchPlaceholder")
+          : t("rulesPage.mapRemote.searchPlaceholder")
+      }
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       createActions={
-        <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={handleCreateRule}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<AddRoundedIcon />}
+          onClick={handleCreateRule}
+        >
           {isLocal ? t("rulesPage.mapLocal.createRule") : t("rulesPage.mapRemote.createRule")}
         </Button>
       }
-      list={(
+      list={
         <ManagedRuleList
-          emptyDescription={isLocal ? t("rulesPage.mapLocal.emptyDescription") : t("rulesPage.mapRemote.emptyDescription")}
+          emptyDescription={
+            isLocal
+              ? t("rulesPage.mapLocal.emptyDescription")
+              : t("rulesPage.mapRemote.emptyDescription")
+          }
           items={filteredRules.map((rule) => ({
             id: rule.id,
             active: rule.id === selectedRuleId,
@@ -129,8 +179,8 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
             onClick: () => selectRule(rule),
           }))}
         />
-      )}
-      editor={(
+      }
+      editor={
         <Stack spacing={2}>
           {/* Top bar */}
           <Stack
@@ -139,16 +189,53 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
             alignItems={{ xs: "stretch", md: "center" }}
             sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
           >
-            <TextField size="small" label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} sx={{ flex: 1 }} />
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}>
-              <Typography color="text.secondary" variant="caption">{t("rulesPage.editor.enabled")}</Typography>
-              <Switch size="small" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+            <TextField
+              size="small"
+              label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              sx={{ flex: 1 }}
+            />
+            <Stack
+              direction="row"
+              spacing={0.75}
+              alignItems="center"
+              sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}
+            >
+              <Typography color="text.secondary" variant="caption">
+                {t("rulesPage.editor.enabled")}
+              </Typography>
+              <Switch
+                size="small"
+                checked={draft.enabled}
+                onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+              />
             </Stack>
-            <TextField size="small" type="number" label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })} sx={{ width: { xs: "100%", md: 136 } }} />
-            <Button size="small" variant="outlined" color="error" startIcon={<DeleteRoundedIcon />} onClick={handleDelete} disabled={deleteMutation.isPending}>
+            <TextField
+              size="small"
+              type="number"
+              label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
+              value={draft.priority}
+              onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })}
+              sx={{ width: { xs: "100%", md: 136 } }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteRoundedIcon />}
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
               {t("common.actions.remove")}
             </Button>
-            <Button size="small" variant="contained" startIcon={<SaveRoundedIcon />} onClick={handleSave} disabled={saveMutation.isPending}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<SaveRoundedIcon />}
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+            >
               {t("rulesPage.editor.saveRule")}
             </Button>
           </Stack>
@@ -157,7 +244,11 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
           {validationAttempted && errors.length > 0 && (
             <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
               <Stack spacing={0.25}>
-                {errors.map((err) => <Typography key={err} variant="body2">{err}</Typography>)}
+                {errors.map((err) => (
+                  <Typography key={err} variant="body2">
+                    {err}
+                  </Typography>
+                ))}
               </Stack>
             </Alert>
           )}
@@ -175,38 +266,58 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               />
               <TextField
                 size="small"
-                label={formatRuleFieldLabel(isLocal ? t("rulesPage.mapLocal.targetPath") : t("rulesPage.mapRemote.targetUrl"), "required", t)}
+                label={formatRuleFieldLabel(
+                  isLocal ? t("rulesPage.mapLocal.targetPath") : t("rulesPage.mapRemote.targetUrl"),
+                  "required",
+                  t,
+                )}
                 value={draft.targetValue}
                 onChange={(e) => setDraft({ ...draft, targetValue: e.target.value })}
-                placeholder={isLocal ? t("rulesPage.mapLocal.targetPathExample") : t("rulesPage.mapRemote.targetUrlExample")}
+                placeholder={
+                  isLocal
+                    ? t("rulesPage.mapLocal.targetPathExample")
+                    : t("rulesPage.mapRemote.targetUrlExample")
+                }
                 fullWidth
-                InputProps={isLocal ? {
-                  endAdornment: (
-                    <InputAdornment position="end" sx={{ mr: -0.5 }}>
-                      <Stack direction="row" spacing={0.25}>
-                        <Tooltip title={t("rulesPage.mapLocal.pickFile")}>
-                          <IconButton size="small" onClick={handlePickFile}>
-                            <FolderOpenRoundedIcon sx={{ fontSize: 18 }} />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title={t("rulesPage.mapLocal.pickFolder")}>
-                          <IconButton size="small" onClick={handlePickFolder}>
-                            <FolderOpenRoundedIcon sx={{ fontSize: 18, opacity: 0.6 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    </InputAdornment>
-                  ),
-                } : undefined}
+                InputProps={
+                  isLocal
+                    ? {
+                        endAdornment: (
+                          <InputAdornment position="end" sx={{ mr: -0.5 }}>
+                            <Stack direction="row" spacing={0.25}>
+                              <Tooltip title={t("rulesPage.mapLocal.pickFile")}>
+                                <IconButton size="small" onClick={handlePickFile}>
+                                  <FolderOpenRoundedIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title={t("rulesPage.mapLocal.pickFolder")}>
+                                <IconButton size="small" onClick={handlePickFolder}>
+                                  <FolderOpenRoundedIcon sx={{ fontSize: 18, opacity: 0.6 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          </InputAdornment>
+                        ),
+                      }
+                    : undefined
+                }
               />
               <Stack direction="row" spacing={2}>
-                <InlineSwitch label={t("rulesPage.mapEditor.preservePath")} checked={draft.preservePath} onChange={(v) => setDraft({ ...draft, preservePath: v })} />
-                <InlineSwitch label={t("rulesPage.mapEditor.preserveQuery")} checked={draft.preserveQuery} onChange={(v) => setDraft({ ...draft, preserveQuery: v })} />
+                <InlineSwitch
+                  label={t("rulesPage.mapEditor.preservePath")}
+                  checked={draft.preservePath}
+                  onChange={(v) => setDraft({ ...draft, preservePath: v })}
+                />
+                <InlineSwitch
+                  label={t("rulesPage.mapEditor.preserveQuery")}
+                  checked={draft.preserveQuery}
+                  onChange={(v) => setDraft({ ...draft, preserveQuery: v })}
+                />
               </Stack>
             </FieldGroup>
           </RuleSection>
         </Stack>
-      )}
+      }
     />
   );
 }

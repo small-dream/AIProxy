@@ -35,11 +35,7 @@ const SettingsPage = lazy(async () => ({
 
 function LazyRouteFallback() {
   return (
-    <Stack
-      alignItems="center"
-      justifyContent="center"
-      sx={{ minHeight: 240, width: "100%" }}
-    >
+    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 240, width: "100%" }}>
       <CircularProgress size={24} />
     </Stack>
   );

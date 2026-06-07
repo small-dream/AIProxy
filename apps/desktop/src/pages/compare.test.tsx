@@ -192,7 +192,9 @@ describe("ComparePage", () => {
       },
     ]);
 
-    renderCompareRoute("/compare?mode=session&leftScope=scope-left&rightScope=scope-right&domains=api.example.com");
+    renderCompareRoute(
+      "/compare?mode=session&leftScope=scope-left&rightScope=scope-right&domains=api.example.com",
+    );
 
     expect(await screen.findByText("Behavior Workbench")).toBeInTheDocument();
     expect(screen.getByText("Overview")).toBeInTheDocument();
@@ -201,7 +203,9 @@ describe("ComparePage", () => {
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Sequence")).toBeInTheDocument();
     expect((await screen.findAllByText("GET api.example.com/config")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("POST api.example.com/api/ _method=site.track_events")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("POST api.example.com/api/ _method=site.track_events")).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText("cdn.example.com")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Preview AI Payload" }));

@@ -4,57 +4,60 @@ import { parseHarArchive } from "./session-import.helpers";
 
 describe("parseHarArchive", () => {
   it("maps HAR entries into session details", () => {
-    vi.spyOn(globalThis.crypto, "randomUUID")
-      .mockReturnValueOnce("11111111-1111-1111-1111-111111111111");
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValueOnce(
+      "11111111-1111-1111-1111-111111111111",
+    );
 
-    const details = parseHarArchive(JSON.stringify({
-      log: {
-        entries: [
-          {
-            request: {
-              headers: [{ name: "content-type", value: "application/json" }],
-              method: "POST",
-              postData: {
-                mimeType: "application/json",
-                text: "{\"hello\":\"world\"}",
+    const details = parseHarArchive(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: {
+                headers: [{ name: "content-type", value: "application/json" }],
+                method: "POST",
+                postData: {
+                  mimeType: "application/json",
+                  text: '{"hello":"world"}',
+                },
+                queryString: [{ name: "page", value: "1" }],
+                url: "https://example.com/api/test?page=1",
               },
-              queryString: [{ name: "page", value: "1" }],
-              url: "https://example.com/api/test?page=1",
-            },
-            response: {
-              content: {
-                mimeType: "application/json",
-                size: 17,
-                text: "{\"ok\":true}",
+              response: {
+                content: {
+                  mimeType: "application/json",
+                  size: 17,
+                  text: '{"ok":true}',
+                },
+                headers: [{ name: "cache-control", value: "no-cache" }],
+                status: 201,
               },
-              headers: [{ name: "cache-control", value: "no-cache" }],
-              status: 201,
+              startedDateTime: "2026-04-21T10:00:00.000Z",
+              time: 120,
+              timings: {
+                connect: 20,
+                dns: 10,
+                receive: 30,
+                send: 5,
+                ssl: 15,
+                wait: 40,
+              },
             },
-            startedDateTime: "2026-04-21T10:00:00.000Z",
-            time: 120,
-            timings: {
-              connect: 20,
-              dns: 10,
-              receive: 30,
-              send: 5,
-              ssl: 15,
-              wait: 40,
-            },
-          },
-        ],
-      },
-    }));
+          ],
+        },
+      }),
+    );
 
     expect(details).toHaveLength(1);
     expect(details[0]).toMatchObject({
       id: "imported-har-11111111-1111-1111-1111-111111111111",
       queryParams: [{ name: "page", value: "1" }],
       requestBody: {
-        inlineText: "{\"hello\":\"world\"}",
+        inlineText: '{"hello":"world"}',
         mimeType: "application/json",
       },
       responseBody: {
-        inlineText: "{\"ok\":true}",
+        inlineText: '{"ok":true}',
         mimeType: "application/json",
       },
       responseHeaders: [{ name: "cache-control", value: "no-cache" }],
@@ -89,28 +92,30 @@ describe("parseHarArchive", () => {
   });
 
   it("parses HTTP/2 version from HAR entry", () => {
-    const details = parseHarArchive(JSON.stringify({
-      log: {
-        entries: [
-          {
-            request: {
-              headers: [],
-              httpVersion: "HTTP/2",
-              method: "GET",
-              url: "https://example.com/api",
+    const details = parseHarArchive(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: {
+                headers: [],
+                httpVersion: "HTTP/2",
+                method: "GET",
+                url: "https://example.com/api",
+              },
+              response: {
+                content: {},
+                headers: [],
+                status: 200,
+              },
+              startedDateTime: new Date().toISOString(),
+              time: 100,
+              timings: { send: 10, wait: 50, receive: 40 },
             },
-            response: {
-              content: {},
-              headers: [],
-              status: 200,
-            },
-            startedDateTime: new Date().toISOString(),
-            time: 100,
-            timings: { send: 10, wait: 50, receive: 40 },
-          },
-        ],
-      },
-    }));
+          ],
+        },
+      }),
+    );
 
     expect(details).toHaveLength(1);
     expect(details[0]!.summary.httpVersion).toBe("2");

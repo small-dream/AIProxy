@@ -1,4 +1,13 @@
-import { Box, Divider, Drawer, List, ListItemButton, ListItemIcon, Stack, Tooltip } from "@mui/material";
+import {
+  Box,
+  Divider,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  Stack,
+  Tooltip,
+} from "@mui/material";
 import { NavLink } from "react-router-dom";
 
 import { navigationItems } from "@/features/navigation/navigation-items";
@@ -27,8 +36,12 @@ export function AppShellActivityBar({
   const settingsItem = manageNavigationItems.find((item) => item.to === "/settings");
   const topManageItems = manageNavigationItems.filter((item) => item.to !== "/settings");
 
-  function renderNavigationIcon(item: typeof navigationItems[number], options?: { badgeContent?: number }) {
-    const selected = item.to === "/" ? locationPathname === "/" : locationPathname.startsWith(item.to);
+  function renderNavigationIcon(
+    item: (typeof navigationItems)[number],
+    options?: { badgeContent?: number },
+  ) {
+    const selected =
+      item.to === "/" ? locationPathname === "/" : locationPathname.startsWith(item.to);
 
     return (
       <Tooltip arrow key={item.to} placement="right" title={t(item.labelKey)}>

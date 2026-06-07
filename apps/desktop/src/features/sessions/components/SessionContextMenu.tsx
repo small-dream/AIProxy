@@ -178,7 +178,9 @@ export function SessionContextMenu({
         <ListItemIcon sx={iconSx}>
           <FolderCopyRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText {...contextMenuItemTextProps}>{t("collectionsPage.saveToCollection")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("collectionsPage.saveToCollection")}
+        </ListItemText>
       </MenuItem>
 
       <Divider sx={dividerSx} />
@@ -200,7 +202,13 @@ export function SessionContextMenu({
       <Divider sx={dividerSx} />
 
       {isHostFocused ? (
-        <MenuItem onClick={() => { onUnfocusHost(session); onClose(); }} sx={menuItemSx}>
+        <MenuItem
+          onClick={() => {
+            onUnfocusHost(session);
+            onClose();
+          }}
+          sx={menuItemSx}
+        >
           <ListItemIcon sx={iconSx}>
             <RemoveCircleOutlineRoundedIcon fontSize="small" />
           </ListItemIcon>
@@ -220,7 +228,9 @@ export function SessionContextMenu({
           <ListItemIcon sx={iconSx}>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.stopIgnoringHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>
+            {t("contextMenu.stopIgnoringHost")}
+          </ListItemText>
         </MenuItem>
       ) : (
         <MenuItem onClick={handleClick(onIgnoreHost)} sx={menuItemSx}>
@@ -247,14 +257,28 @@ export function SessionContextMenu({
         <ListItemText {...contextMenuItemTextProps}>Create Throttling Rule</ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={() => { onGoToBreakpoints(); onClose(); }} sx={menuItemSx}>
+      <MenuItem
+        onClick={() => {
+          onGoToBreakpoints();
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
         <ListItemIcon sx={iconSx}>
           <RuleRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.goToBreakpoints")}</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("contextMenu.goToBreakpoints")}
+        </ListItemText>
       </MenuItem>
 
-      <MenuItem onClick={() => { onGoToRules(); onClose(); }} sx={menuItemSx}>
+      <MenuItem
+        onClick={() => {
+          onGoToRules();
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
         <ListItemIcon sx={iconSx}>
           <AltRouteRoundedIcon fontSize="small" />
         </ListItemIcon>

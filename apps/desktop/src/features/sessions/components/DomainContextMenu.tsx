@@ -112,7 +112,9 @@ export function DomainContextMenu({
           <ListItemIcon sx={iconSx}>
             <VisibilityOffRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.stopIgnoringHost")}</ListItemText>
+          <ListItemText {...contextMenuItemTextProps}>
+            {t("contextMenu.stopIgnoringHost")}
+          </ListItemText>
         </MenuItem>
       ) : (
         <MenuItem

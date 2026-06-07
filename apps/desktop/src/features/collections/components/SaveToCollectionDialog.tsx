@@ -13,7 +13,11 @@ import {
 import { useState } from "react";
 import type { ApiCollection } from "@aiproxy/shared-types";
 
-import { useCollections, buildCollectionTree, type CollectionTreeNode } from "@/features/collections/use-collections";
+import {
+  useCollections,
+  buildCollectionTree,
+  type CollectionTreeNode,
+} from "@/features/collections/use-collections";
 import { useI18n } from "@/i18n";
 
 type SaveToCollectionDialogProps = {
@@ -52,7 +56,16 @@ export function SaveToCollectionDialog({
         <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
           {t("collectionsPage.selectCollection")}
         </Typography>
-        <List dense sx={{ maxHeight: 240, overflow: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
+        <List
+          dense
+          sx={{
+            maxHeight: 240,
+            overflow: "auto",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 1,
+          }}
+        >
           {allCollections.map((c) => (
             <ListItemButton
               key={c.id}
@@ -88,7 +101,10 @@ export function SaveToCollectionDialog({
   );
 }
 
-function flattenTree(nodes: CollectionTreeNode[], depth = 0): Array<ApiCollection & { depth: number }> {
+function flattenTree(
+  nodes: CollectionTreeNode[],
+  depth = 0,
+): Array<ApiCollection & { depth: number }> {
   const result: Array<ApiCollection & { depth: number }> = [];
   for (const node of nodes) {
     result.push({ ...node, depth });

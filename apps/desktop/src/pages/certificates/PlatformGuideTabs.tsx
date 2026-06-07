@@ -10,7 +10,9 @@ function StepList({ steps }: { steps: Step[] }) {
     <Box component="ol" sx={{ pl: 2, m: 0 }}>
       {steps.map((step) => (
         <li key={step.order}>
-          <Typography variant="body2" sx={{ mb: 1 }}>{step.description}</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {step.description}
+          </Typography>
         </li>
       ))}
     </Box>
@@ -18,7 +20,7 @@ function StepList({ steps }: { steps: Step[] }) {
 }
 
 const PLATFORMS = ["windows", "macos", "linux"] as const;
-type PlatformKey = typeof PLATFORMS[number];
+type PlatformKey = (typeof PLATFORMS)[number];
 
 type Props = {
   currentPlatform: string;
@@ -27,13 +29,22 @@ type Props = {
 export function PlatformGuideTabs({ currentPlatform }: Props) {
   const { t, tList } = useI18n();
   const initialTab = PLATFORMS.includes(currentPlatform as PlatformKey)
-    ? currentPlatform as PlatformKey
+    ? (currentPlatform as PlatformKey)
     : "windows";
   const [activeTab, setActiveTab] = useState<PlatformKey>(initialTab);
   const platformSteps: Record<PlatformKey, Step[]> = {
-    windows: tList("certificatesPage.platformSteps.windows").map((description, index) => ({ order: index + 1, description })),
-    macos: tList("certificatesPage.platformSteps.macos").map((description, index) => ({ order: index + 1, description })),
-    linux: tList("certificatesPage.platformSteps.linux").map((description, index) => ({ order: index + 1, description })),
+    windows: tList("certificatesPage.platformSteps.windows").map((description, index) => ({
+      order: index + 1,
+      description,
+    })),
+    macos: tList("certificatesPage.platformSteps.macos").map((description, index) => ({
+      order: index + 1,
+      description,
+    })),
+    linux: tList("certificatesPage.platformSteps.linux").map((description, index) => ({
+      order: index + 1,
+      description,
+    })),
   };
 
   const platformLabels: Record<PlatformKey, string> = {
@@ -43,7 +54,10 @@ export function PlatformGuideTabs({ currentPlatform }: Props) {
   };
 
   return (
-    <SectionCard title={t("certificatesPage.guideTitle")} description={t("certificatesPage.guideDescription")}>
+    <SectionCard
+      title={t("certificatesPage.guideTitle")}
+      description={t("certificatesPage.guideDescription")}
+    >
       <Tabs
         value={activeTab}
         onChange={(_, v: PlatformKey) => setActiveTab(v)}

@@ -118,7 +118,11 @@ export function SearchBar({
               >
                 <Typography
                   fontWeight={600}
-                  sx={(theme) => ({ fontSize: getWorkbenchFontSize(theme, 11), letterSpacing: 0, lineHeight: 1 })}
+                  sx={(theme) => ({
+                    fontSize: getWorkbenchFontSize(theme, 11),
+                    letterSpacing: 0,
+                    lineHeight: 1,
+                  })}
                 >
                   Aa
                 </Typography>
@@ -136,7 +140,11 @@ export function SearchBar({
                 >
                   <Typography
                     fontWeight={600}
-                    sx={(theme) => ({ fontSize: getWorkbenchFontSize(theme, 11), letterSpacing: 0, lineHeight: 1 })}
+                    sx={(theme) => ({
+                      fontSize: getWorkbenchFontSize(theme, 11),
+                      letterSpacing: 0,
+                      lineHeight: 1,
+                    })}
                   >
                     ab
                   </Typography>
@@ -186,7 +194,8 @@ export function SearchBar({
         placeholder={placeholder}
         size="small"
         sx={{
-          bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.06 : 0.025),
+          bgcolor: (theme) =>
+            alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.06 : 0.025),
           borderRadius: 1,
           flex: "0 1 340px",
           minWidth: 190,

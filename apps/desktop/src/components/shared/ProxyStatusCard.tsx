@@ -71,7 +71,12 @@ export function ProxyStatusCard({
               {t("common.actions.stopProxy")}
             </Button>
           ) : (
-            <Button disabled={busy} onClick={onStart} startIcon={<PlayArrowRoundedIcon />} variant="contained">
+            <Button
+              disabled={busy}
+              onClick={onStart}
+              startIcon={<PlayArrowRoundedIcon />}
+              variant="contained"
+            >
               {t("common.actions.startProxy")}
             </Button>
           )}
@@ -79,16 +84,32 @@ export function ProxyStatusCard({
       }
     >
       <Stack spacing={1.25}>
-        <Typography variant="body2">{t("common.labels.workspace")}: {workspaceId}</Typography>
-        <Typography variant="body2">{t("common.labels.port")}: {port}</Typography>
+        <Typography variant="body2">
+          {t("common.labels.workspace")}: {workspaceId}
+        </Typography>
+        <Typography variant="body2">
+          {t("common.labels.port")}: {port}
+        </Typography>
         <Stack direction="row" spacing={1}>
-          <Chip color={isRunning ? "success" : "default"} label={isRunning ? t("common.states.running") : t("common.states.idle")} size="small" />
           <Chip
-            color={systemProxyEnabled ? "primary" : "default"}
-            label={systemProxyEnabled ? t("proxyRuntime.systemProxyOn") : t("proxyRuntime.systemProxyOff")}
+            color={isRunning ? "success" : "default"}
+            label={isRunning ? t("common.states.running") : t("common.states.idle")}
             size="small"
           />
-          <Chip color={sslEnabled ? "warning" : "default"} label={sslEnabled ? t("proxyRuntime.sslOn") : t("proxyRuntime.sslOff")} size="small" />
+          <Chip
+            color={systemProxyEnabled ? "primary" : "default"}
+            label={
+              systemProxyEnabled
+                ? t("proxyRuntime.systemProxyOn")
+                : t("proxyRuntime.systemProxyOff")
+            }
+            size="small"
+          />
+          <Chip
+            color={sslEnabled ? "warning" : "default"}
+            label={sslEnabled ? t("proxyRuntime.sslOn") : t("proxyRuntime.sslOff")}
+            size="small"
+          />
         </Stack>
       </Stack>
     </SectionCard>

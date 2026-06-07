@@ -1,15 +1,7 @@
-import type {
-  ComposedRequestInput,
-  HeaderEntry,
-  SessionSummary,
-} from "@aiproxy/shared-types";
+import type { ComposedRequestInput, HeaderEntry, SessionSummary } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import type {
-  Dispatch,
-  MouseEvent as ReactMouseEvent,
-  SetStateAction,
-} from "react";
+import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
@@ -64,12 +56,17 @@ export function useSessionContextActions({
   const queryClient = useQueryClient();
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
   const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
-  const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{ left: number; top: number }>();
+  const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{
+    left: number;
+    top: number;
+  }>();
   const [contextMenuHost, setContextMenuHost] = useState<string | null>(null);
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   // Save-to-collection dialog state
-  const [saveToCollectionSession, setSaveToCollectionSession] = useState<SessionSummary | null>(null);
+  const [saveToCollectionSession, setSaveToCollectionSession] = useState<SessionSummary | null>(
+    null,
+  );
 
   const handleContextMenu = useCallback((session: SessionSummary, event: ReactMouseEvent) => {
     event.preventDefault();
@@ -105,243 +102,318 @@ export function useSessionContextActions({
     setSnackbarMessage(message);
   }, []);
 
-  const copyToClipboard = useCallback(async (text: string, message: string) => {
-    if (!text) {
-      return;
-    }
+  const copyToClipboard = useCallback(
+    async (text: string, message: string) => {
+      if (!text) {
+        return;
+      }
 
-    await navigator.clipboard?.writeText(text);
-    showSnackbar(message);
-  }, [showSnackbar]);
+      await navigator.clipboard?.writeText(text);
+      showSnackbar(message);
+    },
+    [showSnackbar],
+  );
 
-  const handleCopyUrl = useCallback((session: SessionSummary) => {
-    void copyToClipboard(session.url, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, t]);
+  const handleCopyUrl = useCallback(
+    (session: SessionSummary) => {
+      void copyToClipboard(session.url, t("contextMenu.copiedToClipboard"));
+    },
+    [copyToClipboard, t],
+  );
 
-  const handleCopyRequest = useCallback(async (session: SessionSummary) => {
-    let detail = await ensureSessionDetailContent(queryClient, session.id, {});
-    let rawRequest = getRawMessageText(detail?.rawRequest, detail?.rawRequestHead, detail?.requestBody);
+  const handleCopyRequest = useCallback(
+    async (session: SessionSummary) => {
+      let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+      let rawRequest = getRawMessageText(
+        detail?.rawRequest,
+        detail?.rawRequestHead,
+        detail?.requestBody,
+      );
 
-    if (!rawRequest && detail?.requestBody?.textDeferred && detail.rawRequestHead) {
-      detail = await ensureSessionDetailContent(queryClient, session.id, {
-        includeRequestBodyText: true,
-      });
-      rawRequest = getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody);
-    }
+      if (!rawRequest && detail?.requestBody?.textDeferred && detail.rawRequestHead) {
+        detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeRequestBodyText: true,
+        });
+        rawRequest = getRawMessageText(
+          detail.rawRequest,
+          detail.rawRequestHead,
+          detail.requestBody,
+        );
+      }
 
-    if (!rawRequest && detail?.rawRequestDeferred) {
-      detail = await ensureSessionDetailContent(queryClient, session.id, {
-        includeRawRequest: true,
-      });
-      rawRequest = getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody);
-    }
+      if (!rawRequest && detail?.rawRequestDeferred) {
+        detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeRawRequest: true,
+        });
+        rawRequest = getRawMessageText(
+          detail.rawRequest,
+          detail.rawRequestHead,
+          detail.requestBody,
+        );
+      }
 
-    if (!rawRequest) {
-      return;
-    }
+      if (!rawRequest) {
+        return;
+      }
 
-    await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, queryClient, t]);
+      await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
+    },
+    [copyToClipboard, queryClient, t],
+  );
 
-  const handleCopyCurl = useCallback(async (session: SessionSummary) => {
-    const detail = await ensureSessionDetailContent(queryClient, session.id, {
-      includeRequestBodyText: true,
-    });
-
-    if (!detail) {
-      return;
-    }
-
-    await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
-  }, [copyToClipboard, queryClient, t]);
-
-  const handleCopyResponse = useCallback(async (session: SessionSummary) => {
-    let detail = await ensureSessionDetailContent(queryClient, session.id, {});
-    let rawResponse = getRawMessageText(detail?.rawResponse, detail?.rawResponseHead, detail?.responseBody);
-
-    if (!rawResponse && detail?.responseBody?.textDeferred && detail.rawResponseHead) {
-      detail = await ensureSessionDetailContent(queryClient, session.id, {
-        includeResponseBodyText: true,
-      });
-      rawResponse = getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody);
-    }
-
-    if (!rawResponse && detail?.rawResponseDeferred) {
-      detail = await ensureSessionDetailContent(queryClient, session.id, {
-        includeRawResponse: true,
-      });
-      rawResponse = getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody);
-    }
-
-    if (!rawResponse) {
-      return;
-    }
-
-    await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
-  }, [copyToClipboard, queryClient, t]);
-
-  const handleSaveResponse = useCallback(async (session: SessionSummary) => {
-    const detail = await ensureSessionDetailContent(queryClient, session.id, {
-      includeResponseBodyText: true,
-    });
-    const bodyText = getBodyText(detail?.responseBody);
-
-    if (!bodyText) {
-      return;
-    }
-
-    const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
-    const extension = guessExtension(mimeType);
-    const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
-    await downloadTextFile(filename, bodyText, mimeType);
-  }, [queryClient]);
-
-  const handleCompose = useCallback(async (session: SessionSummary) => {
-    const detail = await ensureSessionDetailContent(queryClient, session.id, {
-      includeRequestBodyText: true,
-    });
-
-    loadFromSession(buildComposeLoadInput(session, detail));
-    navigate("/compose");
-  }, [loadFromSession, navigate, queryClient]);
-
-  const handleRepeatDirect = useCallback(async (
-    session: SessionSummary,
-    callbacks: RepeatSessionCallbacks = {},
-  ): Promise<SessionSummary | null> => {
-    const pendingSessionId = `pending-repeat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const pendingInput: ComposedRequestInput = {
-      workspaceId: "default",
-      method: session.method,
-      url: session.url,
-      headers: [],
-    };
-    const pendingDetail = buildPendingComposedSessionDetail(pendingInput, pendingSessionId);
-
-    if (!pendingDetail) {
-      showSnackbar(t("contextMenu.repeatFailed"));
-      return null;
-    }
-
-    queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-      upsertSessionSummary(currentSessions, pendingDetail.summary),
-    );
-    queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, pendingSessionId], pendingDetail);
-    callbacks.onPending?.(pendingDetail.summary);
-
-    try {
+  const handleCopyCurl = useCallback(
+    async (session: SessionSummary) => {
       const detail = await ensureSessionDetailContent(queryClient, session.id, {
         includeRequestBodyText: true,
       });
 
       if (!detail) {
-        throw new Error("Session detail is unavailable");
+        return;
       }
 
-      const bodyText = detail.requestBody?.inlineText;
-      const input: ComposedRequestInput = {
+      await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
+    },
+    [copyToClipboard, queryClient, t],
+  );
+
+  const handleCopyResponse = useCallback(
+    async (session: SessionSummary) => {
+      let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+      let rawResponse = getRawMessageText(
+        detail?.rawResponse,
+        detail?.rawResponseHead,
+        detail?.responseBody,
+      );
+
+      if (!rawResponse && detail?.responseBody?.textDeferred && detail.rawResponseHead) {
+        detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeResponseBodyText: true,
+        });
+        rawResponse = getRawMessageText(
+          detail.rawResponse,
+          detail.rawResponseHead,
+          detail.responseBody,
+        );
+      }
+
+      if (!rawResponse && detail?.rawResponseDeferred) {
+        detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeRawResponse: true,
+        });
+        rawResponse = getRawMessageText(
+          detail.rawResponse,
+          detail.rawResponseHead,
+          detail.responseBody,
+        );
+      }
+
+      if (!rawResponse) {
+        return;
+      }
+
+      await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
+    },
+    [copyToClipboard, queryClient, t],
+  );
+
+  const handleSaveResponse = useCallback(
+    async (session: SessionSummary) => {
+      const detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeResponseBodyText: true,
+      });
+      const bodyText = getBodyText(detail?.responseBody);
+
+      if (!bodyText) {
+        return;
+      }
+
+      const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
+      const extension = guessExtension(mimeType);
+      const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
+      await downloadTextFile(filename, bodyText, mimeType);
+    },
+    [queryClient],
+  );
+
+  const handleCompose = useCallback(
+    async (session: SessionSummary) => {
+      const detail = await ensureSessionDetailContent(queryClient, session.id, {
+        includeRequestBodyText: true,
+      });
+
+      loadFromSession(buildComposeLoadInput(session, detail));
+      navigate("/compose");
+    },
+    [loadFromSession, navigate, queryClient],
+  );
+
+  const handleRepeatDirect = useCallback(
+    async (
+      session: SessionSummary,
+      callbacks: RepeatSessionCallbacks = {},
+    ): Promise<SessionSummary | null> => {
+      const pendingSessionId = `pending-repeat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const pendingInput: ComposedRequestInput = {
         workspaceId: "default",
         method: session.method,
         url: session.url,
-        headers: detail.requestHeaders.map((header) => ({
-          name: header.name,
-          value: header.value,
-        })),
-        ...(bodyText ? { body: bodyText } : {}),
+        headers: [],
       };
-      const hydratedPendingDetail = buildPendingComposedSessionDetail(input, pendingSessionId);
+      const pendingDetail = buildPendingComposedSessionDetail(pendingInput, pendingSessionId);
 
-      if (hydratedPendingDetail) {
-        queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, pendingSessionId], hydratedPendingDetail);
+      if (!pendingDetail) {
+        showSnackbar(t("contextMenu.repeatFailed"));
+        return null;
       }
 
-      const repeatedDetail = await sendComposedRequest(input);
-
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-        replaceSessionSummary(currentSessions, pendingSessionId, repeatedDetail.summary),
+        upsertSessionSummary(currentSessions, pendingDetail.summary),
       );
-      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
-      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, repeatedDetail.id], repeatedDetail);
-      callbacks.onSuccess?.(pendingSessionId, repeatedDetail.summary);
-      showSnackbar(t("contextMenu.repeatSucceeded"));
-      return repeatedDetail.summary;
-    } catch {
-      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
-        removeSessionSummary(currentSessions, pendingSessionId),
-      );
-      queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
-      callbacks.onFailure?.(pendingSessionId);
-      showSnackbar(t("contextMenu.repeatFailed"));
-      return null;
-    }
-  }, [queryClient, showSnackbar, t]);
+      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, pendingSessionId], pendingDetail);
+      callbacks.onPending?.(pendingDetail.summary);
 
-  const handleFocusDomain = useCallback((host: string) => {
-    setFocusedHosts((currentHosts) => {
-      const nextHosts = new Set(currentHosts);
+      try {
+        const detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeRequestBodyText: true,
+        });
 
-      if (nextHosts.has(host)) {
+        if (!detail) {
+          throw new Error("Session detail is unavailable");
+        }
+
+        const bodyText = detail.requestBody?.inlineText;
+        const input: ComposedRequestInput = {
+          workspaceId: "default",
+          method: session.method,
+          url: session.url,
+          headers: detail.requestHeaders.map((header) => ({
+            name: header.name,
+            value: header.value,
+          })),
+          ...(bodyText ? { body: bodyText } : {}),
+        };
+        const hydratedPendingDetail = buildPendingComposedSessionDetail(input, pendingSessionId);
+
+        if (hydratedPendingDetail) {
+          queryClient.setQueryData(
+            [SESSION_DETAIL_QUERY_KEY, pendingSessionId],
+            hydratedPendingDetail,
+          );
+        }
+
+        const repeatedDetail = await sendComposedRequest(input);
+
+        queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+          replaceSessionSummary(currentSessions, pendingSessionId, repeatedDetail.summary),
+        );
+        queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
+        queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, repeatedDetail.id], repeatedDetail);
+        callbacks.onSuccess?.(pendingSessionId, repeatedDetail.summary);
+        showSnackbar(t("contextMenu.repeatSucceeded"));
+        return repeatedDetail.summary;
+      } catch {
+        queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
+          removeSessionSummary(currentSessions, pendingSessionId),
+        );
+        queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, pendingSessionId] });
+        callbacks.onFailure?.(pendingSessionId);
+        showSnackbar(t("contextMenu.repeatFailed"));
+        return null;
+      }
+    },
+    [queryClient, showSnackbar, t],
+  );
+
+  const handleFocusDomain = useCallback(
+    (host: string) => {
+      setFocusedHosts((currentHosts) => {
+        const nextHosts = new Set(currentHosts);
+
+        if (nextHosts.has(host)) {
+          nextHosts.delete(host);
+        } else {
+          nextHosts.add(host);
+        }
+
+        return nextHosts;
+      });
+    },
+    [setFocusedHosts],
+  );
+
+  const handleUnfocusDomain = useCallback(
+    (host: string) => {
+      setFocusedHosts((currentHosts) => {
+        if (!currentHosts.has(host)) {
+          return currentHosts;
+        }
+
+        const nextHosts = new Set(currentHosts);
         nextHosts.delete(host);
-      } else {
+        return nextHosts;
+      });
+    },
+    [setFocusedHosts],
+  );
+
+  const handleIgnoreDomain = useCallback(
+    (host: string) => {
+      setFocusedHosts((currentHosts) => {
+        if (!currentHosts.has(host)) {
+          return currentHosts;
+        }
+
+        const nextHosts = new Set(currentHosts);
+        nextHosts.delete(host);
+        return nextHosts;
+      });
+      setIgnoredHosts((currentHosts) => {
+        const nextHosts = new Set(currentHosts);
         nextHosts.add(host);
-      }
+        return nextHosts;
+      });
+    },
+    [setFocusedHosts, setIgnoredHosts],
+  );
 
-      return nextHosts;
-    });
-  }, [setFocusedHosts]);
+  const handleStopIgnoringDomain = useCallback(
+    (host: string) => {
+      setIgnoredHosts((currentHosts) => {
+        const nextHosts = new Set(currentHosts);
+        nextHosts.delete(host);
+        return nextHosts;
+      });
+    },
+    [setIgnoredHosts],
+  );
 
-  const handleUnfocusDomain = useCallback((host: string) => {
-    setFocusedHosts((currentHosts) => {
-      if (!currentHosts.has(host)) {
-        return currentHosts;
-      }
+  const handleFocusHost = useCallback(
+    (session: SessionSummary) => {
+      handleFocusDomain(session.host);
+    },
+    [handleFocusDomain],
+  );
 
-      const nextHosts = new Set(currentHosts);
-      nextHosts.delete(host);
-      return nextHosts;
-    });
-  }, [setFocusedHosts]);
+  const handleUnfocusHost = useCallback(
+    (session: SessionSummary) => {
+      handleUnfocusDomain(session.host);
+    },
+    [handleUnfocusDomain],
+  );
 
-  const handleIgnoreDomain = useCallback((host: string) => {
-    setFocusedHosts((currentHosts) => {
-      if (!currentHosts.has(host)) {
-        return currentHosts;
-      }
+  const handleIgnoreHost = useCallback(
+    (session: SessionSummary) => {
+      handleIgnoreDomain(session.host);
+    },
+    [handleIgnoreDomain],
+  );
 
-      const nextHosts = new Set(currentHosts);
-      nextHosts.delete(host);
-      return nextHosts;
-    });
-    setIgnoredHosts((currentHosts) => {
-      const nextHosts = new Set(currentHosts);
-      nextHosts.add(host);
-      return nextHosts;
-    });
-  }, [setFocusedHosts, setIgnoredHosts]);
-
-  const handleStopIgnoringDomain = useCallback((host: string) => {
-    setIgnoredHosts((currentHosts) => {
-      const nextHosts = new Set(currentHosts);
-      nextHosts.delete(host);
-      return nextHosts;
-    });
-  }, [setIgnoredHosts]);
-
-  const handleFocusHost = useCallback((session: SessionSummary) => {
-    handleFocusDomain(session.host);
-  }, [handleFocusDomain]);
-
-  const handleUnfocusHost = useCallback((session: SessionSummary) => {
-    handleUnfocusDomain(session.host);
-  }, [handleUnfocusDomain]);
-
-  const handleIgnoreHost = useCallback((session: SessionSummary) => {
-    handleIgnoreDomain(session.host);
-  }, [handleIgnoreDomain]);
-
-  const handleStopIgnoringHost = useCallback((session: SessionSummary) => {
-    handleStopIgnoringDomain(session.host);
-  }, [handleStopIgnoringDomain]);
+  const handleStopIgnoringHost = useCallback(
+    (session: SessionSummary) => {
+      handleStopIgnoringDomain(session.host);
+    },
+    [handleStopIgnoringDomain],
+  );
 
   const handleSaveToCollection = useCallback((session: SessionSummary) => {
     setSaveToCollectionSession(session);
@@ -351,20 +423,23 @@ export function useSessionContextActions({
     setSaveToCollectionSession(null);
   }, []);
 
-  const handleSaveToCollectionConfirm = useCallback(async (collectionId: string, name?: string) => {
-    if (!saveToCollectionSession) return;
-    try {
-      await saveSessionToCollection({
-        sessionId: saveToCollectionSession.id,
-        collectionId,
-        ...(name ? { name } : {}),
-      });
-      showSnackbar(t("collectionsPage.saved"));
-      setSaveToCollectionSession(null);
-    } catch {
-      showSnackbar(t("collectionsPage.saveFailed"));
-    }
-  }, [saveToCollectionSession, showSnackbar, t]);
+  const handleSaveToCollectionConfirm = useCallback(
+    async (collectionId: string, name?: string) => {
+      if (!saveToCollectionSession) return;
+      try {
+        await saveSessionToCollection({
+          sessionId: saveToCollectionSession.id,
+          collectionId,
+          ...(name ? { name } : {}),
+        });
+        showSnackbar(t("collectionsPage.saved"));
+        setSaveToCollectionSession(null);
+      } catch {
+        showSnackbar(t("collectionsPage.saveFailed"));
+      }
+    },
+    [saveToCollectionSession, showSnackbar, t],
+  );
 
   return {
     contextMenuAnchor,

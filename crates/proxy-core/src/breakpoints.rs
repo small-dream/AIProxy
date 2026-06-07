@@ -250,20 +250,23 @@ impl BreakpointManager {
         url: &str,
     ) -> Option<String> {
         let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.iter().find(|rule| {
-            if !rule.enabled {
-                return false;
-            }
-            if rule.stage != *stage {
-                return false;
-            }
-            if !rule.methods.is_empty()
-                && !rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
-            {
-                return false;
-            }
-            crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
-        }).map(|rule| rule.id.clone())
+        rules
+            .iter()
+            .find(|rule| {
+                if !rule.enabled {
+                    return false;
+                }
+                if rule.stage != *stage {
+                    return false;
+                }
+                if !rule.methods.is_empty()
+                    && !rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+                {
+                    return false;
+                }
+                crate::rules::pattern_matches(&rule.url_pattern, url, rule.match_type.as_deref())
+            })
+            .map(|rule| rule.id.clone())
     }
 
     /// Register a pending breakpoint. Returns the receiver end that the proxy task will await.
@@ -655,10 +658,7 @@ mod tests {
     async fn cancel_all_sends_forward_resolution() {
         let manager = BreakpointManager::new();
 
-        let receiver = manager.register_pending(
-            "session-1".to_string(),
-            "rule-a".to_string(),
-        );
+        let receiver = manager.register_pending("session-1".to_string(), "rule-a".to_string());
 
         manager.cancel_all();
 
@@ -680,14 +680,8 @@ mod tests {
     async fn cancel_for_rules_only_targets_matching_rules() {
         let manager = BreakpointManager::new();
 
-        let receiver_a = manager.register_pending(
-            "session-a".to_string(),
-            "rule-a".to_string(),
-        );
-        let receiver_b = manager.register_pending(
-            "session-b".to_string(),
-            "rule-b".to_string(),
-        );
+        let receiver_a = manager.register_pending("session-a".to_string(), "rule-a".to_string());
+        let receiver_b = manager.register_pending("session-b".to_string(), "rule-b".to_string());
 
         // Cancel only rule-a.
         manager.cancel_for_rules(&["rule-a".to_string()]);
@@ -725,16 +719,10 @@ mod tests {
         let manager = BreakpointManager::new();
 
         // Initially set two active rules: A and B.
-        manager.set_rules(vec![
-            make_rule("rule-a", true),
-            make_rule("rule-b", true),
-        ]);
+        manager.set_rules(vec![make_rule("rule-a", true), make_rule("rule-b", true)]);
 
         // Register a pending breakpoint for rule A.
-        let receiver_a = manager.register_pending(
-            "session-a".to_string(),
-            "rule-a".to_string(),
-        );
+        let receiver_a = manager.register_pending("session-a".to_string(), "rule-a".to_string());
 
         // Now set rules to only include B (remove A).
         manager.set_rules(vec![make_rule("rule-b", true)]);
@@ -753,10 +741,7 @@ mod tests {
 
         manager.set_rules(vec![make_rule("rule-a", true)]);
 
-        let receiver_a = manager.register_pending(
-            "session-a".to_string(),
-            "rule-a".to_string(),
-        );
+        let receiver_a = manager.register_pending("session-a".to_string(), "rule-a".to_string());
 
         // Disable rule-a.
         manager.set_rules(vec![make_rule("rule-a", false)]);
@@ -771,10 +756,7 @@ mod tests {
     async fn resolve_sends_resolution_to_waiting_receiver() {
         let manager = BreakpointManager::new();
 
-        let receiver = manager.register_pending(
-            "session-1".to_string(),
-            "rule-a".to_string(),
-        );
+        let receiver = manager.register_pending("session-1".to_string(), "rule-a".to_string());
 
         let resolution = BreakpointResolution {
             session_id: "session-1".to_string(),
@@ -788,7 +770,9 @@ mod tests {
             modified_response_status_code: None,
         };
 
-        manager.resolve("session-1", resolution).expect("resolve should succeed");
+        manager
+            .resolve("session-1", resolution)
+            .expect("resolve should succeed");
 
         let result = receiver.await.expect("receiver should resolve");
         assert_eq!(result.action, BreakpointActionKind::Forward);
@@ -821,17 +805,11 @@ mod tests {
     fn should_break_matches_enabled_rules_only() {
         let manager = BreakpointManager::new();
 
-        manager.set_rules(vec![
-            make_rule("rule-a", true),
-            make_rule("rule-b", false),
-        ]);
+        manager.set_rules(vec![make_rule("rule-a", true), make_rule("rule-b", false)]);
 
         assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test"));
         // rule-b is disabled, so disabling rule-a should make should_break return false.
-        manager.set_rules(vec![
-            make_rule("rule-a", false),
-            make_rule("rule-b", true),
-        ]);
+        manager.set_rules(vec![make_rule("rule-a", false), make_rule("rule-b", true)]);
         // rule-b is now enabled and still matches.
         assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test"));
     }

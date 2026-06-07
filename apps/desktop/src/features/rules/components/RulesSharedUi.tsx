@@ -19,10 +19,15 @@ import { useI18n } from "@/i18n";
 import type { TranslationFn } from "@/features/rules/rules.helpers";
 import { fontFamilies } from "@/themes/fonts";
 
-export function formatRuleFieldLabel(label: string, requirement: "optional" | "required", t: TranslationFn) {
-  const hint = requirement === "required"
-    ? t("rulesPage.fieldHints.required")
-    : t("rulesPage.fieldHints.optional");
+export function formatRuleFieldLabel(
+  label: string,
+  requirement: "optional" | "required",
+  t: TranslationFn,
+) {
+  const hint =
+    requirement === "required"
+      ? t("rulesPage.fieldHints.required")
+      : t("rulesPage.fieldHints.optional");
 
   return `${label} (${hint})`;
 }
@@ -51,14 +56,23 @@ export function FieldGroup({ title, children }: { title: string; children: React
 
 /* ── InlineSwitch ─────────────────────────────────────────────────── */
 
-export function InlineSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function InlineSwitch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <Stack
       direction="row"
       spacing={1}
       alignItems="center"
       sx={{
-        bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+        bgcolor: (theme) =>
+          alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
         border: 1,
         borderColor: "divider",
         borderRadius: "8px",
@@ -127,9 +141,10 @@ export function ManagedRulesWorkbench(props: {
         elevation={0}
         sx={{
           alignSelf: "stretch",
-          bgcolor: (theme) => theme.palette.mode === "dark"
-            ? alpha(theme.palette.background.default, 0.18)
-            : alpha(theme.palette.background.default, 0.36),
+          bgcolor: (theme) =>
+            theme.palette.mode === "dark"
+              ? alpha(theme.palette.background.default, 0.18)
+              : alpha(theme.palette.background.default, 0.36),
           border: 0,
           borderColor: "divider",
           borderRadius: 0,
@@ -147,11 +162,11 @@ export function ManagedRulesWorkbench(props: {
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
-            startAdornment={(
+            startAdornment={
               <InputAdornment position="start">
                 <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
               </InputAdornment>
-            )}
+            }
             sx={{
               bgcolor: "background.paper",
               fontSize: 13,
@@ -163,9 +178,7 @@ export function ManagedRulesWorkbench(props: {
           </Stack>
         </Stack>
 
-        <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>
-          {list}
-        </Box>
+        <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>{list}</Box>
       </Paper>
 
       <Box
@@ -176,7 +189,8 @@ export function ManagedRulesWorkbench(props: {
           justifyContent: "center",
           minHeight: 0,
           "&::before": {
-            bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+            bgcolor: (theme) =>
+              alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
             borderRadius: 999,
             content: '""',
             height: "100%",
@@ -257,24 +271,34 @@ export function ManagedRuleList(props: {
             overflow: "hidden",
             px: 1.25,
             py: 1,
-            transition: "border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease",
+            transition:
+              "border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease",
             "&.Mui-selected": {
-              bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+              bgcolor: (theme) =>
+                alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
             },
             "&:hover": {
-              bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
+              bgcolor: (theme) =>
+                alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
               borderColor: (theme) => alpha(theme.palette.primary.main, 0.45),
             },
           }}
         >
           <ListItemText
-            primary={(
+            primary={
               <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
                 <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
                   {item.name}
                 </Typography>
                 <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
-                  {!item.enabled && <Chip size="small" label={t("rulesPage.off")} variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+                  {!item.enabled && (
+                    <Chip
+                      size="small"
+                      label={t("rulesPage.off")}
+                      variant="outlined"
+                      sx={{ height: 20, fontSize: 11 }}
+                    />
+                  )}
                   <Chip
                     size="small"
                     label={item.chipLabel}
@@ -287,12 +311,18 @@ export function ManagedRuleList(props: {
                   />
                 </Stack>
               </Stack>
-            )}
-            secondary={(
-              <Typography sx={{ mt: 0.35 }} variant="caption" color="text.secondary" noWrap component="p">
+            }
+            secondary={
+              <Typography
+                sx={{ mt: 0.35 }}
+                variant="caption"
+                color="text.secondary"
+                noWrap
+                component="p"
+              >
                 {item.subtitle}
               </Typography>
-            )}
+            }
           />
         </ListItemButton>
       ))}

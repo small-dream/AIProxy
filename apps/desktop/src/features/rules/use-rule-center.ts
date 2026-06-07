@@ -98,7 +98,8 @@ export function useDeleteManagedRule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" | "dns" | "script" }) => deleteRule(input),
+    mutationFn: (input: { ruleId: string; ruleType: "rewrite" | "map" | "dns" | "script" }) =>
+      deleteRule(input),
     onSuccess: (_, input) => {
       if (input.ruleType === "rewrite") {
         queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });

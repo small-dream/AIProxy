@@ -7,15 +7,9 @@ import {
   type Workspace,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 const MOCK_WORKSPACE: Omit<Workspace, "id" | "name" | "createdAt" | "updatedAt"> = {
   proxyPort: 8888,

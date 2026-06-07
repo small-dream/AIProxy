@@ -58,19 +58,13 @@ export class ErrorBoundary extends Component<Props, State> {
                 <Button size="small" onClick={this.handleRetry}>
                   Try again
                 </Button>
-                <Button
-                  size="small"
-                  color="inherit"
-                  onClick={this.handleFullReload}
-                >
+                <Button size="small" color="inherit" onClick={this.handleFullReload}>
                   Reload app
                 </Button>
               </Stack>
             }
           >
-            <AlertTitle>
-              {this.props.fallbackTitle ?? "Something went wrong"}
-            </AlertTitle>
+            <AlertTitle>{this.props.fallbackTitle ?? "Something went wrong"}</AlertTitle>
             {this.state.error?.message}
           </Alert>
         </Box>

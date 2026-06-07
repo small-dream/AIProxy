@@ -4,10 +4,29 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
-import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Snackbar, Tooltip, Typography } from "@mui/material";
+import {
+  Box,
+  IconButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Snackbar,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
-import { useCallback, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useI18n } from "@/i18n";
 import {
@@ -194,7 +213,10 @@ export function SessionInspectorJsonTree({
     }
   }, [matchingRowPaths.length, matcher, onMatchCountChange]);
 
-  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(rows.length, JSON_TREE_ROW_HEIGHT);
+  const { containerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(
+    rows.length,
+    JSON_TREE_ROW_HEIGHT,
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -233,7 +255,8 @@ export function SessionInspectorJsonTree({
     const frameId = window.requestAnimationFrame(() => {
       const centeredScrollTop = Math.max(
         0,
-        targetRowIndex * JSON_TREE_ROW_HEIGHT - Math.max(0, container.clientHeight - JSON_TREE_ROW_HEIGHT) / 2,
+        targetRowIndex * JSON_TREE_ROW_HEIGHT -
+          Math.max(0, container.clientHeight - JSON_TREE_ROW_HEIGHT) / 2,
       );
 
       container.scrollTop = centeredScrollTop;
@@ -244,7 +267,10 @@ export function SessionInspectorJsonTree({
   }, [containerRef, currentMatchIndex, matcher, matchingRowPaths, rows]);
 
   const visibleRows = rows.slice(startIndex, endIndex);
-  const valueColumnRatio = Math.max(JSON_TREE_VALUE_COLUMN_RATIO_MIN, 1 - nameColumnRatio - typeColumnRatio);
+  const valueColumnRatio = Math.max(
+    JSON_TREE_VALUE_COLUMN_RATIO_MIN,
+    1 - nameColumnRatio - typeColumnRatio,
+  );
   const columnTemplate = `minmax(0, ${nameColumnRatio}fr) minmax(0, ${typeColumnRatio}fr) minmax(0, ${valueColumnRatio}fr)`;
   const typeDividerRatio = nameColumnRatio + typeColumnRatio;
   const virtualHeight = Math.max(totalHeight, viewportHeight);
@@ -270,11 +296,21 @@ export function SessionInspectorJsonTree({
 
         dragFrameRef.current = window.requestAnimationFrame(() => {
           if (divider === "name") {
-            setNameColumnRatio(clampNumber(localRatio, JSON_TREE_NAME_COLUMN_RATIO_MIN, typeDividerRatio - JSON_TREE_TYPE_COLUMN_RATIO_MIN));
+            setNameColumnRatio(
+              clampNumber(
+                localRatio,
+                JSON_TREE_NAME_COLUMN_RATIO_MIN,
+                typeDividerRatio - JSON_TREE_TYPE_COLUMN_RATIO_MIN,
+              ),
+            );
             return;
           }
 
-          const nextTypeDividerRatio = clampNumber(localRatio, nameColumnRatio + JSON_TREE_TYPE_COLUMN_RATIO_MIN, 1 - JSON_TREE_VALUE_COLUMN_RATIO_MIN);
+          const nextTypeDividerRatio = clampNumber(
+            localRatio,
+            nameColumnRatio + JSON_TREE_TYPE_COLUMN_RATIO_MIN,
+            1 - JSON_TREE_VALUE_COLUMN_RATIO_MIN,
+          );
           setTypeColumnRatio(nextTypeDividerRatio - nameColumnRatio);
         });
       };
@@ -344,7 +380,6 @@ export function SessionInspectorJsonTree({
             ))}
           </InspectorFlatTable>
         </Box>
-
       </Box>
 
       <Box
@@ -359,8 +394,14 @@ export function SessionInspectorJsonTree({
           zIndex: 2,
         }}
       >
-        <JsonTreeColumnDivider left={`${nameColumnRatio * 100}%`} onPointerDown={(event) => startColumnResize("name", event)} />
-        <JsonTreeColumnDivider left={`${typeDividerRatio * 100}%`} onPointerDown={(event) => startColumnResize("type", event)} />
+        <JsonTreeColumnDivider
+          left={`${nameColumnRatio * 100}%`}
+          onPointerDown={(event) => startColumnResize("name", event)}
+        />
+        <JsonTreeColumnDivider
+          left={`${typeDividerRatio * 100}%`}
+          onPointerDown={(event) => startColumnResize("type", event)}
+        />
       </Box>
 
       <Menu
@@ -428,7 +469,8 @@ function JsonTreeColumnDivider({
         width: "9px",
         zIndex: 2,
         "&::before": {
-          bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+          bgcolor: (theme) =>
+            alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
           bottom: 0,
           content: '""',
           left: "50%",
@@ -460,7 +502,15 @@ function buildVisibleJsonRows(
   }
 
   rootChildren.forEach(([childName, childValue]) => {
-    appendVisibleJsonRows(rows, childValue, `root.${childName}`, 0, expandedPaths, autoExpandedPaths, childName);
+    appendVisibleJsonRows(
+      rows,
+      childValue,
+      `root.${childName}`,
+      0,
+      expandedPaths,
+      autoExpandedPaths,
+      childName,
+    );
   });
 
   return rows;
@@ -541,7 +591,7 @@ function collectMatchingExpansionPaths(
   expandedPaths: Set<string>,
 ): boolean {
   const selfMatches =
-    ((name ? findNormalizedMatchIndex(name, searchQuery) !== -1 : false)) ||
+    (name ? findNormalizedMatchIndex(name, searchQuery) !== -1 : false) ||
     (typeof value === "string"
       ? findNormalizedMatchIndex(value, searchQuery) !== -1
       : typeof value === "number" || typeof value === "boolean" || value === null
@@ -554,7 +604,9 @@ function collectMatchingExpansionPaths(
     value.forEach((childValue, index) => {
       const childName = `[${index}]`;
       const childPath = `${path}.${childName}`;
-      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)) {
+      if (
+        collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)
+      ) {
         hasMatchingDescendant = true;
       }
     });
@@ -571,7 +623,9 @@ function collectMatchingExpansionPaths(
 
     Object.entries(value).forEach(([childName, childValue]) => {
       const childPath = `${path}.${childName}`;
-      if (collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)) {
+      if (
+        collectMatchingExpansionPaths(childValue, searchQuery, childPath, childName, expandedPaths)
+      ) {
         hasMatchingDescendant = true;
       }
     });
@@ -596,7 +650,9 @@ function collectMatcherExpansionPaths(
   const selfMatches = rowMatchesTexts(matcher, [
     name,
     typeof value === "string" ? value : undefined,
-    typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : undefined,
+    typeof value === "number" || typeof value === "boolean" || value === null
+      ? String(value)
+      : undefined,
   ]);
 
   if (Array.isArray(value)) {
@@ -671,7 +727,8 @@ function JsonTreeRowView({
   const isSelected = selectedPath === path;
   const selectedRowBackground = theme.palette.mode === "dark" ? "#0A64C9" : "#0069D9";
   const selectedRowHoverBackground = theme.palette.mode === "dark" ? "#0B72E3" : "#0069D9";
-  const hoverBackground = theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.06) : alpha("#000000", 0.035);
+  const hoverBackground =
+    theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.06) : alpha("#000000", 0.035);
   const bodyTextColor = theme.palette.mode === "dark" ? theme.palette.text.primary : "#111111";
   const selectedTextColor = "#FFFFFF";
   const valueColor = isSelected ? selectedTextColor : bodyTextColor;
@@ -740,7 +797,9 @@ function JsonTreeRowView({
             }}
             size="small"
             sx={{
-              color: isSelected ? selectedTextColor : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.78 : 0.45),
+              color: isSelected
+                ? selectedTextColor
+                : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.78 : 0.45),
               mr: 0.15,
               p: 0,
               width: 14,
@@ -749,7 +808,11 @@ function JsonTreeRowView({
               },
             }}
           >
-            {isExpanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+            {isExpanded ? (
+              <ExpandMoreRoundedIcon fontSize="small" />
+            ) : (
+              <ChevronRightRoundedIcon fontSize="small" />
+            )}
           </IconButton>
         ) : (
           <Box sx={{ flex: "0 0 14px", mr: 0.15 }} />
@@ -761,14 +824,22 @@ function JsonTreeRowView({
             color: isSelected
               ? selectedTextColor
               : hasChildren
-                ? theme.palette.mode === "dark" ? "#6FD6F4" : "#5CC8E6"
-                : theme.palette.mode === "dark" ? "#AAB4C3" : "#C8D0DA",
+                ? theme.palette.mode === "dark"
+                  ? "#6FD6F4"
+                  : "#5CC8E6"
+                : theme.palette.mode === "dark"
+                  ? "#AAB4C3"
+                  : "#C8D0DA",
             display: "flex",
             flex: "0 0 auto",
             mr: 0.55,
           }}
         >
-          {hasChildren ? <FolderRoundedIcon sx={{ fontSize: 17 }} /> : <DescriptionOutlinedIcon sx={{ fontSize: 15.5 }} />}
+          {hasChildren ? (
+            <FolderRoundedIcon sx={{ fontSize: 17 }} />
+          ) : (
+            <DescriptionOutlinedIcon sx={{ fontSize: 15.5 }} />
+          )}
         </Box>
 
         <Typography

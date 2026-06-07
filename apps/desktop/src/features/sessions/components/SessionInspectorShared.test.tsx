@@ -20,7 +20,9 @@ function mockWindowSelection(text: string) {
 
 describe("SearchableCodeBlock", () => {
   it("virtualizes large content when search is inactive", () => {
-    const { container } = renderWithProviders(<SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="" />);
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="" />,
+    );
 
     expect(container).not.toHaveTextContent("line 399 match");
   });
@@ -36,7 +38,9 @@ describe("SearchableCodeBlock", () => {
   });
 
   it("keeps large content virtualized while scrolling to the first matching off-screen line", () => {
-    const { container } = renderWithProviders(<SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="line 399" />);
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code={createLargeCodeBlock()} searchQuery="line 399" />,
+    );
     const scrollContainer = container.firstChild as HTMLDivElement | null;
 
     expect(container).toHaveTextContent("line 399");
@@ -72,9 +76,7 @@ describe("SearchableCodeBlock", () => {
 
       const getSelectionSpy = mockWindowSelection("selected text to copy");
 
-      renderWithProviders(
-        <SearchableCodeBlock code="selected text to copy" searchQuery="" />,
-      );
+      renderWithProviders(<SearchableCodeBlock code="selected text to copy" searchQuery="" />);
 
       act(() => {
         fireEvent.contextMenu(document.querySelector("pre")!, { clientX: 100, clientY: 100 });
@@ -95,7 +97,11 @@ describe("SearchableCodeBlock", () => {
       const getSelectionSpy = mockWindowSelection("search this");
 
       renderWithProviders(
-        <SearchableCodeBlock code="search this term" onSearchWithText={onSearchWithText} searchQuery="" />,
+        <SearchableCodeBlock
+          code="search this term"
+          onSearchWithText={onSearchWithText}
+          searchQuery=""
+        />,
       );
 
       act(() => {
@@ -113,9 +119,7 @@ describe("SearchableCodeBlock", () => {
     it("does not show context menu when no text is selected", () => {
       const getSelectionSpy = mockWindowSelection("");
 
-      renderWithProviders(
-        <SearchableCodeBlock code="hello world" searchQuery="" />,
-      );
+      renderWithProviders(<SearchableCodeBlock code="hello world" searchQuery="" />);
 
       act(() => {
         fireEvent.contextMenu(document.querySelector("pre")!, { clientX: 100, clientY: 100 });
@@ -130,9 +134,7 @@ describe("SearchableCodeBlock", () => {
     it("hides Search option when onSearchWithText is not provided", () => {
       const getSelectionSpy = mockWindowSelection("text");
 
-      renderWithProviders(
-        <SearchableCodeBlock code="text content" searchQuery="" />,
-      );
+      renderWithProviders(<SearchableCodeBlock code="text content" searchQuery="" />);
 
       act(() => {
         fireEvent.contextMenu(document.querySelector("pre")!, { clientX: 100, clientY: 100 });
@@ -149,7 +151,11 @@ describe("SearchableCodeBlock", () => {
       const getSelectionSpy = mockWindowSelection("needle");
 
       const { container } = renderWithProviders(
-        <SearchableCodeBlock code={createLargeCodeBlock()} onSearchWithText={onSearchWithText} searchQuery="" />,
+        <SearchableCodeBlock
+          code={createLargeCodeBlock()}
+          onSearchWithText={onSearchWithText}
+          searchQuery=""
+        />,
       );
 
       const virtualContainer = container.firstChild as HTMLElement;

@@ -86,12 +86,7 @@ export function buildSearchMatcher(query: string, options: SearchOptions): Searc
   };
 }
 
-export type RequestInspectorTab =
-  | "query"
-  | "headers"
-  | "body"
-  | "form"
-  | "raw";
+export type RequestInspectorTab = "query" | "headers" | "body" | "form" | "raw";
 
 export type ResponseInspectorTab =
   | "overview"
@@ -283,18 +278,14 @@ export function parseJsonBody(
   if (body.sizeBytes > LARGE_JSON_HARD_LIMIT) {
     return {
       status: "tooLarge",
-      message:
-        options?.tooLargeMessage ??
-        DEFAULT_JSON_PARSE_MESSAGES.tooLarge,
+      message: options?.tooLargeMessage ?? DEFAULT_JSON_PARSE_MESSAGES.tooLarge,
     };
   }
 
   if (body.truncated) {
     return {
       status: "error",
-      message:
-        options?.truncatedMessage ??
-        DEFAULT_JSON_PARSE_MESSAGES.truncated,
+      message: options?.truncatedMessage ?? DEFAULT_JSON_PARSE_MESSAGES.truncated,
     };
   }
 
@@ -335,7 +326,11 @@ export function normalizeSearch(searchQuery: string | undefined) {
   return searchQuery?.trim().toLocaleLowerCase() ?? "";
 }
 
-export function findNormalizedMatchIndex(text: string, searchQuery: string | undefined, fromIndex = 0) {
+export function findNormalizedMatchIndex(
+  text: string,
+  searchQuery: string | undefined,
+  fromIndex = 0,
+) {
   const normalizedQuery = normalizeSearch(searchQuery);
 
   if (!normalizedQuery) {
@@ -359,13 +354,21 @@ export function describeBody(
   }
 
   const mimeType = body.mimeType ?? options?.unknownMimeTypeLabel ?? messages.tech.unknownMimeType;
-  const truncationSuffix = body.truncated ? ` (${options?.truncatedPreviewLabel ?? messages.tech.truncatedPreview})` : "";
-  const sizeLabel = options?.formatBytes ? options.formatBytes(body.sizeBytes) : messages.tech.bytes.replace("{{value}}", String(body.sizeBytes));
+  const truncationSuffix = body.truncated
+    ? ` (${options?.truncatedPreviewLabel ?? messages.tech.truncatedPreview})`
+    : "";
+  const sizeLabel = options?.formatBytes
+    ? options.formatBytes(body.sizeBytes)
+    : messages.tech.bytes.replace("{{value}}", String(body.sizeBytes));
 
   return `${mimeType} - ${sizeLabel}${truncationSuffix}`;
 }
 
-export function formatTiming(value: number | undefined, fallbackLabel?: string, messages: typeof enMessages.common = DEFAULT_COMMON_MESSAGES) {
+export function formatTiming(
+  value: number | undefined,
+  fallbackLabel?: string,
+  messages: typeof enMessages.common = DEFAULT_COMMON_MESSAGES,
+) {
   const fallback = fallbackLabel ?? messages.states.notCaptured;
   if (value === undefined) {
     return fallback;
@@ -382,7 +385,9 @@ export function isClientCancelledStatus(statusCode: number): boolean {
   return statusCode === 499;
 }
 
-export function getStatusColor(statusCode: number): "default" | "error" | "info" | "success" | "warning" {
+export function getStatusColor(
+  statusCode: number,
+): "default" | "error" | "info" | "success" | "warning" {
   if (statusCode >= 500) {
     return "error";
   }
@@ -402,7 +407,9 @@ export function getStatusColor(statusCode: number): "default" | "error" | "info"
   return "default";
 }
 
-export function getMethodColor(method: string): "default" | "error" | "info" | "primary" | "secondary" | "success" | "warning" {
+export function getMethodColor(
+  method: string,
+): "default" | "error" | "info" | "primary" | "secondary" | "success" | "warning" {
   const normalizedMethod = method.toUpperCase();
 
   if (normalizedMethod === "GET" || normalizedMethod === "HEAD") {
@@ -442,18 +449,14 @@ const REQUEST_OPERATION_QUERY_KEYS = [
   "operationName",
 ] as const;
 
-const REQUEST_OPERATION_PATH_KEYS = new Set([
-  "method",
-  "action",
-  "operation",
-  "op",
-  "m",
-  "rpc",
-]);
+const REQUEST_OPERATION_PATH_KEYS = new Set(["method", "action", "operation", "op", "m", "rpc"]);
 
-export function getRequestOperationLabel(detail: SessionDetail | undefined, session: SessionSummary): string | undefined {
-  const queryParamValue = getRequestOperationFromQuery(detail?.queryParams)
-    ?? getRequestOperationFromUrl(session);
+export function getRequestOperationLabel(
+  detail: SessionDetail | undefined,
+  session: SessionSummary,
+): string | undefined {
+  const queryParamValue =
+    getRequestOperationFromQuery(detail?.queryParams) ?? getRequestOperationFromUrl(session);
 
   if (queryParamValue) {
     return queryParamValue;
@@ -473,7 +476,11 @@ export function isJsonObject(value: JsonValue): value is { [key: string]: JsonVa
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function jsonSubtreeMatches(name: string | undefined, value: JsonValue, searchQuery: string): boolean {
+export function jsonSubtreeMatches(
+  name: string | undefined,
+  value: JsonValue,
+  searchQuery: string,
+): boolean {
   const normalizedQuery = normalizeSearch(searchQuery);
 
   if (!normalizedQuery) {
@@ -496,7 +503,9 @@ export function jsonSubtreeMatches(name: string | undefined, value: JsonValue, s
     return value.some((child, index) => jsonSubtreeMatches(String(index), child, normalizedQuery));
   }
 
-  return Object.entries(value).some(([childName, childValue]) => jsonSubtreeMatches(childName, childValue, normalizedQuery));
+  return Object.entries(value).some(([childName, childValue]) =>
+    jsonSubtreeMatches(childName, childValue, normalizedQuery),
+  );
 }
 
 export function formatJsonPrimitive(value: JsonValue): string {
@@ -535,13 +544,17 @@ export function getJsonChildren(value: JsonValue): Array<[string, JsonValue]> {
   return [];
 }
 
-function getRequestOperationFromQuery(queryParams: SessionDetail["queryParams"] | undefined): string | undefined {
+function getRequestOperationFromQuery(
+  queryParams: SessionDetail["queryParams"] | undefined,
+): string | undefined {
   if (!queryParams?.length) {
     return undefined;
   }
 
   for (const key of REQUEST_OPERATION_QUERY_KEYS) {
-    const entry = queryParams.find((queryParam) => queryParam.name.toLowerCase() === key.toLowerCase());
+    const entry = queryParams.find(
+      (queryParam) => queryParam.name.toLowerCase() === key.toLowerCase(),
+    );
     const normalizedValue = normalizeOperationValue(entry?.value);
 
     if (normalizedValue) {
@@ -551,7 +564,11 @@ function getRequestOperationFromQuery(queryParams: SessionDetail["queryParams"] 
 
   const fuzzyEntry = queryParams.find((queryParam) => {
     const normalizedName = queryParam.name.toLowerCase();
-    return normalizedName.endsWith("method") || normalizedName.endsWith("action") || normalizedName.endsWith("operation");
+    return (
+      normalizedName.endsWith("method") ||
+      normalizedName.endsWith("action") ||
+      normalizedName.endsWith("operation")
+    );
   });
 
   return normalizeOperationValue(fuzzyEntry?.value);
@@ -585,8 +602,7 @@ function getSessionSearchParams(session: SessionSummary): URLSearchParams | unde
 
 function getRequestPathSegments(session: SessionSummary): string[] {
   try {
-    return new URL(session.url)
-      .pathname
+    return new URL(session.url).pathname
       .split("/")
       .map(decodeURIComponent)
       .map((segment) => segment.trim())
@@ -605,7 +621,11 @@ function getRequestOperationFromKeyedPath(pathSegments: string[]): string | unde
     const nextSegment = pathSegments[index + 1];
     const nextNextSegment = pathSegments[index + 2];
 
-    if (!currentSegment || !nextSegment || !REQUEST_OPERATION_PATH_KEYS.has(currentSegment.toLowerCase())) {
+    if (
+      !currentSegment ||
+      !nextSegment ||
+      !REQUEST_OPERATION_PATH_KEYS.has(currentSegment.toLowerCase())
+    ) {
       continue;
     }
 
@@ -638,7 +658,11 @@ function isLikelyOperationSegment(segment: string): boolean {
     return false;
   }
 
-  if (["api", "rest", "rpc", "gateway", "service", "services"].includes(normalizedSegment.toLowerCase())) {
+  if (
+    ["api", "rest", "rpc", "gateway", "service", "services"].includes(
+      normalizedSegment.toLowerCase(),
+    )
+  ) {
     return false;
   }
 
@@ -668,7 +692,9 @@ export function getJsonValueType(
   }
 
   if (isJsonObject(value)) {
-    return labels?.object ? labels.object(Object.keys(value).length) : `Object [${Object.keys(value).length}]`;
+    return labels?.object
+      ? labels.object(Object.keys(value).length)
+      : `Object [${Object.keys(value).length}]`;
   }
 
   if (value === null) {
@@ -752,13 +778,20 @@ function parseMultipartFormEntries(body: BodyReference): RequestFormEntry[] {
     }
 
     const headersText = decodeMultipartText(bytes.slice(partStart, headerSeparator.index));
-    const nextBoundary = findNextMultipartBoundary(bytes, boundaryBytes, headerSeparator.index + headerSeparator.length);
+    const nextBoundary = findNextMultipartBoundary(
+      bytes,
+      boundaryBytes,
+      headerSeparator.index + headerSeparator.length,
+    );
 
     if (!nextBoundary) {
       break;
     }
 
-    const contentBytes = bytes.slice(headerSeparator.index + headerSeparator.length, nextBoundary.contentEnd);
+    const contentBytes = bytes.slice(
+      headerSeparator.index + headerSeparator.length,
+      nextBoundary.contentEnd,
+    );
     const parsedEntry = buildMultipartFormEntry(headersText, contentBytes);
 
     if (parsedEntry) {
@@ -791,15 +824,17 @@ function getBodyBytes(body: BodyReference): Uint8Array | undefined {
 function readMultipartBoundaryLine(bytes: Uint8Array): string | undefined {
   const lineEndIndex = bytes.indexOf(10);
   const boundarySlice = lineEndIndex === -1 ? bytes : bytes.slice(0, lineEndIndex);
-  const normalizedSlice = boundarySlice[boundarySlice.length - 1] === 13
-    ? boundarySlice.slice(0, -1)
-    : boundarySlice;
+  const normalizedSlice =
+    boundarySlice[boundarySlice.length - 1] === 13 ? boundarySlice.slice(0, -1) : boundarySlice;
   const boundary = decodeMultipartText(normalizedSlice);
 
   return boundary.startsWith("--") ? boundary : undefined;
 }
 
-function findHeaderSeparator(bytes: Uint8Array, start: number): { index: number; length: number } | undefined {
+function findHeaderSeparator(
+  bytes: Uint8Array,
+  start: number,
+): { index: number; length: number } | undefined {
   const crlfIndex = findSequence(bytes, DOUBLE_CRLF_BYTES, start);
 
   if (crlfIndex !== -1) {
@@ -842,7 +877,10 @@ function findNextMultipartBoundary(
   return undefined;
 }
 
-function buildMultipartFormEntry(headersText: string, contentBytes: Uint8Array): RequestFormEntry | undefined {
+function buildMultipartFormEntry(
+  headersText: string,
+  contentBytes: Uint8Array,
+): RequestFormEntry | undefined {
   const headerMap = parseMultipartHeaders(headersText);
   const disposition = headerMap.get("content-disposition");
 

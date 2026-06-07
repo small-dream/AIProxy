@@ -17,7 +17,7 @@ import {
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
   return {
-    inlineText: "{\"ok\":true}",
+    inlineText: '{"ok":true}',
     mimeType: "application/json",
     sizeBytes: 12,
     ...overrides,
@@ -56,7 +56,7 @@ function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDet
 
 describe("parseJsonBody", () => {
   it("parses valid JSON without eagerly formatting text", () => {
-    const result = parseJsonBody(createBodyReference(), "{\"ok\":true}");
+    const result = parseJsonBody(createBodyReference(), '{"ok":true}');
 
     expect(result).toEqual({
       status: "success",
@@ -67,11 +67,12 @@ describe("parseJsonBody", () => {
   it("returns tooLarge when the body exceeds the tree threshold", () => {
     const result = parseJsonBody(
       createBodyReference({ sizeBytes: 2 * 1024 * 1024 + 1 }),
-      "{\"ok\":true}",
+      '{"ok":true}',
     );
 
     expect(result).toEqual({
-      message: "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
+      message:
+        "JSON body is too large for tree rendering right now. Use JSON Text or Raw to inspect the payload.",
       status: "tooLarge",
     });
   });
@@ -79,7 +80,7 @@ describe("parseJsonBody", () => {
   it("returns truncated error when the body was truncated during capture", () => {
     const result = parseJsonBody(
       createBodyReference({ truncated: true, sizeBytes: 200 * 1024 }),
-      "{\"ok\":true,\"items\":[1,2,3",
+      '{"ok":true,"items":[1,2,3',
     );
 
     expect(result.status).toBe("error");
@@ -91,7 +92,7 @@ describe("parseJsonBody", () => {
   it("returns truncated error with custom truncatedMessage", () => {
     const result = parseJsonBody(
       createBodyReference({ truncated: true, sizeBytes: 200 * 1024 }),
-      "{\"ok\":true,\"items\":[1,2,3",
+      '{"ok":true,"items":[1,2,3',
       { truncatedMessage: "custom truncated" },
     );
 
@@ -122,12 +123,12 @@ describe("parseFormEntries", () => {
   it("parses multipart file parts from base64 without rendering binary payload as text", () => {
     const encoder = new TextEncoder();
     const head = encoder.encode(
-      "--boundary\r\n"
-        + "Content-Disposition: form-data; name=\"email\"\r\n\r\n"
-        + "user@example.com\r\n"
-        + "--boundary\r\n"
-        + "Content-Disposition: form-data; name=\"Filedata\"; filename=\"submit.gz\"\r\n"
-        + "Content-Type: application/gzip\r\n\r\n",
+      "--boundary\r\n" +
+        'Content-Disposition: form-data; name="email"\r\n\r\n' +
+        "user@example.com\r\n" +
+        "--boundary\r\n" +
+        'Content-Disposition: form-data; name="Filedata"; filename="submit.gz"\r\n' +
+        "Content-Type: application/gzip\r\n\r\n",
     );
     const fileBytes = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
     const tail = encoder.encode("\r\n--boundary--\r\n");
@@ -137,11 +138,13 @@ describe("parseFormEntries", () => {
     payloadBytes.set(fileBytes, head.length);
     payloadBytes.set(tail, head.length + fileBytes.length);
 
-    expect(parseFormEntries({
-      base64Text: Buffer.from(payloadBytes).toString("base64"),
-      mimeType: "multipart/form-data",
-      sizeBytes: payloadBytes.length,
-    })).toEqual([
+    expect(
+      parseFormEntries({
+        base64Text: Buffer.from(payloadBytes).toString("base64"),
+        mimeType: "multipart/form-data",
+        sizeBytes: payloadBytes.length,
+      }),
+    ).toEqual([
       {
         contentType: "text/plain; charset=utf-8",
         kind: "field",
@@ -161,13 +164,15 @@ describe("parseFormEntries", () => {
 
 describe("formatJsonText", () => {
   it("pretty prints JSON values on demand", () => {
-    expect(formatJsonText({ ok: true, items: [1, 2] })).toBe('{\n    "ok": true,\n    "items": [\n        1,\n        2\n    ]\n}');
+    expect(formatJsonText({ ok: true, items: [1, 2] })).toBe(
+      '{\n    "ok": true,\n    "items": [\n        1,\n        2\n    ]\n}',
+    );
   });
 });
 
 describe("getBodyCodeLanguage", () => {
   it("detects JSON bodies from content type", () => {
-    expect(getBodyCodeLanguage(createBodyReference(), "{\"ok\":true}")).toBe("json");
+    expect(getBodyCodeLanguage(createBodyReference(), '{"ok":true}')).toBe("json");
   });
 
   it("detects JSON bodies from visible text when content type is missing", () => {
@@ -179,7 +184,9 @@ describe("getBodyCodeLanguage", () => {
   });
 
   it("uses plain text for non-JSON bodies", () => {
-    expect(getBodyCodeLanguage(createBodyReference({ mimeType: "text/plain" }), "hello")).toBe("plain");
+    expect(getBodyCodeLanguage(createBodyReference({ mimeType: "text/plain" }), "hello")).toBe(
+      "plain",
+    );
   });
 });
 

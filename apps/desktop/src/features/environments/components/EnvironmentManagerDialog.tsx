@@ -24,7 +24,10 @@ import {
   useSetGlobalVariables,
   useUpsertEnvironment,
 } from "@/features/environments/use-environments";
-import { VariableEditorTable, type VariableRow } from "@/features/environments/components/VariableEditorTable";
+import {
+  VariableEditorTable,
+  type VariableRow,
+} from "@/features/environments/components/VariableEditorTable";
 import { useI18n } from "@/i18n";
 
 type TabValue = "environments" | "globals";
@@ -215,14 +218,22 @@ export function EnvironmentManagerDialog({
                         e.stopPropagation();
                         handleDeleteEnvironment(env.id, env.name);
                       }}
-                      sx={{ opacity: 0, ".MuiStack-root:hover &": { opacity: 1 }, color: "text.secondary" }}
+                      sx={{
+                        opacity: 0,
+                        ".MuiStack-root:hover &": { opacity: 1 },
+                        color: "text.secondary",
+                      }}
                     >
                       <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Stack>
                 ))}
                 {environments.length === 0 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ p: 1, display: "block" }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ p: 1, display: "block" }}
+                  >
                     {t("common.empty.noData")}
                   </Typography>
                 )}

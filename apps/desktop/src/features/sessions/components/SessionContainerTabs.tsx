@@ -74,11 +74,12 @@ function SessionContainerTabsImpl({
     }
 
     const maxScrollLeft = scrollWidth - clientWidth;
-    const thumbWidth = Math.max(MIN_SCROLLBAR_THUMB_WIDTH, (clientWidth / scrollWidth) * clientWidth);
+    const thumbWidth = Math.max(
+      MIN_SCROLLBAR_THUMB_WIDTH,
+      (clientWidth / scrollWidth) * clientWidth,
+    );
     const maxThumbLeft = Math.max(0, clientWidth - thumbWidth);
-    const thumbLeft = maxScrollLeft > 0
-      ? (scrollLeft / maxScrollLeft) * maxThumbLeft
-      : 0;
+    const thumbLeft = maxScrollLeft > 0 ? (scrollLeft / maxScrollLeft) * maxThumbLeft : 0;
     const nextState = {
       canScroll: true,
       thumbLeft,
@@ -98,9 +99,8 @@ function SessionContainerTabsImpl({
     updateScrollbarState();
 
     const tabList = tabListRef.current;
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? undefined
-      : new ResizeObserver(updateScrollbarState);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateScrollbarState);
 
     if (tabList) {
       resizeObserver?.observe(tabList);
@@ -130,110 +130,121 @@ function SessionContainerTabsImpl({
     updateScrollbarState();
   }, [updateScrollbarState]);
 
-  const handleTabListWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    const tabList = tabListRef.current;
+  const handleTabListWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      const tabList = tabListRef.current;
 
-    if (!tabList) {
-      return;
-    }
+      if (!tabList) {
+        return;
+      }
 
-    const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+      const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
 
-    if (maxScrollLeft <= 0) {
-      return;
-    }
+      if (maxScrollLeft <= 0) {
+        return;
+      }
 
-    const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY)
-      ? event.deltaX
-      : event.deltaY;
-    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, tabList.scrollLeft + delta));
+      const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, tabList.scrollLeft + delta));
 
-    if (nextScrollLeft === tabList.scrollLeft) {
-      return;
-    }
+      if (nextScrollLeft === tabList.scrollLeft) {
+        return;
+      }
 
-    event.preventDefault();
-    tabList.scrollLeft = nextScrollLeft;
-    updateScrollbarState();
-  }, [updateScrollbarState]);
-
-  const handleScrollbarTrackPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const tabList = tabListRef.current;
-    const track = scrollbarTrackRef.current;
-
-    if (!tabList || !track || event.target !== event.currentTarget) {
-      return;
-    }
-
-    const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
-    const maxThumbLeft = Math.max(0, track.clientWidth - scrollbarState.thumbWidth);
-
-    if (maxScrollLeft <= 0 || maxThumbLeft <= 0) {
-      return;
-    }
-
-    event.preventDefault();
-    const trackBounds = track.getBoundingClientRect();
-    const nextThumbLeft = Math.max(
-      0,
-      Math.min(maxThumbLeft, event.clientX - trackBounds.left - scrollbarState.thumbWidth / 2),
-    );
-
-    tabList.scrollLeft = (nextThumbLeft / maxThumbLeft) * maxScrollLeft;
-    updateScrollbarState();
-  }, [scrollbarState.thumbWidth, updateScrollbarState]);
-
-  const handleScrollbarThumbPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const tabList = tabListRef.current;
-    const track = scrollbarTrackRef.current;
-
-    if (!tabList || !track) {
-      return;
-    }
-
-    const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
-    const maxThumbLeft = Math.max(0, track.clientWidth - scrollbarState.thumbWidth);
-
-    if (maxScrollLeft <= 0 || maxThumbLeft <= 0) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsScrollbarDragging(true);
-
-    const startClientX = event.clientX;
-    const startScrollLeft = tabList.scrollLeft;
-    const scrollPerPixel = maxScrollLeft / maxThumbLeft;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const nextScrollLeft = Math.max(
-        0,
-        Math.min(maxScrollLeft, startScrollLeft + (moveEvent.clientX - startClientX) * scrollPerPixel),
-      );
-
+      event.preventDefault();
       tabList.scrollLeft = nextScrollLeft;
       updateScrollbarState();
-    };
+    },
+    [updateScrollbarState],
+  );
 
-    const stopDragging = () => {
-      setIsScrollbarDragging(false);
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDragging);
-      window.removeEventListener("pointercancel", stopDragging);
-    };
+  const handleScrollbarTrackPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const tabList = tabListRef.current;
+      const track = scrollbarTrackRef.current;
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopDragging);
-    window.addEventListener("pointercancel", stopDragging);
-  }, [scrollbarState.thumbWidth, updateScrollbarState]);
+      if (!tabList || !track || event.target !== event.currentTarget) {
+        return;
+      }
+
+      const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+      const maxThumbLeft = Math.max(0, track.clientWidth - scrollbarState.thumbWidth);
+
+      if (maxScrollLeft <= 0 || maxThumbLeft <= 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const trackBounds = track.getBoundingClientRect();
+      const nextThumbLeft = Math.max(
+        0,
+        Math.min(maxThumbLeft, event.clientX - trackBounds.left - scrollbarState.thumbWidth / 2),
+      );
+
+      tabList.scrollLeft = (nextThumbLeft / maxThumbLeft) * maxScrollLeft;
+      updateScrollbarState();
+    },
+    [scrollbarState.thumbWidth, updateScrollbarState],
+  );
+
+  const handleScrollbarThumbPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const tabList = tabListRef.current;
+      const track = scrollbarTrackRef.current;
+
+      if (!tabList || !track) {
+        return;
+      }
+
+      const maxScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+      const maxThumbLeft = Math.max(0, track.clientWidth - scrollbarState.thumbWidth);
+
+      if (maxScrollLeft <= 0 || maxThumbLeft <= 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsScrollbarDragging(true);
+
+      const startClientX = event.clientX;
+      const startScrollLeft = tabList.scrollLeft;
+      const scrollPerPixel = maxScrollLeft / maxThumbLeft;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextScrollLeft = Math.max(
+          0,
+          Math.min(
+            maxScrollLeft,
+            startScrollLeft + (moveEvent.clientX - startClientX) * scrollPerPixel,
+          ),
+        );
+
+        tabList.scrollLeft = nextScrollLeft;
+        updateScrollbarState();
+      };
+
+      const stopDragging = () => {
+        setIsScrollbarDragging(false);
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopDragging);
+        window.removeEventListener("pointercancel", stopDragging);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopDragging);
+      window.addEventListener("pointercancel", stopDragging);
+    },
+    [scrollbarState.thumbWidth, updateScrollbarState],
+  );
 
   return (
     <Box
       sx={{
-        bgcolor: (theme) => theme.palette.mode === "dark"
-          ? alpha(theme.palette.background.default, 0.28)
-          : alpha(theme.palette.background.default, 0.62),
+        bgcolor: (theme) =>
+          theme.palette.mode === "dark"
+            ? alpha(theme.palette.background.default, 0.28)
+            : alpha(theme.palette.background.default, 0.62),
         borderBottom: 1,
         borderColor: "divider",
         minWidth: 0,
@@ -258,10 +269,11 @@ function SessionContainerTabsImpl({
             height: 34,
             minWidth: 0,
             position: "relative",
-            "&:hover .SessionContainerTabs-scrollbar, &:focus-within .SessionContainerTabs-scrollbar": {
-              opacity: 1,
-              pointerEvents: "auto",
-            },
+            "&:hover .SessionContainerTabs-scrollbar, &:focus-within .SessionContainerTabs-scrollbar":
+              {
+                opacity: 1,
+                pointerEvents: "auto",
+              },
           }}
         >
           <Stack
@@ -299,7 +311,7 @@ function SessionContainerTabsImpl({
                 sx={(theme) => ({
                   alignItems: "center",
                   bgcolor: container.isActive
-                    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.10)
+                    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.1)
                     : "transparent",
                   border: "1px solid",
                   borderColor: container.isActive
@@ -314,11 +326,18 @@ function SessionContainerTabsImpl({
                   justifyContent: "center",
                   minWidth: 0,
                   px: 1.1,
-                  transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
+                  transition:
+                    "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
                   "&:hover": {
                     bgcolor: container.isActive
-                      ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.13)
-                      : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                      ? alpha(
+                          theme.palette.primary.main,
+                          theme.palette.mode === "dark" ? 0.22 : 0.13,
+                        )
+                      : alpha(
+                          theme.palette.text.primary,
+                          theme.palette.mode === "dark" ? 0.08 : 0.05,
+                        ),
                     color: "text.primary",
                   },
                 })}
@@ -358,7 +377,10 @@ function SessionContainerTabsImpl({
               <Box
                 onPointerDown={handleScrollbarThumbPointerDown}
                 sx={(theme) => ({
-                  bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.18 : 0.14),
+                  bgcolor: alpha(
+                    theme.palette.text.primary,
+                    theme.palette.mode === "dark" ? 0.18 : 0.14,
+                  ),
                   borderRadius: 999,
                   cursor: "grab",
                   height: 4,
@@ -369,7 +391,10 @@ function SessionContainerTabsImpl({
                     cursor: "grabbing",
                   },
                   "&:hover": {
-                    bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.26 : 0.22),
+                    bgcolor: alpha(
+                      theme.palette.text.primary,
+                      theme.palette.mode === "dark" ? 0.26 : 0.22,
+                    ),
                   },
                 })}
               />
@@ -405,7 +430,11 @@ function SessionContainerTabsImpl({
                   height: 28,
                   width: 28,
                   "&:hover": {
-                    bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                    bgcolor: (theme) =>
+                      alpha(
+                        theme.palette.text.primary,
+                        theme.palette.mode === "dark" ? 0.08 : 0.05,
+                      ),
                     color: "text.primary",
                   },
                 }}
@@ -426,7 +455,8 @@ function SessionContainerTabsImpl({
                 height: 28,
                 width: 28,
                 "&:hover": {
-                  bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                  bgcolor: (theme) =>
+                    alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                   color: "text.primary",
                 },
               }}

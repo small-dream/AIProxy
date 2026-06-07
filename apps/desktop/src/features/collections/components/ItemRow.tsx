@@ -85,7 +85,9 @@ export function ItemRow({
           pr: 0.5,
           py: 0.6,
           transition: "background-color 140ms ease",
-          bgcolor: selected ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.09) : "transparent",
+          bgcolor: selected
+            ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.09)
+            : "transparent",
           "&:hover": {
             bgcolor: selected
               ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.12)
@@ -93,7 +95,14 @@ export function ItemRow({
           },
         })}
       >
-        <ArticleRoundedIcon sx={{ color: selected ? "primary.main" : "text.secondary", flex: "0 0 auto", fontSize: 15, opacity: selected ? 1 : 0.72 }} />
+        <ArticleRoundedIcon
+          sx={{
+            color: selected ? "primary.main" : "text.secondary",
+            flex: "0 0 auto",
+            fontSize: 15,
+            opacity: selected ? 1 : 0.72,
+          }}
+        />
         <Typography
           noWrap
           sx={{

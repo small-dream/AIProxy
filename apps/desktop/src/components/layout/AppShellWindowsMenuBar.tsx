@@ -42,9 +42,11 @@ export function AppShellWindowsMenuBar({
       sx={{
         alignItems: "center",
         backdropFilter: "blur(14px)",
-        bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.9 : 0.96),
+        bgcolor: (theme) =>
+          alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.9 : 0.96),
         borderBottom: "1px solid",
-        borderColor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.62 : 0.78),
+        borderColor: (theme) =>
+          alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.62 : 0.78),
         display: "flex",
         height: WINDOWS_TOP_CONTROLS_HEIGHT,
         left: 0,
@@ -108,9 +110,7 @@ export function AppShellWindowsMenuBar({
           zIndex: 1,
         }}
       >
-        <Box sx={{ pointerEvents: "auto" }}>
-          {centerControls}
-        </Box>
+        <Box sx={{ pointerEvents: "auto" }}>{centerControls}</Box>
       </Box>
 
       <Box
@@ -190,10 +190,14 @@ function WindowControls({ onMenuAction }: WindowControlsProps) {
               fontSize: control.id === "window_minimize" ? 18 : 16,
             },
             "&:hover": {
-              bgcolor: control.id === "window_close"
-                ? theme.palette.error.main
-                : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.14 : 0.08),
-              color: control.id === "window_close" ? theme.palette.error.contrastText : theme.palette.text.primary,
+              bgcolor:
+                control.id === "window_close"
+                  ? theme.palette.error.main
+                  : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.14 : 0.08),
+              color:
+                control.id === "window_close"
+                  ? theme.palette.error.contrastText
+                  : theme.palette.text.primary,
             },
           })}
         >

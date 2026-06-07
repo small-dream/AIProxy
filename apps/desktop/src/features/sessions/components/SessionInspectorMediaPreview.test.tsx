@@ -32,7 +32,8 @@ function createSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDet
     requestHeaders: [],
     responseHeaders: [{ name: "content-type", value: "image/png" }],
     responseBody: {
-      base64Text: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      base64Text:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
       mimeType: "image/png",
       sizeBytes: 67,
     },
@@ -46,7 +47,11 @@ describe("SessionInspectorMediaPreview", () => {
     const detail = createSessionDetail();
     const { container } = render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -60,7 +65,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -91,7 +100,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -109,7 +122,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -117,7 +134,8 @@ describe("SessionInspectorMediaPreview", () => {
   });
 
   it("renders SVG from inlineText", () => {
-    const svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>';
+    const svgContent =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>';
     const detail = createSessionDetail({
       responseBody: {
         inlineText: svgContent,
@@ -128,7 +146,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     const { container } = render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -148,7 +170,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     const { container } = render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -168,7 +194,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -180,7 +210,8 @@ describe("SessionInspectorMediaPreview", () => {
   it("shows a truncated warning when body was truncated", () => {
     const detail = createSessionDetail({
       responseBody: {
-        base64Text: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        base64Text:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
         mimeType: "image/png",
         sizeBytes: 5000000,
         truncated: true,
@@ -189,7 +220,11 @@ describe("SessionInspectorMediaPreview", () => {
 
     render(
       <AppProviders>
-        <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+        <SessionInspectorMediaPreview
+          detail={detail}
+          isLoading={false}
+          session={createSessionSummary()}
+        />
       </AppProviders>,
     );
 
@@ -201,7 +236,11 @@ describe("SessionInspectorMediaPreview", () => {
       const detail = createSessionDetail();
       const { container } = render(
         <AppProviders>
-          <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+          <SessionInspectorMediaPreview
+            detail={detail}
+            isLoading={false}
+            session={createSessionSummary()}
+          />
         </AppProviders>,
       );
 
@@ -225,7 +264,11 @@ describe("SessionInspectorMediaPreview", () => {
 
       render(
         <AppProviders>
-          <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+          <SessionInspectorMediaPreview
+            detail={detail}
+            isLoading={false}
+            session={createSessionSummary()}
+          />
         </AppProviders>,
       );
 
@@ -247,7 +290,11 @@ describe("SessionInspectorMediaPreview", () => {
       const detail = createSessionDetail();
       const { container } = render(
         <AppProviders>
-          <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+          <SessionInspectorMediaPreview
+            detail={detail}
+            isLoading={false}
+            session={createSessionSummary()}
+          />
         </AppProviders>,
       );
 
@@ -271,7 +318,11 @@ describe("SessionInspectorMediaPreview", () => {
 
       render(
         <AppProviders>
-          <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+          <SessionInspectorMediaPreview
+            detail={detail}
+            isLoading={false}
+            session={createSessionSummary()}
+          />
         </AppProviders>,
       );
 
@@ -289,7 +340,11 @@ describe("SessionInspectorMediaPreview", () => {
       const detail = createSessionDetail();
       const { container } = render(
         <AppProviders>
-          <SessionInspectorMediaPreview detail={detail} isLoading={false} session={createSessionSummary()} />
+          <SessionInspectorMediaPreview
+            detail={detail}
+            isLoading={false}
+            session={createSessionSummary()}
+          />
         </AppProviders>,
       );
 

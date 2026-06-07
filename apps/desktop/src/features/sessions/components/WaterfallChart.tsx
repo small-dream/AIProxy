@@ -21,30 +21,50 @@ const PHASE_COLORS = {
 const GAP_MARKER_WIDTH = 2;
 
 const PHASE_KEYS = [
-  { color: PHASE_COLORS.dns, labelKey: "inspector.waterfall.dns" as TranslationKey, field: "dnsMs" as const },
-  { color: PHASE_COLORS.connect, labelKey: "inspector.waterfall.connect" as TranslationKey, field: "connectMs" as const },
-  { color: PHASE_COLORS.tls, labelKey: "inspector.waterfall.tls" as TranslationKey, field: "tlsMs" as const },
-  { color: PHASE_COLORS.send, labelKey: "inspector.waterfall.send" as TranslationKey, field: "requestSendMs" as const },
-  { color: PHASE_COLORS.wait, labelKey: "inspector.waterfall.wait" as TranslationKey, field: "waitingMs" as const },
-  { color: PHASE_COLORS.download, labelKey: "inspector.waterfall.download" as TranslationKey, field: "responseReadMs" as const },
+  {
+    color: PHASE_COLORS.dns,
+    labelKey: "inspector.waterfall.dns" as TranslationKey,
+    field: "dnsMs" as const,
+  },
+  {
+    color: PHASE_COLORS.connect,
+    labelKey: "inspector.waterfall.connect" as TranslationKey,
+    field: "connectMs" as const,
+  },
+  {
+    color: PHASE_COLORS.tls,
+    labelKey: "inspector.waterfall.tls" as TranslationKey,
+    field: "tlsMs" as const,
+  },
+  {
+    color: PHASE_COLORS.send,
+    labelKey: "inspector.waterfall.send" as TranslationKey,
+    field: "requestSendMs" as const,
+  },
+  {
+    color: PHASE_COLORS.wait,
+    labelKey: "inspector.waterfall.wait" as TranslationKey,
+    field: "waitingMs" as const,
+  },
+  {
+    color: PHASE_COLORS.download,
+    labelKey: "inspector.waterfall.download" as TranslationKey,
+    field: "responseReadMs" as const,
+  },
 ];
 
-export function WaterfallChart({
-  timing,
-}: {
-  timing: TimingBreakdown | undefined;
-}) {
+export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined }) {
   const { t } = useI18n();
 
   const totalMs = timing?.totalMs;
-  const hasTimingData = timing && (
-    timing.dnsMs != null
-    || timing.connectMs != null
-    || timing.tlsMs != null
-    || timing.requestSendMs != null
-    || timing.waitingMs != null
-    || timing.responseReadMs != null
-  );
+  const hasTimingData =
+    timing &&
+    (timing.dnsMs != null ||
+      timing.connectMs != null ||
+      timing.tlsMs != null ||
+      timing.requestSendMs != null ||
+      timing.waitingMs != null ||
+      timing.responseReadMs != null);
 
   if (!hasTimingData && (totalMs == null || totalMs === 0)) {
     return (
@@ -104,20 +124,13 @@ export function WaterfallChart({
   );
 }
 
-function WaterfallBar({
-  phases,
-  scale,
-}: {
-  phases: WaterfallPhase[];
-  scale: number;
-}) {
+function WaterfallBar({ phases, scale }: { phases: WaterfallPhase[]; scale: number }) {
   return (
     <Box
       sx={{
         alignItems: "stretch",
-        bgcolor: (theme) => theme.palette.mode === "dark"
-          ? "rgba(255, 255, 255, 0.04)"
-          : "rgba(0, 0, 0, 0.04)",
+        bgcolor: (theme) =>
+          theme.palette.mode === "dark" ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)",
         borderRadius: 0.5,
         display: "flex",
         height: 24,
@@ -166,11 +179,7 @@ function WaterfallBar({
   );
 }
 
-function WaterfallLegend({
-  phases,
-}: {
-  phases: WaterfallPhase[];
-}) {
+function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
   const { t } = useI18n();
 
   return (
@@ -183,12 +192,7 @@ function WaterfallLegend({
       }}
     >
       {phases.map((phase) => (
-        <Stack
-          key={phase.labelKey}
-          alignItems="center"
-          direction="row"
-          spacing={0.5}
-        >
+        <Stack key={phase.labelKey} alignItems="center" direction="row" spacing={0.5}>
           <Box
             sx={{
               bgcolor: phase.color,

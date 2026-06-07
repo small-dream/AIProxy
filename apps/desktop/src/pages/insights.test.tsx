@@ -80,7 +80,12 @@ beforeEach(() => {
     activeSessionIds: ["session-1", "session-2", "session-3"],
     activeSessionSummaries: [
       summary({ id: "session-1", host: "api.example.com", url: "https://api.example.com/users" }),
-      summary({ id: "session-2", host: "api.example.com", statusCode: 500, url: "https://api.example.com/errors" }),
+      summary({
+        id: "session-2",
+        host: "api.example.com",
+        statusCode: 500,
+        url: "https://api.example.com/errors",
+      }),
       summary({ id: "session-3", host: "cdn.example.com", url: "https://cdn.example.com/app.js" }),
     ],
   });
@@ -101,7 +106,10 @@ describe("InsightsPage host filters", () => {
     expect(await findHostTableCell("api.example.com")).toBeInTheDocument();
     expect(await findHostTableCell("cdn.example.com")).toBeInTheDocument();
 
-    fireEvent.contextMenu(await findHostTableCell("api.example.com"), { clientX: 120, clientY: 160 });
+    fireEvent.contextMenu(await findHostTableCell("api.example.com"), {
+      clientX: 120,
+      clientY: 160,
+    });
     fireEvent.click(await screen.findByText("Filter by this host"));
 
     await waitFor(() => {
@@ -113,7 +121,10 @@ describe("InsightsPage host filters", () => {
 
     expect(await findHostTableCell("cdn.example.com")).toBeInTheDocument();
 
-    fireEvent.contextMenu(await findHostTableCell("cdn.example.com"), { clientX: 120, clientY: 180 });
+    fireEvent.contextMenu(await findHostTableCell("cdn.example.com"), {
+      clientX: 120,
+      clientY: 180,
+    });
     fireEvent.click(await screen.findByText("Exclude this host"));
 
     await waitFor(() => {
@@ -129,7 +140,10 @@ describe("InsightsPage host filters", () => {
 
     renderInsights();
 
-    fireEvent.contextMenu(await findHostTableCell("api.example.com"), { clientX: 120, clientY: 160 });
+    fireEvent.contextMenu(await findHostTableCell("api.example.com"), {
+      clientX: 120,
+      clientY: 160,
+    });
     fireEvent.click(await screen.findByText("Filter by selected text"));
 
     await waitFor(() => {
@@ -141,7 +155,10 @@ describe("InsightsPage host filters", () => {
   it("opens Sessions with the selected host filter", async () => {
     renderInsights();
 
-    fireEvent.contextMenu(await findHostTableCell("api.example.com"), { clientX: 120, clientY: 160 });
+    fireEvent.contextMenu(await findHostTableCell("api.example.com"), {
+      clientX: 120,
+      clientY: 160,
+    });
     fireEvent.click(await screen.findByText("Show requests for this host"));
 
     expect(mockNavigate).toHaveBeenCalledWith("/sessions", {

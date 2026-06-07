@@ -60,7 +60,9 @@ describe("SessionExportDialog", () => {
 
     expect(screen.getByText("Selected Domain")).toBeInTheDocument();
     expect(screen.getByText("api.example.com")).toBeInTheDocument();
-    expect(screen.getByText("/v1/some/really/long/path?with=long&query=string")).toBeInTheDocument();
+    expect(
+      screen.getByText("/v1/some/really/long/path?with=long&query=string"),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Selected Session"));
 

@@ -30,7 +30,8 @@ export function MobileSetupTab({
   const [devicesQueryEnabled, setDevicesQueryEnabled] = useState(false);
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const localIp = localIps?.[0];
-  const certDownloadUrl = localIp && proxyRunning ? `http://${localIp}:${proxyPort}/aiproxy-ca.crt` : null;
+  const certDownloadUrl =
+    localIp && proxyRunning ? `http://${localIp}:${proxyPort}/aiproxy-ca.crt` : null;
   const proxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
 
   const showCertQr = sslEnabled && hasCert && Boolean(certDownloadUrl);
@@ -77,10 +78,7 @@ export function MobileSetupTab({
       >
         <Stack spacing={1.5} sx={{ minWidth: 0 }}>
           <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
-            <IosQuickActionsPanel
-              devicesQueryEnabled={devicesQueryEnabled}
-              hasCert={hasCert}
-            />
+            <IosQuickActionsPanel devicesQueryEnabled={devicesQueryEnabled} hasCert={hasCert} />
           </Box>
 
           <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>

@@ -27,7 +27,8 @@ export function useSaveThrottleProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: Omit<ThrottleProfile, "id"> & { id?: string }) => saveThrottleProfile(input),
+    mutationFn: (input: Omit<ThrottleProfile, "id"> & { id?: string }) =>
+      saveThrottleProfile(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: THROTTLE_PROFILES_KEY });
     },
@@ -38,8 +39,7 @@ export function useSetActiveThrottleProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (profileId?: string) =>
-      setActiveThrottleProfile(profileId ? { profileId } : {}),
+    mutationFn: (profileId?: string) => setActiveThrottleProfile(profileId ? { profileId } : {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: THROTTLE_PROFILES_KEY });
       queryClient.invalidateQueries({ queryKey: THROTTLE_STATS_KEY });

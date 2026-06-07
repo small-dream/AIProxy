@@ -47,7 +47,7 @@ describe("buildComposeLoadInput", () => {
     expect(input.urlEncodedEntries).toEqual([
       { name: "_sessionKey", value: "50:386" },
       { name: "first_launch", value: "0" },
-      { name: "experiment_names", value: "[\"a\",\"b\"]" },
+      { name: "experiment_names", value: '["a","b"]' },
     ]);
   });
 
@@ -55,10 +55,11 @@ describe("buildComposeLoadInput", () => {
     const input = buildComposeLoadInput(
       createSessionSummary(),
       createSessionDetail({
-        inlineText: "--boundary\r\n"
-          + "Content-Disposition: form-data; name=\"email\"\r\n\r\n"
-          + "user@example.com\r\n"
-          + "--boundary--\r\n",
+        inlineText:
+          "--boundary\r\n" +
+          'Content-Disposition: form-data; name="email"\r\n\r\n' +
+          "user@example.com\r\n" +
+          "--boundary--\r\n",
         mimeType: "multipart/form-data; boundary=boundary",
         sizeBytes: 93,
       }),
@@ -72,11 +73,12 @@ describe("buildComposeLoadInput", () => {
     const input = buildComposeLoadInput(
       createSessionSummary(),
       createSessionDetail({
-        inlineText: "--boundary\r\n"
-          + "Content-Disposition: form-data; name=\"upload\"; filename=\"payload.bin\"\r\n"
-          + "Content-Type: application/octet-stream\r\n\r\n"
-          + "abc\r\n"
-          + "--boundary--\r\n",
+        inlineText:
+          "--boundary\r\n" +
+          'Content-Disposition: form-data; name="upload"; filename="payload.bin"\r\n' +
+          "Content-Type: application/octet-stream\r\n\r\n" +
+          "abc\r\n" +
+          "--boundary--\r\n",
         mimeType: "multipart/form-data; boundary=boundary",
         sizeBytes: 132,
       }),

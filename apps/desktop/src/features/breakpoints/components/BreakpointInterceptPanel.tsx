@@ -32,7 +32,13 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import { coerceAppError, type BodyReference, type BreakpointHit, type BreakpointResolution, type HeaderEntry } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  type BodyReference,
+  type BreakpointHit,
+  type BreakpointResolution,
+  type HeaderEntry,
+} from "@aiproxy/shared-types";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
@@ -51,7 +57,11 @@ import {
   inspectorTabsSx,
   inspectorValueTypographySx,
 } from "@/features/sessions/components/SessionInspectorShared";
-import { DEFAULT_REQUEST_SPLIT_RATIO, clampInspectorSplitRatio, type SearchMatcher } from "@/features/sessions/components/session-inspector.helpers";
+import {
+  DEFAULT_REQUEST_SPLIT_RATIO,
+  clampInspectorSplitRatio,
+  type SearchMatcher,
+} from "@/features/sessions/components/session-inspector.helpers";
 import { useSearchController } from "@/features/sessions/components/use-search-controller";
 
 import { useBreakpointStore } from "../breakpoint.store";
@@ -70,10 +80,12 @@ function buildQueryEntries(path: string): HeaderEntry[] {
     return [];
   }
 
-  return Array.from(new URLSearchParams(path.slice(queryStart + 1)).entries()).map(([name, value]) => ({
-    name,
-    value,
-  }));
+  return Array.from(new URLSearchParams(path.slice(queryStart + 1)).entries()).map(
+    ([name, value]) => ({
+      name,
+      value,
+    }),
+  );
 }
 
 function getHeaderValue(headers: HeaderEntry[], name: string) {
@@ -89,17 +101,23 @@ function isJsonBody(mimeType: string, text: string) {
   const normalizedMime = mimeType.toLowerCase();
   const trimmedText = text.trim();
 
-  return normalizedMime.includes("application/json")
-    || normalizedMime.includes("+json")
-    || trimmedText.startsWith("{")
-    || trimmedText.startsWith("[");
+  return (
+    normalizedMime.includes("application/json") ||
+    normalizedMime.includes("+json") ||
+    trimmedText.startsWith("{") ||
+    trimmedText.startsWith("[")
+  );
 }
 
 function isUrlEncodedBody(mimeType: string) {
   return mimeType.toLowerCase().includes("application/x-www-form-urlencoded");
 }
 
-function getPreferredBodyMode(body: BodyReference | undefined, headers: HeaderEntry[], text: string): BodyEditorMode {
+function getPreferredBodyMode(
+  body: BodyReference | undefined,
+  headers: HeaderEntry[],
+  text: string,
+): BodyEditorMode {
   const mimeType = getBodyMimeType(body, headers);
 
   if (isUrlEncodedBody(mimeType)) {
@@ -131,7 +149,10 @@ function formatJsonText(text: string) {
 
 function parseUrlEncodedEntries(text: string): HeaderEntry[] {
   try {
-    return Array.from(new URLSearchParams(text).entries()).map(([name, value]) => ({ name, value }));
+    return Array.from(new URLSearchParams(text).entries()).map(([name, value]) => ({
+      name,
+      value,
+    }));
   } catch {
     return [];
   }
@@ -200,9 +221,17 @@ function HeaderEditor({
         alignItems="center"
         direction="row"
         spacing={1}
-        sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover" }}
+        sx={{
+          px: 1.25,
+          py: 0.75,
+          borderBottom: 1,
+          borderColor: "divider",
+          bgcolor: "action.hover",
+        }}
       >
-        <Typography id={headerId} sx={{ fontSize: 12, fontWeight: 700 }}>{title}</Typography>
+        <Typography id={headerId} sx={{ fontSize: 12, fontWeight: 700 }}>
+          {title}
+        </Typography>
         <Typography color="text.secondary" sx={{ flex: 1, fontSize: 11 }}>
           {countLabel}
         </Typography>
@@ -281,13 +310,16 @@ function BodyEditor({
   onReset?: (() => void) | undefined;
 }) {
   const { t } = useI18n();
-  const preferredMode = useMemo(() => getPreferredBodyMode(body, headers, text), [body, headers, text]);
+  const preferredMode = useMemo(
+    () => getPreferredBodyMode(body, headers, text),
+    [body, headers, text],
+  );
   const [mode, setMode] = useState<BodyEditorMode>(preferredMode);
   const [expanded, setExpanded] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [draftText, setDraftText] = useState(() => (
-    preferredMode === "json" ? formatJsonText(text).text : text
-  ));
+  const [draftText, setDraftText] = useState(() =>
+    preferredMode === "json" ? formatJsonText(text).text : text,
+  );
   const [formEntries, setFormEntries] = useState<HeaderEntry[]>(() => parseUrlEncodedEntries(text));
   const committedTextRef = useRef(text);
   const searchController = useSearchController();
@@ -304,18 +336,24 @@ function BodyEditor({
     setFormEntries(parseUrlEncodedEntries(text));
   }, [body, headers, text]);
 
-  const commitText = useCallback((nextText: string) => {
-    committedTextRef.current = nextText;
-    setDraftText(nextText);
-    onChange(nextText);
-  }, [onChange]);
+  const commitText = useCallback(
+    (nextText: string) => {
+      committedTextRef.current = nextText;
+      setDraftText(nextText);
+      onChange(nextText);
+    },
+    [onChange],
+  );
 
-  const updateFormEntries = useCallback((nextEntries: HeaderEntry[]) => {
-    const nextText = encodeUrlEncodedEntries(nextEntries);
-    committedTextRef.current = nextText;
-    setFormEntries(nextEntries);
-    onChange(nextText);
-  }, [onChange]);
+  const updateFormEntries = useCallback(
+    (nextEntries: HeaderEntry[]) => {
+      const nextText = encodeUrlEncodedEntries(nextEntries);
+      committedTextRef.current = nextText;
+      setFormEntries(nextEntries);
+      onChange(nextText);
+    },
+    [onChange],
+  );
 
   const handleModeChange = useCallback((nextMode: BodyEditorMode) => {
     setMode(nextMode);
@@ -325,9 +363,11 @@ function BodyEditor({
       return;
     }
 
-    setDraftText(nextMode === "json"
-      ? formatJsonText(committedTextRef.current).text
-      : committedTextRef.current);
+    setDraftText(
+      nextMode === "json"
+        ? formatJsonText(committedTextRef.current).text
+        : committedTextRef.current,
+    );
   }, []);
 
   const handleFormatJson = useCallback(() => {
@@ -350,16 +390,20 @@ function BodyEditor({
   const formText = useMemo(() => encodeUrlEncodedEntries(formEntries), [formEntries]);
   const activeText = mode === "form" ? formText : draftText;
   const canShowForm = preferredMode === "form" || mode === "form";
-  const canShowJson = preferredMode === "json" || mode === "json" || isJsonBody(getBodyMimeType(body, headers), activeText);
+  const canShowJson =
+    preferredMode === "json" ||
+    mode === "json" ||
+    isJsonBody(getBodyMimeType(body, headers), activeText);
   const jsonResult = mode === "json" ? formatJsonText(draftText) : null;
   const isSearchable = mode !== "form";
-  const activeMetadata = mode === "form"
-    ? formatCount(
-        formEntries.length,
-        t("breakpointPanel.paramCountOne", { count: formEntries.length }),
-        t("breakpointPanel.paramCountMany", { count: formEntries.length }),
-      )
-    : metadata;
+  const activeMetadata =
+    mode === "form"
+      ? formatCount(
+          formEntries.length,
+          t("breakpointPanel.paramCountOne", { count: formEntries.length }),
+          t("breakpointPanel.paramCountMany", { count: formEntries.length }),
+        )
+      : metadata;
 
   useEffect(() => {
     if (!isSearchable) {
@@ -390,7 +434,16 @@ function BodyEditor({
         component="section"
         role="region"
         variant="outlined"
-        sx={{ borderRadius: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1, height: "100%", position: "relative" }}
+        sx={{
+          borderRadius: 1,
+          minHeight: 0,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          height: "100%",
+          position: "relative",
+        }}
       >
         <BodyEditorToolbar
           activeMetadata={activeMetadata}
@@ -412,9 +465,7 @@ function BodyEditor({
             {t("breakpointPanel.invalidJson", { message: jsonResult.message })}
           </Typography>
         ) : null}
-        <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden", p: 0.75 }}>
-          {editorContent}
-        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden", p: 0.75 }}>{editorContent}</Box>
         {isSearchOpen ? (
           <Box
             sx={{
@@ -458,15 +509,28 @@ function BodyEditor({
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Stack alignItems="center" direction="row" spacing={1}>
-            <Typography component="span" sx={{ fontWeight: 700 }}>{label}</Typography>
+            <Typography component="span" sx={{ fontWeight: 700 }}>
+              {label}
+            </Typography>
             <Typography color="text.secondary" component="span" sx={{ fontSize: 12 }}>
               {activeMetadata}
             </Typography>
             <Box sx={{ flex: 1 }} />
             {isSearchable ? (
-              <Tooltip arrow title={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
+              <Tooltip
+                arrow
+                title={
+                  isSearchOpen
+                    ? t("inspector.response.actions.closeSearch")
+                    : t("inspector.response.actions.openSearch")
+                }
+              >
                 <IconButton
-                  aria-label={isSearchOpen ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
+                  aria-label={
+                    isSearchOpen
+                      ? t("inspector.response.actions.closeSearch")
+                      : t("inspector.response.actions.openSearch")
+                  }
                   onClick={() => setIsSearchOpen((value) => !value)}
                   size="small"
                   sx={{ color: isSearchOpen ? "primary.main" : undefined }}
@@ -477,7 +541,16 @@ function BodyEditor({
             ) : null}
           </Stack>
         </DialogTitle>
-        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", minHeight: 0, p: 1.5, position: "relative" }}>
+        <DialogContent
+          dividers
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            p: 1.5,
+            position: "relative",
+          }}
+        >
           {editorContent}
           {isSearchOpen ? (
             <Box
@@ -510,7 +583,9 @@ function BodyEditor({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setExpanded(false)}>{t("common.actions.cancel")}</Button>
-          <Button onClick={() => setExpanded(false)} variant="contained">{t("common.actions.apply")}</Button>
+          <Button onClick={() => setExpanded(false)} variant="contained">
+            {t("common.actions.apply")}
+          </Button>
         </DialogActions>
       </Dialog>
     </>
@@ -553,7 +628,14 @@ function BodyEditorToolbar({
       alignItems="center"
       direction="row"
       spacing={1}
-      sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover", flexShrink: 0 }}
+      sx={{
+        px: 1.25,
+        py: 0.75,
+        borderBottom: 1,
+        borderColor: "divider",
+        bgcolor: "action.hover",
+        flexShrink: 0,
+      }}
     >
       <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{label}</Typography>
       <Typography color="text.secondary" sx={{ flex: 1, fontSize: 11 }}>
@@ -583,15 +665,30 @@ function BodyEditorToolbar({
       </Stack>
       {!readOnly && canShowJson ? (
         <Tooltip arrow title={t("breakpointPanel.formatJson")}>
-          <IconButton aria-label={t("breakpointPanel.formatJson")} onClick={onFormatJson} size="small">
+          <IconButton
+            aria-label={t("breakpointPanel.formatJson")}
+            onClick={onFormatJson}
+            size="small"
+          >
             <FormatAlignLeftRoundedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         </Tooltip>
       ) : null}
       {onSearch ? (
-        <Tooltip arrow title={searchActive ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}>
+        <Tooltip
+          arrow
+          title={
+            searchActive
+              ? t("inspector.response.actions.closeSearch")
+              : t("inspector.response.actions.openSearch")
+          }
+        >
           <IconButton
-            aria-label={searchActive ? t("inspector.response.actions.closeSearch") : t("inspector.response.actions.openSearch")}
+            aria-label={
+              searchActive
+                ? t("inspector.response.actions.closeSearch")
+                : t("inspector.response.actions.openSearch")
+            }
             onClick={onSearch}
             size="small"
             sx={{ color: searchActive ? "primary.main" : undefined }}
@@ -694,17 +791,15 @@ const EditableCodeBlock = memo(function EditableCodeBlock({
 }) {
   const theme = useTheme();
   const paletteMode = theme.palette.mode;
-  const tokenColors = useMemo(
-    () => {
-      const colors = getSyntaxColors(paletteMode);
-      return { ...colors, punctuation: "text.primary" } as const;
-    },
-    [paletteMode],
-  );
+  const tokenColors = useMemo(() => {
+    const colors = getSyntaxColors(paletteMode);
+    return { ...colors, punctuation: "text.primary" } as const;
+  }, [paletteMode]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const allMatches = useMemo(() => (matcher ? matcher(text) : []), [matcher, text]);
-  const currentMatchRange = currentMatchIndex === undefined ? null : allMatches[currentMatchIndex] ?? null;
+  const currentMatchRange =
+    currentMatchIndex === undefined ? null : (allMatches[currentMatchIndex] ?? null);
 
   useEffect(() => {
     onMatchCountChange?.(allMatches.length);
@@ -722,8 +817,15 @@ const EditableCodeBlock = memo(function EditableCodeBlock({
   const shouldJsonHighlight = language === "json" && text.length <= JSON_HIGHLIGHT_CHAR_LIMIT;
   const highlightedText = useMemo(() => {
     if (text.length === 0) return "";
-    if (!shouldJsonHighlight) return renderHighlightedText(text, undefined, matcher, currentMatchRange);
-    return renderJsonSyntaxHighlightedText(text, tokenColors, undefined, matcher, currentMatchRange);
+    if (!shouldJsonHighlight)
+      return renderHighlightedText(text, undefined, matcher, currentMatchRange);
+    return renderJsonSyntaxHighlightedText(
+      text,
+      tokenColors,
+      undefined,
+      matcher,
+      currentMatchRange,
+    );
   }, [text, shouldJsonHighlight, matcher, currentMatchRange, tokenColors]);
 
   const sharedTextSx = {
@@ -833,7 +935,8 @@ function UrlEncodedBodyTable({
         <Stack spacing={0.5} sx={{ minHeight: 0, overflow: "auto" }}>
           <Box
             sx={{
-              bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+              bgcolor: (theme) =>
+                alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
               borderRadius: 1,
               display: "grid",
               gridTemplateColumns: `${INSPECTOR_KEY_VALUE_GRID_TEMPLATE} 32px`,
@@ -897,10 +1000,16 @@ function UrlEncodedBodyTable({
                 }}
               />
               {!readOnly ? (
-                <IconButton aria-label={t("breakpointPanel.removeParam")} onClick={() => remove(index)} size="small">
+                <IconButton
+                  aria-label={t("breakpointPanel.removeParam")}
+                  onClick={() => remove(index)}
+                  size="small"
+                >
                   <CloseRoundedIcon sx={{ fontSize: 16 }} />
                 </IconButton>
-              ) : <Box />}
+              ) : (
+                <Box />
+              )}
             </Box>
           ))}
         </Stack>
@@ -913,14 +1022,22 @@ function UrlEncodedBodyTable({
 // Method badge color helper
 // ---------------------------------------------------------------------------
 
-function methodColor(method: string): "default" | "primary" | "success" | "warning" | "error" | "info" | "secondary" {
+function methodColor(
+  method: string,
+): "default" | "primary" | "success" | "warning" | "error" | "info" | "secondary" {
   switch (method.toUpperCase()) {
-    case "GET": return "success";
-    case "POST": return "primary";
-    case "PUT": return "warning";
-    case "PATCH": return "info";
-    case "DELETE": return "error";
-    default: return "default";
+    case "GET":
+      return "success";
+    case "POST":
+      return "primary";
+    case "PUT":
+      return "warning";
+    case "PATCH":
+      return "info";
+    case "DELETE":
+      return "error";
+    default:
+      return "default";
   }
 }
 
@@ -954,7 +1071,9 @@ export function BreakpointInterceptPanel() {
   const [editedRespHeaders, setEditedRespHeaders] = useState<HeaderEntry[] | null>(null);
   const [editedRespBody, setEditedRespBody] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
-  const [resolvingAction, setResolvingAction] = useState<BreakpointResolution["action"] | null>(null);
+  const [resolvingAction, setResolvingAction] = useState<BreakpointResolution["action"] | null>(
+    null,
+  );
 
   const activeHit: BreakpointHit | undefined = useMemo(
     () => pendingHits.find((h) => h.sessionId === activeHitId),
@@ -964,42 +1083,45 @@ export function BreakpointInterceptPanel() {
   const activeIdx = pendingHits.findIndex((h) => h.sessionId === activeHitId);
   const totalCount = pendingHits.length;
 
-  const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const container = event.currentTarget.parentElement;
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const container = event.currentTarget.parentElement;
 
-    if (!container || requestCollapsed) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    const updateRatio = (clientY: number) => {
-      const bounds = container.getBoundingClientRect();
-
-      if (bounds.height <= 0) {
+      if (!container || requestCollapsed) {
         return;
       }
 
-      setSplitRatio(clampInspectorSplitRatio((clientY - bounds.top) / bounds.height));
-    };
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
 
-    updateRatio(event.clientY);
+      const updateRatio = (clientY: number) => {
+        const bounds = container.getBoundingClientRect();
 
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      updateRatio(moveEvent.clientY);
-    };
+        if (bounds.height <= 0) {
+          return;
+        }
 
-    const stopResize = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
-    };
+        setSplitRatio(clampInspectorSplitRatio((clientY - bounds.top) / bounds.height));
+      };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
-  }, [requestCollapsed]);
+      updateRatio(event.clientY);
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateRatio(moveEvent.clientY);
+      };
+
+      const stopResize = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [requestCollapsed],
+  );
 
   const navigateHit = useCallback(
     (delta: number) => {
@@ -1044,10 +1166,16 @@ export function BreakpointInterceptPanel() {
           : {}),
         ...(editedReqHeaders ? { modifiedRequestHeaders: editedReqHeaders } : {}),
         ...(editedReqQueryParams ? { modifiedRequestQueryParams: editedReqQueryParams } : {}),
-        ...(editedReqBody !== null ? { modifiedRequestBodyBase64: encodeBase64Utf8(editedReqBody) } : {}),
-        ...(editedRespStatusCode !== null ? { modifiedResponseStatusCode: Number(editedRespStatusCode) || 200 } : {}),
+        ...(editedReqBody !== null
+          ? { modifiedRequestBodyBase64: encodeBase64Utf8(editedReqBody) }
+          : {}),
+        ...(editedRespStatusCode !== null
+          ? { modifiedResponseStatusCode: Number(editedRespStatusCode) || 200 }
+          : {}),
         ...(editedRespHeaders ? { modifiedResponseHeaders: editedRespHeaders } : {}),
-        ...(editedRespBody !== null ? { modifiedResponseBodyBase64: encodeBase64Utf8(editedRespBody) } : {}),
+        ...(editedRespBody !== null
+          ? { modifiedResponseBodyBase64: encodeBase64Utf8(editedRespBody) }
+          : {}),
       };
 
       const resetDrafts = () => {
@@ -1124,27 +1252,30 @@ export function BreakpointInterceptPanel() {
     t("breakpointPanel.headerCountOne", { count: mockHeaders.length }),
     t("breakpointPanel.headerCountMany", { count: mockHeaders.length }),
   );
-  const requestBodyMeta = reqBody.length === 0
-    ? t("breakpointPanel.emptyBody")
-    : formatCount(
-        reqBody.length,
-        t("breakpointPanel.characterCountOne", { count: reqBody.length }),
-        t("breakpointPanel.characterCountMany", { count: reqBody.length }),
-      );
-  const responseBodyMeta = respBody.length === 0
-    ? t("breakpointPanel.emptyBody")
-    : formatCount(
-        respBody.length,
-        t("breakpointPanel.characterCountOne", { count: respBody.length }),
-        t("breakpointPanel.characterCountMany", { count: respBody.length }),
-      );
-  const mockBodyMeta = mockBody.length === 0
-    ? t("breakpointPanel.emptyBody")
-    : formatCount(
-        mockBody.length,
-        t("breakpointPanel.characterCountOne", { count: mockBody.length }),
-        t("breakpointPanel.characterCountMany", { count: mockBody.length }),
-      );
+  const requestBodyMeta =
+    reqBody.length === 0
+      ? t("breakpointPanel.emptyBody")
+      : formatCount(
+          reqBody.length,
+          t("breakpointPanel.characterCountOne", { count: reqBody.length }),
+          t("breakpointPanel.characterCountMany", { count: reqBody.length }),
+        );
+  const responseBodyMeta =
+    respBody.length === 0
+      ? t("breakpointPanel.emptyBody")
+      : formatCount(
+          respBody.length,
+          t("breakpointPanel.characterCountOne", { count: respBody.length }),
+          t("breakpointPanel.characterCountMany", { count: respBody.length }),
+        );
+  const mockBodyMeta =
+    mockBody.length === 0
+      ? t("breakpointPanel.emptyBody")
+      : formatCount(
+          mockBody.length,
+          t("breakpointPanel.characterCountOne", { count: mockBody.length }),
+          t("breakpointPanel.characterCountMany", { count: mockBody.length }),
+        );
   const responseTabsDisabled = isRequestStage && !mockMode;
 
   // Request pane tab labels
@@ -1178,7 +1309,14 @@ export function BreakpointInterceptPanel() {
         alignItems="center"
         direction="row"
         spacing={1}
-        sx={{ px: 2, py: 0.75, borderBottom: 1, borderColor: "divider", minWidth: 0, flexShrink: 0 }}
+        sx={{
+          px: 2,
+          py: 0.75,
+          borderBottom: 1,
+          borderColor: "divider",
+          minWidth: 0,
+          flexShrink: 0,
+        }}
       >
         <Chip
           label={activeHit.method}
@@ -1186,7 +1324,15 @@ export function BreakpointInterceptPanel() {
           color={methodColor(activeHit.method)}
           sx={{ fontWeight: 700, fontFamily: fontFamilies.mono, fontSize: 11 }}
         />
-        {mockMode && <Chip label={t("breakpointPanel.mockMode")} size="small" color="warning" variant="outlined" sx={{ fontSize: 11 }} />}
+        {mockMode && (
+          <Chip
+            label={t("breakpointPanel.mockMode")}
+            size="small"
+            color="warning"
+            variant="outlined"
+            sx={{ fontSize: 11 }}
+          />
+        )}
         <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           <Typography
             noWrap
@@ -1221,7 +1367,11 @@ export function BreakpointInterceptPanel() {
           <Typography sx={{ fontSize: 12, whiteSpace: "nowrap" }}>
             {activeIdx + 1} / {totalCount}
           </Typography>
-          <IconButton size="small" disabled={activeIdx >= totalCount - 1} onClick={() => navigateHit(1)}>
+          <IconButton
+            size="small"
+            disabled={activeIdx >= totalCount - 1}
+            onClick={() => navigateHit(1)}
+          >
             <NavigateNextRoundedIcon fontSize="small" />
           </IconButton>
         </Stack>
@@ -1248,15 +1398,20 @@ export function BreakpointInterceptPanel() {
             flexDirection: "column",
           }}
         >
-          <Box sx={(theme) => ({
-            alignItems: "center",
-            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
-            display: "flex",
-            minHeight: 36,
-            pr: 0.75,
-            borderBottom: 1,
-            borderColor: "divider",
-          })}>
+          <Box
+            sx={(theme) => ({
+              alignItems: "center",
+              bgcolor: alpha(
+                theme.palette.background.paper,
+                theme.palette.mode === "dark" ? 0.72 : 0.86,
+              ),
+              display: "flex",
+              minHeight: 36,
+              pr: 0.75,
+              borderBottom: 1,
+              borderColor: "divider",
+            })}
+          >
             <Tabs
               value={requestTab}
               onChange={(_, v) => setRequestTab(v as BreakpointRequestTab)}
@@ -1293,52 +1448,52 @@ export function BreakpointInterceptPanel() {
           </Box>
 
           {requestCollapsed ? null : (
-          <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-            {requestTab === "query" && (
-              <Box aria-label={t("breakpointPanel.query")} role="tabpanel">
-                <HeaderEditor
-                  addLabel={t("breakpointPanel.addQuery")}
-                  countLabel={queryCount}
-                  headers={reqQueryParams}
-                  namePlaceholder={t("common.placeholders.name")}
-                  noHeadersLabel={t("breakpointPanel.noQueryParams")}
-                  onChange={(h) => setEditedReqQueryParams(h)}
-                  removeLabel={t("breakpointPanel.removeQuery")}
-                  title={t("breakpointPanel.query")}
-                  valuePlaceholder={t("common.placeholders.value")}
-                />
-              </Box>
-            )}
-            {requestTab === "headers" && (
-              <Box aria-label={t("breakpointPanel.headers")} role="tabpanel">
-                <HeaderEditor
-                  addLabel={t("common.actions.addHeader")}
-                  countLabel={requestHeaderCount}
-                  headers={reqHeaders}
-                  namePlaceholder={t("common.placeholders.name")}
-                  noHeadersLabel={t("breakpointPanel.noHeaders")}
-                  onChange={(h) => setEditedReqHeaders(h)}
-                  removeLabel={t("breakpointPanel.removeHeader")}
-                  title={t("breakpointPanel.headers")}
-                  valuePlaceholder={t("common.placeholders.value")}
-                />
-              </Box>
-            )}
-            {requestTab === "body" && (
-              <Box role="tabpanel" sx={{ height: "100%" }}>
-                <BodyEditor
-                  body={activeHit.requestBody}
-                  headers={reqHeaders}
-                  metadata={requestBodyMeta}
-                  label={t("breakpointPanel.body")}
-                  regionLabel={t("breakpointPanel.body")}
-                  text={reqBody}
-                  onChange={(t) => setEditedReqBody(t)}
-                  onReset={() => setEditedReqBody(null)}
-                />
-              </Box>
-            )}
-          </Box>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
+              {requestTab === "query" && (
+                <Box aria-label={t("breakpointPanel.query")} role="tabpanel">
+                  <HeaderEditor
+                    addLabel={t("breakpointPanel.addQuery")}
+                    countLabel={queryCount}
+                    headers={reqQueryParams}
+                    namePlaceholder={t("common.placeholders.name")}
+                    noHeadersLabel={t("breakpointPanel.noQueryParams")}
+                    onChange={(h) => setEditedReqQueryParams(h)}
+                    removeLabel={t("breakpointPanel.removeQuery")}
+                    title={t("breakpointPanel.query")}
+                    valuePlaceholder={t("common.placeholders.value")}
+                  />
+                </Box>
+              )}
+              {requestTab === "headers" && (
+                <Box aria-label={t("breakpointPanel.headers")} role="tabpanel">
+                  <HeaderEditor
+                    addLabel={t("common.actions.addHeader")}
+                    countLabel={requestHeaderCount}
+                    headers={reqHeaders}
+                    namePlaceholder={t("common.placeholders.name")}
+                    noHeadersLabel={t("breakpointPanel.noHeaders")}
+                    onChange={(h) => setEditedReqHeaders(h)}
+                    removeLabel={t("breakpointPanel.removeHeader")}
+                    title={t("breakpointPanel.headers")}
+                    valuePlaceholder={t("common.placeholders.value")}
+                  />
+                </Box>
+              )}
+              {requestTab === "body" && (
+                <Box role="tabpanel" sx={{ height: "100%" }}>
+                  <BodyEditor
+                    body={activeHit.requestBody}
+                    headers={reqHeaders}
+                    metadata={requestBodyMeta}
+                    label={t("breakpointPanel.body")}
+                    regionLabel={t("breakpointPanel.body")}
+                    text={reqBody}
+                    onChange={(t) => setEditedReqBody(t)}
+                    onReset={() => setEditedReqBody(null)}
+                  />
+                </Box>
+              )}
+            </Box>
           )}
         </Box>
 
@@ -1360,7 +1515,8 @@ export function BreakpointInterceptPanel() {
               touchAction: "none",
               userSelect: "none",
               "&::before": {
-                bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
+                bgcolor: (theme) =>
+                  alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
                 content: '""',
                 height: 1,
                 opacity: 1,
@@ -1388,21 +1544,28 @@ export function BreakpointInterceptPanel() {
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
-            ...(responseTabsDisabled ? {
-              opacity: 0.5,
-              pointerEvents: "none",
-            } : {}),
+            ...(responseTabsDisabled
+              ? {
+                  opacity: 0.5,
+                  pointerEvents: "none",
+                }
+              : {}),
           }}
         >
-          <Box sx={(theme) => ({
-            alignItems: "center",
-            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
-            display: "flex",
-            minHeight: 36,
-            pr: 0.75,
-            borderBottom: 1,
-            borderColor: "divider",
-          })}>
+          <Box
+            sx={(theme) => ({
+              alignItems: "center",
+              bgcolor: alpha(
+                theme.palette.background.paper,
+                theme.palette.mode === "dark" ? 0.72 : 0.86,
+              ),
+              display: "flex",
+              minHeight: 36,
+              pr: 0.75,
+              borderBottom: 1,
+              borderColor: "divider",
+            })}
+          >
             <Tabs
               value={responseTab}
               onChange={(_, v) => setResponseTab(v as BreakpointResponseTab)}
@@ -1410,8 +1573,18 @@ export function BreakpointInterceptPanel() {
               scrollButtons="auto"
               sx={inspectorTabsSx}
             >
-              <Tab value="status" label={responseTabLabels.status} icon={<RuleRoundedIcon />} iconPosition="start" disabled={responseTabsDisabled} />
-              <Tab value="headers" label={responseTabLabels.headers} disabled={responseTabsDisabled} />
+              <Tab
+                value="status"
+                label={responseTabLabels.status}
+                icon={<RuleRoundedIcon />}
+                iconPosition="start"
+                disabled={responseTabsDisabled}
+              />
+              <Tab
+                value="headers"
+                label={responseTabLabels.headers}
+                disabled={responseTabsDisabled}
+              />
               <Tab value="body" label={responseTabLabels.body} disabled={responseTabsDisabled} />
             </Tabs>
           </Box>
@@ -1424,17 +1597,33 @@ export function BreakpointInterceptPanel() {
                     alignItems="center"
                     direction="row"
                     spacing={1}
-                    sx={{ px: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", bgcolor: "action.hover" }}
+                    sx={{
+                      px: 1.25,
+                      py: 0.75,
+                      borderBottom: 1,
+                      borderColor: "divider",
+                      bgcolor: "action.hover",
+                    }}
                   >
-                    <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{t("breakpointPanel.statusLabel")}</Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700 }}>
+                      {t("breakpointPanel.statusLabel")}
+                    </Typography>
                   </Stack>
                   <Box sx={{ p: 1.25 }}>
                     <OutlinedInput
-                      inputProps={{ "aria-label": t("breakpointPanel.statusLabel"), min: 100, max: 599 }}
+                      inputProps={{
+                        "aria-label": t("breakpointPanel.statusLabel"),
+                        min: 100,
+                        max: 599,
+                      }}
                       size="small"
                       type="number"
                       value={mockMode ? mockStatusCode : respStatusCode}
-                      onChange={(e) => (mockMode ? setMockStatusCode(e.target.value) : setEditedRespStatusCode(e.target.value))}
+                      onChange={(e) =>
+                        mockMode
+                          ? setMockStatusCode(e.target.value)
+                          : setEditedRespStatusCode(e.target.value)
+                      }
                       sx={{ width: 112, fontFamily: fontFamilies.mono, fontSize: 12 }}
                     />
                   </Box>
@@ -1480,7 +1669,14 @@ export function BreakpointInterceptPanel() {
       <Stack
         direction="row"
         spacing={1}
-        sx={{ px: 2, py: 1, alignItems: "center", justifyContent: "space-between", bgcolor: "action.hover", flexShrink: 0 }}
+        sx={{
+          px: 2,
+          py: 1,
+          alignItems: "center",
+          justifyContent: "space-between",
+          bgcolor: "action.hover",
+          flexShrink: 0,
+        }}
       >
         <Box>
           {isRequestStage && !mockMode && (
@@ -1519,7 +1715,9 @@ export function BreakpointInterceptPanel() {
             onClick={() => handleResolve("drop")}
             sx={{ fontSize: 12 }}
           >
-            {resolvingAction === "drop" ? t("breakpointPanel.resolving") : t("breakpointPanel.drop")}
+            {resolvingAction === "drop"
+              ? t("breakpointPanel.resolving")
+              : t("breakpointPanel.drop")}
           </Button>
           <Button
             size="small"
@@ -1532,7 +1730,9 @@ export function BreakpointInterceptPanel() {
           >
             {resolvingAction === "forward" || resolvingAction === "mock"
               ? t("breakpointPanel.resolving")
-              : mockMode ? t("common.actions.sendMock") : t("common.actions.forward")}
+              : mockMode
+                ? t("common.actions.sendMock")
+                : t("common.actions.forward")}
           </Button>
         </Stack>
       </Stack>

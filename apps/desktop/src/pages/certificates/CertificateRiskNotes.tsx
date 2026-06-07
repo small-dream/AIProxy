@@ -6,7 +6,10 @@ export function CertificateRiskNotes() {
   const { t } = useI18n();
 
   return (
-    <SectionCard title={t("certificatesPage.risks.sectionTitle")} description={t("certificatesPage.risks.sectionDescription")}>
+    <SectionCard
+      title={t("certificatesPage.risks.sectionTitle")}
+      description={t("certificatesPage.risks.sectionDescription")}
+    >
       <Stack spacing={2}>
         <Alert severity="warning">
           <AlertTitle>{t("certificatesPage.risks.mitmTitle")}</AlertTitle>

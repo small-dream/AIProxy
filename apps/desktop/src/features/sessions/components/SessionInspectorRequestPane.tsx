@@ -30,31 +30,37 @@ export type RequestPaneHandle = {
   activateSearch: () => void;
 };
 
-export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
-  detail: SessionDetail | undefined;
-  isRequestBodyLoading: boolean;
-  isRequestFormLoading: boolean;
-  isRequestRawLoading: boolean;
-  onRequestCollapsedChange: (collapsed: boolean) => void;
-  onRequestTabChange: (tab: RequestInspectorTab) => void;
-  requestBodyDisplayText: string;
-  requestCollapsed: boolean;
-  requestFormEntries: RequestFormEntry[];
-  requestTab: RequestInspectorTab;
-  session: SessionSummary;
-}>(function SessionInspectorRequestPane({
-  detail,
-  isRequestBodyLoading,
-  isRequestFormLoading,
-  isRequestRawLoading,
-  onRequestCollapsedChange,
-  onRequestTabChange,
-  requestBodyDisplayText,
-  requestCollapsed,
-  requestFormEntries,
-  requestTab,
-  session,
-}, ref) {
+export const SessionInspectorRequestPane = forwardRef<
+  RequestPaneHandle,
+  {
+    detail: SessionDetail | undefined;
+    isRequestBodyLoading: boolean;
+    isRequestFormLoading: boolean;
+    isRequestRawLoading: boolean;
+    onRequestCollapsedChange: (collapsed: boolean) => void;
+    onRequestTabChange: (tab: RequestInspectorTab) => void;
+    requestBodyDisplayText: string;
+    requestCollapsed: boolean;
+    requestFormEntries: RequestFormEntry[];
+    requestTab: RequestInspectorTab;
+    session: SessionSummary;
+  }
+>(function SessionInspectorRequestPane(
+  {
+    detail,
+    isRequestBodyLoading,
+    isRequestFormLoading,
+    isRequestRawLoading,
+    onRequestCollapsedChange,
+    onRequestTabChange,
+    requestBodyDisplayText,
+    requestCollapsed,
+    requestFormEntries,
+    requestTab,
+    session,
+  },
+  ref,
+) {
   const { t } = useI18n();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchController = useSearchController();
@@ -84,17 +90,27 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
     searchController.onQueryChange("");
   }, [searchController]);
 
-  const handleSearchWithText = useCallback((text: string) => {
-    setIsSearchOpen(true);
-    searchController.onQueryChange(text);
-  }, [searchController]);
+  const handleSearchWithText = useCallback(
+    (text: string) => {
+      setIsSearchOpen(true);
+      searchController.onQueryChange(text);
+    },
+    [searchController],
+  );
 
   return (
-    <Stack minHeight={0} spacing={0} sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}>
+    <Stack
+      minHeight={0}
+      spacing={0}
+      sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.72 : 0.86),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.72 : 0.86,
+          ),
           display: "flex",
           minHeight: 40,
           pr: 0.75,
@@ -127,7 +143,19 @@ export const SessionInspectorRequestPane = forwardRef<RequestPaneHandle, {
       <Divider />
 
       {requestCollapsed ? null : (
-        <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", pl: 2, pr: 0.5, pb: 2, pt: 1.5 }}>
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+            pl: 2,
+            pr: 0.5,
+            pb: 2,
+            pt: 1.5,
+          }}
+        >
           {detail?.requestBody?.truncated && (
             <Alert severity="warning" sx={{ mx: 1, mb: 1 }}>
               {t("inspector.sessionInspector.bodyTruncatedWarning")}
@@ -222,7 +250,13 @@ function RequestTabContent({
       <InspectorScrollArea>
         <InspectorKeyValueTable
           emptyMessage={t("inspector.request.emptyHeaders")}
-          items={detail?.requestHeaders.map((entry) => ({ name: entry.name, value: entry.value, isPseudo: entry.isPseudo })) ?? []}
+          items={
+            detail?.requestHeaders.map((entry) => ({
+              name: entry.name,
+              value: entry.value,
+              isPseudo: entry.isPseudo,
+            })) ?? []
+          }
           title={t("inspector.request.headersTitle")}
         />
       </InspectorScrollArea>
@@ -230,9 +264,14 @@ function RequestTabContent({
   }
 
   if (requestTab === "form") {
-    const isMultipartForm = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes("multipart/form-data");
+    const isMultipartForm = (detail?.requestBody?.mimeType?.toLowerCase() ?? "").includes(
+      "multipart/form-data",
+    );
 
-    if (isRequestFormLoading && (detail?.requestBody?.textDeferred || detail?.requestBody?.base64Deferred)) {
+    if (
+      isRequestFormLoading &&
+      (detail?.requestBody?.textDeferred || detail?.requestBody?.base64Deferred)
+    ) {
       return (
         <InspectorScrollArea>
           <Typography color="text.secondary" variant="body2">
@@ -254,7 +293,10 @@ function RequestTabContent({
             <InspectorKeyValueTable
               emptyMessage={t("inspector.request.emptyForm")}
               items={requestFormEntries
-                .filter((entry): entry is Extract<RequestFormEntry, { kind: "field" }> => entry.kind === "field")
+                .filter(
+                  (entry): entry is Extract<RequestFormEntry, { kind: "field" }> =>
+                    entry.kind === "field",
+                )
                 .map((entry) => [entry.name, entry.value])}
             />
           )}
@@ -264,7 +306,11 @@ function RequestTabContent({
   }
 
   if (requestTab === "raw") {
-    const rawRequestText = getRawMessageText(detail?.rawRequest, detail?.rawRequestHead, detail?.requestBody);
+    const rawRequestText = getRawMessageText(
+      detail?.rawRequest,
+      detail?.rawRequestHead,
+      detail?.requestBody,
+    );
 
     if (isRequestRawLoading && detail?.rawRequestDeferred) {
       return (
@@ -326,12 +372,11 @@ function MultipartFormTable({
     );
   }
 
-  const columnTemplate = "minmax(156px, 0.95fr) minmax(180px, 1.2fr) minmax(180px, 1.1fr) minmax(180px, 1.15fr)";
+  const columnTemplate =
+    "minmax(156px, 0.95fr) minmax(180px, 1.2fr) minmax(180px, 1.1fr) minmax(180px, 1.15fr)";
 
   return (
-    <InspectorFlatTable
-      columnTemplate={columnTemplate}
-    >
+    <InspectorFlatTable columnTemplate={columnTemplate}>
       {entries.map((entry, index) => (
         <InspectorFlatTableRow
           cells={[
@@ -340,9 +385,9 @@ function MultipartFormTable({
             <EllipsizedCell key="filename" text={entry.kind === "file" ? entry.filename : ""} />,
             <EllipsizedCell
               key="value"
-              text={entry.kind === "file"
-                ? formatMultipartFileSize(entry.sizeBytes, t)
-                : entry.value}
+              text={
+                entry.kind === "file" ? formatMultipartFileSize(entry.sizeBytes, t) : entry.value
+              }
             />,
           ]}
           columnTemplate={columnTemplate}

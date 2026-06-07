@@ -1,13 +1,39 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Box, Button, CircularProgress, IconButton, MenuItem, OutlinedInput, Select, Snackbar, Stack, Tooltip } from "@mui/material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  IconButton,
+  MenuItem,
+  OutlinedInput,
+  Select,
+  Snackbar,
+  Stack,
+  Tooltip,
+} from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
-import { buildMultipartBody, FORMDATA_CONTENT_TYPE, RAW_LANGUAGE_CONTENT_TYPE, URLENCODED_CONTENT_TYPE, useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import {
+  buildMultipartBody,
+  FORMDATA_CONTENT_TYPE,
+  RAW_LANGUAGE_CONTENT_TYPE,
+  URLENCODED_CONTENT_TYPE,
+  useComposeEditorStore,
+} from "@/features/compose/compose-editor.store";
 import { ComposeRequestSection } from "@/features/compose/components/ComposeRequestSection";
-import { ComposeResponseSection, type ComposeResponseTab } from "@/features/compose/components/ComposeResponseSection";
+import {
+  ComposeResponseSection,
+  type ComposeResponseTab,
+} from "@/features/compose/components/ComposeResponseSection";
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useI18n } from "@/i18n";
@@ -103,7 +129,10 @@ export function ComposePage() {
         if (activeEntries.length > 0) {
           const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
           encodedBody = buildMultipartBody(activeEntries, boundary);
-          finalHeaders = ensureContentType(finalHeaders, `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`);
+          finalHeaders = ensureContentType(
+            finalHeaders,
+            `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`,
+          );
         }
         break;
       }
@@ -141,7 +170,12 @@ export function ComposePage() {
 
   const handleExportCurl = useCallback(() => {
     const { body: encodedBody, headers: finalHeaders } = encodeBody();
-    const cmd = generateCurlCommand({ method, url, headers: finalHeaders, ...(encodedBody ? { body: encodedBody } : {}) });
+    const cmd = generateCurlCommand({
+      method,
+      url,
+      headers: finalHeaders,
+      ...(encodedBody ? { body: encodedBody } : {}),
+    });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
   }, [method, url, encodeBody]);
@@ -188,13 +222,17 @@ export function ComposePage() {
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
       <Box
         sx={(theme) => ({
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.78 : 0.92,
+          ),
           border: 1,
           borderColor: "divider",
           borderRadius: 1,
-          boxShadow: theme.palette.mode === "dark"
-            ? "0 12px 28px rgba(0, 0, 0, 0.22)"
-            : "0 12px 28px rgba(15, 23, 42, 0.05)",
+          boxShadow:
+            theme.palette.mode === "dark"
+              ? "0 12px 28px rgba(0, 0, 0, 0.22)"
+              : "0 12px 28px rgba(15, 23, 42, 0.05)",
           flexShrink: 0,
           p: 0.75,
         })}
@@ -228,7 +266,11 @@ export function ComposePage() {
             placeholder={t("composePage.urlPlaceholder")}
             size="small"
             sx={{
-              bgcolor: (theme) => alpha(theme.palette.background.default, theme.palette.mode === "dark" ? 0.34 : 0.52),
+              bgcolor: (theme) =>
+                alpha(
+                  theme.palette.background.default,
+                  theme.palette.mode === "dark" ? 0.34 : 0.52,
+                ),
               fontFamily: appFontCssVars.content,
               fontSize: 13,
               minWidth: 0,
@@ -260,7 +302,11 @@ export function ComposePage() {
                 }}
                 variant="contained"
               >
-                {sendMutation.isPending ? <CircularProgress size={18} color="inherit" /> : t("common.actions.send")}
+                {sendMutation.isPending ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  t("common.actions.send")
+                )}
               </Button>
             </span>
           </Tooltip>
@@ -329,7 +375,8 @@ export function ComposePage() {
             touchAction: "none",
             userSelect: "none",
             "&::before": {
-              bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
+              bgcolor: (theme) =>
+                alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
               content: '""',
               height: 1,
               opacity: 1,
@@ -373,9 +420,7 @@ function ensureContentType(
   headers: Array<{ name: string; value: string }>,
   contentType: string,
 ): Array<{ name: string; value: string }> {
-  const hasContentType = headers.some(
-    (h) => h.name.toLowerCase() === "content-type",
-  );
+  const hasContentType = headers.some((h) => h.name.toLowerCase() === "content-type");
   if (hasContentType) return headers;
   return [...headers, { name: "Content-Type", value: contentType }];
 }

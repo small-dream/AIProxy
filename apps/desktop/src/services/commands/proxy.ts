@@ -10,15 +10,9 @@ import {
   type StopProxyInput,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function getBootstrapStatus(): Promise<ProxyStatus> {
   if (!isTauriRuntime()) {

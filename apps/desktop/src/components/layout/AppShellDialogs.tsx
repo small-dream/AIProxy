@@ -1,5 +1,14 @@
 import { DEFAULT_PROXY_PORT } from "@aiproxy/shared-types";
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, OutlinedInput, Stack, Typography } from "@mui/material";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  OutlinedInput,
+  Stack,
+  Typography,
+} from "@mui/material";
 
 import { useI18n } from "@/i18n";
 

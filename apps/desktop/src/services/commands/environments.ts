@@ -10,10 +10,7 @@ import {
   type ApiGlobalVariable,
 } from "@aiproxy/shared-types";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function listApiEnvironments(): Promise<ApiEnvironment[]> {
   if (!isTauriRuntime()) return [];

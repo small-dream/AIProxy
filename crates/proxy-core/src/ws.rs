@@ -118,9 +118,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
     if mask {
         timeout(read_timeout, reader.read_exact(&mut mask_key))
             .await
-            .map_err(|_| {
-                format!("ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
-            })?
+            .map_err(|_| format!("ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
             .map_err(|e| format!("ws mask key read: {e}"))?;
     }
 
@@ -130,9 +128,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
     if payload_len > 0 {
         timeout(read_timeout, reader.read_exact(&mut payload))
             .await
-            .map_err(|_| {
-                format!("ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
-            })?
+            .map_err(|_| format!("ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
             .map_err(|e| format!("ws payload read: {e}"))?;
     }
 

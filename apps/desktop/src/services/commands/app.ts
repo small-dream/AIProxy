@@ -1,20 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import {
-  coerceAppError,
-  parseAppBuildInfo,
-  type AppBuildInfo,
-} from "@aiproxy/shared-types";
+import { coerceAppError, parseAppBuildInfo, type AppBuildInfo } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 const fallbackAppBuildInfo: AppBuildInfo = {
   version: "0.1.0",

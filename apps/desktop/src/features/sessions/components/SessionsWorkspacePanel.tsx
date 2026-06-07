@@ -7,7 +7,10 @@ import { SessionContainerTabs } from "@/features/sessions/components/SessionCont
 import { SessionExplorerPane } from "@/features/sessions/components/SessionExplorerPane";
 import { SessionInspectorWorkspace } from "@/features/sessions/components/SessionInspectorWorkspace";
 import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
-import type { RequestInspectorTab, ResponseInspectorTab } from "@/features/sessions/components/session-inspector.helpers";
+import type {
+  RequestInspectorTab,
+  ResponseInspectorTab,
+} from "@/features/sessions/components/session-inspector.helpers";
 import type { SessionHostGroup } from "@/features/sessions/session-explorer.helpers";
 
 type SessionsWorkspacePanelProps = {
@@ -92,16 +95,15 @@ export function SessionsWorkspacePanel({
 }: SessionsWorkspacePanelProps) {
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
-      {runtimeErrorMessage ? (
-        <Alert severity="error">
-          {runtimeErrorMessage}
-        </Alert>
-      ) : null}
+      {runtimeErrorMessage ? <Alert severity="error">{runtimeErrorMessage}</Alert> : null}
 
       <Paper
         elevation={0}
         sx={(theme) => ({
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.94 : 0.98,
+          ),
           flex: 1,
           border: "1px solid",
           borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
@@ -176,7 +178,8 @@ export function SessionsWorkspacePanel({
               touchAction: "none",
               userSelect: "none",
               "&::before": {
-                bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+                bgcolor: (theme) =>
+                  alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
                 content: '""',
                 height: "100%",
                 opacity: 1,

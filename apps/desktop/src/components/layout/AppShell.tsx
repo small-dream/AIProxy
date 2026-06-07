@@ -108,9 +108,11 @@ export function AppShell() {
       return;
     }
 
-    void getCurrentWindow().setTitleBarStyle("overlay").catch(() => {
-      // Keep the default title bar if the platform does not accept overlay mode.
-    });
+    void getCurrentWindow()
+      .setTitleBarStyle("overlay")
+      .catch(() => {
+        // Keep the default title bar if the platform does not accept overlay mode.
+      });
   }, [macosTitlebarEnabled]);
 
   return (
@@ -142,7 +144,11 @@ export function AppShell() {
           void handleSystemProxyToggle();
         }}
         proxyRunning={proxyStatus?.running ?? false}
-        startProxyLabel={certificateStatus?.trusted ? t("common.actions.startHttpsProxy") : t("common.actions.startProxy")}
+        startProxyLabel={
+          certificateStatus?.trusted
+            ? t("common.actions.startHttpsProxy")
+            : t("common.actions.startProxy")
+        }
         stopProxyLabel={t("common.actions.stopProxy")}
         systemProxyActionDisabled={systemProxyActionDisabled}
         systemProxyEnabled={proxyStatus?.systemProxyEnabled ?? false}

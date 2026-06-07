@@ -62,13 +62,19 @@ export function AndroidQuickActionsPanel({
   const adbDevices = adbDevicesQuery.data;
   const adbProxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
   const isBusy =
-    adbInstallMutation.isPending || adbSetProxyMutation.isPending || adbClearProxyMutation.isPending;
+    adbInstallMutation.isPending ||
+    adbSetProxyMutation.isPending ||
+    adbClearProxyMutation.isPending;
 
   const effectiveSelectedAdbDeviceSerial =
-    selectedAdbDeviceSerial && adbDevices?.some((device) => device.serial === selectedAdbDeviceSerial)
+    selectedAdbDeviceSerial &&
+    adbDevices?.some((device) => device.serial === selectedAdbDeviceSerial)
       ? selectedAdbDeviceSerial
-      : (adbDevices?.find((device) => device.state === "device") ?? adbDevices?.[0])?.serial ?? "";
-  const selectedAdbDevice = adbDevices?.find((device) => device.serial === effectiveSelectedAdbDeviceSerial);
+      : ((adbDevices?.find((device) => device.state === "device") ?? adbDevices?.[0])?.serial ??
+        "");
+  const selectedAdbDevice = adbDevices?.find(
+    (device) => device.serial === effectiveSelectedAdbDeviceSerial,
+  );
 
   const canInstallViaAdb =
     hasCert &&
@@ -116,7 +122,7 @@ export function AndroidQuickActionsPanel({
   return (
     <SectionCard
       title={t("certificatesPage.mobile.quickActionsTitle")}
-      toolbar={(
+      toolbar={
         <Tooltip arrow title={t("certificatesPage.mobile.quickActionsInfoAction")}>
           <IconButton
             aria-label={t("certificatesPage.mobile.quickActionsInfoAction")}
@@ -126,7 +132,7 @@ export function AndroidQuickActionsPanel({
             <InfoOutlinedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-      )}
+      }
     >
       <Stack spacing={1.5}>
         {showInfo ? (
@@ -136,11 +142,15 @@ export function AndroidQuickActionsPanel({
               <Typography variant="body2">{t("certificatesPage.mobile.adbProxyBody")}</Typography>
               {adbProxyAddress ? (
                 <Typography variant="body2">
-                  {t("certificatesPage.mobile.adbProxyAddressHint", { proxyAddress: adbProxyAddress })}
+                  {t("certificatesPage.mobile.adbProxyAddressHint", {
+                    proxyAddress: adbProxyAddress,
+                  })}
                 </Typography>
               ) : null}
               <Typography variant="body2">{t("certificatesPage.mobile.adbInstallBody")}</Typography>
-              <Typography variant="body2">{t("certificatesPage.mobile.adbInstallRequirements")}</Typography>
+              <Typography variant="body2">
+                {t("certificatesPage.mobile.adbInstallRequirements")}
+              </Typography>
               <Typography variant="body2">{t("certificatesPage.mobile.adbInstallHint")}</Typography>
             </Stack>
           </Alert>
@@ -153,7 +163,11 @@ export function AndroidQuickActionsPanel({
           </Alert>
         ) : null}
 
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "stretch", md: "center" }}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "stretch", md: "center" }}
+        >
           <FormControl
             size="small"
             disabled={adbDevicesQuery.isLoading || (adbDevices?.length ?? 0) === 0}
@@ -170,7 +184,9 @@ export function AndroidQuickActionsPanel({
               onChange={(event) => setSelectedAdbDeviceSerial(event.target.value)}
               renderValue={(value) => {
                 const device = adbDevices?.find((candidate) => candidate.serial === value);
-                return device ? formatAdbDeviceLabel(device) : t("certificatesPage.mobile.adbDevicePlaceholder");
+                return device
+                  ? formatAdbDeviceLabel(device)
+                  : t("certificatesPage.mobile.adbDevicePlaceholder");
               }}
             >
               {(adbDevices ?? []).map((device) => (
@@ -199,7 +215,11 @@ export function AndroidQuickActionsPanel({
             size="small"
             onClick={handleSetProxy}
             disabled={!canSetProxyViaAdb || isBusy}
-            startIcon={adbSetProxyMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+            startIcon={
+              adbSetProxyMutation.isPending ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : undefined
+            }
           >
             {adbSetProxyMutation.isPending
               ? t("certificatesPage.mobile.adbSettingProxy")
@@ -211,7 +231,11 @@ export function AndroidQuickActionsPanel({
             size="small"
             onClick={handleClearProxy}
             disabled={!canManageProxyViaAdb || isBusy}
-            startIcon={adbClearProxyMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+            startIcon={
+              adbClearProxyMutation.isPending ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : undefined
+            }
           >
             {adbClearProxyMutation.isPending
               ? t("certificatesPage.mobile.adbClearingProxy")
@@ -223,7 +247,11 @@ export function AndroidQuickActionsPanel({
             size="small"
             onClick={handleInstallCertificate}
             disabled={!canInstallViaAdb || isBusy}
-            startIcon={adbInstallMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+            startIcon={
+              adbInstallMutation.isPending ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : undefined
+            }
           >
             {adbInstallMutation.isPending
               ? t("certificatesPage.mobile.adbInstalling")
@@ -237,7 +265,9 @@ export function AndroidQuickActionsPanel({
           </Typography>
         ) : null}
 
-        {!adbDevicesQuery.isLoading && !adbDevicesQuery.isError && (adbDevices?.length ?? 0) === 0 ? (
+        {!adbDevicesQuery.isLoading &&
+        !adbDevicesQuery.isError &&
+        (adbDevices?.length ?? 0) === 0 ? (
           <Typography variant="body2" color="text.secondary">
             {t("certificatesPage.mobile.adbNoDevices")}
           </Typography>

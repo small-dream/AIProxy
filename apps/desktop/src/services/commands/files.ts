@@ -1,13 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import {
-  coerceAppError,
-} from "@aiproxy/shared-types";
+import { coerceAppError } from "@aiproxy/shared-types";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 export async function readHarFile(path: string): Promise<string> {
   if (!isTauriRuntime()) {

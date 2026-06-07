@@ -130,9 +130,10 @@ export function SessionExplorerPane({
   return (
     <Box
       sx={{
-        bgcolor: (theme) => theme.palette.mode === "dark"
-          ? alpha(theme.palette.background.default, 0.22)
-          : alpha(theme.palette.background.default, 0.42),
+        bgcolor: (theme) =>
+          theme.palette.mode === "dark"
+            ? alpha(theme.palette.background.default, 0.22)
+            : alpha(theme.palette.background.default, 0.42),
         borderBottom: { lg: 0, xs: 1 },
         borderColor: "divider",
         display: "flex",
@@ -143,10 +144,7 @@ export function SessionExplorerPane({
         overflow: "hidden",
       }}
     >
-      <Box
-        ref={scrollContainerRef}
-        sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}
-      >
+      <Box ref={scrollContainerRef} sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}>
         {isLoading ? (
           <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
             <CircularProgress size={22} />
@@ -165,7 +163,8 @@ export function SessionExplorerPane({
                 alignItems: "center",
                 bgcolor: "action.selected",
                 border: "1px solid",
-                borderColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
+                borderColor: (theme) =>
+                  alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
                 borderRadius: "50%",
                 color: "primary.main",
                 display: "flex",
@@ -201,7 +200,14 @@ export function SessionExplorerPane({
             </Typography>
           </Stack>
         ) : (
-          <Box sx={{ height: virtualizer.getTotalSize(), minWidth: "100%", position: "relative", width: "max-content" }}>
+          <Box
+            sx={{
+              height: virtualizer.getTotalSize(),
+              minWidth: "100%",
+              position: "relative",
+              width: "max-content",
+            }}
+          >
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const row = visibleRows[virtualItem.index];
               if (!row) return null;
@@ -248,7 +254,10 @@ export function SessionExplorerPane({
                 >
                   <SessionTreeFlatNode
                     depth={row.depth}
-                    expanded={row.node.kind === "branch" && expandedHostSet.has(`${row.groupKey}::${row.node.pathKey}`)}
+                    expanded={
+                      row.node.kind === "branch" &&
+                      expandedHostSet.has(`${row.groupKey}::${row.node.pathKey}`)
+                    }
                     getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
                     groupKey={row.groupKey}
                     node={row.node}
@@ -269,7 +278,10 @@ export function SessionExplorerPane({
         sx={(theme) => ({
           borderTop: "1px solid",
           borderColor: "divider",
-          bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.common.white, 0.025) : alpha(theme.palette.common.white, 0.72),
+          bgcolor:
+            theme.palette.mode === "dark"
+              ? alpha(theme.palette.common.white, 0.025)
+              : alpha(theme.palette.common.white, 0.72),
           boxShadow: `inset 0 1px 0 ${alpha(theme.palette.common.white, theme.palette.mode === "dark" ? 0.03 : 0.55)}`,
           flex: "0 0 auto",
           minHeight: 42,
@@ -288,9 +300,11 @@ export function SessionExplorerPane({
           value={localFilterValue}
           sx={(theme) => ({
             color: "text.primary",
-            bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+            bgcolor: (theme) =>
+              alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
             border: "1px solid",
-            borderColor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.5 : 0.7),
+            borderColor: (theme) =>
+              alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.5 : 0.7),
             borderRadius: 1.25,
             fontFamily: theme.typography.fontFamily,
             fontSize: getWorkbenchFontSize(theme, 13.5),
@@ -358,7 +372,9 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
       onClick={onToggle}
       onContextMenu={onContextMenu}
       sx={(theme) => ({
-        bgcolor: flashVisible ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.10 : 0.055) : "transparent",
+        bgcolor: flashVisible
+          ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.1 : 0.055)
+          : "transparent",
         borderRadius: 1,
         minHeight: 26,
         minWidth: "100%",
@@ -369,7 +385,9 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
         transition: "background-color 900ms ease, box-shadow 900ms ease",
         width: "100%",
         "&::before": {
-          bgcolor: flashVisible ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.82 : 0.72) : "transparent",
+          bgcolor: flashVisible
+            ? alpha(theme.palette.info.main, theme.palette.mode === "dark" ? 0.82 : 0.72)
+            : "transparent",
           borderRadius: 999,
           content: '""',
           height: 16,
@@ -388,7 +406,11 @@ function HostRowImpl({ expanded, group, onContextMenu, onToggle }: HostRowProps)
         },
       })}
     >
-      {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+      {expanded ? (
+        <ExpandMoreRoundedIcon fontSize="small" />
+      ) : (
+        <ChevronRightRoundedIcon fontSize="small" />
+      )}
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -450,7 +472,14 @@ function SessionTreeFlatNode({
         getResourceTooltip={getResourceTooltip}
         leafLabel={node.segmentLabel}
         onClick={() => onSelectSession(node.session.id)}
-        onContextMenu={onContextMenuSession ? (e) => { e.preventDefault(); onContextMenuSession(node.session, e); } : undefined}
+        onContextMenu={
+          onContextMenuSession
+            ? (e) => {
+                e.preventDefault();
+                onContextMenuSession(node.session, e);
+              }
+            : undefined
+        }
         selected={selectedSessionId === node.session.id}
         session={node.session}
       />
@@ -464,12 +493,14 @@ function SessionTreeFlatNode({
     <ListItemButton
       dense
       onClick={() => onToggleHost(expandedKey)}
-      onContextMenu={branchHost
-        ? (event) => {
-            event.preventDefault();
-            onContextMenuHost?.(branchHost, event);
-          }
-        : undefined}
+      onContextMenu={
+        branchHost
+          ? (event) => {
+              event.preventDefault();
+              onContextMenuHost?.(branchHost, event);
+            }
+          : undefined
+      }
       sx={{
         borderRadius: 1,
         minHeight: 24,
@@ -501,11 +532,7 @@ function SessionTreeFlatNode({
       >
         {renderBranchIcon(node.branchType)}
       </Box>
-      <Typography
-        noWrap
-        sx={(theme) => getSessionTreeTextSx(theme)}
-        variant="body2"
-      >
+      <Typography noWrap sx={(theme) => getSessionTreeTextSx(theme)} variant="body2">
         {node.segmentLabel}
       </Typography>
     </ListItemButton>
@@ -524,7 +551,15 @@ type SessionLeafNodeProps = {
 
 const HostRow = memo(HostRowImpl);
 
-function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, onContextMenu, selected, session }: SessionLeafNodeProps) {
+function SessionLeafNodeImpl({
+  depth,
+  getResourceTooltip,
+  leafLabel,
+  onClick,
+  onContextMenu,
+  selected,
+  session,
+}: SessionLeafNodeProps) {
   const { t } = useI18n();
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
@@ -565,11 +600,15 @@ function SessionLeafNodeImpl({ depth, getResourceTooltip, leafLabel, onClick, on
           width: 3,
         },
         "&.Mui-selected:hover": {
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.30 : 0.16),
+          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.16),
         },
       })}
     >
-      <Tooltip arrow placement="top" title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}>
+      <Tooltip
+        arrow
+        placement="top"
+        title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}
+      >
         <Box
           sx={(theme) => ({
             alignItems: "center",
@@ -743,7 +782,12 @@ function getResourceTooltipLabel(
 }
 
 function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
-  const sx = (theme: Theme) => ({ fontSize: getWorkbenchFontSize(theme, resourceKind === "warning" || resourceKind === "cancelled" ? 13.5 : 14) });
+  const sx = (theme: Theme) => ({
+    fontSize: getWorkbenchFontSize(
+      theme,
+      resourceKind === "warning" || resourceKind === "cancelled" ? 13.5 : 14,
+    ),
+  });
 
   if (resourceKind === "api") {
     return <JsonFileIcon sx={sx} />;
@@ -902,11 +946,7 @@ function DomainHostIcon(props: SvgIconProps) {
         strokeWidth="1.35"
         {...explorerIconStrokeSx}
       />
-      <path
-        d="M4.25 10h11.5"
-        strokeWidth="1.35"
-        {...explorerIconStrokeSx}
-      />
+      <path d="M4.25 10h11.5" strokeWidth="1.35" {...explorerIconStrokeSx} />
       <path
         d="M5.5 7.15c1.25.68 2.86 1.02 4.5 1.02s3.25-.34 4.5-1.02"
         strokeWidth="1.2"
@@ -944,18 +984,8 @@ function FocusedDomainIcon(props: SvgIconProps) {
         strokeWidth="1.5"
         {...explorerIconStrokeSx}
       />
-      <circle
-        cx="10"
-        cy="10"
-        r="3.05"
-        strokeWidth="1.45"
-        {...explorerIconStrokeSx}
-      />
-      <path
-        d="M10 8.65v2.7M8.65 10h2.7"
-        strokeWidth="1.35"
-        {...explorerIconStrokeSx}
-      />
+      <circle cx="10" cy="10" r="3.05" strokeWidth="1.45" {...explorerIconStrokeSx} />
+      <path d="M10 8.65v2.7M8.65 10h2.7" strokeWidth="1.35" {...explorerIconStrokeSx} />
     </SvgIcon>
   );
 }
@@ -968,27 +998,9 @@ function UnfocusedGroupIcon(props: SvgIconProps) {
         strokeWidth="1.35"
         {...explorerIconStrokeSx}
       />
-      <circle
-        cx="6.2"
-        cy="6.2"
-        r="2.1"
-        strokeWidth="1.4"
-        {...explorerIconStrokeSx}
-      />
-      <circle
-        cx="13.8"
-        cy="6.2"
-        r="2.1"
-        strokeWidth="1.4"
-        {...explorerIconStrokeSx}
-      />
-      <circle
-        cx="10"
-        cy="14.15"
-        r="2.1"
-        strokeWidth="1.4"
-        {...explorerIconStrokeSx}
-      />
+      <circle cx="6.2" cy="6.2" r="2.1" strokeWidth="1.4" {...explorerIconStrokeSx} />
+      <circle cx="13.8" cy="6.2" r="2.1" strokeWidth="1.4" {...explorerIconStrokeSx} />
+      <circle cx="10" cy="14.15" r="2.1" strokeWidth="1.4" {...explorerIconStrokeSx} />
       <circle cx="10" cy="10" r="1.05" fill="currentColor" />
     </SvgIcon>
   );

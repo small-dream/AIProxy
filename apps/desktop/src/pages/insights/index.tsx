@@ -33,7 +33,15 @@ import {
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
@@ -206,24 +214,28 @@ function computeInsightsFromSummaries(
     totalRequests,
     totalErrors,
     errorRate: totalRequests > 0 ? totalErrors / totalRequests : 0,
-    avgDurationMs: totalRequests > 0
-      ? filteredSummaries.reduce((sum, summary) => sum + summary.durationMs, 0) / totalRequests
-      : 0,
+    avgDurationMs:
+      totalRequests > 0
+        ? filteredSummaries.reduce((sum, summary) => sum + summary.durationMs, 0) / totalRequests
+        : 0,
     p50DurationMs: percentile(sortedDurations, 50),
     p95DurationMs: percentile(sortedDurations, 95),
     p99DurationMs: percentile(sortedDurations, 99),
     totalBytes,
     byHost: Array.from(hostBuckets.entries())
       .map(([host, hostSummaries]) => {
-        const hostDurations = hostSummaries.map((summary) => summary.durationMs).sort((a, b) => a - b);
+        const hostDurations = hostSummaries
+          .map((summary) => summary.durationMs)
+          .sort((a, b) => a - b);
         const requestCount = hostSummaries.length;
         return {
           host,
           requestCount,
           errorCount: hostSummaries.filter((summary) => summary.statusCode >= 400).length,
-          avgDurationMs: requestCount > 0
-            ? hostSummaries.reduce((sum, summary) => sum + summary.durationMs, 0) / requestCount
-            : 0,
+          avgDurationMs:
+            requestCount > 0
+              ? hostSummaries.reduce((sum, summary) => sum + summary.durationMs, 0) / requestCount
+              : 0,
           p95DurationMs: percentile(hostDurations, 95),
           totalBytes: hostSummaries.reduce((sum, summary) => sum + summary.sizeBytes, 0),
         };
@@ -278,17 +290,10 @@ function OverviewCard({
       })}
     >
       <CardContent sx={{ px: 2, py: 1.35, "&:last-child": { pb: 1.35 } }}>
-        <Typography
-          color="text.secondary"
-          sx={{ fontSize: 12, fontWeight: 600, mb: 0.25 }}
-        >
+        <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 600, mb: 0.25 }}>
           {label}
         </Typography>
-        <Typography
-          sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3 }}
-        >
-          {value}
-        </Typography>
+        <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3 }}>{value}</Typography>
       </CardContent>
     </Card>
   );
@@ -544,13 +549,20 @@ export function InsightsPage() {
     }
 
     setHostExact(trimmedHost);
-    setExcludedHosts(excludedHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost)));
+    setExcludedHosts(
+      excludedHosts.filter(
+        (currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(trimmedHost),
+      ),
+    );
   }, []);
 
-  const handleFilterSelectedHostText = useCallback((value: string) => {
-    applyImmediateDomainFilter(value.trim());
-    setHostExact(null);
-  }, [applyImmediateDomainFilter]);
+  const handleFilterSelectedHostText = useCallback(
+    (value: string) => {
+      applyImmediateDomainFilter(value.trim());
+      setHostExact(null);
+    },
+    [applyImmediateDomainFilter],
+  );
 
   const handleExcludeHost = useCallback((host: string) => {
     const trimmedHost = host.trim();
@@ -563,35 +575,44 @@ export function InsightsPage() {
       normalizeHostValue(hostExact ?? "") === normalizeHostValue(trimmedHost) ? null : hostExact,
     );
     setExcludedHosts(
-      excludedHosts.some((currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost))
+      excludedHosts.some(
+        (currentHost) => normalizeHostValue(currentHost) === normalizeHostValue(trimmedHost),
+      )
         ? excludedHosts
         : [...excludedHosts, trimmedHost],
     );
   }, []);
 
-  const handleCopyHost = useCallback((host: string) => {
-    void navigator.clipboard?.writeText(host);
-    setSnackbarMessage(t("contextMenu.copiedToClipboard"));
-  }, [t]);
+  const handleCopyHost = useCallback(
+    (host: string) => {
+      void navigator.clipboard?.writeText(host);
+      setSnackbarMessage(t("contextMenu.copiedToClipboard"));
+    },
+    [t],
+  );
 
-  const handleOpenSessionsForHost = useCallback((host: string) => {
-    navigate("/", {
-      state: {
-        sessionHostFilter: {
-          host,
-          requestedAt: Date.now(),
+  const handleOpenSessionsForHost = useCallback(
+    (host: string) => {
+      navigate("/", {
+        state: {
+          sessionHostFilter: {
+            host,
+            requestedAt: Date.now(),
+          },
         },
-      },
-    });
-  }, [navigate]);
+      });
+    },
+    [navigate],
+  );
 
   const handleHostContextMenu = useCallback((host: string, event: ReactMouseEvent) => {
     event.preventDefault();
 
     const selectedText = window.getSelection()?.toString().trim();
-    const selectedHostText = selectedText && normalizeHostValue(host).includes(normalizeHostValue(selectedText))
-      ? selectedText
-      : undefined;
+    const selectedHostText =
+      selectedText && normalizeHostValue(host).includes(normalizeHostValue(selectedText))
+        ? selectedText
+        : undefined;
     setHostContextMenu({
       anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
       host,
@@ -611,11 +632,14 @@ export function InsightsPage() {
     };
   }, []);
 
-  const insightsFilters = useMemo<InsightsComputationFilters>(() => ({
-    excludedHosts,
-    hostExact,
-    hostKeyword: debouncedDomain,
-  }), [debouncedDomain, excludedHosts, hostExact]);
+  const insightsFilters = useMemo<InsightsComputationFilters>(
+    () => ({
+      excludedHosts,
+      hostExact,
+      hostKeyword: debouncedDomain,
+    }),
+    [debouncedDomain, excludedHosts, hostExact],
+  );
 
   const input = useMemo<GetInsightsInput>(() => {
     const base: GetInsightsInput = { sessionIds: activeSessionIds };
@@ -641,17 +665,16 @@ export function InsightsPage() {
     () => computeInsightsFromSummaries(activeSessionSummaries, insightsFilters),
     [activeSessionSummaries, insightsFilters],
   );
-  const data = backendData && backendData.totalRequests > 0
-    ? backendData
-    : fallbackData.totalRequests > 0
-      ? fallbackData
-      : backendData ?? fallbackData;
+  const data =
+    backendData && backendData.totalRequests > 0
+      ? backendData
+      : fallbackData.totalRequests > 0
+        ? fallbackData
+        : (backendData ?? fallbackData);
   const hasActiveFilters = Boolean(debouncedDomain.trim() || hostExact || excludedHosts.length > 0);
   const filteredOutAllData = hasActiveFilters && data.totalRequests === 0;
-  const slowRequestMaxDuration = data?.slowRequests.reduce(
-    (maxDuration, req) => Math.max(maxDuration, req.durationMs),
-    0,
-  ) ?? 0;
+  const slowRequestMaxDuration =
+    data?.slowRequests.reduce((maxDuration, req) => Math.max(maxDuration, req.durationMs), 0) ?? 0;
 
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
   const [exportAnchorEl, setExportAnchorEl] = useState<HTMLElement | null>(null);
@@ -692,9 +715,7 @@ export function InsightsPage() {
           <MenuItem onClick={() => handleExport("markdown")}>
             {t("insightsPage.export.markdown")}
           </MenuItem>
-          <MenuItem onClick={() => handleExport("json")}>
-            {t("insightsPage.export.json")}
-          </MenuItem>
+          <MenuItem onClick={() => handleExport("json")}>{t("insightsPage.export.json")}</MenuItem>
         </Menu>
       </>
     ),
@@ -727,11 +748,7 @@ export function InsightsPage() {
 
   if (data.totalRequests === 0 && !hasActiveFilters) {
     return (
-      <Stack
-        alignItems="center"
-        justifyContent="center"
-        sx={{ height: "100%", minHeight: 240 }}
-      >
+      <Stack alignItems="center" justifyContent="center" sx={{ height: "100%", minHeight: 240 }}>
         <Typography color="text.secondary" sx={{ fontSize: 13 }}>
           {t("insightsPage.states.noData")}
         </Typography>
@@ -758,7 +775,10 @@ export function InsightsPage() {
           value={domainFilter}
           onChange={(e) => handleDomainChange(e.target.value)}
           sx={(theme) => ({
-            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+            bgcolor: alpha(
+              theme.palette.background.paper,
+              theme.palette.mode === "dark" ? 0.94 : 0.98,
+            ),
             border: "1px solid",
             borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
             borderRadius: 1,
@@ -808,7 +828,11 @@ export function InsightsPage() {
                 key={host}
                 label={t("insightsPage.filter.excludeChip", { host })}
                 onDelete={() =>
-                  setExcludedHosts(excludedHosts.filter((currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(host)))
+                  setExcludedHosts(
+                    excludedHosts.filter(
+                      (currentHost) => normalizeHostValue(currentHost) !== normalizeHostValue(host),
+                    ),
+                  )
                 }
                 size="small"
                 variant="outlined"
@@ -840,7 +864,10 @@ export function InsightsPage() {
       <Paper
         elevation={0}
         sx={(theme) => ({
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.94 : 0.98,
+          ),
           border: "1px solid",
           borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
           borderRadius: 1.25,
@@ -899,12 +926,39 @@ export function InsightsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.host")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.requests")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.errors")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.avgDuration")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.p95Duration")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.hosts.traffic")}</TableCell>
+                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
+                    {t("insightsPage.hosts.host")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.hosts.requests")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.hosts.errors")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.hosts.avgDuration")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.hosts.p95Duration")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.hosts.traffic")}
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -950,11 +1004,21 @@ export function InsightsPage() {
                         </Tooltip>
                       </Stack>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>{formatNumber(host.requestCount)}</TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>{formatNumber(host.errorCount)}</TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>{formatDuration(host.avgDurationMs)}</TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>{formatDuration(host.p95DurationMs)}</TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>{formatBytes(host.totalBytes)}</TableCell>
+                    <TableCell align="right" sx={{ fontSize: 13 }}>
+                      {formatNumber(host.requestCount)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontSize: 13 }}>
+                      {formatNumber(host.errorCount)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontSize: 13 }}>
+                      {formatDuration(host.avgDurationMs)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontSize: 13 }}>
+                      {formatDuration(host.p95DurationMs)}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontSize: 13 }}>
+                      {formatBytes(host.totalBytes)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1010,29 +1074,48 @@ export function InsightsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.slowRequests.url")}</TableCell>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.slowRequests.method")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.slowRequests.status")}</TableCell>
-                  <TableCell align="right" sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>{t("insightsPage.slowRequests.duration")}</TableCell>
+                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
+                    {t("insightsPage.slowRequests.url")}
+                  </TableCell>
+                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
+                    {t("insightsPage.slowRequests.method")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.slowRequests.status")}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                  >
+                    {t("insightsPage.slowRequests.duration")}
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.slowRequests.map((req) => {
                   const urlSummary = summarizeUrl(req.url);
-                  const durationIntensity = getDurationIntensity(req.durationMs, slowRequestMaxDuration);
+                  const durationIntensity = getDurationIntensity(
+                    req.durationMs,
+                    slowRequestMaxDuration,
+                  );
 
                   return (
                     <TableRow
                       hover
                       key={req.sessionId}
-                      onClick={() => navigate("/", {
-                        state: {
-                          sessionSelect: {
-                            sessionId: req.sessionId,
-                            requestedAt: Date.now(),
+                      onClick={() =>
+                        navigate("/", {
+                          state: {
+                            sessionSelect: {
+                              sessionId: req.sessionId,
+                              requestedAt: Date.now(),
+                            },
                           },
-                        },
-                      })}
+                        })
+                      }
                       sx={{ cursor: "pointer", "&:last-child td": { borderBottom: 0 } }}
                     >
                       <TableCell sx={{ minWidth: 360 }} title={req.url}>
@@ -1062,7 +1145,10 @@ export function InsightsPage() {
                       <TableCell
                         align="right"
                         sx={(theme) => ({
-                          color: req.statusCode >= 400 ? theme.palette.error.main : theme.palette.success.main,
+                          color:
+                            req.statusCode >= 400
+                              ? theme.palette.error.main
+                              : theme.palette.success.main,
                           fontSize: 13,
                           fontWeight: 700,
                         })}
@@ -1072,11 +1158,18 @@ export function InsightsPage() {
                       <TableCell
                         align="right"
                         sx={(theme) => ({
-                          bgcolor: alpha(theme.palette.warning.main, 0.08 + durationIntensity * 0.16),
+                          bgcolor: alpha(
+                            theme.palette.warning.main,
+                            0.08 + durationIntensity * 0.16,
+                          ),
                           borderRadius: 0.5,
-                          color: durationIntensity > 0.85
-                            ? darken(theme.palette.warning.main, theme.palette.mode === "dark" ? 0 : 0.25)
-                            : "text.primary",
+                          color:
+                            durationIntensity > 0.85
+                              ? darken(
+                                  theme.palette.warning.main,
+                                  theme.palette.mode === "dark" ? 0 : 0.25,
+                                )
+                              : "text.primary",
                           fontSize: 13,
                           fontWeight: 700,
                           whiteSpace: "nowrap",
@@ -1120,10 +1213,7 @@ export function InsightsPage() {
 // Markdown report builder
 // ---------------------------------------------------------------------------
 
-function buildMarkdownReport(
-  data: InsightsResult,
-  t: (key: TranslationKey) => string,
-): string {
+function buildMarkdownReport(data: InsightsResult, t: (key: TranslationKey) => string): string {
   const lines: string[] = [
     `# ${t("insightsPage.title")}`,
     "",

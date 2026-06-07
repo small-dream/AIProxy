@@ -57,9 +57,15 @@ export function AppShellTopControls({
           ...(variant === "floating"
             ? {
                 backdropFilter: "blur(18px)",
-                bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.68 : 0.76),
+                bgcolor: alpha(
+                  theme.palette.background.paper,
+                  theme.palette.mode === "dark" ? 0.68 : 0.76,
+                ),
                 border: "1px solid",
-                borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.58 : 0.78),
+                borderColor: alpha(
+                  theme.palette.divider,
+                  theme.palette.mode === "dark" ? 0.58 : 0.78,
+                ),
                 borderRadius: 999,
                 boxShadow:
                   theme.palette.mode === "dark"

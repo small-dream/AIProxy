@@ -47,7 +47,8 @@ export function CertificatesPage() {
       return;
     }
 
-    const target = initialPanel === "ios" ? iosQuickActionsRef.current : androidQuickActionsRef.current;
+    const target =
+      initialPanel === "ios" ? iosQuickActionsRef.current : androidQuickActionsRef.current;
     if (!target) {
       return;
     }
@@ -62,11 +63,14 @@ export function CertificatesPage() {
   }, [initialPanel, location.key, tab]);
 
   const handleGenerate = () => {
-    generateMutation.mutate({ forceRegenerate: Boolean(status?.certPath) }, {
-      onSuccess: () => {
-        refetch();
+    generateMutation.mutate(
+      { forceRegenerate: Boolean(status?.certPath) },
+      {
+        onSuccess: () => {
+          refetch();
+        },
       },
-    });
+    );
   };
 
   const handleInstall = () => {
@@ -82,7 +86,10 @@ export function CertificatesPage() {
       <Paper
         elevation={0}
         sx={(theme) => ({
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.94 : 0.98),
+          bgcolor: alpha(
+            theme.palette.background.paper,
+            theme.palette.mode === "dark" ? 0.94 : 0.98,
+          ),
           border: "1px solid",
           borderColor: alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
           borderRadius: 1.25,
@@ -100,9 +107,10 @@ export function CertificatesPage() {
       >
         <Box
           sx={{
-            bgcolor: (theme) => theme.palette.mode === "dark"
-              ? alpha(theme.palette.background.default, 0.28)
-              : alpha(theme.palette.background.default, 0.62),
+            bgcolor: (theme) =>
+              theme.palette.mode === "dark"
+                ? alpha(theme.palette.background.default, 0.28)
+                : alpha(theme.palette.background.default, 0.62),
             borderBottom: 1,
             borderColor: "divider",
             minWidth: 0,
@@ -135,15 +143,19 @@ export function CertificatesPage() {
                 px: 1.1,
                 py: 0,
                 textTransform: "none",
-                transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
+                transition:
+                  "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
                 "&:hover": {
-                  bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                  bgcolor: (theme) =>
+                    alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
                   color: "text.primary",
                 },
               },
               "& .Mui-selected": {
-                bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.1),
-                borderColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.38 : 0.22),
+                bgcolor: (theme) =>
+                  alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.1),
+                borderColor: (theme) =>
+                  alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.38 : 0.22),
                 color: "text.primary",
                 fontWeight: 600,
               },

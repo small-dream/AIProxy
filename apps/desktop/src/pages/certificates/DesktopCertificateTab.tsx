@@ -1,4 +1,13 @@
-import { Button, Chip, CircularProgress, Stack, Step, StepLabel, Stepper, Typography } from "@mui/material";
+import {
+  Button,
+  Chip,
+  CircularProgress,
+  Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  Typography,
+} from "@mui/material";
 import { type CertificateStatus } from "@aiproxy/shared-types";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
@@ -26,7 +35,8 @@ export function DesktopCertificateTab({
   const { t } = useI18n();
   const hasCert = !!status?.certPath;
   const isTrusted = status?.trusted ?? false;
-  const supportsInstaller = status?.platform === "windows" || status?.platform === "macos" || status?.platform === "linux";
+  const supportsInstaller =
+    status?.platform === "windows" || status?.platform === "macos" || status?.platform === "linux";
   const showInstallButton = supportsInstaller && hasCert && !isTrusted;
 
   const activeStep = isTrusted ? 2 : hasCert ? 1 : 0;
@@ -59,7 +69,9 @@ export function DesktopCertificateTab({
                 disabled={loading || installing || generating}
                 startIcon={installing ? <CircularProgress size={16} /> : undefined}
               >
-                {installing ? t("certificatesPage.actions.opening") : t("certificatesPage.actions.install")}
+                {installing
+                  ? t("certificatesPage.actions.opening")
+                  : t("certificatesPage.actions.install")}
               </Button>
             )}
             <Button
@@ -78,13 +90,19 @@ export function DesktopCertificateTab({
           {/* Compact workflow stepper */}
           <Stepper activeStep={activeStep} sx={{ mb: 1 }}>
             <Step completed={hasCert}>
-              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>{t("certificatesPage.workflow.generate")}</StepLabel>
+              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>
+                {t("certificatesPage.workflow.generate")}
+              </StepLabel>
             </Step>
             <Step completed={isTrusted}>
-              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>{t("certificatesPage.workflow.trust")}</StepLabel>
+              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>
+                {t("certificatesPage.workflow.trust")}
+              </StepLabel>
             </Step>
             <Step completed={hasCert && isTrusted}>
-              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>{t("certificatesPage.workflow.ready")}</StepLabel>
+              <StepLabel sx={{ "& .MuiStepLabel-label": { fontSize: 12 } }}>
+                {t("certificatesPage.workflow.ready")}
+              </StepLabel>
             </Step>
           </Stepper>
 
@@ -98,7 +116,11 @@ export function DesktopCertificateTab({
             ) : hasCert ? (
               <Chip label={t("common.states.present")} color="success" size="small" />
             ) : (
-              <Chip label={t("certificatesPage.status.notGenerated")} color="warning" size="small" />
+              <Chip
+                label={t("certificatesPage.status.notGenerated")}
+                color="warning"
+                size="small"
+              />
             )}
           </Stack>
 
@@ -120,7 +142,10 @@ export function DesktopCertificateTab({
               <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
                 {t("certificatesPage.status.fingerprint")}
               </Typography>
-              <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontSize: "0.8rem", wordBreak: "break-all" }}>
+              <Typography
+                variant="body2"
+                sx={{ fontFamily: fontFamilies.mono, fontSize: "0.8rem", wordBreak: "break-all" }}
+              >
                 {status.fingerprint}
               </Typography>
             </Stack>
@@ -131,7 +156,10 @@ export function DesktopCertificateTab({
               <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
                 {t("certificatesPage.status.certificatePath")}
               </Typography>
-              <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontSize: "0.8rem", wordBreak: "break-all" }}>
+              <Typography
+                variant="body2"
+                sx={{ fontFamily: fontFamilies.mono, fontSize: "0.8rem", wordBreak: "break-all" }}
+              >
                 {status.certPath}
               </Typography>
             </Stack>
@@ -141,7 +169,9 @@ export function DesktopCertificateTab({
             <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
               {t("certificatesPage.status.platform")}
             </Typography>
-            <Typography variant="body2">{status?.platform ?? t("common.states.unknown")}</Typography>
+            <Typography variant="body2">
+              {status?.platform ?? t("common.states.unknown")}
+            </Typography>
           </Stack>
         </Stack>
       </SectionCard>

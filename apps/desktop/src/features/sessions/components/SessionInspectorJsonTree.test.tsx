@@ -2,7 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
-import { buildSearchMatcher, DEFAULT_SEARCH_OPTIONS, type JsonValue } from "./session-inspector.helpers";
+import {
+  buildSearchMatcher,
+  DEFAULT_SEARCH_OPTIONS,
+  type JsonValue,
+} from "./session-inspector.helpers";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
 
 function createLargeJsonTree(): JsonValue {

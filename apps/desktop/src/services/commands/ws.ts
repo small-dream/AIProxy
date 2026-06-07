@@ -7,10 +7,7 @@ import {
   type WsMessage,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
@@ -41,19 +38,16 @@ export async function listWsMessages(
   }
 }
 
-export async function getWsConnectionStatus(
-  sessionId: string,
-): Promise<WsConnectionStatusValue> {
+export async function getWsConnectionStatus(sessionId: string): Promise<WsConnectionStatusValue> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "get_ws_connection_status_bypassed_non_tauri_runtime");
     return "closed";
   }
 
   try {
-    const result = await invoke<{ status: string }>(
-      "get_ws_connection_status",
-      { input: { sessionId } },
-    );
+    const result = await invoke<{ status: string }>("get_ws_connection_status", {
+      input: { sessionId },
+    });
     return result.status === "active" ? "active" : "closed";
   } catch (error) {
     reportCommandFailure("get_ws_connection_status", error);

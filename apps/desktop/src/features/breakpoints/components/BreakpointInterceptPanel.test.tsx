@@ -63,7 +63,9 @@ describe("BreakpointInterceptPanel", () => {
 
     expect(screen.getByText("POST")).toBeInTheDocument();
     expect(screen.getByText("pb.photoaffections.com")).toBeInTheDocument();
-    expect(screen.getByText("/api/?_method=app.launch&_app=Android-PBUS-3.14.0")).toBeInTheDocument();
+    expect(
+      screen.getByText("/api/?_method=app.launch&_app=Android-PBUS-3.14.0"),
+    ).toBeInTheDocument();
     expect(screen.getByText("1 / 1")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Query" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Query" })).toBeInTheDocument();
@@ -80,7 +82,9 @@ describe("BreakpointInterceptPanel", () => {
     if (!requestTabList) throw new Error("Request tablist not found");
     fireEvent.click(within(requestTabList).getByRole("tab", { name: "Headers" }));
     fireEvent.change(screen.getByDisplayValue("Content-Type"), { target: { value: "X-Debug" } });
-    fireEvent.change(screen.getByDisplayValue("application/x-www-form-urlencoded"), { target: { value: "true" } });
+    fireEvent.change(screen.getByDisplayValue("application/x-www-form-urlencoded"), {
+      target: { value: "true" },
+    });
     const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
     if (!requestBodyTab) throw new Error("Request body tab not found");
     fireEvent.click(requestBodyTab);
@@ -93,7 +97,9 @@ describe("BreakpointInterceptPanel", () => {
           action: "forward",
           modifiedRequestHeaders: expect.arrayContaining([{ name: "X-Debug", value: "true" }]),
           modifiedRequestQueryParams: expect.arrayContaining([{ name: "debug", value: "1" }]),
-          modifiedRequestBodyBase64: btoa("_sessionKey=edited-body&client_params=%7B%22request_id%22%3A%221%22%7D"),
+          modifiedRequestBodyBase64: btoa(
+            "_sessionKey=edited-body&client_params=%7B%22request_id%22%3A%221%22%7D",
+          ),
           sessionId: "breakpoint-1",
         }),
       );
@@ -101,34 +107,45 @@ describe("BreakpointInterceptPanel", () => {
   });
 
   it("sends edited response status, headers, and body when forwarding a response breakpoint", async () => {
-    renderPanel(createHit({
-      responseBody: {
-        inlineText: "{\"ok\":true}",
-        mimeType: "application/json",
-        sizeBytes: 11,
-      },
-      responseHeaders: [{ name: "Content-Type", value: "application/json" }],
-      responseStatusCode: 200,
-      sessionId: "breakpoint-response",
-      stage: "response",
-    }));
+    renderPanel(
+      createHit({
+        responseBody: {
+          inlineText: '{"ok":true}',
+          mimeType: "application/json",
+          sizeBytes: 11,
+        },
+        responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+        responseStatusCode: 200,
+        sessionId: "breakpoint-response",
+        stage: "response",
+      }),
+    );
 
     const responsePane = screen.getByTestId("breakpoint-response-pane");
 
     fireEvent.click(within(responsePane).getByRole("tab", { name: "Status" }));
     fireEvent.change(within(responsePane).getByLabelText("Status"), { target: { value: "418" } });
     fireEvent.click(within(responsePane).getByRole("tab", { name: "Headers" }));
-    fireEvent.change(within(responsePane).getByDisplayValue("Content-Type"), { target: { value: "X-Response" } });
-    fireEvent.change(within(responsePane).getByDisplayValue("application/json"), { target: { value: "changed" } });
+    fireEvent.change(within(responsePane).getByDisplayValue("Content-Type"), {
+      target: { value: "X-Response" },
+    });
+    fireEvent.change(within(responsePane).getByDisplayValue("application/json"), {
+      target: { value: "changed" },
+    });
     fireEvent.click(within(responsePane).getByRole("tab", { name: "Body" }));
-    fireEvent.change(within(responsePane).getAllByLabelText("Body").find((element) => element.tagName === "TEXTAREA")!, { target: { value: "{\"changed\":true}" } });
+    fireEvent.change(
+      within(responsePane)
+        .getAllByLabelText("Body")
+        .find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: '{"changed":true}' } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Forward" }));
 
     await waitFor(() => {
       expect(resolveBreakpoint).toHaveBeenCalledWith(
         expect.objectContaining({
           action: "forward",
-          modifiedResponseBodyBase64: btoa("{\"changed\":true}"),
+          modifiedResponseBodyBase64: btoa('{"changed":true}'),
           modifiedResponseHeaders: [{ name: "X-Response", value: "changed" }],
           modifiedResponseStatusCode: 418,
           sessionId: "breakpoint-response",
@@ -145,7 +162,12 @@ describe("BreakpointInterceptPanel", () => {
     expect(screen.getByText("Mock mode")).toBeInTheDocument();
 
     const responsePane = screen.getByTestId("breakpoint-response-pane");
-    fireEvent.change(within(responsePane).getAllByLabelText("Body").find((element) => element.tagName === "TEXTAREA")!, { target: { value: "{\"ok\":true}" } });
+    fireEvent.change(
+      within(responsePane)
+        .getAllByLabelText("Body")
+        .find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: '{"ok":true}' } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send Mock" }));
 
     await waitFor(() => {
@@ -153,7 +175,7 @@ describe("BreakpointInterceptPanel", () => {
         expect.objectContaining({
           action: "mock",
           mock: expect.objectContaining({
-            bodyBase64: btoa("{\"ok\":true}"),
+            bodyBase64: btoa('{"ok":true}'),
             statusCode: 200,
           }),
           sessionId: "breakpoint-1",

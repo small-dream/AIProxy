@@ -1,12 +1,7 @@
-import {
-  DEFAULT_PROXY_PORT,
-  DEFAULT_WORKSPACE_ID,
-} from "@aiproxy/shared-types";
+import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  useCertificateStatus,
-} from "@/features/certificate-center/use-certificate-status";
+import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
 import {
   useDisableSystemProxy,
   useEnableSystemProxy,
@@ -55,14 +50,14 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
   const autoStartAttemptedRef = useRef(false);
 
-  const isProxyBusy =
-    startProxyMutation.isPending ||
-    stopProxyMutation.isPending;
+  const isProxyBusy = startProxyMutation.isPending || stopProxyMutation.isPending;
   const isSystemProxyBusy =
-    enableSystemProxyMutation.isPending ||
-    disableSystemProxyMutation.isPending;
+    enableSystemProxyMutation.isPending || disableSystemProxyMutation.isPending;
   const isBusy = isProxyBusy || isSystemProxyBusy || updateWorkspaceMutation.isPending;
-  const systemProxyActionDisabled = isSystemProxyBusy || isProxyBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
+  const systemProxyActionDisabled =
+    isSystemProxyBusy ||
+    isProxyBusy ||
+    (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
 
   const initialStartProxyInput = useMemo(
     () => ({
@@ -131,9 +126,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     const normalizedError = error as Parameters<typeof isPortInUseError>[0];
     const errorPort = (() => {
       const appError = error as { details?: { port?: number } };
-      return typeof appError?.details?.port === "number"
-        ? appError.details.port
-        : requestedPort;
+      return typeof appError?.details?.port === "number" ? appError.details.port : requestedPort;
     })();
 
     if (isPortInUseError(normalizedError)) {

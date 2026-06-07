@@ -41,8 +41,7 @@ export function useUpsertCollectionItem() {
 export function useDeleteCollectionItem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }: { id: string; collectionId: string }) =>
-      deleteApiCollectionItem(id),
+    mutationFn: ({ id }: { id: string; collectionId: string }) => deleteApiCollectionItem(id),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["api-collection-items", variables.collectionId],
@@ -71,12 +70,11 @@ export function useMoveCollectionItem() {
         await queryClient.cancelQueries({ queryKey: targetKey });
       }
 
-      const previousSource =
-        queryClient.getQueryData<ApiCollectionItem[]>(sourceKey) ?? null;
+      const previousSource = queryClient.getQueryData<ApiCollectionItem[]>(sourceKey) ?? null;
       const previousTarget =
         variables.sourceCollectionId === variables.targetCollectionId
           ? null
-          : queryClient.getQueryData<ApiCollectionItem[]>(targetKey) ?? null;
+          : (queryClient.getQueryData<ApiCollectionItem[]>(targetKey) ?? null);
 
       const moved = previousSource?.find((it) => it.id === variables.id);
       if (moved) {

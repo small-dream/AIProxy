@@ -22,7 +22,14 @@ pub(crate) fn compile_match_regex(match_type: &Option<String>, url_pattern: &str
     match Regex::new(normalized) {
         Ok(re) => Some(re),
         Err(e) => {
-            emit_log("WARN", "rules.regex_compile_failed", &[("pattern", normalized.to_string()), ("error", e.to_string())]);
+            emit_log(
+                "WARN",
+                "rules.regex_compile_failed",
+                &[
+                    ("pattern", normalized.to_string()),
+                    ("error", e.to_string()),
+                ],
+            );
             None
         }
     }

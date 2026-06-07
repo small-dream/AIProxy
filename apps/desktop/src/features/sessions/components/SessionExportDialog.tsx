@@ -14,11 +14,7 @@ import {
 } from "@mui/material";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { downloadTextFile } from "@/lib/download";
-import type {
-  ExportScope,
-  SessionDetail,
-  SessionSummary,
-} from "@aiproxy/shared-types";
+import type { ExportScope, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/i18n";
@@ -72,12 +68,12 @@ export function SessionExportDialog({
     }
 
     setScope(
-      initialScope
-      ?? (hostScope && hostScope.sessions.length > 0
-        ? "host"
-        : selectedSession
-          ? "selected"
-          : "filtered"),
+      initialScope ??
+        (hostScope && hostScope.sessions.length > 0
+          ? "host"
+          : selectedSession
+            ? "selected"
+            : "filtered"),
     );
     setFeedbackMessage(undefined);
     setErrorMessage(undefined);
@@ -97,7 +93,13 @@ export function SessionExportDialog({
     }
 
     return allSessions.length;
-  }, [allSessions.length, filteredSessions.length, hostScope?.sessions.length, scope, selectedSession]);
+  }, [
+    allSessions.length,
+    filteredSessions.length,
+    hostScope?.sessions.length,
+    scope,
+    selectedSession,
+  ]);
 
   async function handleExport() {
     setErrorMessage(undefined);
@@ -152,9 +154,11 @@ export function SessionExportDialog({
                 disabled={!selectedSession}
                 title={t("sessionsExport.scopes.selected")}
                 description={
-                  selectedSession
-                    ? <SessionScopePreview session={selectedSession} />
-                    : t("sessionsExport.noSelectedSession")
+                  selectedSession ? (
+                    <SessionScopePreview session={selectedSession} />
+                  ) : (
+                    t("sessionsExport.noSelectedSession")
+                  )
                 }
                 onClick={() => setScope("selected")}
               />
@@ -165,9 +169,9 @@ export function SessionExportDialog({
                 description={
                   hostScope
                     ? t("sessionsExport.hostDescription", {
-                      count: hostScope.sessions.length,
-                      host: hostScope.host,
-                    })
+                        count: hostScope.sessions.length,
+                        host: hostScope.host,
+                      })
                     : t("sessionsExport.noHostScope")
                 }
                 icon={<PublicRoundedIcon fontSize="small" />}
@@ -177,7 +181,9 @@ export function SessionExportDialog({
                 active={scope === "filtered"}
                 disabled={filteredSessions.length === 0}
                 title={t("sessionsExport.scopes.filtered")}
-                description={t("sessionsExport.filteredDescription", { count: filteredSessions.length })}
+                description={t("sessionsExport.filteredDescription", {
+                  count: filteredSessions.length,
+                })}
                 onClick={() => setScope("filtered")}
               />
               <SelectableCard
@@ -249,10 +255,12 @@ function SelectableCard(props: {
         opacity: disabled ? 0.55 : 1,
         p: 1.5,
         transition: "border-color 140ms ease, background-color 140ms ease, transform 140ms ease",
-        "&:hover": disabled ? undefined : {
-          borderColor: "primary.main",
-          transform: "translateY(-1px)",
-        },
+        "&:hover": disabled
+          ? undefined
+          : {
+              borderColor: "primary.main",
+              transform: "translateY(-1px)",
+            },
       }}
     >
       <Stack spacing={0.75} sx={{ minWidth: 0 }}>
@@ -291,7 +299,11 @@ function SessionScopePreview({ session }: { session: SessionSummary }) {
       >
         {session.path}
       </Typography>
-      <Typography color="text.secondary" sx={{ minWidth: 0, overflowWrap: "anywhere" }} variant="caption">
+      <Typography
+        color="text.secondary"
+        sx={{ minWidth: 0, overflowWrap: "anywhere" }}
+        variant="caption"
+      >
         {session.url}
       </Typography>
     </Stack>
@@ -323,17 +335,25 @@ async function loadDetailsForScope(props: {
     }
 
     if (selectedSessionDetail && selectedSessionDetail.id === selectedSession.id) {
-      queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, selectedSession.id], selectedSessionDetail);
+      queryClient.setQueryData(
+        [SESSION_DETAIL_QUERY_KEY, selectedSession.id],
+        selectedSessionDetail,
+      );
     }
 
-    return [await ensureSessionDetailContent(queryClient, selectedSession.id, { ...DEFAULT_EXPORT_CONTENT_OPTIONS })];
+    return [
+      await ensureSessionDetailContent(queryClient, selectedSession.id, {
+        ...DEFAULT_EXPORT_CONTENT_OPTIONS,
+      }),
+    ];
   }
 
-  const summaries = scope === "host"
-    ? (hostScope?.sessions ?? [])
-    : scope === "filtered"
-      ? filteredSessions
-      : allSessions;
+  const summaries =
+    scope === "host"
+      ? (hostScope?.sessions ?? [])
+      : scope === "filtered"
+        ? filteredSessions
+        : allSessions;
 
   return loadSessionDetailsBatched(queryClient, summaries);
 }

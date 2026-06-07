@@ -911,7 +911,10 @@ fn compiled_regex_refreshes_after_rule_update() {
     let traces2 =
         apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request2, false)
             .unwrap();
-    assert!(traces2.is_empty(), "old pattern should not match after update");
+    assert!(
+        traces2.is_empty(),
+        "old pattern should not match after update"
+    );
 
     // New URL should match
     let mut request3 = build_test_request("https://production.example.com/api");
@@ -962,15 +965,20 @@ fn non_regex_match_types_do_not_compile_regex() {
 
     // Verify compiled_rules has None for compiled_match on non-regex rules
     let compiled = manager.compiled_rules();
-    assert!(compiled.iter().all(|cr| cr.compiled_match.is_none()),
-        "non-regex rules should have no compiled regex");
+    assert!(
+        compiled.iter().all(|cr| cr.compiled_match.is_none()),
+        "non-regex rules should have no compiled regex"
+    );
 
     // But the rules should still match correctly via pattern_matches fallback
     let mut request = build_test_request("https://exact.example.com/path");
     let traces =
         apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false)
             .unwrap();
-    assert!(traces.len() >= 1, "contains and exact rules should still match");
+    assert!(
+        traces.len() >= 1,
+        "contains and exact rules should still match"
+    );
 }
 
 #[test]
@@ -1106,10 +1114,10 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
     );
     assert_eq!(traces.len(), 1);
     let expected_suffix = std::path::Path::new("assets").join("app.json");
-    assert!(std::path::Path::new(
-        traces[0].local_path.as_deref().unwrap_or_default()
-    )
-    .ends_with(&expected_suffix));
+    assert!(
+        std::path::Path::new(traces[0].local_path.as_deref().unwrap_or_default())
+            .ends_with(&expected_suffix)
+    );
 
     let _ = fs::remove_dir_all(dir_path);
 }
@@ -1599,9 +1607,7 @@ async fn send_ws_upgrade_via_proxy(
     started_proxy: &mut StartedProxyServer,
 ) -> (String, ProxySessionDetail) {
     let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
-    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port))
-        .await
-        .unwrap();
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
     let request = format!(
         "GET {target_url} HTTP/1.1\r\n\
          Host: 127.0.0.1:{upstream_port}\r\n\
@@ -1615,10 +1621,13 @@ async fn send_ws_upgrade_via_proxy(
 
     // Read the proxy response.
     let mut response_buf = [0u8; 4096];
-    let n = timeout(Duration::from_secs(3), client_stream.read(&mut response_buf))
-        .await
-        .expect("timed out reading proxy response")
-        .unwrap();
+    let n = timeout(
+        Duration::from_secs(3),
+        client_stream.read(&mut response_buf),
+    )
+    .await
+    .expect("timed out reading proxy response")
+    .unwrap();
     let response_text = String::from_utf8_lossy(&response_buf[..n]).to_string();
 
     // Collect the first completed session (skip pending status=0).

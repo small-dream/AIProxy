@@ -63,8 +63,17 @@ describe("SessionExplorerPane", () => {
   it("renders a focus icon for focused hosts and a separate icon for the unfocused aggregate", () => {
     const groups = buildSessionHostGroups(
       [
-        createSessionSummary({ host: "api.example.com", id: "session-1", url: "http://api.example.com/users" }),
-        createSessionSummary({ host: "cdn.example.com", id: "session-2", url: "http://cdn.example.com/app.js", path: "/app.js" }),
+        createSessionSummary({
+          host: "api.example.com",
+          id: "session-1",
+          url: "http://api.example.com/users",
+        }),
+        createSessionSummary({
+          host: "cdn.example.com",
+          id: "session-2",
+          url: "http://cdn.example.com/app.js",
+          path: "/app.js",
+        }),
       ],
       "",
       {
@@ -118,7 +127,9 @@ describe("SessionExplorerPane", () => {
     expect(input).toHaveValue("api");
 
     fireEvent.change(input, { target: { value: "assets" } });
-    act(() => { vi.advanceTimersByTime(200); });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
 
     expect(handleDomainFilterChange).toHaveBeenCalledWith("assets");
   });

@@ -169,10 +169,18 @@ vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
         >
           resize
         </button>
-        <button data-testid="toggle-api-host" onClick={() => onToggleHost("api.example.com")} type="button">
+        <button
+          data-testid="toggle-api-host"
+          onClick={() => onToggleHost("api.example.com")}
+          type="button"
+        >
           toggle host
         </button>
-        <button data-testid="select-session" onClick={() => onSelectSession("session-1")} type="button">
+        <button
+          data-testid="select-session"
+          onClick={() => onSelectSession("session-1")}
+          type="button"
+        >
           select session
         </button>
       </div>
@@ -283,7 +291,9 @@ describe("SessionsPage inspector split ratio", () => {
     await waitFor(() => {
       expect(screen.getByTestId("group-count")).toHaveTextContent("1");
       expect(screen.getByTestId("expanded-hosts")).toHaveTextContent("api.example.com");
-      expect(window.localStorage.getItem(EXPANDED_HOSTS_STORAGE_KEY)).toBe(JSON.stringify(["api.example.com"]));
+      expect(window.localStorage.getItem(EXPANDED_HOSTS_STORAGE_KEY)).toBe(
+        JSON.stringify(["api.example.com"]),
+      );
     });
   });
 

@@ -95,9 +95,12 @@ export async function summarizeSessionDiff(
       compareMode: input.payload.compareMode,
       bodyIncluded: input.payload.bodyIncluded,
       language: input.language,
-      sectionCount: input.payload.compareMode === "request" ? input.payload.sections.length : undefined,
+      sectionCount:
+        input.payload.compareMode === "request" ? input.payload.sections.length : undefined,
     });
-    return parseSessionDiffSummaryResult(await invoke<unknown>("summarize_session_diff", { input }));
+    return parseSessionDiffSummaryResult(
+      await invoke<unknown>("summarize_session_diff", { input }),
+    );
   } catch (error) {
     reportCommandFailure("summarize_session_diff", error);
     throw coerceAppError(error);

@@ -7,18 +7,24 @@ export type SessionProtocolMetadata = {
   applicationProtocol: string;
 };
 
-export function inferSessionProtocolMetadata(session: Pick<SessionSummary, "protocol" | "url">): SessionProtocolMetadata {
+export function inferSessionProtocolMetadata(
+  session: Pick<SessionSummary, "protocol" | "url">,
+): SessionProtocolMetadata {
   return inferProtocolMetadata(session.protocol, session.url);
 }
 
-export function inferProtocolMetadata(protocol: string | undefined, urlValue: string | undefined): SessionProtocolMetadata {
+export function inferProtocolMetadata(
+  protocol: string | undefined,
+  urlValue: string | undefined,
+): SessionProtocolMetadata {
   const normalizedProtocol = protocol?.trim().toLowerCase() ?? "";
   const urlScheme = getUrlScheme(urlValue);
   const scheme = resolveScheme(normalizedProtocol, urlScheme);
   const httpVersion = resolveHttpVersion(protocol, normalizedProtocol);
-  const transportProtocol = httpVersion === "3" || normalizedProtocol === "h3" || normalizedProtocol === "http3"
-    ? "quic"
-    : "tcp";
+  const transportProtocol =
+    httpVersion === "3" || normalizedProtocol === "h3" || normalizedProtocol === "http3"
+      ? "quic"
+      : "tcp";
   const applicationProtocol = resolveApplicationProtocol(normalizedProtocol);
 
   return {
@@ -42,18 +48,19 @@ export function getSessionProtocolMetadata(session: SessionSummary): SessionProt
 
 export function formatSessionProtocol(session: SessionSummary): string {
   const metadata = getSessionProtocolMetadata(session);
-  const applicationPrefix = metadata.applicationProtocol === "http"
-    ? "HTTP"
-    : metadata.applicationProtocol.toUpperCase();
+  const applicationPrefix =
+    metadata.applicationProtocol === "http" ? "HTTP" : metadata.applicationProtocol.toUpperCase();
 
   return `${applicationPrefix}/${metadata.httpVersion}`;
 }
 
 export function isWebSocketSessionProtocol(session: SessionSummary): boolean {
-  return getSessionProtocolMetadata(session).applicationProtocol === "websocket"
-    || session.protocol === "ws"
-    || session.protocol === "wss"
-    || session.responseMimeType === "websocket";
+  return (
+    getSessionProtocolMetadata(session).applicationProtocol === "websocket" ||
+    session.protocol === "ws" ||
+    session.protocol === "wss" ||
+    session.responseMimeType === "websocket"
+  );
 }
 
 function getUrlScheme(urlValue: string | undefined): string | undefined {
@@ -89,7 +96,10 @@ function resolveScheme(normalizedProtocol: string, urlScheme: string | undefined
   return "http";
 }
 
-export function resolveHttpVersion(protocol: string | undefined, normalizedProtocol: string): string {
+export function resolveHttpVersion(
+  protocol: string | undefined,
+  normalizedProtocol: string,
+): string {
   const trimmedProtocol = protocol?.trim() ?? "";
 
   if (trimmedProtocol.startsWith("HTTP/")) {

@@ -1,6 +1,15 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
-import { Box, Button, IconButton, OutlinedInput, Stack, Switch, Tooltip, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  IconButton,
+  OutlinedInput,
+  Stack,
+  Switch,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
@@ -66,7 +75,10 @@ export function VariableEditorTable({
         <Stack spacing={0.5}>
           <Box
             sx={(theme) => ({
-              bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
+              bgcolor: alpha(
+                theme.palette.text.primary,
+                theme.palette.mode === "dark" ? 0.05 : 0.035,
+              ),
               borderRadius: 1,
               display: "grid",
               gridTemplateColumns: EDITOR_GRID_TEMPLATE,
@@ -105,11 +117,7 @@ export function VariableEditorTable({
               }}
             >
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Switch
-                  checked={item.enabled}
-                  onChange={() => handleToggle(index)}
-                  size="small"
-                />
+                <Switch checked={item.enabled} onChange={() => handleToggle(index)} size="small" />
               </Box>
               <OutlinedInput
                 onChange={(event) => handleUpdate(index, "key", event.target.value)}

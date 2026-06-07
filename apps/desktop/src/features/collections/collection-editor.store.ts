@@ -49,7 +49,21 @@ type CollectionEditorState = {
   reset: () => void;
 };
 
-const INITIAL: Omit<CollectionEditorState, "loadFromItem" | "setName" | "setDescription" | "setMethod" | "setUrl" | "setHeaders" | "setBody" | "setBodyType" | "setRawLanguage" | "setFormDataEntries" | "setUrlEncodedEntries" | "reset"> = {
+const INITIAL: Omit<
+  CollectionEditorState,
+  | "loadFromItem"
+  | "setName"
+  | "setDescription"
+  | "setMethod"
+  | "setUrl"
+  | "setHeaders"
+  | "setBody"
+  | "setBodyType"
+  | "setRawLanguage"
+  | "setFormDataEntries"
+  | "setUrlEncodedEntries"
+  | "reset"
+> = {
   itemId: null,
   collectionId: null,
   name: "",
@@ -73,15 +87,16 @@ export const useCollectionEditorStore = create<CollectionEditorState>((set) => (
   loadFromItem: (item) => {
     const hasStructuredFormData = item.formData.length > 0;
     const hasStructuredUrlEncoded = item.urlEncoded.length > 0;
-    const fallbackUrlEncodedEntries = !hasStructuredUrlEncoded && item.bodyType === "urlencoded"
-      ? parseUrlEncodedEntries(item.body)
-      : item.urlEncoded;
-    const fallbackBodyType = item.bodyType === "formdata" && !hasStructuredFormData && item.body
-      ? "raw"
-      : item.bodyType;
-    const fallbackRawLanguage = fallbackBodyType === "raw" && item.rawLanguage === "json" && item.bodyType === "formdata"
-      ? "text"
-      : item.rawLanguage;
+    const fallbackUrlEncodedEntries =
+      !hasStructuredUrlEncoded && item.bodyType === "urlencoded"
+        ? parseUrlEncodedEntries(item.body)
+        : item.urlEncoded;
+    const fallbackBodyType =
+      item.bodyType === "formdata" && !hasStructuredFormData && item.body ? "raw" : item.bodyType;
+    const fallbackRawLanguage =
+      fallbackBodyType === "raw" && item.rawLanguage === "json" && item.bodyType === "formdata"
+        ? "text"
+        : item.rawLanguage;
 
     set({
       itemId: item.id,

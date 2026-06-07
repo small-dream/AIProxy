@@ -50,7 +50,9 @@ export function buildSessionDiffPayload(
   return options.redact ? redactDiffPayload(payload) : payload;
 }
 
-export function getBodyText(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]): string | undefined {
+export function getBodyText(
+  body: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+): string | undefined {
   return body?.inlineText ?? body?.base64Text;
 }
 
@@ -80,7 +82,10 @@ function diffSummary(left: SessionSummary, right: SessionSummary): SessionDiffSe
   return buildSection("summary", "Summary", entries);
 }
 
-function diffTiming(left: TimingBreakdown | undefined, right: TimingBreakdown | undefined): SessionDiffSection {
+function diffTiming(
+  left: TimingBreakdown | undefined,
+  right: TimingBreakdown | undefined,
+): SessionDiffSection {
   const keys: Array<keyof TimingBreakdown> = [
     "dnsMs",
     "connectMs",
@@ -121,7 +126,7 @@ function diffEntries(
     }
     return {
       path: name,
-      kind: before === after ? "unchanged" as const : "changed" as const,
+      kind: before === after ? ("unchanged" as const) : ("changed" as const),
       before: truncateValue(before),
       after: truncateValue(after),
     };
@@ -199,9 +204,10 @@ function diffBody(
   const entryLimit = options.maxBodyEntries ?? MAX_BODY_ENTRIES_FOR_AI;
   const leftJson = parseJson(leftBodyText);
   const rightJson = parseJson(rightBodyText);
-  const entries = leftJson.ok && rightJson.ok
-    ? diffJsonValues("$", leftJson.value, rightJson.value)
-    : diffTextLines(leftBodyText ?? "", rightBodyText ?? "");
+  const entries =
+    leftJson.ok && rightJson.ok
+      ? diffJsonValues("$", leftJson.value, rightJson.value)
+      : diffTextLines(leftBodyText ?? "", rightBodyText ?? "");
 
   if (leftJson.ok && rightJson.ok) {
     const truncated = entries.length > entryLimit;
@@ -214,7 +220,9 @@ function diffBody(
         counts: countEntries(entries),
         totalEntries: entries.length,
         truncated,
-        ...(truncated ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` } : {}),
+        ...(truncated
+          ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` }
+          : {}),
       },
     );
   }
@@ -229,7 +237,9 @@ function diffBody(
       counts: countEntries(entries),
       totalEntries: entries.length,
       truncated,
-      ...(truncated ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` } : {}),
+      ...(truncated
+        ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` }
+        : {}),
     },
   );
 }
@@ -242,8 +252,16 @@ function diffBodyMetadata(
     compareScalar("body.sizeBytes", describeBodySize(leftBody), describeBodySize(rightBody)),
     compareScalar("body.mimeType", leftBody?.mimeType ?? "", rightBody?.mimeType ?? ""),
     compareScalar("body.encoding", leftBody?.encoding ?? "", rightBody?.encoding ?? ""),
-    compareScalar("body.text", describeTextAvailability(leftBody), describeTextAvailability(rightBody)),
-    compareScalar("body.truncated", describeBoolean(leftBody?.truncated), describeBoolean(rightBody?.truncated)),
+    compareScalar(
+      "body.text",
+      describeTextAvailability(leftBody),
+      describeTextAvailability(rightBody),
+    ),
+    compareScalar(
+      "body.truncated",
+      describeBoolean(leftBody?.truncated),
+      describeBoolean(rightBody?.truncated),
+    ),
   ];
 }
 
@@ -251,7 +269,9 @@ function describeBodySize(body: SessionDetail["requestBody"] | SessionDetail["re
   return body ? `${body.sizeBytes} bytes` : "No body";
 }
 
-function describeTextAvailability(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
+function describeTextAvailability(
+  body: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+) {
   if (!body) {
     return "No body";
   }
@@ -291,15 +311,19 @@ function parseJson(value: string | undefined): { ok: true; value: unknown } | { 
 
 function diffJsonValues(path: string, left: unknown, right: unknown): SessionDiffEntry[] {
   if (JSON.stringify(left) === JSON.stringify(right)) {
-    return [{ path, kind: "unchanged", before: stringifyValue(left), after: stringifyValue(right) }];
+    return [
+      { path, kind: "unchanged", before: stringifyValue(left), after: stringifyValue(right) },
+    ];
   }
 
   if (isRecord(left) && isRecord(right)) {
     const keys = Array.from(new Set([...Object.keys(left), ...Object.keys(right)])).sort();
     return keys.flatMap((key) => {
       const nextPath = `${path}.${key}`;
-      if (!(key in left)) return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[key]) }];
-      if (!(key in right)) return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[key]) }];
+      if (!(key in left))
+        return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[key]) }];
+      if (!(key in right))
+        return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[key]) }];
       return diffJsonValues(nextPath, left[key], right[key]);
     });
   }
@@ -308,18 +332,22 @@ function diffJsonValues(path: string, left: unknown, right: unknown): SessionDif
     const length = Math.max(left.length, right.length);
     return Array.from({ length }, (_, index) => {
       const nextPath = `${path}[${index}]`;
-      if (index >= left.length) return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[index]) }];
-      if (index >= right.length) return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[index]) }];
+      if (index >= left.length)
+        return [{ path: nextPath, kind: "added" as const, after: stringifyValue(right[index]) }];
+      if (index >= right.length)
+        return [{ path: nextPath, kind: "removed" as const, before: stringifyValue(left[index]) }];
       return diffJsonValues(nextPath, left[index], right[index]);
     }).flat();
   }
 
-  return [{
-    path,
-    kind: "changed",
-    before: stringifyValue(left),
-    after: stringifyValue(right),
-  }];
+  return [
+    {
+      path,
+      kind: "changed",
+      before: stringifyValue(left),
+      after: stringifyValue(right),
+    },
+  ];
 }
 
 function diffTextLines(left: string, right: string): SessionDiffEntry[] {
@@ -330,11 +358,13 @@ function diffTextLines(left: string, right: string): SessionDiffEntry[] {
   return Array.from({ length }, (_, index) => {
     const before = leftLines[index];
     const after = rightLines[index];
-    if (before === undefined) return { path: `line ${index + 1}`, kind: "added" as const, after: truncateValue(after) };
-    if (after === undefined) return { path: `line ${index + 1}`, kind: "removed" as const, before: truncateValue(before) };
+    if (before === undefined)
+      return { path: `line ${index + 1}`, kind: "added" as const, after: truncateValue(after) };
+    if (after === undefined)
+      return { path: `line ${index + 1}`, kind: "removed" as const, before: truncateValue(before) };
     return {
       path: `line ${index + 1}`,
-      kind: before === after ? "unchanged" as const : "changed" as const,
+      kind: before === after ? ("unchanged" as const) : ("changed" as const),
       before: truncateValue(before),
       after: truncateValue(after),
     };

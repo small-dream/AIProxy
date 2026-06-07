@@ -1,5 +1,10 @@
 import { coerceAppError, isNullableString } from "./common";
-import { type BodyReference, type HeaderEntry, isHeaderEntry, normalizeBodyReference } from "./sessions";
+import {
+  type BodyReference,
+  type HeaderEntry,
+  isHeaderEntry,
+  normalizeBodyReference,
+} from "./sessions";
 
 export type BreakpointStage = "request" | "response";
 
@@ -138,7 +143,6 @@ export type MapRule = {
   targetValue: string;
   workspaceId: string;
 };
-
 
 export type MapSessionTrace = {
   durationMs: number;
@@ -281,7 +285,11 @@ export function parseBreakpointHit(value: unknown): BreakpointHit {
     path: candidate.path,
     requestHeaders: candidate.requestHeaders,
     ...(candidate.requestBody !== null && candidate.requestBody !== undefined
-      ? { requestBody: normalizeBodyReference(candidate.requestBody as BodyReference & Record<string, unknown>) }
+      ? {
+          requestBody: normalizeBodyReference(
+            candidate.requestBody as BodyReference & Record<string, unknown>,
+          ),
+        }
       : {}),
     ...(candidate.responseStatusCode !== null && candidate.responseStatusCode !== undefined
       ? { responseStatusCode: candidate.responseStatusCode }
@@ -290,7 +298,11 @@ export function parseBreakpointHit(value: unknown): BreakpointHit {
       ? { responseHeaders: candidate.responseHeaders }
       : {}),
     ...(candidate.responseBody !== null && candidate.responseBody !== undefined
-      ? { responseBody: normalizeBodyReference(candidate.responseBody as BodyReference & Record<string, unknown>) }
+      ? {
+          responseBody: normalizeBodyReference(
+            candidate.responseBody as BodyReference & Record<string, unknown>,
+          ),
+        }
       : {}),
   };
 }
@@ -326,7 +338,9 @@ export function isRuleMatch(value: unknown): value is RuleMatch {
     typeof candidate.urlPattern === "string" &&
     Array.isArray(candidate.methods) &&
     candidate.methods.every((method) => typeof method === "string") &&
-    (candidate.stage === "request" || candidate.stage === "response" || candidate.stage === "either")
+    (candidate.stage === "request" ||
+      candidate.stage === "response" ||
+      candidate.stage === "either")
   );
 }
 
@@ -370,14 +384,12 @@ function isRewriteBodyFieldEdit(value: unknown): value is RewriteBodyFieldEdit {
     typeof candidate.path === "string" &&
     (candidate.operation === "set" || candidate.operation === "remove") &&
     isNullableString(candidate.value) &&
-    (
-      candidate.valueType === undefined ||
+    (candidate.valueType === undefined ||
       candidate.valueType === "string" ||
       candidate.valueType === "number" ||
       candidate.valueType === "boolean" ||
       candidate.valueType === "null" ||
-      candidate.valueType === "json"
-    )
+      candidate.valueType === "json")
   );
 }
 
@@ -498,28 +510,25 @@ export function parseDnsMappings(value: unknown): DnsMappingRule[] {
 export function isScriptEntrypoints(value: unknown): value is ScriptEntrypoints {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptEntrypoints>;
-  return (
-    typeof candidate.onRequest === "boolean"
-    && typeof candidate.onResponse === "boolean"
-  );
+  return typeof candidate.onRequest === "boolean" && typeof candidate.onResponse === "boolean";
 }
 
 export function isScriptRule(value: unknown): value is ScriptRule {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptRule>;
   return (
-    typeof candidate.id === "string"
-    && typeof candidate.workspaceId === "string"
-    && typeof candidate.name === "string"
-    && typeof candidate.enabled === "boolean"
-    && typeof candidate.priority === "number"
-    && isNullableString(candidate.note)
-    && isRuleMatch(candidate.match)
-    && (candidate.language === "javascript" || candidate.language === "typescript")
-    && (candidate.sourceType === "inline" || candidate.sourceType === "fileImport")
-    && typeof candidate.sourceCode === "string"
-    && isNullableString(candidate.sourcePath)
-    && isScriptEntrypoints(candidate.entrypoints)
+    typeof candidate.id === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.priority === "number" &&
+    isNullableString(candidate.note) &&
+    isRuleMatch(candidate.match) &&
+    (candidate.language === "javascript" || candidate.language === "typescript") &&
+    (candidate.sourceType === "inline" || candidate.sourceType === "fileImport") &&
+    typeof candidate.sourceCode === "string" &&
+    isNullableString(candidate.sourcePath) &&
+    isScriptEntrypoints(candidate.entrypoints)
   );
 }
 
@@ -533,12 +542,16 @@ export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptRunEntry>;
   return (
-    (candidate.kind === "log" || candidate.kind === "extraction" || candidate.kind === "error")
-    && (candidate.level === undefined || candidate.level === "debug" || candidate.level === "info" || candidate.level === "warn" || candidate.level === "error")
-    && isNullableString(candidate.key)
-    && isNullableString(candidate.message)
-    && isNullableString(candidate.payloadJson)
-    && typeof candidate.sequence === "number"
+    (candidate.kind === "log" || candidate.kind === "extraction" || candidate.kind === "error") &&
+    (candidate.level === undefined ||
+      candidate.level === "debug" ||
+      candidate.level === "info" ||
+      candidate.level === "warn" ||
+      candidate.level === "error") &&
+    isNullableString(candidate.key) &&
+    isNullableString(candidate.message) &&
+    isNullableString(candidate.payloadJson) &&
+    typeof candidate.sequence === "number"
   );
 }
 
@@ -546,12 +559,16 @@ export function isScriptSessionTrace(value: unknown): value is ScriptSessionTrac
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptSessionTrace>;
   return (
-    typeof candidate.durationMs === "number"
-    && Array.isArray(candidate.entries)
-    && candidate.entries.every(isScriptRunEntry)
-    && (candidate.outcome === "success" || candidate.outcome === "skipped" || candidate.outcome === "runtimeError" || candidate.outcome === "timedOut" || candidate.outcome === "invalidResult")
-    && typeof candidate.ruleId === "string"
-    && (candidate.stage === "request" || candidate.stage === "response")
+    typeof candidate.durationMs === "number" &&
+    Array.isArray(candidate.entries) &&
+    candidate.entries.every(isScriptRunEntry) &&
+    (candidate.outcome === "success" ||
+      candidate.outcome === "skipped" ||
+      candidate.outcome === "runtimeError" ||
+      candidate.outcome === "timedOut" ||
+      candidate.outcome === "invalidResult") &&
+    typeof candidate.ruleId === "string" &&
+    (candidate.stage === "request" || candidate.stage === "response")
   );
 }
 
@@ -565,12 +582,18 @@ export function isRewriteRunEntry(value: unknown): value is RewriteRunEntry {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<RewriteRunEntry>;
   return (
-    (candidate.kind === "body-field" || candidate.kind === "header" || candidate.kind === "query" || candidate.kind === "body" || candidate.kind === "redirect" || candidate.kind === "skip" || candidate.kind === "error")
-    && isNullableString(candidate.after)
-    && isNullableString(candidate.before)
-    && isNullableString(candidate.key)
-    && isNullableString(candidate.message)
-    && typeof candidate.sequence === "number"
+    (candidate.kind === "body-field" ||
+      candidate.kind === "header" ||
+      candidate.kind === "query" ||
+      candidate.kind === "body" ||
+      candidate.kind === "redirect" ||
+      candidate.kind === "skip" ||
+      candidate.kind === "error") &&
+    isNullableString(candidate.after) &&
+    isNullableString(candidate.before) &&
+    isNullableString(candidate.key) &&
+    isNullableString(candidate.message) &&
+    typeof candidate.sequence === "number"
   );
 }
 
@@ -578,14 +601,19 @@ export function isRewriteSessionTrace(value: unknown): value is RewriteSessionTr
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<RewriteSessionTrace>;
   return (
-    typeof candidate.durationMs === "number"
-    && Array.isArray(candidate.entries)
-    && candidate.entries.every(isRewriteRunEntry)
-    && (candidate.outcome === "success" || candidate.outcome === "skipped" || candidate.outcome === "failed")
-    && (candidate.rewriteType === "header" || candidate.rewriteType === "query" || candidate.rewriteType === "body" || candidate.rewriteType === "redirect")
-    && typeof candidate.ruleId === "string"
-    && typeof candidate.ruleName === "string"
-    && (candidate.stage === "request" || candidate.stage === "response")
+    typeof candidate.durationMs === "number" &&
+    Array.isArray(candidate.entries) &&
+    candidate.entries.every(isRewriteRunEntry) &&
+    (candidate.outcome === "success" ||
+      candidate.outcome === "skipped" ||
+      candidate.outcome === "failed") &&
+    (candidate.rewriteType === "header" ||
+      candidate.rewriteType === "query" ||
+      candidate.rewriteType === "body" ||
+      candidate.rewriteType === "redirect") &&
+    typeof candidate.ruleId === "string" &&
+    typeof candidate.ruleName === "string" &&
+    (candidate.stage === "request" || candidate.stage === "response")
   );
 }
 
@@ -599,16 +627,16 @@ export function isMapSessionTrace(value: unknown): value is MapSessionTrace {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<MapSessionTrace>;
   return (
-    typeof candidate.durationMs === "number"
-    && isNullableString(candidate.localPath)
-    && isNullableString(candidate.mappedUrl)
-    && (candidate.mode === "local" || candidate.mode === "remote")
-    && typeof candidate.originalUrl === "string"
-    && typeof candidate.outcome === "string"
-    && typeof candidate.ruleId === "string"
-    && typeof candidate.ruleName === "string"
-    && typeof candidate.sourcePattern === "string"
-    && typeof candidate.targetValue === "string"
+    typeof candidate.durationMs === "number" &&
+    isNullableString(candidate.localPath) &&
+    isNullableString(candidate.mappedUrl) &&
+    (candidate.mode === "local" || candidate.mode === "remote") &&
+    typeof candidate.originalUrl === "string" &&
+    typeof candidate.outcome === "string" &&
+    typeof candidate.ruleId === "string" &&
+    typeof candidate.ruleName === "string" &&
+    typeof candidate.sourcePattern === "string" &&
+    typeof candidate.targetValue === "string"
   );
 }
 
@@ -622,10 +650,10 @@ export function isScriptSourceFile(value: unknown): value is ScriptSourceFile {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptSourceFile>;
   return (
-    typeof candidate.fileName === "string"
-    && (candidate.language === "javascript" || candidate.language === "typescript")
-    && typeof candidate.path === "string"
-    && typeof candidate.sourceCode === "string"
+    typeof candidate.fileName === "string" &&
+    (candidate.language === "javascript" || candidate.language === "typescript") &&
+    typeof candidate.path === "string" &&
+    typeof candidate.sourceCode === "string"
   );
 }
 

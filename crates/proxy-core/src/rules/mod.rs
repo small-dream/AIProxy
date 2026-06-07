@@ -1,40 +1,37 @@
 use super::*;
 
-mod types;
-mod patterns;
-mod managers;
-mod rewrite;
-mod map;
-mod throttle;
-mod script;
 mod json_path;
+mod managers;
+mod map;
+mod patterns;
+mod rewrite;
+mod script;
+mod throttle;
+mod types;
 
 // Re-export all pub types from types.rs
 pub use types::{
-    RewriteRuleMatch, RewriteRule, RewriteTraceEntry, RewriteTrace,
-    MapRule, MapTrace,
-    ThrottleProfileData, ThrottleRuleData, ThrottleTrace, ThrottleRuntimeStats,
+    MapRule, MapTrace, RewriteRule, RewriteRuleMatch, RewriteTrace, RewriteTraceEntry,
+    ThrottleProfileData, ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 
 // Re-export all pub structs from managers.rs
-pub use managers::{
-    RewriteManager, MapManager, ThrottleManager, DnsManager, DnsMappingRule,
-};
+pub use managers::{DnsManager, DnsMappingRule, MapManager, RewriteManager, ThrottleManager};
 
 // Re-export pub(crate) types that are used outside this module
 pub(crate) use types::{
-    ThrottleRuntimeSelection, ThrottleFailure, RequestRuntimeOutcome, RequestScriptOutcome,
+    RequestRuntimeOutcome, RequestScriptOutcome, ThrottleFailure, ThrottleRuntimeSelection,
 };
 
 // Re-export pub(crate) functions used outside this module
-pub(crate) use patterns::{pattern_matches, compile_match_regex};
-pub(crate) use rewrite::{
-    apply_request_rewrite_rules, apply_response_rewrite_rules,
-    method_matches, rewrite_stage_matches, rebuild_request_runtime_state,
-};
 pub(crate) use map::apply_map_rules;
-pub(crate) use throttle::{apply_request_throttle, apply_response_throttle};
+pub(crate) use patterns::{compile_match_regex, pattern_matches};
+pub(crate) use rewrite::{
+    apply_request_rewrite_rules, apply_response_rewrite_rules, method_matches,
+    rebuild_request_runtime_state, rewrite_stage_matches,
+};
 pub(crate) use script::{apply_request_script_rules, apply_response_script_rules};
+pub(crate) use throttle::{apply_request_throttle, apply_response_throttle};
 
 // ---------------------------------------------------------------------------
 // Pipeline orchestration functions (reference multiple managers)
@@ -88,7 +85,10 @@ fn active_rewrite_rules_for_stage(
             // Use pre-compiled regex for "regex" match type; fall back to
             // pattern_matches for other match types (exact/wildcard/contains).
             match cr.rule.r#match.match_type.as_deref() {
-                Some("regex") => cr.compiled_match.as_ref().is_some_and(|re| re.is_match(request.url.as_str())),
+                Some("regex") => cr
+                    .compiled_match
+                    .as_ref()
+                    .is_some_and(|re| re.is_match(request.url.as_str())),
                 _ => pattern_matches(
                     &cr.rule.r#match.url_pattern,
                     request.url.as_str(),
@@ -140,7 +140,13 @@ fn active_script_rules_for_stage(
         .filter(|rule| rule.rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
-        .filter(|rule| pattern_matches(&rule.rule.r#match.url_pattern, request.url.as_str(), rule.rule.r#match.match_type.as_deref()))
+        .filter(|rule| {
+            pattern_matches(
+                &rule.rule.r#match.url_pattern,
+                request.url.as_str(),
+                rule.rule.r#match.match_type.as_deref(),
+            )
+        })
         .collect();
 
     rules.sort_by(|left, right| right.rule.priority.cmp(&left.rule.priority));

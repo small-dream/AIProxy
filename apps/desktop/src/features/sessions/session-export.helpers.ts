@@ -45,8 +45,14 @@ export function buildHarArchive(details: SessionDetail[]) {
             method: detail.summary.method,
             url: detail.summary.url,
             httpVersion,
-            headers: detail.requestHeaders.map((header) => ({ name: header.name, value: header.value })),
-            queryString: detail.queryParams.map((query) => ({ name: query.name, value: query.value })),
+            headers: detail.requestHeaders.map((header) => ({
+              name: header.name,
+              value: header.value,
+            })),
+            queryString: detail.queryParams.map((query) => ({
+              name: query.name,
+              value: query.value,
+            })),
             headersSize: -1,
             bodySize: detail.requestBody?.sizeBytes ?? 0,
             postData: detail.requestBody
@@ -60,10 +66,16 @@ export function buildHarArchive(details: SessionDetail[]) {
             status: detail.summary.statusCode,
             statusText: "",
             httpVersion,
-            headers: detail.responseHeaders.map((header) => ({ name: header.name, value: header.value })),
+            headers: detail.responseHeaders.map((header) => ({
+              name: header.name,
+              value: header.value,
+            })),
             content: {
               size: detail.responseBody?.sizeBytes ?? detail.summary.sizeBytes,
-              mimeType: detail.responseBody?.mimeType ?? detail.summary.responseMimeType ?? "application/octet-stream",
+              mimeType:
+                detail.responseBody?.mimeType ??
+                detail.summary.responseMimeType ??
+                "application/octet-stream",
               text: getBodyText(detail.responseBody),
             },
             redirectURL: "",

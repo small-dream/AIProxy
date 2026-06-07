@@ -38,7 +38,12 @@ import {
   type AppUpdateInfo,
   type AppUpdateProgress,
 } from "@/services/updater/app-updater";
-import { getAiSettings, getAppBuildInfo, saveAiSettings, testAiConnection } from "@/services/commands";
+import {
+  getAiSettings,
+  getAppBuildInfo,
+  saveAiSettings,
+  testAiConnection,
+} from "@/services/commands";
 import {
   appFontSizeOptions,
   appFontPreferences,
@@ -100,9 +105,10 @@ function ProxySettingsSection() {
     [workspaceId, workspaces],
   );
   const [draft, setDraft] = useState(createProxyDraft());
-  const [feedback, setFeedback] = useState<{ severity: "error" | "success"; message: string } | null>(
-    null,
-  );
+  const [feedback, setFeedback] = useState<{
+    severity: "error" | "success";
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     setDraft(createProxyDraft(currentWorkspace));
@@ -147,13 +153,20 @@ function ProxySettingsSection() {
   }
 
   const isBusy = updateWorkspaceMutation.isPending || startProxyMutation.isPending;
-  const portError = !Number.isInteger(draft.proxyPort) || draft.proxyPort < 1 || draft.proxyPort > 65535;
+  const portError =
+    !Number.isInteger(draft.proxyPort) || draft.proxyPort < 1 || draft.proxyPort > 65535;
   const hasChanges = currentWorkspace
-    ? currentWorkspace.proxyPort !== draft.proxyPort || currentWorkspace.sslEnabled !== draft.sslEnabled || currentWorkspace.http2Enabled !== draft.http2Enabled
+    ? currentWorkspace.proxyPort !== draft.proxyPort ||
+      currentWorkspace.sslEnabled !== draft.sslEnabled ||
+      currentWorkspace.http2Enabled !== draft.http2Enabled
     : false;
 
   return (
-    <SectionCard compact title={t("proxyPresets.title")} description={t("proxyPresets.description")}>
+    <SectionCard
+      compact
+      title={t("proxyPresets.title")}
+      description={t("proxyPresets.description")}
+    >
       <Stack spacing={1.5}>
         <Stack
           direction={{ md: "row", xs: "column" }}
@@ -238,10 +251,13 @@ function ProxySettingsSection() {
           </Button>
         </Stack>
 
-        <Alert severity="info" variant="outlined" icon={<CheckCircleRoundedIcon />} sx={compactAlertSx}>
-          {proxyStatus?.running
-            ? t("proxyPresets.runningHint")
-            : t("proxyPresets.stoppedHint")}
+        <Alert
+          severity="info"
+          variant="outlined"
+          icon={<CheckCircleRoundedIcon />}
+          sx={compactAlertSx}
+        >
+          {proxyStatus?.running ? t("proxyPresets.runningHint") : t("proxyPresets.stoppedHint")}
         </Alert>
 
         {feedback && (
@@ -342,7 +358,11 @@ function UpdatesSection() {
       : null;
 
   return (
-    <SectionCard compact title={t("settingsPage.updatesSectionTitle")} description={t("settingsPage.updatesDescription")}>
+    <SectionCard
+      compact
+      title={t("settingsPage.updatesSectionTitle")}
+      description={t("settingsPage.updatesDescription")}
+    >
       <Stack spacing={1.5}>
         <Stack
           direction={{ sm: "row", xs: "column" }}
@@ -357,7 +377,9 @@ function UpdatesSection() {
             disabled={isChecking || isInstalling}
             sx={{ minHeight: 34, px: 1.75 }}
           >
-            {isChecking ? t("settingsPage.updatesCheckingAction") : t("settingsPage.updatesCheckAction")}
+            {isChecking
+              ? t("settingsPage.updatesCheckingAction")
+              : t("settingsPage.updatesCheckAction")}
           </Button>
 
           <Button
@@ -368,7 +390,9 @@ function UpdatesSection() {
             disabled={!availableUpdate || isChecking || isInstalling}
             sx={{ minHeight: 34, px: 1.75 }}
           >
-            {isInstalling ? t("settingsPage.updatesInstallingAction") : t("settingsPage.updatesInstallAction")}
+            {isInstalling
+              ? t("settingsPage.updatesInstallingAction")
+              : t("settingsPage.updatesInstallAction")}
           </Button>
         </Stack>
 
@@ -411,7 +435,10 @@ function AiModelSettingsSection() {
       setFeedback({ severity: "success", message: t("settingsPage.aiSaveSuccess") });
     },
     onError: (error) => {
-      setFeedback({ severity: "error", message: coerceAppError(error).message || t("common.errors.generic") });
+      setFeedback({
+        severity: "error",
+        message: coerceAppError(error).message || t("common.errors.generic"),
+      });
     },
   });
   const testMutation = useMutation({
@@ -423,7 +450,10 @@ function AiModelSettingsSection() {
       });
     },
     onError: (error) => {
-      setFeedback({ severity: "error", message: coerceAppError(error).message || t("common.errors.generic") });
+      setFeedback({
+        severity: "error",
+        message: coerceAppError(error).message || t("common.errors.generic"),
+      });
     },
   });
   const [draft, setDraft] = useState<SaveAiSettingsInput>({
@@ -435,7 +465,10 @@ function AiModelSettingsSection() {
   });
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [apiKeyDraftDirty, setApiKeyDraftDirty] = useState(false);
-  const [feedback, setFeedback] = useState<{ severity: "error" | "info" | "success"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    severity: "error" | "info" | "success";
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!settings) {
@@ -466,7 +499,11 @@ function AiModelSettingsSection() {
   const busy = saveMutation.isPending || testMutation.isPending;
 
   return (
-    <SectionCard compact title={t("settingsPage.aiSectionTitle")} description={t("settingsPage.aiSectionDescription")}>
+    <SectionCard
+      compact
+      title={t("settingsPage.aiSectionTitle")}
+      description={t("settingsPage.aiSectionDescription")}
+    >
       <Stack spacing={1.5}>
         <Box
           sx={{
@@ -484,7 +521,12 @@ function AiModelSettingsSection() {
             <Select
               label={t("settingsPage.aiProvider")}
               value={draft.provider}
-              onChange={(event) => setDraft({ ...draft, provider: event.target.value as SaveAiSettingsInput["provider"] })}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  provider: event.target.value as SaveAiSettingsInput["provider"],
+                })
+              }
             >
               <MenuItem value="openai-compatible">OpenAI-compatible</MenuItem>
             </Select>
@@ -538,7 +580,11 @@ function AiModelSettingsSection() {
           />
         </Box>
 
-        <Stack direction={{ sm: "row", xs: "column" }} spacing={1} alignItems={{ sm: "center", xs: "stretch" }}>
+        <Stack
+          direction={{ sm: "row", xs: "column" }}
+          spacing={1}
+          alignItems={{ sm: "center", xs: "stretch" }}
+        >
           <Button
             size="small"
             variant="contained"
@@ -588,7 +634,11 @@ function AboutSection() {
   const commitHash = buildInfo?.commitHash ?? "dev";
 
   return (
-    <SectionCard compact title={t("settingsPage.aboutSectionTitle")} description={t("settingsPage.aboutSectionDescription")}>
+    <SectionCard
+      compact
+      title={t("settingsPage.aboutSectionTitle")}
+      description={t("settingsPage.aboutSectionDescription")}
+    >
       <Stack spacing={1.5}>
         <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
           {t("settingsPage.aboutUniqueIdentifier", {
@@ -608,7 +658,10 @@ function AboutSection() {
           <BuildInfoField label={t("settingsPage.aboutVersion")} value={version} />
           <BuildInfoField label={t("settingsPage.aboutBuildNumber")} value={buildNumber} />
           <BuildInfoField label={t("settingsPage.aboutCommitHash")} value={commitHash} />
-          <BuildInfoField label={t("settingsPage.aboutVersionIdentifier")} value={versionIdentifier} />
+          <BuildInfoField
+            label={t("settingsPage.aboutVersionIdentifier")}
+            value={versionIdentifier}
+          />
         </Box>
       </Stack>
     </SectionCard>
@@ -647,8 +700,12 @@ export function SettingsPage() {
   const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
   const fontSizePreference = useAppPreferencesStore((state) => state.fontSizePreference);
   const uiCustomFontFamily = useAppPreferencesStore((state) => state.uiCustomFontFamily);
-  const setContentCustomFontFamily = useAppPreferencesStore((state) => state.setContentCustomFontFamily);
-  const setContentFontPreference = useAppPreferencesStore((state) => state.setContentFontPreference);
+  const setContentCustomFontFamily = useAppPreferencesStore(
+    (state) => state.setContentCustomFontFamily,
+  );
+  const setContentFontPreference = useAppPreferencesStore(
+    (state) => state.setContentFontPreference,
+  );
   const setFontFamilyPreference = useAppPreferencesStore((state) => state.setFontFamilyPreference);
   const setFontSizePreference = useAppPreferencesStore((state) => state.setFontSizePreference);
   const themePreference = useAppPreferencesStore((state) => state.themePreference);
@@ -725,7 +782,9 @@ export function SettingsPage() {
               <Select
                 label={t("settingsPage.themeLabel")}
                 value={themePreference}
-                onChange={(event) => setThemePreference(event.target.value as typeof themePreference)}
+                onChange={(event) =>
+                  setThemePreference(event.target.value as typeof themePreference)
+                }
               >
                 <MenuItem value="system">{t("settingsPage.themeOptionSystem")}</MenuItem>
                 <MenuItem value="light">{t("settingsPage.themeOptionLight")}</MenuItem>

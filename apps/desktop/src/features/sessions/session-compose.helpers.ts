@@ -1,4 +1,9 @@
-import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type {
+  BodyReference,
+  HeaderEntry,
+  SessionDetail,
+  SessionSummary,
+} from "@aiproxy/shared-types";
 
 import type { BodyType, RawLanguage } from "@/features/compose/compose-editor.store";
 import { parseFormEntries } from "@/features/sessions/components/session-inspector.helpers";
@@ -36,7 +41,10 @@ function inferComposeBodyConfig(
   body: BodyReference | undefined,
   headers: HeaderEntry[],
   bodyText: string,
-): Pick<ComposeLoadFromSessionInput, "bodyType" | "formDataEntries" | "rawLanguage" | "urlEncodedEntries"> {
+): Pick<
+  ComposeLoadFromSessionInput,
+  "bodyType" | "formDataEntries" | "rawLanguage" | "urlEncodedEntries"
+> {
   if (!bodyText) {
     return { bodyType: "none", rawLanguage: "json", formDataEntries: [], urlEncodedEntries: [] };
   }
@@ -47,7 +55,12 @@ function inferComposeBodyConfig(
     const urlEncodedEntries = parseUrlEncodedEntries(bodyText);
 
     if (urlEncodedEntries.length > 0) {
-      return { bodyType: "urlencoded", rawLanguage: "json", formDataEntries: [], urlEncodedEntries };
+      return {
+        bodyType: "urlencoded",
+        rawLanguage: "json",
+        formDataEntries: [],
+        urlEncodedEntries,
+      };
     }
   }
 
@@ -70,7 +83,10 @@ function inferComposeBodyConfig(
 }
 
 function parseUrlEncodedEntries(bodyText: string): HeaderEntry[] {
-  return Array.from(new URLSearchParams(bodyText).entries()).map(([name, value]) => ({ name, value }));
+  return Array.from(new URLSearchParams(bodyText).entries()).map(([name, value]) => ({
+    name,
+    value,
+  }));
 }
 
 function getContentType(body: BodyReference | undefined, headers: HeaderEntry[]): string {
@@ -80,7 +96,10 @@ function getContentType(body: BodyReference | undefined, headers: HeaderEntry[])
     return bodyMimeType;
   }
 
-  return headers.find((header) => header.name.toLowerCase() === "content-type")?.value.toLowerCase() ?? "";
+  return (
+    headers.find((header) => header.name.toLowerCase() === "content-type")?.value.toLowerCase() ??
+    ""
+  );
 }
 
 function inferRawLanguage(contentType: string): RawLanguage {

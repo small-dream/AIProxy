@@ -42,18 +42,45 @@ import {
 } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { alpha } from "@mui/material/styles";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 
 import type { ApiCollection, ApiCollectionItem, HeaderEntry } from "@aiproxy/shared-types";
 
 import { ComposeRequestSection } from "@/features/compose/components/ComposeRequestSection";
-import { ComposeResponseSection, type ComposeResponseTab } from "@/features/compose/components/ComposeResponseSection";
-import { buildMultipartBody, FORMDATA_CONTENT_TYPE, RAW_LANGUAGE_CONTENT_TYPE, URLENCODED_CONTENT_TYPE } from "@/features/compose/compose-editor.store";
+import {
+  ComposeResponseSection,
+  type ComposeResponseTab,
+} from "@/features/compose/components/ComposeResponseSection";
+import {
+  buildMultipartBody,
+  FORMDATA_CONTENT_TYPE,
+  RAW_LANGUAGE_CONTENT_TYPE,
+  URLENCODED_CONTENT_TYPE,
+} from "@/features/compose/compose-editor.store";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useCollectionEditorStore } from "@/features/collections/collection-editor.store";
-import { CollectionTreeNodeView, parseDndId } from "@/features/collections/components/CollectionTreeNodeView";
-import { computeDropIntent, isFolderCycleViolation, type DropPosition } from "@/features/collections/components/dnd-helpers";
-import type { CollectionEditorItem, RenameTarget } from "@/features/collections/components/tree-types";
+import {
+  CollectionTreeNodeView,
+  parseDndId,
+} from "@/features/collections/components/CollectionTreeNodeView";
+import {
+  computeDropIntent,
+  isFolderCycleViolation,
+  type DropPosition,
+} from "@/features/collections/components/dnd-helpers";
+import type {
+  CollectionEditorItem,
+  RenameTarget,
+} from "@/features/collections/components/tree-types";
 import {
   useCollectionItems,
   useDeleteCollectionItem,
@@ -145,9 +172,13 @@ export function CollectionsPage() {
   });
   const [inspectorSplitRatio, setInspectorSplitRatio] = useState(() => {
     const parsedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
-    return Number.isFinite(parsedRatio) ? clampInspectorSplitRatio(parsedRatio) : DEFAULT_REQUEST_SPLIT_RATIO;
+    return Number.isFinite(parsedRatio)
+      ? clampInspectorSplitRatio(parsedRatio)
+      : DEFAULT_REQUEST_SPLIT_RATIO;
   });
-  const [requestCollapsed, setRequestCollapsed] = useState(() => readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true");
+  const [requestCollapsed, setRequestCollapsed] = useState(
+    () => readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
+  );
 
   const ACTIVE_ENV_KEY = "aiproxy.collections.activeEnvironmentId";
   const environmentsQuery = useEnvironments();
@@ -217,7 +248,10 @@ export function CollectionsPage() {
     id: string;
     sourceCollectionId?: string;
   } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ overDndId: string; position: DropPosition } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    overDndId: string;
+    position: DropPosition;
+  } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const cursorRef = useRef({ x: 0, y: 0 });
   const springLoadRef = useRef<{ folderId: string; timer: number } | null>(null);
@@ -254,7 +288,10 @@ export function CollectionsPage() {
     }
   }
 
-  const filteredTree = useMemo(() => filterCollectionTree(tree, collectionFilter), [tree, collectionFilter]);
+  const filteredTree = useMemo(
+    () => filterCollectionTree(tree, collectionFilter),
+    [tree, collectionFilter],
+  );
 
   function handleTreeContextMenu(event: ReactMouseEvent, target: RenameTarget) {
     event.preventDefault();
@@ -273,7 +310,11 @@ export function CollectionsPage() {
   function handleBeginRename() {
     if (!treeMenuState) return;
     setRenameTarget(treeMenuState.target);
-    setRenameName(treeMenuState.target.kind === "collection" ? treeMenuState.target.name : treeMenuState.target.item.name);
+    setRenameName(
+      treeMenuState.target.kind === "collection"
+        ? treeMenuState.target.name
+        : treeMenuState.target.item.name,
+    );
     setTreeMenuState(null);
   }
 
@@ -369,7 +410,10 @@ export function CollectionsPage() {
         if (active.length > 0) {
           const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
           encodedBody = buildMultipartBody(active, boundary);
-          finalHeaders = ensureContentType(finalHeaders, `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`);
+          finalHeaders = ensureContentType(
+            finalHeaders,
+            `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`,
+          );
         }
         break;
       }
@@ -391,7 +435,10 @@ export function CollectionsPage() {
       case "raw": {
         if (substitutedBody.trim()) {
           encodedBody = substitutedBody;
-          finalHeaders = ensureContentType(finalHeaders, RAW_LANGUAGE_CONTENT_TYPE[editor.rawLanguage]);
+          finalHeaders = ensureContentType(
+            finalHeaders,
+            RAW_LANGUAGE_CONTENT_TYPE[editor.rawLanguage],
+          );
         }
         break;
       }
@@ -463,14 +510,22 @@ export function CollectionsPage() {
     return collections.find((c) => c.id === id);
   }
 
-  function indexAmongCollectionSiblings(targetId: string, parentId: string | null, excludeId: string | null): number {
+  function indexAmongCollectionSiblings(
+    targetId: string,
+    parentId: string | null,
+    excludeId: string | null,
+  ): number {
     const siblings = collections
       .filter((c) => c.parentId === parentId && c.id !== excludeId)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
     return siblings.findIndex((c) => c.id === targetId);
   }
 
-  function indexAmongItemSiblings(targetId: string, itemList: ApiCollectionItem[], excludeId: string | null): number {
+  function indexAmongItemSiblings(
+    targetId: string,
+    itemList: ApiCollectionItem[],
+    excludeId: string | null,
+  ): number {
     const sorted = itemList
       .filter((it) => it.id !== excludeId)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
@@ -483,7 +538,9 @@ export function CollectionsPage() {
     setActiveDnd({
       kind: parsed.kind,
       id: parsed.id,
-      ...(parsed.kind === "item" && selectedCollectionId ? { sourceCollectionId: selectedCollectionId } : {}),
+      ...(parsed.kind === "item" && selectedCollectionId
+        ? { sourceCollectionId: selectedCollectionId }
+        : {}),
     });
   }
 
@@ -518,7 +575,8 @@ export function CollectionsPage() {
     const overFolder = overParsed.kind === "folder" ? findFolder(overParsed.id) : null;
     const overIsExpanded = overParsed.kind === "folder" ? isFolderExpanded(overParsed.id) : false;
     const overHasChildren = overFolder
-      ? collections.some((c) => c.parentId === overFolder.id) || (overFolder.id === selectedCollectionId && items.length > 0)
+      ? collections.some((c) => c.parentId === overFolder.id) ||
+        (overFolder.id === selectedCollectionId && items.length > 0)
       : false;
 
     const intent = computeDropIntent({
@@ -542,7 +600,7 @@ export function CollectionsPage() {
         intent === "into"
           ? overParsed.id
           : overParsed.kind === "folder"
-            ? findFolder(overParsed.id)?.parentId ?? null
+            ? (findFolder(overParsed.id)?.parentId ?? null)
             : null;
       if (isFolderCycleViolation(activeDnd.id, targetParentId, collections)) {
         setDropTarget(null);
@@ -592,7 +650,9 @@ export function CollectionsPage() {
       if (over.position === "into") {
         if (overParsed.kind !== "folder") return;
         targetParentId = overParsed.id;
-        const childCount = collections.filter((c) => c.parentId === targetParentId && c.id !== active.id).length;
+        const childCount = collections.filter(
+          (c) => c.parentId === targetParentId && c.id !== active.id,
+        ).length;
         sortOrder = childCount;
       } else {
         if (overParsed.kind !== "folder") return;
@@ -611,9 +671,10 @@ export function CollectionsPage() {
         { id: active.id, targetParentId, sortOrder },
         {
           onError: (err: unknown) => {
-            const msg = err instanceof Error && err.message.includes("descendant")
-              ? t("collectionsPage.moveCycleBlocked")
-              : t("collectionsPage.moveFailed");
+            const msg =
+              err instanceof Error && err.message.includes("descendant")
+                ? t("collectionsPage.moveCycleBlocked")
+                : t("collectionsPage.moveFailed");
             setMoveError(msg);
           },
         },
@@ -630,9 +691,10 @@ export function CollectionsPage() {
       if (over.position === "into") {
         if (overParsed.kind !== "folder") return;
         targetCollectionId = overParsed.id;
-        sortOrder = targetCollectionId === sourceCollectionId
-          ? items.filter((it) => it.id !== active.id).length
-          : APPEND_SORT_ORDER;
+        sortOrder =
+          targetCollectionId === sourceCollectionId
+            ? items.filter((it) => it.id !== active.id).length
+            : APPEND_SORT_ORDER;
       } else {
         if (overParsed.kind !== "item") return;
         targetCollectionId = sourceCollectionId;
@@ -712,45 +774,48 @@ export function CollectionsPage() {
     window.addEventListener("pointercancel", stopResize);
   }
 
-  const startInspectorResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const container = event.currentTarget.parentElement;
-    if (!container || requestCollapsed) return;
+  const startInspectorResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const container = event.currentTarget.parentElement;
+      if (!container || requestCollapsed) return;
 
-    event.preventDefault();
-    const pointerId = event.pointerId;
-    event.currentTarget.setPointerCapture(pointerId);
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      event.currentTarget.setPointerCapture(pointerId);
 
-    const updateRatio = (clientY: number) => {
-      const bounds = container.getBoundingClientRect();
-      if (bounds.height <= 0) return;
+      const updateRatio = (clientY: number) => {
+        const bounds = container.getBoundingClientRect();
+        if (bounds.height <= 0) return;
 
-      const nextRatio = clampInspectorSplitRatio((clientY - bounds.top) / bounds.height);
+        const nextRatio = clampInspectorSplitRatio((clientY - bounds.top) / bounds.height);
 
-      if (inspectorDragFrameRef.current) {
-        window.cancelAnimationFrame(inspectorDragFrameRef.current);
-      }
+        if (inspectorDragFrameRef.current) {
+          window.cancelAnimationFrame(inspectorDragFrameRef.current);
+        }
 
-      inspectorDragFrameRef.current = window.requestAnimationFrame(() => {
-        setInspectorSplitRatio(nextRatio);
-      });
-    };
+        inspectorDragFrameRef.current = window.requestAnimationFrame(() => {
+          setInspectorSplitRatio(nextRatio);
+        });
+      };
 
-    updateRatio(event.clientY);
+      updateRatio(event.clientY);
 
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      updateRatio(moveEvent.clientY);
-    };
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateRatio(moveEvent.clientY);
+      };
 
-    const stopResize = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
-    };
+      const stopResize = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+      };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
-  }, [requestCollapsed]);
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [requestCollapsed],
+  );
 
   const responseDetail = sendMutation.data;
   const collectionCount = countTreeNodes(tree);
@@ -779,7 +844,7 @@ export function CollectionsPage() {
           icon={<AccountTreeRoundedIcon />}
           meta={t("collectionsPage.collectionCount", { count: collectionCount })}
           title={t("collectionsPage.library")}
-          actions={(
+          actions={
             <Tooltip title={t("collectionsPage.newCollection")}>
               <IconButton
                 size="small"
@@ -791,7 +856,7 @@ export function CollectionsPage() {
                 <CreateNewFolderRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-          )}
+          }
         />
         <Box sx={{ px: 1.25, pb: 1 }}>
           <SearchInput
@@ -868,9 +933,15 @@ export function CollectionsPage() {
             spacing={0.75}
             sx={(theme) => ({
               alignItems: "center",
-              bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06),
+              bgcolor: alpha(
+                theme.palette.primary.main,
+                theme.palette.mode === "dark" ? 0.1 : 0.06,
+              ),
               border: 1,
-              borderColor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.16),
+              borderColor: alpha(
+                theme.palette.primary.main,
+                theme.palette.mode === "dark" ? 0.22 : 0.16,
+              ),
               borderRadius: 1,
               p: 0.75,
             })}
@@ -900,7 +971,11 @@ export function CollectionsPage() {
               ))}
             </Select>
             <Tooltip title={t("collectionsPage.manageEnvironments")}>
-              <IconButton size="small" onClick={() => setManageEnvDialogOpen(true)} sx={{ color: "text.secondary", flex: "0 0 auto" }}>
+              <IconButton
+                size="small"
+                onClick={() => setManageEnvDialogOpen(true)}
+                sx={{ color: "text.secondary", flex: "0 0 auto" }}
+              >
                 <SettingsRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -921,7 +996,8 @@ export function CollectionsPage() {
           touchAction: "none",
           userSelect: "none",
           "&::before": {
-            bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
+            bgcolor: (theme) =>
+              alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.46 : 0.62),
             content: '""',
             height: "100%",
             opacity: 1,
@@ -950,7 +1026,10 @@ export function CollectionsPage() {
           <Stack sx={{ flex: 1, minHeight: 0 }}>
             <Box
               sx={(theme) => ({
-                bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.74 : 0.86),
+                bgcolor: alpha(
+                  theme.palette.background.paper,
+                  theme.palette.mode === "dark" ? 0.74 : 0.86,
+                ),
                 borderBottom: 1,
                 borderColor: "divider",
                 flexShrink: 0,
@@ -975,7 +1054,11 @@ export function CollectionsPage() {
                   onChange={(e) => editor.setMethod(e.target.value)}
                 >
                   {HTTP_METHODS.map((method) => (
-                    <MenuItem key={method} sx={{ fontFamily: appFontCssVars.content, fontSize: 13, fontWeight: 700 }} value={method}>
+                    <MenuItem
+                      key={method}
+                      sx={{ fontFamily: appFontCssVars.content, fontSize: 13, fontWeight: 700 }}
+                      value={method}
+                    >
                       {method}
                     </MenuItem>
                   ))}
@@ -984,13 +1067,16 @@ export function CollectionsPage() {
                   fullWidth
                   placeholder={t("composePage.urlPlaceholder")}
                   size="small"
-                  startAdornment={(
+                  startAdornment={
                     <InputAdornment position="start">
                       <LinkRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
                     </InputAdornment>
-                  )}
+                  }
                   sx={(theme) => ({
-                    bgcolor: alpha(theme.palette.background.default, theme.palette.mode === "dark" ? 0.38 : 0.62),
+                    bgcolor: alpha(
+                      theme.palette.background.default,
+                      theme.palette.mode === "dark" ? 0.38 : 0.62,
+                    ),
                     fontFamily: appFontCssVars.content,
                     fontSize: 13,
                     minWidth: 0,
@@ -1013,7 +1099,9 @@ export function CollectionsPage() {
                       sx={{ flex: "0 0 auto", minHeight: 36, minWidth: 104 }}
                       variant="outlined"
                     >
-                      {editor.itemId ? t("collectionsPage.updateRequest") : t("collectionsPage.saveAsNew")}
+                      {editor.itemId
+                        ? t("collectionsPage.updateRequest")
+                        : t("collectionsPage.saveAsNew")}
                     </Button>
                   </span>
                 </Tooltip>
@@ -1027,13 +1115,21 @@ export function CollectionsPage() {
                       sx={{ flex: "0 0 auto", minHeight: 36, minWidth: 88 }}
                       variant="contained"
                     >
-                      {sendMutation.isPending ? <CircularProgress color="inherit" size={18} /> : t("collectionsPage.sendRequest")}
+                      {sendMutation.isPending ? (
+                        <CircularProgress color="inherit" size={18} />
+                      ) : (
+                        t("collectionsPage.sendRequest")
+                      )}
                     </Button>
                   </span>
                 </Tooltip>
               </Stack>
 
-              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", mt: 0.75, minWidth: 0 }}>
+              <Stack
+                direction="row"
+                spacing={0.75}
+                sx={{ alignItems: "center", mt: 0.75, minWidth: 0 }}
+              >
                 <TextField
                   placeholder={t("collectionsPage.requestName")}
                   size="small"
@@ -1116,7 +1212,8 @@ export function CollectionsPage() {
                     touchAction: "none",
                     userSelect: "none",
                     "&::before": {
-                      bgcolor: (theme) => alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
+                      bgcolor: (theme) =>
+                        alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
                       content: '""',
                       height: 1,
                       opacity: 1,
@@ -1157,14 +1254,14 @@ export function CollectionsPage() {
       </WorkbenchPane>
 
       <Menu
-        anchorPosition={treeMenuState ? { left: treeMenuState.mouseX, top: treeMenuState.mouseY } : undefined}
+        anchorPosition={
+          treeMenuState ? { left: treeMenuState.mouseX, top: treeMenuState.mouseY } : undefined
+        }
         anchorReference="anchorPosition"
         onClose={handleTreeMenuClose}
         open={Boolean(treeMenuState)}
       >
-        <MenuItem onClick={handleBeginRename}>
-          {t("collectionsPage.rename")}
-        </MenuItem>
+        <MenuItem onClick={handleBeginRename}>{t("collectionsPage.rename")}</MenuItem>
       </Menu>
 
       <Dialog
@@ -1174,7 +1271,9 @@ export function CollectionsPage() {
         onClose={() => setNewCollectionDialogOpen(false)}
       >
         <DialogTitle>
-          {newCollectionParentId ? t("collectionsPage.newFolder") : t("collectionsPage.newCollection")}
+          {newCollectionParentId
+            ? t("collectionsPage.newFolder")
+            : t("collectionsPage.newCollection")}
         </DialogTitle>
         <DialogContent>
           <TextField
@@ -1203,18 +1302,17 @@ export function CollectionsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        fullWidth
-        maxWidth="xs"
-        open={Boolean(renameTarget)}
-        onClose={handleRenameCancel}
-      >
+      <Dialog fullWidth maxWidth="xs" open={Boolean(renameTarget)} onClose={handleRenameCancel}>
         <DialogTitle>{t("collectionsPage.rename")}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label={renameTarget?.kind === "item" ? t("collectionsPage.requestName") : t("collectionsPage.namePlaceholder")}
+            label={
+              renameTarget?.kind === "item"
+                ? t("collectionsPage.requestName")
+                : t("collectionsPage.namePlaceholder")
+            }
             value={renameName}
             onChange={(e) => setRenameName(e.target.value)}
             onKeyDown={(e) => {
@@ -1224,14 +1322,8 @@ export function CollectionsPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleRenameCancel}>
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            disabled={!renameName.trim()}
-            onClick={handleRenameSubmit}
-            variant="contained"
-          >
+          <Button onClick={handleRenameCancel}>{t("common.actions.cancel")}</Button>
+          <Button disabled={!renameName.trim()} onClick={handleRenameSubmit} variant="contained">
             {t("collectionsPage.rename")}
           </Button>
         </DialogActions>
@@ -1253,13 +1345,7 @@ export function CollectionsPage() {
   );
 }
 
-function WorkbenchPane({
-  children,
-  sx,
-}: {
-  children: ReactNode;
-  sx?: SxProps<Theme>;
-}) {
+function WorkbenchPane({ children, sx }: { children: ReactNode; sx?: SxProps<Theme> }) {
   const paneSx = [
     (theme: Theme) => ({
       bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.96),
@@ -1275,13 +1361,7 @@ function WorkbenchPane({
     ...(sx ? (Array.isArray(sx) ? sx : [sx]) : []),
   ] as SxProps<Theme>;
 
-  return (
-    <Box
-      sx={paneSx}
-    >
-      {children}
-    </Box>
-  );
+  return <Box sx={paneSx}>{children}</Box>;
 }
 
 function PaneHeader({
@@ -1296,7 +1376,11 @@ function PaneHeader({
   title: string;
 }) {
   return (
-    <Stack direction="row" spacing={0.875} sx={{ alignItems: "center", flexShrink: 0, minHeight: 54, px: 1.125 }}>
+    <Stack
+      direction="row"
+      spacing={0.875}
+      sx={{ alignItems: "center", flexShrink: 0, minHeight: 54, px: 1.125 }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -1342,13 +1426,16 @@ function SearchInput({
       fullWidth
       placeholder={placeholder}
       size="small"
-      startAdornment={(
+      startAdornment={
         <InputAdornment position="start">
           <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 17 }} />
         </InputAdornment>
-      )}
+      }
       sx={(theme) => ({
-        bgcolor: alpha(theme.palette.background.default, theme.palette.mode === "dark" ? 0.28 : 0.52),
+        bgcolor: alpha(
+          theme.palette.background.default,
+          theme.palette.mode === "dark" ? 0.28 : 0.52,
+        ),
         fontSize: 12.25,
         "& .MuiOutlinedInput-input": {
           py: 0.75,
@@ -1380,7 +1467,12 @@ function EmptyPaneState({
   title: string;
 }) {
   return (
-    <Stack alignItems="center" justifyContent="center" spacing={1.25} sx={{ minHeight: 180, px: 2, textAlign: "center" }}>
+    <Stack
+      alignItems="center"
+      justifyContent="center"
+      spacing={1.25}
+      sx={{ minHeight: 180, px: 2, textAlign: "center" }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -1418,13 +1510,21 @@ function EmptyWorkspace({
   t: (key: TranslationKey) => string;
 }) {
   return (
-    <Stack alignItems="center" justifyContent="center" spacing={1.5} sx={{ flex: 1, px: 4, textAlign: "center" }}>
+    <Stack
+      alignItems="center"
+      justifyContent="center"
+      spacing={1.5}
+      sx={{ flex: 1, px: 4, textAlign: "center" }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
           bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.08),
           border: 1,
-          borderColor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.24 : 0.16),
+          borderColor: alpha(
+            theme.palette.primary.main,
+            theme.palette.mode === "dark" ? 0.24 : 0.16,
+          ),
           borderRadius: 1.5,
           color: "primary.main",
           display: "flex",
@@ -1437,10 +1537,14 @@ function EmptyWorkspace({
         <ArticleRoundedIcon />
       </Box>
       <Typography sx={{ fontSize: 18, fontWeight: 800 }}>
-        {collectionSelected ? t("collectionsPage.readyToCreateRequest") : t("collectionsPage.noCollectionSelected")}
+        {collectionSelected
+          ? t("collectionsPage.readyToCreateRequest")
+          : t("collectionsPage.noCollectionSelected")}
       </Typography>
       <Typography color="text.secondary" sx={{ fontSize: 13, maxWidth: 420 }}>
-        {collectionSelected ? t("collectionsPage.createRequestHint") : t("collectionsPage.selectCollectionHint")}
+        {collectionSelected
+          ? t("collectionsPage.createRequestHint")
+          : t("collectionsPage.selectCollectionHint")}
       </Typography>
       {collectionSelected ? (
         <Button onClick={onCreateRequest} startIcon={<AddRoundedIcon />} variant="contained">

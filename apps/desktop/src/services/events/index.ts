@@ -53,7 +53,9 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
   });
 }
 
-export function onSessionUpsert(callback: (summary: SessionUpsertEvent) => void): Promise<Unlisten> {
+export function onSessionUpsert(
+  callback: (summary: SessionUpsertEvent) => void,
+): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});
   }
@@ -67,7 +69,9 @@ export function onSessionUpsert(callback: (summary: SessionUpsertEvent) => void)
   });
 }
 
-export function onSessionRemove(callback: (sessionId: SessionRemoveEvent) => void): Promise<Unlisten> {
+export function onSessionRemove(
+  callback: (sessionId: SessionRemoveEvent) => void,
+): Promise<Unlisten> {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return Promise.resolve(() => {});
   }

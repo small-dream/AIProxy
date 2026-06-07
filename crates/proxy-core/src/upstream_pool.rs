@@ -182,9 +182,7 @@ impl UpstreamConnectionPool {
 
         // Check ALPN — if the upstream did not negotiate h2 we cannot pool this
         // connection as h2. Return None so the caller falls back to h1.
-        let negotiated_h2 = connection_timing
-            .alpn_protocol
-            .as_deref() == Some("h2");
+        let negotiated_h2 = connection_timing.alpn_protocol.as_deref() == Some("h2");
 
         if !negotiated_h2 {
             emit_log(
@@ -302,7 +300,8 @@ mod tests {
     async fn eviction_on_empty_pool_is_noop() {
         let pool = UpstreamConnectionPool::new();
         // Should not panic or deadlock on an empty pool.
-        pool.evict_expired_with_max_idle(Duration::from_secs(60)).await;
+        pool.evict_expired_with_max_idle(Duration::from_secs(60))
+            .await;
 
         // The connections map should remain empty.
         let connections = pool.connections.read().await;

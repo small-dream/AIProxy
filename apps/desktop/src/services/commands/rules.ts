@@ -24,20 +24,11 @@ import {
   type ScriptSourceFile,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
-import {
-  getImportedSessionDetail,
-} from "@/features/sessions/imported-sessions.store";
+import { getImportedSessionDetail } from "@/features/sessions/imported-sessions.store";
 
-import {
-  isTauriRuntime,
-  reportCommandFailure,
-  shouldFallbackToLocalStore,
-} from "./runtime";
+import { isTauriRuntime, reportCommandFailure, shouldFallbackToLocalStore } from "./runtime";
 
 const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
 const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
@@ -122,7 +113,10 @@ export async function resolveBreakpoint(resolution: BreakpointResolution): Promi
   }
 
   try {
-    logDevInfo("ui.commands", "resolve_breakpoint_requested", { sessionId: resolution.sessionId, action: resolution.action });
+    logDevInfo("ui.commands", "resolve_breakpoint_requested", {
+      sessionId: resolution.sessionId,
+      action: resolution.action,
+    });
     await invoke("resolve_breakpoint", { resolution });
     logDevInfo("ui.commands", "resolve_breakpoint_succeeded");
   } catch (error) {
@@ -152,7 +146,9 @@ export async function listRewriteRules(workspaceId = DEFAULT_WORKSPACE_ID): Prom
     }
   }
 
-  return readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter((rule) => rule.workspaceId === workspaceId);
+  return readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter(
+    (rule) => rule.workspaceId === workspaceId,
+  );
 }
 
 export async function saveRewriteRule(
@@ -266,7 +262,9 @@ export async function listScriptRules(workspaceId = DEFAULT_WORKSPACE_ID): Promi
     }
   }
 
-  return readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter((rule) => rule.workspaceId === workspaceId);
+  return readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter(
+    (rule) => rule.workspaceId === workspaceId,
+  );
 }
 
 export async function saveScriptRule(
@@ -383,11 +381,14 @@ export async function listDnsMappings(input: { workspaceId: string }): Promise<D
     }
   }
 
-  return readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings)
-    .filter((rule) => rule.workspaceId === input.workspaceId);
+  return readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings).filter(
+    (rule) => rule.workspaceId === input.workspaceId,
+  );
 }
 
-export async function saveDnsMapping(input: Omit<DnsMappingRule, "id"> & { id?: string }): Promise<DnsMappingRule> {
+export async function saveDnsMapping(
+  input: Omit<DnsMappingRule, "id"> & { id?: string },
+): Promise<DnsMappingRule> {
   if (isTauriRuntime()) {
     try {
       const result = await invoke("save_dns_mapping", { input });
@@ -436,7 +437,9 @@ export async function deleteRule(input: {
   if (input.ruleType === "rewrite") {
     writeStoredRules(
       REWRITE_RULES_STORAGE_KEY,
-      readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter((rule) => rule.id !== input.ruleId),
+      readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules).filter(
+        (rule) => rule.id !== input.ruleId,
+      ),
     );
     return;
   }
@@ -444,7 +447,9 @@ export async function deleteRule(input: {
   if (input.ruleType === "dns") {
     writeStoredRules(
       DNS_MAPPINGS_STORAGE_KEY,
-      readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings).filter((rule) => rule.id !== input.ruleId),
+      readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings).filter(
+        (rule) => rule.id !== input.ruleId,
+      ),
     );
     return;
   }
@@ -452,13 +457,17 @@ export async function deleteRule(input: {
   if (input.ruleType === "script") {
     writeStoredRules(
       SCRIPT_RULES_STORAGE_KEY,
-      readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter((rule) => rule.id !== input.ruleId),
+      readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules).filter(
+        (rule) => rule.id !== input.ruleId,
+      ),
     );
     return;
   }
 
   writeStoredRules(
     MAP_RULES_STORAGE_KEY,
-    readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules).filter((rule) => rule.id !== input.ruleId),
+    readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules).filter(
+      (rule) => rule.id !== input.ruleId,
+    ),
   );
 }

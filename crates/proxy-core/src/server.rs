@@ -247,7 +247,6 @@ mod tests {
         assert_eq!(parsed["details"]["host"], "127.0.0.1");
     }
 
-
     // -----------------------------------------------------------------------
     // CONNECT port parsing from URL
     // -----------------------------------------------------------------------
@@ -569,7 +568,9 @@ pub(crate) async fn forward_request(
                         .map_err(|_: std::convert::Infallible| unreachable!())
                         .boxed(),
                 )
-                .map_err(|e| ProxyError::UpstreamError(format!("failed to build upstream request: {e}")))?
+                .map_err(|e| {
+                    ProxyError::UpstreamError(format!("failed to build upstream request: {e}"))
+                })?
         } else {
             http_req_builder
                 .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
@@ -577,7 +578,9 @@ pub(crate) async fn forward_request(
                         .map_err(|_: std::convert::Infallible| unreachable!())
                         .boxed(),
                 )
-                .map_err(|e| ProxyError::UpstreamError(format!("failed to build upstream request body: {e}")))?
+                .map_err(|e| {
+                    ProxyError::UpstreamError(format!("failed to build upstream request body: {e}"))
+                })?
         };
 
         // send_request + read
@@ -605,7 +608,9 @@ pub(crate) async fn forward_request(
                         ("error", error.to_string()),
                     ],
                 );
-                return Err(ProxyError::UpstreamError(format!("failed to send upstream h2 request: {error}")));
+                return Err(ProxyError::UpstreamError(format!(
+                    "failed to send upstream h2 request: {error}"
+                )));
             }
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
@@ -614,10 +619,12 @@ pub(crate) async fn forward_request(
     } else {
         // h1 path — establish a new connection per request.
         let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
-        let uri: http::Uri =
-            request.url.to_string().parse().map_err(|e| {
-                ProxyError::UpstreamError(format!("failed to parse upstream URL '{}' as URI: {e}", request.url))
-            })?;
+        let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
+            ProxyError::UpstreamError(format!(
+                "failed to parse upstream URL '{}' as URI: {e}",
+                request.url
+            ))
+        })?;
         let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
             .await
             .map_err(|error| {
@@ -970,7 +977,6 @@ async fn create_response_spool_file(
     Ok((file, path))
 }
 
-
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
 async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     mut client_stream: S,
@@ -1218,8 +1224,9 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
     })?;
 
     // Read the upstream 101 response and relay it to the client
-    let (response_head, response_prefix) =
-        read_http_response_head(&mut upstream).await.inspect_err(|e| {
+    let (response_head, response_prefix) = read_http_response_head(&mut upstream)
+        .await
+        .inspect_err(|e| {
             emit_log(
                 "ERROR",
                 "wss_read_response_head_failed",
@@ -1538,7 +1545,6 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
     Ok(())
 }
 
-
 /// Header-only probe to detect CONNECT / CA cert requests.
 ///
 /// Reads from the stream until `\r\n\r\n` is found, then parses the
@@ -1838,4 +1844,3 @@ pub async fn send_direct_request(
         h2_stream_id: None,
     })
 }
-

@@ -38,7 +38,10 @@ impl RewriteManager {
         let compiled = rules
             .into_iter()
             .map(|rule| CompiledRewriteRule {
-                compiled_match: compile_match_regex(&rule.r#match.match_type, &rule.r#match.url_pattern),
+                compiled_match: compile_match_regex(
+                    &rule.r#match.match_type,
+                    &rule.r#match.url_pattern,
+                ),
                 rule,
             })
             .collect();
@@ -57,7 +60,10 @@ impl RewriteManager {
 
     pub fn save_rule(&self, rule: RewriteRule) -> RewriteRule {
         let compiled = CompiledRewriteRule {
-            compiled_match: compile_match_regex(&rule.r#match.match_type, &rule.r#match.url_pattern),
+            compiled_match: compile_match_regex(
+                &rule.r#match.match_type,
+                &rule.r#match.url_pattern,
+            ),
             rule: rule.clone(),
         };
         let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());

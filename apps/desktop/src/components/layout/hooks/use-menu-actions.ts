@@ -13,7 +13,11 @@ import { getErrorMessage } from "./helpers";
 interface MenuHandlerDeps {
   navigate: NavigateFunction;
   proxyStatus: ProxyStatus | undefined;
-  handleStartProxy: (input?: { enableSsl: boolean; port: number; workspaceId: string }) => Promise<void>;
+  handleStartProxy: (input?: {
+    enableSsl: boolean;
+    port: number;
+    workspaceId: string;
+  }) => Promise<void>;
   handleStopProxy: () => Promise<void>;
   handleSystemProxyToggle: () => Promise<void>;
   handleAdbSetProxy: () => Promise<void>;

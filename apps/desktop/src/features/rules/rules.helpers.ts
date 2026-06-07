@@ -54,10 +54,18 @@ export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"):
         },
       };
     case "redirect":
-      return { ...base, rewriteType, payload: { preservePath: true, preserveQuery: true, targetUrl: "" } };
+      return {
+        ...base,
+        rewriteType,
+        payload: { preservePath: true, preserveQuery: true, targetUrl: "" },
+      };
     case "header":
     default:
-      return { ...base, rewriteType: "header", payload: { headerName: "", operation: "set", target: "request", value: "" } };
+      return {
+        ...base,
+        rewriteType: "header",
+        payload: { headerName: "", operation: "set", target: "request", value: "" },
+      };
   }
 }
 
@@ -105,9 +113,10 @@ export function createEmptyScriptRule(language: ScriptRule["language"] = "typesc
     note: "",
     language,
     sourceType: "inline",
-    sourceCode: language === "typescript"
-      ? "export function onRequest(ctx) {\n  ctx.request.setHeader(\"x-script\", \"enabled\");\n}\n"
-      : "export function onRequest(ctx) {\n  ctx.request.setHeader(\"x-script\", \"enabled\");\n}\n",
+    sourceCode:
+      language === "typescript"
+        ? 'export function onRequest(ctx) {\n  ctx.request.setHeader("x-script", "enabled");\n}\n'
+        : 'export function onRequest(ctx) {\n  ctx.request.setHeader("x-script", "enabled");\n}\n',
     entrypoints: {
       onRequest: true,
       onResponse: false,
@@ -166,26 +175,35 @@ export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn):
 
   if (rule.rewriteType === "header") {
     if (!rule.payload.headerName.trim()) errors.push(t("rulesPage.validation.headerNameRequired"));
-    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim()) errors.push(t("rulesPage.validation.headerValueRequired"));
+    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
+      errors.push(t("rulesPage.validation.headerValueRequired"));
   }
   if (rule.rewriteType === "query") {
     if (!rule.payload.paramName.trim()) errors.push(t("rulesPage.validation.queryNameRequired"));
-    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim()) errors.push(t("rulesPage.validation.queryValueRequired"));
+    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
+      errors.push(t("rulesPage.validation.queryValueRequired"));
   }
   if (rule.rewriteType === "body") {
     const mode = rule.payload.mode ?? "replace";
-    if (mode === "replace" && !(rule.payload.text ?? "").trim()) errors.push(t("rulesPage.validation.bodyTextRequired"));
+    if (mode === "replace" && !(rule.payload.text ?? "").trim())
+      errors.push(t("rulesPage.validation.bodyTextRequired"));
     if (mode === "fields") {
       const fields = rule.payload.fields ?? [];
       if (fields.length === 0 || fields.some((field) => !field.path.trim())) {
         errors.push(t("rulesPage.validation.bodyFieldPathRequired"));
       }
-      if (fields.some((field) => field.operation === "set" && field.valueType !== "null" && !(field.value ?? "").trim())) {
+      if (
+        fields.some(
+          (field) =>
+            field.operation === "set" && field.valueType !== "null" && !(field.value ?? "").trim(),
+        )
+      ) {
         errors.push(t("rulesPage.validation.bodyFieldValueRequired"));
       }
     }
   }
-  if (rule.rewriteType === "redirect" && !rule.payload.targetUrl.trim()) errors.push(t("rulesPage.validation.redirectTargetRequired"));
+  if (rule.rewriteType === "redirect" && !rule.payload.targetUrl.trim())
+    errors.push(t("rulesPage.validation.redirectTargetRequired"));
 
   return errors;
 }
@@ -195,7 +213,11 @@ export function getMapValidationErrors(rule: MapRule, t: TranslationFn): string[
   if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
   if (!rule.sourcePattern.trim()) errors.push(t("rulesPage.validation.mapSourceRequired"));
   if (!rule.targetValue.trim()) {
-    errors.push(rule.mode === "local" ? t("rulesPage.validation.localTargetRequired") : t("rulesPage.validation.remoteTargetRequired"));
+    errors.push(
+      rule.mode === "local"
+        ? t("rulesPage.validation.localTargetRequired")
+        : t("rulesPage.validation.remoteTargetRequired"),
+    );
   } else if (rule.mode === "remote" && !isValidHttpUrl(rule.targetValue.trim())) {
     errors.push(t("rulesPage.validation.remoteTargetInvalid"));
   }
@@ -214,10 +236,14 @@ export function getScriptValidationErrors(rule: ScriptRule, t: TranslationFn): s
 
 export function getRewriteTypeLabel(rewriteType: RewriteRuleType, t: TranslationFn) {
   switch (rewriteType) {
-    case "header": return t("rulesPage.rewrite.types.header");
-    case "query": return t("rulesPage.rewrite.types.query");
-    case "body": return t("rulesPage.rewrite.types.body");
-    case "redirect": return t("rulesPage.rewrite.types.redirect");
+    case "header":
+      return t("rulesPage.rewrite.types.header");
+    case "query":
+      return t("rulesPage.rewrite.types.query");
+    case "body":
+      return t("rulesPage.rewrite.types.body");
+    case "redirect":
+      return t("rulesPage.rewrite.types.redirect");
   }
 }
 

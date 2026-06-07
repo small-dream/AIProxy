@@ -11,7 +11,7 @@ pub(crate) enum ConnectionMode {
     MitmHttps {
         host: String, // CONNECT target host
         #[allow(dead_code)]
-        port: u16,    // CONNECT target port
+        port: u16, // CONNECT target port
         tls_protocol: Option<String>,
         tls_cipher_suite: Option<String>,
         #[allow(dead_code)]

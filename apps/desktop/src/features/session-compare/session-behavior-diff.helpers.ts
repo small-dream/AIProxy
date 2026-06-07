@@ -47,16 +47,21 @@ export function normalizeEndpoint(session: SessionSummary): string {
   const url = parseUrl(session.url);
   const host = normalizeHost(url?.host ?? session.host);
   const path = normalizePath(url?.pathname ?? session.path);
-  const keyParam = ENDPOINT_QUERY_KEYS
-    .map((key) => [key, url?.searchParams.get(key)] as const)
-    .find(([, value]) => Boolean(value?.trim()));
+  const keyParam = ENDPOINT_QUERY_KEYS.map(
+    (key) => [key, url?.searchParams.get(key)] as const,
+  ).find(([, value]) => Boolean(value?.trim()));
   const queryMarker = keyParam ? ` ${keyParam[0]}=${keyParam[1]}` : "";
 
   return `${session.method.toUpperCase()} ${host}${path}${queryMarker}`;
 }
 
-export function getAvailableDomains(leftSessions: SessionSummary[], rightSessions: SessionSummary[]) {
-  return Array.from(new Set([...leftSessions, ...rightSessions].map((session) => normalizeHost(session.host))))
+export function getAvailableDomains(
+  leftSessions: SessionSummary[],
+  rightSessions: SessionSummary[],
+) {
+  return Array.from(
+    new Set([...leftSessions, ...rightSessions].map((session) => normalizeHost(session.host))),
+  )
     .filter(Boolean)
     .sort((left, right) => left.localeCompare(right));
 }
@@ -86,8 +91,11 @@ function buildOverview(sessions: SessionSummary[]): SessionCompareOverview {
 
   return {
     requestCount: sessions.length,
-    successCount: sessions.filter((session) => session.statusCode >= 200 && session.statusCode < 400).length,
-    failureCount: sessions.filter((session) => session.statusCode >= 400 || session.statusCode <= 0).length,
+    successCount: sessions.filter(
+      (session) => session.statusCode >= 200 && session.statusCode < 400,
+    ).length,
+    failureCount: sessions.filter((session) => session.statusCode >= 400 || session.statusCode <= 0)
+      .length,
     domainCount: new Set(sessions.map((session) => normalizeHost(session.host))).size,
     totalSizeBytes: sum(sessions.map((session) => finiteNumber(session.sizeBytes))),
     statusCodes,
@@ -120,31 +128,41 @@ function buildDomainRows(leftSessions: SessionSummary[], rightSessions: SessionS
   });
 }
 
-function buildEndpointRows(leftSessions: SessionSummary[], rightSessions: SessionSummary[]): SessionCompareEndpointRow[] {
+function buildEndpointRows(
+  leftSessions: SessionSummary[],
+  rightSessions: SessionSummary[],
+): SessionCompareEndpointRow[] {
   const leftStats = collectEndpointStats(leftSessions);
   const rightStats = collectEndpointStats(rightSessions);
   const endpoints = Array.from(new Set([...leftStats.keys(), ...rightStats.keys()])).sort();
 
-  return endpoints.map((endpoint) => {
-    const left = leftStats.get(endpoint);
-    const right = rightStats.get(endpoint);
-    const leftCount = left?.count ?? 0;
-    const rightCount = right?.count ?? 0;
+  return endpoints
+    .map((endpoint) => {
+      const left = leftStats.get(endpoint);
+      const right = rightStats.get(endpoint);
+      const leftCount = left?.count ?? 0;
+      const rightCount = right?.count ?? 0;
 
-    return {
-      endpoint,
-      kind: getEndpointKind(leftCount, rightCount),
-      leftCount,
-      rightCount,
-      delta: rightCount - leftCount,
-      leftAverageDurationMs: leftCount > 0 ? Math.round((left?.totalDurationMs ?? 0) / leftCount) : 0,
-      rightAverageDurationMs: rightCount > 0 ? Math.round((right?.totalDurationMs ?? 0) / rightCount) : 0,
-      leftTotalDurationMs: left?.totalDurationMs ?? 0,
-      rightTotalDurationMs: right?.totalDurationMs ?? 0,
-      leftStatusCodes: left?.statusCodes ?? {},
-      rightStatusCodes: right?.statusCodes ?? {},
-    };
-  }).sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.endpoint.localeCompare(right.endpoint));
+      return {
+        endpoint,
+        kind: getEndpointKind(leftCount, rightCount),
+        leftCount,
+        rightCount,
+        delta: rightCount - leftCount,
+        leftAverageDurationMs:
+          leftCount > 0 ? Math.round((left?.totalDurationMs ?? 0) / leftCount) : 0,
+        rightAverageDurationMs:
+          rightCount > 0 ? Math.round((right?.totalDurationMs ?? 0) / rightCount) : 0,
+        leftTotalDurationMs: left?.totalDurationMs ?? 0,
+        rightTotalDurationMs: right?.totalDurationMs ?? 0,
+        leftStatusCodes: left?.statusCodes ?? {},
+        rightStatusCodes: right?.statusCodes ?? {},
+      };
+    })
+    .sort(
+      (left, right) =>
+        Math.abs(right.delta) - Math.abs(left.delta) || left.endpoint.localeCompare(right.endpoint),
+    );
 }
 
 function buildTimeline(leftSessions: SessionSummary[], rightSessions: SessionSummary[]) {
@@ -201,8 +219,12 @@ function buildSequence(leftSessions: SessionSummary[], rightSessions: SessionSum
   return {
     left: left.slice(0, MAX_SEQUENCE_ENTRIES),
     right: right.slice(0, MAX_SEQUENCE_ENTRIES),
-    addedEndpoints: Array.from(rightSet).filter((endpoint) => !leftSet.has(endpoint)).sort(),
-    removedEndpoints: Array.from(leftSet).filter((endpoint) => !rightSet.has(endpoint)).sort(),
+    addedEndpoints: Array.from(rightSet)
+      .filter((endpoint) => !leftSet.has(endpoint))
+      .sort(),
+    removedEndpoints: Array.from(leftSet)
+      .filter((endpoint) => !rightSet.has(endpoint))
+      .sort(),
     changedPositions: changedPositions.slice(0, MAX_SEQUENCE_MISMATCHES),
     repeatedEndpoints: Array.from(new Set([...left, ...right]))
       .map((endpoint) => ({
@@ -211,21 +233,27 @@ function buildSequence(leftSessions: SessionSummary[], rightSessions: SessionSum
         rightCount: rightCounts.get(endpoint) ?? 0,
       }))
       .filter((entry) => entry.leftCount > 1 || entry.rightCount > 1)
-      .sort((leftEntry, rightEntry) =>
-        Math.max(rightEntry.leftCount, rightEntry.rightCount) - Math.max(leftEntry.leftCount, leftEntry.rightCount),
+      .sort(
+        (leftEntry, rightEntry) =>
+          Math.max(rightEntry.leftCount, rightEntry.rightCount) -
+          Math.max(leftEntry.leftCount, leftEntry.rightCount),
       ),
   };
 }
 
 function collectEndpointStats(sessions: SessionSummary[]) {
-  const stats = new Map<string, { count: number; totalDurationMs: number; statusCodes: Record<string, number> }>();
+  const stats = new Map<
+    string,
+    { count: number; totalDurationMs: number; statusCodes: Record<string, number> }
+  >();
 
   for (const session of sessions) {
     const endpoint = normalizeEndpoint(session);
     const current = stats.get(endpoint) ?? { count: 0, totalDurationMs: 0, statusCodes: {} };
     current.count += 1;
     current.totalDurationMs += finiteNumber(session.durationMs);
-    current.statusCodes[String(session.statusCode)] = (current.statusCodes[String(session.statusCode)] ?? 0) + 1;
+    current.statusCodes[String(session.statusCode)] =
+      (current.statusCodes[String(session.statusCode)] ?? 0) + 1;
     stats.set(endpoint, current);
   }
 

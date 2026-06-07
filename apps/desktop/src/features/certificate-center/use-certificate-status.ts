@@ -75,7 +75,11 @@ export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
 }
 
 export function useInstallAndroidCertificateViaAdb() {
-  return useMutation<AndroidAdbCertificateInstallResult, Error, InstallAndroidCertificateViaAdbInput | undefined>({
+  return useMutation<
+    AndroidAdbCertificateInstallResult,
+    Error,
+    InstallAndroidCertificateViaAdbInput | undefined
+  >({
     mutationFn: (input) => installAndroidCertificateViaAdb(input),
   });
 }
@@ -90,7 +94,11 @@ export function useIosSimulators(options?: DeviceQueryOptions) {
 }
 
 export function useInstallIosCertificateViaSimulator() {
-  return useMutation<IOSSimulatorCertificateInstallResult, Error, InstallIosCertificateViaSimulatorInput | undefined>({
+  return useMutation<
+    IOSSimulatorCertificateInstallResult,
+    Error,
+    InstallIosCertificateViaSimulatorInput | undefined
+  >({
     mutationFn: (input) => installIosCertificateViaSimulator(input),
   });
 }

@@ -281,7 +281,10 @@ describe("buildSessionHostGroups", () => {
 
     expect(reconcileExpandedKeys([], groups)).toEqual([]);
     expect(
-      reconcileExpandedKeys(["missing.example.com", "api.example.com", "api.example.com::api"], groups),
+      reconcileExpandedKeys(
+        ["missing.example.com", "api.example.com", "api.example.com::api"],
+        groups,
+      ),
     ).toEqual(["api.example.com", "api.example.com::api"]);
   });
 
@@ -339,11 +342,14 @@ describe("buildSessionHostGroups", () => {
     );
 
     expect(
-      reconcileExpandedKeys([
-        "__unfocused__",
-        "__unfocused__::host:assets.example.com",
-        "__unfocused__::host:assets.example.com/api",
-      ], groups),
+      reconcileExpandedKeys(
+        [
+          "__unfocused__",
+          "__unfocused__::host:assets.example.com",
+          "__unfocused__::host:assets.example.com/api",
+        ],
+        groups,
+      ),
     ).toEqual(["assets.example.com", "assets.example.com::api"]);
   });
 });
@@ -363,7 +369,9 @@ describe("filterSessionsByHostKeyword", () => {
       }),
     ];
 
-    expect(filterSessionsByHostKeyword(sessions, "assets").map((session) => session.id)).toEqual(["session-17"]);
+    expect(filterSessionsByHostKeyword(sessions, "assets").map((session) => session.id)).toEqual([
+      "session-17",
+    ]);
   });
 
   it("returns the original sessions when the domain filter is empty", () => {

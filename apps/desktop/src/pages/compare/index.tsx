@@ -155,7 +155,10 @@ export function ComparePage() {
     };
   }, [compareMode, leftId, queryClient, rightId, t]);
 
-  const sessionById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
   const scopeOptions = useMemo(
     () => scopes.map((scope) => resolveScope(scope, sessionById)),
     [scopes, sessionById],
@@ -177,7 +180,8 @@ export function ComparePage() {
     [rightScopeId, scopeOptions],
   );
   const domainOptions = useMemo(
-    () => getAvailableDomains(selectedLeftScope?.sessions ?? [], selectedRightScope?.sessions ?? []),
+    () =>
+      getAvailableDomains(selectedLeftScope?.sessions ?? [], selectedRightScope?.sessions ?? []),
     [selectedLeftScope?.sessions, selectedRightScope?.sessions],
   );
   const effectiveDomainFilter = useMemo(
@@ -194,7 +198,16 @@ export function ComparePage() {
     summaryMutation.reset();
     setExpandedBodySections(new Set());
     setExpandedEntrySections(new Set());
-  }, [compareMode, effectiveDomainFilter, includeBodyForAi, leftId, leftScopeId, rightId, rightScopeId, summaryMutation]);
+  }, [
+    compareMode,
+    effectiveDomainFilter,
+    includeBodyForAi,
+    leftId,
+    leftScopeId,
+    rightId,
+    rightScopeId,
+    summaryMutation,
+  ]);
 
   const requestDisplayPayload = useMemo(() => {
     if (compareMode !== "request" || !detailState.left || !detailState.right) {
@@ -210,7 +223,12 @@ export function ComparePage() {
   }, [compareMode, detailState.left, detailState.right, expandedBodySections, includeBodyForAi]);
 
   const sessionPayload = useMemo(() => {
-    if (compareMode !== "session" || !selectedLeftScope || !selectedRightScope || selectedLeftScope.id === selectedRightScope.id) {
+    if (
+      compareMode !== "session" ||
+      !selectedLeftScope ||
+      !selectedRightScope ||
+      selectedLeftScope.id === selectedRightScope.id
+    ) {
       return undefined;
     }
     return buildSessionComparePayload(selectedLeftScope, selectedRightScope, effectiveDomainFilter);
@@ -249,8 +267,10 @@ export function ComparePage() {
     setRightId(nextRight);
     const params = new URLSearchParams(searchParams);
     params.set("mode", "request");
-    if (nextLeft) params.set("left", nextLeft); else params.delete("left");
-    if (nextRight) params.set("right", nextRight); else params.delete("right");
+    if (nextLeft) params.set("left", nextLeft);
+    else params.delete("left");
+    if (nextRight) params.set("right", nextRight);
+    else params.delete("right");
     setSearchParams(params);
   }
 
@@ -259,8 +279,10 @@ export function ComparePage() {
     setRightScopeId(nextRightScope);
     const params = new URLSearchParams(searchParams);
     params.set("mode", "session");
-    if (nextLeftScope) params.set("leftScope", nextLeftScope); else params.delete("leftScope");
-    if (nextRightScope) params.set("rightScope", nextRightScope); else params.delete("rightScope");
+    if (nextLeftScope) params.set("leftScope", nextLeftScope);
+    else params.delete("leftScope");
+    if (nextRightScope) params.set("rightScope", nextRightScope);
+    else params.delete("rightScope");
     setSearchParams(params);
   }
 
@@ -301,9 +323,10 @@ export function ComparePage() {
     });
   }
 
-  const isSameSelection = compareMode === "request"
-    ? Boolean(leftId && rightId && leftId === rightId)
-    : Boolean(leftScopeId && rightScopeId && leftScopeId === rightScopeId);
+  const isSameSelection =
+    compareMode === "request"
+      ? Boolean(leftId && rightId && leftId === rightId)
+      : Boolean(leftScopeId && rightScopeId && leftScopeId === rightScopeId);
 
   return (
     <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
@@ -318,7 +341,9 @@ export function ComparePage() {
             {t("comparePage.title")}
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            {compareMode === "request" ? t("comparePage.requestDescription") : t("comparePage.sessionDescription")}
+            {compareMode === "request"
+              ? t("comparePage.requestDescription")
+              : t("comparePage.sessionDescription")}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -343,7 +368,9 @@ export function ComparePage() {
             }}
             disabled={!canGenerate || summaryMutation.isPending}
           >
-            {summaryMutation.isPending ? t("comparePage.generating") : t("comparePage.generateSummary")}
+            {summaryMutation.isPending
+              ? t("comparePage.generating")
+              : t("comparePage.generateSummary")}
           </Button>
         </Stack>
       </Stack>
@@ -390,8 +417,12 @@ export function ComparePage() {
         </Stack>
       </Paper>
 
-      {isSameSelection ? <Alert severity="warning">{t("comparePage.sameSessionWarning")}</Alert> : null}
-      {compareMode === "request" && detailState.error ? <Alert severity="error">{detailState.error}</Alert> : null}
+      {isSameSelection ? (
+        <Alert severity="warning">{t("comparePage.sameSessionWarning")}</Alert>
+      ) : null}
+      {compareMode === "request" && detailState.error ? (
+        <Alert severity="error">{detailState.error}</Alert>
+      ) : null}
 
       <Box
         sx={{
@@ -402,14 +433,32 @@ export function ComparePage() {
           flex: 1,
         }}
       >
-        <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, minHeight: 0, overflow: "hidden" }}>
+        <Paper
+          elevation={0}
+          sx={{
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 2,
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
           <Stack sx={{ height: "100%", minHeight: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
+            >
               <CompareArrowsRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
-                {compareMode === "request" ? t("comparePage.diffWorkbench") : t("comparePage.behaviorWorkbench")}
+                {compareMode === "request"
+                  ? t("comparePage.diffWorkbench")
+                  : t("comparePage.behaviorWorkbench")}
               </Typography>
-              {compareMode === "request" && detailState.loading ? <Chip size="small" label={t("comparePage.loadingDetails")} /> : null}
+              {compareMode === "request" && detailState.loading ? (
+                <Chip size="small" label={t("comparePage.loadingDetails")} />
+              ) : null}
             </Stack>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
               {compareMode === "request" ? (
@@ -430,7 +479,10 @@ export function ComparePage() {
                   </Stack>
                 )
               ) : (
-                <SessionCompareWorkbench hasScopes={scopeOptions.length > 0} payload={sessionPayload} />
+                <SessionCompareWorkbench
+                  hasScopes={scopeOptions.length > 0}
+                  payload={sessionPayload}
+                />
               )}
             </Box>
           </Stack>
@@ -584,13 +636,19 @@ function SessionCompareControls({
           onChange={(value) => onSelectionChange(leftScopeId, value)}
         />
       </Box>
-      <FormControl size="small" fullWidth disabled={!leftScopeId || !rightScopeId || domainOptions.length === 0}>
+      <FormControl
+        size="small"
+        fullWidth
+        disabled={!leftScopeId || !rightScopeId || domainOptions.length === 0}
+      >
         <InputLabel>{t("comparePage.domainFilter")}</InputLabel>
         <Select
           multiple
           label={t("comparePage.domainFilter")}
           value={domainFilter}
-          renderValue={(selected) => selected.length === 0 ? t("comparePage.allDomains") : selected.join(", ")}
+          renderValue={(selected) =>
+            selected.length === 0 ? t("comparePage.allDomains") : selected.join(", ")
+          }
           onChange={(event) => {
             const value = event.target.value;
             onDomainFilterChange(typeof value === "string" ? value.split(",") : value);
@@ -606,7 +664,11 @@ function SessionCompareControls({
       </FormControl>
       <Chip
         icon={<CompareArrowsRoundedIcon />}
-        label={leftScopeId && rightScopeId ? t("comparePage.sessionBehaviorReady") : t("comparePage.pickTwoSessionScopes")}
+        label={
+          leftScopeId && rightScopeId
+            ? t("comparePage.sessionBehaviorReady")
+            : t("comparePage.pickTwoSessionScopes")
+        }
         variant="outlined"
       />
     </Stack>
@@ -668,7 +730,11 @@ function ScopeSelect({
   return (
     <FormControl size="small" fullWidth>
       <InputLabel>{label}</InputLabel>
-      <Select label={label} value={hasSelectedScope ? value : ""} onChange={(event) => onChange(event.target.value)}>
+      <Select
+        label={label}
+        value={hasSelectedScope ? value : ""}
+        onChange={(event) => onChange(event.target.value)}
+      >
         <MenuItem value="">{t("comparePage.selectSessionScope")}</MenuItem>
         {scopes.map((scope) => (
           <MenuItem key={scope.id} value={scope.id}>
@@ -680,7 +746,13 @@ function ScopeSelect({
   );
 }
 
-function SessionCompareWorkbench({ hasScopes, payload }: { hasScopes: boolean; payload?: SessionComparePayload | undefined }) {
+function SessionCompareWorkbench({
+  hasScopes,
+  payload,
+}: {
+  hasScopes: boolean;
+  payload?: SessionComparePayload | undefined;
+}) {
   const { t } = useI18n();
 
   if (!hasScopes) {
@@ -700,16 +772,34 @@ function SessionCompareWorkbench({ hasScopes, payload }: { hasScopes: boolean; p
             ["Success", payload.overview.left.successCount, payload.overview.right.successCount],
             ["Failures", payload.overview.left.failureCount, payload.overview.right.failureCount],
             ["Domains", payload.overview.left.domainCount, payload.overview.right.domainCount],
-            ["Avg duration", `${payload.overview.left.durationMs.average} ms`, `${payload.overview.right.durationMs.average} ms`],
-            ["Total bytes", formatNumber(payload.overview.left.totalSizeBytes), formatNumber(payload.overview.right.totalSizeBytes)],
-            ["Status codes", formatStatusCodes(payload.overview.left.statusCodes), formatStatusCodes(payload.overview.right.statusCodes)],
+            [
+              "Avg duration",
+              `${payload.overview.left.durationMs.average} ms`,
+              `${payload.overview.right.durationMs.average} ms`,
+            ],
+            [
+              "Total bytes",
+              formatNumber(payload.overview.left.totalSizeBytes),
+              formatNumber(payload.overview.right.totalSizeBytes),
+            ],
+            [
+              "Status codes",
+              formatStatusCodes(payload.overview.left.statusCodes),
+              formatStatusCodes(payload.overview.right.statusCodes),
+            ],
           ]}
         />
       </BehaviorSection>
 
       <BehaviorSection title={t("comparePage.domains")}>
         <CompareRows
-          columns={[t("comparePage.domain"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.delta"), t("comparePage.share")]}
+          columns={[
+            t("comparePage.domain"),
+            t("comparePage.leftCount"),
+            t("comparePage.rightCount"),
+            t("comparePage.delta"),
+            t("comparePage.share"),
+          ]}
           rows={payload.domains.map((row) => [
             row.domain,
             String(row.leftCount),
@@ -722,20 +812,33 @@ function SessionCompareWorkbench({ hasScopes, payload }: { hasScopes: boolean; p
 
       <BehaviorSection title={t("comparePage.endpoints")}>
         <CompareRows
-          columns={[t("comparePage.endpoint"), t("comparePage.kind"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.avgDuration")]}
-          rows={payload.endpoints.slice(0, SESSION_TABLE_LIMIT).map((row) => [
-            row.endpoint,
-            row.kind,
-            String(row.leftCount),
-            String(row.rightCount),
-            `${row.leftAverageDurationMs} ms -> ${row.rightAverageDurationMs} ms`,
-          ])}
+          columns={[
+            t("comparePage.endpoint"),
+            t("comparePage.kind"),
+            t("comparePage.leftCount"),
+            t("comparePage.rightCount"),
+            t("comparePage.avgDuration"),
+          ]}
+          rows={payload.endpoints
+            .slice(0, SESSION_TABLE_LIMIT)
+            .map((row) => [
+              row.endpoint,
+              row.kind,
+              String(row.leftCount),
+              String(row.rightCount),
+              `${row.leftAverageDurationMs} ms -> ${row.rightAverageDurationMs} ms`,
+            ])}
         />
       </BehaviorSection>
 
       <BehaviorSection title={t("comparePage.timeline")}>
         <CompareRows
-          columns={[t("comparePage.bucket"), t("comparePage.leftCount"), t("comparePage.rightCount"), t("comparePage.delta")]}
+          columns={[
+            t("comparePage.bucket"),
+            t("comparePage.leftCount"),
+            t("comparePage.rightCount"),
+            t("comparePage.delta"),
+          ]}
           rows={payload.timeline.buckets.map((bucket) => [
             formatTime(bucket.startedAt),
             String(bucket.leftCount),
@@ -749,12 +852,14 @@ function SessionCompareWorkbench({ hasScopes, payload }: { hasScopes: boolean; p
         <Stack spacing={1}>
           <SequenceSummary payload={payload} />
           <CompareRows
-            columns={[t("comparePage.index"), t("comparePage.leftEndpoint"), t("comparePage.rightEndpoint")]}
-            rows={payload.sequence.changedPositions.slice(0, SESSION_TABLE_LIMIT).map((row) => [
-              String(row.index + 1),
-              row.left ?? "",
-              row.right ?? "",
-            ])}
+            columns={[
+              t("comparePage.index"),
+              t("comparePage.leftEndpoint"),
+              t("comparePage.rightEndpoint"),
+            ]}
+            rows={payload.sequence.changedPositions
+              .slice(0, SESSION_TABLE_LIMIT)
+              .map((row) => [String(row.index + 1), row.left ?? "", row.right ?? ""])}
           />
         </Stack>
       </BehaviorSection>
@@ -771,10 +876,29 @@ function SequenceSummary({ payload }: { payload: SessionComparePayload }) {
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-        <Chip size="small" color="success" label={`${t("comparePage.addedEndpoints")}: ${payload.sequence.addedEndpoints.length}`} variant="outlined" />
-        <Chip size="small" color="error" label={`${t("comparePage.removedEndpoints")}: ${payload.sequence.removedEndpoints.length}`} variant="outlined" />
-        <Chip size="small" color="warning" label={`${t("comparePage.orderChanges")}: ${payload.sequence.changedPositions.length}`} variant="outlined" />
-        <Chip size="small" label={`${t("comparePage.repeatedEndpoints")}: ${payload.sequence.repeatedEndpoints.length}`} variant="outlined" />
+        <Chip
+          size="small"
+          color="success"
+          label={`${t("comparePage.addedEndpoints")}: ${payload.sequence.addedEndpoints.length}`}
+          variant="outlined"
+        />
+        <Chip
+          size="small"
+          color="error"
+          label={`${t("comparePage.removedEndpoints")}: ${payload.sequence.removedEndpoints.length}`}
+          variant="outlined"
+        />
+        <Chip
+          size="small"
+          color="warning"
+          label={`${t("comparePage.orderChanges")}: ${payload.sequence.changedPositions.length}`}
+          variant="outlined"
+        />
+        <Chip
+          size="small"
+          label={`${t("comparePage.repeatedEndpoints")}: ${payload.sequence.repeatedEndpoints.length}`}
+          variant="outlined"
+        />
       </Stack>
       <EndpointList title={t("comparePage.addedEndpoints")} endpoints={added} />
       <EndpointList title={t("comparePage.removedEndpoints")} endpoints={removed} />
@@ -793,10 +917,16 @@ function EndpointList({ endpoints, title }: { endpoints: string[]; title: string
 
   return (
     <Stack spacing={0.5}>
-      <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+        {title}
+      </Typography>
       <Stack spacing={0.5}>
         {endpoints.map((endpoint) => (
-          <Typography key={endpoint} component="code" sx={{ fontFamily: fontFamilies.mono, fontSize: 12, overflowWrap: "anywhere" }}>
+          <Typography
+            key={endpoint}
+            component="code"
+            sx={{ fontFamily: fontFamilies.mono, fontSize: 12, overflowWrap: "anywhere" }}
+          >
             {endpoint}
           </Typography>
         ))}
@@ -807,7 +937,10 @@ function EndpointList({ endpoints, title }: { endpoints: string[]; title: string
 
 function BehaviorSection({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}>
+    <Paper
+      elevation={0}
+      sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}
+    >
       <Typography
         variant="body2"
         sx={(theme) => ({
@@ -828,15 +961,33 @@ function BehaviorSection({ children, title }: { children: ReactNode; title: stri
 
 function MetricGrid({ rows }: { rows: Array<[string, string | number, string | number]> }) {
   return (
-    <Box sx={{ display: "grid", gap: 0.75, gridTemplateColumns: { md: "180px minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" } }}>
-      <Typography color="text.secondary" variant="caption">Metric</Typography>
-      <Typography color="text.secondary" variant="caption">Left</Typography>
-      <Typography color="text.secondary" variant="caption">Right</Typography>
+    <Box
+      sx={{
+        display: "grid",
+        gap: 0.75,
+        gridTemplateColumns: { md: "180px minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
+      }}
+    >
+      <Typography color="text.secondary" variant="caption">
+        Metric
+      </Typography>
+      <Typography color="text.secondary" variant="caption">
+        Left
+      </Typography>
+      <Typography color="text.secondary" variant="caption">
+        Right
+      </Typography>
       {rows.map(([label, left, right]) => (
         <Box key={label} sx={{ display: "contents" }}>
-          <Typography variant="body2" sx={{ fontWeight: 650 }}>{label}</Typography>
-          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{left}</Typography>
-          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{right}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 650 }}>
+            {label}
+          </Typography>
+          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+            {left}
+          </Typography>
+          <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+            {right}
+          </Typography>
         </Box>
       ))}
     </Box>
@@ -847,20 +998,46 @@ function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] })
   const { t } = useI18n();
 
   if (rows.length === 0) {
-    return <Typography color="text.secondary" variant="body2">{t("comparePage.noVisibleChanges")}</Typography>;
+    return (
+      <Typography color="text.secondary" variant="body2">
+        {t("comparePage.noVisibleChanges")}
+      </Typography>
+    );
   }
 
   return (
     <Stack spacing={0} divider={<Divider />}>
-      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`, px: 0.75, py: 0.5 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1,
+          gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`,
+          px: 0.75,
+          py: 0.5,
+        }}
+      >
         {columns.map((column) => (
-          <Typography key={column} color="text.secondary" variant="caption" sx={{ fontWeight: 700 }}>
+          <Typography
+            key={column}
+            color="text.secondary"
+            variant="caption"
+            sx={{ fontWeight: 700 }}
+          >
             {column}
           </Typography>
         ))}
       </Box>
       {rows.map((row, index) => (
-        <Box key={`${row.join(":")}:${index}`} sx={{ display: "grid", gap: 1, gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`, px: 0.75, py: 0.75 }}>
+        <Box
+          key={`${row.join(":")}:${index}`}
+          sx={{
+            display: "grid",
+            gap: 1,
+            gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length - 1}, minmax(92px, 0.65fr))`,
+            px: 0.75,
+            py: 0.75,
+          }}
+        >
           {row.map((cell, cellIndex) => (
             <Typography
               key={`${cell}:${cellIndex}`}
@@ -903,10 +1080,15 @@ function DiffSectionCard({
     ? changedEntries
     : changedEntries.slice(0, DIFF_SECTION_VISIBLE_CHANGE_LIMIT);
   const hasDisplayOverflow = changedEntries.length > DIFF_SECTION_VISIBLE_CHANGE_LIMIT;
-  const canToggleBodyDiff = Boolean(isLazyBodySection && (section.canExpand || bodyDiffExpanded) && onToggleBodyDiff);
+  const canToggleBodyDiff = Boolean(
+    isLazyBodySection && (section.canExpand || bodyDiffExpanded) && onToggleBodyDiff,
+  );
 
   return (
-    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}>
+    <Paper
+      elevation={0}
+      sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden" }}
+    >
       <Stack
         direction={{ sm: "row", xs: "column" }}
         spacing={1}
@@ -920,7 +1102,9 @@ function DiffSectionCard({
           py: 1,
         })}
       >
-        <Typography variant="body2" sx={{ fontWeight: 750 }}>{section.title}</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 750 }}>
+          {section.title}
+        </Typography>
         <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
           <Chip size="small" color="success" label={`+${section.added}`} variant="outlined" />
           <Chip size="small" color="error" label={`-${section.removed}`} variant="outlined" />
@@ -947,7 +1131,9 @@ function DiffSectionCard({
               startIcon={bodyDiffExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
               onClick={onToggleBodyDiff}
             >
-              {bodyDiffExpanded ? t("comparePage.collapseBodyDiff") : t("comparePage.expandBodyDiff")}
+              {bodyDiffExpanded
+                ? t("comparePage.collapseBodyDiff")
+                : t("comparePage.expandBodyDiff")}
             </Button>
           </Box>
         ) : null}
@@ -955,25 +1141,32 @@ function DiffSectionCard({
           <Typography color="text.secondary" variant="body2" sx={{ px: 1.25, py: 1 }}>
             {t("comparePage.noVisibleChanges")}
           </Typography>
-        ) : visibleEntries.map((entry) => (
-          <Box
-            key={`${entry.path}:${entry.kind}:${entry.before}:${entry.after}`}
-            sx={{
-              display: "grid",
-              gap: 1,
-              gridTemplateColumns: { md: "minmax(160px, 0.35fr) minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
-              px: 1.25,
-              py: 1,
-            }}
-          >
-            <Stack direction="row" spacing={0.75} alignItems="center" minWidth={0}>
-              <Chip size="small" label={entry.kind} />
-              <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono }} noWrap>{entry.path}</Typography>
-            </Stack>
-            <DiffValue value={entry.before} />
-            <DiffValue value={entry.after} />
-          </Box>
-        ))}
+        ) : (
+          visibleEntries.map((entry) => (
+            <Box
+              key={`${entry.path}:${entry.kind}:${entry.before}:${entry.after}`}
+              sx={{
+                display: "grid",
+                gap: 1,
+                gridTemplateColumns: {
+                  md: "minmax(160px, 0.35fr) minmax(0, 1fr) minmax(0, 1fr)",
+                  xs: "1fr",
+                },
+                px: 1.25,
+                py: 1,
+              }}
+            >
+              <Stack direction="row" spacing={0.75} alignItems="center" minWidth={0}>
+                <Chip size="small" label={entry.kind} />
+                <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono }} noWrap>
+                  {entry.path}
+                </Typography>
+              </Stack>
+              <DiffValue value={entry.before} />
+              <DiffValue value={entry.after} />
+            </Box>
+          ))
+        )}
         {hasDisplayOverflow ? (
           <Box sx={{ px: 1.25, py: 1 }}>
             <Button
@@ -1009,12 +1202,23 @@ function AiSummaryPanel({
   const { t } = useI18n();
 
   return (
-    <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
+    <Paper
+      elevation={0}
+      sx={{ border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}
+    >
       <Stack sx={{ height: "100%", minHeight: 0 }}>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
+        >
           <Stack direction="row" spacing={1} alignItems="center">
             <AutoFixHighRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>{t("comparePage.aiSummary")}</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
+              {t("comparePage.aiSummary")}
+            </Typography>
           </Stack>
           {model ? <Chip size="small" label={model} variant="outlined" /> : null}
         </Stack>
@@ -1022,20 +1226,14 @@ function AiSummaryPanel({
           {!aiConfigured ? (
             <Stack spacing={1.5}>
               <Alert severity="info">{t("comparePage.aiNotConfigured")}</Alert>
-              <Button
-                variant="outlined"
-                startIcon={<SettingsRoundedIcon />}
-                onClick={onConfigure}
-              >
+              <Button variant="outlined" startIcon={<SettingsRoundedIcon />} onClick={onConfigure}>
                 {t("comparePage.configureAi")}
               </Button>
             </Stack>
           ) : mutationError ? (
             <Alert severity="error">{coerceAppError(mutationError).message}</Alert>
           ) : mutationData ? (
-            <ReactMarkdown components={markdownComponents}>
-              {mutationData}
-            </ReactMarkdown>
+            <ReactMarkdown components={markdownComponents}>{mutationData}</ReactMarkdown>
           ) : (
             <Alert severity="info">{t("comparePage.summaryIdle")}</Alert>
           )}
@@ -1046,21 +1244,114 @@ function AiSummaryPanel({
 }
 
 const markdownComponents: React.ComponentProps<typeof ReactMarkdown>["components"] = {
-  h1: ({ children }) => <Typography component="h1" sx={{ fontSize: 18, fontWeight: 750, mt: 1.5, mb: 0.75 }}>{children}</Typography>,
-  h2: ({ children }) => <Typography component="h2" sx={{ fontSize: 16, fontWeight: 750, mt: 1.5, mb: 0.75 }}>{children}</Typography>,
-  h3: ({ children }) => <Typography component="h3" sx={{ fontSize: 14, fontWeight: 750, mt: 1.25, mb: 0.5 }}>{children}</Typography>,
-  p: ({ children }) => <Typography component="p" sx={{ fontSize: 13, lineHeight: 1.7, mb: 1 }}>{children}</Typography>,
-  strong: ({ children }) => <Box component="strong" sx={{ fontWeight: 700 }}>{children}</Box>,
-  em: ({ children }) => <Box component="em" sx={{ fontStyle: "italic" }}>{children}</Box>,
-  code: ({ children }) => <Box component="code" sx={{ fontFamily: fontFamilies.mono, fontSize: 12, bgcolor: "action.hover", borderRadius: 0.5, px: 0.5, py: 0.25 }}>{children}</Box>,
-  pre: ({ children }) => <Box component="pre" sx={{ fontFamily: fontFamilies.mono, fontSize: 12, bgcolor: "action.hover", borderRadius: 1, p: 1, overflowX: "auto", mb: 1 }}>{children}</Box>,
-  ul: ({ children }) => <Box component="ul" sx={{ pl: 2.5, mb: 1, fontSize: 13, lineHeight: 1.7 }}>{children}</Box>,
-  ol: ({ children }) => <Box component="ol" sx={{ pl: 2.5, mb: 1, fontSize: 13, lineHeight: 1.7 }}>{children}</Box>,
-  li: ({ children }) => <Box component="li" sx={{ mb: 0.25 }}>{children}</Box>,
-  a: ({ children, href }) => <Typography component="a" href={href} sx={{ fontSize: 13, color: "primary.main", textDecoration: "underline" }} target="_blank" rel="noopener noreferrer">{children}</Typography>,
-  blockquote: ({ children }) => <Box component="blockquote" sx={{ borderLeft: 2, borderColor: "divider", pl: 1.5, my: 1, color: "text.secondary", fontSize: 13 }}>{children}</Box>,
+  h1: ({ children }) => (
+    <Typography component="h1" sx={{ fontSize: 18, fontWeight: 750, mt: 1.5, mb: 0.75 }}>
+      {children}
+    </Typography>
+  ),
+  h2: ({ children }) => (
+    <Typography component="h2" sx={{ fontSize: 16, fontWeight: 750, mt: 1.5, mb: 0.75 }}>
+      {children}
+    </Typography>
+  ),
+  h3: ({ children }) => (
+    <Typography component="h3" sx={{ fontSize: 14, fontWeight: 750, mt: 1.25, mb: 0.5 }}>
+      {children}
+    </Typography>
+  ),
+  p: ({ children }) => (
+    <Typography component="p" sx={{ fontSize: 13, lineHeight: 1.7, mb: 1 }}>
+      {children}
+    </Typography>
+  ),
+  strong: ({ children }) => (
+    <Box component="strong" sx={{ fontWeight: 700 }}>
+      {children}
+    </Box>
+  ),
+  em: ({ children }) => (
+    <Box component="em" sx={{ fontStyle: "italic" }}>
+      {children}
+    </Box>
+  ),
+  code: ({ children }) => (
+    <Box
+      component="code"
+      sx={{
+        fontFamily: fontFamilies.mono,
+        fontSize: 12,
+        bgcolor: "action.hover",
+        borderRadius: 0.5,
+        px: 0.5,
+        py: 0.25,
+      }}
+    >
+      {children}
+    </Box>
+  ),
+  pre: ({ children }) => (
+    <Box
+      component="pre"
+      sx={{
+        fontFamily: fontFamilies.mono,
+        fontSize: 12,
+        bgcolor: "action.hover",
+        borderRadius: 1,
+        p: 1,
+        overflowX: "auto",
+        mb: 1,
+      }}
+    >
+      {children}
+    </Box>
+  ),
+  ul: ({ children }) => (
+    <Box component="ul" sx={{ pl: 2.5, mb: 1, fontSize: 13, lineHeight: 1.7 }}>
+      {children}
+    </Box>
+  ),
+  ol: ({ children }) => (
+    <Box component="ol" sx={{ pl: 2.5, mb: 1, fontSize: 13, lineHeight: 1.7 }}>
+      {children}
+    </Box>
+  ),
+  li: ({ children }) => (
+    <Box component="li" sx={{ mb: 0.25 }}>
+      {children}
+    </Box>
+  ),
+  a: ({ children, href }) => (
+    <Typography
+      component="a"
+      href={href}
+      sx={{ fontSize: 13, color: "primary.main", textDecoration: "underline" }}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+    </Typography>
+  ),
+  blockquote: ({ children }) => (
+    <Box
+      component="blockquote"
+      sx={{
+        borderLeft: 2,
+        borderColor: "divider",
+        pl: 1.5,
+        my: 1,
+        color: "text.secondary",
+        fontSize: 13,
+      }}
+    >
+      {children}
+    </Box>
+  ),
   hr: () => <Divider sx={{ my: 1.5 }} />,
-  table: ({ children }) => <TableContainer component={Box} sx={{ mb: 1 }}><Table size="small">{children}</Table></TableContainer>,
+  table: ({ children }) => (
+    <TableContainer component={Box} sx={{ mb: 1 }}>
+      <Table size="small">{children}</Table>
+    </TableContainer>
+  ),
   thead: ({ children }) => <TableHead>{children}</TableHead>,
   tbody: ({ children }) => <TableBody>{children}</TableBody>,
   tr: ({ children }) => <TableRow>{children}</TableRow>,
@@ -1089,7 +1380,10 @@ function DiffValue({ value }: { value: string | undefined }) {
   );
 }
 
-function resolveScope(scope: SessionCompareScope, sessionById: Map<string, SessionSummary>): SessionCompareScopeInput {
+function resolveScope(
+  scope: SessionCompareScope,
+  sessionById: Map<string, SessionSummary>,
+): SessionCompareScopeInput {
   return {
     id: scope.id,
     label: scope.label,

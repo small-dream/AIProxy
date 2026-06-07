@@ -25,9 +25,16 @@ import { alpha } from "@mui/material/styles";
 import type { BreakpointRule, BreakpointStage, MatchType } from "@aiproxy/shared-types";
 import { useState } from "react";
 
-import { useBreakpointRules, useSetBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
+import {
+  useBreakpointRules,
+  useSetBreakpointRules,
+} from "@/features/breakpoints/use-breakpoint-rules";
 import { formatRuleFieldLabel } from "@/features/rules/components/RulesSharedUi";
-import { createCatchAllRule, createEmptyBreakpointRule, HTTP_METHODS } from "@/features/rules/rules.helpers";
+import {
+  createCatchAllRule,
+  createEmptyBreakpointRule,
+  HTTP_METHODS,
+} from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -65,12 +72,20 @@ export function BreakpointRulesPanel() {
     setValidationAttempted(false);
   }
 
-  const hasRequestCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "request" && r.methods.length === 0);
-  const hasResponseCatchAll = rules.some((r) => r.enabled && r.urlPattern === "*" && r.stage === "response" && r.methods.length === 0);
+  const hasRequestCatchAll = rules.some(
+    (r) => r.enabled && r.urlPattern === "*" && r.stage === "request" && r.methods.length === 0,
+  );
+  const hasResponseCatchAll = rules.some(
+    (r) => r.enabled && r.urlPattern === "*" && r.stage === "response" && r.methods.length === 0,
+  );
   const errors: string[] = [];
   if (!draft.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
   if (draft.matchType === "regex" && draft.urlPattern.trim()) {
-    try { new RegExp(draft.urlPattern.trim()); } catch { errors.push(t("rulesPage.validation.regexPatternInvalid")); }
+    try {
+      new RegExp(draft.urlPattern.trim());
+    } catch {
+      errors.push(t("rulesPage.validation.regexPatternInvalid"));
+    }
   }
   const urlPatternLabel = formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t);
   const matchTypeLabel = t("rulesPage.editor.matchType");
@@ -88,14 +103,19 @@ export function BreakpointRulesPanel() {
       <Paper
         elevation={0}
         sx={{
-          bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
+          bgcolor: (theme) =>
+            alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.92),
           border: 1,
           borderColor: "divider",
           borderRadius: "8px",
           p: 1.5,
         }}
       >
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "stretch", md: "center" }}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "stretch", md: "center" }}
+        >
           <Stack spacing={0.25} sx={{ flex: 1 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
               {t("rulesPage.quickBreakpointTitle")}
@@ -105,13 +125,32 @@ export function BreakpointRulesPanel() {
             </Typography>
           </Stack>
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            <Button size="small" variant="outlined" disabled={hasRequestCatchAll} onClick={() => handleAddCatchAll("request")}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={hasRequestCatchAll}
+              onClick={() => handleAddCatchAll("request")}
+            >
               {t("rulesPage.breakOnAllRequests")}
             </Button>
-            <Button size="small" variant="outlined" disabled={hasResponseCatchAll} onClick={() => handleAddCatchAll("response")}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={hasResponseCatchAll}
+              onClick={() => handleAddCatchAll("response")}
+            >
               {t("rulesPage.breakOnAllResponses")}
             </Button>
-            <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setDraft(createEmptyBreakpointRule()); setValidationAttempted(false); setDialogOpen(true); }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AddRoundedIcon />}
+              onClick={() => {
+                setDraft(createEmptyBreakpointRule());
+                setValidationAttempted(false);
+                setDialogOpen(true);
+              }}
+            >
               {t("rulesPage.addRule")}
             </Button>
           </Stack>
@@ -134,9 +173,7 @@ export function BreakpointRulesPanel() {
             textAlign: "center",
           }}
         >
-          <Typography variant="body2">
-            {t("rulesPage.empty")}
-          </Typography>
+          <Typography variant="body2">{t("rulesPage.empty")}</Typography>
         </Paper>
       ) : (
         <Paper
@@ -157,17 +194,36 @@ export function BreakpointRulesPanel() {
                 spacing={1.5}
                 alignItems="center"
                 sx={{
-                  bgcolor: rule.enabled ? "transparent" : (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.025 : 0.02),
+                  bgcolor: rule.enabled
+                    ? "transparent"
+                    : (theme) =>
+                        alpha(
+                          theme.palette.text.primary,
+                          theme.palette.mode === "dark" ? 0.025 : 0.02,
+                        ),
                   px: 2,
                   py: 1,
                   "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" },
                 }}
               >
-                <Switch size="small" checked={rule.enabled} onChange={() => handleToggle(rule.id)} />
+                <Switch
+                  size="small"
+                  checked={rule.enabled}
+                  onChange={() => handleToggle(rule.id)}
+                />
                 <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 13, flex: 1 }} noWrap>
                   {rule.urlPattern || "*"}
                 </Typography>
-                <Chip size="small" variant="outlined" color={rule.stage === "request" ? "info" : "secondary"} label={rule.stage === "request" ? t("rulesPage.stages.request") : t("rulesPage.stages.response")} />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color={rule.stage === "request" ? "info" : "secondary"}
+                  label={
+                    rule.stage === "request"
+                      ? t("rulesPage.stages.request")
+                      : t("rulesPage.stages.response")
+                  }
+                />
                 {rule.methods.length === 0 ? (
                   <Chip label={t("rulesPage.labels.all")} size="small" variant="outlined" />
                 ) : (
@@ -189,7 +245,11 @@ export function BreakpointRulesPanel() {
             {validationAttempted && errors.length > 0 && (
               <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
                 <Stack spacing={0.25}>
-                  {errors.map((error) => <Typography key={error} variant="body2">{error}</Typography>)}
+                  {errors.map((error) => (
+                    <Typography key={error} variant="body2">
+                      {error}
+                    </Typography>
+                  ))}
                 </Stack>
               </Alert>
             )}
@@ -210,9 +270,17 @@ export function BreakpointRulesPanel() {
                 value={draft.matchType ?? "contains"}
                 onChange={(e) => setDraft({ ...draft, matchType: e.target.value as MatchType })}
               >
-                {matchTypes.map((mt) => <MenuItem key={mt.value} value={mt.value}>{mt.label}</MenuItem>)}
+                {matchTypes.map((mt) => (
+                  <MenuItem key={mt.value} value={mt.value}>
+                    {mt.label}
+                  </MenuItem>
+                ))}
               </Select>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.35 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 0.5, lineHeight: 1.35 }}
+              >
                 {t(`rulesPage.editor.matchTypes.${draft.matchType ?? "contains"}Hint`)}
               </Typography>
             </FormControl>
@@ -228,12 +296,20 @@ export function BreakpointRulesPanel() {
                 onChange={(e) => setDraft({ ...draft, methods: e.target.value as string[] })}
                 renderValue={(s) => (s.length === 0 ? t("rulesPage.allMethods") : s.join(", "))}
               >
-                {HTTP_METHODS.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+                {HTTP_METHODS.map((m) => (
+                  <MenuItem key={m} value={m}>
+                    {m}
+                  </MenuItem>
+                ))}
               </Select>
             </Stack>
             <FormControl size="small" fullWidth>
               <InputLabel>{stageLabel}</InputLabel>
-              <Select value={draft.stage} label={stageLabel} onChange={(e) => setDraft({ ...draft, stage: e.target.value as BreakpointStage })}>
+              <Select
+                value={draft.stage}
+                label={stageLabel}
+                onChange={(e) => setDraft({ ...draft, stage: e.target.value as BreakpointStage })}
+              >
                 <MenuItem value="request">{t("rulesPage.requestStageOption")}</MenuItem>
                 <MenuItem value="response">{t("rulesPage.responseStageOption")}</MenuItem>
               </Select>
@@ -243,7 +319,9 @@ export function BreakpointRulesPanel() {
         <Divider />
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={handleDialogClose}>{t("common.actions.cancel")}</Button>
-          <Button variant="contained" onClick={handleSave} disabled={setRulesMutation.isPending}>{t("rulesPage.addRule")}</Button>
+          <Button variant="contained" onClick={handleSave} disabled={setRulesMutation.isPending}>
+            {t("rulesPage.addRule")}
+          </Button>
         </DialogActions>
       </Dialog>
     </Stack>

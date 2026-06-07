@@ -171,10 +171,13 @@ export function ThrottlingPage() {
 
   useEffect(() => {
     if (!temporaryUntil) return undefined;
-    const timeout = window.setTimeout(() => {
-      setActiveMutation.mutate(undefined);
-      setTemporaryUntil(null);
-    }, Math.max(0, temporaryUntil - Date.now()));
+    const timeout = window.setTimeout(
+      () => {
+        setActiveMutation.mutate(undefined);
+        setTemporaryUntil(null);
+      },
+      Math.max(0, temporaryUntil - Date.now()),
+    );
     return () => window.clearTimeout(timeout);
   }, [setActiveMutation, temporaryUntil]);
 
@@ -254,40 +257,78 @@ export function ThrottlingPage() {
   }
 
   function updateRuleDraft(patch: Partial<ThrottleRule>) {
-    setRuleDraft((current) => current ? { ...current, ...patch } : current);
+    setRuleDraft((current) => (current ? { ...current, ...patch } : current));
   }
 
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
       <Paper elevation={0} variant="outlined" sx={{ borderRadius: "8px", overflow: "hidden" }}>
         <Box sx={{ px: 1.5, py: 1.25 }}>
-          <Stack direction={{ xs: "column", lg: "row" }} spacing={1.25} alignItems={{ xs: "stretch", lg: "center" }}>
+          <Stack
+            direction={{ xs: "column", lg: "row" }}
+            spacing={1.25}
+            alignItems={{ xs: "stretch", lg: "center" }}
+          >
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
-              <Box sx={{ color: activeProfile ? "success.main" : "text.secondary", display: "flex" }}>
+              <Box
+                sx={{ color: activeProfile ? "success.main" : "text.secondary", display: "flex" }}
+              >
                 <WifiTetheringRoundedIcon fontSize="small" />
               </Box>
               <Stack sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={0.75} alignItems="center">
-                  <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>{t("throttlingPage.title")}</Typography>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>
+                    {t("throttlingPage.title")}
+                  </Typography>
                   <Chip
                     size="small"
                     color={activeProfile ? "success" : "default"}
                     label={activeProfile ? t("throttlingPage.on") : t("throttlingPage.off")}
                     sx={{ height: 20, fontSize: 11 }}
                   />
-                  {temporaryUntil ? <Chip size="small" icon={<TimerOutlinedIcon />} label={`${Math.ceil(temporaryRemaining / 60000)} min`} sx={{ height: 20, fontSize: 11 }} /> : null}
+                  {temporaryUntil ? (
+                    <Chip
+                      size="small"
+                      icon={<TimerOutlinedIcon />}
+                      label={`${Math.ceil(temporaryRemaining / 60000)} min`}
+                      sx={{ height: 20, fontSize: 11 }}
+                    />
+                  ) : null}
                 </Stack>
                 <Typography color="text.secondary" variant="caption" noWrap>
-                  {activeStatusLabel} {t("throttlingPage.activeStatusScope", { activeRuleCount, ruleLabel: activeRuleCount === 1 ? t("common.labels.rule") : t("common.labels.rules") })}
+                  {activeStatusLabel}{" "}
+                  {t("throttlingPage.activeStatusScope", {
+                    activeRuleCount,
+                    ruleLabel:
+                      activeRuleCount === 1 ? t("common.labels.rule") : t("common.labels.rules"),
+                  })}
                 </Typography>
               </Stack>
             </Stack>
 
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-              <StatusPill icon={<RuleRoundedIcon />} label="Hits" value={String(stats?.matchedRequests ?? 0)} />
-              <StatusPill icon={<SignalCellularAltRoundedIcon />} label="Drops" value={String(stats?.droppedRequests ?? 0)} />
-              <StatusPill icon={<SpeedRoundedIcon />} label="Delay" value={`${formatDelay((stats?.requestDelayMs ?? 0) + (stats?.responseDelayMs ?? 0))}`} />
-              <Button size="small" variant="outlined" startIcon={<TimerOutlinedIcon />} onClick={handleTemporaryEnable} disabled={profiles.length === 0 || setActiveMutation.isPending}>
+              <StatusPill
+                icon={<RuleRoundedIcon />}
+                label="Hits"
+                value={String(stats?.matchedRequests ?? 0)}
+              />
+              <StatusPill
+                icon={<SignalCellularAltRoundedIcon />}
+                label="Drops"
+                value={String(stats?.droppedRequests ?? 0)}
+              />
+              <StatusPill
+                icon={<SpeedRoundedIcon />}
+                label="Delay"
+                value={`${formatDelay((stats?.requestDelayMs ?? 0) + (stats?.responseDelayMs ?? 0))}`}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<TimerOutlinedIcon />}
+                onClick={handleTemporaryEnable}
+                disabled={profiles.length === 0 || setActiveMutation.isPending}
+              >
                 15 min
               </Button>
               <Button
@@ -295,7 +336,10 @@ export function ThrottlingPage() {
                 variant="outlined"
                 color="inherit"
                 startIcon={<PowerSettingsNewRoundedIcon />}
-                onClick={() => { setTemporaryUntil(null); setActiveMutation.mutate(undefined); }}
+                onClick={() => {
+                  setTemporaryUntil(null);
+                  setActiveMutation.mutate(undefined);
+                }}
                 disabled={!activeProfile || setActiveMutation.isPending}
               >
                 {t("throttlingPage.disableGlobal")}
@@ -305,9 +349,32 @@ export function ThrottlingPage() {
         </Box>
       </Paper>
 
-      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", xl: "380px minmax(0, 1fr)" }, minHeight: 0, flex: 1 }}>
-        <Paper elevation={0} variant="outlined" sx={{ borderRadius: "8px", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ borderBottom: 1, borderColor: "divider", px: 1.25, py: 1 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1,
+          gridTemplateColumns: { xs: "1fr", xl: "380px minmax(0, 1fr)" },
+          minHeight: 0,
+          flex: 1,
+        }}
+      >
+        <Paper
+          elevation={0}
+          variant="outlined"
+          sx={{
+            borderRadius: "8px",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            sx={{ borderBottom: 1, borderColor: "divider", px: 1.25, py: 1 }}
+          >
             <ToggleButtonGroup
               exclusive
               size="small"
@@ -324,44 +391,111 @@ export function ThrottlingPage() {
             {mode === "profiles" ? (
               <Stack spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}>{t("throttlingPage.presetsTitle")}</Typography>
-                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={handleNewProfile}>{t("throttlingPage.newProfile")}</Button>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}
+                  >
+                    {t("throttlingPage.presetsTitle")}
+                  </Typography>
+                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={handleNewProfile}>
+                    {t("throttlingPage.newProfile")}
+                  </Button>
                 </Stack>
-                <ProfileList profiles={presetProfiles} activeProfileId={activeProfile?.id} selectedProfileId={selectedProfileId} onApply={(id) => setActiveMutation.mutate(id)} onSelect={selectProfile} />
+                <ProfileList
+                  profiles={presetProfiles}
+                  activeProfileId={activeProfile?.id}
+                  selectedProfileId={selectedProfileId}
+                  onApply={(id) => setActiveMutation.mutate(id)}
+                  onSelect={selectProfile}
+                />
                 <Divider />
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: "uppercase" }}>{t("throttlingPage.customTitle")}</Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontWeight: 700, textTransform: "uppercase" }}
+                >
+                  {t("throttlingPage.customTitle")}
+                </Typography>
                 {customProfiles.length === 0 ? (
                   <EmptyHint>{t("throttlingPage.customEmpty")}</EmptyHint>
                 ) : (
-                  <ProfileList profiles={customProfiles} activeProfileId={activeProfile?.id} selectedProfileId={selectedProfileId} onApply={(id) => setActiveMutation.mutate(id)} onSelect={selectProfile} />
+                  <ProfileList
+                    profiles={customProfiles}
+                    activeProfileId={activeProfile?.id}
+                    selectedProfileId={selectedProfileId}
+                    onApply={(id) => setActiveMutation.mutate(id)}
+                    onSelect={selectProfile}
+                  />
                 )}
               </Stack>
             ) : (
               <Stack spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}>{t("throttlingPage.rulesTitle")}</Typography>
-                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={handleNewRule} disabled={profiles.length === 0}>{t("throttlingPage.newRule")}</Button>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ flex: 1, fontWeight: 700, textTransform: "uppercase" }}
+                  >
+                    {t("throttlingPage.rulesTitle")}
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={<AddRoundedIcon />}
+                    onClick={handleNewRule}
+                    disabled={profiles.length === 0}
+                  >
+                    {t("throttlingPage.newRule")}
+                  </Button>
                 </Stack>
                 {rules.length === 0 ? (
                   <EmptyHint>{t("throttlingPage.rulesEmptyHint")}</EmptyHint>
                 ) : (
-                  <List dense disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                    {[...rules].sort((a, b) => b.priority - a.priority).map((rule) => (
-                      <ListItemButton
-                        key={rule.id}
-                        selected={rule.id === selectedRuleId}
-                        onClick={() => { setSelectedRuleId(rule.id); setRuleDraft(rule); }}
-                        sx={{ border: 1, borderColor: rule.id === selectedRuleId ? "primary.main" : "divider", borderRadius: "8px", px: 1.25 }}
-                      >
-                        <RuleRoundedIcon sx={{ color: rule.enabled ? "primary.main" : "text.secondary", fontSize: 18, mr: 1 }} />
-                        <ListItemText
-                          primary={<Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{rule.name}</Typography>}
-                          secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : "Any method"} • ${rule.stage}`}
-                          secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
-                        />
-                        <Chip size="small" label={rule.priority} sx={{ height: 20, fontSize: 11 }} />
-                      </ListItemButton>
-                    ))}
+                  <List
+                    dense
+                    disablePadding
+                    sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}
+                  >
+                    {[...rules]
+                      .sort((a, b) => b.priority - a.priority)
+                      .map((rule) => (
+                        <ListItemButton
+                          key={rule.id}
+                          selected={rule.id === selectedRuleId}
+                          onClick={() => {
+                            setSelectedRuleId(rule.id);
+                            setRuleDraft(rule);
+                          }}
+                          sx={{
+                            border: 1,
+                            borderColor: rule.id === selectedRuleId ? "primary.main" : "divider",
+                            borderRadius: "8px",
+                            px: 1.25,
+                          }}
+                        >
+                          <RuleRoundedIcon
+                            sx={{
+                              color: rule.enabled ? "primary.main" : "text.secondary",
+                              fontSize: 18,
+                              mr: 1,
+                            }}
+                          />
+                          <ListItemText
+                            primary={
+                              <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                                {rule.name}
+                              </Typography>
+                            }
+                            secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : "Any method"} • ${rule.stage}`}
+                            secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
+                          />
+                          <Chip
+                            size="small"
+                            label={rule.priority}
+                            sx={{ height: 20, fontSize: 11 }}
+                          />
+                        </ListItemButton>
+                      ))}
                   </List>
                 )}
               </Stack>
@@ -369,7 +503,11 @@ export function ThrottlingPage() {
           </Box>
         </Paper>
 
-        <Paper elevation={0} variant="outlined" sx={{ borderRadius: "8px", minHeight: 0, overflow: "auto", p: 1.5 }}>
+        <Paper
+          elevation={0}
+          variant="outlined"
+          sx={{ borderRadius: "8px", minHeight: 0, overflow: "auto", p: 1.5 }}
+        >
           {mode === "profiles" ? (
             <ProfileEditor
               active={activeProfile?.id === profileDraft.id}
@@ -408,10 +546,26 @@ export function ThrottlingPage() {
 
 function StatusPill({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <Stack direction="row" spacing={0.65} alignItems="center" sx={{ bgcolor: "action.hover", border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 30, px: 1 }}>
+    <Stack
+      direction="row"
+      spacing={0.65}
+      alignItems="center"
+      sx={{
+        bgcolor: "action.hover",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        minHeight: 30,
+        px: 1,
+      }}
+    >
       <Box sx={{ color: "text.secondary", display: "flex", "& svg": { fontSize: 16 } }}>{icon}</Box>
-      <Typography color="text.secondary" variant="caption">{label}</Typography>
-      <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>{value}</Typography>
+      <Typography color="text.secondary" variant="caption">
+        {label}
+      </Typography>
+      <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>
+        {value}
+      </Typography>
     </Stack>
   );
 }
@@ -440,24 +594,54 @@ function ProfileList(props: {
             px: 1.25,
             py: 0.9,
             "&.Mui-selected": {
-              bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.07),
+              bgcolor: alpha(
+                theme.palette.primary.main,
+                theme.palette.mode === "dark" ? 0.18 : 0.07,
+              ),
             },
           })}
         >
-          <Box sx={{ color: profile.enabled ? "success.main" : "text.secondary", display: "flex", mr: 1 }}>
-            {profile.name.toLowerCase().includes("wifi") ? <WifiTetheringRoundedIcon sx={{ fontSize: 18 }} /> : <SignalCellularAltRoundedIcon sx={{ fontSize: 18 }} />}
+          <Box
+            sx={{
+              color: profile.enabled ? "success.main" : "text.secondary",
+              display: "flex",
+              mr: 1,
+            }}
+          >
+            {profile.name.toLowerCase().includes("wifi") ? (
+              <WifiTetheringRoundedIcon sx={{ fontSize: 18 }} />
+            ) : (
+              <SignalCellularAltRoundedIcon sx={{ fontSize: 18 }} />
+            )}
           </Box>
           <ListItemText
-            primary={(
+            primary={
               <Stack direction="row" spacing={0.5} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{profile.name}</Typography>
-                {activeProfileId === profile.id ? <Chip size="small" color="success" label={t("throttlingPage.activeChip")} sx={{ height: 18, fontSize: 10 }} /> : null}
+                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                  {profile.name}
+                </Typography>
+                {activeProfileId === profile.id ? (
+                  <Chip
+                    size="small"
+                    color="success"
+                    label={t("throttlingPage.activeChip")}
+                    sx={{ height: 18, fontSize: 10 }}
+                  />
+                ) : null}
               </Stack>
-            )}
+            }
             secondary={`${profile.latencyMs} ms • ↓ ${profile.downloadKbps} kbps • ↑ ${profile.uploadKbps} kbps • loss ${profile.packetLossRatio}%`}
             secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
           />
-          <Button size="small" variant={activeProfileId === profile.id ? "contained" : "outlined"} onClick={(event) => { event.stopPropagation(); onApply(profile.id); }} sx={{ minWidth: 58 }}>
+          <Button
+            size="small"
+            variant={activeProfileId === profile.id ? "contained" : "outlined"}
+            onClick={(event) => {
+              event.stopPropagation();
+              onApply(profile.id);
+            }}
+            sx={{ minWidth: 58 }}
+          >
             {t("throttlingPage.applyPreset")}
           </Button>
         </ListItemButton>
@@ -483,25 +667,96 @@ function ProfileEditor(props: {
       <EditorHeader
         icon={<SignalCellularAltRoundedIcon />}
         title={draft.name || t("throttlingPage.customUntitled")}
-        subtitle={active ? t("throttlingPage.profileEditorActiveHint") : t("throttlingPage.profileEditorInactiveHint")}
+        subtitle={
+          active
+            ? t("throttlingPage.profileEditorActiveHint")
+            : t("throttlingPage.profileEditorInactiveHint")
+        }
       />
       <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-        <TextField size="small" label={t("throttlingPage.fields.name")} value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25 }}>
-          <Typography color="text.secondary" variant="caption">{t("throttlingPage.fields.enableImmediately")}</Typography>
-          <Switch size="small" checked={draft.enabled} onChange={(event) => onChange({ ...draft, enabled: event.target.checked })} />
+        <TextField
+          size="small"
+          label={t("throttlingPage.fields.name")}
+          value={draft.name}
+          onChange={(event) => onChange({ ...draft, name: event.target.value })}
+          sx={{ flex: 1 }}
+        />
+        <Stack
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25 }}
+        >
+          <Typography color="text.secondary" variant="caption">
+            {t("throttlingPage.fields.enableImmediately")}
+          </Typography>
+          <Switch
+            size="small"
+            checked={draft.enabled}
+            onChange={(event) => onChange({ ...draft, enabled: event.target.checked })}
+          />
         </Stack>
       </Stack>
-      {errors.length > 0 ? <Alert severity="warning" variant="outlined">{errors.join(" ")}</Alert> : null}
-      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" } }}>
-        <ThrottleParameter icon={<SpeedRoundedIcon />} label={t("throttlingPage.fields.latency")} max={2000} min={0} step={10} unit="ms" value={draft.latencyMs} onChange={(value) => onChange({ ...draft, latencyMs: value })} />
-        <ThrottleParameter icon={<SignalCellularAltRoundedIcon />} label={t("throttlingPage.fields.loss")} max={100} min={0} step={1} unit="%" value={draft.packetLossRatio} onChange={(value) => onChange({ ...draft, packetLossRatio: value })} />
-        <ThrottleParameter icon={<CloudDownloadRoundedIcon />} label={t("throttlingPage.fields.download")} max={100000} min={1} step={100} unit="kbps" value={draft.downloadKbps} onChange={(value) => onChange({ ...draft, downloadKbps: value })} />
-        <ThrottleParameter icon={<CloudUploadRoundedIcon />} label={t("throttlingPage.fields.upload")} max={50000} min={1} step={100} unit="kbps" value={draft.uploadKbps} onChange={(value) => onChange({ ...draft, uploadKbps: value })} />
+      {errors.length > 0 ? (
+        <Alert severity="warning" variant="outlined">
+          {errors.join(" ")}
+        </Alert>
+      ) : null}
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1,
+          gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+        }}
+      >
+        <ThrottleParameter
+          icon={<SpeedRoundedIcon />}
+          label={t("throttlingPage.fields.latency")}
+          max={2000}
+          min={0}
+          step={10}
+          unit="ms"
+          value={draft.latencyMs}
+          onChange={(value) => onChange({ ...draft, latencyMs: value })}
+        />
+        <ThrottleParameter
+          icon={<SignalCellularAltRoundedIcon />}
+          label={t("throttlingPage.fields.loss")}
+          max={100}
+          min={0}
+          step={1}
+          unit="%"
+          value={draft.packetLossRatio}
+          onChange={(value) => onChange({ ...draft, packetLossRatio: value })}
+        />
+        <ThrottleParameter
+          icon={<CloudDownloadRoundedIcon />}
+          label={t("throttlingPage.fields.download")}
+          max={100000}
+          min={1}
+          step={100}
+          unit="kbps"
+          value={draft.downloadKbps}
+          onChange={(value) => onChange({ ...draft, downloadKbps: value })}
+        />
+        <ThrottleParameter
+          icon={<CloudUploadRoundedIcon />}
+          label={t("throttlingPage.fields.upload")}
+          max={50000}
+          min={1}
+          step={100}
+          unit="kbps"
+          value={draft.uploadKbps}
+          onChange={(value) => onChange({ ...draft, uploadKbps: value })}
+        />
       </Box>
       <Stack direction="row" spacing={1} justifyContent="flex-end">
-        <Button variant="outlined" onClick={onSave} disabled={!canSave}>{t("throttlingPage.saveProfile")}</Button>
-        <Button variant="contained" onClick={onSaveAndApply} disabled={!canSave}>{t("throttlingPage.saveAndApply")}</Button>
+        <Button variant="outlined" onClick={onSave} disabled={!canSave}>
+          {t("throttlingPage.saveProfile")}
+        </Button>
+        <Button variant="contained" onClick={onSaveAndApply} disabled={!canSave}>
+          {t("throttlingPage.saveAndApply")}
+        </Button>
       </Stack>
     </Stack>
   );
@@ -530,58 +785,154 @@ function RuleEditor(props: {
         title={draft.name}
         subtitle={t("throttlingPage.rulesDescription")}
       />
-      {errors.length > 0 ? <Alert severity="warning" variant="outlined">{errors.join(" ")}</Alert> : null}
+      {errors.length > 0 ? (
+        <Alert severity="warning" variant="outlined">
+          {errors.join(" ")}
+        </Alert>
+      ) : null}
       <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1.2fr 0.8fr" } }}>
-        <TextField size="small" label={t("throttlingPage.ruleFields.name")} value={draft.name} onChange={(event) => onChange({ name: event.target.value })} />
+        <TextField
+          size="small"
+          label={t("throttlingPage.ruleFields.name")}
+          value={draft.name}
+          onChange={(event) => onChange({ name: event.target.value })}
+        />
         <FormControl size="small">
           <InputLabel>{t("throttlingPage.ruleFields.profile")}</InputLabel>
-          <Select label={t("throttlingPage.ruleFields.profile")} value={draft.profileId} onChange={(event) => onChange({ profileId: event.target.value })}>
+          <Select
+            label={t("throttlingPage.ruleFields.profile")}
+            value={draft.profileId}
+            onChange={(event) => onChange({ profileId: event.target.value })}
+          >
             {profiles.map((profile) => (
-              <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>
+              <MenuItem key={profile.id} value={profile.id}>
+                {profile.name}
+              </MenuItem>
             ))}
           </Select>
         </FormControl>
-        <TextField size="small" label={t("throttlingPage.ruleFields.urlPattern")} value={draft.urlPattern} onChange={(event) => onChange({ urlPattern: event.target.value })} />
+        <TextField
+          size="small"
+          label={t("throttlingPage.ruleFields.urlPattern")}
+          value={draft.urlPattern}
+          onChange={(event) => onChange({ urlPattern: event.target.value })}
+        />
         <TextField
           size="small"
           label={t("throttlingPage.ruleFields.methods")}
           placeholder="GET, POST, PUT"
           value={draft.methods.join(", ")}
-          onChange={(event) => onChange({ methods: event.target.value.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean) })}
+          onChange={(event) =>
+            onChange({
+              methods: event.target.value
+                .split(",")
+                .map((value) => value.trim().toUpperCase())
+                .filter(Boolean),
+            })
+          }
         />
         <FormControl size="small">
           <InputLabel>{t("throttlingPage.ruleFields.stage")}</InputLabel>
-          <Select label={t("throttlingPage.ruleFields.stage")} value={draft.stage} onChange={(event) => onChange({ stage: event.target.value as ThrottleRule["stage"] })}>
+          <Select
+            label={t("throttlingPage.ruleFields.stage")}
+            value={draft.stage}
+            onChange={(event) => onChange({ stage: event.target.value as ThrottleRule["stage"] })}
+          >
             <MenuItem value="both">{t("throttlingPage.stageBoth")}</MenuItem>
             <MenuItem value="request">{t("throttlingPage.stageRequest")}</MenuItem>
             <MenuItem value="response">{t("throttlingPage.stageResponse")}</MenuItem>
           </Select>
         </FormControl>
-        <TextField size="small" label={t("throttlingPage.ruleFields.priority")} type="number" value={draft.priority} onChange={(event) => onChange({ priority: Number(event.target.value) || 0 })} />
+        <TextField
+          size="small"
+          label={t("throttlingPage.ruleFields.priority")}
+          type="number"
+          value={draft.priority}
+          onChange={(event) => onChange({ priority: Number(event.target.value) || 0 })}
+        />
       </Box>
-      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 0.75 }}>
-        <Switch size="small" checked={draft.enabled} onChange={(event) => onChange({ enabled: event.target.checked })} />
-        <Typography variant="body2" sx={{ fontWeight: 650 }}>{t("throttlingPage.ruleFields.enabled")}</Typography>
-        <Typography color="text.secondary" variant="caption">{t("throttlingPage.ruleFields.enabledHint")}</Typography>
+      <Stack
+        direction="row"
+        spacing={0.75}
+        alignItems="center"
+        sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 0.75 }}
+      >
+        <Switch
+          size="small"
+          checked={draft.enabled}
+          onChange={(event) => onChange({ enabled: event.target.checked })}
+        />
+        <Typography variant="body2" sx={{ fontWeight: 650 }}>
+          {t("throttlingPage.ruleFields.enabled")}
+        </Typography>
+        <Typography color="text.secondary" variant="caption">
+          {t("throttlingPage.ruleFields.enabledHint")}
+        </Typography>
       </Stack>
       <Stack direction="row" spacing={1} justifyContent="space-between">
-        <Button color="error" variant="outlined" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => onDelete(draft.id)}>{t("throttlingPage.deleteRule")}</Button>
+        <Button
+          color="error"
+          variant="outlined"
+          startIcon={<DeleteOutlineRoundedIcon />}
+          onClick={() => onDelete(draft.id)}
+        >
+          {t("throttlingPage.deleteRule")}
+        </Button>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" startIcon={<ReplayRoundedIcon />} onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}>{t("throttlingPage.duplicateRule")}</Button>
-          <Button variant="contained" onClick={onSave} disabled={saving}>{t("throttlingPage.saveRule")}</Button>
+          <Button
+            variant="outlined"
+            startIcon={<ReplayRoundedIcon />}
+            onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}
+          >
+            {t("throttlingPage.duplicateRule")}
+          </Button>
+          <Button variant="contained" onClick={onSave} disabled={saving}>
+            {t("throttlingPage.saveRule")}
+          </Button>
         </Stack>
       </Stack>
     </Stack>
   );
 }
 
-function EditorHeader({ icon, title, subtitle }: { icon: ReactNode; subtitle: string; title: string }) {
+function EditorHeader({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: ReactNode;
+  subtitle: string;
+  title: string;
+}) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center" sx={{ borderBottom: 1, borderColor: "divider", pb: 1 }}>
-      <Box sx={{ alignItems: "center", bgcolor: "action.selected", borderRadius: "8px", color: "primary.main", display: "flex", height: 34, justifyContent: "center", width: 34, "& svg": { fontSize: 19 } }}>{icon}</Box>
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="center"
+      sx={{ borderBottom: 1, borderColor: "divider", pb: 1 }}
+    >
+      <Box
+        sx={{
+          alignItems: "center",
+          bgcolor: "action.selected",
+          borderRadius: "8px",
+          color: "primary.main",
+          display: "flex",
+          height: 34,
+          justifyContent: "center",
+          width: 34,
+          "& svg": { fontSize: 19 },
+        }}
+      >
+        {icon}
+      </Box>
       <Stack sx={{ minWidth: 0 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>{title}</Typography>
-        <Typography color="text.secondary" variant="caption" noWrap>{subtitle}</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>
+          {title}
+        </Typography>
+        <Typography color="text.secondary" variant="caption" noWrap>
+          {subtitle}
+        </Typography>
       </Stack>
     </Stack>
   );
@@ -589,7 +940,11 @@ function EditorHeader({ icon, title, subtitle }: { icon: ReactNode; subtitle: st
 
 function EmptyHint({ children }: { children: ReactNode }) {
   return (
-    <Typography color="text.secondary" variant="body2" sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 1.5 }}>
+    <Typography
+      color="text.secondary"
+      variant="body2"
+      sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 1.5 }}
+    >
       {children}
     </Typography>
   );
@@ -609,24 +964,56 @@ function ThrottleParameter(props: {
   const sliderValue = Math.min(max, Math.max(min, value));
 
   return (
-    <Stack spacing={1} sx={{ bgcolor: "background.paper", border: 1, borderColor: "divider", borderRadius: "8px", p: 1.35 }}>
+    <Stack
+      spacing={1}
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        p: 1.35,
+      }}
+    >
       <Stack direction="row" spacing={1} alignItems="center">
         <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>{icon}</Box>
-        <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>{label}</Typography>
-        <Typography color="text.secondary" sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}>{value} {unit}</Typography>
+        <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>
+          {label}
+        </Typography>
+        <Typography color="text.secondary" sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}>
+          {value} {unit}
+        </Typography>
       </Stack>
-      <Slider size="small" min={min} max={max} step={step} value={sliderValue} onChange={(_, nextValue) => onChange(Array.isArray(nextValue) ? nextValue[0] : nextValue)} />
-      <TextField size="small" type="number" value={value} onChange={(event) => onChange(Number(event.target.value) || 0)} inputProps={{ min, step }} fullWidth />
+      <Slider
+        size="small"
+        min={min}
+        max={max}
+        step={step}
+        value={sliderValue}
+        onChange={(_, nextValue) => onChange(Array.isArray(nextValue) ? nextValue[0] : nextValue)}
+      />
+      <TextField
+        size="small"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        inputProps={{ min, step }}
+        fullWidth
+      />
     </Stack>
   );
 }
 
-function getThrottleValidationErrors(profile: ThrottleProfile, t: ReturnType<typeof useI18n>["t"]): string[] {
+function getThrottleValidationErrors(
+  profile: ThrottleProfile,
+  t: ReturnType<typeof useI18n>["t"],
+): string[] {
   const errors: string[] = [];
   if (!profile.name.trim()) errors.push(t("throttlingPage.validation.nameRequired"));
   if (profile.latencyMs < 0) errors.push(t("throttlingPage.validation.latencyInvalid"));
-  if (profile.uploadKbps <= 0 || profile.downloadKbps <= 0) errors.push(t("throttlingPage.validation.bandwidthInvalid"));
-  if (profile.packetLossRatio < 0 || profile.packetLossRatio > 100) errors.push(t("throttlingPage.validation.lossInvalid"));
+  if (profile.uploadKbps <= 0 || profile.downloadKbps <= 0)
+    errors.push(t("throttlingPage.validation.bandwidthInvalid"));
+  if (profile.packetLossRatio < 0 || profile.packetLossRatio > 100)
+    errors.push(t("throttlingPage.validation.lossInvalid"));
   return errors;
 }
 

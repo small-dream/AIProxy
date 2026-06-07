@@ -122,7 +122,9 @@ export function filterSessionsByHostKeyword(
     return sessions;
   }
 
-  return sessions.filter((session) => normalizeHost(session.host).toLowerCase().includes(normalizedKeyword));
+  return sessions.filter((session) =>
+    normalizeHost(session.host).toLowerCase().includes(normalizedKeyword),
+  );
 }
 
 export function reconcileExpandedKeys(
@@ -194,7 +196,13 @@ export function getSessionResourceKind(session: SessionSummary): SessionExplorer
     return "api";
   }
 
-  if (mimeType.includes("javascript") || mimeType.includes("ecmascript") || leafLabel.endsWith(".js") || leafLabel.endsWith(".mjs") || leafLabel.endsWith(".cjs")) {
+  if (
+    mimeType.includes("javascript") ||
+    mimeType.includes("ecmascript") ||
+    leafLabel.endsWith(".js") ||
+    leafLabel.endsWith(".mjs") ||
+    leafLabel.endsWith(".cjs")
+  ) {
     return "javascript";
   }
 
@@ -206,11 +214,20 @@ export function getSessionResourceKind(session: SessionSummary): SessionExplorer
     return "html";
   }
 
-  if (mimeType.startsWith("image/") || /(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.svg|\.ico|\.bmp|\.avif)$/.test(leafLabel)) {
+  if (
+    mimeType.startsWith("image/") ||
+    /(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.svg|\.ico|\.bmp|\.avif)$/.test(leafLabel)
+  ) {
     return "image";
   }
 
-  if (mimeType.startsWith("text/") || mimeType.includes("xml") || mimeType.includes("plain") || leafLabel.endsWith(".txt") || leafLabel.endsWith(".xml")) {
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType.includes("xml") ||
+    mimeType.includes("plain") ||
+    leafLabel.endsWith(".txt") ||
+    leafLabel.endsWith(".xml")
+  ) {
     return "text";
   }
 
@@ -221,7 +238,11 @@ export function getSessionResourceKind(session: SessionSummary): SessionExplorer
   return "file";
 }
 
-function collectBranchKeys(nodes: SessionPathNode[], parentKey: string, availableKeys: Set<string>) {
+function collectBranchKeys(
+  nodes: SessionPathNode[],
+  parentKey: string,
+  availableKeys: Set<string>,
+) {
   for (const node of nodes) {
     if (node.kind !== "branch") {
       continue;
@@ -317,7 +338,10 @@ function collectAggregateBranchExpansionAliases({
   }
 }
 
-function collectStandaloneHostExpansionAliases(group: SessionHostGroup, aliases: Map<string, string[]>) {
+function collectStandaloneHostExpansionAliases(
+  group: SessionHostGroup,
+  aliases: Map<string, string[]>,
+) {
   if (!group.host) {
     return;
   }
@@ -377,7 +401,9 @@ export function matchesKeyword(session: SessionSummary, keyword: string): boolea
 function normalizeHost(host: string, unknownHostLabel?: string): string {
   const normalizedHost = host.trim();
 
-  return normalizedHost.length > 0 ? normalizedHost : (unknownHostLabel ?? enMessages.sessionExplorer.unknownHost);
+  return normalizedHost.length > 0
+    ? normalizedHost
+    : (unknownHostLabel ?? enMessages.sessionExplorer.unknownHost);
 }
 
 function normalizeOptionalHost(host?: string | null): string | null {
@@ -528,7 +554,13 @@ function materializePathNodes(branch: MutablePathBranch): SessionPathNode[] {
 
   const rootLeaves = branch.leaves.map((session) => ({
     kind: "leaf" as const,
-    searchText: buildSearchText(session.host, session.path, session.url, session.method, session.responseMimeType ?? ""),
+    searchText: buildSearchText(
+      session.host,
+      session.path,
+      session.url,
+      session.method,
+      session.responseMimeType ?? "",
+    ),
     segmentLabel: getSessionTreeLeafLabel(session),
     session,
   }));

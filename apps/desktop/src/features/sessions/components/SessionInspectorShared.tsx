@@ -4,16 +4,45 @@ import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
-import { Box, Chip, IconButton, List, ListItem, Menu, MenuItem, Popover, Stack, Tooltip, Typography } from "@mui/material";
+import {
+  Box,
+  Chip,
+  IconButton,
+  List,
+  ListItem,
+  Menu,
+  MenuItem,
+  Popover,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars, defaultAppFontSize } from "@/themes/fonts";
-import { findNormalizedMatchIndex, getMethodColor, getRequestOperationLabel, getStatusColor, hasPreviewableMediaMimeType, isClientCancelledStatus, normalizeSearch, type SearchMatcher } from "./session-inspector.helpers";
+import {
+  findNormalizedMatchIndex,
+  getMethodColor,
+  getRequestOperationLabel,
+  getStatusColor,
+  hasPreviewableMediaMimeType,
+  isClientCancelledStatus,
+  normalizeSearch,
+  type SearchMatcher,
+} from "./session-inspector.helpers";
 
 const CODE_BLOCK_VIRTUALIZATION_CHAR_THRESHOLD = 48 * 1024;
 const CODE_BLOCK_VIRTUALIZATION_LINE_THRESHOLD = 320;
@@ -102,9 +131,10 @@ export function InspectorSummaryBar({
 }) {
   const { t } = useI18n();
   const totalDuration = detail?.timing?.totalMs ?? session.durationMs;
-  const durationLabel = totalDuration === 0
-    ? t("common.tech.lessThanMillisecond")
-    : t("common.tech.milliseconds", { value: totalDuration });
+  const durationLabel =
+    totalDuration === 0
+      ? t("common.tech.lessThanMillisecond")
+      : t("common.tech.milliseconds", { value: totalDuration });
   const statusLabel = isClientCancelledStatus(session.statusCode)
     ? `${t("inspector.request.overview.cancelled")} ${session.statusCode}`
     : String(session.statusCode);
@@ -113,35 +143,51 @@ export function InspectorSummaryBar({
     ? undefined
     : getRequestOperationLabel(detail, session);
   const summaryTitle = requestOperationLabel ?? session.path ?? session.url;
-  const displayHost = session.host || (() => {
-    try {
-      return new URL(session.url).host;
-    } catch {
-      return "";
-    }
-  })();
-  const displayPath = session.path || (() => {
-    try {
-      const parsedUrl = new URL(session.url);
-      return `${parsedUrl.pathname}${parsedUrl.search}`;
-    } catch {
-      return session.url;
-    }
-  })();
+  const displayHost =
+    session.host ||
+    (() => {
+      try {
+        return new URL(session.url).host;
+      } catch {
+        return "";
+      }
+    })();
+  const displayPath =
+    session.path ||
+    (() => {
+      try {
+        const parsedUrl = new URL(session.url);
+        return `${parsedUrl.pathname}${parsedUrl.search}`;
+      } catch {
+        return session.url;
+      }
+    })();
 
   return (
     <Stack
       spacing={0.75}
       sx={(theme) => ({
-        bgcolor: theme.palette.mode === "dark"
-          ? alpha(theme.palette.background.default, 0.26)
-          : alpha(theme.palette.background.default, 0.45),
+        bgcolor:
+          theme.palette.mode === "dark"
+            ? alpha(theme.palette.background.default, 0.26)
+            : alpha(theme.palette.background.default, 0.45),
         px: 2,
         py: 1.25,
       })}
     >
-      <Stack alignItems="center" direction="row" justifyContent="space-between" spacing={1.5} sx={{ minWidth: 0 }}>
-        <Stack alignItems="center" direction="row" spacing={1} sx={{ flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>
+      <Stack
+        alignItems="center"
+        direction="row"
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ minWidth: 0 }}
+      >
+        <Stack
+          alignItems="center"
+          direction="row"
+          spacing={1}
+          sx={{ flex: "1 1 0", minWidth: 0, overflow: "hidden" }}
+        >
           <Tooltip arrow title={summaryTitle}>
             <Typography
               sx={{
@@ -322,16 +368,8 @@ export function InspectorDefinitionList({
   );
 }
 
-export function InspectorScrollArea({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pr: 1 }}>
-      {children}
-    </Box>
-  );
+export function InspectorScrollArea({ children }: { children: React.ReactNode }) {
+  return <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pr: 1 }}>{children}</Box>;
 }
 
 export function InspectorFlatTable({
@@ -353,7 +391,8 @@ export function InspectorFlatTable({
       {headers ? (
         <Box
           sx={{
-            bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+            bgcolor: (theme) =>
+              alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
             borderRadius: 1,
             display: "grid",
             gridTemplateColumns: columnTemplate,
@@ -577,9 +616,13 @@ export function EllipsizedCell({
   );
 }
 
-export type InspectorKeyValueItem = [string, string] | { name: string; value: string; isPseudo?: boolean | undefined };
+export type InspectorKeyValueItem =
+  | [string, string]
+  | { name: string; value: string; isPseudo?: boolean | undefined };
 
-function isPseudoItem(item: InspectorKeyValueItem): item is { name: string; value: string; isPseudo?: boolean } {
+function isPseudoItem(
+  item: InspectorKeyValueItem,
+): item is { name: string; value: string; isPseudo?: boolean } {
   return typeof item === "object" && !Array.isArray(item);
 }
 
@@ -611,9 +654,9 @@ export function InspectorKeyValueTable({
             {title}
           </Typography>
         ) : null}
-      <Typography color="text.secondary" variant="body2">
-        {emptyMessage ?? t("common.empty.noData")}
-      </Typography>
+        <Typography color="text.secondary" variant="body2">
+          {emptyMessage ?? t("common.empty.noData")}
+        </Typography>
       </Stack>
     );
   }
@@ -634,62 +677,62 @@ export function InspectorKeyValueTable({
           {title}
         </Typography>
       ) : null}
-    <InspectorFlatTable columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}>
-      {items.map((item, index) => {
-        const isPseudo = isPseudoItem(item) && item.isPseudo === true;
-        const label = Array.isArray(item) ? item[0] : item.name;
-        const value = Array.isArray(item) ? item[1] : item.value;
+      <InspectorFlatTable columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}>
+        {items.map((item, index) => {
+          const isPseudo = isPseudoItem(item) && item.isPseudo === true;
+          const label = Array.isArray(item) ? item[0] : item.name;
+          const value = Array.isArray(item) ? item[1] : item.value;
 
-        return (
-          <InspectorFlatTableRow
-            cells={[
-              <Typography
-                key="label"
-                sx={{
-                  ...inspectorKeyTypographySx,
-                  alignItems: "center",
-                  display: "flex",
-                  gap: 0.5,
-                  ...(isPseudo ? { fontStyle: "italic", opacity: 0.86 } : {}),
-                  wordBreak: "break-all",
-                }}
-                variant="body2"
-              >
-                <Box component="span" sx={{ minWidth: 0 }}>
-                  {label}
-                </Box>
-                {isPseudo ? (
-                  <Chip
-                    label="pseudo"
-                    size="small"
-                    sx={{
-                      bgcolor: "action.hover",
-                      borderRadius: 0.75,
-                      color: "text.disabled",
-                      fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 10.5),
-                      fontStyle: "normal",
-                      fontWeight: 600,
-                      height: 18,
-                      letterSpacing: 0,
-                      ml: 0.25,
-                      "& .MuiChip-label": {
-                        px: 0.5,
-                      },
-                    }}
-                    variant="filled"
-                  />
-                ) : null}
-              </Typography>,
-              <EllipsizedCell isItalic={isPseudo} isSubtle={isPseudo} key="value" text={value} />,
-            ]}
-            columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
-            dense
-            hoverable
-            key={`${label}:${value}:${index}`}
-          />
-        );
-      })}
-    </InspectorFlatTable>
+          return (
+            <InspectorFlatTableRow
+              cells={[
+                <Typography
+                  key="label"
+                  sx={{
+                    ...inspectorKeyTypographySx,
+                    alignItems: "center",
+                    display: "flex",
+                    gap: 0.5,
+                    ...(isPseudo ? { fontStyle: "italic", opacity: 0.86 } : {}),
+                    wordBreak: "break-all",
+                  }}
+                  variant="body2"
+                >
+                  <Box component="span" sx={{ minWidth: 0 }}>
+                    {label}
+                  </Box>
+                  {isPseudo ? (
+                    <Chip
+                      label="pseudo"
+                      size="small"
+                      sx={{
+                        bgcolor: "action.hover",
+                        borderRadius: 0.75,
+                        color: "text.disabled",
+                        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, 10.5),
+                        fontStyle: "normal",
+                        fontWeight: 600,
+                        height: 18,
+                        letterSpacing: 0,
+                        ml: 0.25,
+                        "& .MuiChip-label": {
+                          px: 0.5,
+                        },
+                      }}
+                      variant="filled"
+                    />
+                  ) : null}
+                </Typography>,
+                <EllipsizedCell isItalic={isPseudo} isSubtle={isPseudo} key="value" text={value} />,
+              ]}
+              columnTemplate={INSPECTOR_KEY_VALUE_GRID_TEMPLATE}
+              dense
+              hoverable
+              key={`${label}:${value}:${index}`}
+            />
+          );
+        })}
+      </InspectorFlatTable>
     </Stack>
   );
 }
@@ -714,19 +757,13 @@ export function SearchableCodeBlock({
   const { t } = useI18n();
   const theme = useTheme();
   const paletteMode = theme.palette.mode;
-  const jsonTokenColors = useMemo(
-    () => {
-      const colors = getSyntaxColors(paletteMode);
-      return { ...colors, punctuation: "text.primary" } as const;
-    },
-    [paletteMode],
-  );
+  const jsonTokenColors = useMemo(() => {
+    const colors = getSyntaxColors(paletteMode);
+    return { ...colors, punctuation: "text.primary" } as const;
+  }, [paletteMode]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const containerRef = useRef<HTMLPreElement | HTMLDivElement | null>(null);
-  const shouldVirtualize = useMemo(
-    () => shouldVirtualizeCodeBlock(code),
-    [code],
-  );
+  const shouldVirtualize = useMemo(() => shouldVirtualizeCodeBlock(code), [code]);
 
   const [contextMenu, setContextMenu] = useState<{
     anchorPosition: { left: number; top: number };
@@ -820,7 +857,11 @@ export function SearchableCodeBlock({
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
-        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, effectiveLanguage === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
+        fontSize: (theme: Theme) =>
+          getWorkbenchFontSize(
+            theme,
+            effectiveLanguage === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE,
+          ),
         lineHeight: effectiveLanguage === "json" ? 1.55 : 1.5,
         m: 0,
         minHeight: 0,
@@ -834,7 +875,13 @@ export function SearchableCodeBlock({
     >
       {matcher
         ? effectiveLanguage === "json"
-          ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, undefined, matcher, currentMatchRange)
+          ? renderJsonSyntaxHighlightedText(
+              code,
+              jsonTokenColors,
+              undefined,
+              matcher,
+              currentMatchRange,
+            )
           : renderHighlightedText(code, undefined, matcher, currentMatchRange)
         : effectiveLanguage === "json"
           ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
@@ -855,9 +902,8 @@ export function SearchableCodeBlock({
             sx: {
               backgroundImage: "none",
               backdropFilter: "blur(20px)",
-              backgroundColor: (theme: Theme) => theme.palette.mode === "dark"
-                ? "rgba(32,32,32,0.88)"
-                : "rgba(255,255,255,0.88)",
+              backgroundColor: (theme: Theme) =>
+                theme.palette.mode === "dark" ? "rgba(32,32,32,0.88)" : "rgba(255,255,255,0.88)",
               borderRadius: 1.5,
               boxShadow: (theme: Theme) =>
                 theme.palette.mode === "dark"
@@ -907,7 +953,11 @@ export function SearchableCodeBlock({
   );
 }
 
-export function useVirtualWindow(itemCount: number, itemHeight: number, overscan = VIRTUAL_WINDOW_OVERSCAN) {
+export function useVirtualWindow(
+  itemCount: number,
+  itemHeight: number,
+  overscan = VIRTUAL_WINDOW_OVERSCAN,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIRTUAL_VIEWPORT_HEIGHT);
@@ -1003,7 +1053,13 @@ function VirtualizedSearchableCodeBlock({
     return { lines: result, maxLineLength: longestLineLength };
   }, [code]);
   const lineHeight = language === "json" ? 21 : 20;
-  const { containerRef: virtualContainerRef, endIndex, offsetTop, startIndex, totalHeight } = useVirtualWindow(lines.length, lineHeight);
+  const {
+    containerRef: virtualContainerRef,
+    endIndex,
+    offsetTop,
+    startIndex,
+    totalHeight,
+  } = useVirtualWindow(lines.length, lineHeight);
   const visibleLines = lines.slice(startIndex, endIndex);
   const stableContentWidth = maxLineLength > 0 ? `max(100%, ${maxLineLength + 2}ch)` : "100%";
 
@@ -1019,7 +1075,11 @@ function VirtualizedSearchableCodeBlock({
       lineOffsets.push(totalMatches);
       totalMatches += count;
 
-      if (targetLineIndex === -1 && currentMatchIndex !== undefined && currentMatchIndex < totalMatches) {
+      if (
+        targetLineIndex === -1 &&
+        currentMatchIndex !== undefined &&
+        currentMatchIndex < totalMatches
+      ) {
         targetLineIndex = i;
       }
     }
@@ -1033,13 +1093,10 @@ function VirtualizedSearchableCodeBlock({
     }
   }, [lineMatchInfo.totalMatches, matcher, onMatchCountChange]);
 
-  const firstMatchingLineIndex = useMemo(
-    () => {
-      if (matcher && lineMatchInfo.matchLineIndex !== -1) return lineMatchInfo.matchLineIndex;
-      return findFirstMatchingLineIndex(lines, searchQuery);
-    },
-    [lineMatchInfo.matchLineIndex, lines, matcher, searchQuery],
-  );
+  const firstMatchingLineIndex = useMemo(() => {
+    if (matcher && lineMatchInfo.matchLineIndex !== -1) return lineMatchInfo.matchLineIndex;
+    return findFirstMatchingLineIndex(lines, searchQuery);
+  }, [lineMatchInfo.matchLineIndex, lines, matcher, searchQuery]);
 
   useEffect(() => {
     const container = virtualContainerRef.current;
@@ -1066,7 +1123,11 @@ function VirtualizedSearchableCodeBlock({
         color: "text.primary",
         flex: 1,
         fontFamily: appFontCssVars.content,
-        fontSize: (theme: Theme) => getWorkbenchFontSize(theme, language === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE),
+        fontSize: (theme: Theme) =>
+          getWorkbenchFontSize(
+            theme,
+            language === "json" ? INSPECTOR_UI_FONT_SIZE : INSPECTOR_CODE_FONT_SIZE,
+          ),
         lineHeight: language === "json" ? 1.55 : 1.5,
         minHeight: 0,
         overflow: "auto",
@@ -1075,7 +1136,14 @@ function VirtualizedSearchableCodeBlock({
         whiteSpace: "pre",
       }}
     >
-      <Box sx={{ height: totalHeight, minWidth: "100%", position: "relative", width: stableContentWidth }}>
+      <Box
+        sx={{
+          height: totalHeight,
+          minWidth: "100%",
+          position: "relative",
+          width: stableContentWidth,
+        }}
+      >
         <Box sx={{ left: 0, position: "absolute", right: 0, top: offsetTop }}>
           {visibleLines.map((line, visibleIndex) => {
             const lineContent =
@@ -1152,7 +1220,8 @@ export function renderJsonSyntaxHighlightedText(
   matcher?: SearchMatcher | null | undefined,
   currentMatchRange?: { start: number; end: number } | null | undefined,
 ) {
-  const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
+  const tokenPattern =
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
   const segments: React.ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
@@ -1170,21 +1239,33 @@ export function renderJsonSyntaxHighlightedText(
       const hasColon = Boolean(match[2]);
 
       segments.push(
-        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}>
+        <Box
+          component="span"
+          key={`json-token-${tokenIndex++}`}
+          sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}
+        >
           {renderHighlightedText(stringToken, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
 
       if (hasColon) {
         segments.push(
-          <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.punctuation }}>
+          <Box
+            component="span"
+            key={`json-token-${tokenIndex++}`}
+            sx={{ color: tokenColors.punctuation }}
+          >
             {match[2]}
           </Box>,
         );
       }
     } else if (matchedText === "true" || matchedText === "false") {
       segments.push(
-        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.boolean }}>
+        <Box
+          component="span"
+          key={`json-token-${tokenIndex++}`}
+          sx={{ color: tokenColors.boolean }}
+        >
           {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
         </Box>,
       );
@@ -1202,7 +1283,11 @@ export function renderJsonSyntaxHighlightedText(
       );
     } else {
       segments.push(
-        <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.punctuation }}>
+        <Box
+          component="span"
+          key={`json-token-${tokenIndex++}`}
+          sx={{ color: tokenColors.punctuation }}
+        >
           {matchedText}
         </Box>,
       );
@@ -1238,7 +1323,10 @@ export function renderHighlightedText(
         segments.push(text.slice(cursor, match.start));
       }
 
-      const isCurrent = currentMatchRange && currentMatchRange.start === match.start && currentMatchRange.end === match.end;
+      const isCurrent =
+        currentMatchRange &&
+        currentMatchRange.start === match.start &&
+        currentMatchRange.end === match.end;
       segments.push(
         <Box
           component="mark"
@@ -1286,7 +1374,11 @@ export function renderHighlightedText(
 
     const endIndex = matchIndex + normalizedQuery.length;
     segments.push(
-      <Box component="mark" key={`${matchIndex}-${endIndex}`} sx={{ bgcolor: "warning.light", px: 0.25 }}>
+      <Box
+        component="mark"
+        key={`${matchIndex}-${endIndex}`}
+        sx={{ bgcolor: "warning.light", px: 0.25 }}
+      >
         {text.slice(matchIndex, endIndex)}
       </Box>,
     );

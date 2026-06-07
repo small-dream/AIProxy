@@ -40,7 +40,15 @@ type CreateSessionContainerOptions = {
 };
 
 export function createInitialSessionContainerState(
-  options?: Pick<CreateSessionContainerOptions, "expandedHosts" | "inspectorSplitRatio" | "requestCollapsed" | "requestTab" | "responseTab" | "selectedSessionId">,
+  options?: Pick<
+    CreateSessionContainerOptions,
+    | "expandedHosts"
+    | "inspectorSplitRatio"
+    | "requestCollapsed"
+    | "requestTab"
+    | "responseTab"
+    | "selectedSessionId"
+  >,
 ): SessionContainerState {
   const initialContainerOptions: CreateSessionContainerOptions = {
     labelNumber: 1,
@@ -82,7 +90,9 @@ export function createInitialSessionContainerState(
   };
 }
 
-export function createAdditionalSessionContainer(state: SessionContainerState): SessionContainerState {
+export function createAdditionalSessionContainer(
+  state: SessionContainerState,
+): SessionContainerState {
   const activeContainer = getSessionContainerById(state, state.activeContainerId);
   const nextContainer = createSessionContainer({
     labelNumber: state.nextContainerNumber,
@@ -122,7 +132,7 @@ export function closeSessionContainer(
   const nextContainers = state.containers.filter((container) => container.id !== containerId);
   const nextActiveContainerId =
     state.activeContainerId === containerId
-      ? nextContainers[Math.max(0, removedIndex - 1)]?.id ?? nextContainers[0]!.id
+      ? (nextContainers[Math.max(0, removedIndex - 1)]?.id ?? nextContainers[0]!.id)
       : state.activeContainerId;
 
   const nextOwnerById = { ...state.sessionOwnerById };
@@ -271,9 +281,7 @@ export function removeSessionContainerSummary(
   );
 }
 
-export function clearActiveSessionContainer(
-  state: SessionContainerState,
-): SessionContainerState {
+export function clearActiveSessionContainer(state: SessionContainerState): SessionContainerState {
   const activeContainer = getSessionContainerById(state, state.activeContainerId);
 
   if (!activeContainer) {
@@ -295,14 +303,15 @@ export function clearActiveSessionContainer(
       sessionSummaryById: nextSummaryById,
     },
     state.activeContainerId,
-    (container) => buildContainerWithSelection(
-      {
-        ...container,
-        expandedHosts: [],
-        searchValue: "",
-      },
-      [],
-    ),
+    (container) =>
+      buildContainerWithSelection(
+        {
+          ...container,
+          expandedHosts: [],
+          searchValue: "",
+        },
+        [],
+      ),
   );
 }
 

@@ -3,7 +3,11 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useSessionContainerStore } from "./session-container.store";
-import { upsertSessionSummary, removeSessionSummary, removeSessionSummaries } from "./session-cache.helpers";
+import {
+  upsertSessionSummary,
+  removeSessionSummary,
+  removeSessionSummaries,
+} from "./session-cache.helpers";
 import { SESSIONS_QUERY_KEY } from "./use-sessions";
 import { SESSION_DETAIL_QUERY_KEY } from "./use-session-detail";
 import {

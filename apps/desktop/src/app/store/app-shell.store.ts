@@ -12,4 +12,3 @@ export const useAppShellStore = create<AppShellState>((set) => ({
       navigationExpanded: !state.navigationExpanded,
     })),
 }));
-

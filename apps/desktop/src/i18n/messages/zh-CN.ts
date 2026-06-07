@@ -211,7 +211,7 @@ export const zhCNMessages: Messages = {
     creating: "创建中...",
     description: "管理当前代理的端口和 SSL 行为。",
     namePlaceholder: "例如：移动端测试、Web 开发",
-    loadSuccess: "预设 \"{{name}}\" 已应用。",
+    loadSuccess: '预设 "{{name}}" 已应用。',
     nameRequired: "预设名称不能为空。",
     newName: "新建预设",
     portValidation: "端口必须在 1 到 65535 之间。",
@@ -278,7 +278,8 @@ export const zhCNMessages: Messages = {
     responseRead: "读取响应",
   },
   rulesPage: {
-    centerDescription: "用模板快速创建规则，左侧随时查看列表，右侧直接编辑，优先级和启停状态始终清晰可见。",
+    centerDescription:
+      "用模板快速创建规则，左侧随时查看列表，右侧直接编辑，优先级和启停状态始终清晰可见。",
     centerTitle: "规则中心",
     addDialogTitle: "添加断点规则",
     addRule: "添加规则",
@@ -363,7 +364,8 @@ export const zhCNMessages: Messages = {
     },
     rewrite: {
       title: "Rewrite 改写",
-      description: "在一个工作台里统一处理 Header、Query、Body 和 Redirect 改写，不会丢失规则列表上下文。",
+      description:
+        "在一个工作台里统一处理 Header、Query、Body 和 Redirect 改写，不会丢失规则列表上下文。",
       searchPlaceholder: "搜索改写规则",
       fromTemplate: "从模板创建",
       templatesTitle: "改写模板",
@@ -525,10 +527,13 @@ export const zhCNMessages: Messages = {
       adbDeviceLoadErrorTitle: "ADB 设备检测失败",
       adbDevicePlaceholder: "请选择设备",
       adbDeviceSelectorLabel: "ADB 设备",
-      adbDeviceStateHint: "当前选中的目标设备状态为 {{state}}。只有处于“device”状态的设备才能安装证书。",
+      adbDeviceStateHint:
+        "当前选中的目标设备状态为 {{state}}。只有处于“device”状态的设备才能安装证书。",
       adbInstallAction: "通过 ADB 安装证书",
-      adbInstallBody: "连接一台 Android 设备并开启 USB 调试后，点击按钮即可。AIProxy 会把根证书推送到设备的 Downloads 目录，并打开 Android 系统设置。你需要从“安全 / 加密与凭据 / 证书安装 / 凭据管理”等系统证书入口继续完成安装。",
-      adbInstallHint: "这不是静默安装。Android 上通常需要进入系统设置里的证书管理页面，再从 Downloads 中选择该证书文件完成导入。",
+      adbInstallBody:
+        "连接一台 Android 设备并开启 USB 调试后，点击按钮即可。AIProxy 会把根证书推送到设备的 Downloads 目录，并打开 Android 系统设置。你需要从“安全 / 加密与凭据 / 证书安装 / 凭据管理”等系统证书入口继续完成安装。",
+      adbInstallHint:
+        "这不是静默安装。Android 上通常需要进入系统设置里的证书管理页面，再从 Downloads 中选择该证书文件完成导入。",
       adbInstalling: "正在通过 ADB 安装...",
       adbInstallRequirements: "要求本机 PATH 中可用 `adb`，并且你选择的目标设备处于“device”状态。",
       adbInstallTitle: "开发者 ADB 推送并打开设置",
@@ -536,7 +541,8 @@ export const zhCNMessages: Messages = {
       adbLoadingDevices: "正在检测 adb 设备...",
       adbNoDevices: "暂未发现 adb 设备。请连接手机或模拟器，开启 USB 调试后再刷新。",
       adbProxyAddressHint: "当前将写入 Android 代理地址：{{proxyAddress}}",
-      adbProxyBody: "如果 Android 手机通过 USB 连接到电脑，并且已开启 USB 调试，你可以直接通过 ADB 写入或清除系统 HTTP 代理，不必再手动进入 Wi-Fi 代理设置。",
+      adbProxyBody:
+        "如果 Android 手机通过 USB 连接到电脑，并且已开启 USB 调试，你可以直接通过 ADB 写入或清除系统 HTTP 代理，不必再手动进入 Wi-Fi 代理设置。",
       adbProxyRequiresLocalIp: "需要先检测到本机局域网 IP，才能通过 ADB 设置 Android 代理。",
       adbProxyRequiresRunningProxy: "请先启动代理，之后才能通过 ADB 把 Android 代理指向当前电脑。",
       adbProxyTitle: "ADB 代理快捷设置",
@@ -545,10 +551,12 @@ export const zhCNMessages: Messages = {
       adbSelectedDeviceHint: "当手机和模拟器同时连接时，可以在这里明确选择要安装到哪一台设备。",
       adbSetProxyAction: "通过 ADB 设置代理",
       adbSetProxyErrorTitle: "ADB 设置代理失败",
-      adbSetProxySuccessBody: "已把设备 {{deviceSerial}} 的 Android 全局 HTTP 代理设置为 {{proxyAddress}}。",
+      adbSetProxySuccessBody:
+        "已把设备 {{deviceSerial}} 的 Android 全局 HTTP 代理设置为 {{proxyAddress}}。",
       adbSetProxySuccessTitle: "ADB 已设置代理",
       adbSettingProxy: "正在通过 ADB 设置代理...",
-      adbSuccessBody: "证书已复制到 {{deviceSerial}} 的 {{remotePath}}，并已打开 Android 安全设置。请在系统证书管理入口中选择从存储设备安装，然后到 Downloads 里选中这个文件继续完成安装。",
+      adbSuccessBody:
+        "证书已复制到 {{deviceSerial}} 的 {{remotePath}}，并已打开 Android 安全设置。请在系统证书管理入口中选择从存储设备安装，然后到 Downloads 里选中这个文件继续完成安装。",
       adbSuccessTitle: "已推送证书并打开系统设置",
       android: "Android",
       certQrHint: "用手机扫描二维码下载根 CA 证书，然后按照下方说明完成安装。",
@@ -566,19 +574,24 @@ export const zhCNMessages: Messages = {
       proxyPort: "代理端口：",
       quickActionsInfoAction: "查看快捷操作说明",
       quickActionsInfoTitle: "Android 快捷操作说明",
-      quickActionsDescription: "检测到 Android 设备后，可以在这里直接完成 ADB 设代理、清代理和打开系统证书安装入口。",
+      quickActionsDescription:
+        "检测到 Android 设备后，可以在这里直接完成 ADB 设代理、清代理和打开系统证书安装入口。",
       quickActionsTitle: "Android 快捷操作",
       sectionDescription: "配置手机通过 AIProxy 抓取流量。",
       sectionTitle: "手机抓包配置",
       setupGuide: "配置指南",
-      iosDeviceManualHint: "iPhone 真机目前仍建议通过 Safari/描述文件、Apple Configurator 或 MDM 完成证书与代理配置，不提供本地命令一键写入。",
-      iosQuickActionsDescription: "如果已启动 iOS Simulator，可以在这里直接把 AIProxy 根证书装进去。",
+      iosDeviceManualHint:
+        "iPhone 真机目前仍建议通过 Safari/描述文件、Apple Configurator 或 MDM 完成证书与代理配置，不提供本地命令一键写入。",
+      iosQuickActionsDescription:
+        "如果已启动 iOS Simulator，可以在这里直接把 AIProxy 根证书装进去。",
       iosQuickActionsInfoTitle: "iOS 快捷操作说明",
       iosQuickActionsTitle: "iOS 快捷操作",
       iosSimulatorErrorTitle: "Simulator 安装证书失败",
       iosSimulatorInstallAction: "安装证书到 Simulator",
-      iosSimulatorInstallBody: "AIProxy 会调用 `xcrun simctl keychain ... add-root-cert`，把根证书安装到已启动的 iOS Simulator。",
-      iosSimulatorInstallHint: "安装完成后，通常仍需要在 Simulator 里进入 Settings > General > About > Certificate Trust Settings，手动打开该根证书的完全信任。",
+      iosSimulatorInstallBody:
+        "AIProxy 会调用 `xcrun simctl keychain ... add-root-cert`，把根证书安装到已启动的 iOS Simulator。",
+      iosSimulatorInstallHint:
+        "安装完成后，通常仍需要在 Simulator 里进入 Settings > General > About > Certificate Trust Settings，手动打开该根证书的完全信任。",
       iosSimulatorInstallUnavailable: "请先生成根证书，之后才能安装到 iOS Simulator。",
       iosSimulatorInstalling: "正在安装到 Simulator...",
       iosSimulatorLoadErrorTitle: "Simulator 检测失败",
@@ -588,14 +601,16 @@ export const zhCNMessages: Messages = {
       iosSimulatorRefreshAction: "刷新 Simulator",
       iosSimulatorRefreshing: "刷新中...",
       iosSimulatorSelectorLabel: "iOS Simulator",
-      iosSimulatorSuccessBody: "已把根证书安装到 {{simulatorName}}。接下来请在 Simulator 的证书信任设置里手动打开完全信任。",
+      iosSimulatorSuccessBody:
+        "已把根证书安装到 {{simulatorName}}。接下来请在 Simulator 的证书信任设置里手动打开完全信任。",
       iosSimulatorSuccessTitle: "证书已安装到 Simulator",
       iosSimulatorTrustSteps: [
         "在当前 iOS Simulator 中打开 Settings。",
         "进入 General > About > Certificate Trust Settings。",
         "找到 AIProxy Root CA，并打开完全信任。",
       ],
-      iosTrustStepsBody: "iOS Simulator 安装证书后，通常还需要在系统设置里手动打开这个根证书的完全信任。",
+      iosTrustStepsBody:
+        "iOS Simulator 安装证书后，通常还需要在系统设置里手动打开这个根证书的完全信任。",
       iosTrustStepsHideAction: "收起步骤",
       iosTrustStepsShowAction: "查看信任步骤",
       iosTrustStepsTitle: "下一步：打开证书信任",
@@ -649,13 +664,16 @@ export const zhCNMessages: Messages = {
       ],
     },
     risks: {
-      mitmBody: "HTTPS 解密通过在浏览器与目标服务器之间充当受信任的中间人来实现。所有经过该代理的 HTTPS 流量都可以被明文查看。这是调试时的预期行为，但根 CA 私钥必须妥善保管。",
+      mitmBody:
+        "HTTPS 解密通过在浏览器与目标服务器之间充当受信任的中间人来实现。所有经过该代理的 HTTPS 流量都可以被明文查看。这是调试时的预期行为，但根 CA 私钥必须妥善保管。",
       mitmTitle: "中间人行为是设计使然",
-      pinningBody: "某些应用启用了证书锁定，它们会拒绝通过带有自定义根 CA 的代理建立连接。这是客户端安全机制，代理本身无法绕过。",
+      pinningBody:
+        "某些应用启用了证书锁定，它们会拒绝通过带有自定义根 CA 的代理建立连接。这是客户端安全机制，代理本身无法绕过。",
       pinningTitle: "证书锁定",
       sectionDescription: "HTTPS 拦截相关的重要说明。",
       sectionTitle: "风险说明",
-      undoBody: "从系统信任存储中移除 AIProxy 根 CA 后，HTTPS 行为会恢复正常。停止代理或移除证书后，流量拦截会立即停止。",
+      undoBody:
+        "从系统信任存储中移除 AIProxy 根 CA 后，HTTPS 行为会恢复正常。停止代理或移除证书后，流量拦截会立即停止。",
       undoTitle: "如何恢复",
     },
     status: {
@@ -1320,7 +1338,7 @@ export const zhCNMessages: Messages = {
     globalVariables: "全局变量",
     environmentVariables: "变量",
     deleteEnvironment: "删除环境",
-    deleteEnvironmentConfirm: "确定要删除 \"{{name}}\" 吗？",
+    deleteEnvironmentConfirm: '确定要删除 "{{name}}" 吗？',
     environmentDeleted: "环境已删除",
     variablesSaved: "变量已保存",
     collectionCount: "{{count}} 个集合",

@@ -23,7 +23,8 @@ export function MappingRulesPanel() {
         }}
         sx={{
           alignSelf: "flex-start",
-          bgcolor: (theme) => alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
+          bgcolor: (theme) =>
+            alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.05 : 0.035),
           border: 1,
           borderColor: "divider",
           borderRadius: 1.25,
@@ -41,9 +42,10 @@ export function MappingRulesPanel() {
               bgcolor: "background.paper",
               color: "text.primary",
               fontWeight: 650,
-              boxShadow: (theme) => theme.palette.mode === "dark"
-                ? "0 1px 0 rgba(255,255,255,0.04)"
-                : "0 1px 2px rgba(15, 23, 42, 0.08)",
+              boxShadow: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "0 1px 0 rgba(255,255,255,0.04)"
+                  : "0 1px 2px rgba(15, 23, 42, 0.08)",
             },
           },
         }}

@@ -102,7 +102,9 @@ pub(crate) fn get_json_path_value<'a>(
     Some(current)
 }
 
-pub(crate) fn coerce_body_field_value(field: &RewriteBodyFieldPayload) -> Result<serde_json::Value, String> {
+pub(crate) fn coerce_body_field_value(
+    field: &RewriteBodyFieldPayload,
+) -> Result<serde_json::Value, String> {
     let raw_value = field.value.as_deref().unwrap_or_default();
     match field
         .value_type

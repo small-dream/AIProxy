@@ -1,7 +1,12 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, ButtonBase, Stack, Tooltip, Typography } from "@mui/material";
-import type { BodyReference, HeaderEntry, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type {
+  BodyReference,
+  HeaderEntry,
+  SessionDetail,
+  SessionSummary,
+} from "@aiproxy/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -12,7 +17,10 @@ import {
   inspectorKeyTypographySx,
   inspectorValueTypographySx,
 } from "./SessionInspectorShared";
-import { formatSessionProtocol, getSessionProtocolMetadata } from "@/features/sessions/session-protocol.helpers";
+import {
+  formatSessionProtocol,
+  getSessionProtocolMetadata,
+} from "@/features/sessions/session-protocol.helpers";
 import { formatTiming, isClientCancelledStatus } from "./session-inspector.helpers";
 import { WaterfallChart } from "./WaterfallChart";
 
@@ -51,37 +59,54 @@ export function SessionInspectorOverview({
   session: SessionSummary;
 }) {
   const { t } = useI18n();
-  const { sections, sizeBreakdown } = useMemo(() => buildOverviewSections({
-    detail,
-    session,
-    t,
-  }), [detail, session, t]);
-  const overviewBlocks = useMemo<OverviewBlock[]>(() => [
-    ...sections.map((section) => ({
-      key: section.key,
-      title: section.title,
-      content: (
-        <Stack spacing={0}>
-          {section.key === "timing" ? (
-            <Box sx={{ mb: 0.75, pl: 3.25 }}>
-              <WaterfallChart timing={detail?.timing} />
-            </Box>
-          ) : null}
-          <OverviewDefinitionList indent={section.key === "general" ? 0 : 3.25} items={section.items} />
-        </Stack>
-      ),
-    })),
-    {
-      key: "size",
-      title: sizeBreakdown.title,
-      content: <OverviewSizeTree sessionId={session.id} showTitle={false} sizeBreakdown={sizeBreakdown} />,
-    },
-  ], [sections, session.id, sizeBreakdown, detail?.timing]);
+  const { sections, sizeBreakdown } = useMemo(
+    () =>
+      buildOverviewSections({
+        detail,
+        session,
+        t,
+      }),
+    [detail, session, t],
+  );
+  const overviewBlocks = useMemo<OverviewBlock[]>(
+    () => [
+      ...sections.map((section) => ({
+        key: section.key,
+        title: section.title,
+        content: (
+          <Stack spacing={0}>
+            {section.key === "timing" ? (
+              <Box sx={{ mb: 0.75, pl: 3.25 }}>
+                <WaterfallChart timing={detail?.timing} />
+              </Box>
+            ) : null}
+            <OverviewDefinitionList
+              indent={section.key === "general" ? 0 : 3.25}
+              items={section.items}
+            />
+          </Stack>
+        ),
+      })),
+      {
+        key: "size",
+        title: sizeBreakdown.title,
+        content: (
+          <OverviewSizeTree
+            sessionId={session.id}
+            showTitle={false}
+            sizeBreakdown={sizeBreakdown}
+          />
+        ),
+      },
+    ],
+    [sections, session.id, sizeBreakdown, detail?.timing],
+  );
   const initialExpandedBlocks = useMemo(
     () => buildExpandedState(["general", "timing", "size"]),
     [],
   );
-  const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>(initialExpandedBlocks);
+  const [expandedBlocks, setExpandedBlocks] =
+    useState<Record<string, boolean>>(initialExpandedBlocks);
 
   useEffect(() => {
     setExpandedBlocks(initialExpandedBlocks);
@@ -90,7 +115,11 @@ export function SessionInspectorOverview({
   return (
     <InspectorScrollArea>
       <Stack spacing={0} sx={{ pb: 1, pt: 0.25 }}>
-        {leading ? <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>{leading}</Stack> : null}
+        {leading ? (
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            {leading}
+          </Stack>
+        ) : null}
         <Stack spacing={0}>
           {overviewBlocks.map((block) => {
             const isExpanded = expandedBlocks[block.key] ?? true;
@@ -155,7 +184,7 @@ function OverviewTreeHeader({
       }}
     >
       <OverviewGridRow
-        label={(
+        label={
           <Stack alignItems="center" direction="row" spacing={0.5}>
             {expanded ? (
               <ExpandMoreRoundedIcon sx={{ color: "text.disabled", fontSize: 17 }} />
@@ -166,7 +195,7 @@ function OverviewTreeHeader({
               {title}
             </Typography>
           </Stack>
-        )}
+        }
         labelIndent={indent}
         value={value}
       />
@@ -196,11 +225,11 @@ function OverviewDefinitionList({
       {items.map(([label, value]) => (
         <OverviewGridRow
           key={`${label}:${value}`}
-          label={(
+          label={
             <Typography sx={inspectorKeyTypographySx} variant="body2">
               {label}
             </Typography>
-          )}
+          }
           labelIndent={indent}
           value={value}
         />
@@ -228,9 +257,7 @@ function OverviewGridRow({
         minHeight: 30,
       }}
     >
-      <Box sx={{ minWidth: 0, pl: labelIndent }}>
-        {label}
-      </Box>
+      <Box sx={{ minWidth: 0, pl: labelIndent }}>{label}</Box>
       {value !== undefined ? <OverviewValueCell value={value} /> : <Box />}
     </Box>
   );
@@ -306,11 +333,9 @@ function OverviewSizeTree({
   showTitle?: boolean;
   sizeBreakdown: OverviewSizeBreakdown;
 }) {
-  const initialExpandedGroups = useMemo(
-    () => buildExpandedState(["request", "response"]),
-    [],
-  );
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(initialExpandedGroups);
+  const initialExpandedGroups = useMemo(() => buildExpandedState(["request", "response"]), []);
+  const [expandedGroups, setExpandedGroups] =
+    useState<Record<string, boolean>>(initialExpandedGroups);
 
   useEffect(() => {
     setExpandedGroups(initialExpandedGroups);
@@ -338,18 +363,16 @@ function OverviewSizeTree({
                 value={group.total}
               />
 
-              {isExpanded ? (
-                <OverviewDefinitionList indent={6.5} items={group.items} />
-              ) : null}
+              {isExpanded ? <OverviewDefinitionList indent={6.5} items={group.items} /> : null}
             </Stack>
           );
         })}
         <OverviewGridRow
-          label={(
+          label={
             <Typography sx={{ ...inspectorValueTypographySx, fontWeight: 600 }} variant="body2">
               {sizeBreakdown.total[0]}
             </Typography>
-          )}
+          }
           labelIndent={3.25}
           value={sizeBreakdown.total[1]}
         />
@@ -375,15 +398,29 @@ function buildOverviewSections({
   sizeBreakdown: OverviewSizeBreakdown;
 } {
   const fallback = t("common.states.notCaptured");
-  const responseContentType = getHeaderValue(detail?.responseHeaders, "content-type")
-    ?? detail?.responseBody?.mimeType
-    ?? session.responseMimeType
-    ?? fallback;
+  const responseContentType =
+    getHeaderValue(detail?.responseHeaders, "content-type") ??
+    detail?.responseBody?.mimeType ??
+    session.responseMimeType ??
+    fallback;
   const protocolMetadata = getSessionProtocolMetadata(session);
   const requestContentEncoding = getHeaderValue(detail?.requestHeaders, "content-encoding");
   const responseContentEncoding = getHeaderValue(detail?.responseHeaders, "content-encoding");
-  const requestHeaderBytes = estimateHeaderBytes(detail?.rawRequest, detail?.requestHeaders, session.method, session.path, protocolMetadata.httpVersion);
-  const responseHeaderBytes = estimateHeaderBytes(detail?.rawResponse, detail?.responseHeaders, undefined, undefined, protocolMetadata.httpVersion, session.statusCode);
+  const requestHeaderBytes = estimateHeaderBytes(
+    detail?.rawRequest,
+    detail?.requestHeaders,
+    session.method,
+    session.path,
+    protocolMetadata.httpVersion,
+  );
+  const responseHeaderBytes = estimateHeaderBytes(
+    detail?.rawResponse,
+    detail?.responseHeaders,
+    undefined,
+    undefined,
+    protocolMetadata.httpVersion,
+    session.statusCode,
+  );
   const requestBodyBytes = detail?.requestBody?.sizeBytes ?? 0;
   const responseBodyBytes = detail?.responseBody?.sizeBytes ?? 0;
   const requestTotalBytes = requestHeaderBytes + requestBodyBytes;
@@ -406,13 +443,19 @@ function buildOverviewSections({
   );
   const responseEndTime = formatTimestamp(session.finishedAt, fallback);
   const requestQueryBytes = estimateQueryStringBytes(session.url);
-  const requestCookieBytes = detail ? estimateCookieBytes(detail.requestHeaders, "cookie") : undefined;
-  const responseCookieBytes = detail ? estimateCookieBytes(detail.responseHeaders, "set-cookie") : undefined;
+  const requestCookieBytes = detail
+    ? estimateCookieBytes(detail.requestHeaders, "cookie")
+    : undefined;
+  const responseCookieBytes = detail
+    ? estimateCookieBytes(detail.responseHeaders, "set-cookie")
+    : undefined;
   const requestUncompressedBytes = estimateDecodedBodyBytes(detail?.requestBody);
   const responseUncompressedBytes = estimateDecodedBodyBytes(detail?.responseBody);
   const statusLabel = isClientCancelledStatus(session.statusCode)
     ? t("inspector.request.overview.cancelled")
-    : session.statusCode > 0 ? t("inspector.request.overview.complete") : t("common.states.pending");
+    : session.statusCode > 0
+      ? t("inspector.request.overview.complete")
+      : t("common.states.pending");
 
   return {
     sections: [
@@ -423,14 +466,30 @@ function buildOverviewSections({
           [t("common.labels.url"), session.url],
           [t("common.labels.method"), session.method],
           [t("inspector.request.overview.fields.status"), statusLabel],
-          [t("inspector.request.overview.fields.responseCode"), session.statusCode > 0 ? String(session.statusCode) : fallback],
+          [
+            t("inspector.request.overview.fields.responseCode"),
+            session.statusCode > 0 ? String(session.statusCode) : fallback,
+          ],
           [t("inspector.request.overview.fields.contentType"), responseContentType],
           [t("inspector.request.overview.fields.clientAddress"), detail?.clientAddress ?? fallback],
-          [t("inspector.request.overview.fields.remoteAddress"), buildRemoteAddress(session.url, session.host, detail?.serverIp)],
+          [
+            t("inspector.request.overview.fields.remoteAddress"),
+            buildRemoteAddress(session.url, session.host, detail?.serverIp),
+          ],
           [t("common.labels.protocol"), formatSessionProtocol(session)],
           [t("inspector.request.overview.fields.tags"), t("common.states.na")],
-          [t("inspector.request.overview.fields.keptAlive"), formatBooleanValue(getKeepAlive(detail?.requestHeaders, protocolMetadata.httpVersion), fallback, t)],
-          [t("inspector.request.overview.fields.ssl"), formatSslValue(protocolMetadata.scheme, detail, fallback, t("common.states.na"))],
+          [
+            t("inspector.request.overview.fields.keptAlive"),
+            formatBooleanValue(
+              getKeepAlive(detail?.requestHeaders, protocolMetadata.httpVersion),
+              fallback,
+              t,
+            ),
+          ],
+          [
+            t("inspector.request.overview.fields.ssl"),
+            formatSslValue(protocolMetadata.scheme, detail, fallback, t("common.states.na")),
+          ],
         ],
       },
       {
@@ -441,16 +500,73 @@ function buildOverviewSections({
           [t("inspector.request.overview.fields.requestEndTime"), requestEndTime],
           [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
           [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
-          [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
-          [t("inspector.request.overview.fields.dns"), formatConnectionPhaseTiming(timing?.dnsMs, timing, isImportedTiming, fallback, unavailable)],
-          [t("inspector.request.overview.fields.connect"), formatConnectionPhaseTiming(timing?.connectMs, timing, isImportedTiming, fallback, unavailable)],
-          [t("inspector.request.overview.fields.tlsHandshake"), formatTlsTiming(timing?.tlsMs, timing, protocolMetadata.scheme, isImportedTiming, fallback, unavailable, t)],
-          [t("inspector.request.overview.fields.request"), formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable)],
-          [t("inspector.request.overview.fields.response"), formatTiming(timing?.responseReadMs, fallback)],
-          [t("inspector.request.overview.fields.latency"), formatTiming(timing?.waitingMs, fallback)],
-          [t("inspector.request.overview.fields.speed"), formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t)],
-          [t("inspector.request.overview.fields.requestSpeed"), formatRequestBytesPerSecond(requestTotalBytes, timing, isImportedTiming, fallback, unavailable, t)],
-          [t("inspector.request.overview.fields.responseSpeed"), formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t)],
+          [
+            t("common.labels.duration"),
+            formatTiming(timing?.totalMs ?? session.durationMs, fallback),
+          ],
+          [
+            t("inspector.request.overview.fields.dns"),
+            formatConnectionPhaseTiming(
+              timing?.dnsMs,
+              timing,
+              isImportedTiming,
+              fallback,
+              unavailable,
+            ),
+          ],
+          [
+            t("inspector.request.overview.fields.connect"),
+            formatConnectionPhaseTiming(
+              timing?.connectMs,
+              timing,
+              isImportedTiming,
+              fallback,
+              unavailable,
+            ),
+          ],
+          [
+            t("inspector.request.overview.fields.tlsHandshake"),
+            formatTlsTiming(
+              timing?.tlsMs,
+              timing,
+              protocolMetadata.scheme,
+              isImportedTiming,
+              fallback,
+              unavailable,
+              t,
+            ),
+          ],
+          [
+            t("inspector.request.overview.fields.request"),
+            formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable),
+          ],
+          [
+            t("inspector.request.overview.fields.response"),
+            formatTiming(timing?.responseReadMs, fallback),
+          ],
+          [
+            t("inspector.request.overview.fields.latency"),
+            formatTiming(timing?.waitingMs, fallback),
+          ],
+          [
+            t("inspector.request.overview.fields.speed"),
+            formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t),
+          ],
+          [
+            t("inspector.request.overview.fields.requestSpeed"),
+            formatRequestBytesPerSecond(
+              requestTotalBytes,
+              timing,
+              isImportedTiming,
+              fallback,
+              unavailable,
+              t,
+            ),
+          ],
+          [
+            t("inspector.request.overview.fields.responseSpeed"),
+            formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t),
+          ],
         ],
       },
     ],
@@ -463,11 +579,31 @@ function buildOverviewSections({
           total: formatBytes(requestTotalBytes, t),
           items: [
             [t("inspector.request.overview.fields.header"), formatBytes(requestHeaderBytes, t)],
-            [t("inspector.request.overview.fields.queryString"), requestQueryBytes != null ? formatBytes(requestQueryBytes, t) : fallback],
-            [t("inspector.request.overview.fields.cookies"), requestCookieBytes != null ? formatBytes(requestCookieBytes, t) : fallback],
+            [
+              t("inspector.request.overview.fields.queryString"),
+              requestQueryBytes != null ? formatBytes(requestQueryBytes, t) : fallback,
+            ],
+            [
+              t("inspector.request.overview.fields.cookies"),
+              requestCookieBytes != null ? formatBytes(requestCookieBytes, t) : fallback,
+            ],
             [t("common.labels.body"), formatBytes(requestBodyBytes, t)],
-            [t("inspector.request.overview.fields.uncompressedBody"), requestUncompressedBytes != null ? formatBytes(requestUncompressedBytes, t) : fallback],
-            [t("inspector.request.overview.fields.compression"), formatCompression(requestBodyBytes, requestUncompressedBytes, requestContentEncoding, fallback, t("common.states.na"))],
+            [
+              t("inspector.request.overview.fields.uncompressedBody"),
+              requestUncompressedBytes != null
+                ? formatBytes(requestUncompressedBytes, t)
+                : fallback,
+            ],
+            [
+              t("inspector.request.overview.fields.compression"),
+              formatCompression(
+                requestBodyBytes,
+                requestUncompressedBytes,
+                requestContentEncoding,
+                fallback,
+                t("common.states.na"),
+              ),
+            ],
           ],
         },
         {
@@ -476,10 +612,27 @@ function buildOverviewSections({
           total: formatBytes(responseTotalBytes, t),
           items: [
             [t("inspector.request.overview.fields.header"), formatBytes(responseHeaderBytes, t)],
-            [t("inspector.request.overview.fields.cookies"), responseCookieBytes != null ? formatBytes(responseCookieBytes, t) : fallback],
+            [
+              t("inspector.request.overview.fields.cookies"),
+              responseCookieBytes != null ? formatBytes(responseCookieBytes, t) : fallback,
+            ],
             [t("common.labels.body"), formatBytes(responseBodyBytes, t)],
-            [t("inspector.request.overview.fields.uncompressedBody"), responseUncompressedBytes != null ? formatBytes(responseUncompressedBytes, t) : fallback],
-            [t("inspector.request.overview.fields.compression"), formatCompression(responseBodyBytes, responseUncompressedBytes, responseContentEncoding, fallback, t("common.states.na"))],
+            [
+              t("inspector.request.overview.fields.uncompressedBody"),
+              responseUncompressedBytes != null
+                ? formatBytes(responseUncompressedBytes, t)
+                : fallback,
+            ],
+            [
+              t("inspector.request.overview.fields.compression"),
+              formatCompression(
+                responseBodyBytes,
+                responseUncompressedBytes,
+                responseContentEncoding,
+                fallback,
+                t("common.states.na"),
+              ),
+            ],
           ],
         },
       ],
@@ -521,10 +674,19 @@ function getResponseStartOffsetMs(timing: SessionDetail["timing"] | undefined) {
     return Math.max(0, timing.totalMs - timing.responseReadMs);
   }
 
-  return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs, timing.waitingMs);
+  return sumMilliseconds(
+    timing.dnsMs,
+    timing.connectMs,
+    timing.tlsMs,
+    timing.requestSendMs,
+    timing.waitingMs,
+  );
 }
 
-function getRequestEndOffsetMs(timing: SessionDetail["timing"] | undefined, isImportedTiming: boolean) {
+function getRequestEndOffsetMs(
+  timing: SessionDetail["timing"] | undefined,
+  isImportedTiming: boolean,
+) {
   if (!timing) {
     return undefined;
   }
@@ -570,7 +732,10 @@ function formatTlsTiming(
   return timing && !isImportedTiming ? unavailable : fallback;
 }
 
-function hasDetailedRequestSendTiming(timing: SessionDetail["timing"] | undefined, isImportedTiming: boolean) {
+function hasDetailedRequestSendTiming(
+  timing: SessionDetail["timing"] | undefined,
+  isImportedTiming: boolean,
+) {
   if (timing?.requestSendMs == null) {
     return false;
   }
@@ -609,7 +774,11 @@ function formatTimestamp(value: string | undefined, fallback: string) {
   }).format(date);
 }
 
-function formatOffsetTimestamp(baseValue: string | undefined, offsetMs: number | undefined, fallback: string) {
+function formatOffsetTimestamp(
+  baseValue: string | undefined,
+  offsetMs: number | undefined,
+  fallback: string,
+) {
   if (!baseValue || offsetMs == null) {
     return fallback;
   }
@@ -646,7 +815,9 @@ function formatBytesPerSecond(
 
 function formatBytesPerSecondValue(bytesPerSecond: number, t: ReturnType<typeof useI18n>["t"]) {
   if (bytesPerSecond >= 1024 * 1024) {
-    return t("common.tech.megabytesPerSecond", { value: (bytesPerSecond / (1024 * 1024)).toFixed(2) });
+    return t("common.tech.megabytesPerSecond", {
+      value: (bytesPerSecond / (1024 * 1024)).toFixed(2),
+    });
   }
 
   if (bytesPerSecond >= 1024) {
@@ -708,9 +879,10 @@ function estimateHeaderBytes(
       return 0;
     }
 
-    const startLine = statusCode != null && statusCode > 0
-      ? `HTTP/${normalizeProtocolVersion(protocol)} ${statusCode}\r\n`
-      : `${method ?? "GET"} ${path ?? "/"} HTTP/${normalizeProtocolVersion(protocol)}\r\n`;
+    const startLine =
+      statusCode != null && statusCode > 0
+        ? `HTTP/${normalizeProtocolVersion(protocol)} ${statusCode}\r\n`
+        : `${method ?? "GET"} ${path ?? "/"} HTTP/${normalizeProtocolVersion(protocol)}\r\n`;
     const headerText = `${startLine}${headers.map((header) => `${header.name}: ${header.value}\r\n`).join("")}\r\n`;
 
     return new TextEncoder().encode(headerText).length;
@@ -753,13 +925,18 @@ function estimateQueryStringBytes(urlValue: string) {
 }
 
 function estimateCookieBytes(headers: HeaderEntry[] | undefined, headerName: string) {
-  const matchingHeaders = headers?.filter((header) => header.name.toLowerCase() === headerName.toLowerCase()) ?? [];
+  const matchingHeaders =
+    headers?.filter((header) => header.name.toLowerCase() === headerName.toLowerCase()) ?? [];
 
   if (matchingHeaders.length === 0) {
     return headers ? 0 : undefined;
   }
 
-  return matchingHeaders.reduce((total, header) => total + new TextEncoder().encode(`${header.name}: ${header.value}\r\n`).length, 0);
+  return matchingHeaders.reduce(
+    (total, header) =>
+      total + new TextEncoder().encode(`${header.name}: ${header.value}\r\n`).length,
+    0,
+  );
 }
 
 function normalizeProtocolVersion(protocol: string | undefined) {
@@ -789,7 +966,8 @@ function normalizeProtocolVersion(protocol: string | undefined) {
 function buildRemoteAddress(urlValue: string, host: string, serverIp: string | undefined) {
   try {
     const url = new URL(urlValue);
-    const port = url.port || (url.protocol === "https:" ? "443" : url.protocol === "http:" ? "80" : "");
+    const port =
+      url.port || (url.protocol === "https:" ? "443" : url.protocol === "http:" ? "80" : "");
     const endpoint = port ? `${host}:${port}` : host;
 
     return serverIp ? `${endpoint} / ${serverIp}` : endpoint;
@@ -805,7 +983,13 @@ function getKeepAlive(headers: HeaderEntry[] | undefined, protocol: string) {
     return connection.toLowerCase() !== "close";
   }
 
-  if (protocol.toLowerCase() === "http" || protocol.toLowerCase() === "https" || protocol === "1.1" || protocol === "2" || protocol === "3") {
+  if (
+    protocol.toLowerCase() === "http" ||
+    protocol.toLowerCase() === "https" ||
+    protocol === "1.1" ||
+    protocol === "2" ||
+    protocol === "3"
+  ) {
     return true;
   }
 
@@ -842,7 +1026,11 @@ function formatSslValue(
     return na;
   }
 
-  if (normalizedProtocol === "https" || normalizedProtocol === "connect" || normalizedProtocol === "wss") {
+  if (
+    normalizedProtocol === "https" ||
+    normalizedProtocol === "connect" ||
+    normalizedProtocol === "wss"
+  ) {
     return detail ? fallback : "HTTPS";
   }
 

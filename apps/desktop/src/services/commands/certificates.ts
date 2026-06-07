@@ -23,10 +23,7 @@ import {
   type SetAndroidProxyViaAdbInput,
 } from "@aiproxy/shared-types";
 
-import {
-  logDevDebug,
-  logDevInfo,
-} from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 
 import {
   detectBrowserPlatform,
@@ -182,7 +179,11 @@ export async function installAndroidCertificateViaAdb(
   input?: InstallAndroidCertificateViaAdbInput,
 ): Promise<AndroidAdbCertificateInstallResult> {
   if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "install_android_certificate_via_adb_bypassed_non_tauri_runtime", input);
+    logDevDebug(
+      "ui.commands",
+      "install_android_certificate_via_adb_bypassed_non_tauri_runtime",
+      input,
+    );
     return {
       success: true,
       deviceSerial: input?.deviceSerial ?? "emulator-5554",
@@ -246,7 +247,11 @@ export async function installIosCertificateViaSimulator(
   input?: InstallIosCertificateViaSimulatorInput,
 ): Promise<IOSSimulatorCertificateInstallResult> {
   if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "install_ios_certificate_via_simulator_bypassed_non_tauri_runtime", input);
+    logDevDebug(
+      "ui.commands",
+      "install_ios_certificate_via_simulator_bypassed_non_tauri_runtime",
+      input,
+    );
     return {
       success: true,
       simulatorName: "iPhone 16 Pro",
@@ -257,7 +262,9 @@ export async function installIosCertificateViaSimulator(
   try {
     logDevInfo("ui.commands", "install_ios_certificate_via_simulator_requested", input);
     const payload = await invoke<unknown>("install_ios_certificate_via_simulator", {
-      input: input ? { ...(input.simulatorUdid ? { simulatorUdid: input.simulatorUdid } : {}) } : {},
+      input: input
+        ? { ...(input.simulatorUdid ? { simulatorUdid: input.simulatorUdid } : {}) }
+        : {},
     });
     const result = parseIOSSimulatorCertificateInstallResult(payload);
 
