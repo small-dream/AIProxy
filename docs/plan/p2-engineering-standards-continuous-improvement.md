@@ -117,12 +117,14 @@ max_width = 100
 ```json
 {
   "semi": true,
-  "singleQuote": true,
+  "singleQuote": false,
   "trailingComma": "all",
   "printWidth": 100,
   "tabWidth": 2
 }
 ```
+
+> 注意：项目原有代码 100% 使用双引号，`singleQuote` 必须为 `false` 以匹配现有风格。
 
 3. 添加 npm script：`"format": "prettier --write 'src/**/*.{ts,tsx}'", "format:check": "prettier --check 'src/**/*.{ts,tsx}'"`
 

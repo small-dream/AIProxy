@@ -8,11 +8,14 @@
   "scripts": {
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "test": "vitest run --pool=threads",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write 'src/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts'"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^9.24.0",
+    "prettier": "^3.8.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.58.1",
     "vitest": "^3.1.1"
