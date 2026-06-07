@@ -371,14 +371,6 @@ fn truncate_for_error(value: &str) -> String {
     format!("{}...", &value[..LIMIT])
 }
 
-fn app_error(code: &str, message: &str) -> String {
-    json!({
-        "code": code,
-        "message": message,
-    })
-    .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

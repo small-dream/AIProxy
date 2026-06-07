@@ -110,9 +110,10 @@ async fn start_proxy_impl(
                     Some(m)
                 }
                 Err(_) => {
-                    return Err(
-                        "SSL interception requires a root certificate. Generate one on the Certificates page.".to_string()
-                    );
+                    return Err(app_error(
+                        ERR_CERT_NOT_FOUND,
+                        "SSL interception requires a root certificate. Generate one on the Certificates page.",
+                    ));
                 }
             }
         }
@@ -327,7 +328,10 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
                 "proxy_must_be_running_before_enabling_system_proxy".to_string(),
             )],
         );
-        return Err("proxy must be running before enabling the system proxy".to_string());
+        return Err(app_error(
+            ERR_PROXY_NOT_RUNNING,
+            "Proxy must be running before enabling the system proxy.",
+        ));
     }
 
     let settings = SystemProxySettings::localhost(status.port);

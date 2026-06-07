@@ -10,10 +10,10 @@ pub fn list_script_session_trace(
         .lock()
         .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_script_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| format!("load script runs: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load script runs: {error}")))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
     let entries = aiproxy_db::rules::load_script_run_entries(&conn, &run_ids)
-        .map_err(|error| format!("load script run entries: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load script run entries: {error}")))?;
 
     Ok(runs
         .into_iter()
@@ -48,10 +48,10 @@ pub fn list_rewrite_session_trace(
         .lock()
         .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| format!("load rewrite runs: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite runs: {error}")))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
     let entries = aiproxy_db::rules::load_rewrite_run_entries(&conn, &run_ids)
-        .map_err(|error| format!("load rewrite run entries: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite run entries: {error}")))?;
 
     Ok(runs
         .into_iter()
@@ -88,7 +88,7 @@ pub fn list_map_session_trace(
         .lock()
         .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_map_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| format!("load map runs: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load map runs: {error}")))?;
 
     Ok(runs
         .into_iter()
@@ -117,7 +117,7 @@ pub fn list_throttle_session_trace(
         .lock()
         .expect("db mutex should not be poisoned");
     let runs = aiproxy_db::rules::load_throttle_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| format!("load throttle runs: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttle runs: {error}")))?;
 
     Ok(runs
         .into_iter()
@@ -148,7 +148,7 @@ pub fn list_throttled_session_ids(
         .lock()
         .expect("db mutex should not be poisoned");
     aiproxy_db::rules::load_throttled_session_ids(&conn, &input.workspace_id)
-        .map_err(|error| format!("load throttled session ids: {error}"))
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttled session IDs: {error}")))
 }
 
 #[tauri::command]
@@ -185,7 +185,7 @@ pub fn set_breakpoint_rules(
             })
             .collect();
         aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows)
-            .map_err(|error| format!("set breakpoint rules: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Set breakpoint rules: {error}")))?;
     }
 
     state.read_breakpoint_manager().set_rules(rules);
@@ -254,7 +254,7 @@ pub fn save_rewrite_rule(
             payload: input.payload.to_string(),
         };
         aiproxy_db::rules::save_rewrite_rule(&conn, &row)
-            .map_err(|error| format!("save rewrite rule: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Save rewrite rule: {error}")))?;
     }
 
     Ok(state.read_rewrite_manager().save_rule(input))
@@ -434,7 +434,7 @@ pub fn save_map_rule(input: MapRule, state: State<'_, Arc<AppState>>) -> Result<
             target_value: input.target_value.clone(),
         };
         aiproxy_db::rules::save_map_rule(&conn, &row)
-            .map_err(|error| format!("save map rule: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Save map rule: {error}")))?;
     }
 
     Ok(state.read_map_manager().save_rule(input))
@@ -442,39 +442,39 @@ pub fn save_map_rule(input: MapRule, state: State<'_, Arc<AppState>>) -> Result<
 
 fn validate_map_rule(input: &MapRule) -> Result<(), String> {
     if input.name.trim().is_empty() {
-        return Err("map rule name is required".to_string());
+        return Err(app_error(ERR_INVALID_INPUT, "Map rule name is required."));
     }
     if input.source_pattern.trim().is_empty() {
-        return Err("map rule source pattern is required".to_string());
+        return Err(app_error(ERR_INVALID_INPUT, "Map rule source pattern is required."));
     }
     if input.target_value.trim().is_empty() {
-        return Err("map rule target value is required".to_string());
+        return Err(app_error(ERR_INVALID_INPUT, "Map rule target value is required."));
     }
 
     match input.mode.as_str() {
         "remote" => {
             let url = Url::parse(input.target_value.trim())
-                .map_err(|error| format!("map remote target URL is invalid: {error}"))?;
+                .map_err(|error| app_error(ERR_INVALID_INPUT, format!("Map remote target URL is invalid: {error}")))?;
             if url.scheme() != "http" && url.scheme() != "https" {
-                return Err("map remote target URL must start with http:// or https://".to_string());
+                return Err(app_error(ERR_INVALID_INPUT, "Map remote target URL must start with http:// or https://."));
             }
         }
         "local" => {
             let path = Path::new(input.target_value.trim());
             if !path.exists() {
-                return Err(format!(
-                    "map local target path does not exist: {}",
-                    path.display()
+                return Err(app_error(
+                    ERR_INVALID_INPUT,
+                    format!("Map local target path does not exist: {}", path.display()),
                 ));
             }
             if !path.is_file() && !path.is_dir() {
-                return Err(format!(
-                    "map local target path must be a file or folder: {}",
-                    path.display()
+                return Err(app_error(
+                    ERR_INVALID_INPUT,
+                    format!("Map local target path must be a file or folder: {}", path.display()),
                 ));
             }
         }
-        other => return Err(format!("unsupported map rule mode: {other}")),
+        other => return Err(app_error(ERR_INVALID_INPUT, format!("Unsupported map rule mode: {other}"))),
     }
 
     Ok(())
@@ -542,7 +542,7 @@ pub fn save_script_rule(
         };
 
         aiproxy_db::rules::save_script_rule(&conn, &row)
-            .map_err(|error| format!("save script rule: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Save script rule: {error}")))?;
     }
 
     Ok(state.read_script_manager().save_rule(compiled))
@@ -557,23 +557,23 @@ pub fn read_script_source_file(
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
-        .ok_or_else(|| "script file must end with .js, .mjs, .ts, or .mts".to_string())?;
+        .ok_or_else(|| app_error(ERR_INVALID_INPUT, "Script file must end with .js, .mjs, .ts, or .mts."))?;
     let language = match extension.as_str() {
         "js" | "mjs" => "javascript",
         "ts" | "mts" => "typescript",
-        _ => return Err("unsupported script file extension".to_string()),
+        _ => return Err(app_error(ERR_INVALID_INPUT, "Unsupported script file extension.")),
     };
 
-    let bytes = std::fs::read(path).map_err(|error| format!("read script file: {error}"))?;
+    let bytes = std::fs::read(path).map_err(|error| app_error(ERR_INTERNAL, format!("Read script file: {error}")))?;
     if bytes.len() > MAX_IMPORTED_SCRIPT_BYTES {
-        return Err(format!(
-            "script file exceeds the {} KB limit",
-            MAX_IMPORTED_SCRIPT_BYTES / 1024
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!("Script file exceeds the {} KB limit", MAX_IMPORTED_SCRIPT_BYTES / 1024),
         ));
     }
 
     let source_code = String::from_utf8(bytes)
-        .map_err(|error| format!("decode script file as utf-8: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Decode script file as UTF-8: {error}")))?;
 
     Ok(ScriptSourceFileOutput {
         file_name: path
@@ -611,7 +611,7 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
             "script" => aiproxy_db::rules::delete_script_rule(&conn, &input.rule_id),
             _ => Err(format!("unknown rule type: {}", input.rule_type)),
         };
-        db_result.map_err(|error| format!("delete rule: {error}"))?;
+        db_result.map_err(|error| app_error(ERR_INTERNAL, format!("Delete rule: {error}")))?;
     }
 
     match input.rule_type.as_str() {
@@ -619,7 +619,7 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         "script" => state.read_script_manager().delete_rule(&input.rule_id),
-        _ => return Err(format!("unknown rule type: {}", input.rule_type)),
+        _ => return Err(app_error(ERR_INVALID_INPUT, format!("Unknown rule type: {}", input.rule_type))),
     }
 
     Ok(())
@@ -669,7 +669,7 @@ pub fn save_dns_mapping(
             target_ip: rule.target_ip.clone(),
         };
         aiproxy_db::rules::save_dns_mapping(&conn, &row)
-            .map_err(|error| format!("save dns mapping: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Save DNS mapping: {error}")))?;
     }
 
     // Update in-memory manager

@@ -34,6 +34,38 @@ pub(super) const DEFAULT_PROXY_PORT: u16 = 8888;
 pub(super) const EAGER_SESSION_DETAIL_BODY_LIMIT_BYTES: usize = 64 * 1024;
 pub(super) const MAX_IMPORTED_SCRIPT_BYTES: usize = 128 * 1024;
 
+// --- Shared error helpers ---
+
+pub(super) const ERR_PROXY_NOT_RUNNING: &str = "PROXY_NOT_RUNNING";
+pub(super) const ERR_INVALID_INPUT: &str = "INVALID_INPUT";
+pub(super) const ERR_CERT_NOT_FOUND: &str = "CERT_NOT_FOUND";
+pub(super) const ERR_INTERNAL: &str = "INTERNAL_ERROR";
+
+/// Produces a structured JSON error string with `code` and `message`.
+/// Tauri commands return `Result<T, String>`, so the error payload is a
+/// JSON-encoded string that the frontend can parse via `coerceAppError`.
+pub(super) fn app_error(code: &str, message: impl AsRef<str>) -> String {
+    serde_json::json!({
+        "code": code,
+        "message": message.as_ref(),
+    })
+    .to_string()
+}
+
+/// Like `app_error`, but includes an arbitrary `details` object.
+pub(super) fn app_error_with_details(
+    code: &str,
+    message: &str,
+    details: serde_json::Value,
+) -> String {
+    serde_json::json!({
+        "code": code,
+        "message": message,
+        "details": details,
+    })
+    .to_string()
+}
+
 pub(super) async fn run_blocking_command<T, F>(
     command_name: &'static str,
     task: F,

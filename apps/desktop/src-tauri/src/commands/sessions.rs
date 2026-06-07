@@ -122,6 +122,8 @@ pub struct SessionDetailContentPatchPayload {
 
 const SESSION_NOT_FOUND_CODE: &str = "SESSION_NOT_FOUND";
 
+use super::common::app_error_with_details;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionsExceptInput {
@@ -201,14 +203,11 @@ pub fn get_session_detail_content(
 }
 
 fn session_not_found_error(session_id: &str) -> String {
-    serde_json::json!({
-        "code": SESSION_NOT_FOUND_CODE,
-        "message": format!("Captured session {session_id} was not found."),
-        "details": {
-            "sessionId": session_id,
-        },
-    })
-    .to_string()
+    app_error_with_details(
+        SESSION_NOT_FOUND_CODE,
+        &format!("Captured session {session_id} was not found."),
+        serde_json::json!({ "sessionId": session_id }),
+    )
 }
 
 fn log_session_not_found(command_name: &str, session_id: &str, state: &AppState) {

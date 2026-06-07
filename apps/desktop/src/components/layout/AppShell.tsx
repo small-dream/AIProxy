@@ -1,15 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-  coerceAppError,
-  DEFAULT_PROXY_PORT,
-  DEFAULT_WORKSPACE_ID,
-} from "@aiproxy/shared-types";
 import { Box, Snackbar } from "@mui/material";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
@@ -17,63 +11,21 @@ import {
   AppShellTopControls,
   NON_MACOS_TOP_CONTROLS_HEIGHT,
 } from "@/components/layout/AppShellTopControls";
+import {
+  useAdbActions,
+  useMenuActions,
+  useProxyLifecycle,
+  useWindowControls,
+  useZoomControl,
+} from "@/components/layout/hooks";
+import { isMacPlatform, isTauriRuntime } from "@/components/layout/hooks/helpers";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
-import {
-  useDisableSystemProxy,
-  useEnableSystemProxy,
-  useProxyStatus,
-  useStartProxy,
-  useStopProxy,
-} from "@/features/proxy-status/use-proxy-status";
-import type { SessionsMenuAction } from "@/features/sessions/session-menu-actions";
-import { useSessionEvents } from "@/features/sessions/use-session-events";
-import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
-import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
-import { onMenuEvent } from "@/services/events";
-import {
-  clearAndroidProxyViaAdb,
-  clearSessions,
-  getLocalIp,
-  listAndroidAdbDevices,
-  setAndroidProxyViaAdb,
-  showLogFile,
-} from "@/services/commands";
+import { useSessionEvents } from "@/features/sessions/use-session-events";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
-
-function getErrorMessage(error: unknown, fallbackMessage: string) {
-  const normalizedError = coerceAppError(error);
-
-  if (normalizedError.message.trim().length > 0) {
-    return normalizedError.message;
-  }
-
-  return fallbackMessage;
-}
-
-function isTauriRuntime() {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function isMacPlatform() {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-
-  const ua = navigator.userAgent.toLowerCase();
-  const platform = navigator.platform?.toLowerCase() ?? "";
-
-  // Exclude Linux before checking for Mac — some Linux desktop themes may
-  // appear in UA strings but should never get the macOS overlay titlebar.
-  if (ua.includes("linux") || platform.includes("linux")) {
-    return false;
-  }
-
-  return /mac/i.test(navigator.userAgent) || /mac/i.test(navigator.platform);
-}
 
 export function AppShell() {
   const { locale, t } = useI18n();
@@ -91,52 +43,65 @@ export function AppShell() {
   useBreakpointEvents();
   useSessionEvents();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
-  const { data: proxyStatus } = useProxyStatus();
-  const { data: certificateStatus } = useCertificateStatus();
-  const startProxyMutation = useStartProxy();
-  const stopProxyMutation = useStopProxy();
-  const enableSystemProxyMutation = useEnableSystemProxy();
-  const disableSystemProxyMutation = useDisableSystemProxy();
-  const updateWorkspaceMutation = useUpdateWorkspace();
-  const { data: workspaces = [] } = useWorkspaces();
-  const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
-  const currentWorkspace = useMemo(
-    () =>
-      workspaces.find((workspace) => workspace.id === workspaceId) ??
-      workspaces.find((workspace) => workspace.id === DEFAULT_WORKSPACE_ID) ??
-      null,
-    [workspaceId, workspaces],
-  );
-  const configuredPort = currentWorkspace?.proxyPort ?? DEFAULT_PROXY_PORT;
-  const configuredSslEnabled = currentWorkspace?.sslEnabled ?? false;
-  const port = proxyStatus?.running ? proxyStatus.port : configuredPort;
-  const [portDialogOpen, setPortDialogOpen] = useState(false);
-  const [portDraft, setPortDraft] = useState(String(port));
-  const [portDialogError, setPortDialogError] = useState<string | null>(null);
+
+  // --- Snackbar message shared across hooks ---
   const [menuSnackbarMessage, setMenuSnackbarMessage] = useState<string | null>(null);
-  const [adbMenuActionPending, setAdbMenuActionPending] = useState(false);
+
+  // --- Proxy lifecycle ---
+  const {
+    proxyStatus,
+    certificateStatus,
+    port,
+    isProxyBusy,
+    isBusy,
+    systemProxyActionDisabled,
+    portDialogOpen,
+    portDraft,
+    portDialogError,
+    setPortDialogOpen,
+    setPortDraft,
+    setPortDialogError,
+    openPortDialog,
+    handleStartProxy,
+    handleStopProxy,
+    handlePortApply,
+    handleSystemProxyToggle,
+  } = useProxyLifecycle({ onSnackbarMessage: setMenuSnackbarMessage });
+
+  // --- ADB actions ---
+  const { handleAdbSetProxy, handleAdbClearProxy } = useAdbActions({
+    port,
+    proxyStatus,
+    onSnackbarMessage: setMenuSnackbarMessage,
+  });
+
+  // --- Window controls ---
+  const { runWindowCommand } = useWindowControls();
+
+  // --- Menu actions ---
+  const { handleMenuCommand } = useMenuActions({
+    navigate,
+    proxyStatus,
+    handleStartProxy,
+    handleStopProxy,
+    handleSystemProxyToggle,
+    handleAdbSetProxy,
+    handleAdbClearProxy,
+    runWindowCommand,
+    onSnackbarMessage: setMenuSnackbarMessage,
+  });
+
+  // --- Zoom control ---
+  useZoomControl();
+
+  // --- Header actions (injected by child pages via Outlet context) ---
   const [headerActions, setHeaderActions] = useState<ReactNode | null>(null);
-  const autoStartAttemptedRef = useRef(false);
+
+  // --- Platform layout ---
   const macosTitlebarEnabled = isTauriRuntime() && isMacPlatform();
   const topInset = macosTitlebarEnabled ? MACOS_TITLEBAR_HEIGHT : 0;
   const mainTopOffset = macosTitlebarEnabled ? topInset : NON_MACOS_TOP_CONTROLS_HEIGHT;
   const activityBarTopOffset = mainTopOffset;
-  const isProxyBusy =
-    startProxyMutation.isPending ||
-    stopProxyMutation.isPending;
-  const isSystemProxyBusy =
-    enableSystemProxyMutation.isPending ||
-    disableSystemProxyMutation.isPending;
-  const isBusy = isProxyBusy || isSystemProxyBusy || updateWorkspaceMutation.isPending;
-  const systemProxyActionDisabled = isSystemProxyBusy || isProxyBusy || (!proxyStatus?.systemProxyEnabled && !(proxyStatus?.running ?? false));
-  const initialStartProxyInput = useMemo(
-    () => ({
-      enableSsl: configuredSslEnabled,
-      port: configuredPort,
-      workspaceId,
-    }),
-    [configuredPort, configuredSslEnabled, workspaceId],
-  );
 
   useEffect(() => {
     if (!macosTitlebarEnabled) {
@@ -147,496 +112,6 @@ export function AppShell() {
       // Keep the default title bar if the platform does not accept overlay mode.
     });
   }, [macosTitlebarEnabled]);
-
-  useEffect(() => {
-    if (!isTauriRuntime() || autoStartAttemptedRef.current) {
-      return;
-    }
-
-    if (!proxyStatus || !certificateStatus || workspaces.length === 0) {
-      return;
-    }
-
-    autoStartAttemptedRef.current = true;
-
-    if (proxyStatus.running) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const startedStatus = await startProxyMutation.mutateAsync(initialStartProxyInput);
-
-        if (cancelled || startedStatus.systemProxyEnabled) {
-          return;
-        }
-
-        await enableSystemProxyMutation.mutateAsync(undefined);
-      } catch {
-        // Startup auto-boot is best-effort. Manual controls remain available.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    certificateStatus,
-    enableSystemProxyMutation,
-    initialStartProxyInput,
-    proxyStatus,
-    startProxyMutation,
-    workspaceId,
-    workspaces.length,
-  ]);
-
-  function openPortDialog() {
-    setPortDraft(String(port));
-    setPortDialogError(null);
-    setPortDialogOpen(true);
-  }
-
-  function isPortInUseError(error: unknown) {
-    const normalizedError = coerceAppError(error);
-    const normalizedMessage = normalizedError.message.toLowerCase();
-
-    return (
-      normalizedError.code === "PORT_IN_USE" ||
-      normalizedMessage.includes("already in use") ||
-      normalizedMessage.includes("address already in use")
-    );
-  }
-
-  function getProxyStartErrorMessage(error: unknown, requestedPort: number) {
-    const normalizedError = coerceAppError(error);
-    const errorPort =
-      typeof normalizedError.details?.port === "number"
-        ? normalizedError.details.port
-        : requestedPort;
-
-    if (isPortInUseError(normalizedError)) {
-      return t("appShell.proxyPortInUse", {
-        port: errorPort,
-      });
-    }
-
-    return getErrorMessage(normalizedError, t("common.errors.generic"));
-  }
-
-  async function handleStartProxy(input = initialStartProxyInput) {
-    try {
-      await startProxyMutation.mutateAsync(input);
-    } catch (error) {
-      const requestedPort = input.port ?? port;
-      const message = getProxyStartErrorMessage(error, requestedPort);
-
-      if (isPortInUseError(error)) {
-        setPortDraft(String(requestedPort));
-        setPortDialogError(message);
-        setPortDialogOpen(true);
-        return;
-      }
-
-      setMenuSnackbarMessage(message);
-    }
-  }
-
-  async function handleStopProxy() {
-    try {
-      await stopProxyMutation.mutateAsync(workspaceId);
-    } catch (error) {
-      setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
-    }
-  }
-
-  async function handlePortApply() {
-    const nextPort = Number.parseInt(portDraft.trim(), 10);
-
-    if (!Number.isInteger(nextPort) || nextPort < 1 || nextPort > 65535) {
-      setPortDialogError(t("appShell.proxyPortValidation"));
-      return;
-    }
-
-    try {
-      if (nextPort !== configuredPort) {
-        await updateWorkspaceMutation.mutateAsync({
-          proxyPort: nextPort,
-          workspaceId,
-        });
-      }
-
-      await startProxyMutation.mutateAsync({
-        enableSsl: proxyStatus?.running ? proxyStatus.sslEnabled : configuredSslEnabled,
-        port: nextPort,
-        workspaceId,
-      });
-
-      setPortDialogOpen(false);
-    } catch (error) {
-      setPortDialogError(getProxyStartErrorMessage(error, nextPort));
-    }
-  }
-
-  async function handleSystemProxyToggle() {
-    if (systemProxyActionDisabled) {
-      return;
-    }
-
-    try {
-      if (proxyStatus?.systemProxyEnabled) {
-        await disableSystemProxyMutation.mutateAsync(undefined);
-        return;
-      }
-
-      await enableSystemProxyMutation.mutateAsync(undefined);
-    } catch (error) {
-      setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
-    }
-  }
-
-  async function handleAdbSetProxy() {
-    if (adbMenuActionPending) {
-      return;
-    }
-
-    setAdbMenuActionPending(true);
-
-    try {
-      if (!proxyStatus?.running) {
-        throw new Error(t("certificatesPage.mobile.adbProxyRequiresRunningProxy"));
-      }
-
-      const adbDevices = await listAndroidAdbDevices();
-      const targetDevice = adbDevices[0];
-
-      if (!targetDevice) {
-        throw new Error(t("certificatesPage.mobile.adbNoDevices"));
-      }
-
-      if (targetDevice.state !== "device") {
-        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
-          state: targetDevice.state,
-        }));
-      }
-
-      const localIps = await getLocalIp();
-      const localIp = localIps[0];
-
-      if (!localIp) {
-        throw new Error(t("certificatesPage.mobile.adbProxyRequiresLocalIp"));
-      }
-
-      const result = await setAndroidProxyViaAdb({
-        deviceSerial: targetDevice.serial,
-        host: localIp,
-        port,
-      });
-
-      setMenuSnackbarMessage(t("certificatesPage.mobile.adbSetProxySuccessBody", {
-        deviceSerial: result.deviceSerial,
-        proxyAddress: result.proxyAddress ?? `${localIp}:${port}`,
-      }));
-    } catch (error) {
-      setMenuSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbSetProxyErrorTitle")));
-    } finally {
-      setAdbMenuActionPending(false);
-    }
-  }
-
-  async function handleAdbClearProxy() {
-    if (adbMenuActionPending) {
-      return;
-    }
-
-    setAdbMenuActionPending(true);
-
-    try {
-      const adbDevices = await listAndroidAdbDevices();
-      const targetDevice = adbDevices[0];
-
-      if (!targetDevice) {
-        throw new Error(t("certificatesPage.mobile.adbNoDevices"));
-      }
-
-      if (targetDevice.state !== "device") {
-        throw new Error(t("certificatesPage.mobile.adbDeviceStateHint", {
-          state: targetDevice.state,
-        }));
-      }
-
-      const result = await clearAndroidProxyViaAdb({
-        deviceSerial: targetDevice.serial,
-      });
-      setMenuSnackbarMessage(t("certificatesPage.mobile.adbClearProxySuccessBody", {
-        deviceSerial: result.deviceSerial,
-      }));
-    } catch (error) {
-      setMenuSnackbarMessage(getErrorMessage(error, t("certificatesPage.mobile.adbClearProxyErrorTitle")));
-    } finally {
-      setAdbMenuActionPending(false);
-    }
-  }
-
-  // --- Menu bar event handling ---
-  const setThemePreference = useAppPreferencesStore((s) => s.setThemePreference);
-  const menuHandlerRef = useRef({
-    handleAdbClearProxy,
-    handleAdbSetProxy,
-    handleStartProxy,
-    handleStopProxy,
-    navigate,
-    proxyStatus,
-    handleSystemProxyToggle,
-    setThemePreference,
-  });
-
-  useEffect(() => {
-    menuHandlerRef.current = {
-      handleAdbClearProxy,
-      handleAdbSetProxy,
-      handleStartProxy,
-      handleStopProxy,
-      navigate,
-      proxyStatus,
-      handleSystemProxyToggle,
-      setThemePreference,
-    };
-  });
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    onMenuEvent((payload) => {
-      handleMenuCommand(payload.menuId);
-    }).then((fn) => {
-      unlisten = fn;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads latest handlers via menuHandlerRef
-  }, []);
-
-  function handleMenuCommand(menuId: string) {
-    const h = menuHandlerRef.current;
-    const navigateToSessionsMenuAction = (menuAction: SessionsMenuAction) => {
-      h.navigate("/", {
-        state: {
-          sessionsMenuAction: menuAction,
-        },
-      });
-    };
-
-    switch (menuId) {
-      case "preferences":
-        h.navigate("/settings");
-        break;
-      case "goto_sessions":
-        h.navigate("/");
-        break;
-      case "goto_compose":
-        h.navigate("/compose");
-        break;
-      case "goto_rules":
-        h.navigate("/rules");
-        break;
-      case "goto_throttling":
-        h.navigate("/throttling");
-        break;
-      case "goto_certificates":
-        h.navigate("/certificates");
-        break;
-      case "goto_settings":
-        h.navigate("/settings");
-        break;
-      case "theme_dark":
-        h.setThemePreference("dark");
-        break;
-      case "theme_light":
-        h.setThemePreference("light");
-        break;
-      case "theme_system":
-        h.setThemePreference("system");
-        break;
-      case "start_proxy":
-        if (!h.proxyStatus?.running) {
-          void h.handleStartProxy();
-        }
-        break;
-      case "stop_proxy":
-        if (h.proxyStatus?.running) {
-          void h.handleStopProxy();
-        }
-        break;
-      case "toggle_system_proxy":
-        void h.handleSystemProxyToggle();
-        break;
-      case "clear_sessions":
-      case "clear_all_sessions":
-        void clearSessions();
-        break;
-      case "find":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));
-        break;
-      case "refresh":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-refresh"));
-        break;
-      case "zoom_in":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-in"));
-        break;
-      case "zoom_out":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-out"));
-        break;
-      case "zoom_reset":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-reset"));
-        break;
-      case "breakpoint_rules":
-        h.navigate("/rules");
-        break;
-      case "throttling_tool":
-        h.navigate("/throttling");
-        break;
-      case "install_cert":
-        h.navigate("/certificates");
-        break;
-      case "cert_status":
-        h.navigate("/certificates");
-        break;
-      case "ios_quick_actions":
-        h.navigate("/certificates?tab=mobile&panel=ios", {
-          state: { menuActionAt: Date.now() },
-        });
-        break;
-      case "android_quick_actions":
-        h.navigate("/certificates?tab=mobile&panel=android", {
-          state: { menuActionAt: Date.now() },
-        });
-        break;
-      case "adb_set_proxy":
-        void h.handleAdbSetProxy();
-        break;
-      case "adb_clear_proxy":
-        void h.handleAdbClearProxy();
-        break;
-      case "check_for_updates":
-        h.navigate("/settings");
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("aiproxy-check-for-updates"));
-        }, 0);
-        break;
-      case "import_har":
-        navigateToSessionsMenuAction({
-          kind: "import-har",
-          requestedAt: Date.now(),
-        });
-        break;
-      case "export_har":
-        navigateToSessionsMenuAction({
-          format: "har",
-          kind: "export",
-          requestedAt: Date.now(),
-        });
-        break;
-      case "documentation": {
-        const docsUrl = "https://github.com/jakejiang/aiproxy";
-        window.open(docsUrl, "_blank");
-        break;
-      }
-      case "show_logs":
-        void showLogFile().catch((error) => {
-          setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
-        });
-        break;
-      case "shortcuts":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
-        break;
-      case "edit_undo":
-      case "edit_redo":
-      case "edit_cut":
-      case "edit_copy":
-      case "edit_paste":
-      case "edit_select_all":
-        runDocumentEditCommand(menuId);
-        break;
-      case "window_minimize":
-      case "window_toggle_maximize":
-      case "window_toggle_fullscreen":
-      case "window_close":
-        void runWindowCommand(menuId);
-        break;
-    }
-  }
-
-  function runDocumentEditCommand(menuId: string) {
-    const commandByMenuId: Record<string, string> = {
-      edit_copy: "copy",
-      edit_cut: "cut",
-      edit_paste: "paste",
-      edit_redo: "redo",
-      edit_select_all: "selectAll",
-      edit_undo: "undo",
-    };
-    const command = commandByMenuId[menuId];
-
-    if (command) {
-      document.execCommand(command);
-    }
-  }
-
-  async function runWindowCommand(menuId: string) {
-    if (!isTauriRuntime()) {
-      return;
-    }
-
-    const currentWindow = getCurrentWindow();
-
-    switch (menuId) {
-      case "window_minimize":
-        await currentWindow.minimize();
-        break;
-      case "window_toggle_maximize":
-        await currentWindow.toggleMaximize();
-        break;
-      case "window_toggle_fullscreen":
-        await currentWindow.setFullscreen(!(await currentWindow.isFullscreen()));
-        break;
-      case "window_close":
-        await currentWindow.close();
-        break;
-    }
-  }
-
-  // --- Zoom state ---
-  const [zoomLevel, setZoomLevel] = useState(1);
-  useEffect(() => {
-    const root = document.documentElement;
-    root.style.zoom = String(zoomLevel);
-  }, [zoomLevel]);
-
-  useEffect(() => {
-    function handleZoomIn() {
-      setZoomLevel((prev) => Math.min(prev + 0.1, 2));
-    }
-    function handleZoomOut() {
-      setZoomLevel((prev) => Math.max(prev - 0.1, 0.5));
-    }
-    function handleZoomReset() {
-      setZoomLevel(1);
-    }
-
-    window.addEventListener("aiproxy-menu-zoom-in", handleZoomIn);
-    window.addEventListener("aiproxy-menu-zoom-out", handleZoomOut);
-    window.addEventListener("aiproxy-menu-zoom-reset", handleZoomReset);
-
-    return () => {
-      window.removeEventListener("aiproxy-menu-zoom-in", handleZoomIn);
-      window.removeEventListener("aiproxy-menu-zoom-out", handleZoomOut);
-      window.removeEventListener("aiproxy-menu-zoom-reset", handleZoomReset);
-    };
-  }, []);
 
   return (
     <Box
