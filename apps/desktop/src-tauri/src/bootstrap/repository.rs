@@ -370,3 +370,271 @@ fn persist_throttle_traces_impl(
 
     aiproxy_db::rules::replace_throttle_runs_for_session(conn, session_id, &runs)
 }
+
+// ---------------------------------------------------------------------------
+// High-level convenience methods — full session persistence
+// ---------------------------------------------------------------------------
+
+use std::time::Instant;
+
+use aiproxy_db::sessions::SessionDetailRow;
+use aiproxy_proxy_core::ProxySessionDetail;
+
+use crate::session_stats;
+
+impl Repository {
+    /// Full persistence of a single session: spill bodies → build rows →
+    /// upsert summary+detail → persist all traces.  Runs everything inside
+    /// `spawn_blocking` so the async runtime stays free.
+    pub async fn persist_session_full(
+        &self,
+        mut detail: ProxySessionDetail,
+        workspace_id: &str,
+    ) -> ProxySessionDetail {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        let wid = workspace_id.to_string();
+
+        tauri::async_runtime::spawn_blocking(move || {
+            // Spill bodies
+            let spill_started_at = Instant::now();
+            if let Err(error) =
+                crate::bootstrap::converters::spill_session_bodies_to_disk(&mut detail, &body_store)
+            {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_body_spill_failed",
+                    error = %error,
+                    "session_body_spill_failed"
+                );
+            }
+            let spill_elapsed_us = spill_started_at.elapsed().as_micros();
+
+            let summary_row =
+                crate::bootstrap::converters::proxy_summary_to_row(&detail.summary);
+            let row_build_started_at = Instant::now();
+            let detail_row =
+                crate::bootstrap::converters::proxy_detail_to_row(&detail, &body_store);
+            let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
+            log_storage_stats(&detail, &detail_row, spill_elapsed_us, row_build_elapsed_us);
+
+            let conn = db.lock().expect("db mutex should not be poisoned");
+            if let Err(e) =
+                aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+            {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "session_upsert_db_failed",
+                    error = %e,
+                    "session_upsert_db_failed"
+                );
+            }
+
+            persist_script_traces_impl(
+                &conn,
+                &detail.id,
+                &wid,
+                &detail.summary,
+                &detail.script_traces,
+            )
+            .ok();
+            persist_rewrite_traces_impl(
+                &conn,
+                &detail.id,
+                &wid,
+                &detail.summary,
+                &detail.rewrite_traces,
+            )
+            .ok();
+            persist_map_traces_impl(
+                &conn,
+                &detail.id,
+                &wid,
+                &detail.summary,
+                &detail.map_traces,
+            )
+            .ok();
+            persist_throttle_traces_impl(&conn, &detail.id, &wid, &detail.throttle_traces).ok();
+
+            detail
+        })
+        .await
+        .expect("persist_session_full spawn_blocking should not panic")
+    }
+
+    /// Full persistence of a batch of sessions.  Same pipeline as
+    /// `persist_session_full` but acquires the DB lock once for all sessions.
+    pub async fn persist_session_batch_full(
+        &self,
+        mut sessions: Vec<ProxySessionDetail>,
+        workspace_id: &str,
+    ) -> Vec<ProxySessionDetail> {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        let wid = workspace_id.to_string();
+
+        tauri::async_runtime::spawn_blocking(move || {
+            for session in sessions.iter_mut() {
+                if let Err(error) =
+                    crate::bootstrap::converters::spill_session_bodies_to_disk(session, &body_store)
+                {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "session_body_spill_failed",
+                        error = %error,
+                        "session_body_spill_failed"
+                    );
+                }
+            }
+
+            let conn = db.lock().expect("db mutex should not be poisoned");
+            for session in sessions.iter() {
+                let summary_row =
+                    crate::bootstrap::converters::proxy_summary_to_row(&session.summary);
+                let detail_row =
+                    crate::bootstrap::converters::proxy_detail_to_row(session, &body_store);
+
+                if let Err(e) =
+                    aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
+                {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "session_upsert_db_failed",
+                        error = %e,
+                        "session_upsert_db_failed"
+                    );
+                }
+
+                persist_script_traces_impl(
+                    &conn,
+                    &session.id,
+                    &wid,
+                    &session.summary,
+                    &session.script_traces,
+                )
+                .ok();
+                persist_rewrite_traces_impl(
+                    &conn,
+                    &session.id,
+                    &wid,
+                    &session.summary,
+                    &session.rewrite_traces,
+                )
+                .ok();
+                persist_map_traces_impl(
+                    &conn,
+                    &session.id,
+                    &wid,
+                    &session.summary,
+                    &session.map_traces,
+                )
+                .ok();
+                persist_throttle_traces_impl(
+                    &conn,
+                    &session.id,
+                    &wid,
+                    &session.throttle_traces,
+                )
+                .ok();
+            }
+
+            sessions
+        })
+        .await
+        .expect("persist_session_batch_full spawn_blocking should not panic")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn log_storage_stats(
+    detail: &ProxySessionDetail,
+    row: &SessionDetailRow,
+    spill_elapsed_us: u128,
+    row_build_elapsed_us: u128,
+) {
+    if !session_stats::is_enabled() {
+        return;
+    }
+
+    let request_body_storage = detail
+        .request_body
+        .as_ref()
+        .map_or("none", |body| body.storage_kind());
+    let response_body_storage = detail
+        .response_body
+        .as_ref()
+        .map_or("none", |body| body.storage_kind());
+    let request_body_resident_bytes = detail
+        .request_body
+        .as_ref()
+        .map_or(0, |body| body.resident_memory_bytes_estimate());
+    let response_body_resident_bytes = detail
+        .response_body
+        .as_ref()
+        .map_or(0, |body| body.resident_memory_bytes_estimate());
+
+    session_stats::record(
+        "session_storage_stats",
+        &[
+            ("session_id", detail.id.clone()),
+            ("method", detail.summary.method.clone()),
+            ("status_code", detail.summary.status_code.to_string()),
+            (
+                "resident_memory_bytes_estimate",
+                detail.resident_memory_bytes_estimate().to_string(),
+            ),
+            (
+                "summary_memory_bytes_estimate",
+                detail.summary.resident_memory_bytes_estimate().to_string(),
+            ),
+            ("request_body_storage", request_body_storage.to_string()),
+            (
+                "request_body_resident_bytes",
+                request_body_resident_bytes.to_string(),
+            ),
+            ("response_body_storage", response_body_storage.to_string()),
+            (
+                "response_body_resident_bytes",
+                response_body_resident_bytes.to_string(),
+            ),
+            (
+                "db_row_text_bytes",
+                crate::bootstrap::converters::estimate_session_detail_row_text_bytes(row)
+                    .to_string(),
+            ),
+            (
+                "request_body_ref_bytes",
+                row.request_body_ref
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            (
+                "response_body_ref_bytes",
+                row.response_body_ref
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            (
+                "raw_request_head_bytes",
+                row.raw_request
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            (
+                "raw_response_head_bytes",
+                row.raw_response
+                    .as_ref()
+                    .map_or(0, |value| value.len())
+                    .to_string(),
+            ),
+            ("spill_elapsed_us", spill_elapsed_us.to_string()),
+            ("row_build_elapsed_us", row_build_elapsed_us.to_string()),
+        ],
+    );
+}
