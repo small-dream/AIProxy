@@ -1,32 +1,41 @@
-use aiproxy_db::body_store::{BodyStore, BODY_FILE_THRESHOLD};
-use aiproxy_db::rules::{
-    BreakpointRuleRow, DnsMappingRow, MapRuleRow, MapRunRow, RewriteRuleRow, RewriteRunEntryRow,
-    RewriteRunRow, ScriptRuleRow, ScriptRunEntryRow, ScriptRunRow, ThrottleProfileRow,
-    ThrottleRuleRow, ThrottleRunRow,
+mod cache;
+mod converters;
+mod events;
+mod repository;
+
+use cache::SessionCache;
+use converters::{
+    breakpoint_row_to_rule, detail_row_to_proxy, dns_mapping_row_to_rule,
+    estimate_session_detail_row_text_bytes, map_row_to_rule, proxy_detail_to_row,
+    proxy_summary_to_row, rewrite_row_to_rule, script_row_to_rule, spill_session_bodies_to_disk,
+    summary_row_to_proxy, throttle_row_to_profile, throttle_row_to_rule, workspace_row_to_data,
 };
-use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
-use aiproxy_db::workspaces::WorkspaceRow;
+use events::{
+    emit_session_remove, emit_session_upsert, emit_sessions_cleared, emit_sessions_removed,
+};
+use repository::Repository;
+
+use aiproxy_db::rules::{
+    MapRunRow, RewriteRunEntryRow, RewriteRunRow, ScriptRunEntryRow, ScriptRunRow, ThrottleRunRow,
+};
+use aiproxy_db::sessions::SessionDetailRow;
 use aiproxy_proxy_core::{
-    BreakpointManager, BreakpointRule, BreakpointStage, CompiledScriptRule, DnsManager,
-    DnsMappingRule, MapManager, MapRule, MapTrace, ProxyServerHandle, ProxySessionDetail,
-    ProxySessionSummary, RewriteManager, RewriteRule, RewriteRuleMatch, RewriteTrace,
-    ScriptEntrypoints, ScriptManager, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType,
-    ScriptRunEntryKind, ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager,
-    ThrottleProfileData, ThrottleRuleData, ThrottleTrace, TlsManager,
+    BreakpointManager, DnsManager, MapManager, MapTrace, ProxyServerHandle, ProxySessionDetail,
+    ProxySessionSummary, RewriteManager, RewriteTrace, ScriptManager, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleManager, ThrottleTrace, TlsManager,
 };
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::HashSet,
     sync::{Arc, Mutex},
     time::Instant,
 };
-use tauri::{async_runtime::JoinHandle, Emitter};
+use tauri::async_runtime::JoinHandle;
 
 use crate::session_stats;
 use crate::system_proxy::SystemProxySnapshot;
-use crate::workspace::{WorkspaceData, WorkspaceManager};
+use crate::workspace::WorkspaceManager;
 
-const SESSION_DETAIL_CACHE_CAPACITY: usize = 1_000;
 pub(crate) const SESSION_BATCH_SIZE: usize = 50;
 
 /// Snapshot of the certificate state for the frontend.
@@ -76,9 +85,7 @@ pub struct RuntimeHandles {
 #[derive(Debug)]
 pub struct AppState {
     runtime: Mutex<Option<RuntimeHandles>>,
-    session_details: Arc<Mutex<HashMap<String, ProxySessionDetail>>>,
-    session_detail_order: Arc<Mutex<VecDeque<String>>>,
-    sessions: Arc<Mutex<Vec<ProxySessionSummary>>>,
+    cache: SessionCache,
     status: Mutex<BootstrapStatus>,
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
     tls_manager: Mutex<Option<Arc<TlsManager>>>,
@@ -92,20 +99,17 @@ pub struct AppState {
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     focused_hosts: Mutex<HashSet<String>>,
-    db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
-    body_store: Arc<BodyStore>,
+    repository: Repository,
 }
 
 impl AppState {
     pub fn new(
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
-        body_store: Arc<BodyStore>,
+        body_store: Arc<aiproxy_db::body_store::BodyStore>,
     ) -> Self {
         let state = Self {
             runtime: Mutex::new(None),
-            session_details: Arc::new(Mutex::new(HashMap::new())),
-            session_detail_order: Arc::new(Mutex::new(VecDeque::new())),
-            sessions: Arc::new(Mutex::new(Vec::new())),
+            cache: SessionCache::new(),
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
             tls_manager: Mutex::new(None),
@@ -119,8 +123,7 @@ impl AppState {
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
             focused_hosts: Mutex::new(HashSet::new()),
-            db,
-            body_store,
+            repository: Repository::new(db, body_store),
         };
 
         state.init_from_db();
@@ -130,32 +133,7 @@ impl AppState {
     /// Clear all session data from SQLite and BodyStore.
     /// Used at startup and shutdown to ensure no session data persists across restarts.
     pub fn clear_session_storage(&self) {
-        {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
-            if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
-                tracing::error!(
-                    component = "desktop.persistence",
-                    event = "clear_session_storage_db_failed",
-                    error = %error,
-                    "clear_session_storage_db_failed"
-                );
-            }
-        }
-
-        if let Err(error) = self.body_store.clear_all() {
-            tracing::error!(
-                component = "desktop.persistence",
-                event = "clear_session_storage_bodies_failed",
-                error = %error,
-                "clear_session_storage_bodies_failed"
-            );
-        }
-
-        tracing::info!(
-            component = "desktop.persistence",
-            event = "session_storage_cleared",
-            "session_storage_cleared"
-        );
+        self.repository.clear_all_sessions();
     }
 
     /// Load all persisted data from SQLite into the in-memory managers.
@@ -163,7 +141,7 @@ impl AppState {
         // Clear all session data from previous runs (sessions are ephemeral)
         self.clear_session_storage();
 
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
 
         // Load workspaces
         if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
@@ -223,22 +201,12 @@ impl AppState {
     }
 
     pub fn read_sessions(&self) -> Vec<ProxySessionSummary> {
-        self.sessions
-            .lock()
-            .expect("session list mutex should not be poisoned")
-            .clone()
+        self.cache.read_summaries()
     }
 
     pub fn read_session_detail(&self, session_id: &str) -> Option<ProxySessionDetail> {
         // Try in-memory cache first
-        if let Some(detail) = self
-            .session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .get(session_id)
-            .cloned()
-        {
-            self.touch_session_detail_cache(session_id);
+        if let Some(detail) = self.cache.try_get_detail(session_id) {
             tracing::debug!(
                 component = "desktop.sessions",
                 event = "session_detail_memory_cache_hit",
@@ -256,7 +224,7 @@ impl AppState {
 
         // Fallback: load from DB
         let detail = {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
             let row = match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
                 Ok(Some(row)) => {
                     tracing::debug!(
@@ -289,12 +257,8 @@ impl AppState {
             };
 
             let summary = self
-                .sessions
-                .lock()
-                .expect("session list mutex should not be poisoned")
-                .iter()
-                .find(|s| s.id == session_id)
-                .cloned()
+                .cache
+                .find_summary(session_id)
                 .or_else(|| {
                     match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
                         Ok(Some(row)) => {
@@ -328,10 +292,10 @@ impl AppState {
                     }
                 })?;
 
-            detail_row_to_proxy(&row, summary, &self.body_store)
+            detail_row_to_proxy(&row, summary, self.repository.body_store().as_ref())
         };
 
-        self.insert_session_detail_cache(session_id.to_string(), detail.clone());
+        self.cache.insert_detail(session_id.to_string(), detail.clone());
         tracing::debug!(
             component = "desktop.sessions",
             event = "session_detail_db_backfill_succeeded",
@@ -343,43 +307,20 @@ impl AppState {
     }
 
     pub fn clear_sessions(&self) {
-        let ids_to_clear: Vec<String> = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .expect("session list mutex should not be poisoned");
-            let ids = sessions.iter().map(|s| s.id.clone()).collect();
-            sessions.clear();
-            ids
-        };
-        {
-            let mut details = self
-                .session_details
-                .lock()
-                .expect("session detail mutex should not be poisoned");
-            for id in &ids_to_clear {
-                details.remove(id);
-            }
-        }
-        {
-            let ids_set: std::collections::HashSet<&String> = ids_to_clear.iter().collect();
-            let mut order = self
-                .session_detail_order
-                .lock()
-                .expect("session detail order mutex should not be poisoned");
-            order.retain(|id| !ids_set.contains(id));
-        }
+        let ids_to_clear = self.cache.clear_summaries();
+        let ids_set: HashSet<String> = ids_to_clear.iter().cloned().collect();
+        self.cache.remove_details(&ids_set);
 
         if let Some(handle) = self.read_app_handle() {
-            let _ = handle.emit("sessions-cleared", ());
+            emit_sessions_cleared(&handle);
         }
 
         if ids_to_clear.is_empty() {
             return;
         }
 
-        let db = Arc::clone(&self.db);
-        let body_store = Arc::clone(&self.body_store);
+        let db = Arc::clone(self.repository.db());
+        let body_store = Arc::clone(self.repository.body_store());
         tauri::async_runtime::spawn_blocking(move || {
             {
                 let conn = db.lock().expect("db mutex should not be poisoned");
@@ -410,47 +351,21 @@ impl AppState {
     }
 
     pub fn delete_sessions_except(&self, keep_session_id: &str) {
-        let ids_to_remove: Vec<String> = {
-            let sessions = self
-                .sessions
-                .lock()
-                .expect("session list mutex should not be poisoned");
-            sessions
-                .iter()
-                .filter(|s| s.id != keep_session_id)
-                .map(|s| s.id.clone())
-                .collect()
-        };
+        let ids_to_remove = self.cache.retain_summaries(keep_session_id);
+        let ids_set: HashSet<String> = ids_to_remove.iter().cloned().collect();
+        self.cache.remove_details(&ids_set);
 
         // Delete from DB and body files
         {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
             let _ = aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_remove);
         }
         for id in &ids_to_remove {
-            let _ = self.body_store.remove_bodies(id);
+            let _ = self.repository.body_store().remove_bodies(id);
         }
-
-        self.sessions
-            .lock()
-            .expect("session list mutex should not be poisoned")
-            .retain(|s| s.id == keep_session_id);
-
-        let mut details = self
-            .session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned");
-
-        for id in &ids_to_remove {
-            details.remove(id);
-        }
-        self.session_detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned")
-            .retain(|id| id == keep_session_id);
 
         if let Some(handle) = self.read_app_handle() {
-            let _ = handle.emit("sessions-removed", ids_to_remove);
+            emit_sessions_removed(&handle, ids_to_remove);
         }
     }
 
@@ -479,8 +394,8 @@ impl AppState {
             .active_workspace_id
             .unwrap_or_else(|| "default".to_string());
 
-        let db = Arc::clone(&self.db);
-        let body_store = Arc::clone(&self.body_store);
+        let db = Arc::clone(self.repository.db());
+        let body_store = Arc::clone(self.repository.body_store());
 
         // Move blocking IO into the blocking thread pool.
         // body spill uses std::fs (sync), row build is pure CPU, SQLite is sync —
@@ -597,7 +512,7 @@ impl AppState {
         active_workspace_id: &str,
     ) {
         let spill_started_at = Instant::now();
-        if let Err(error) = spill_session_bodies_to_disk(session_detail, &self.body_store) {
+        if let Err(error) = spill_session_bodies_to_disk(session_detail, self.repository.body_store().as_ref()) {
             tracing::error!(
                 component = "desktop.persistence",
                 event = "session_body_spill_failed",
@@ -609,7 +524,7 @@ impl AppState {
 
         let summary_row = proxy_summary_to_row(&session_detail.summary);
         let row_build_started_at = Instant::now();
-        let detail_row = proxy_detail_to_row(session_detail, &self.body_store);
+        let detail_row = proxy_detail_to_row(session_detail, self.repository.body_store().as_ref());
         let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
         log_session_storage_stats(
             session_detail,
@@ -618,7 +533,7 @@ impl AppState {
             row_build_elapsed_us,
         );
 
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
         if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
             tracing::error!(
                 component = "desktop.persistence",
@@ -691,76 +606,37 @@ impl AppState {
     }
 
     /// Update the in-memory caches and emit frontend events for a session.
-    /// Update the in-memory caches and emit frontend events for a session.
-    /// Note: detail is NOT inserted into the LRU here. Only SQLite and summary Vec are updated.
+    /// Detail is NOT inserted into the LRU here. Only the summary Vec is updated.
     /// Detail enters the LRU only when the user explicitly views it via read_session_detail().
     fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) {
-        let session_id = session_detail.id.clone();
         let session_summary = session_detail.summary.clone();
-
         let focused_hosts = self.read_focused_hosts();
-        let (removed_session_ids, session_count_after_update) = {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .expect("session list mutex should not be poisoned");
 
-            if let Some(existing_index) =
-                sessions.iter().position(|session| session.id == session_id)
-            {
-                sessions[existing_index] = session_summary.clone();
-            } else {
-                sessions.push(session_summary.clone());
-            }
+        let removed_ids = self.cache.upsert_summary(session_summary.clone(), &focused_hosts);
 
-            let mut removed_session_ids = Vec::new();
-            while sessions.len() > 15_000 {
-                let eviction_index = select_session_eviction_index(&sessions, &focused_hosts);
-                removed_session_ids.push(sessions.remove(eviction_index).id);
-            }
-
-            (removed_session_ids, sessions.len())
-        };
-
-        if !removed_session_ids.is_empty() {
+        if !removed_ids.is_empty() {
             tracing::warn!(
                 component = "desktop.sessions",
                 event = "session_summary_evicted",
-                session_id = %session_id,
-                removed_count = removed_session_ids.len(),
-                removed_session_ids = %removed_session_ids.join(","),
-                session_count_after = session_count_after_update,
+                session_id = %session_detail.id,
+                removed_count = removed_ids.len(),
+                removed_session_ids = %removed_ids.join(","),
                 focused_hosts_count = focused_hosts.len(),
                 focused_hosts_sample = %focused_hosts.iter().take(10).cloned().collect::<Vec<_>>().join(","),
                 "session_summary_evicted"
             );
-            {
-                let mut details = self
-                    .session_details
-                    .lock()
-                    .expect("session detail mutex should not be poisoned");
-                for removed_session_id in &removed_session_ids {
-                    details.remove(removed_session_id);
-                }
-            }
-            self.session_detail_order
-                .lock()
-                .expect("session detail order mutex should not be poisoned")
-                .retain(|id| {
-                    !removed_session_ids
-                        .iter()
-                        .any(|removed_id| removed_id == id)
-                });
+            let removed_set: HashSet<String> = removed_ids.iter().cloned().collect();
+            self.cache.remove_details(&removed_set);
 
-            for removed_session_id in &removed_session_ids {
+            for removed_id in &removed_ids {
                 if let Some(handle) = self.read_app_handle() {
-                    let _ = handle.emit("session-remove", removed_session_id);
+                    emit_session_remove(&handle, removed_id);
                 }
             }
         }
 
         if let Some(handle) = self.read_app_handle() {
-            let _ = handle.emit("session-upsert", session_summary);
+            emit_session_upsert(&handle, session_summary);
         }
     }
 
@@ -774,7 +650,7 @@ impl AppState {
 
         // Spill bodies to disk before acquiring DB lock.
         for session in sessions.iter_mut() {
-            if let Err(error) = spill_session_bodies_to_disk(session, &self.body_store) {
+            if let Err(error) = spill_session_bodies_to_disk(session, self.repository.body_store().as_ref()) {
                 tracing::error!(
                     component = "desktop.persistence",
                     event = "session_body_spill_failed",
@@ -785,10 +661,10 @@ impl AppState {
         }
 
         // Batch DB writes under one lock.
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
         for session in sessions.iter() {
             let summary_row = proxy_summary_to_row(&session.summary);
-            let detail_row = proxy_detail_to_row(session, &self.body_store);
+            let detail_row = proxy_detail_to_row(session, self.repository.body_store().as_ref());
 
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 tracing::error!(
@@ -874,8 +750,8 @@ impl AppState {
             .active_workspace_id
             .unwrap_or_else(|| "default".to_string());
 
-        let db = Arc::clone(&self.db);
-        let body_store = Arc::clone(&self.body_store);
+        let db = Arc::clone(self.repository.db());
+        let body_store = Arc::clone(self.repository.body_store());
 
         // Move all blocking IO into spawn_blocking.
         // Return sessions for cache update in async context afterwards.
@@ -982,62 +858,7 @@ impl AppState {
     }
 
     pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
-        &self.db
-    }
-
-    fn touch_session_detail_cache(&self, session_id: &str) {
-        let mut order = self
-            .session_detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned");
-        if let Some(index) = order.iter().position(|id| id == session_id) {
-            order.remove(index);
-        }
-        order.push_back(session_id.to_string());
-    }
-
-    fn insert_session_detail_cache(&self, session_id: String, detail: ProxySessionDetail) {
-        self.session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .insert(session_id.clone(), detail);
-
-        let mut evicted_ids = Vec::new();
-        {
-            let mut order = self
-                .session_detail_order
-                .lock()
-                .expect("session detail order mutex should not be poisoned");
-            if let Some(index) = order.iter().position(|id| id == &session_id) {
-                order.remove(index);
-            }
-            order.push_back(session_id.clone());
-
-            while order.len() > SESSION_DETAIL_CACHE_CAPACITY {
-                if let Some(evicted_id) = order.pop_front() {
-                    evicted_ids.push(evicted_id);
-                }
-            }
-        }
-
-        if !evicted_ids.is_empty() {
-            tracing::info!(
-                component = "desktop.sessions",
-                event = "session_detail_lru_evicted",
-                inserted_session_id = %session_id,
-                evicted_count = evicted_ids.len(),
-                evicted_session_ids = %evicted_ids.join(","),
-                cache_capacity = SESSION_DETAIL_CACHE_CAPACITY,
-                "session_detail_lru_evicted"
-            );
-            let mut details = self
-                .session_details
-                .lock()
-                .expect("session detail mutex should not be poisoned");
-            for evicted_id in evicted_ids {
-                details.remove(&evicted_id);
-            }
-        }
+        self.repository.db()
     }
 
     pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {
@@ -1312,28 +1133,6 @@ fn log_session_storage_stats(
     );
 }
 
-fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> usize {
-    row.id.len()
-        + row.session_summary_id.len()
-        + row.query_params.len()
-        + row.cookies.len()
-        + row.request_headers.len()
-        + row.response_headers.len()
-        + row.raw_request.as_ref().map_or(0, |value| value.len())
-        + row.raw_response.as_ref().map_or(0, |value| value.len())
-        + row.client_address.as_ref().map_or(0, |value| value.len())
-        + row.server_ip.as_ref().map_or(0, |value| value.len())
-        + row.tls_cipher_suite.as_ref().map_or(0, |value| value.len())
-        + row.tls_protocol.as_ref().map_or(0, |value| value.len())
-        + row.request_body_ref.as_ref().map_or(0, |value| value.len())
-        + row
-            .response_body_ref
-            .as_ref()
-            .map_or(0, |value| value.len())
-        + row.timing.as_ref().map_or(0, |value| value.len())
-        + row.trailers.as_ref().map_or(0, |value| value.len())
-}
-
 fn normalize_optional_host(host: Option<String>) -> Option<String> {
     host.and_then(|value| {
         let trimmed = value.trim();
@@ -1352,469 +1151,6 @@ fn normalize_hosts(hosts: Vec<String>) -> HashSet<String> {
         .collect()
 }
 
-fn select_session_eviction_index(
-    sessions: &[ProxySessionSummary],
-    focused_hosts: &HashSet<String>,
-) -> usize {
-    if focused_hosts.is_empty() {
-        return 0;
-    }
-
-    sessions
-        .iter()
-        .position(|session| !focused_hosts.contains(session.host.as_str()))
-        .unwrap_or(0)
-}
-
-// ---------------------------------------------------------------------------
-// Conversion helpers: DB rows <-> domain types
-// ---------------------------------------------------------------------------
-
-fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
-    WorkspaceData {
-        id: row.id,
-        name: row.name,
-        proxy_port: row.proxy_port,
-        ssl_enabled: row.ssl_enabled,
-        http2_enabled: row.http2_enabled,
-        system_proxy_enabled: row.system_proxy_enabled,
-        storage_path: row.storage_path,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    }
-}
-
-fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
-    RewriteRule {
-        id: row.id,
-        enabled: row.enabled,
-        name: row.name,
-        note: row.note,
-        priority: row.priority,
-        r#match: RewriteRuleMatch {
-            methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
-            stage: row.match_stage,
-            url_pattern: row.match_url_pattern,
-            match_type: if row.match_type.is_empty() {
-                None
-            } else {
-                Some(row.match_type)
-            },
-        },
-        rewrite_type: row.rewrite_type,
-        workspace_id: row.workspace_id,
-        payload: serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null),
-    }
-}
-
-fn map_row_to_rule(row: MapRuleRow) -> MapRule {
-    MapRule {
-        id: row.id,
-        enabled: row.enabled,
-        mode: row.mode,
-        name: row.name,
-        note: row.note,
-        preserve_path: row.preserve_path,
-        preserve_query: row.preserve_query,
-        priority: row.priority,
-        source_pattern: row.source_pattern,
-        target_value: row.target_value,
-        workspace_id: row.workspace_id,
-    }
-}
-
-fn throttle_row_to_profile(row: ThrottleProfileRow) -> ThrottleProfileData {
-    ThrottleProfileData {
-        id: row.id,
-        download_kbps: row.download_kbps,
-        enabled: row.enabled,
-        latency_ms: row.latency_ms,
-        name: row.name,
-        note: row.note,
-        packet_loss_ratio: row.packet_loss_ratio,
-        preset: row.preset,
-        upload_kbps: row.upload_kbps,
-        workspace_id: row.workspace_id,
-    }
-}
-
-fn throttle_row_to_rule(row: ThrottleRuleRow) -> ThrottleRuleData {
-    ThrottleRuleData {
-        id: row.id,
-        enabled: row.enabled,
-        methods: serde_json::from_str(&row.methods).unwrap_or_default(),
-        name: row.name,
-        note: row.note,
-        priority: row.priority,
-        profile_id: row.profile_id,
-        stage: row.stage,
-        url_pattern: row.url_pattern,
-        workspace_id: row.workspace_id,
-    }
-}
-
-fn breakpoint_row_to_rule(row: BreakpointRuleRow) -> BreakpointRule {
-    BreakpointRule {
-        id: row.id,
-        enabled: row.enabled,
-        url_pattern: row.url_pattern,
-        methods: serde_json::from_str(&row.methods).unwrap_or_default(),
-        stage: match row.stage.as_str() {
-            "Response" => BreakpointStage::Response,
-            _ => BreakpointStage::Request,
-        },
-        match_type: if row.match_type.is_empty() {
-            None
-        } else {
-            Some(row.match_type)
-        },
-    }
-}
-
-fn summary_row_to_proxy(row: SessionSummaryRow) -> ProxySessionSummary {
-    ProxySessionSummary {
-        id: row.id,
-        method: row.method,
-        host: row.host,
-        path: row.path,
-        protocol: row.protocol,
-        scheme: row.scheme,
-        http_version: row.http_version,
-        transport_protocol: row.transport_protocol,
-        application_protocol: row.application_protocol,
-        started_at: row.started_at,
-        finished_at: row.finished_at,
-        duration_ms: row.duration_ms,
-        size_bytes: row.size_bytes,
-        status_code: row.status_code,
-        url: row.url,
-        response_mime_type: row.response_mime_type,
-    }
-}
-
-fn detail_row_to_proxy(
-    row: &SessionDetailRow,
-    summary: ProxySessionSummary,
-    body_store: &BodyStore,
-) -> ProxySessionDetail {
-    use aiproxy_proxy_core::{ProxyBodyReference, ProxyHeaderEntry, ProxyTimingBreakdown};
-
-    let headers_from_json =
-        |json: &str| -> Vec<ProxyHeaderEntry> { serde_json::from_str(json).unwrap_or_default() };
-
-    let body_ref_from_json = |json: Option<&str>| -> Option<ProxyBodyReference> {
-        json.and_then(|j| {
-            let v: serde_json::Value = serde_json::from_str(j).ok()?;
-            let file_path = v
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .map(|path| {
-                    body_store
-                        .resolve_body_path(path)
-                        .to_string_lossy()
-                        .into_owned()
-                });
-
-            ProxyBodyReference::from_serialized_fields(
-                v.get("inline_text")
-                    .and_then(|value| value.as_str())
-                    .map(String::from),
-                v.get("base64_text")
-                    .and_then(|value| value.as_str())
-                    .map(String::from),
-                v.get("mime_type")
-                    .and_then(|value| value.as_str())
-                    .map(String::from),
-                v.get("encoding")
-                    .and_then(|value| value.as_str())
-                    .map(String::from),
-                v.get("size_bytes")
-                    .and_then(|value| value.as_u64())
-                    .unwrap_or(0) as usize,
-                v.get("truncated")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false),
-                file_path,
-            )
-        })
-    };
-
-    let timing_json_value = row.timing.as_ref().and_then(|j| {
-        let v: serde_json::Value = serde_json::from_str(j).ok()?;
-        Some(v)
-    });
-
-    let timing = timing_json_value.as_ref().map(|v| ProxyTimingBreakdown {
-        connect_ms: v
-            .get("connect_ms")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u128),
-        dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-        request_send_ms: v
-            .get("request_send_ms")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u128),
-        response_read_ms: v
-            .get("response_read_ms")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u128),
-        tls_ms: v.get("tls_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
-        total_ms: v
-            .get("total_ms")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u128),
-        waiting_ms: v
-            .get("waiting_ms")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u128),
-    });
-
-    let timing_source = timing_json_value
-        .as_ref()
-        .and_then(|v| v.get("timing_source"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    let trailers = row
-        .trailers
-        .as_ref()
-        .and_then(|json| serde_json::from_str(json).ok());
-
-    ProxySessionDetail {
-        client_address: row.client_address.clone(),
-        id: row.session_summary_id.clone(),
-        query_params: headers_from_json(&row.query_params),
-        cookies: headers_from_json(&row.cookies),
-        raw_request_head: row.raw_request.as_deref().map(extract_raw_message_head),
-        raw_response_head: row.raw_response.as_deref().map(extract_raw_message_head),
-        request_body: body_ref_from_json(row.request_body_ref.as_deref()),
-        request_headers: headers_from_json(&row.request_headers),
-        response_body: body_ref_from_json(row.response_body_ref.as_deref()),
-        response_headers: headers_from_json(&row.response_headers),
-        map_traces: Vec::new(),
-        rewrite_traces: Vec::new(),
-        server_ip: row.server_ip.clone(),
-        script_traces: Vec::new(),
-        summary,
-        throttle_traces: Vec::new(),
-        tls_cipher_suite: row.tls_cipher_suite.clone(),
-        tls_protocol: row.tls_protocol.clone(),
-        timing,
-        timing_source,
-        trailers,
-        h2_stream_id: row.h2_stream_id,
-    }
-}
-
-fn proxy_summary_to_row(summary: &ProxySessionSummary) -> SessionSummaryRow {
-    SessionSummaryRow {
-        id: summary.id.clone(),
-        method: summary.method.clone(),
-        host: summary.host.clone(),
-        path: summary.path.clone(),
-        protocol: summary.protocol.clone(),
-        scheme: summary.scheme.clone(),
-        http_version: summary.http_version.clone(),
-        transport_protocol: summary.transport_protocol.clone(),
-        application_protocol: summary.application_protocol.clone(),
-        started_at: summary.started_at.clone(),
-        finished_at: summary.finished_at.clone(),
-        duration_ms: summary.duration_ms,
-        size_bytes: summary.size_bytes,
-        status_code: summary.status_code,
-        url: summary.url.clone(),
-        response_mime_type: summary.response_mime_type.clone(),
-    }
-}
-
-fn proxy_detail_to_row(detail: &ProxySessionDetail, body_store: &BodyStore) -> SessionDetailRow {
-    let body_to_json = |body: &Option<aiproxy_proxy_core::ProxyBodyReference>| -> Option<String> {
-        body.as_ref().map(|b| {
-            let mut body_json = serde_json::json!({
-                "size_bytes": b.size_bytes,
-                "truncated": b.truncated,
-            });
-            if let Some(ref mime) = b.mime_type {
-                body_json["mime_type"] = serde_json::Value::String(mime.clone());
-            }
-            if let Some(ref enc) = b.encoding {
-                body_json["encoding"] = serde_json::Value::String(enc.clone());
-            }
-            if let Some(file_path) = b.file_path() {
-                if let Some(relative_path) =
-                    body_store.relative_body_path(std::path::Path::new(file_path))
-                {
-                    body_json["file_path"] = serde_json::Value::String(relative_path);
-                }
-            } else {
-                if let Some(text) = b.inline_text() {
-                    body_json["inline_text"] = serde_json::Value::String(text);
-                }
-                if let Some(b64) = b.base64_text() {
-                    body_json["base64_text"] = serde_json::Value::String(b64);
-                }
-            }
-            body_json.to_string()
-        })
-    };
-
-    let timing_json = detail.timing.as_ref().map(|t| {
-        let mut v = serde_json::json!({});
-        if let Some(ms) = t.connect_ms {
-            v["connect_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.dns_ms {
-            v["dns_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.request_send_ms {
-            v["request_send_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.response_read_ms {
-            v["response_read_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.tls_ms {
-            v["tls_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.total_ms {
-            v["total_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ms) = t.waiting_ms {
-            v["waiting_ms"] = serde_json::json!(ms);
-        }
-        if let Some(ref source) = detail.timing_source {
-            v["timing_source"] = serde_json::json!(source);
-        }
-        v.to_string()
-    });
-
-    SessionDetailRow {
-        id: format!("{}-detail", detail.id),
-        session_summary_id: detail.id.clone(),
-        query_params: serde_json::to_string(&detail.query_params).unwrap_or_else(|_| "[]".into()),
-        cookies: serde_json::to_string(&detail.cookies).unwrap_or_else(|_| "[]".into()),
-        request_headers: serde_json::to_string(&detail.request_headers)
-            .unwrap_or_else(|_| "[]".into()),
-        response_headers: serde_json::to_string(&detail.response_headers)
-            .unwrap_or_else(|_| "[]".into()),
-        raw_request: detail.raw_request_head.clone(),
-        raw_response: detail.raw_response_head.clone(),
-        client_address: detail.client_address.clone(),
-        server_ip: detail.server_ip.clone(),
-        tls_cipher_suite: detail.tls_cipher_suite.clone(),
-        tls_protocol: detail.tls_protocol.clone(),
-        request_body_ref: body_to_json(&detail.request_body),
-        response_body_ref: body_to_json(&detail.response_body),
-        timing: timing_json,
-        trailers: detail
-            .trailers
-            .as_ref()
-            .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
-        h2_stream_id: detail.h2_stream_id,
-    }
-}
-
-fn extract_raw_message_head(raw_message: &str) -> String {
-    match raw_message.find("\r\n\r\n") {
-        Some(index) => raw_message[..index + 4].to_string(),
-        None => raw_message.to_string(),
-    }
-}
-
-fn spill_session_bodies_to_disk(
-    detail: &mut ProxySessionDetail,
-    body_store: &BodyStore,
-) -> Result<(), String> {
-    spill_body_reference_to_disk(&detail.id, "request", &mut detail.request_body, body_store)?;
-    spill_body_reference_to_disk(
-        &detail.id,
-        "response",
-        &mut detail.response_body,
-        body_store,
-    )?;
-    Ok(())
-}
-
-fn spill_body_reference_to_disk(
-    session_id: &str,
-    kind: &str,
-    body: &mut Option<aiproxy_proxy_core::ProxyBodyReference>,
-    body_store: &BodyStore,
-) -> Result<(), String> {
-    let Some(body) = body.as_mut() else {
-        return Ok(());
-    };
-
-    if body.file_path().is_some() || body.size_bytes < BODY_FILE_THRESHOLD {
-        return Ok(());
-    }
-
-    let Some(bytes) = body.in_memory_bytes() else {
-        return Ok(());
-    };
-
-    let relative_path = body_store.write_body(session_id, kind, bytes)?;
-    let full_path = body_store.resolve_body_path(&relative_path);
-    body.replace_with_file_path(full_path.to_string_lossy().into_owned());
-    Ok(())
-}
-
-fn dns_mapping_row_to_rule(row: DnsMappingRow) -> DnsMappingRule {
-    DnsMappingRule {
-        id: row.id,
-        enabled: row.enabled,
-        name: row.name,
-        note: row.note,
-        priority: row.priority,
-        host_pattern: row.host_pattern,
-        target_ip: row.target_ip,
-        workspace_id: row.workspace_id,
-    }
-}
-
-fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
-    let language = match row.language.as_str() {
-        "typescript" => ScriptRuleLanguage::TypeScript,
-        _ => ScriptRuleLanguage::JavaScript,
-    };
-    let source_type = match row.source_type.as_str() {
-        "fileImport" => ScriptRuleSourceType::FileImport,
-        _ => ScriptRuleSourceType::Inline,
-    };
-    let entrypoints: ScriptEntrypoints =
-        serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
-            on_request: false,
-            on_response: false,
-        });
-
-    CompiledScriptRule {
-        rule: ScriptRule {
-            id: row.id,
-            workspace_id: row.workspace_id,
-            name: row.name,
-            note: row.note,
-            enabled: row.enabled,
-            priority: row.priority,
-            r#match: aiproxy_proxy_core::ScriptRuleMatch {
-                url_pattern: row.match_url_pattern,
-                methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
-                stage: row.match_stage,
-                match_type: if row.match_type.is_empty() {
-                    None
-                } else {
-                    Some(row.match_type)
-                },
-            },
-            language,
-            source_type,
-            source_code: row.source_code,
-            source_path: row.source_path,
-            entrypoints,
-        },
-        compiled_code: row.compiled_code,
-        source_map: row.source_map,
-        compiled_match: None,
-    }
-}
 
 fn persist_script_traces(
     conn: &aiproxy_db::rusqlite::Connection,
@@ -1998,51 +1334,16 @@ fn persist_throttle_traces(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        proxy_detail_to_row, proxy_summary_to_row, select_session_eviction_index, AppState,
-    };
+    use super::{proxy_detail_to_row, proxy_summary_to_row, AppState};
     use aiproxy_db::body_store::BodyStore;
     use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
-    use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
-    #[test]
-    fn evicts_oldest_unfocused_session_before_focused_one() {
-        let sessions = vec![
-            build_summary("1", "api.example.com"),
-            build_summary("2", "static.example.com"),
-            build_summary("3", "api.example.com"),
-        ];
-        let focused_hosts = build_focused_hosts(&["api.example.com"]);
-
-        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 1);
-    }
+    // Eviction tests moved to cache.rs alongside the SessionCache type.
 
     #[test]
-    fn falls_back_to_oldest_session_when_all_hosts_are_focused() {
-        let sessions = vec![
-            build_summary("1", "api.example.com"),
-            build_summary("2", "api.example.com"),
-        ];
-        let focused_hosts = build_focused_hosts(&["api.example.com"]);
-
-        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 0);
-    }
-
-    #[test]
-    fn falls_back_to_oldest_session_when_no_focus_exists() {
-        let sessions = vec![
-            build_summary("1", "api.example.com"),
-            build_summary("2", "static.example.com"),
-        ];
-        let focused_hosts = HashSet::new();
-
-        assert_eq!(select_session_eviction_index(&sessions, &focused_hosts), 0);
-    }
-
-    #[test]
-    fn reads_session_detail_from_db_when_summary_cache_is_missing() {
+    fn reads_session_detail_from_db_when_cache_is_empty() {
         let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
         aiproxy_db::schema::run_migrations(&conn).unwrap();
 
@@ -2058,23 +1359,15 @@ mod tests {
         let summary = build_summary("db-session", "api.example.com");
         let detail = build_detail(&summary);
         let summary_row = proxy_summary_to_row(&summary);
-        let detail_row = proxy_detail_to_row(&detail, state.body_store.as_ref());
+        let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
         {
-            let conn = state.db.lock().expect("db mutex should not be poisoned");
+            let conn = state.repository.db().lock().expect("db mutex should not be poisoned");
             aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
         }
 
         // Clear in-memory caches so the test must fall back to DB
-        state
-            .sessions
-            .lock()
-            .expect("session list mutex should not be poisoned")
-            .clear();
-        state
-            .session_details
-            .lock()
-            .expect("session detail mutex should not be poisoned")
-            .clear();
+        state.cache.clear_summaries();
+        state.cache.clear_details();
 
         let loaded = state
             .read_session_detail("db-session")
@@ -2106,10 +1399,6 @@ mod tests {
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".to_string()),
         }
-    }
-
-    fn build_focused_hosts(hosts: &[&str]) -> HashSet<String> {
-        hosts.iter().map(|host| host.to_string()).collect()
     }
 
     fn build_detail(summary: &ProxySessionSummary) -> ProxySessionDetail {

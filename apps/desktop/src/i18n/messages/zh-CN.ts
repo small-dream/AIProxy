@@ -716,6 +716,8 @@ export const zhCNMessages: Messages = {
     runtimeError: "无法加载代理运行时状态。在 Tauri 命令层恢复前，抓包控制可能不是最新状态。",
     sessionsLoadError: "无法从代理运行时加载已捕获的会话。",
     compareBaseSet: "已将 {{method}} {{path}} 设为对比基准。",
+    filterAllSessions: "全部会话",
+    filterThrottled: "已限速",
     title: "会话",
   },
   comparePage: {

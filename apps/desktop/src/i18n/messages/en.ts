@@ -743,6 +743,8 @@ export const enMessages = {
       "Unable to load proxy runtime state. Capture controls may be stale until the Tauri command layer responds again.",
     sessionsLoadError: "Unable to load captured sessions from the proxy runtime.",
     compareBaseSet: "Compare base set to {{method}} {{path}}.",
+    filterAllSessions: "All Sessions",
+    filterThrottled: "Throttled",
     title: "Sessions",
   },
   comparePage: {
