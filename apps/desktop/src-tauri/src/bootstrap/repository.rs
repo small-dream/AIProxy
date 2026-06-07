@@ -248,54 +248,13 @@ impl Repository {
 
     // ------------------------------------------------------------------
     // Trace persistence
+    //
+    // Low-level per-category methods have been removed in favour of
+    // `persist_all_traces` which batches all four categories in one
+    // pass and is called from `persist_session_full` /
+    // `persist_session_batch_full`.  See the internal `_impl` helpers
+    // at the bottom of the file for the actual DB interactions.
     // ------------------------------------------------------------------
-
-    #[allow(dead_code)] // transitional — prefer persist_session_full
-    pub fn persist_script_traces(
-        &self,
-        session_id: &str,
-        workspace_id: &str,
-        summary: &ProxySessionSummary,
-        traces: &[ScriptTrace],
-    ) -> Result<(), String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
-        persist_script_traces_impl(&conn, session_id, workspace_id, summary, traces)
-    }
-
-    #[allow(dead_code)] // transitional
-    pub fn persist_rewrite_traces(
-        &self,
-        session_id: &str,
-        workspace_id: &str,
-        summary: &ProxySessionSummary,
-        traces: &[RewriteTrace],
-    ) -> Result<(), String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
-        persist_rewrite_traces_impl(&conn, session_id, workspace_id, summary, traces)
-    }
-
-    #[allow(dead_code)] // transitional
-    pub fn persist_map_traces(
-        &self,
-        session_id: &str,
-        workspace_id: &str,
-        summary: &ProxySessionSummary,
-        traces: &[MapTrace],
-    ) -> Result<(), String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
-        persist_map_traces_impl(&conn, session_id, workspace_id, summary, traces)
-    }
-
-    #[allow(dead_code)] // transitional
-    pub fn persist_throttle_traces(
-        &self,
-        session_id: &str,
-        workspace_id: &str,
-        traces: &[ThrottleTrace],
-    ) -> Result<(), String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
-        persist_throttle_traces_impl(&conn, session_id, workspace_id, traces)
-    }
 }
 
 // ---------------------------------------------------------------------------
