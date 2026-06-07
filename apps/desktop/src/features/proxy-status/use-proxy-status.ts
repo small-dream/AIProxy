@@ -11,9 +11,9 @@ import {
   stopProxy,
 } from "@/services/commands";
 import { logDevError, logDevInfo } from "@/services/logger/dev-logger";
+import { SESSIONS_QUERY_KEY } from "@/features/sessions/use-sessions";
 
 const PROXY_STATUS_QUERY_KEY = ["proxy-status"] as const;
-const SESSIONS_QUERY_KEY = ["sessions"] as const;
 const SESSION_DETAIL_QUERY_KEY = ["session-detail"] as const;
 
 export function useProxyStatus() {

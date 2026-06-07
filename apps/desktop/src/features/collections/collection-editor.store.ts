@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import type { HeaderEntry } from "@aiproxy/shared-types";
-
-type BodyType = "none" | "formdata" | "urlencoded" | "raw";
-type RawLanguage = "text" | "json" | "xml" | "html" | "javascript";
+import { type BodyType, type RawLanguage } from "@/features/compose/compose-editor.store";
 
 type CollectionEditorState = {
   // Item identity
