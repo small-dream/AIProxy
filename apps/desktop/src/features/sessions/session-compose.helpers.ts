@@ -5,7 +5,7 @@ import type {
   SessionSummary,
 } from "@aiproxy/shared-types";
 
-import type { BodyType, RawLanguage } from "@/features/compose/compose-editor.store";
+import type { BodyType, RawLanguage } from "@/features/compose/types";
 import { parseFormEntries } from "@/features/sessions/components/session-inspector.helpers";
 import { getBodyText } from "@/features/sessions/session-export.helpers";
 

@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import type { HeaderEntry } from "@aiproxy/shared-types";
-
-export type BodyType = "none" | "formdata" | "urlencoded" | "raw";
-export type RawLanguage = "text" | "json" | "xml" | "html" | "javascript";
+import type { BodyType, RawLanguage } from "./types";
+export { type BodyType, type RawLanguage } from "./types";
 
 export const RAW_LANGUAGE_CONTENT_TYPE: Record<RawLanguage, string> = {
   text: "text/plain",

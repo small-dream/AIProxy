@@ -17,11 +17,8 @@ import {
 import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 
-import {
-  type BodyType,
-  RAW_LANGUAGES,
-  type RawLanguage,
-} from "@/features/compose/compose-editor.store";
+import type { BodyType, RawLanguage } from "@/features/compose/types";
+import { RAW_LANGUAGES } from "@/features/compose/compose-editor.store";
 import {
   inspectorPaneActionButtonSx,
   inspectorTabsSx,

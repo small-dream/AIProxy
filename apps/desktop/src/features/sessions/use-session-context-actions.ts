@@ -8,7 +8,7 @@ import { downloadTextFile } from "@/lib/download";
 import { saveSessionToCollection, sendComposedRequest } from "@/services/commands";
 
 import { getRawMessageText } from "@/features/sessions/components/session-inspector.helpers";
-import type { BodyType, RawLanguage } from "@/features/compose/compose-editor.store";
+import type { BodyType, RawLanguage } from "@/features/compose/types";
 import { buildComposeLoadInput } from "@/features/sessions/session-compose.helpers";
 import {
   buildPendingComposedSessionDetail,

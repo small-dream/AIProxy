@@ -1116,4 +1116,63 @@ export function onRequest() {
         );
         assert!(result.request.is_none());
     }
+
+    #[test]
+    fn compiles_regex_match_type_successfully() {
+        let mut rule = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"export function onRequest(ctx) { }"#,
+        );
+        rule.r#match.url_pattern = r"example\.com/\d+".to_string();
+        rule.r#match.match_type = Some("regex".to_string());
+
+        let compiled = compile_script_rule(rule).unwrap();
+        assert!(compiled.compiled_match.is_some());
+
+        let re = compiled.compiled_match.unwrap();
+        assert!(re.is_match("http://example.com/123"));
+        assert!(!re.is_match("http://example.com/abc"));
+    }
+
+    #[test]
+    fn invalid_regex_match_type_compiles_but_produces_no_match() {
+        let mut rule = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"export function onRequest(ctx) { }"#,
+        );
+        rule.r#match.url_pattern = "[invalid(".to_string();
+        rule.r#match.match_type = Some("regex".to_string());
+
+        let compiled = compile_script_rule(rule).unwrap();
+        // Invalid regex gracefully degrades to None (no match).
+        assert!(compiled.compiled_match.is_none());
+    }
+
+    #[test]
+    fn compiled_match_refreshes_after_rule_update() {
+        let mut rule_v1 = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"export function onRequest(ctx) { }"#,
+        );
+        rule_v1.r#match.url_pattern = r"example\.com/\d+".to_string();
+        rule_v1.r#match.match_type = Some("regex".to_string());
+
+        let compiled_v1 = compile_script_rule(rule_v1).unwrap();
+        let re_v1 = compiled_v1.compiled_match.as_ref().unwrap();
+        assert!(re_v1.is_match("http://example.com/123"));
+        assert!(!re_v1.is_match("http://example.com/abc"));
+
+        // Update the rule with a different regex pattern.
+        let mut rule_v2 = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"export function onRequest(ctx) { }"#,
+        );
+        rule_v2.r#match.url_pattern = r"example\.com/[a-z]+".to_string();
+        rule_v2.r#match.match_type = Some("regex".to_string());
+
+        let compiled_v2 = compile_script_rule(rule_v2).unwrap();
+        let re_v2 = compiled_v2.compiled_match.as_ref().unwrap();
+        assert!(!re_v2.is_match("http://example.com/123"));
+        assert!(re_v2.is_match("http://example.com/abc"));
+    }
 }

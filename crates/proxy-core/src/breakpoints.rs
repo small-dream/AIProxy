@@ -859,4 +859,57 @@ mod tests {
         // rule-b is now enabled and still matches.
         assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test"));
     }
+
+    /// Invalid regex pattern should not panic and should not match any URL.
+    #[test]
+    fn invalid_regex_does_not_panic_and_does_not_match() {
+        let manager = BreakpointManager::new();
+
+        let mut rule = make_rule("bad-regex", true);
+        rule.url_pattern = "[invalid(".to_string();
+        rule.match_type = Some("regex".to_string());
+
+        manager.set_rules(vec![rule]);
+
+        assert!(!manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/test",));
+    }
+
+    /// A valid regex breakpoint rule should match the expected URLs.
+    #[test]
+    fn valid_regex_breakpoint_matches_correctly() {
+        let manager = BreakpointManager::new();
+
+        let mut rule = make_rule("regex-rule", true);
+        rule.url_pattern = r"example\.com/\d+".to_string();
+        rule.match_type = Some("regex".to_string());
+
+        manager.set_rules(vec![rule]);
+
+        assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/123",));
+        assert!(!manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/abc",));
+    }
+
+    /// Updating rules should refresh the pre-compiled regex.
+    #[test]
+    fn set_rules_refreshes_compiled_regex() {
+        let manager = BreakpointManager::new();
+
+        // First set: match digits
+        let mut rule_v1 = make_rule("regex-rule", true);
+        rule_v1.url_pattern = r"example\.com/\d+".to_string();
+        rule_v1.match_type = Some("regex".to_string());
+        manager.set_rules(vec![rule_v1]);
+
+        assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/123",));
+        assert!(!manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/abc",));
+
+        // Update: match letters
+        let mut rule_v2 = make_rule("regex-rule", true);
+        rule_v2.url_pattern = r"example\.com/[a-z]+".to_string();
+        rule_v2.match_type = Some("regex".to_string());
+        manager.set_rules(vec![rule_v2]);
+
+        assert!(!manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/123",));
+        assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/abc",));
+    }
 }
