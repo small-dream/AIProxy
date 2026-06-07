@@ -19,7 +19,6 @@ pub(crate) struct Repository {
     body_store: Arc<BodyStore>,
 }
 
-#[allow(dead_code)]
 impl Repository {
     pub fn new(
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
@@ -74,7 +73,9 @@ impl Repository {
         );
     }
 
-    /// Delete sessions by ID (DB + body files).
+    /// Delete sessions by ID (DB + body files).  Synchronous — prefer the
+    /// async variant inside Tauri commands unless you are already on a
+    /// blocking thread.
     pub fn delete_sessions_by_ids(&self, ids: &[String]) {
         {
             let conn = self.db.lock().expect("db mutex should not be poisoned");
@@ -101,7 +102,31 @@ impl Repository {
         }
     }
 
+    /// Async variant of `delete_sessions_by_ids` that offloads the DB and
+    /// file-system work to `spawn_blocking`.
+    #[allow(dead_code)] // available for async callers
+    pub async fn delete_sessions_and_bodies_async(&self, ids: Vec<String>) {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        tauri::async_runtime::spawn_blocking(move || {
+            delete_sessions_impl(&db, &body_store, &ids);
+        })
+        .await
+        .expect("delete_sessions spawn_blocking should not panic");
+    }
+
+    /// Fire-and-forget variant for callers that have already updated caches
+    /// and emitted events and don't need to wait for DB cleanup.
+    pub fn spawn_delete_sessions(&self, ids: Vec<String>) {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        std::thread::spawn(move || {
+            delete_sessions_impl(&db, &body_store, &ids);
+        });
+    }
+
     /// Load a session detail row from the database.
+    #[allow(dead_code)] // transitional — will wire into read_session_detail
     pub fn load_session_detail_row(
         &self,
         session_id: &str,
@@ -112,6 +137,7 @@ impl Repository {
     }
 
     /// Load a session summary row from the database.
+    #[allow(dead_code)] // transitional
     pub fn load_session_summary_row(
         &self,
         session_id: &str,
@@ -123,6 +149,7 @@ impl Repository {
 
     /// Persist a single session (summary + detail rows) to SQLite.
     /// Body spill MUST be done by the caller before calling this.
+    #[allow(dead_code)] // transitional
     pub fn upsert_session_rows(
         &self,
         summary_row: &aiproxy_db::sessions::SessionSummaryRow,
@@ -143,6 +170,7 @@ impl Repository {
     // Trace persistence
     // ------------------------------------------------------------------
 
+    #[allow(dead_code)] // transitional — prefer persist_session_full
     pub fn persist_script_traces(
         &self,
         session_id: &str,
@@ -154,6 +182,7 @@ impl Repository {
         persist_script_traces_impl(&conn, session_id, workspace_id, summary, traces)
     }
 
+    #[allow(dead_code)] // transitional
     pub fn persist_rewrite_traces(
         &self,
         session_id: &str,
@@ -165,6 +194,7 @@ impl Repository {
         persist_rewrite_traces_impl(&conn, session_id, workspace_id, summary, traces)
     }
 
+    #[allow(dead_code)] // transitional
     pub fn persist_map_traces(
         &self,
         session_id: &str,
@@ -176,6 +206,7 @@ impl Repository {
         persist_map_traces_impl(&conn, session_id, workspace_id, summary, traces)
     }
 
+    #[allow(dead_code)] // transitional
     pub fn persist_throttle_traces(
         &self,
         session_id: &str,
@@ -430,31 +461,10 @@ impl Repository {
                 );
             }
 
-            persist_script_traces_impl(
-                &conn,
-                &detail.id,
-                &wid,
-                &detail.summary,
-                &detail.script_traces,
-            )
-            .ok();
-            persist_rewrite_traces_impl(
-                &conn,
-                &detail.id,
-                &wid,
-                &detail.summary,
-                &detail.rewrite_traces,
-            )
-            .ok();
-            persist_map_traces_impl(
-                &conn,
-                &detail.id,
-                &wid,
-                &detail.summary,
-                &detail.map_traces,
-            )
-            .ok();
-            persist_throttle_traces_impl(&conn, &detail.id, &wid, &detail.throttle_traces).ok();
+            persist_all_traces(
+                &conn, &detail.id, &wid, &detail.summary, &detail.script_traces,
+                &detail.rewrite_traces, &detail.map_traces, &detail.throttle_traces,
+            );
 
             detail
         })
@@ -505,37 +515,10 @@ impl Repository {
                     );
                 }
 
-                persist_script_traces_impl(
-                    &conn,
-                    &session.id,
-                    &wid,
-                    &session.summary,
-                    &session.script_traces,
-                )
-                .ok();
-                persist_rewrite_traces_impl(
-                    &conn,
-                    &session.id,
-                    &wid,
-                    &session.summary,
-                    &session.rewrite_traces,
-                )
-                .ok();
-                persist_map_traces_impl(
-                    &conn,
-                    &session.id,
-                    &wid,
-                    &session.summary,
-                    &session.map_traces,
-                )
-                .ok();
-                persist_throttle_traces_impl(
-                    &conn,
-                    &session.id,
-                    &wid,
-                    &session.throttle_traces,
-                )
-                .ok();
+                persist_all_traces(
+                    &conn, &session.id, &wid, &session.summary, &session.script_traces,
+                    &session.rewrite_traces, &session.map_traces, &session.throttle_traces,
+                );
             }
 
             sessions
@@ -637,4 +620,85 @@ fn log_storage_stats(
             ("row_build_elapsed_us", row_build_elapsed_us.to_string()),
         ],
     );
+}
+
+fn delete_sessions_impl(
+    db: &Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
+    body_store: &Arc<BodyStore>,
+    ids: &[String],
+) {
+    {
+        let conn = db.lock().expect("db mutex should not be poisoned");
+        if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "clear_sessions_db_failed",
+                error = %error,
+                "clear_sessions_db_failed"
+            );
+        }
+    }
+    for id in ids {
+        if let Err(error) = body_store.remove_bodies(id) {
+            tracing::error!(
+                component = "desktop.persistence",
+                event = "clear_sessions_body_remove_failed",
+                session_id = %id,
+                error = %error,
+                "clear_sessions_body_remove_failed"
+            );
+        }
+    }
+}
+
+/// Persist all four trace categories for a session, logging each failure
+/// individually (matching the pre-refactor behaviour so operators can see
+/// *which* trace type failed).
+#[allow(clippy::too_many_arguments)]
+fn persist_all_traces(
+    conn: &aiproxy_db::rusqlite::Connection,
+    session_id: &str,
+    workspace_id: &str,
+    summary: &ProxySessionSummary,
+    script_traces: &[ScriptTrace],
+    rewrite_traces: &[RewriteTrace],
+    map_traces: &[MapTrace],
+    throttle_traces: &[ThrottleTrace],
+) {
+    if let Err(e) =
+        persist_script_traces_impl(conn, session_id, workspace_id, summary, script_traces)
+    {
+        tracing::error!(
+            component = "desktop.persistence",
+            event = "script_trace_upsert_db_failed",
+            error = %e,
+            "script_trace_upsert_db_failed"
+        );
+    }
+    if let Err(e) =
+        persist_rewrite_traces_impl(conn, session_id, workspace_id, summary, rewrite_traces)
+    {
+        tracing::error!(
+            component = "desktop.persistence",
+            event = "rewrite_trace_upsert_db_failed",
+            error = %e,
+            "rewrite_trace_upsert_db_failed"
+        );
+    }
+    if let Err(e) = persist_map_traces_impl(conn, session_id, workspace_id, summary, map_traces) {
+        tracing::error!(
+            component = "desktop.persistence",
+            event = "map_trace_upsert_db_failed",
+            error = %e,
+            "map_trace_upsert_db_failed"
+        );
+    }
+    if let Err(e) = persist_throttle_traces_impl(conn, session_id, workspace_id, throttle_traces) {
+        tracing::error!(
+            component = "desktop.persistence",
+            event = "throttle_trace_upsert_db_failed",
+            error = %e,
+            "throttle_trace_upsert_db_failed"
+        );
+    }
 }

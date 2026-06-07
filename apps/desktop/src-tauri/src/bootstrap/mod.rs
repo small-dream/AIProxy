@@ -322,39 +322,9 @@ impl AppState {
             emit_sessions_cleared(&handle);
         }
 
-        if ids_to_clear.is_empty() {
-            return;
+        if !ids_to_clear.is_empty() {
+            self.repository.spawn_delete_sessions(ids_to_clear);
         }
-
-        let db = Arc::clone(self.repository.db());
-        let body_store = Arc::clone(self.repository.body_store());
-        tauri::async_runtime::spawn_blocking(move || {
-            {
-                let conn = db.lock().expect("db mutex should not be poisoned");
-                if let Err(error) =
-                    aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_clear)
-                {
-                    tracing::error!(
-                        component = "desktop.persistence",
-                        event = "clear_sessions_db_failed",
-                        error = %error,
-                        "clear_sessions_db_failed"
-                    );
-                }
-            }
-
-            for id in &ids_to_clear {
-                if let Err(error) = body_store.remove_bodies(id) {
-                    tracing::error!(
-                        component = "desktop.persistence",
-                        event = "clear_sessions_body_remove_failed",
-                        session_id = %id,
-                        error = %error,
-                        "clear_sessions_body_remove_failed"
-                    );
-                }
-            }
-        });
     }
 
     pub fn delete_sessions_except(&self, keep_session_id: &str) {
@@ -362,17 +332,7 @@ impl AppState {
         let ids_set: HashSet<String> = ids_to_remove.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
 
-        {
-            let conn = self
-                .repository
-                .db()
-                .lock()
-                .expect("db mutex should not be poisoned");
-            let _ = aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids_to_remove);
-        }
-        for id in &ids_to_remove {
-            let _ = self.repository.body_store().remove_bodies(id);
-        }
+        self.repository.delete_sessions_by_ids(&ids_to_remove);
 
         if let Some(handle) = self.read_app_handle() {
             emit_sessions_removed(&handle, ids_to_remove);
