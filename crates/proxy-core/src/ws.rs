@@ -1,3 +1,4 @@
+use crate::ProxyError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -74,14 +75,20 @@ pub struct WsFrame {
 /// Returns the parsed frame with unmasked payload.
 /// Each read operation is guarded by a timeout to prevent a stalled peer
 /// from blocking the relay loop indefinitely.
-pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<WsFrame, String> {
+pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+) -> Result<WsFrame, ProxyError> {
     let read_timeout = Duration::from_secs(WS_FRAME_READ_TIMEOUT_SECS);
 
     let mut head = [0u8; 2];
     timeout(read_timeout, reader.read_exact(&mut head))
         .await
-        .map_err(|_| format!("ws frame header read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
-        .map_err(|e| format!("ws frame header read: {e}"))?;
+        .map_err(|_| {
+            ProxyError::Other(format!(
+                "ws frame header read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+            ))
+        })?
+        .map_err(ProxyError::IoError)?;
 
     let fin = (head[0] & 0x80) != 0;
     let opcode = WsOpcode::from_u8(head[0] & 0x0F);
@@ -93,43 +100,55 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<W
         timeout(read_timeout, reader.read_exact(&mut ext))
             .await
             .map_err(|_| {
-                format!("ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+                ProxyError::Other(format!(
+                    "ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                ))
             })?
-            .map_err(|e| format!("ws extended length read: {e}"))?;
+            .map_err(ProxyError::IoError)?;
         payload_len = u16::from_be_bytes(ext) as u64;
     } else if payload_len == 127 {
         let mut ext = [0u8; 8];
         timeout(read_timeout, reader.read_exact(&mut ext))
             .await
             .map_err(|_| {
-                format!("ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)")
+                ProxyError::Other(format!(
+                    "ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                ))
             })?
-            .map_err(|e| format!("ws extended length read: {e}"))?;
+            .map_err(ProxyError::IoError)?;
         payload_len = u64::from_be_bytes(ext);
     }
 
     if payload_len > MAX_WS_FRAME_SIZE {
-        return Err(format!(
+        return Err(ProxyError::Other(format!(
             "ws payload length {payload_len} exceeds limit {MAX_WS_FRAME_SIZE}"
-        ));
+        )));
     }
 
     let mut mask_key = [0u8; 4];
     if mask {
         timeout(read_timeout, reader.read_exact(&mut mask_key))
             .await
-            .map_err(|_| format!("ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
-            .map_err(|e| format!("ws mask key read: {e}"))?;
+            .map_err(|_| {
+                ProxyError::Other(format!(
+                    "ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                ))
+            })?
+            .map_err(ProxyError::IoError)?;
     }
 
     let payload_len = usize::try_from(payload_len)
-        .map_err(|_| "ws payload length does not fit in usize".to_string())?;
+        .map_err(|_| ProxyError::Other("ws payload length does not fit in usize".to_string()))?;
     let mut payload = vec![0u8; payload_len];
     if payload_len > 0 {
         timeout(read_timeout, reader.read_exact(&mut payload))
             .await
-            .map_err(|_| format!("ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"))?
-            .map_err(|e| format!("ws payload read: {e}"))?;
+            .map_err(|_| {
+                ProxyError::Other(format!(
+                    "ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                ))
+            })?
+            .map_err(ProxyError::IoError)?;
     }
 
     if mask {
@@ -157,7 +176,7 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     frame: &WsFrame,
     mask_output: bool,
-) -> Result<(), String> {
+) -> Result<(), ProxyError> {
     let mut head = [0u8; 2];
 
     if frame.fin {
@@ -170,30 +189,21 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
 
     if payload_len < 126 {
         head[1] = mask_bit | payload_len as u8;
-        writer
-            .write_all(&head)
-            .await
-            .map_err(|e| format!("ws frame write head: {e}"))?;
+        writer.write_all(&head).await.map_err(ProxyError::IoError)?;
     } else if payload_len <= 65535 {
         head[1] = mask_bit | 126;
-        writer
-            .write_all(&head)
-            .await
-            .map_err(|e| format!("ws frame write head: {e}"))?;
+        writer.write_all(&head).await.map_err(ProxyError::IoError)?;
         writer
             .write_all(&(payload_len as u16).to_be_bytes())
             .await
-            .map_err(|e| format!("ws frame write ext len: {e}"))?;
+            .map_err(ProxyError::IoError)?;
     } else {
         head[1] = mask_bit | 127;
-        writer
-            .write_all(&head)
-            .await
-            .map_err(|e| format!("ws frame write head: {e}"))?;
+        writer.write_all(&head).await.map_err(ProxyError::IoError)?;
         writer
             .write_all(&(payload_len as u64).to_be_bytes())
             .await
-            .map_err(|e| format!("ws frame write ext len: {e}"))?;
+            .map_err(ProxyError::IoError)?;
     }
 
     if mask_output {
@@ -201,7 +211,7 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
         writer
             .write_all(&mask_key)
             .await
-            .map_err(|e| format!("ws frame write mask: {e}"))?;
+            .map_err(ProxyError::IoError)?;
         let mut offset = 0;
         let mut masked_chunk = vec![0u8; WS_MASK_CHUNK_BYTES.min(frame.payload.len().max(1))];
         while offset < frame.payload.len() {
@@ -213,20 +223,17 @@ pub async fn write_ws_frame<W: AsyncWriteExt + Unpin>(
             writer
                 .write_all(&masked_chunk[..chunk.len()])
                 .await
-                .map_err(|e| format!("ws frame write payload: {e}"))?;
+                .map_err(ProxyError::IoError)?;
             offset = end;
         }
     } else {
         writer
             .write_all(&frame.payload)
             .await
-            .map_err(|e| format!("ws frame write payload: {e}"))?;
+            .map_err(ProxyError::IoError)?;
     }
 
-    writer
-        .flush()
-        .await
-        .map_err(|e| format!("ws frame flush: {e}"))?;
+    writer.flush().await.map_err(ProxyError::IoError)?;
 
     Ok(())
 }
@@ -301,7 +308,7 @@ pub fn build_ws_message(
 pub async fn forward_raw_frame<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     frame: &WsFrame,
-) -> Result<(), String> {
+) -> Result<(), ProxyError> {
     // Server-to-client frames are never masked
     write_ws_frame(writer, frame, false).await
 }
@@ -388,21 +395,24 @@ impl WsConnectionRegistry {
             .unwrap_or(WsConnectionStatus::Closed)
     }
 
-    pub fn inject(&self, session_id: &str, request: WsInjectRequest) -> Result<(), String> {
+    pub fn inject(&self, session_id: &str, request: WsInjectRequest) -> Result<(), ProxyError> {
         let map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map.get(session_id).ok_or_else(|| {
-            format!(
+            ProxyError::Other(format!(
                 "WebSocket session {} is not active or does not exist",
                 session_id
-            )
+            ))
         })?;
         if entry.status != WsConnectionStatus::Active {
-            return Err(format!("WebSocket session {} is closed", session_id));
+            return Err(ProxyError::Other(format!(
+                "WebSocket session {} is closed",
+                session_id
+            )));
         }
         entry
             .inject_sender
             .send(request)
-            .map_err(|e| format!("Failed to inject frame: {:?}", e))
+            .map_err(|e| ProxyError::Other(format!("Failed to inject frame: {:?}", e)))
     }
 }
 

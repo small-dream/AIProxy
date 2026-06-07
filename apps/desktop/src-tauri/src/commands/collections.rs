@@ -269,7 +269,7 @@ pub fn list_api_collections(
 ) -> Result<Vec<ApiCollectionOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::collections::list_all_collections(&conn)
-        .map_err(|error| format!("list collections: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))?;
     Ok(rows
         .into_iter()
         .map(|r| ApiCollectionOutput {
@@ -305,7 +305,7 @@ pub fn upsert_api_collection(
     {
         let conn = state.read_db_connection().lock().expect("db mutex");
         aiproxy_db::collections::upsert_collection(&conn, &row)
-            .map_err(|e| format!("upsert collection: {e}"))?;
+            .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection: {e}")))?;
     }
 
     Ok(ApiCollectionOutput {
@@ -326,7 +326,7 @@ pub fn delete_api_collection(
 ) -> Result<(), String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     aiproxy_db::collections::delete_collection(&conn, &input.id)
-        .map_err(|e| format!("delete collection: {e}"))?;
+        .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection: {e}")))?;
     Ok(())
 }
 
@@ -337,7 +337,7 @@ pub fn list_api_collection_items(
 ) -> Result<Vec<ApiCollectionItemOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::collections::list_collection_items(&conn, &input.collection_id)
-        .map_err(|error| format!("list collection items: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("list collection items: {error}")))?;
     Ok(rows
         .into_iter()
         .map(collection_item_output_from_row)
@@ -351,8 +351,13 @@ pub fn get_api_collection_item(
 ) -> Result<ApiCollectionItemOutput, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let row = aiproxy_db::collections::get_collection_item(&conn, &input.id)
-        .map_err(|e| format!("get collection item: {e}"))?
-        .ok_or_else(|| format!("collection item {} not found", input.id))?;
+        .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
+        .ok_or_else(|| {
+            app_error(
+                ERR_INVALID_INPUT,
+                format!("Collection item {} was not found.", input.id),
+            )
+        })?;
 
     Ok(collection_item_output_from_row(row))
 }
@@ -391,7 +396,7 @@ pub fn upsert_api_collection_item(
     {
         let conn = state.read_db_connection().lock().expect("db mutex");
         aiproxy_db::collections::upsert_collection_item(&conn, &row)
-            .map_err(|e| format!("upsert collection item: {e}"))?;
+            .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection item: {e}")))?;
     }
 
     Ok(collection_item_output_from_row(row))
@@ -404,7 +409,7 @@ pub fn delete_api_collection_item(
 ) -> Result<(), String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     aiproxy_db::collections::delete_collection_item(&conn, &input.id)
-        .map_err(|e| format!("delete collection item: {e}"))?;
+        .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection item: {e}")))?;
     Ok(())
 }
 
@@ -422,7 +427,7 @@ pub fn move_api_collection_item(
         input.sort_order,
         &now,
     )
-    .map_err(|e| format!("move collection item: {e}"))?;
+    .map_err(|e| app_error(ERR_INTERNAL, format!("move collection item: {e}")))?;
     Ok(())
 }
 
@@ -440,7 +445,7 @@ pub fn move_api_collection(
         input.sort_order,
         &now,
     )
-    .map_err(|e| format!("move collection: {e}"))?;
+    .map_err(|e| app_error(ERR_INTERNAL, format!("move collection: {e}")))?;
     Ok(())
 }
 
@@ -451,7 +456,12 @@ pub fn save_session_to_collection(
 ) -> Result<ApiCollectionItemOutput, String> {
     let detail = state
         .read_session_detail(&input.session_id)
-        .ok_or_else(|| format!("session detail {} not found", input.session_id))?;
+        .ok_or_else(|| {
+            app_error(
+                ERR_INVALID_INPUT,
+                format!("Session {} was not found.", input.session_id),
+            )
+        })?;
     let method = detail.summary.method.clone();
     let url = detail.summary.url.clone();
     let headers = detail.request_headers.clone();
@@ -529,7 +539,7 @@ pub async fn batch_execute_collection_items(
         let mut found = Vec::new();
         for id in &input.item_ids {
             if let Some(item) = aiproxy_db::collections::get_collection_item(&conn, id)
-                .map_err(|e| format!("get item: {e}"))?
+                .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
             {
                 found.push(item);
             }
@@ -542,7 +552,7 @@ pub async fn batch_execute_collection_items(
         Some(env_id) => {
             let conn = state.read_db_connection().lock().expect("db mutex");
             let vars = aiproxy_db::environments::list_environment_variables(&conn, env_id)
-                .map_err(|e| format!("load env vars: {e}"))?;
+                .map_err(|e| app_error(ERR_INTERNAL, format!("load environment variables: {e}")))?;
             vars.into_iter()
                 .filter(|v| v.enabled)
                 .map(|v| (v.key, v.value))
@@ -575,9 +585,9 @@ pub async fn batch_execute_collection_items(
                     error = %e,
                     "batch_execute_item_failed"
                 );
-                return Err(format!(
-                    "batch execute failed at item '{}': {}",
-                    item.name, e
+                return Err(app_error(
+                    ERR_INTERNAL,
+                    format!("batch execute failed at item '{}': {}", item.name, e),
                 ));
             }
         }

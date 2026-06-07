@@ -97,7 +97,12 @@ pub fn load_workspace(
     let workspace = state
         .read_workspace_manager()
         .load(&input.workspace_id)
-        .ok_or_else(|| format!("workspace {} not found", input.workspace_id))?;
+        .ok_or_else(|| {
+            app_error(
+                ERR_INVALID_INPUT,
+                format!("Workspace {} was not found.", input.workspace_id),
+            )
+        })?;
 
     tracing::info!(
         component = "desktop.commands",

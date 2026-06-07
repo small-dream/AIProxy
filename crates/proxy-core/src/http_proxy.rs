@@ -147,7 +147,10 @@ async fn handle_ws_upgrade_via_hyper(
     rewrite_traces: Vec<crate::RewriteTrace>,
     script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
     throttle_traces: Vec<crate::ThrottleTrace>,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     let request_id = request.request_id.clone();
 
     // Determine upstream port.
@@ -648,9 +651,9 @@ fn build_parsed_request_from_hyper(
     body_bytes: bytes::Bytes,
     ctx: &ConnectionContext,
     request_id: &str,
-) -> Result<ParsedProxyRequest, String> {
+) -> Result<ParsedProxyRequest, crate::ProxyError> {
     let method = Method::from_bytes(parts.method.as_str().as_bytes())
-        .map_err(|e| format!("invalid HTTP method: {e}"))?;
+        .map_err(|e| crate::ProxyError::Other(format!("invalid HTTP method: {e}")))?;
 
     let is_h2 = ctx.mode.is_h2();
 
@@ -659,7 +662,7 @@ fn build_parsed_request_from_hyper(
 
     let host = url
         .host_str()
-        .ok_or_else(|| "target URL does not contain a host".to_string())?
+        .ok_or_else(|| crate::ProxyError::Other("target URL does not contain a host".to_string()))?
         .to_string();
     let path = build_request_path(&url);
     let query_params = build_query_params(&url);
@@ -709,11 +712,14 @@ fn build_parsed_request_from_hyper(
 async fn build_upstream_error_response_and_session(
     request: &ParsedProxyRequest,
     host: &str,
-    error: &str,
+    error: &crate::ProxyError,
     ctx: &ConnectionContext,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     let response_message = "The proxy could not reach the upstream server.";
 
     let detail = build_session_detail(
@@ -812,7 +818,7 @@ struct ParsedRequest {
 async fn stage_parse_request(
     req: hyper::Request<hyper::body::Incoming>,
     ctx: &ConnectionContext,
-) -> Result<ParsedRequest, String> {
+) -> Result<ParsedRequest, crate::ProxyError> {
     let request_id = Uuid::new_v4().to_string();
 
     // Detect WebSocket upgrade and capture OnUpgrade before consuming req.
@@ -839,7 +845,7 @@ async fn stage_parse_request(
     let limited_body = http_body_util::Limited::new(body, MAX_CAPTURED_BODY_BYTES);
     let body_bytes = BodyExt::collect(limited_body)
         .await
-        .map_err(|e| format!("failed to read request body: {e}"))?
+        .map_err(|e| crate::ProxyError::Other(format!("failed to read request body: {e}")))?
         .to_bytes();
 
     let request = build_parsed_request_from_hyper(parts, body_bytes, ctx, &request_id)?;
@@ -868,7 +874,7 @@ fn stage_apply_request_rules(
     ctx: &ConnectionContext,
     request: &mut ParsedProxyRequest,
     is_h2: bool,
-) -> Result<RequestRulesResult, String> {
+) -> Result<RequestRulesResult, crate::ProxyError> {
     let RequestRuntimeOutcome {
         local_response,
         map_traces,
@@ -881,7 +887,8 @@ fn stage_apply_request_rules(
         &ctx.workspace_id,
         request,
         is_h2,
-    )?;
+    )
+    .map_err(crate::ProxyError::RuleError)?;
 
     let mut local_response = local_response;
     let mut script_traces = Vec::new();
@@ -936,7 +943,7 @@ async fn stage_intercept_request_breakpoint(
     script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
-) -> Result<BreakpointRequestOutcome, String> {
+) -> Result<BreakpointRequestOutcome, crate::ProxyError> {
     let mut rewrite_traces = rewrite_traces;
     let mut script_traces = script_traces;
     let mut throttle_traces = Vec::new();
@@ -948,7 +955,8 @@ async fn stage_intercept_request_breakpoint(
         &ctx.event_emitter,
         &mut request_mut,
     )
-    .await?;
+    .await
+    .map_err(crate::ProxyError::Other)?;
     let Some(resolution) = resolution else {
         return Ok(BreakpointRequestOutcome::Forward {
             map_traces,
@@ -1006,13 +1014,16 @@ async fn stage_intercept_request_breakpoint(
             }
 
             let mut mock_response = crate::build_mock_upstream_response(mock);
-            rewrite_traces.extend(apply_response_rewrite_rules(
-                &ctx.rewrite_manager,
-                &ctx.workspace_id,
-                request,
-                &mut mock_response,
-                is_h2,
-            )?);
+            rewrite_traces.extend(
+                apply_response_rewrite_rules(
+                    &ctx.rewrite_manager,
+                    &ctx.workspace_id,
+                    request,
+                    &mut mock_response,
+                    is_h2,
+                )
+                .map_err(crate::ProxyError::RuleError)?,
+            );
             script_traces.extend(apply_response_script_rules(
                 &ctx.script_manager,
                 &ctx.workspace_id,
@@ -1108,7 +1119,7 @@ async fn stage_send_pending_and_throttle(
     throttle_traces: &mut Vec<crate::ThrottleTrace>,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
-) -> Result<PendingThrottleOutcome, String> {
+) -> Result<PendingThrottleOutcome, crate::ProxyError> {
     // Send pending session.
     let mut pending_detail = build_pending_session_detail(request, started_at);
     pending_detail.map_traces = map_traces.to_vec();
@@ -1174,7 +1185,7 @@ enum ForwardOutcome {
     /// Upstream forward failed with an error.  The guard is passed back so the
     /// caller can disarm it before building the error response.
     UpstreamError {
-        error: String,
+        error: crate::ProxyError,
         cancellation_guard: Box<PendingRequestCancellationGuard>,
     },
 }
@@ -1190,9 +1201,9 @@ async fn stage_forward_upstream(
     mut cancellation_guard: PendingRequestCancellationGuard,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
-) -> Result<ForwardOutcome, String> {
+) -> Result<ForwardOutcome, crate::ProxyError> {
     // --- Forward upstream ---
-    let upstream_result: Result<UpstreamResponse, String> = match local_response {
+    let upstream_result: Result<UpstreamResponse, crate::ProxyError> = match local_response {
         Some(local_response) => Ok(local_response),
         None => {
             let host = request.host.clone();
@@ -1208,7 +1219,7 @@ async fn stage_forward_upstream(
             )
             .await
             {
-                Ok(result) => result.map_err(String::from),
+                Ok(result) => result,
                 Err(_) => {
                     let timeout_secs = upstream_timeout.as_secs();
                     let response_message =
@@ -1284,7 +1295,7 @@ async fn stage_process_upstream_response(
     started_at_instant: Instant,
     mut cancellation_guard: PendingRequestCancellationGuard,
     host: &str,
-) -> Result<ProxyResponse, String> {
+) -> Result<ProxyResponse, crate::ProxyError> {
     if upstream_response.body_truncated {
         tracing::warn!(
             event = "response_body_passthrough_mode",
@@ -1387,7 +1398,7 @@ async fn stage_process_upstream_response(
             Err(error) => {
                 let _ = ctx.session_sender.send(session_detail).await;
                 cancellation_guard.disarm();
-                return Err(error);
+                return Err(crate::ProxyError::Other(error));
             }
         }
     };
@@ -1505,7 +1516,7 @@ async fn stage_process_upstream_response(
     let response_body = if let Some(ref spool_path) = upstream_response.spooled_response_path {
         tokio::fs::read(spool_path)
             .await
-            .map_err(|e| format!("read spooled response: {e}"))?
+            .map_err(crate::ProxyError::IoError)?
     } else {
         upstream_response.response_body.clone()
     };
@@ -1622,7 +1633,7 @@ pub(crate) async fn handle_http_request(
                     // handled inside the WS handler and return Ok(502). If we
                     // reach here, it's an unexpected internal error; the guard
                     // will send a 499 session as a last resort.
-                    return Err(e);
+                    return Err(e.into());
                 }
             }
         }
@@ -1654,7 +1665,8 @@ pub(crate) async fn handle_http_request(
                 started_at,
                 started_at_instant,
             )
-            .await;
+            .await
+            .map_err(String::from);
         }
         ForwardOutcome::Completed {
             upstream_response,
@@ -1679,6 +1691,7 @@ pub(crate) async fn handle_http_request(
         &host,
     )
     .await
+    .map_err(String::from)
 }
 
 // ---------------------------------------------------------------------------
@@ -1703,7 +1716,7 @@ pub(crate) async fn handle_http_request(
 fn build_url_from_hyper(
     parts: &hyper::http::request::Parts,
     mode: &ConnectionMode,
-) -> Result<Url, String> {
+) -> Result<Url, crate::ProxyError> {
     match mode {
         ConnectionMode::PlainHttp => {
             let uri_str = parts.uri.to_string();
@@ -1713,16 +1726,22 @@ fn build_url_from_hyper(
                 || uri_str.starts_with("wss://")
             {
                 // absolute-form — use as-is
-                Url::parse(&uri_str).map_err(|e| format!("invalid absolute-form URL: {e}"))
+                Url::parse(&uri_str).map_err(|e| {
+                    crate::ProxyError::Other(format!("invalid absolute-form URL: {e}"))
+                })
             } else {
                 // origin-form — reconstruct from Host header
                 let host = parts
                     .headers
                     .get("host")
                     .and_then(|v| v.to_str().ok())
-                    .ok_or("Host header is required for origin-form requests")?;
+                    .ok_or_else(|| {
+                        crate::ProxyError::Other(
+                            "Host header is required for origin-form requests".to_string(),
+                        )
+                    })?;
                 Url::parse(&format!("http://{host}{uri_str}"))
-                    .map_err(|e| format!("invalid origin-form URL: {e}"))
+                    .map_err(|e| crate::ProxyError::Other(format!("invalid origin-form URL: {e}")))
             }
         }
         ConnectionMode::MitmHttps {
@@ -1739,7 +1758,9 @@ fn build_url_from_hyper(
                     .map(|pq| pq.as_str())
                     .unwrap_or("/");
                 let target = format!("https://{authority}{path}");
-                Url::parse(&target).map_err(|e| format!("invalid h2 URL '{target}': {e}"))
+                Url::parse(&target).map_err(|e| {
+                    crate::ProxyError::Other(format!("invalid h2 URL '{target}': {e}"))
+                })
             } else {
                 // h1 MITM: URI may be absolute-form or origin-form
                 let uri_str = parts.uri.to_string();
@@ -1759,7 +1780,9 @@ fn build_url_from_hyper(
                     // authority-form (unlikely for MITM after CONNECT but handle)
                     format!("https://{uri_str}/")
                 };
-                Url::parse(&target).map_err(|e| format!("invalid h1 URL '{target}': {e}"))
+                Url::parse(&target).map_err(|e| {
+                    crate::ProxyError::Other(format!("invalid h1 URL '{target}': {e}"))
+                })
             }
         }
     }
@@ -1831,7 +1854,7 @@ fn build_request_headers_from_hyper(
 /// and hop-by-hop headers that should not be forwarded upstream.
 fn build_upstream_headers_from_hyper(
     headers: &hyper::http::HeaderMap,
-) -> Result<HeaderMap, String> {
+) -> Result<HeaderMap, crate::ProxyError> {
     let is_ws_upgrade = headers
         .get("upgrade")
         .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
@@ -1875,7 +1898,10 @@ fn build_hyper_response_from_upstream(
     status_code: StatusCode,
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     let mut builder = hyper::Response::builder().status(status_code);
 
     for (name, value) in headers {
@@ -1891,7 +1917,7 @@ fn build_hyper_response_from_upstream(
 
     builder
         .body(body)
-        .map_err(|e| format!("failed to build response: {e}"))
+        .map_err(crate::ProxyError::ResponseBuildError)
 }
 
 /// Handle a Drop breakpoint action.
@@ -1904,9 +1930,12 @@ fn build_hyper_response_from_upstream(
 /// with the original MITM path behavior.
 fn handle_drop_action(
     ctx: &ConnectionContext,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     match ctx.mode {
-        ConnectionMode::PlainHttp => Err("request dropped by breakpoint".to_string()),
+        ConnectionMode::PlainHttp => Err(crate::ProxyError::RequestDropped),
         ConnectionMode::MitmHttps { .. } => Ok(build_empty_response(StatusCode::NO_CONTENT)),
     }
 }
@@ -1930,7 +1959,10 @@ fn build_empty_response(
 fn build_plain_text_response(
     status_code: StatusCode,
     message: &str,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     hyper::Response::builder()
         .status(status_code)
         .header("Content-Type", "text/plain; charset=utf-8")
@@ -1940,7 +1972,7 @@ fn build_plain_text_response(
                 .map_err(|e: std::convert::Infallible| e.to_string())
                 .boxed(),
         )
-        .map_err(|e| format!("failed to build plain text response: {e}"))
+        .map_err(crate::ProxyError::ResponseBuildError)
 }
 
 /// Build a throttle-failure response and emit the session.
@@ -1952,7 +1984,10 @@ async fn build_throttle_failure_response(
     error: &str,
     map_traces: Vec<crate::MapTrace>,
     throttle_traces: Vec<crate::ThrottleTrace>,
-) -> Result<hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, String> {
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
+    crate::ProxyError,
+> {
     let response_message = "The request was dropped by the active throttle profile.";
 
     let mut detail = build_session_detail(
@@ -2291,7 +2326,10 @@ mod tests {
         let ctx = make_ctx(ConnectionMode::PlainHttp);
         let result = handle_drop_action(&ctx);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("dropped by breakpoint"));
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::ProxyError::RequestDropped
+        ));
     }
 
     #[test]

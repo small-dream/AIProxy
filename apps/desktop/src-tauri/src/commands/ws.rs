@@ -30,7 +30,7 @@ pub fn list_ws_messages(
     let offset = input.offset.unwrap_or(0);
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset)
-        .map_err(|error| format!("list ws messages: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("list ws messages: {error}")))?;
     Ok(rows
         .into_iter()
         .map(|r| WsMessageOutput {
@@ -89,7 +89,12 @@ pub fn inject_ws_message(input: InjectWsMessageInput) -> Result<(), String> {
     let direction = match input.direction.as_str() {
         "clientToServer" => WsDirection::ClientToServer,
         "serverToClient" => WsDirection::ServerToClient,
-        _ => return Err(format!("Invalid direction: {}", input.direction)),
+        _ => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                format!("Invalid WebSocket direction: {}", input.direction),
+            ))
+        }
     };
     let opcode = match input.opcode.as_str() {
         "text" => WsOpcode::Text,
@@ -97,7 +102,12 @@ pub fn inject_ws_message(input: InjectWsMessageInput) -> Result<(), String> {
         "close" => WsOpcode::Close,
         "ping" => WsOpcode::Ping,
         "pong" => WsOpcode::Pong,
-        _ => return Err(format!("Invalid opcode: {}", input.opcode)),
+        _ => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                format!("Invalid WebSocket opcode: {}", input.opcode),
+            ))
+        }
     };
     let registry = global_ws_registry();
     let request = aiproxy_proxy_core::WsInjectRequest {
@@ -106,7 +116,9 @@ pub fn inject_ws_message(input: InjectWsMessageInput) -> Result<(), String> {
         payload: input.payload,
         fin: input.fin.unwrap_or(true),
     };
-    registry.inject(&input.session_id, request)
+    registry
+        .inject(&input.session_id, request)
+        .map_err(|e| app_error(ERR_INTERNAL, e.to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,7 +145,7 @@ pub fn search_ws_messages(
         limit,
         offset,
     )
-    .map_err(|error| format!("search ws messages: {error}"))?;
+    .map_err(|error| app_error(ERR_INTERNAL, format!("search ws messages: {error}")))?;
     Ok(rows
         .into_iter()
         .map(|r| WsMessageOutput {

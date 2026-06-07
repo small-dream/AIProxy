@@ -62,7 +62,7 @@ pub fn save_throttle_profile(
             packet_loss_ratio: input.packet_loss_ratio,
         };
         aiproxy_db::rules::save_throttle_profile(&conn, &row)
-            .map_err(|error| format!("save throttle profile: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("save throttle profile: {error}")))?;
     }
 
     let saved = state.read_throttle_manager().save_profile(input);
@@ -98,7 +98,7 @@ pub fn save_throttle_rule(
             stage: input.stage.clone(),
         };
         aiproxy_db::rules::save_throttle_rule(&conn, &row)
-            .map_err(|error| format!("save throttle rule: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("save throttle rule: {error}")))?;
     }
 
     Ok(state.read_throttle_manager().save_rule(input))
@@ -121,7 +121,7 @@ pub fn delete_throttle_rule(
             .lock()
             .expect("db mutex should not be poisoned");
         aiproxy_db::rules::delete_throttle_rule(&conn, &input.rule_id)
-            .map_err(|error| format!("delete throttle rule: {error}"))?;
+            .map_err(|error| app_error(ERR_INTERNAL, format!("delete throttle rule: {error}")))?;
     }
     state.read_throttle_manager().delete_rule(&input.rule_id);
     Ok(())
@@ -149,7 +149,12 @@ pub fn set_active_throttle_profile(
             &input.workspace_id,
             input.profile_id.as_deref(),
         )
-        .map_err(|error| format!("set active throttle profile: {error}"))?;
+        .map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("set active throttle profile: {error}"),
+            )
+        })?;
     }
 
     state

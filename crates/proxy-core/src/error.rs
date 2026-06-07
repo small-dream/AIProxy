@@ -1,6 +1,10 @@
 /// Structured error type for proxy-core operations.
 /// Introduced as part of P1 code quality governance to replace ad-hoc
 /// `String` errors with structured variants that preserve error context.
+///
+/// Variants use `#[source]` where the original error type carries structured
+/// information (IO errors, HTTP response building errors). Purely descriptive
+/// errors (rule messages, breakpoint context) remain as `String`.
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
     #[error("upstream connection failed: {0}")]
@@ -15,7 +19,7 @@ pub enum ProxyError {
     #[error("breakpoint cancelled")]
     BreakpointCancelled,
 
-    #[error("request dropped")]
+    #[error("request dropped by breakpoint")]
     RequestDropped,
 
     #[error("script execution timeout")]
@@ -23,6 +27,12 @@ pub enum ProxyError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    /// HTTP response construction failure.
+    /// Preserves the original `http::Error` via `#[source]` so the error
+    /// chain is available for tracing and programmatic inspection.
+    #[error("failed to build HTTP response: {0}")]
+    ResponseBuildError(#[source] http::Error),
 
     #[error("{0}")]
     Other(String),
