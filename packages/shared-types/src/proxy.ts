@@ -78,6 +78,7 @@ export function parseProxyStatus(value: unknown): ProxyStatus {
     const candidate = value as ProxyStatus & {
       activeWorkspaceId?: string | null;
       startedAt?: string | null;
+      http2Enabled?: boolean | null;
     };
 
     return {
@@ -94,6 +95,9 @@ export function parseProxyStatus(value: unknown): ProxyStatus {
       ...(candidate.systemProxyRecoveryWarning !== null &&
       candidate.systemProxyRecoveryWarning !== undefined
         ? { systemProxyRecoveryWarning: candidate.systemProxyRecoveryWarning }
+        : {}),
+      ...(candidate.http2Enabled !== null && candidate.http2Enabled !== undefined
+        ? { http2Enabled: candidate.http2Enabled }
         : {}),
     };
   }

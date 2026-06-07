@@ -2,6 +2,7 @@ import { CircularProgress, Stack } from "@mui/material";
 import { Suspense, lazy, type ComponentType } from "react";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 
+import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { AppShell } from "@/components/layout/AppShell";
 
 const SessionsPage = lazy(async () => ({
@@ -46,9 +47,11 @@ function LazyRouteFallback() {
 
 function renderLazyRoute(Component: ComponentType) {
   return (
-    <Suspense fallback={<LazyRouteFallback />}>
-      <Component />
-    </Suspense>
+    <ErrorBoundary fallbackTitle="Page Error">
+      <Suspense fallback={<LazyRouteFallback />}>
+        <Component />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

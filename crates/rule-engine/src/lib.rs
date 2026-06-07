@@ -478,6 +478,13 @@ fn run_script_in_thread(
     timeout: Duration,
 ) -> Result<ScriptInvocationResult, String> {
     let runtime = Runtime::new().map_err(|error| format!("create runtime: {error}"))?;
+
+    // Limit QuickJS heap to 16MB per script execution.
+    // Scripts may access request/response bodies containing large JSON payloads.
+    // 16MB provides headroom while still preventing runaway allocation.
+    runtime.set_memory_limit(16 * 1024 * 1024);
+    runtime.set_gc_threshold(8 * 1024 * 1024);
+
     let started_at = Instant::now();
     runtime.set_interrupt_handler(Some(Box::new(move || {
         cancel_flag.load(Ordering::Relaxed) || started_at.elapsed() >= timeout
@@ -1059,6 +1066,33 @@ export function onRequest(ctx) {
         let result = execute_request_hook(&compiled, payload());
 
         assert_eq!(result.trace.outcome, ScriptRunOutcome::TimedOut);
+        assert!(result.request.is_none());
+    }
+
+    #[test]
+    fn memory_limit_is_enforced() {
+        // Script that tries to allocate well over 16MB via the real hook path.
+        // Should hit the QuickJS memory limit and return RuntimeError, not succeed.
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"
+export function onRequest() {
+    var arrays = [];
+    for (var i = 0; i < 2000; i++) {
+        arrays.push(new Uint8Array(1024 * 1024));
+    }
+}
+"#,
+        ))
+        .unwrap();
+
+        let result = execute_request_hook(&compiled, payload());
+
+        assert!(
+            matches!(result.trace.outcome, ScriptRunOutcome::RuntimeError),
+            "expected RuntimeError from OOM, got {:?}",
+            result.trace.outcome
+        );
         assert!(result.request.is_none());
     }
 }

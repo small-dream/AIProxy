@@ -137,6 +137,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 禁止直接吞掉异常
 - 需要降级时，应明确降级策略与用户可感知反馈
 - 错误信息必须包含足够上下文，便于定位
+- React ErrorBoundary：所有页面级组件必须被 ErrorBoundary 包裹。全局 ErrorBoundary 位于 `AppProviders` 内（`CssBaseline` 之后），页面级 ErrorBoundary 包裹每个 lazy route。Fallback 必须使用 MUI 组件（禁止纯文本），并提供「重试」与「重载应用」两个操作按钮
 
 ### 7.3 结构化日志
 
@@ -168,6 +169,12 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - 请求进入、转发成功、转发失败
   - panic 与未处理错误
 - 当 UI 上出现泛化错误提示时，必须同步确保日志里存在可定位的真实错误信息
+
+### 7.6 Tauri 安全约束（CSP）
+
+- `tauri.conf.json` 必须配置 `security.csp` 和 `security.devCsp` 两个字段，分别覆盖生产与开发环境
+- 生产环境 CSP 不得设为 `null` 或留空，必须显式声明允许的资源来源
+- 开发环境 CSP（`devCsp`）可适当放宽以支持 HMR / devtools，但仍需明确配置，不得省略
 
 ## 8. 可扩展性要求
 

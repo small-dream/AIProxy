@@ -9,6 +9,7 @@ pub struct WorkspaceData {
     pub name: String,
     pub proxy_port: u16,
     pub ssl_enabled: bool,
+    pub http2_enabled: bool,
     pub system_proxy_enabled: bool,
     pub storage_path: String,
     pub created_at: String,
@@ -30,6 +31,7 @@ impl WorkspaceManager {
             name: "Default".to_string(),
             proxy_port: 8888,
             ssl_enabled: true,
+            http2_enabled: true,
             system_proxy_enabled: false,
             storage_path: String::new(),
             created_at: now.clone(),
@@ -56,7 +58,13 @@ impl WorkspaceManager {
             .clone()
     }
 
-    pub fn create(&self, name: String, proxy_port: u16, ssl_enabled: bool) -> WorkspaceData {
+    pub fn create(
+        &self,
+        name: String,
+        proxy_port: u16,
+        ssl_enabled: bool,
+        http2_enabled: bool,
+    ) -> WorkspaceData {
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = now.replace(['-', ':', '.'], "");
         let random_suffix = uuid::Uuid::new_v4()
@@ -71,6 +79,7 @@ impl WorkspaceManager {
             name,
             proxy_port,
             ssl_enabled,
+            http2_enabled,
             system_proxy_enabled: false,
             storage_path: String::new(),
             created_at: now.clone(),
@@ -100,6 +109,7 @@ impl WorkspaceManager {
         name: Option<String>,
         proxy_port: Option<u16>,
         ssl_enabled: Option<bool>,
+        http2_enabled: Option<bool>,
     ) -> Result<WorkspaceData, String> {
         let mut workspaces = self
             .workspaces
@@ -119,6 +129,9 @@ impl WorkspaceManager {
         }
         if let Some(ssl) = ssl_enabled {
             workspace.ssl_enabled = ssl;
+        }
+        if let Some(h2) = http2_enabled {
+            workspace.http2_enabled = h2;
         }
 
         workspace.updated_at = chrono::Utc::now().to_rfc3339();

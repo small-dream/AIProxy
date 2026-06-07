@@ -145,6 +145,30 @@ describe("parseProxyStatus", () => {
     });
   });
 
+  it("parses http2Enabled from the Tauri command layer", () => {
+    const actual = parseProxyStatus({
+      port: DEFAULT_PROXY_PORT,
+      running: true,
+      sslEnabled: true,
+      http2Enabled: true,
+      systemProxyEnabled: false,
+    });
+
+    expect(actual.http2Enabled).toBe(true);
+  });
+
+  it("omits http2Enabled when null from the Tauri command layer", () => {
+    const actual = parseProxyStatus({
+      port: DEFAULT_PROXY_PORT,
+      running: true,
+      sslEnabled: true,
+      http2Enabled: null,
+      systemProxyEnabled: false,
+    });
+
+    expect(actual.http2Enabled).toBeUndefined();
+  });
+
   it("throws an app error when the payload is invalid", () => {
     expect(() =>
       parseProxyStatus({

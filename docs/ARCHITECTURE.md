@@ -161,6 +161,12 @@ flowchart LR
 - Tauri commands
 - Tauri events
 
+CSP 策略：
+
+- `tauri.conf.json` 配置独立的 `csp`（生产）和 `devCsp`（开发）策略
+- 生产 CSP 限制 script/style 仅 `self` 来源，style 额外允许 `unsafe-inline`（MUI 依赖）
+- 开发 CSP 额外允许 `localhost:1420`（Vite HMR 热更新）
+
 ### 5.3 领域服务层（Domain Services）
 
 负责：
@@ -237,6 +243,12 @@ Rewrite 规则实现机制：
 - 脚本运行默认 `fail-open`，异常、超时或结果非法只记录 trace，不中断正常代理链
 - 脚本日志与提取结果通过 `script_runs / script_run_entries` 落库，并在 Session Inspector 的 `Automation` 标签页懒加载展示
 - `Automation` 标签页同时展示 Rewrite trace 与 Script trace；Rewrite trace 优先展示结构化 diff，Script trace 展示日志、提取结果和错误
+
+QuickJS 沙箱资源限制：
+
+- 每次脚本执行 heap 上限 16MB、GC 阈值 8MB、执行超时 50ms
+- `rquickjs` 不启用 `allocator` feature，使用 QuickJS 默认分配器以确保内存追踪可靠
+- 超限行为与脚本异常一致：fail-open，仅记录 trace 不中断代理链
 
 断点实现机制：
 
@@ -471,6 +483,7 @@ erDiagram
 - `name`
 - `proxy_port`
 - `ssl_enabled`
+- `http2_enabled`（控制 HTTP/2 上游连接是否启用）
 - `system_proxy_enabled`（预留，当前不可通过 API 修改）
 - `storage_path`（预留，当前始终为空字符串）
 - `created_at`
@@ -937,7 +950,7 @@ project-root/
 - 桌面应用通过 `tracing_subscriber::fmt()` + `tracing_appender::non_blocking` 实现缓冲异步文件写入，guard 存储在 `OnceLock` 中保持应用生命周期
 - 日志同时输出到 stderr 和日志文件（与之前行为一致，但改为缓冲写入，减少 I/O 阻塞）
 - 日志文件路径与命名规则不变
-- UI 层记录错误边界和关键行为埋点
+- UI 层记录错误边界和关键行为埋点：每个 lazy-loaded 路由由页面级 `ErrorBoundary` 组件包裹，`AppProviders` 内另有全局 `ErrorBoundary`；fallback 使用 MUI `Alert` 组件提供 "Try again" 与 "Reload app" 操作
 - 调试模式下开放详细日志视图
 - 预留匿名崩溃采集能力开关
 

@@ -17,21 +17,30 @@ import {
   reportCommandFailure,
 } from "./runtime";
 
+const MOCK_WORKSPACE: Omit<Workspace, "id" | "name" | "createdAt" | "updatedAt"> = {
+  proxyPort: 8888,
+  sslEnabled: true,
+  http2Enabled: true,
+  systemProxyEnabled: false,
+  storagePath: "",
+};
+
+function mockWorkspace(overrides: Partial<Workspace> = {}): Workspace {
+  const now = new Date().toISOString();
+  return {
+    id: "default",
+    name: "Default",
+    ...MOCK_WORKSPACE,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 export async function listWorkspaces(): Promise<Workspace[]> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "list_workspaces_bypassed_non_tauri_runtime");
-    return [
-      {
-        id: "default",
-        name: "Default",
-        proxyPort: 8888,
-        sslEnabled: true,
-        systemProxyEnabled: false,
-        storagePath: "",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
+    return [mockWorkspace()];
   }
 
   try {
@@ -54,20 +63,17 @@ export async function createWorkspace(input: {
   name: string;
   proxyPort: number;
   sslEnabled?: boolean;
+  http2Enabled?: boolean;
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "create_workspace_bypassed_non_tauri_runtime", input);
-    const now = new Date().toISOString();
-    return {
+    return mockWorkspace({
       id: crypto.randomUUID(),
       name: input.name,
       proxyPort: input.proxyPort,
       sslEnabled: input.sslEnabled ?? true,
-      systemProxyEnabled: false,
-      storagePath: "",
-      createdAt: now,
-      updatedAt: now,
-    };
+      http2Enabled: input.http2Enabled ?? true,
+    });
   }
 
   try {
@@ -89,16 +95,10 @@ export async function createWorkspace(input: {
 export async function loadWorkspace(workspaceId: string): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "load_workspace_bypassed_non_tauri_runtime", { workspaceId });
-    return {
+    return mockWorkspace({
       id: workspaceId,
       name: workspaceId === "default" ? "Default" : workspaceId,
-      proxyPort: 8888,
-      sslEnabled: true,
-      systemProxyEnabled: false,
-      storagePath: "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    });
   }
 
   try {
@@ -129,16 +129,13 @@ export async function updateWorkspace(input: {
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "update_workspace_bypassed_non_tauri_runtime", input);
-    return {
+    return mockWorkspace({
       id: input.workspaceId,
       name: input.name ?? "Default",
       proxyPort: input.proxyPort ?? 8888,
       sslEnabled: input.sslEnabled ?? true,
-      systemProxyEnabled: false,
-      storagePath: "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      http2Enabled: input.http2Enabled ?? true,
+    });
   }
 
   try {

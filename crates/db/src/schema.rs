@@ -352,6 +352,8 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 pub fn run_migrations(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(CREATE_TABLES)
         .map_err(|e| format!("create tables: {e}"))?;
+
+    // Historical migrations — retained as .ok() to preserve existing startup behavior.
     conn.execute(
         "ALTER TABLE rewrite_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
         [],
@@ -377,7 +379,32 @@ pub fn run_migrations(conn: &Connection) -> Result<(), String> {
         [],
     )
     .ok();
+
+    // New migration — uses strict helper that only ignores "duplicate column name".
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "http2_enabled",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+
     Ok(())
+}
+
+/// Add a column to a table, ignoring "duplicate column name" errors (idempotent migration).
+/// All other errors are propagated.
+fn migrate_add_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    column_def: &str,
+) -> Result<(), String> {
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}");
+    match conn.execute(&sql, []) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
+        Err(e) => Err(format!("migration add {table}.{column}: {e}")),
+    }
 }
 
 #[cfg(test)]

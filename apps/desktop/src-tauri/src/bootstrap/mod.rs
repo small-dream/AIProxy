@@ -46,6 +46,7 @@ pub struct BootstrapStatus {
     pub port: u16,
     pub running: bool,
     pub ssl_enabled: bool,
+    pub http2_enabled: bool,
     pub system_proxy_enabled: bool,
     pub started_at: Option<String>,
     pub system_proxy_recovery_warning: Option<String>,
@@ -58,6 +59,7 @@ impl Default for BootstrapStatus {
             port: 8888,
             running: false,
             ssl_enabled: true,
+            http2_enabled: true,
             system_proxy_enabled: false,
             started_at: None,
             system_proxy_recovery_warning: None,
@@ -822,6 +824,7 @@ impl AppState {
         &self,
         port: u16,
         enable_ssl: bool,
+        http2_enabled: bool,
         workspace_id: String,
     ) -> BootstrapStatus {
         let mut status = self
@@ -832,6 +835,7 @@ impl AppState {
         status.port = port;
         status.running = true;
         status.ssl_enabled = enable_ssl;
+        status.http2_enabled = http2_enabled;
         status.active_workspace_id = Some(workspace_id);
         status.started_at = Some(chrono::Utc::now().to_rfc3339());
 
@@ -1111,6 +1115,7 @@ fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
         name: row.name,
         proxy_port: row.proxy_port,
         ssl_enabled: row.ssl_enabled,
+        http2_enabled: row.http2_enabled,
         system_proxy_enabled: row.system_proxy_enabled,
         storage_path: row.storage_path,
         created_at: row.created_at,

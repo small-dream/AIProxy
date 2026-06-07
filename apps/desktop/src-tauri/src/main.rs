@@ -96,6 +96,7 @@ pub fn run() {
                     name: ws.name.clone(),
                     proxy_port: ws.proxy_port,
                     ssl_enabled: ws.ssl_enabled,
+                    http2_enabled: ws.http2_enabled,
                     system_proxy_enabled: ws.system_proxy_enabled,
                     storage_path: ws.storage_path.clone(),
                     created_at: ws.created_at.clone(),

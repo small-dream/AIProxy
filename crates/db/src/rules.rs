@@ -1243,6 +1243,7 @@ mod tests {
             name: "Default".into(),
             proxy_port: 8888,
             ssl_enabled: false,
+            http2_enabled: true,
             system_proxy_enabled: false,
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),

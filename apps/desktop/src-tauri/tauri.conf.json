@@ -22,7 +22,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc://localhost tauri://localhost https://tauri.localhost",
+      "devCsp": "default-src 'self' http://localhost:1420; script-src 'self' http://localhost:1420 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:1420 ipc://localhost tauri://localhost https://tauri.localhost ws://localhost:1420"
     }
   },
   "bundle": {
@@ -30,7 +31,7 @@
     "createUpdaterArtifacts": false,
     "targets": "all",
     "macOS": {
-      "bundleVersion": "0f2c4d3"
+      "bundleVersion": "e48e7d1"
     },
     "icon": [
       "icons/32x32.png",

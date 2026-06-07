@@ -95,20 +95,24 @@ async fn start_proxy_impl(
     // Resolve TLS manager for SSL interception
     let tls_manager = if enable_ssl {
         let existing = state.read_tls_manager();
-        match existing {
-            Some(m) => Some(m),
-            None => {
-                // Try loading existing root CA from disk
-                match try_load_tls_manager(http2_enabled) {
-                    Ok(m) => {
-                        state.set_tls_manager(Arc::clone(&m));
-                        Some(m)
-                    }
-                    Err(_) => {
-                        return Err(
-                            "SSL interception requires a root certificate. Generate one on the Certificates page.".to_string()
-                        );
-                    }
+        let h2 = http2_enabled.unwrap_or(true);
+        // Invalidate cached TLS manager if http2_enabled changed (ALPN config is baked in)
+        let compatible = existing.as_ref().is_some_and(|m| m.http2_enabled == h2);
+        if compatible {
+            existing
+        } else {
+            // Rebuild TLS manager with current http2_enabled (ALPN config is baked in).
+            // set_tls_manager atomically replaces the old one on success;
+            // if loading fails, the old manager is preserved.
+            match try_load_tls_manager(http2_enabled) {
+                Ok(m) => {
+                    state.set_tls_manager(Arc::clone(&m));
+                    Some(m)
+                }
+                Err(_) => {
+                    return Err(
+                        "SSL interception requires a root certificate. Generate one on the Certificates page.".to_string()
+                    );
                 }
             }
         }
@@ -134,7 +138,7 @@ async fn start_proxy_impl(
         ProxyRuntimeConfig {
             port,
             ssl_enabled: enable_ssl,
-            http2_enabled: None,
+            http2_enabled,
         },
         tls_manager,
         Some(breakpoint_manager),
@@ -222,6 +226,7 @@ async fn start_proxy_impl(
     let status = state.start_proxy(
         started_proxy_server.bound_port,
         enable_ssl,
+        http2_enabled.unwrap_or(true),
         input.workspace_id,
     );
 

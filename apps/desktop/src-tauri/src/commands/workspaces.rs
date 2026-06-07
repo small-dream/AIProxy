@@ -11,6 +11,7 @@ pub struct CreateWorkspaceInput {
     pub name: String,
     pub proxy_port: u16,
     pub ssl_enabled: Option<bool>,
+    pub http2_enabled: Option<bool>,
 }
 
 #[tauri::command]
@@ -19,6 +20,7 @@ pub fn create_workspace(
     state: State<'_, Arc<AppState>>,
 ) -> WorkspaceData {
     let ssl_enabled = input.ssl_enabled.unwrap_or(true);
+    let http2_enabled = input.http2_enabled.unwrap_or(true);
 
     log_info(
         "desktop.commands",
@@ -27,13 +29,16 @@ pub fn create_workspace(
             ("name", input.name.clone()),
             ("port", input.proxy_port.to_string()),
             ("ssl_enabled", ssl_enabled.to_string()),
+            ("http2_enabled", http2_enabled.to_string()),
         ],
     );
 
-    let workspace =
-        state
-            .read_workspace_manager()
-            .create(input.name, input.proxy_port, ssl_enabled);
+    let workspace = state.read_workspace_manager().create(
+        input.name,
+        input.proxy_port,
+        ssl_enabled,
+        http2_enabled,
+    );
 
     // Persist to DB
     {
@@ -46,6 +51,7 @@ pub fn create_workspace(
             name: workspace.name.clone(),
             proxy_port: workspace.proxy_port,
             ssl_enabled: workspace.ssl_enabled,
+            http2_enabled: workspace.http2_enabled,
             system_proxy_enabled: workspace.system_proxy_enabled,
             storage_path: workspace.storage_path.clone(),
             created_at: workspace.created_at.clone(),
@@ -110,6 +116,7 @@ pub struct UpdateWorkspaceInput {
     pub name: Option<String>,
     pub proxy_port: Option<u16>,
     pub ssl_enabled: Option<bool>,
+    pub http2_enabled: Option<bool>,
 }
 
 #[tauri::command]
@@ -128,6 +135,7 @@ pub fn update_workspace(
         input.name.clone(),
         input.proxy_port,
         input.ssl_enabled,
+        input.http2_enabled,
     )?;
 
     // Persist to DB
@@ -142,6 +150,7 @@ pub fn update_workspace(
             input.name.as_deref(),
             input.proxy_port,
             input.ssl_enabled,
+            input.http2_enabled,
             &workspace.updated_at,
         ) {
             log_error(

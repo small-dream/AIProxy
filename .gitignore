@@ -6,7 +6,6 @@ coverage/
 .DS_Store
 
 target/
-Cargo.lock
 
 *.log
 *.tmp

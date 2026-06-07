@@ -1948,6 +1948,8 @@ type GetInsightsOutput = InsightsResult;
 - 仅支持单文件 `JS / TS`
 - 仅支持 `export function onRequest(ctx) {}` 与 `export function onResponse(ctx) {}`
 - 运行时不开放文件系统、网络、模块加载、宿主命令执行
+- QuickJS heap 限制为 **16MB** 每次脚本执行，超出此限制的脚本将以 `RuntimeError` 结果失败
+- 沙箱使用 QuickJS 默认分配器（rquickjs 未启用 `allocator` feature），以确保可靠的内存追踪
 
 ## 11. API Collection Commands — 已实现
 
