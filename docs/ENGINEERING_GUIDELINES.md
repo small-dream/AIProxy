@@ -37,16 +37,18 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 每个平台相关能力必须提供三个平台的实现或显式的 unsupported fallback
 - 平台模块必须遵循统一接口契约（函数签名、返回类型、错误处理方式一致）
 - 禁止在非平台模块中直接使用平台专有 API
+- 参考 `proxy-core` 的 `types.rs` / `types_unix.rs` / `types_windows.rs` 拆分模式：共享代码在 `types.rs`，通过 `#[cfg(unix)]` / `#[cfg(windows)]` 的 `#[path = ...] mod platform` 委托平台实现
 
-### 4.2 系统交互三大领域
+### 4.2 系统交互领域
 
-以下三个领域涉及平台差异，任何新增或修改必须同时处理三个平台：
+以下领域涉及平台差异，任何新增或修改必须同时处理三个平台：
 
 | 领域 | Windows | macOS | Linux |
 | --- | --- | --- | --- |
 | 系统代理 | 注册表 + WinINet | networksetup | gsettings / kwriteconfig6 |
 | 证书信任检测 | PowerShell + Cert store | security verify-cert | 系统 CA 目录扫描 |
 | 证书安装器 | rundll32 | Keychain Access | xdg-open |
+| 网络接口枚举 | PowerShell Get-NetIPAddress | libc getifaddrs | libc getifaddrs |
 
 ### 4.3 文件路径与系统命令
 
@@ -111,6 +113,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - 请求/响应 I/O 工具归入 `http_io.rs`
   - 共享运行时上下文归入 `context.rs`
   - 结构化代理错误归入 `error.rs`
+  - 跨平台共享类型与 IP 探测归入 `types.rs`，平台特定实现分别归入 `types_unix.rs` 和 `types_windows.rs`
   - 规则能力归入 `rules/` 目录，不允许重新创建顶层 `rules.rs`
 - `bootstrap/mod.rs` 只保留 `AppState` 聚合、初始化、运行时状态和公共 API 编排：
   - DB 读写与 body store 访问归入 `bootstrap/repository.rs`
@@ -296,6 +299,19 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 3. 前端测试
 4. Rust 测试
 5. `clippy`
+
+### 9.5 属性测试（Property-Based Testing）
+
+- 项目已引入 `proptest` 作为属性测试框架（`proxy-core` 和 `db` crate 的 dev-dependencies）
+- 属性测试适用于需要大范围输入空间覆盖的场景，如：
+  - URL pattern 匹配与 rewrite 逻辑
+  - 网络地址解析与格式化
+  - HTTP header 清洗与 CRLF 注入防护
+  - 数据库查询参数构造与 SQL 注入防护
+  - JSON 序列化/反序列化边界
+  - 路径安全校验（path traversal）
+- 属性测试不替代单元测试，而是补充覆盖难以手动枚举的边界组合
+- 新增属性测试时应在测试文件头部 `use proptest::prelude::*;` 并通过 `proptest!` 宏定义策略
 
 ## 10. 文档要求
 

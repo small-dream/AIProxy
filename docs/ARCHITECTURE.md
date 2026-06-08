@@ -46,7 +46,7 @@
 - 本地数据库：`SQLite`
 - E2E 测试：`Playwright`
 - 前端单测：`Vitest + Testing Library`
-- Rust 测试：`cargo test`
+- Rust 测试：`cargo test` + `proptest`（属性测试）
 
 ## 3.2 选型原因
 
@@ -213,6 +213,15 @@ CSP 策略：
 - `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
 - `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
+
+网络接口枚举实现机制：
+
+- `get_local_ip_addresses()` 提供跨平台的局域网 IP 地址列表，用于手机端代理配置和证书下载 URL
+- Unix（macOS/Linux）：通过 `libc::getifaddrs()` 遍历网络接口，过滤 AF_INET + UP + 非 LOOPBACK，按接口名和 IP 子网评分排序（物理接口优先，虚拟/隧道接口降权）
+- Windows：通过 PowerShell `Get-NetIPAddress` 枚举 IPv4 地址（`AddressState -eq 'Preferred'`），同样按接口名和 IP 子网评分排序
+- 共享的 UDP socket probe 作为补充探测手段，确保首选出口 IP 被包含在结果中
+- `libc` 依赖仅限 Unix 目标平台（`[target.'cfg(unix)'.dependencies]`），Windows 编译不引入
+- 平台特定代码通过 `#[cfg(unix)]` / `#[cfg(windows)]` 的 `#[path] mod platform` 分别委托给 `types_unix.rs` 和 `types_windows.rs`
 
 DNS 覆盖实现机制：
 
@@ -963,6 +972,7 @@ project-root/
 - `upstream_pool.rs`：HTTP/2 上游连接池与空闲连接清理
 - `rules/`：规则类型、manager、pattern、rewrite/map/script/throttle/json path 逻辑
 - `error.rs`：代理核心结构化错误
+- `types.rs`：跨平台共享类型与 IP 探测入口；平台特定实现通过 `#[cfg]` 分别委托给 `types_unix.rs`（libc getifaddrs）和 `types_windows.rs`（PowerShell Get-NetIPAddress）
 
 新增代理功能时必须接入上述边界；不允许把新规则、新协议处理或新错误类型集中追加到 `http_proxy.rs` / `server.rs` 形成新的巨型文件。
 
@@ -980,6 +990,7 @@ project-root/
 
 - 前端组件与 hooks 使用 `Vitest`
 - Rust crate 按模块编写 `cargo test`
+- Rust 属性测试使用 `proptest`，已引入 `proxy-core` 和 `db` crate 的 dev-dependencies；适用于 URL pattern 匹配、网络地址解析、JSON 序列化边界、数据库查询参数构造等需要大范围输入空间覆盖的场景
 
 ### 14.2 集成测试
 

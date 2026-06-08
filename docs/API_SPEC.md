@@ -1477,7 +1477,11 @@ type OpenCertificateInstallGuideOutput = {
 type GetLocalIpOutput = string[];
 ```
 
-返回字符串数组，每个元素为一个局域网 IP 地址（如 `["192.168.1.100"]`）。内部通过 UDP socket 绑定到 `0.0.0.0` 并连接外部地址来探测首选出口 IP，不发送实际流量。
+返回字符串数组，每个元素为一个局域网 IP 地址（如 `["192.168.1.100"]`），按优先级排序（物理接口 + 常见私有网段优先，虚拟/隧道接口降权）。内部通过平台特定的网络接口枚举获取 IP 列表，再通过 UDP socket 探测补充首选出口 IP：
+
+- Unix（macOS/Linux）：通过 `libc::getifaddrs()` 遍历网络接口
+- Windows：通过 PowerShell `Get-NetIPAddress` 枚举 IPv4 地址（过滤 `AddressState=Preferred`）
+- UDP socket 探测作为补充手段，不发送实际流量
 
 ### `launch_certificate_installer`
 
