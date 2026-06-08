@@ -322,6 +322,7 @@ fn persist_script_traces_impl(
         .collect();
 
     aiproxy_db::rules::replace_script_runs_for_session(conn, session_id, &runs, &entries)
+        .map_err(|e| e.to_string())
 }
 
 fn persist_rewrite_traces_impl(
@@ -371,6 +372,7 @@ fn persist_rewrite_traces_impl(
         .collect();
 
     aiproxy_db::rules::replace_rewrite_runs_for_session(conn, session_id, &runs, &entries)
+        .map_err(|e| e.to_string())
 }
 
 fn persist_map_traces_impl(
@@ -404,6 +406,7 @@ fn persist_map_traces_impl(
         .collect();
 
     aiproxy_db::rules::replace_map_runs_for_session(conn, session_id, &runs)
+        .map_err(|e| e.to_string())
 }
 
 fn persist_throttle_traces_impl(
@@ -437,6 +440,7 @@ fn persist_throttle_traces_impl(
         .collect();
 
     aiproxy_db::rules::replace_throttle_runs_for_session(conn, session_id, &runs)
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

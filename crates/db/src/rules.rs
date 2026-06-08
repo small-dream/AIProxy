@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use crate::DbError;
+
 // ---------------------------------------------------------------------------
 // Rewrite rules
 // ---------------------------------------------------------------------------
@@ -19,7 +21,7 @@ pub struct RewriteRuleRow {
     pub payload: String, // JSON value
 }
 
-pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), String> {
+pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO rewrite_rules
             (id, workspace_id, name, note, enabled, priority,
@@ -40,21 +42,21 @@ pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), St
             r.payload,
         ],
     )
-    .map_err(|e| format!("save rewrite rule: {e}"))?;
+    .map_err(|e| DbError::query("save rewrite rule", e))?;
     Ok(())
 }
 
 pub fn load_rewrite_rules(
     conn: &Connection,
     workspace_id: &str,
-) -> Result<Vec<RewriteRuleRow>, String> {
+) -> Result<Vec<RewriteRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority,
                     match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload
              FROM rewrite_rules WHERE workspace_id=?1 ORDER BY priority",
         )
-        .map_err(|e| format!("prepare load rewrite rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load rewrite rules", e))?;
 
     let rows = stmt
         .query_map(params![workspace_id], |row| {
@@ -73,21 +75,21 @@ pub fn load_rewrite_rules(
                 payload: row.get(11)?,
             })
         })
-        .map_err(|e| format!("query rewrite rules: {e}"))?
+        .map_err(|e| DbError::query("query rewrite rules", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, String> {
+pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority,
                     match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload
              FROM rewrite_rules ORDER BY priority",
         )
-        .map_err(|e| format!("prepare load all rewrite rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load all rewrite rules", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -106,16 +108,16 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
                 payload: row.get(11)?,
             })
         })
-        .map_err(|e| format!("query all rewrite rules: {e}"))?
+        .map_err(|e| DbError::query("query all rewrite rules", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_rewrite_rule(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_rewrite_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM rewrite_rules WHERE id=?1", params![id])
-        .map_err(|e| format!("delete rewrite rule: {e}"))?;
+        .map_err(|e| DbError::query("delete rewrite rule", e))?;
     Ok(())
 }
 
@@ -137,7 +139,7 @@ pub struct MapRuleRow {
     pub target_value: String,
 }
 
-pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), String> {
+pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO map_rules
             (id, workspace_id, mode, name, note, enabled, preserve_path,
@@ -157,18 +159,18 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), String> {
             r.target_value,
         ],
     )
-    .map_err(|e| format!("save map rule: {e}"))?;
+    .map_err(|e| DbError::query("save map rule", e))?;
     Ok(())
 }
 
-pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, String> {
+pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, mode, name, note, enabled, preserve_path,
                     preserve_query, priority, source_pattern, target_value
              FROM map_rules ORDER BY priority",
         )
-        .map_err(|e| format!("prepare load map rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load map rules", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -186,16 +188,16 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, String> 
                 target_value: row.get(10)?,
             })
         })
-        .map_err(|e| format!("query map rules: {e}"))?
+        .map_err(|e| DbError::query("query map rules", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_map_rule(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_map_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM map_rules WHERE id=?1", params![id])
-        .map_err(|e| format!("delete map rule: {e}"))?;
+        .map_err(|e| DbError::query("delete map rule", e))?;
     Ok(())
 }
 
@@ -221,16 +223,16 @@ pub fn replace_map_runs_for_session(
     conn: &Connection,
     session_id: &str,
     runs: &[MapRunRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin replace map runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin replace map runs transaction", e))?;
 
     tx.execute(
         "DELETE FROM map_runs WHERE session_id = ?1",
         params![session_id],
     )
-    .map_err(|e| format!("delete map runs for session: {e}"))?;
+    .map_err(|e| DbError::query("delete map runs for session", e))?;
 
     for run in runs {
         tx.execute(
@@ -257,18 +259,18 @@ pub fn replace_map_runs_for_session(
                 run.created_at,
             ],
         )
-        .map_err(|e| format!("insert map run: {e}"))?;
+        .map_err(|e| DbError::query("insert map run", e))?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit replace map runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit replace map runs transaction", e))?;
     Ok(())
 }
 
 pub fn load_map_runs_for_session(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<MapRunRow>, String> {
+) -> Result<Vec<MapRunRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, workspace_id, rule_id, rule_name, mode, outcome,
@@ -276,7 +278,7 @@ pub fn load_map_runs_for_session(
                     duration_ms, sequence, created_at
              FROM map_runs WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
         )
-        .map_err(|e| format!("prepare load map runs: {e}"))?;
+        .map_err(|e| DbError::query("prepare load map runs", e))?;
 
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -298,7 +300,7 @@ pub fn load_map_runs_for_session(
                 created_at: row.get(14)?,
             })
         })
-        .map_err(|e| format!("query map runs: {e}"))?
+        .map_err(|e| DbError::query("query map runs", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -322,17 +324,17 @@ pub struct ThrottleProfileRow {
     pub packet_loss_ratio: f32,
 }
 
-pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Result<(), String> {
+pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin save throttle profile transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin save throttle profile transaction", e))?;
 
     if p.enabled {
         tx.execute(
             "UPDATE throttle_profiles SET enabled = 0 WHERE workspace_id = ?1 AND id != ?2",
             params![p.workspace_id, p.id],
         )
-        .map_err(|e| format!("deactivate other throttle profiles: {e}"))?;
+        .map_err(|e| DbError::query("deactivate other throttle profiles", e))?;
     }
 
     tx.execute(
@@ -353,10 +355,10 @@ pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Resul
             p.packet_loss_ratio,
         ],
     )
-    .map_err(|e| format!("save throttle profile: {e}"))?;
+    .map_err(|e| DbError::query("save throttle profile", e))?;
 
     tx.commit()
-        .map_err(|e| format!("commit save throttle profile transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit save throttle profile transaction", e))?;
 
     Ok(())
 }
@@ -365,16 +367,16 @@ pub fn set_active_throttle_profile(
     conn: &Connection,
     workspace_id: &str,
     profile_id: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin set active throttle profile transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin set active throttle profile transaction", e))?;
 
     tx.execute(
         "UPDATE throttle_profiles SET enabled = 0 WHERE workspace_id = ?1",
         params![workspace_id],
     )
-    .map_err(|e| format!("deactivate throttle profiles: {e}"))?;
+    .map_err(|e| DbError::query("deactivate throttle profiles", e))?;
 
     if let Some(profile_id) = profile_id {
         let updated = tx
@@ -382,26 +384,26 @@ pub fn set_active_throttle_profile(
                 "UPDATE throttle_profiles SET enabled = 1 WHERE workspace_id = ?1 AND id = ?2",
                 params![workspace_id, profile_id],
             )
-            .map_err(|e| format!("activate throttle profile: {e}"))?;
+            .map_err(|e| DbError::query("activate throttle profile", e))?;
         if updated == 0 {
-            return Err(format!("throttle profile not found: {profile_id}"));
+            return Err(DbError::not_found("throttle profile", profile_id));
         }
     }
 
     tx.commit()
-        .map_err(|e| format!("commit set active throttle profile transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit set active throttle profile transaction", e))?;
 
     Ok(())
 }
 
-pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfileRow>, String> {
+pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfileRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, preset, latency_ms,
                     upload_kbps, download_kbps, packet_loss_ratio
              FROM throttle_profiles ORDER BY name",
         )
-        .map_err(|e| format!("prepare load throttle profiles: {e}"))?;
+        .map_err(|e| DbError::query("prepare load throttle profiles", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -418,16 +420,16 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
                 packet_loss_ratio: row.get(9)?,
             })
         })
-        .map_err(|e| format!("query throttle profiles: {e}"))?
+        .map_err(|e| DbError::query("query throttle profiles", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM throttle_profiles WHERE id = ?1", params![id])
-        .map_err(|e| format!("delete throttle profile: {e}"))?;
+        .map_err(|e| DbError::query("delete throttle profile", e))?;
     Ok(())
 }
 
@@ -444,7 +446,7 @@ pub struct ThrottleRuleRow {
     pub stage: String,
 }
 
-pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(), String> {
+pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO throttle_rules
             (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage)
@@ -462,23 +464,23 @@ pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(
             rule.stage,
         ],
     )
-    .map_err(|e| format!("save throttle rule: {e}"))?;
+    .map_err(|e| DbError::query("save throttle rule", e))?;
     Ok(())
 }
 
-pub fn delete_throttle_rule(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_throttle_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM throttle_rules WHERE id = ?1", params![id])
-        .map_err(|e| format!("delete throttle rule: {e}"))?;
+        .map_err(|e| DbError::query("delete throttle rule", e))?;
     Ok(())
 }
 
-pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>, String> {
+pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage
              FROM throttle_rules ORDER BY priority DESC, name ASC",
         )
-        .map_err(|e| format!("prepare load throttle rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load throttle rules", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -495,7 +497,7 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
                 stage: row.get(9)?,
             })
         })
-        .map_err(|e| format!("query throttle rules: {e}"))?
+        .map_err(|e| DbError::query("query throttle rules", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -525,16 +527,16 @@ pub fn replace_throttle_runs_for_session(
     conn: &Connection,
     session_id: &str,
     runs: &[ThrottleRunRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin replace throttle runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin replace throttle runs transaction", e))?;
 
     tx.execute(
         "DELETE FROM throttle_runs WHERE session_id = ?1",
         params![session_id],
     )
-    .map_err(|e| format!("delete throttle runs for session: {e}"))?;
+    .map_err(|e| DbError::query("delete throttle runs for session", e))?;
 
     for run in runs {
         tx.execute(
@@ -562,18 +564,18 @@ pub fn replace_throttle_runs_for_session(
                 run.created_at,
             ],
         )
-        .map_err(|e| format!("insert throttle run: {e}"))?;
+        .map_err(|e| DbError::query("insert throttle run", e))?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit replace throttle runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit replace throttle runs transaction", e))?;
     Ok(())
 }
 
 pub fn load_throttle_runs_for_session(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<ThrottleRunRow>, String> {
+) -> Result<Vec<ThrottleRunRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, workspace_id, profile_id, profile_name, rule_id, rule_name,
@@ -581,7 +583,7 @@ pub fn load_throttle_runs_for_session(
                     sequence, created_at
              FROM throttle_runs WHERE session_id = ?1 ORDER BY sequence ASC, created_at ASC",
         )
-        .map_err(|e| format!("prepare load throttle runs: {e}"))?;
+        .map_err(|e| DbError::query("prepare load throttle runs", e))?;
 
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -604,7 +606,7 @@ pub fn load_throttle_runs_for_session(
                 created_at: row.get(15)?,
             })
         })
-        .map_err(|e| format!("query throttle runs: {e}"))?
+        .map_err(|e| DbError::query("query throttle runs", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -614,18 +616,18 @@ pub fn load_throttle_runs_for_session(
 pub fn load_throttled_session_ids(
     conn: &Connection,
     workspace_id: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT session_id FROM throttle_runs
              WHERE workspace_id = ?1
              ORDER BY created_at DESC",
         )
-        .map_err(|e| format!("prepare load throttled session ids: {e}"))?;
+        .map_err(|e| DbError::query("prepare load throttled session ids", e))?;
 
     let rows = stmt
         .query_map(params![workspace_id], |row| row.get::<_, String>(0))
-        .map_err(|e| format!("query throttled session ids: {e}"))?
+        .map_err(|e| DbError::query("query throttled session ids", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -649,13 +651,13 @@ pub struct BreakpointRuleRow {
 pub fn replace_breakpoint_rules(
     conn: &Connection,
     rules: &[BreakpointRuleRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin replace breakpoint rules transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin replace breakpoint rules transaction", e))?;
 
     tx.execute("DELETE FROM breakpoint_rules", [])
-        .map_err(|e| format!("clear breakpoint rules: {e}"))?;
+        .map_err(|e| DbError::query("clear breakpoint rules", e))?;
 
     for r in rules {
         tx.execute(
@@ -670,21 +672,21 @@ pub fn replace_breakpoint_rules(
                 r.match_type
             ],
         )
-        .map_err(|e| format!("insert breakpoint rule: {e}"))?;
+        .map_err(|e| DbError::query("insert breakpoint rule", e))?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit replace breakpoint rules transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit replace breakpoint rules transaction", e))?;
 
     Ok(())
 }
 
-pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>, String> {
+pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, enabled, url_pattern, methods, stage, match_type FROM breakpoint_rules",
         )
-        .map_err(|e| format!("prepare load breakpoint rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load breakpoint rules", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -697,7 +699,7 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
                 match_type: row.get(5)?,
             })
         })
-        .map_err(|e| format!("query breakpoint rules: {e}"))?
+        .map_err(|e| DbError::query("query breakpoint rules", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -719,7 +721,7 @@ pub struct DnsMappingRow {
     pub target_ip: String,
 }
 
-pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), String> {
+pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO dns_mappings
             (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip)
@@ -735,17 +737,17 @@ pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), Stri
             r.target_ip,
         ],
     )
-    .map_err(|e| format!("save dns mapping: {e}"))?;
+    .map_err(|e| DbError::query("save dns mapping", e))?;
     Ok(())
 }
 
-pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, String> {
+pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority, host_pattern, target_ip
              FROM dns_mappings ORDER BY priority DESC, name",
         )
-        .map_err(|e| format!("prepare load dns mappings: {e}"))?;
+        .map_err(|e| DbError::query("prepare load dns mappings", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -760,16 +762,16 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, St
                 target_ip: row.get(7)?,
             })
         })
-        .map_err(|e| format!("query dns mappings: {e}"))?
+        .map_err(|e| DbError::query("query dns mappings", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM dns_mappings WHERE id=?1", params![id])
-        .map_err(|e| format!("delete dns mapping: {e}"))?;
+        .map_err(|e| DbError::query("delete dns mapping", e))?;
     Ok(())
 }
 
@@ -844,7 +846,7 @@ pub struct RewriteRunEntryRow {
     pub seq: u32,
 }
 
-pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), String> {
+pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO script_rules
             (id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
@@ -872,11 +874,11 @@ pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), St
             row.updated_at,
         ],
     )
-    .map_err(|e| format!("save script rule: {e}"))?;
+    .map_err(|e| DbError::query("save script rule", e))?;
     Ok(())
 }
 
-pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, String> {
+pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
@@ -884,7 +886,7 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, St
                     compiled_code, source_map, updated_at
              FROM script_rules ORDER BY priority DESC, updated_at DESC",
         )
-        .map_err(|e| format!("prepare load script rules: {e}"))?;
+        .map_err(|e| DbError::query("prepare load script rules", e))?;
 
     let rows = stmt
         .query_map([], |row| {
@@ -909,16 +911,16 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, St
                 updated_at: row.get(17)?,
             })
         })
-        .map_err(|e| format!("query script rules: {e}"))?
+        .map_err(|e| DbError::query("query script rules", e))?
         .filter_map(|row| row.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_script_rule(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_script_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM script_rules WHERE id=?1", params![id])
-        .map_err(|e| format!("delete script rule: {e}"))?;
+        .map_err(|e| DbError::query("delete script rule", e))?;
     Ok(())
 }
 
@@ -927,22 +929,22 @@ pub fn replace_script_runs_for_session(
     session_id: &str,
     runs: &[ScriptRunRow],
     entries: &[ScriptRunEntryRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin replace script runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin replace script runs transaction", e))?;
 
     tx.execute(
         "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id = ?1)",
         params![session_id],
     )
-    .map_err(|e| format!("delete script run entries for session: {e}"))?;
+    .map_err(|e| DbError::query("delete script run entries for session", e))?;
 
     tx.execute(
         "DELETE FROM script_runs WHERE session_id = ?1",
         params![session_id],
     )
-    .map_err(|e| format!("delete script runs for session: {e}"))?;
+    .map_err(|e| DbError::query("delete script runs for session", e))?;
 
     for run in runs {
         tx.execute(
@@ -960,7 +962,7 @@ pub fn replace_script_runs_for_session(
                 run.created_at,
             ],
         )
-        .map_err(|e| format!("insert script run: {e}"))?;
+        .map_err(|e| DbError::query("insert script run", e))?;
     }
 
     for entry in entries {
@@ -979,11 +981,11 @@ pub fn replace_script_runs_for_session(
                 entry.seq,
             ],
         )
-        .map_err(|e| format!("insert script run entry: {e}"))?;
+        .map_err(|e| DbError::query("insert script run entry", e))?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit replace script runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit replace script runs transaction", e))?;
 
     Ok(())
 }
@@ -991,13 +993,13 @@ pub fn replace_script_runs_for_session(
 pub fn load_script_runs_for_session(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<ScriptRunRow>, String> {
+) -> Result<Vec<ScriptRunRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at
              FROM script_runs WHERE session_id = ?1 ORDER BY created_at ASC, id ASC",
         )
-        .map_err(|e| format!("prepare load script runs: {e}"))?;
+        .map_err(|e| DbError::query("prepare load script runs", e))?;
 
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -1012,7 +1014,7 @@ pub fn load_script_runs_for_session(
                 created_at: row.get(7)?,
             })
         })
-        .map_err(|e| format!("query script runs: {e}"))?
+        .map_err(|e| DbError::query("query script runs", e))?
         .filter_map(|row| row.ok())
         .collect();
 
@@ -1022,7 +1024,7 @@ pub fn load_script_runs_for_session(
 pub fn load_script_run_entries(
     conn: &Connection,
     run_ids: &[String],
-) -> Result<Vec<ScriptRunEntryRow>, String> {
+) -> Result<Vec<ScriptRunEntryRow>, DbError> {
     if run_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1046,7 +1048,7 @@ pub fn load_script_run_entries(
 
     let mut stmt = conn
         .prepare(&sql)
-        .map_err(|e| format!("prepare load script run entries: {e}"))?;
+        .map_err(|e| DbError::query("prepare load script run entries", e))?;
 
     let rows = stmt
         .query_map(params.as_slice(), |row| {
@@ -1061,18 +1063,18 @@ pub fn load_script_run_entries(
                 seq: row.get::<_, i32>(7)? as u32,
             })
         })
-        .map_err(|e| format!("query script run entries: {e}"))?
+        .map_err(|e| DbError::query("query script run entries", e))?
         .filter_map(|row| row.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn clear_script_runs(conn: &Connection) -> Result<(), String> {
+pub fn clear_script_runs(conn: &Connection) -> Result<(), DbError> {
     conn.execute("DELETE FROM script_run_entries", [])
-        .map_err(|e| format!("clear script run entries: {e}"))?;
+        .map_err(|e| DbError::query("clear script run entries", e))?;
     conn.execute("DELETE FROM script_runs", [])
-        .map_err(|e| format!("clear script runs: {e}"))?;
+        .map_err(|e| DbError::query("clear script runs", e))?;
     Ok(())
 }
 
@@ -1081,22 +1083,22 @@ pub fn replace_rewrite_runs_for_session(
     session_id: &str,
     runs: &[RewriteRunRow],
     entries: &[RewriteRunEntryRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin replace rewrite runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin replace rewrite runs transaction", e))?;
 
     tx.execute(
         "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id = ?1)",
         params![session_id],
     )
-    .map_err(|e| format!("delete rewrite run entries for session: {e}"))?;
+    .map_err(|e| DbError::query("delete rewrite run entries for session", e))?;
 
     tx.execute(
         "DELETE FROM rewrite_runs WHERE session_id = ?1",
         params![session_id],
     )
-    .map_err(|e| format!("delete rewrite runs for session: {e}"))?;
+    .map_err(|e| DbError::query("delete rewrite runs for session", e))?;
 
     for run in runs {
         tx.execute(
@@ -1116,7 +1118,7 @@ pub fn replace_rewrite_runs_for_session(
                 run.created_at,
             ],
         )
-        .map_err(|e| format!("insert rewrite run: {e}"))?;
+        .map_err(|e| DbError::query("insert rewrite run", e))?;
     }
 
     for entry in entries {
@@ -1135,11 +1137,11 @@ pub fn replace_rewrite_runs_for_session(
                 entry.seq,
             ],
         )
-        .map_err(|e| format!("insert rewrite run entry: {e}"))?;
+        .map_err(|e| DbError::query("insert rewrite run entry", e))?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit replace rewrite runs transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit replace rewrite runs transaction", e))?;
 
     Ok(())
 }
@@ -1147,13 +1149,13 @@ pub fn replace_rewrite_runs_for_session(
 pub fn load_rewrite_runs_for_session(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<RewriteRunRow>, String> {
+) -> Result<Vec<RewriteRunRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at
              FROM rewrite_runs WHERE session_id = ?1 ORDER BY created_at ASC, id ASC",
         )
-        .map_err(|e| format!("prepare load rewrite runs: {e}"))?;
+        .map_err(|e| DbError::query("prepare load rewrite runs", e))?;
 
     let rows = stmt
         .query_map(params![session_id], |row| {
@@ -1170,7 +1172,7 @@ pub fn load_rewrite_runs_for_session(
                 created_at: row.get(9)?,
             })
         })
-        .map_err(|e| format!("query rewrite runs: {e}"))?
+        .map_err(|e| DbError::query("query rewrite runs", e))?
         .filter_map(|row| row.ok())
         .collect();
 
@@ -1180,7 +1182,7 @@ pub fn load_rewrite_runs_for_session(
 pub fn load_rewrite_run_entries(
     conn: &Connection,
     run_ids: &[String],
-) -> Result<Vec<RewriteRunEntryRow>, String> {
+) -> Result<Vec<RewriteRunEntryRow>, DbError> {
     if run_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1204,7 +1206,7 @@ pub fn load_rewrite_run_entries(
 
     let mut stmt = conn
         .prepare(&sql)
-        .map_err(|e| format!("prepare load rewrite run entries: {e}"))?;
+        .map_err(|e| DbError::query("prepare load rewrite run entries", e))?;
 
     let rows = stmt
         .query_map(params.as_slice(), |row| {
@@ -1219,7 +1221,7 @@ pub fn load_rewrite_run_entries(
                 seq: row.get::<_, i32>(7)? as u32,
             })
         })
-        .map_err(|e| format!("query rewrite run entries: {e}"))?
+        .map_err(|e| DbError::query("query rewrite run entries", e))?
         .filter_map(|row| row.ok())
         .collect();
 

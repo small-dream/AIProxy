@@ -24,7 +24,7 @@ mod tests {
                 items.len()
             ),
             Err(msg) => assert!(
-                !msg.is_empty(),
+                !msg.to_string().is_empty(),
                 "error message should be non-empty and descriptive"
             ),
         }
@@ -39,7 +39,7 @@ mod tests {
                 "list_environments should return Err when table missing, got Ok with {} items",
                 items.len()
             ),
-            Err(msg) => assert!(!msg.is_empty()),
+            Err(msg) => assert!(!msg.to_string().is_empty()),
         }
     }
 
@@ -52,7 +52,7 @@ mod tests {
                 "load_all_workspaces should return Err when table missing, got Ok with {} items",
                 items.len()
             ),
-            Err(msg) => assert!(!msg.is_empty()),
+            Err(msg) => assert!(!msg.to_string().is_empty()),
         }
     }
 
@@ -65,7 +65,7 @@ mod tests {
                 "load_all_rewrite_rules should return Err when table missing, got Ok with {} items",
                 items.len()
             ),
-            Err(msg) => assert!(!msg.is_empty()),
+            Err(msg) => assert!(!msg.to_string().is_empty()),
         }
     }
 
