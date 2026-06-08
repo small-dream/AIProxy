@@ -36,7 +36,11 @@ pub struct TimingConnector {
 
 impl TimingConnector {
     pub fn new(dns_override_ip: Option<IpAddr>) -> Self {
-        let tls_connector = build_dangerous_tls_connector();
+        let tls_connector =
+            aiproxy_tls_manager::client::build_dangerous_tls_connector_with_alpn(vec![
+                b"h2".to_vec(),
+                b"http/1.1".to_vec(),
+            ]);
         Self {
             dns_override_ip,
             tls_connector: Arc::new(tls_connector),
@@ -131,73 +135,4 @@ async fn resolve_host(host: &str, port: u16) -> io::Result<SocketAddr> {
             format!("DNS lookup failed for {host}"),
         )
     })
-}
-
-/// Build a TLS connector that accepts any server certificate.
-///
-/// This is a debugging proxy, not a security boundary. The current reqwest
-/// client also uses no certificate verification for upstream connections.
-fn build_dangerous_tls_connector() -> TlsConnector {
-    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-    use rustls::crypto::ring::default_provider;
-    use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
-
-    #[derive(Debug)]
-    struct AcceptAnyCert;
-
-    impl ServerCertVerifier for AcceptAnyCert {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &rustls::pki_types::CertificateDer<'_>,
-            _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-            _server_name: &ServerName<'_>,
-            _ocsp_response: &[u8],
-            _now: rustls::pki_types::UnixTime,
-        ) -> Result<ServerCertVerified, Error> {
-            Ok(ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            _message: &[u8],
-            _cert: &rustls::pki_types::CertificateDer<'_>,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            _message: &[u8],
-            _cert: &rustls::pki_types::CertificateDer<'_>,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-            vec![
-                SignatureScheme::ECDSA_NISTP256_SHA256,
-                SignatureScheme::ECDSA_NISTP384_SHA384,
-                SignatureScheme::ED25519,
-                SignatureScheme::RSA_PSS_SHA256,
-                SignatureScheme::RSA_PSS_SHA384,
-                SignatureScheme::RSA_PKCS1_SHA256,
-                SignatureScheme::RSA_PKCS1_SHA384,
-                SignatureScheme::RSA_PKCS1_SHA512,
-            ]
-        }
-    }
-
-    let provider = default_provider();
-    let mut config = ClientConfig::builder_with_provider(Arc::new(provider))
-        .with_safe_default_protocol_versions()
-        .expect("safe default protocol versions should always be available")
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AcceptAnyCert))
-        .with_no_client_auth();
-
-    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-
-    TlsConnector::from(Arc::new(config))
 }

@@ -1,3 +1,4 @@
+pub mod client;
 pub mod generator;
 pub mod resolver;
 pub mod storage;

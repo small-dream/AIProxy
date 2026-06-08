@@ -203,7 +203,7 @@ async fn handle_ws_upgrade_via_hyper(
 
     let mut upstream = match ctx.mode {
         ConnectionMode::MitmHttps { .. } => {
-            let client_config = crate::server::build_dangerous_client_tls_config();
+            let client_config = aiproxy_tls_manager::client::build_dangerous_client_config();
             let tls_connector = tokio_rustls::TlsConnector::from(client_config);
             let dns_name =
                 tokio_rustls::rustls::pki_types::ServerName::try_from(request.host.clone())

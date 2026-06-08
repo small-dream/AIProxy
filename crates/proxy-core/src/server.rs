@@ -989,66 +989,6 @@ async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     Ok(())
 }
 
-pub(crate) fn build_dangerous_client_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
-    static CONFIG: OnceLock<Arc<tokio_rustls::rustls::ClientConfig>> = OnceLock::new();
-
-    use tokio_rustls::rustls::client::danger::{
-        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
-    };
-    use tokio_rustls::rustls::crypto::CryptoProvider;
-    use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-    use tokio_rustls::rustls::DigitallySignedStruct;
-
-    #[derive(Debug)]
-    struct NoVerifier;
-
-    impl ServerCertVerifier for NoVerifier {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &CertificateDer<'_>,
-            _intermediates: &[CertificateDer<'_>],
-            _server_name: &ServerName<'_>,
-            _ocsp_response: &[u8],
-            _now: UnixTime,
-        ) -> Result<ServerCertVerified, tokio_rustls::rustls::Error> {
-            Ok(ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            _message: &[u8],
-            _cert: &CertificateDer<'_>,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            _message: &[u8],
-            _cert: &CertificateDer<'_>,
-            _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-            Ok(HandshakeSignatureValid::assertion())
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
-            CryptoProvider::get_default()
-                .map(|p| p.signature_verification_algorithms.supported_schemes())
-                .unwrap_or_default()
-        }
-    }
-
-    Arc::clone(CONFIG.get_or_init(|| {
-        Arc::new(
-            tokio_rustls::rustls::ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(NoVerifier))
-                .with_no_client_auth(),
-        )
-    }))
-}
-
 /// Handle WebSocket upgrade for plain HTTP (ws://) connections.
 /// Opens a raw TCP connection to upstream, sends the upgrade request, reads the 101 response,
 /// writes it back to the client, then enters bidirectional frame relay.
@@ -1109,7 +1049,7 @@ async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>
         "wss_tcp_connected"
     );
 
-    let client_config = build_dangerous_client_tls_config();
+    let client_config = aiproxy_tls_manager::client::build_dangerous_client_config();
     let tls_connector = tokio_rustls::TlsConnector::from(client_config);
     let ws_host = request.host.clone();
     let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(ws_host.clone())
