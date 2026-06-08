@@ -621,7 +621,7 @@ async fn stage_forward_upstream(
             let upstream_timeout = crate::upstream_request_timeout();
             match tokio::time::timeout(
                 upstream_timeout,
-                crate::server::forward_request(
+                crate::upstream::forward_request(
                     request,
                     &ctx.dns_manager,
                     &ctx.workspace_id,

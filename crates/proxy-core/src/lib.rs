@@ -47,6 +47,7 @@ const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 mod breakpoints;
 mod connection;
+mod connect;
 mod context;
 mod error;
 mod http_io;
@@ -56,6 +57,7 @@ mod server;
 mod stream;
 mod timing_connector;
 mod types;
+mod upstream;
 mod upstream_pool;
 pub mod ws;
 mod ws_upgrade;

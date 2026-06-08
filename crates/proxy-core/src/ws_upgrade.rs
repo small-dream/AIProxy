@@ -230,7 +230,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 
     // Read the upstream response.
     let (response_head, leftover_bytes) =
-        match crate::server::read_http_response_head(&mut upstream).await {
+        match crate::connect::read_http_response_head(&mut upstream).await {
             Ok(r) => r,
             Err(e) => {
                 return Ok(send_ws_upstream_error_session(
