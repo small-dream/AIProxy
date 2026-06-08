@@ -150,4 +150,25 @@ mod tests {
             vec![b"h2".to_vec(), b"http/1.1".to_vec()]
         );
     }
+
+    #[test]
+    fn build_dangerous_client_config_with_empty_alpn_is_valid() {
+        let config = build_dangerous_client_config_with_alpn(vec![]);
+        assert!(config.alpn_protocols.is_empty());
+    }
+
+    #[test]
+    fn build_dangerous_tls_connector_returns_valid_connector() {
+        let _connector = build_dangerous_tls_connector();
+        // If this compiles and doesn't panic, the connector is valid
+    }
+
+    #[test]
+    fn build_dangerous_tls_connector_with_alpn_returns_valid_connector() {
+        let _connector = build_dangerous_tls_connector_with_alpn(vec![
+            b"h2".to_vec(),
+            b"http/1.1".to_vec(),
+        ]);
+        // If this compiles and doesn't panic, the connector is valid
+    }
 }
