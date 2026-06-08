@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use crate::DbError;
+
 // ---------------------------------------------------------------------------
 // Environment row
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ pub struct GlobalVariableRow {
 // Environment CRUD
 // ---------------------------------------------------------------------------
 
-pub fn upsert_environment(conn: &Connection, env: &EnvironmentRow) -> Result<(), String> {
+pub fn upsert_environment(conn: &Connection, env: &EnvironmentRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO api_environments
             (id, name, sort_order, created_at, updated_at)
@@ -54,30 +56,30 @@ pub fn upsert_environment(conn: &Connection, env: &EnvironmentRow) -> Result<(),
             env.updated_at,
         ],
     )
-    .map_err(|e| format!("upsert environment: {e}"))?;
+    .map_err(|e| DbError::query("upsert environment", e))?;
     Ok(())
 }
 
-pub fn list_environments(conn: &Connection) -> Result<Vec<EnvironmentRow>, String> {
+pub fn list_environments(conn: &Connection) -> Result<Vec<EnvironmentRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, sort_order, created_at, updated_at
              FROM api_environments ORDER BY sort_order, name",
         )
-        .map_err(|e| format!("prepare list environments: {e}"))?;
+        .map_err(|e| DbError::query("prepare list environments", e))?;
 
     let rows = stmt
         .query_map([], row_to_environment)
-        .map_err(|e| format!("query environments: {e}"))?
+        .map_err(|e| DbError::query("query environments", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM api_environments WHERE id=?1", params![id])
-        .map_err(|e| format!("delete environment: {e}"))?;
+        .map_err(|e| DbError::query("delete environment", e))?;
     Ok(())
 }
 
@@ -88,7 +90,7 @@ pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), String> {
 pub fn upsert_environment_variable(
     conn: &Connection,
     v: &EnvironmentVariableRow,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO api_environment_variables
             (id, environment_id, key, value, enabled, sort_order)
@@ -102,14 +104,14 @@ pub fn upsert_environment_variable(
             v.sort_order as i32,
         ],
     )
-    .map_err(|e| format!("upsert environment variable: {e}"))?;
+    .map_err(|e| DbError::query("upsert environment variable", e))?;
     Ok(())
 }
 
 pub fn list_environment_variables(
     conn: &Connection,
     environment_id: &str,
-) -> Result<Vec<EnvironmentVariableRow>, String> {
+) -> Result<Vec<EnvironmentVariableRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, environment_id, key, value, enabled, sort_order
@@ -117,11 +119,11 @@ pub fn list_environment_variables(
              WHERE environment_id=?1
              ORDER BY sort_order, key",
         )
-        .map_err(|e| format!("prepare list env vars: {e}"))?;
+        .map_err(|e| DbError::query("prepare list env vars", e))?;
 
     let rows = stmt
         .query_map(params![environment_id], row_to_env_variable)
-        .map_err(|e| format!("query env vars: {e}"))?
+        .map_err(|e| DbError::query("query env vars", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -133,23 +135,23 @@ pub fn set_environment_variables(
     conn: &Connection,
     environment_id: &str,
     vars: &[EnvironmentVariableRow],
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin set environment variables transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin set environment variables transaction", e))?;
 
     tx.execute(
         "DELETE FROM api_environment_variables WHERE environment_id=?1",
         params![environment_id],
     )
-    .map_err(|e| format!("clear env vars: {e}"))?;
+    .map_err(|e| DbError::query("clear env vars", e))?;
 
     for v in vars {
         upsert_environment_variable(&tx, v)?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit set environment variables transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit set environment variables transaction", e))?;
 
     Ok(())
 }
@@ -158,49 +160,49 @@ pub fn set_environment_variables(
 // Global variable CRUD
 // ---------------------------------------------------------------------------
 
-pub fn upsert_global_variable(conn: &Connection, v: &GlobalVariableRow) -> Result<(), String> {
+pub fn upsert_global_variable(conn: &Connection, v: &GlobalVariableRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO api_global_variables
             (id, key, value, enabled, sort_order)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![v.id, v.key, v.value, v.enabled as i32, v.sort_order as i32,],
     )
-    .map_err(|e| format!("upsert global variable: {e}"))?;
+    .map_err(|e| DbError::query("upsert global variable", e))?;
     Ok(())
 }
 
-pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>, String> {
+pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, key, value, enabled, sort_order
              FROM api_global_variables
              ORDER BY sort_order, key",
         )
-        .map_err(|e| format!("prepare list global variables: {e}"))?;
+        .map_err(|e| DbError::query("prepare list global variables", e))?;
 
     let rows = stmt
         .query_map([], row_to_global_variable)
-        .map_err(|e| format!("query global variables: {e}"))?
+        .map_err(|e| DbError::query("query global variables", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn set_global_variables(conn: &Connection, vars: &[GlobalVariableRow]) -> Result<(), String> {
+pub fn set_global_variables(conn: &Connection, vars: &[GlobalVariableRow]) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin set global variables transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin set global variables transaction", e))?;
 
     tx.execute("DELETE FROM api_global_variables", [])
-        .map_err(|e| format!("clear global vars: {e}"))?;
+        .map_err(|e| DbError::query("clear global vars", e))?;
 
     for v in vars {
         upsert_global_variable(&tx, v)?;
     }
 
     tx.commit()
-        .map_err(|e| format!("commit set global variables transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit set global variables transaction", e))?;
 
     Ok(())
 }

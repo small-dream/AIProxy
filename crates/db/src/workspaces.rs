@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use crate::DbError;
+
 /// Workspace row matching `WorkspaceData` from the desktop app.
 #[derive(Debug, Clone)]
 pub struct WorkspaceRow {
@@ -15,7 +17,7 @@ pub struct WorkspaceRow {
 }
 
 /// Insert or replace a workspace row.
-pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), String> {
+pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO workspaces
             (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at)
@@ -32,7 +34,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), Stri
             ws.updated_at,
         ],
     )
-    .map_err(|e| format!("upsert workspace: {e}"))?;
+    .map_err(|e| DbError::query("upsert workspace", e))?;
     Ok(())
 }
 
@@ -45,8 +47,8 @@ pub fn update_workspace(
     ssl_enabled: Option<bool>,
     http2_enabled: Option<bool>,
     updated_at: &str,
-) -> Result<(), String> {
-    let existing = load_workspace(conn, id)?.ok_or_else(|| format!("workspace {id} not found"))?;
+) -> Result<(), DbError> {
+    let existing = load_workspace(conn, id)?.ok_or_else(|| DbError::not_found("workspace", id))?;
 
     let name = name.unwrap_or(&existing.name);
     let proxy_port = proxy_port.unwrap_or(existing.proxy_port);
@@ -57,12 +59,12 @@ pub fn update_workspace(
         "UPDATE workspaces SET name=?1, proxy_port=?2, ssl_enabled=?3, http2_enabled=?4, updated_at=?5 WHERE id=?6",
         params![name, proxy_port, ssl_enabled as i32, http2_enabled as i32, updated_at, id],
     )
-    .map_err(|e| format!("update workspace: {e}"))?;
+    .map_err(|e| DbError::query("update workspace", e))?;
     Ok(())
 }
 
 /// Load a single workspace by ID.
-pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, String> {
+pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
         "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at
          FROM workspaces WHERE id=?1",
@@ -74,23 +76,23 @@ pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow
         if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
             Ok(None)
         } else {
-            Err(format!("load workspace: {err}"))
+            Err(DbError::query("load workspace", err))
         }
     })
 }
 
 /// Load all workspaces.
-pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, String> {
+pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at
              FROM workspaces ORDER BY created_at",
         )
-        .map_err(|e| format!("prepare load workspaces: {e}"))?;
+        .map_err(|e| DbError::query("prepare load workspaces", e))?;
 
     let rows = stmt
         .query_map([], row_to_workspace)
-        .map_err(|e| format!("query workspaces: {e}"))?
+        .map_err(|e| DbError::query("query workspaces", e))?
         .filter_map(|r| r.ok())
         .collect();
 

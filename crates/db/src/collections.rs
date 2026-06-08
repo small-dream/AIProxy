@@ -1,4 +1,6 @@
 use rusqlite::{params, Connection};
+
+use crate::DbError;
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
@@ -41,12 +43,12 @@ pub struct CollectionItemRow {
 // Collection CRUD
 // ---------------------------------------------------------------------------
 
-pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), String> {
+pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbError> {
     if let Some(parent_id) = c.parent_id.as_deref() {
         ensure_collection_exists(conn, parent_id, "target parent")?;
     }
     if would_create_cycle(conn, &c.id, c.parent_id.as_deref())? {
-        return Err("cannot move a folder into its own descendant".to_string());
+        return Err(DbError::Validation("cannot move a folder into its own descendant".to_string()));
     }
 
     conn.execute(
@@ -63,21 +65,21 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), Str
             c.updated_at,
         ],
     )
-    .map_err(|e| format!("upsert collection: {e}"))?;
+    .map_err(|e| DbError::query("upsert collection", e))?;
     Ok(())
 }
 
-pub fn list_all_collections(conn: &Connection) -> Result<Vec<CollectionRow>, String> {
+pub fn list_all_collections(conn: &Connection) -> Result<Vec<CollectionRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, parent_id, name, description, sort_order, created_at, updated_at
              FROM api_collections ORDER BY sort_order, name",
         )
-        .map_err(|e| format!("prepare list collections: {e}"))?;
+        .map_err(|e| DbError::query("prepare list collections", e))?;
 
     let rows = stmt
         .query_map([], row_to_collection)
-        .map_err(|e| format!("query collections: {e}"))?
+        .map_err(|e| DbError::query("query collections", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -87,7 +89,7 @@ pub fn list_all_collections(conn: &Connection) -> Result<Vec<CollectionRow>, Str
 pub fn list_collections_by_parent(
     conn: &Connection,
     parent_id: Option<&str>,
-) -> Result<Vec<CollectionRow>, String> {
+) -> Result<Vec<CollectionRow>, DbError> {
     let rows = match parent_id {
         Some(pid) => {
             let mut stmt = conn
@@ -95,10 +97,10 @@ pub fn list_collections_by_parent(
                     "SELECT id, parent_id, name, description, sort_order, created_at, updated_at
                      FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name",
                 )
-                .map_err(|e| format!("prepare list collections by parent: {e}"))?;
+                .map_err(|e| DbError::query("prepare list collections by parent", e))?;
             let rows: Vec<CollectionRow> = stmt
                 .query_map(params![pid], row_to_collection)
-                .map_err(|e| format!("query collections by parent: {e}"))?
+                .map_err(|e| DbError::query("query collections by parent", e))?
                 .filter_map(|r| r.ok())
                 .collect();
             rows
@@ -109,10 +111,10 @@ pub fn list_collections_by_parent(
                     "SELECT id, parent_id, name, description, sort_order, created_at, updated_at
                      FROM api_collections WHERE parent_id IS NULL ORDER BY sort_order, name",
                 )
-                .map_err(|e| format!("prepare list root collections: {e}"))?;
+                .map_err(|e| DbError::query("prepare list root collections", e))?;
             let rows: Vec<CollectionRow> = stmt
                 .query_map([], row_to_collection)
-                .map_err(|e| format!("query root collections: {e}"))?
+                .map_err(|e| DbError::query("query root collections", e))?
                 .filter_map(|r| r.ok())
                 .collect();
             rows
@@ -122,17 +124,17 @@ pub fn list_collections_by_parent(
     Ok(rows)
 }
 
-pub fn delete_collection(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_collection(conn: &Connection, id: &str) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin delete collection transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin delete collection transaction", e))?;
     delete_collection_tree(&tx, id)?;
     tx.commit()
-        .map_err(|e| format!("commit delete collection transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit delete collection transaction", e))?;
     Ok(())
 }
 
-fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
+fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), DbError> {
     let mut visited = HashSet::new();
     let mut stack = vec![id.to_string()];
 
@@ -143,9 +145,9 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
 
         let children: Vec<String> = conn
             .prepare("SELECT id FROM api_collections WHERE parent_id=?1")
-            .map_err(|e| format!("prepare find children: {e}"))?
+            .map_err(|e| DbError::query("prepare find children", e))?
             .query_map(params![current_id], |row| row.get(0))
-            .map_err(|e| format!("query children: {e}"))?
+            .map_err(|e| DbError::query("query children", e))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -157,7 +159,7 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
             "DELETE FROM api_collection_items WHERE collection_id=?1",
             params![collection_id],
         )
-        .map_err(|e| format!("delete collection items: {e}"))?;
+        .map_err(|e| DbError::query("delete collection items", e))?;
     }
 
     for collection_id in &visited {
@@ -165,7 +167,7 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
             "DELETE FROM api_collections WHERE id=?1",
             params![collection_id],
         )
-        .map_err(|e| format!("delete collection: {e}"))?;
+        .map_err(|e| DbError::query("delete collection", e))?;
     }
 
     Ok(())
@@ -175,7 +177,7 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), String> {
 // Collection item CRUD
 // ---------------------------------------------------------------------------
 
-pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Result<(), String> {
+pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO api_collection_items
             (id, collection_id, name, description, sort_order,
@@ -200,14 +202,14 @@ pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Re
             item.updated_at,
         ],
     )
-    .map_err(|e| format!("upsert collection item: {e}"))?;
+    .map_err(|e| DbError::query("upsert collection item", e))?;
     Ok(())
 }
 
 pub fn list_collection_items(
     conn: &Connection,
     collection_id: &str,
-) -> Result<Vec<CollectionItemRow>, String> {
+) -> Result<Vec<CollectionItemRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, collection_id, name, description, sort_order,
@@ -217,11 +219,11 @@ pub fn list_collection_items(
              WHERE collection_id=?1
              ORDER BY sort_order, name",
         )
-        .map_err(|e| format!("prepare list collection items: {e}"))?;
+        .map_err(|e| DbError::query("prepare list collection items", e))?;
 
     let rows = stmt
         .query_map(params![collection_id], row_to_collection_item)
-        .map_err(|e| format!("query collection items: {e}"))?
+        .map_err(|e| DbError::query("query collection items", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -231,7 +233,7 @@ pub fn list_collection_items(
 pub fn get_collection_item(
     conn: &Connection,
     id: &str,
-) -> Result<Option<CollectionItemRow>, String> {
+) -> Result<Option<CollectionItemRow>, DbError> {
     let result = conn.query_row(
         "SELECT id, collection_id, name, description, sort_order,
                 method, url, headers, body, body_type, raw_language, form_data, url_encoded,
@@ -244,11 +246,11 @@ pub fn get_collection_item(
     match result {
         Ok(item) => Ok(Some(item)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(format!("get collection item: {e}")),
+        Err(e) => Err(DbError::query("get collection item", e)),
     }
 }
 
-pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItemRow>, String> {
+pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItemRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, collection_id, name, description, sort_order,
@@ -257,20 +259,20 @@ pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItem
              FROM api_collection_items
              ORDER BY sort_order, name",
         )
-        .map_err(|e| format!("prepare list all collection items: {e}"))?;
+        .map_err(|e| DbError::query("prepare list all collection items", e))?;
 
     let rows = stmt
         .query_map([], row_to_collection_item)
-        .map_err(|e| format!("query all collection items: {e}"))?
+        .map_err(|e| DbError::query("query all collection items", e))?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(rows)
 }
 
-pub fn delete_collection_item(conn: &Connection, id: &str) -> Result<(), String> {
+pub fn delete_collection_item(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM api_collection_items WHERE id=?1", params![id])
-        .map_err(|e| format!("delete collection item: {e}"))?;
+        .map_err(|e| DbError::query("delete collection item", e))?;
     Ok(())
 }
 
@@ -280,10 +282,10 @@ pub fn move_collection_item(
     target_collection_id: &str,
     sort_order: u32,
     now: &str,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin move item transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin move item transaction", e))?;
 
     let old_collection_id: String = tx
         .query_row(
@@ -292,8 +294,8 @@ pub fn move_collection_item(
             |row| row.get(0),
         )
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => format!("collection item {id} not found"),
-            other => format!("read collection item: {other}"),
+            rusqlite::Error::QueryReturnedNoRows => DbError::not_found("collection item", id),
+            other => DbError::query("read collection item", other),
         })?;
 
     ensure_collection_exists(&tx, target_collection_id, "target")?;
@@ -305,7 +307,7 @@ pub fn move_collection_item(
             "UPDATE api_collection_items SET collection_id=?1, updated_at=?2 WHERE id=?3",
             params![target_collection_id, now, id],
         )
-        .map_err(|e| format!("update collection item parent: {e}"))?;
+        .map_err(|e| DbError::query("update collection item parent", e))?;
     }
 
     let target_ids = list_collection_item_ids_by_collection(&tx, target_collection_id)?;
@@ -317,7 +319,7 @@ pub fn move_collection_item(
             "UPDATE api_collection_items SET sort_order=?1 WHERE id=?2",
             params![idx as i32, item_id],
         )
-        .map_err(|e| format!("renumber target item siblings: {e}"))?;
+        .map_err(|e| DbError::query("renumber target item siblings", e))?;
     }
 
     if !same_parent {
@@ -327,12 +329,12 @@ pub fn move_collection_item(
                 "UPDATE api_collection_items SET sort_order=?1 WHERE id=?2",
                 params![idx as i32, item_id],
             )
-            .map_err(|e| format!("renumber old item siblings: {e}"))?;
+            .map_err(|e| DbError::query("renumber old item siblings", e))?;
         }
     }
 
     tx.commit()
-        .map_err(|e| format!("commit move item transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit move item transaction", e))?;
     Ok(())
 }
 
@@ -342,16 +344,16 @@ pub fn move_collection(
     target_parent_id: Option<&str>,
     sort_order: u32,
     now: &str,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin move collection transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin move collection transaction", e))?;
 
     if let Some(parent_id) = target_parent_id {
         ensure_collection_exists(&tx, parent_id, "target parent")?;
     }
     if would_create_cycle(&tx, id, target_parent_id)? {
-        return Err("cannot move a folder into its own descendant".to_string());
+        return Err(DbError::Validation("cannot move a folder into its own descendant".to_string()));
     }
 
     let old_parent_id: Option<String> = tx
@@ -361,8 +363,8 @@ pub fn move_collection(
             |row| row.get(0),
         )
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => format!("collection {id} not found"),
-            other => format!("read collection parent: {other}"),
+            rusqlite::Error::QueryReturnedNoRows => DbError::not_found("collection", &id.to_string()),
+            other => DbError::query("read collection parent", other),
         })?;
 
     let target_str = target_parent_id.map(|s| s.to_string());
@@ -373,7 +375,7 @@ pub fn move_collection(
             "UPDATE api_collections SET parent_id=?1, updated_at=?2 WHERE id=?3",
             params![target_parent_id, now, id],
         )
-        .map_err(|e| format!("update collection parent: {e}"))?;
+        .map_err(|e| DbError::query("update collection parent", e))?;
     }
 
     let target_ids = list_collection_ids_by_parent(&tx, target_parent_id)?;
@@ -385,7 +387,7 @@ pub fn move_collection(
             "UPDATE api_collections SET sort_order=?1 WHERE id=?2",
             params![idx as i32, sibling_id],
         )
-        .map_err(|e| format!("renumber target collection siblings: {e}"))?;
+        .map_err(|e| DbError::query("renumber target collection siblings", e))?;
     }
 
     if !same_parent {
@@ -395,12 +397,12 @@ pub fn move_collection(
                 "UPDATE api_collections SET sort_order=?1 WHERE id=?2",
                 params![idx as i32, sibling_id],
             )
-            .map_err(|e| format!("renumber old collection siblings: {e}"))?;
+            .map_err(|e| DbError::query("renumber old collection siblings", e))?;
         }
     }
 
     tx.commit()
-        .map_err(|e| format!("commit move collection transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit move collection transaction", e))?;
     Ok(())
 }
 
@@ -408,7 +410,7 @@ fn would_create_cycle(
     conn: &Connection,
     moved_id: &str,
     target_parent_id: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<bool, DbError> {
     let mut current = match target_parent_id {
         Some(id) => Some(id.to_string()),
         None => return Ok(false),
@@ -420,7 +422,7 @@ fn would_create_cycle(
             return Ok(true);
         }
         if !visited.insert(cur.clone()) {
-            return Err("collection tree contains a pre-existing cycle".to_string());
+            return Err(DbError::Validation("collection tree contains a pre-existing cycle".to_string()));
         }
         let parent: Option<String> = conn
             .query_row(
@@ -430,52 +432,52 @@ fn would_create_cycle(
             )
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => {
-                    format!("collection parent {cur} not found")
+                    DbError::not_found("collection parent", &cur)
                 }
-                other => format!("read collection parent: {other}"),
+                other => DbError::query("read collection parent", other),
             })?;
         current = parent;
     }
     Ok(false)
 }
 
-fn collection_exists(conn: &Connection, id: &str) -> Result<bool, String> {
+fn collection_exists(conn: &Connection, id: &str) -> Result<bool, DbError> {
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM api_collections WHERE id=?1)",
         params![id],
         |row| row.get::<_, i64>(0),
     )
     .map(|exists| exists != 0)
-    .map_err(|e| format!("check collection exists: {e}"))
+    .map_err(|e| DbError::query("check collection exists", e))
 }
 
-fn ensure_collection_exists(conn: &Connection, id: &str, label: &str) -> Result<(), String> {
+fn ensure_collection_exists(conn: &Connection, id: &str, label: &str) -> Result<(), DbError> {
     if collection_exists(conn, id)? {
         Ok(())
     } else {
-        Err(format!("{label} collection {id} not found"))
+        Err(DbError::not_found(&format!("{label} collection"), id))
     }
 }
 
 fn list_collection_ids_by_parent(
     conn: &Connection,
     parent_id: Option<&str>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, DbError> {
     let rows: Vec<String> = match parent_id {
         Some(p) => conn
             .prepare("SELECT id FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name")
-            .map_err(|e| format!("prepare list collection ids by parent: {e}"))?
+            .map_err(|e| DbError::query("prepare list collection ids by parent", e))?
             .query_map(params![p], |row| row.get::<_, String>(0))
-            .map_err(|e| format!("query collection ids: {e}"))?
+            .map_err(|e| DbError::query("query collection ids", e))?
             .filter_map(|r| r.ok())
             .collect(),
         None => conn
             .prepare(
                 "SELECT id FROM api_collections WHERE parent_id IS NULL ORDER BY sort_order, name",
             )
-            .map_err(|e| format!("prepare list root collection ids: {e}"))?
+            .map_err(|e| DbError::query("prepare list root collection ids", e))?
             .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| format!("query root collection ids: {e}"))?
+            .map_err(|e| DbError::query("query root collection ids", e))?
             .filter_map(|r| r.ok())
             .collect(),
     };
@@ -485,14 +487,14 @@ fn list_collection_ids_by_parent(
 fn list_collection_item_ids_by_collection(
     conn: &Connection,
     collection_id: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, DbError> {
     let rows: Vec<String> = conn
         .prepare(
             "SELECT id FROM api_collection_items WHERE collection_id=?1 ORDER BY sort_order, name",
         )
-        .map_err(|e| format!("prepare list item ids: {e}"))?
+        .map_err(|e| DbError::query("prepare list item ids", e))?
         .query_map(params![collection_id], |row| row.get::<_, String>(0))
-        .map_err(|e| format!("query item ids: {e}"))?
+        .map_err(|e| DbError::query("query item ids", e))?
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
@@ -761,7 +763,7 @@ mod tests {
 
         let err = move_collection(&conn, "c1", Some("c1"), 0, &now()).unwrap_err();
         assert!(
-            err.contains("descendant"),
+            err.to_string().contains("descendant"),
             "expected cycle error, got: {err}"
         );
     }
@@ -787,7 +789,7 @@ mod tests {
         // Try to move c1 under c3 (its grandchild) — must fail.
         let err = move_collection(&conn, "c1", Some("c3"), 0, &now()).unwrap_err();
         assert!(
-            err.contains("descendant"),
+            err.to_string().contains("descendant"),
             "expected cycle error, got: {err}"
         );
 
@@ -897,7 +899,7 @@ mod tests {
 
         let err = move_collection(&conn, "c1", Some("missing"), 0, &now()).unwrap_err();
         assert!(
-            err.contains("not found"),
+            err.to_string().contains("not found"),
             "expected missing parent error, got: {err}"
         );
 
@@ -1109,7 +1111,7 @@ mod tests {
 
         let err = move_collection_item(&conn, "a", "missing", 0, &now()).unwrap_err();
         assert!(
-            err.contains("not found"),
+            err.to_string().contains("not found"),
             "expected missing target error, got: {err}"
         );
 
@@ -1147,7 +1149,7 @@ mod tests {
             updated_at: now(),
         };
         let err = upsert_collection(&conn, &bad).unwrap_err();
-        assert!(err.contains("descendant"));
+        assert!(err.to_string().contains("descendant"));
     }
 
     #[test]
@@ -1166,7 +1168,7 @@ mod tests {
 
         let err = upsert_collection(&conn, &bad).unwrap_err();
         assert!(
-            err.contains("not found"),
+            err.to_string().contains("not found"),
             "expected missing parent error, got: {err}"
         );
         assert!(list_all_collections(&conn).unwrap().is_empty());
