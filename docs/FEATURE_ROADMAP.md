@@ -131,7 +131,7 @@
   - **P0：协议模型重构** ✅ 已完成：在 Session 模型中区分 `scheme`、`httpVersion`、`transportProtocol`、`applicationProtocol`，为 HTTP/2 stream、trailers、pseudo headers、gRPC message 留出结构化字段。
   - **P1：HTTP/2 基础捕获与展示** ✅ 已完成：支持 TLS ALPN `h2`，捕获 HTTP/2 请求 / 响应并展示为普通会话，至少覆盖 headers、body、status、timing、trailers。实现了 `http_proxy.rs`（`HttpProxyService`）统一处理器、upstream_pool.rs 连接池、pseudo headers 展示、trailers 标签页和 HTTP/2 开关。
   - **P2：HTTP/2 规则与重放兼容**：让 Rewrite、Map、Throttle、Script、Compose、Export 能在 HTTP/2 会话上保持可用，必要时用内部统一模型屏蔽 HTTP/1.1 与 HTTP/2 差异。
-  - **P2.5：明文 HTTP 解析路径 hyper 化** ✅ 已完成：将手动 `httparse` 解析替换为 hyper server connection。删除 ~1000 行手动 chunked 解码代码。纯 HTTP 和 MITM 路径共用 `HttpProxyService` + `handle_http_request` 管线。`ConnectionMode` enum 区分 PlainHttp/MitmHttps。`read_header_only()` 做首包探测（返回 consumed/leftover）；`OwnedPrefixedStream` 做跨分支字节回注。WebSocket 升级通过 `hyper::upgrade::on(&mut req)` 实现，含上游 101 头透传、非 101 错误处理和 `WsUpstream` enum 统一 TCP/TLS 上游连接。
+  - **P2.5：明文 HTTP 解析路径 hyper 化** ✅ 已完成：将手动 `httparse` 解析替换为 hyper server connection。删除 ~1000 行手动 chunked 解码代码。纯 HTTP 和 MITM 路径共用 `HttpProxyService` + `handle_http_request` 管线。`ConnectionMode` enum 区分 PlainHttp/MitmHttps。`read_header_only()` 做首包探测（返回 consumed/leftover）；`OwnedPrefixedStream` 做跨分支字节回注。WebSocket 升级通过 `hyper::upgrade::on(&mut req)` 实现，含上游 101 头透传、非 101 错误处理和 `TlsOrPlain` enum 统一 TCP/TLS 上游连接。
   - **P3：HTTP/3 / QUIC 研究项**：HTTP/3 涉及 UDP / QUIC / QPACK / 0-RTT / 连接迁移，技术路线与 HTTP/2 不同，先做识别、提示和降级策略，不阻塞 HTTP/2 落地。
 - **竞品对标**：Charles / Fiddler 对 HTTP/2 有基础支持，但深度调试体验有限；如果 AIProxy 能把 HTTP/2 会话、规则、timing 和 gRPC 展示打通，会形成更强竞争力。
 - **价值**：补齐现代协议基础盘，为移动端、微服务、云原生后端和 gRPC 场景建立长期壁垒。

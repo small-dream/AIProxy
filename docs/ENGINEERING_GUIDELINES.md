@@ -365,6 +365,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - `TimingConnector` 实现 `hyper::service::Service` trait，通过 `Instant` 时间戳计算各阶段耗时
 - `timing_source` 字段（`"proxy" | "compose" | "har-import"`）标识 timing 数据来源，前端 `WaterfallChart` 据此调整展示粒度
 - 新增 HTTP 客户端能力时，应优先评估是否需要完整 timing 采集；如果需要，应复用 `TimingConnector` 模式而非重新实现
+- 客户端 TLS 配置统一由 `tls-manager::client` 提供（`build_dangerous_client_config` / `build_dangerous_tls_connector_with_alpn`），`proxy-core` 不再自行构建 `ClientConfig`；详见 `docs/DECISIONS/ADR-003-proxy-http-client-strategy.md`
 
 ### 14.2 Insights SQL 查询性能
 

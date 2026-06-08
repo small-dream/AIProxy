@@ -289,6 +289,7 @@ WebSocket 注入（重放）实现机制：
 - 维护本地证书目录
 - 检测平台信任状态（Windows / macOS / Linux）
 - 为 HTTPS 解密提供签发能力
+- 提供客户端 TLS 配置（`client` 模块）：统一管理代理上游连接的 no-op 证书验证器和 dangerous TLS connector，支持 ALPN 参数化
 
 平台信任检测实现：
 
@@ -919,7 +920,7 @@ project-root/
 
 - `aiproxy-proxy-core`：代理监听、HTTP/HTTPS/WebSocket 管线、规则运行时、断点、上游连接池与 timing
 - `aiproxy-db`：SQLite schema、session/rule/workspace/collection/environment/trace 查询与写入
-- `aiproxy-tls-manager`：根证书、host 证书签发、证书存储与平台信任检测
+- `aiproxy-tls-manager`：根证书、host 证书签发、证书存储与平台信任检测、客户端 TLS 配置（no-op 验证器、dangerous connector）
 - `aiproxy-rule-engine`：脚本规则编译、校验、QuickJS 沙箱执行
 
 已删除的 `session-store`、`throttle-engine`、`exporter` 不再属于当前架构。后续不得仅为“预留”重新加入空壳 crate。

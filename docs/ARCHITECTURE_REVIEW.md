@@ -101,16 +101,16 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 | R1 | ~~**同步 SQLite 写入在 async 路径上**~~ ✅ 已修复：session 单条/批量持久化均提供 async 版本，body spill + SQLite 写入进入 `tauri::async_runtime::spawn_blocking`；同步入口已标记 deprecated | ~~高 QPS 下代理延迟尖峰~~ | ~~P1~~ 已完成 |
 | R2 | ~~**Rewrite regex 每次调用重新编译**~~ ✅ 已修复：`RewriteManager` 内部维护 `CompiledRewriteRule`，规则加载/保存时预编译；Script/Breakpoint regex 缓存列入 P2 | ~~性能损失~~ | ~~P1~~ 已完成 |
 | R3 | ~~**全局使用 `String` 作为错误类型**~~ ✅ 已部分治理：`proxy-core` 已引入 `ProxyError`，upstream forward 路径已迁移；更深层内部函数仍可渐进迁移 | 可维护性差 | P2 持续推进 |
-| R4 | **`WsUpstream` / `TimingStream` 重复实现**：两个 enum 结构相似（Plain/Tls），都手动实现 AsyncRead/AsyncWrite；P1 已通过 boxed TLS variant 消除 clippy 大枚举 warning | 代码冗余 | P2 |
-| R5 | **同时使用 reqwest 和 hyper**：两套 HTTP 客户端带来不同 TLS 配置 | 一致性风险 | P2 |
+| R4 | ~~**`WsUpstream` / `TimingStream` 重复实现**~~ ✅ 已修复：提取 `TlsOrPlain<S>` 共享类型（`proxy-core::stream`），统一 hyper 和 tokio 两套 trait 实现 | ~~代码冗余~~ | ~~P2~~ 已完成 |
+| R5 | ~~**同时使用 reqwest 和 hyper**~~ ✅ 已修复：客户端 TLS 配置统一到 `tls-manager::client`（`NoOpVerifier`），两套客户端共享证书策略；hyper/reqwest 分工由 ADR-003 记录 | ~~一致性风险~~ | ~~P2~~ 已完成 |
 | R6 | **Windows 接口枚举能力弱**：`get_local_ip_addresses` 的 `getifaddrs` 仅在 Unix 下可用，Windows 依赖 UDP route fallback 获取默认出口 IP，无法枚举所有网络接口 | 跨平台能力差异 | P2 |
 
 ### 改进建议
 
 - **R2**：将 Script/Breakpoint regex 编译缓存作为 P2 性能延续
 - **R3**：继续将 `ProxyError` 从 upstream forward 路径扩展到 WS、rules、http_proxy 阶段函数
-- **R4**：提取 `TlsOrPlain<S>` 共享类型
-- **R5**：统一 HTTP 客户端，提取 `NoVerifier`/`AcceptAnyCert` 到 tls-manager
+- **R4**：~~提取 `TlsOrPlain<S>` 共享类型~~ ✅ 已完成（Phase 5 PR 5-1）
+- **R5**：~~统一 HTTP 客户端，提取 `NoVerifier`/`AcceptAnyCert` 到 tls-manager~~ ✅ 已完成（Phase 5 PR 5-2）
 - **R6**：为 Windows 实现基于 `GetAdaptersAddresses` 或 `ipconfig` 的接口枚举，补充 UDP fallback 无法覆盖的多接口场景
 
 ### 各 Rust 模块评分
