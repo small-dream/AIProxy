@@ -10,13 +10,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
-import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import {
@@ -41,7 +38,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import type { SxProps, Theme } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
 import { alpha } from "@mui/material/styles";
 import {
   useCallback,
@@ -51,10 +48,9 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 
-import type { ApiCollection, ApiCollectionItem, HeaderEntry } from "@aiproxy/shared-types";
+import type { ApiCollection, ApiCollectionItem } from "@aiproxy/shared-types";
 
 import { ComposeRequestSection } from "@/features/compose/components/ComposeRequestSection";
 import {
@@ -69,6 +65,24 @@ import {
 } from "@/features/compose/compose-editor.store";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useCollectionEditorStore } from "@/features/collections/collection-editor.store";
+import { countTreeNodes, filterCollectionTree } from "@/features/collections/collection-tree.helpers";
+import {
+  APPEND_SORT_ORDER,
+  clampExplorerWidth,
+  ensureContentType,
+  EXPLORER_WIDTH_STORAGE_KEY,
+  HTTP_METHODS,
+  INSPECTOR_SPLIT_RATIO_STORAGE_KEY,
+  REQUEST_COLLAPSED_STORAGE_KEY,
+} from "@/features/collections/collections-layout.helpers";
+import {
+  EmptyPaneState,
+  EmptyWorkspace,
+  LoadingState,
+} from "@/features/collections/components/PaneStates";
+import { PaneHeader } from "@/features/collections/components/PaneHeader";
+import { SearchInput } from "@/features/collections/components/SearchInput";
+import { WorkbenchPane } from "@/features/collections/components/WorkbenchPane";
 import {
   CollectionTreeNodeView,
   parseDndId,
@@ -90,7 +104,6 @@ import {
 } from "@/features/collections/use-collection-items";
 import {
   buildCollectionTree,
-  type CollectionTreeNode,
   useCollections,
   useDeleteCollection,
   useMoveCollection,
@@ -110,42 +123,7 @@ import {
 } from "@/features/sessions/components/session-inspector.helpers";
 import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
 import { useI18n } from "@/i18n";
-import type { TranslationKey } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
-
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.collections.explorerWidth";
-const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.collections.inspectorSplitRatio";
-const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.collections.requestCollapsed";
-const EXPLORER_WIDTH_MIN = 260;
-const EXPLORER_WIDTH_MAX = 520;
-const APPEND_SORT_ORDER = 0xffffffff;
-
-function clampExplorerWidth(width: number): number {
-  return Math.min(EXPLORER_WIDTH_MAX, Math.max(EXPLORER_WIDTH_MIN, width));
-}
-
-function ensureContentType(headers: HeaderEntry[], contentType: string): HeaderEntry[] {
-  if (headers.some((h) => h.name.toLowerCase() === "content-type")) return headers;
-  return [...headers, { name: "Content-Type", value: contentType }];
-}
-
-function countTreeNodes(nodes: CollectionTreeNode[]): number {
-  return nodes.reduce((total, node) => total + 1 + countTreeNodes(node.children), 0);
-}
-
-function filterCollectionTree(nodes: CollectionTreeNode[], query: string): CollectionTreeNode[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return nodes;
-
-  return nodes.flatMap((node) => {
-    const children = filterCollectionTree(node.children, normalized);
-    if (node.name.toLowerCase().includes(normalized) || children.length > 0) {
-      return [{ ...node, children }];
-    }
-    return [];
-  });
-}
 
 export function CollectionsPage() {
   const { t } = useI18n();
@@ -1078,7 +1056,7 @@ export function CollectionsPage() {
                       <LinkRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
                     </InputAdornment>
                   }
-                  sx={(theme) => ({
+                  sx={(theme: Theme) => ({
                     bgcolor: alpha(
                       theme.palette.background.default,
                       theme.palette.mode === "dark" ? 0.38 : 0.62,
@@ -1092,7 +1070,7 @@ export function CollectionsPage() {
                   })}
                   value={editor.url}
                   onChange={(e) => editor.setUrl(e.target.value)}
-                  onKeyDown={(e) => {
+                  onKeyDown={(e: React.KeyboardEvent) => {
                     if (
                       e.key === "Enter" &&
                       editor.url.trim() &&
@@ -1359,215 +1337,5 @@ export function CollectionsPage() {
         open={moveError !== null}
       />
     </Box>
-  );
-}
-
-function WorkbenchPane({ children, sx }: { children: ReactNode; sx?: SxProps<Theme> }) {
-  const paneSx = [
-    (theme: Theme) => ({
-      bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.78 : 0.96),
-      border: 1,
-      borderColor: "divider",
-      borderRadius: 1.25,
-      boxShadow: "none",
-      display: "flex",
-      flexDirection: "column",
-      minHeight: 0,
-      overflow: "hidden",
-    }),
-    ...(sx ? (Array.isArray(sx) ? sx : [sx]) : []),
-  ] as SxProps<Theme>;
-
-  return <Box sx={paneSx}>{children}</Box>;
-}
-
-function PaneHeader({
-  actions,
-  icon,
-  meta,
-  title,
-}: {
-  actions?: ReactNode;
-  icon: ReactNode;
-  meta: string;
-  title: string;
-}) {
-  return (
-    <Stack
-      direction="row"
-      spacing={0.875}
-      sx={{ alignItems: "center", flexShrink: 0, minHeight: 54, px: 1.125 }}
-    >
-      <Box
-        sx={(theme) => ({
-          alignItems: "center",
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.09),
-          borderRadius: 1,
-          color: "primary.main",
-          display: "flex",
-          height: 32,
-          justifyContent: "center",
-          width: 32,
-          "& svg": { fontSize: 18 },
-        })}
-      >
-        {icon}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 800 }}>
-          {title}
-        </Typography>
-        <Typography color="text.secondary" noWrap sx={{ fontSize: 11.25 }}>
-          {meta}
-        </Typography>
-      </Box>
-      {actions}
-    </Stack>
-  );
-}
-
-function SearchInput({
-  disabled = false,
-  onChange,
-  placeholder,
-  value,
-}: {
-  disabled?: boolean;
-  onChange: (value: string) => void;
-  placeholder: string;
-  value: string;
-}) {
-  return (
-    <OutlinedInput
-      disabled={disabled}
-      fullWidth
-      placeholder={placeholder}
-      size="small"
-      startAdornment={
-        <InputAdornment position="start">
-          <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 17 }} />
-        </InputAdornment>
-      }
-      sx={(theme) => ({
-        bgcolor: alpha(
-          theme.palette.background.default,
-          theme.palette.mode === "dark" ? 0.28 : 0.52,
-        ),
-        fontSize: 12.25,
-        "& .MuiOutlinedInput-input": {
-          py: 0.75,
-        },
-      })}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  );
-}
-
-function LoadingState() {
-  return (
-    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 140 }}>
-      <CircularProgress size={22} />
-    </Stack>
-  );
-}
-
-function EmptyPaneState({
-  actionLabel,
-  icon,
-  onAction,
-  title,
-}: {
-  actionLabel?: string;
-  icon: ReactNode;
-  onAction?: () => void;
-  title: string;
-}) {
-  return (
-    <Stack
-      alignItems="center"
-      justifyContent="center"
-      spacing={1.25}
-      sx={{ minHeight: 180, px: 2, textAlign: "center" }}
-    >
-      <Box
-        sx={(theme) => ({
-          alignItems: "center",
-          bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.06 : 0.045),
-          borderRadius: 1,
-          color: "text.secondary",
-          display: "flex",
-          height: 42,
-          justifyContent: "center",
-          width: 42,
-          "& svg": { fontSize: 22 },
-        })}
-      >
-        {icon}
-      </Box>
-      <Typography color="text.secondary" sx={{ fontSize: 12.5, lineHeight: 1.45 }}>
-        {title}
-      </Typography>
-      {actionLabel && onAction ? (
-        <Button onClick={onAction} size="small" startIcon={<AddRoundedIcon />} variant="outlined">
-          {actionLabel}
-        </Button>
-      ) : null}
-    </Stack>
-  );
-}
-
-function EmptyWorkspace({
-  collectionSelected,
-  onCreateRequest,
-  t,
-}: {
-  collectionSelected: boolean;
-  onCreateRequest: () => void;
-  t: (key: TranslationKey) => string;
-}) {
-  return (
-    <Stack
-      alignItems="center"
-      justifyContent="center"
-      spacing={1.5}
-      sx={{ flex: 1, px: 4, textAlign: "center" }}
-    >
-      <Box
-        sx={(theme) => ({
-          alignItems: "center",
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.08),
-          border: 1,
-          borderColor: alpha(
-            theme.palette.primary.main,
-            theme.palette.mode === "dark" ? 0.24 : 0.16,
-          ),
-          borderRadius: 1.5,
-          color: "primary.main",
-          display: "flex",
-          height: 64,
-          justifyContent: "center",
-          width: 64,
-          "& svg": { fontSize: 34 },
-        })}
-      >
-        <ArticleRoundedIcon />
-      </Box>
-      <Typography sx={{ fontSize: 18, fontWeight: 800 }}>
-        {collectionSelected
-          ? t("collectionsPage.readyToCreateRequest")
-          : t("collectionsPage.noCollectionSelected")}
-      </Typography>
-      <Typography color="text.secondary" sx={{ fontSize: 13, maxWidth: 420 }}>
-        {collectionSelected
-          ? t("collectionsPage.createRequestHint")
-          : t("collectionsPage.selectCollectionHint")}
-      </Typography>
-      {collectionSelected ? (
-        <Button onClick={onCreateRequest} startIcon={<AddRoundedIcon />} variant="contained">
-          {t("collectionsPage.newRequest")}
-        </Button>
-      ) : null}
-    </Stack>
   );
 }
