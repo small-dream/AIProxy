@@ -642,6 +642,17 @@ pub struct DeleteRuleInput {
 
 #[tauri::command]
 pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    // Validate rule_type early to avoid double-wrapping with app_error
+    match input.rule_type.as_str() {
+        "rewrite" | "map" | "dns" | "script" => {}
+        _ => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                format!("Unknown rule type: {}", input.rule_type),
+            ))
+        }
+    }
+
     // Persist to DB first
     {
         let conn = state
@@ -653,7 +664,7 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
             "dns" => aiproxy_db::rules::delete_dns_mapping(&conn, &input.rule_id),
             "script" => aiproxy_db::rules::delete_script_rule(&conn, &input.rule_id),
-            _ => Err(format!("unknown rule type: {}", input.rule_type)),
+            _ => unreachable!("validated above"),
         };
         db_result.map_err(|error| app_error(ERR_INTERNAL, format!("Delete rule: {error}")))?;
     }
@@ -663,12 +674,7 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
         "map" => state.read_map_manager().delete_rule(&input.rule_id),
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         "script" => state.read_script_manager().delete_rule(&input.rule_id),
-        _ => {
-            return Err(app_error(
-                ERR_INVALID_INPUT,
-                format!("Unknown rule type: {}", input.rule_type),
-            ))
-        }
+        _ => unreachable!("validated above"),
     }
 
     Ok(())

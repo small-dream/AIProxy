@@ -158,7 +158,7 @@ pub async fn summarize_session_diff(
 ) -> Result<SessionDiffSummaryResult, String> {
     let settings = load_configured_ai_settings(state.inner()).await?;
     let payload_text = serde_json::to_string_pretty(&input.payload)
-        .map_err(|error| format!("serialize diff payload: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("serialize diff payload: {error}")))?;
     if payload_text.len() > MAX_AI_PAYLOAD_BYTES {
         return Err(app_error(
             "AI_PAYLOAD_TOO_LARGE",
@@ -239,7 +239,7 @@ async fn call_chat_completion(
         .no_proxy()
         .timeout(Duration::from_millis(settings.timeout_ms))
         .build()
-        .map_err(|error| format!("create ai http client: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("create ai http client: {error}")))?;
     let endpoint = chat_completions_url(&settings.base_url)?;
     let response = client
         .post(endpoint)
@@ -254,30 +254,31 @@ async fn call_chat_completion(
         }))
         .send()
         .await
-        .map_err(|error| format!("AI request failed: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("AI request failed: {error}")))?;
 
     let status = response.status();
     let text = response
         .text()
         .await
-        .map_err(|error| format!("read AI response: {error}"))?;
+        .map_err(|error| app_error(ERR_INTERNAL, format!("read AI response: {error}")))?;
 
     if !status.is_success() {
-        return Err(format!(
-            "AI request failed with HTTP {status}: {}",
-            truncate_for_error(&text)
+        return Err(app_error_with_details(
+            ERR_INTERNAL,
+            &format!("AI request failed with HTTP {status}: {}", truncate_for_error(&text)),
+            serde_json::json!({ "httpStatus": status.as_u16() }),
         ));
     }
 
     let parsed: ChatCompletionResponse =
-        serde_json::from_str(&text).map_err(|error| format!("parse AI response: {error}"))?;
+        serde_json::from_str(&text).map_err(|error| app_error(ERR_INTERNAL, format!("parse AI response: {error}")))?;
     parsed
         .choices
         .first()
         .and_then(|choice| choice.message.content.as_ref())
         .map(|content| content.trim().to_string())
         .filter(|content| !content.is_empty())
-        .ok_or_else(|| "AI response did not include any summary text.".to_string())
+        .ok_or_else(|| app_error(ERR_INTERNAL, "AI response did not include any summary text."))
 }
 
 fn row_to_public(row: Option<&aiproxy_db::ai::AiSettingsRow>) -> AiSettingsPublic {
