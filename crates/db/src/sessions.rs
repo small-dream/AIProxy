@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use crate::DbError;
+
 // ---------------------------------------------------------------------------
 // Session summary row (list view)
 // ---------------------------------------------------------------------------
@@ -60,10 +62,10 @@ pub fn upsert_session(
     conn: &Connection,
     summary: &SessionSummaryRow,
     detail: &SessionDetailRow,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin upsert session transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin upsert session transaction", e))?;
 
     tx.execute(
         "INSERT OR REPLACE INTO session_summaries
@@ -90,7 +92,7 @@ pub fn upsert_session(
             summary.response_mime_type,
         ],
     )
-    .map_err(|e| format!("upsert session summary: {e}"))?;
+    .map_err(|e| DbError::query("upsert session summary", e))?;
 
     tx.execute(
         "INSERT OR REPLACE INTO session_details
@@ -120,10 +122,10 @@ pub fn upsert_session(
             detail.h2_stream_id,
         ],
     )
-    .map_err(|e| format!("upsert session detail: {e}"))?;
+    .map_err(|e| DbError::query("upsert session detail", e))?;
 
     tx.commit()
-        .map_err(|e| format!("commit upsert session transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit upsert session transaction", e))?;
 
     Ok(())
 }
@@ -132,7 +134,7 @@ pub fn upsert_session(
 pub fn load_recent_summaries(
     conn: &Connection,
     limit: usize,
-) -> Result<Vec<SessionSummaryRow>, String> {
+) -> Result<Vec<SessionSummaryRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, method, host, path, protocol, scheme, http_version,
@@ -142,11 +144,11 @@ pub fn load_recent_summaries(
              ORDER BY started_at DESC
              LIMIT ?1",
         )
-        .map_err(|e| format!("prepare load summaries: {e}"))?;
+        .map_err(|e| DbError::query("prepare load summaries", e))?;
 
     let rows = stmt
         .query_map(params![limit as i64], row_to_summary)
-        .map_err(|e| format!("query summaries: {e}"))?
+        .map_err(|e| DbError::query("query summaries", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -157,7 +159,7 @@ pub fn load_recent_summaries(
 pub fn load_session_summary(
     conn: &Connection,
     id: &str,
-) -> Result<Option<SessionSummaryRow>, String> {
+) -> Result<Option<SessionSummaryRow>, DbError> {
     let result = conn.query_row(
         "SELECT id, method, host, path, protocol, scheme, http_version,
                 transport_protocol, application_protocol, started_at, finished_at,
@@ -171,7 +173,7 @@ pub fn load_session_summary(
     match result {
         Ok(summary) => Ok(Some(summary)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(format!("load session summary: {e}")),
+        Err(e) => Err(DbError::query("load session summary", e)),
     }
 }
 
@@ -179,7 +181,7 @@ pub fn load_session_summary(
 pub fn load_session_detail(
     conn: &Connection,
     id: &str,
-) -> Result<Option<SessionDetailRow>, String> {
+) -> Result<Option<SessionDetailRow>, DbError> {
     let result = conn.query_row(
         "SELECT id, session_summary_id, query_params, cookies,
                 request_headers, response_headers, raw_request, raw_response,
@@ -214,12 +216,12 @@ pub fn load_session_detail(
     match result {
         Ok(detail) => Ok(Some(detail)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(format!("load session detail: {e}")),
+        Err(e) => Err(DbError::query("load session detail", e)),
     }
 }
 
 /// Delete sessions by ID list. Returns the number of deleted rows.
-pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize, String> {
+pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize, DbError> {
     if ids.is_empty() {
         return Ok(0);
     }
@@ -235,63 +237,63 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         .collect();
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin delete sessions transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin delete sessions transaction", e))?;
 
     let delete_script_entries_sql = format!(
         "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
         placeholders.join(",")
     );
     tx.execute(&delete_script_entries_sql, params.as_slice())
-        .map_err(|e| format!("delete script run entries for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete script run entries for sessions", e))?;
 
     let delete_script_runs_sql = format!(
         "DELETE FROM script_runs WHERE session_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_script_runs_sql, params.as_slice())
-        .map_err(|e| format!("delete script runs for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete script runs for sessions", e))?;
 
     let delete_rewrite_entries_sql = format!(
         "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id IN ({}))",
         placeholders.join(",")
     );
     tx.execute(&delete_rewrite_entries_sql, params.as_slice())
-        .map_err(|e| format!("delete rewrite run entries for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete rewrite run entries for sessions", e))?;
 
     let delete_rewrite_runs_sql = format!(
         "DELETE FROM rewrite_runs WHERE session_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_rewrite_runs_sql, params.as_slice())
-        .map_err(|e| format!("delete rewrite runs for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete rewrite runs for sessions", e))?;
 
     let delete_map_runs_sql = format!(
         "DELETE FROM map_runs WHERE session_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_map_runs_sql, params.as_slice())
-        .map_err(|e| format!("delete map runs for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete map runs for sessions", e))?;
 
     let delete_throttle_runs_sql = format!(
         "DELETE FROM throttle_runs WHERE session_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_throttle_runs_sql, params.as_slice())
-        .map_err(|e| format!("delete throttle runs for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete throttle runs for sessions", e))?;
 
     let delete_ws_messages_sql = format!(
         "DELETE FROM ws_messages WHERE session_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_ws_messages_sql, params.as_slice())
-        .map_err(|e| format!("delete ws messages for sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete ws messages for sessions", e))?;
 
     let delete_session_details_sql = format!(
         "DELETE FROM session_details WHERE session_summary_id IN ({})",
         placeholders.join(",")
     );
     tx.execute(&delete_session_details_sql, params.as_slice())
-        .map_err(|e| format!("delete session details: {e}"))?;
+        .map_err(|e| DbError::query("delete session details", e))?;
 
     let sql = format!(
         "DELETE FROM session_summaries WHERE id IN ({})",
@@ -300,38 +302,38 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
     let count = tx
         .execute(&sql, params.as_slice())
-        .map_err(|e| format!("delete sessions: {e}"))?;
+        .map_err(|e| DbError::query("delete sessions", e))?;
     tx.commit()
-        .map_err(|e| format!("commit delete sessions transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit delete sessions transaction", e))?;
 
     Ok(count)
 }
 
 /// Delete all sessions (summaries cascade to details and ws_messages).
-pub fn clear_all_sessions(conn: &Connection) -> Result<(), String> {
+pub fn clear_all_sessions(conn: &Connection) -> Result<(), DbError> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("begin clear sessions transaction: {e}"))?;
+        .map_err(|e| DbError::query("begin clear sessions transaction", e))?;
     tx.execute("DELETE FROM script_run_entries", [])
-        .map_err(|e| format!("clear script run entries: {e}"))?;
+        .map_err(|e| DbError::query("clear script run entries", e))?;
     tx.execute("DELETE FROM script_runs", [])
-        .map_err(|e| format!("clear script runs: {e}"))?;
+        .map_err(|e| DbError::query("clear script runs", e))?;
     tx.execute("DELETE FROM rewrite_run_entries", [])
-        .map_err(|e| format!("clear rewrite run entries: {e}"))?;
+        .map_err(|e| DbError::query("clear rewrite run entries", e))?;
     tx.execute("DELETE FROM rewrite_runs", [])
-        .map_err(|e| format!("clear rewrite runs: {e}"))?;
+        .map_err(|e| DbError::query("clear rewrite runs", e))?;
     tx.execute("DELETE FROM map_runs", [])
-        .map_err(|e| format!("clear map runs: {e}"))?;
+        .map_err(|e| DbError::query("clear map runs", e))?;
     tx.execute("DELETE FROM throttle_runs", [])
-        .map_err(|e| format!("clear throttle runs: {e}"))?;
+        .map_err(|e| DbError::query("clear throttle runs", e))?;
     tx.execute("DELETE FROM session_details", [])
-        .map_err(|e| format!("clear session details: {e}"))?;
+        .map_err(|e| DbError::query("clear session details", e))?;
     tx.execute("DELETE FROM ws_messages", [])
-        .map_err(|e| format!("clear ws messages: {e}"))?;
+        .map_err(|e| DbError::query("clear ws messages", e))?;
     tx.execute("DELETE FROM session_summaries", [])
-        .map_err(|e| format!("clear session summaries: {e}"))?;
+        .map_err(|e| DbError::query("clear session summaries", e))?;
     tx.commit()
-        .map_err(|e| format!("commit clear sessions transaction: {e}"))?;
+        .map_err(|e| DbError::query("commit clear sessions transaction", e))?;
     Ok(())
 }
 
@@ -351,7 +353,7 @@ pub struct WsMessageRow {
 }
 
 /// Insert a single WebSocket message.
-pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), String> {
+pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO ws_messages
             (id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin)
@@ -367,7 +369,7 @@ pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), St
             msg.fin as i32,
         ],
     )
-    .map_err(|e| format!("insert ws message: {e}"))?;
+    .map_err(|e| DbError::query("insert ws message", e))?;
     Ok(())
 }
 
@@ -377,7 +379,7 @@ pub fn load_ws_messages(
     session_id: &str,
     limit: usize,
     offset: usize,
-) -> Result<Vec<WsMessageRow>, String> {
+) -> Result<Vec<WsMessageRow>, DbError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
@@ -386,14 +388,14 @@ pub fn load_ws_messages(
              ORDER BY timestamp ASC
              LIMIT ?2 OFFSET ?3",
         )
-        .map_err(|e| format!("prepare load ws messages: {e}"))?;
+        .map_err(|e| DbError::query("prepare load ws messages", e))?;
 
     let rows = stmt
         .query_map(
             params![session_id, limit as i64, offset as i64],
             row_to_ws_message,
         )
-        .map_err(|e| format!("query ws messages: {e}"))?
+        .map_err(|e| DbError::query("query ws messages", e))?
         .filter_map(|r| r.ok())
         .collect();
 
@@ -401,14 +403,14 @@ pub fn load_ws_messages(
 }
 
 /// Count WebSocket messages for a session.
-pub fn count_ws_messages(conn: &Connection, session_id: &str) -> Result<usize, String> {
+pub fn count_ws_messages(conn: &Connection, session_id: &str) -> Result<usize, DbError> {
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM ws_messages WHERE session_id = ?1",
             params![session_id],
             |row| row.get(0),
         )
-        .map_err(|e| format!("count ws messages: {e}"))?;
+        .map_err(|e| DbError::query("count ws messages", e))?;
     Ok(count as usize)
 }
 
@@ -419,7 +421,7 @@ pub fn search_ws_messages(
     query: &str,
     limit: usize,
     offset: usize,
-) -> Result<Vec<WsMessageRow>, String> {
+) -> Result<Vec<WsMessageRow>, DbError> {
     let like_pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
     let mut stmt = conn
         .prepare(
@@ -429,14 +431,14 @@ pub fn search_ws_messages(
              ORDER BY timestamp ASC
              LIMIT ?3 OFFSET ?4",
         )
-        .map_err(|e| format!("prepare search ws messages: {e}"))?;
+        .map_err(|e| DbError::query("prepare search ws messages", e))?;
 
     let rows = stmt
         .query_map(
             params![session_id, like_pattern, limit as i64, offset as i64],
             row_to_ws_message,
         )
-        .map_err(|e| format!("search ws messages: {e}"))?
+        .map_err(|e| DbError::query("search ws messages", e))?
         .filter_map(|r| r.ok())
         .collect();
 
