@@ -1,27 +1,41 @@
-# AIProxy 全面架构审查报告
+# AIProxy 架构审查报告
 
-> 审查日期：2026-06-07
-> 最后更新：2026-06-08 — P2 部分治理落地并同步 living 文档
+> 审查日期：2026-06-08（第二轮全量重新生成）
 > 审查范围：整体架构设计、前端代码质量、Rust 核心代码质量、API 契约与类型安全、跨横切关注点
 > 审查基准：顶级架构师标准，面向生产级桌面代理调试工具
+> 代码快照：dev 分支 `73c6c39`（Phase 6 Windows 接口枚举 + proptest 合入后）
 
 ---
 
-## 总体健康度：A（生产级工程基础稳固）
+## 总体健康度：A（工程基础稳固，进入可持续演进阶段）
 
-AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好。P0 安全与稳定性问题已全部修复，P1 代码质量与架构治理也已完成。自 commit `c675a5026bf1824e652ccaf06d91944df289992a` 之后，P2/P4 的一批治理继续落地：CI/格式化基线、空壳 crate 清理、`emit_log` 迁移、Script/Breakpoint regex 缓存、结构化错误推进、列表查询错误传播、`bootstrap` 拆分和 `SessionsPage` hooks 拆分。当前项目已从"快速演进产品"进入"工程基础稳固、可持续演进"阶段。
+AIProxy 当前架构健康度优秀。P0 安全基线、P1 代码质量与架构治理、以及多项 P2 工程规范改进均已闭环。代理核心与 UI 完全解耦、三层同构命令架构执行到位、跨平台适配覆盖三端。项目从"快速迭代"进入"工程基础扎实、可持续交付"的成熟阶段。
+
+### 代码规模一览
+
+| 指标 | 数据 |
+|------|------|
+| Rust crates | 4 个（proxy-core / db / rule-engine / tls-manager） |
+| Rust 代码行 | 20,430 行（44 个 `.rs` 文件） |
+| Rust 测试函数 | 202 个（182 `#[test]` + 20 `#[tokio::test]`） |
+| 前端代码行 | 47,835 行（195 个 `.ts/.tsx` 文件） |
+| 前端测试文件 | 34 个（文件覆盖率 17.4%） |
+| Tauri commands | 84 个 `#[tauri::command]` |
+| 前端 invoke 调用 | 63 个 `invoke<>()` 调用 |
+| 共享类型模块 | 15 个域名模块（3,592 行） |
+| i18n 消息行 | 中英各 ~1,400 行 |
 
 ---
 
-## 五大维度评分总览
+## 五大维度评分
 
-| 维度 | 修复前 | 修复后 | 变化说明 |
-|------|--------|--------|----------|
-| 整体架构设计 | A- | A | `ProxyManagers`/`ProxyConfig` 收敛参数，`rules` 模块拆分，`handle_http_request` 阶段化 |
-| 前端代码质量 | B+ | A | ErrorBoundary 已补齐，AppShell 已拆分为 Hooks |
-| Rust 核心代码 | B+ | A | SQLite 阻塞 IO 迁到 `spawn_blocking`，Rewrite regex 预编译，proxy-core clippy 零 warning |
-| API 契约与类型安全 | B+ | A | `http2Enabled` 与 Insights 文档已同步，错误格式开始统一 |
-| 跨横切关注点 | B+ | A | CSP、沙箱、Cargo.lock、结构化错误 helper 与验证门槛均已收敛 |
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 整体架构设计 | **A** | 四层分离清晰，Crate 依赖图为 DAG，规则管线阶段化，Bootstrap 已拆分 |
+| 前端代码质量 | **A-** | 零 `as any`，类型纪律优秀，i18n 覆盖广，但大型页面仍需瘦身 |
+| Rust 核心代码 | **A-** | 无危险 unwrap/panic，SQL 全参数化，但错误类型统一未完成 |
+| API 契约与类型安全 | **A** | 三层同构执行到位，84 command 全覆盖，JSON 结构化错误 98% 一致 |
+| 跨横切关注点 | **A-** | CSP/Cargo.lock/ErrorBoundary 已到位，测试覆盖前端偏弱 |
 
 ---
 
@@ -30,244 +44,286 @@ AIProxy 的总体架构健康，前后端边界和核心代理解耦做得较好
 ### 核心优势
 
 1. **四层分离清晰**：表现层（React + MUI + Zustand）→ 桌面接入层（Tauri commands/events）→ 领域服务层（Rust crates）→ 基础设施层（SQLite + 文件系统）
-2. **三层同构原则执行到位**：Rust 命令层 `commands/<domain>.rs`、前端命令客户端 `services/commands/<domain>.ts`、共享类型 `shared-types/src/<domain>.ts` 三层一一对应
+2. **三层同构原则执行到位**：Rust 命令层 `commands/<domain>.rs`（16 文件）、前端命令客户端 `services/commands/<domain>.ts`（16 文件）、共享类型 `shared-types/src/<domain>.ts`（15 文件）三层一一对应
 3. **代理逻辑与 UI 完全解耦**：`proxy-core` 不依赖 Tauri、不依赖前端类型，纯 Rust 实现——这是最重要的架构成就
-4. **Crate 依赖图为 DAG**，无循环依赖，`aiproxy-db` 和 `aiproxy-rule-engine` 可独立测试
-5. **平台差异隔离到位**：`system_proxy` 按 `windows.rs/macos.rs/linux.rs` 拆分
+4. **Crate 依赖图为 DAG**：`proxy-core → rule-engine`，`proxy-core → tls-manager`，`db` 完全独立，无循环依赖
+5. **平台差异隔离到位**：`system_proxy` 按 `windows.rs/macos.rs/linux.rs` 拆分；`proxy-core/types` 按 `types_unix.rs/types_windows.rs` 委托
 6. **规则引擎管线设计**：请求链 `Rewrite → Map → Script → Breakpoint → Throttle → Upstream`，阶段独立可扩展
+7. **Bootstrap 边界原则已落地**：`repository.rs`（750 行）/ `cache.rs`（315 行）/ `converters.rs`（490 行）/ `events.rs`（22 行）职责清晰
 
 ### 关键问题
 
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
-| A1 | ~~**`proxy-core` 是"上帝 crate"**~~ ✅ 已显著治理：`rules.rs` 已拆为 `rules/` 模块目录，`handle_http_request` 已拆为阶段函数；`server.rs`/`http_proxy.rs` 仍偏大但热点边界清晰 | ~~维护困难、变更风险高~~ | ~~P1~~ 已完成，后续持续瘦身 |
-| A2 | ~~**空壳 crate**：`session-store`、`throttle-engine`、`exporter` 几乎无代码~~ ✅ 已删除空壳 crate 与依赖声明 | ~~编译时间浪费、新人困惑~~ | ~~P2~~ 已完成 |
-| A3 | ~~**`bootstrap/mod.rs` 职责混合**~~ ✅ 已拆分为 `repository.rs` / `cache.rs` / `converters.rs` / `events.rs`，`AppState` 保留聚合与委托职责 | ~~职责不清~~ | ~~P2~~ 已完成，后续防回归 |
-| A4 | ~~**`start_proxy_server()` 参数偏多**~~ ✅ 已修复：已引入 `ProxyManagers` + `ProxyConfig` 收敛启动和连接处理参数 | ~~参数爆炸、扩展不友好~~ | ~~P1~~ 已完成 |
-| A5 | **`rule-engine` 职责偏离文档**：文档定义为"统一处理 Breakpoint/Rewrite/Map/DNS"，实际只做脚本执行 | 文档与实现不一致 | P2 |
+| A1 | **`http_proxy.rs` 仍为最大文件**（2,315 行）：包含 hyper Service、请求/响应管线、WS upgrade、断点/改写/脚本集成等多条主线 | 维护压力集中在单文件 | P2 |
+| A2 | **`server.rs` 偏大**（1,714 行）：连接管理、MITM、blind tunnel、WSS upgrade、内建端点等职责共存 | 同上 | P2 |
+| A3 | **`rule-engine` 单文件架构**（1,178 行 monolithic）：类型定义、编译、执行、JS bridge、测试全部交织在一个 `lib.rs` 中 | 维护困难、新人理解成本高 | P2 |
+| A4 | **`db` crate 无结构化错误类型**：全部 89 个公共函数返回 `Result<_, String>`，错误上下文丢失 | 调用方无法程序化匹配错误 | P3 |
+| A5 | **大型前端页面未拆分**：`collections/index.tsx`（1,573 行）、`compare/index.tsx`（1,441 行）、`insights/index.tsx`（1,258 行）、`throttling/index.tsx`（1,042 行）均为巨型页面文件 | 维护困难、状态管理复杂 | P2 |
 
 ### 改进建议
 
-- **A1**：P1 已完成第一轮拆分；后续可继续将 `http_proxy.rs` 的 WS/响应处理阶段移入独立模块
-- **A3**：已拆分完成；后续新增 bootstrap 能力必须遵守 `docs/ARCHITECTURE.md` 的 Bootstrap 边界原则
-- **A5**：同步文档或调整 crate 命名
+- **A1/A2**：将 `http_proxy.rs` 中的 WS upgrade 路径和响应构建逻辑抽为独立模块；`server.rs` 中 blind tunnel 和内建端点可以独立
+- **A3**：将 `rule-engine` 拆分为 `types.rs`、`compile.rs`、`execute.rs`、`js_bridge.rs`
+- **A4**：为 `db` crate 引入 `DbError` enum（类似 `ProxyError`/`TlsManagerError`），渐进迁移
+- **A5**：沿用 `SessionsPage` hooks 拆分模式，将大型页面拆为 hooks + 子组件
 
 ---
 
-## 二、前端代码质量（B+ → A）
+## 二、前端代码质量（A-）
 
 ### 核心优势
 
-1. **零 `any` 使用**：TypeScript 类型纪律优秀，无 `as any`、`@ts-ignore`
+1. **零 `any` 使用**：TypeScript 类型纪律优秀，无 `as any`、`@ts-ignore`、`@ts-nocheck`
 2. **`invoke<unknown>()` + parse 模式**：Tauri 命令层做运行时边界校验，不信任后端返回值
-3. **i18n 类型安全**：递归 `DotPath<T>` 从消息结构自动推导翻译 key
+3. **i18n 类型安全**：递归 `DotPath<T>` 从消息结构自动推导翻译 key，中英消息各 ~1,400 行
 4. **Zustand store 设计清晰**：helper 纯函数提取充分，不可变更新模式一致
 5. **性能优化到位**：路由懒加载 + 事件批量处理(100ms 缓冲) + RAF 节流
-6. **代码组织优秀**：13 个 feature 目录与业务域高度对应
+6. **ErrorBoundary 双层保护**：全局级（`App.tsx`）+ 路由级（`router/index.tsx`）
+7. **代码组织优秀**：13 个 feature 目录与业务域高度对应
+
+### 前端模块规模分布
+
+| 模块 | 代码行 | 占比 |
+|------|--------|------|
+| `features/sessions/` | 18,312 | 38.3% |
+| `features/rules/` | 3,361 | 7.0% |
+| `features/breakpoints/` | 2,099 | 4.4% |
+| `features/collections/` | 1,219 | 2.5% |
+| `features/session-compare/` | 1,197 | 2.5% |
+| `features/compose/` | 814 | 1.7% |
+| `pages/`（页面文件） | 9,795 | 20.5% |
+| `i18n/` | 4,631 | 9.7% |
+| `services/` | ~3,500 | 7.3% |
+| 其余 | ~2,907 | 6.1% |
 
 ### 关键问题
 
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
-| F1 | ~~**缺少 ErrorBoundary**~~ ✅ 已修复：已添加全局级 + 页面级 ErrorBoundary（`components/shared/ErrorBoundary.tsx`），包裹在 AppProviders 内部 | ~~生产稳定性风险~~ | ~~P0~~ 已完成 |
-| F2 | ~~**核心组件过大**：`AppShell`(770行) 承载过多逻辑~~ ✅ 已修复：`AppShell` 已降至约 245 行，代理生命周期、菜单、ADB、缩放、窗口控制均已拆为 Hook；`SessionsPage` 仍偏大 | 维护困难 | ~~P1~~ AppShell 已完成，SessionsPage 入 P2 |
-| F3 | ~~**类型重复定义**：`BodyType`/`RawLanguage` 在两个 store 中重复；`SESSIONS_QUERY_KEY` 在两处各自定义~~ ✅ 已统一到共享类型/公共 query key | ~~不一致风险~~ | ~~P2~~ 已完成 |
-| F4 | **硬编码字符串**：`SessionsPage` 中的 `"All Sessions"` / `"Throttled"` 未走 i18n | 国际化缺陷 | P2 |
-| F5 | **Store 测试薄弱**：`session-container.store.test.ts` 仅覆盖 legacy 方法 | 测试覆盖不足 | P2 |
+| F1 | **大型页面文件**：`collections`（1,573）、`compare`（1,441）、`insights`（1,258）、`throttling`（1,042）、`settings`（876）均超过 800 行合理上限 | 维护困难 | P2 |
+| F2 | **i18n 覆盖不完整**：`pages/throttling/index.tsx` 存在 `"Any"`、`"Targeted rule"`、`"Hits"`、`"Drops"` 等硬编码英文；`pages/compare/index.tsx` 存在 `"Avg duration"`、`"Total bytes"` 等未翻译文案 | 国际化缺口 | P2 |
+| F3 | **Store 测试薄弱**：`session-container.store.test.ts` 仅覆盖 legacy 方法；`compose-editor.store`、`collection-editor.store` 等核心 store 缺少测试 | 回归风险 | P2 |
+| F4 | **`features/sessions/` 体积过大**（64 文件、18,312 行，占前端 38%）：虽然功能最核心，但 Inspector 子组件仍有持续拆分空间 | 维护集中 | P3 |
 
 ### 改进建议
 
-- **F2**：继续拆分 `SessionsPage` / Session Inspector 相关页面组件
-- **F3**：统一 `BodyType`/`RawLanguage`、Query Key 到公共模块
-- **F5**：补充 `seedSessions`、`upsertSummary`、`addContainer` 核心操作测试
+- **F1**：按页面维度逐步拆分，优先处理 `collections` 和 `insights`（结构相对规整）
+- **F2**：在下次涉及相关页面改动时同步补齐 i18n，无需单独专项
+- **F3**：为 `seedSessions`、`upsertSummary`、`addContainer` 等核心操作补充单元测试
 
 ---
 
-## 三、Rust 核心代码质量（B+ → A）
+## 三、Rust 核心代码质量（A-）
+
+### 各 Crate 评分
+
+| Crate | 代码行 | 测试函数 | 评分 |
+|-------|--------|----------|------|
+| proxy-core | 12,614 | ~95 | A- |
+| db | 5,473 | ~65 | B+ |
+| tls-manager | 1,165 | 14 | A- |
+| rule-engine | 1,178 | 11 | B+ |
 
 ### 核心优势
 
-1. **并发模式成熟**：`UpstreamConnectionPool` 使用 `RwLock` + `watch` channel 解决 thundering herd；连接数限制使用 `Semaphore`
-2. **大 body 自动 spool 到磁盘**：超过 20MB 写入临时文件避免 OOM
-3. **HTTP/2 连接池复用**：`upstream_pool.rs` 维护 h2 连接池，后台 evict timer 定期清理
-4. **unsafe 使用极少且安全**：全部集中在 FFI 边界（`getifaddgs`），有完整 SAFETY 注释
-5. **Script 沙箱设计完备**：QuickJS + 50ms 超时 + 16MB 内存限制 + `AtomicBool` 中断 + 独立线程执行
-6. **测试覆盖广泛**：proxy-core 30+ 测试、db 使用内存 SQLite、tls-manager 验证证书有效性
+1. **无危险 unwrap/panic**：生产代码中的 `unwrap()` 全部用于编译期常量（如 `NonZeroUsize::new(512).unwrap()`、hardcoded regex `OnceLock`）；`panic!` 仅 1 处且在 `#[cfg(test)]` 块内
+2. **并发模式成熟**：`UpstreamConnectionPool` 使用 `RwLock` + `watch` channel 解决 thundering herd；连接数限制使用 `Semaphore`（上限 1024）
+3. **大 body 自动 spool 到磁盘**：超过 20MB 写入临时文件避免 OOM
+4. **HTTP/2 连接池复用**：`upstream_pool.rs` 维护 h2 连接池，后台 evict timer 定期清理
+5. **unsafe 使用极少且安全**：全部集中在 FFI 边界（`getifaddrs`），有完整 SAFETY 注释
+6. **Script 沙箱设计完备**：QuickJS + 50ms 超时 + 16MB 内存限制 + `AtomicBool` 中断 + 独立线程执行
+7. **SQL 注入防护完善**：db crate 全部使用 `rusqlite::params!` 参数化查询（75+ 处）
+8. **路径遍历防护**：`body_store.rs` 的 `validate_safe_segment` + `canonicalize` 双重校验
+9. **结构化错误已建立基线**：`ProxyError`（8 variants）+ `TlsManagerError`（4 variants）+ `app_error()`/`app_error_with_details()` helper
+10. **Windows 网络接口枚举已实现**：`types_windows.rs` 通过 PowerShell `Get-NetIPAddress` 枚举 IPv4 地址
+
+### 错误类型分布
+
+| Crate | 结构化错误 | `Result<_, String>` | 统一率 |
+|-------|-----------|---------------------|--------|
+| proxy-core | 16 处 `ProxyError` | 43 处 `String` | 27% |
+| db | 0 | 89 处 | 0% |
+| rule-engine | 0 | 6 处 | 0% |
+| tls-manager | 全部 `TlsManagerError` | 0 | 100% |
+| Tauri commands | 120+ `app_error()` | 2 处 `format!()` | ~98% |
 
 ### 关键问题
 
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
-| R1 | ~~**同步 SQLite 写入在 async 路径上**~~ ✅ 已修复：session 单条/批量持久化均提供 async 版本，body spill + SQLite 写入进入 `tauri::async_runtime::spawn_blocking`；同步入口已标记 deprecated | ~~高 QPS 下代理延迟尖峰~~ | ~~P1~~ 已完成 |
-| R2 | ~~**Rewrite regex 每次调用重新编译**~~ ✅ 已修复：`RewriteManager` 内部维护 `CompiledRewriteRule`，规则加载/保存时预编译；Script/Breakpoint regex 缓存列入 P2 | ~~性能损失~~ | ~~P1~~ 已完成 |
-| R3 | ~~**全局使用 `String` 作为错误类型**~~ ✅ 已部分治理：`proxy-core` 已引入 `ProxyError`，upstream forward 路径已迁移；更深层内部函数仍可渐进迁移 | 可维护性差 | P2 持续推进 |
-| R4 | ~~**`WsUpstream` / `TimingStream` 重复实现**~~ ✅ 已修复：提取 `TlsOrPlain<S>` 共享类型（`proxy-core::stream`），统一 hyper 和 tokio 两套 trait 实现 | ~~代码冗余~~ | ~~P2~~ 已完成 |
-| R5 | ~~**同时使用 reqwest 和 hyper**~~ ✅ 已修复：客户端 TLS 配置统一到 `tls-manager::client`（`NoOpVerifier`），两套客户端共享证书策略；hyper/reqwest 分工由 ADR-003 记录 | ~~一致性风险~~ | ~~P2~~ 已完成 |
-| R6 | **Windows 接口枚举能力弱**：`get_local_ip_addresses` 的 `getifaddrs` 仅在 Unix 下可用，Windows 依赖 UDP route fallback 获取默认出口 IP，无法枚举所有网络接口 | 跨平台能力差异 | P2 |
+| R1 | **`db` crate 全量 `Result<_, String>`**：89 个函数无结构化错误类型，错误上下文在 `format!` 中丢失 | 无法程序化匹配、日志排查困难 | P3 |
+| R2 | **`proxy-core` 错误类型混合**：`forward_request()` 使用 `ProxyError`，但 `handle_connection()`/`handle_connect_mitm()` 等外层仍为 `String`，结构化信息在边界丢失 | 错误链断裂 | P3 |
+| R3 | **`rule-engine` 单文件 monolithic**：1,178 行含类型、编译、执行、JS bridge 和测试，可读性和可维护性受限 | 维护成本高 | P2 |
+| R4 | **Tauri commands 2 处原始 `format!` 错误**：`rules.rs:656` 和 `ai.rs:266` 绕过 `app_error()` helper | 前端 `coerceAppError` 无法提取错误码 | P3 |
 
 ### 改进建议
 
-- **R2**：将 Script/Breakpoint regex 编译缓存作为 P2 性能延续
-- **R3**：继续将 `ProxyError` 从 upstream forward 路径扩展到 WS、rules、http_proxy 阶段函数
-- **R4**：~~提取 `TlsOrPlain<S>` 共享类型~~ ✅ 已完成（Phase 5 PR 5-1）
-- **R5**：~~统一 HTTP 客户端，提取 `NoVerifier`/`AcceptAnyCert` 到 tls-manager~~ ✅ 已完成（Phase 5 PR 5-2）
-- **R6**：为 Windows 实现基于 `GetAdaptersAddresses` 或 `ipconfig` 的接口枚举，补充 UDP fallback 无法覆盖的多接口场景
-
-### 各 Rust 模块评分
-
-| 模块 | 综合 |
-|------|------|
-| proxy-core | A- |
-| tls-manager | A- |
-| db | B+ |
-| rule-engine | B+ |
-| Tauri 集成层 | B+ |
+- **R1**：引入 `DbError` enum（`NotFound` / `QueryFailed` / `ConstraintViolation` / `MigrationFailed`），渐进迁移高频查询路径
+- **R2**：将 `ProxyError` 从 `forward_request` 扩展到 `handle_connection`、`handle_connect_mitm`、`tunnel_blind_relay` 等外层函数
+- **R3**：将 `rule-engine/lib.rs` 拆为 `types.rs` + `compile.rs` + `execute.rs` + `js_bridge.rs`
+- **R4**：将 2 处 `format!()` 替换为 `app_error(ERR_INVALID_INPUT, ...)`
 
 ---
 
-## 四、API 契约与类型安全（B+ → A）
+## 四、API 契约与类型安全（A）
 
 ### 核心优势
 
-1. **命令层覆盖较完整**：Rust 侧 84 个 `#[tauri::command]`，前端 63 个 `invoke<>()` 调用，按业务域分文件组织，覆盖面广
-2. **完整 type guard 体系**：每个核心类型都有 `isXxx()`/`parseXxx()` 运行时校验
-3. **serde camelCase 统一**：Rust DTO 与前端 TypeScript 命名完全一致
-4. **optional 字段处理健壮**：正确处理 `skip_serializing_if = "Option::is_none"`
-5. **事件批处理设计成熟**：6 个实时事件通道，session-upsert 通过 100ms 缓冲窗口批量合并
+1. **命令层覆盖完整**：Rust 侧 84 个 `#[tauri::command]`，前端 63 个 `invoke<>()` 调用，按 16 个业务域分文件组织
+2. **三层同构严格对齐**：`commands/<domain>.rs` ↔ `services/commands/<domain>.ts` ↔ `shared-types/src/<domain>.ts`，新增业务域必须同步建立
+3. **完整 type guard 体系**：每个核心类型都有 `isXxx()`/`parseXxx()` 运行时校验
+4. **serde camelCase 统一**：Rust DTO 与前端 TypeScript 命名完全一致
+5. **事件批处理设计成熟**：6 个实时事件通道，`session-upsert` 通过 100ms 缓冲窗口批量合并
+6. **Tauri command 结构化错误 98% 一致**：`app_error()`/`app_error_with_details()` 统一 JSON 格式，前端 `coerceAppError` 兼容处理
+7. **共享类型测试覆盖**：`shared-types/src/index.test.ts`（666 行）提供类型守卫和解析函数的回归测试
 
 ### 关键问题
 
 | # | 问题 | 影响 | 优先级 |
 |---|------|------|--------|
-| C1 | ~~**API_SPEC.md Insights 章节与实现不一致**~~ ✅ 已修复：`GetInsightsInput`、`InsightsResult`、`HostInsight`、`SlowRequest` 字段已按实际实现同步到 `docs/API_SPEC.md` | ~~文档与代码漂移~~ | ~~P1~~ 已完成 |
-| C2 | ~~**`WorkspaceData`/`BootstrapStatus` 缺少 `http2Enabled`**~~ ✅ 已修复：Rust 侧 `WorkspaceData`、`BootstrapStatus`、`UpdateWorkspaceInput`、`WorkspaceRow` 已补齐 `http2_enabled` 字段，DB migration 已添加 | ~~HTTP/2 设置无法持久化~~ | ~~P1~~ 已完成 |
-| C3 | ~~**Rust 错误返回不一致**~~ ✅ 已部分治理：`commands/common.rs` 已提供 `app_error()` / `app_error_with_details()`，高频路径 `ai`、`proxy`、`rules`、`sessions` 已迁移，前端 `coerceAppError` 兼容 JSON error string 和普通 string | 前端错误类型可逐步统一 | P2 剩余 command 渐进迁移 |
-| C4 | **列表查询命令静默返回空数组**：出错时不抛异常，前端无法区分"无数据"和"查询失败" | 静默失败 | P2 |
+| C1 | **2 处原始 `format!` 错误**：`commands/rules.rs` 和 `commands/ai.rs` 绕过 `app_error()` | 前端无法提取错误码 | P3 |
+| C2 | **列表查询命令静默返回空数组**（历史问题，已部分治理）：部分列表查询出错时不抛异常，前端无法区分"无数据"和"查询失败" | 静默失败 | P3 |
 
 ### 改进建议
 
-- **C3**：继续迁移 `certificates`、`workspaces`、`collections`、`throttling`、`ws` 等剩余 command 文件
-- **C4**：列表查询出错时返回 `Result::Err` 而非空 Vec
+- **C1**：将 2 处 `format!()` 替换为 `app_error()` 调用
+- **C2**：全面审查列表查询命令，确保出错时返回 `Result::Err` 而非空 Vec
 
 ---
 
-## 五、跨横切关注点（B+ → A）
+## 五、跨横切关注点（A-）
 
 ### 错误处理 — A-
 
-- 前端：`coerceAppError` 统一处理 `string | Error | AppError` → `AppError`，`reportCommandFailure` 记录日志
-- Rust：`tls-manager` 使用 `thiserror` 定义 `TlsManagerError`，`proxy-core` 已引入 `ProxyError` 并迁移 upstream forward 路径，Tauri command 高频路径已开始统一 JSON 错误格式
-- ✅ 前端 ErrorBoundary 已补齐（全局级 + 页面级）
+- **前端**：`coerceAppError` 统一处理 `string | Error | AppError` → `AppError`，`reportCommandFailure` 记录日志；ErrorBoundary 双层保护
+- **Rust proxy-core**：`ProxyError` 8 variants 已建立基线，`forward_request` 热路径已迁移，外层函数待推进
+- **Rust Tauri 层**：`app_error()`/`app_error_with_details()` helper + 4 个标准错误码常量（`PROXY_NOT_RUNNING` / `INVALID_INPUT` / `CERT_NOT_FOUND` / `INTERNAL_ERROR`），120+ 处调用
+- **Rust db/rule-engine**：仍为 `String` 错误，待引入结构化类型
 
-### 安全性 — B+ → A
+### 安全性 — A
 
-- ✅ SQL 注入防护完善：全部使用 `rusqlite::params!` 参数化查询
-- ✅ 路径遍历防护：`body_store.rs` 的 `validate_safe_segment` + `canonicalize` 双重校验，有测试覆盖
-- ✅ 敏感数据脱敏：`redaction.helpers.ts` 对 authorization/cookie/token 等字段自动 REDACTED
-- ✅ 脚本沙箱时间限制：50ms 超时 + `AtomicBool` 中断 + 独立线程，日志条目 8KB 截断
-- ✅ **脚本沙箱内存限制已加固**：`allocator` feature 已移除，`set_memory_limit(16MB)` + `set_gc_threshold(8MB)` 生效
+- ✅ SQL 注入防护：全部 `rusqlite::params!` 参数化查询
+- ✅ 路径遍历防护：`body_store.rs` 的 `validate_safe_segment` + `canonicalize`
+- ✅ 敏感数据脱敏：`redaction.helpers.ts` 对 authorization/cookie/token 自动 REDACTED
+- ✅ 脚本沙箱：50ms 超时 + 16MB 内存限制 + `AtomicBool` 中断 + 独立线程 + 日志 8KB 截断
 - ✅ 无硬编码密钥或凭证
-- ✅ Rust 生产代码中 unwrap/panic 使用极为克制（仅约 5 处，均为安全常量）
-- ✅ **CSP 策略已配置**：`tauri.conf.json` 已设置 `csp`（生产）和 `devCsp`（开发），限制为 `'self'` + 必要的 inline 样式
-- ✅ **Cargo.lock 已追踪**：已从 `.gitignore` 移除并 `git add`
+- ✅ unwrap/panic 使用极为克制（生产代码仅用于编译期常量）
+- ✅ CSP 策略已配置：生产限制 script/style 为 `'self'`，`connect-src` 锁定 `ipc://localhost` / `tauri://localhost`
+- ✅ Cargo.lock 已追踪（不在 `.gitignore` 内，181KB）
 
-### 测试策略 — B
+### 测试策略 — B+
 
 | 指标 | 数据 |
 |------|------|
-| 前端源文件 | 143 个 `.ts/.tsx` |
-| 前端测试文件 | 33 个（覆盖率约 23%） |
-| Rust 源文件 | 33 个 |
-| 含测试的 Rust 文件 | 25 个（覆盖率约 76%） |
-| Rust 测试代码 | 1760 行（tests.rs） |
+| Rust 源文件 | 44 个 |
+| 含测试的 Rust 文件 | 26 个（覆盖率 59%） |
+| Rust 测试函数 | 202 个 |
+| Rust 测试代码 | ~3,000 行 |
+| 前端源文件 | 195 个 |
+| 前端测试文件 | 34 个（文件覆盖率 17.4%） |
+| 属性测试 | `proptest` 已引入 proxy-core 和 db |
 
-- 前端测试覆盖不足，尤其核心 Store 操作（`session-container.store`）和页面组件
-- Rust 测试质量高但缺少 property-based/fuzz 测试
-- 有性能基准测试框架（criterion）但只覆盖 body_decompress
-- P1 核心验证已通过：`cargo test -p aiproxy-proxy-core`（69 passed）与 `cargo clippy -p aiproxy-proxy-core -- -D warnings`
+- Rust 测试质量高，proxy-core 95 个测试覆盖核心代理链路
+- `proptest` 属性测试已引入（Phase 6），适用于 URL pattern、JSON 边界等场景
+- 前端测试覆盖不足，尤其核心 Store 操作和大型页面组件
+- 性能基准测试框架（criterion）覆盖 `body_decompress`
+- CI 流水线已建立（`.github/workflows/ci.yml` + `release.yml`）
 
 ### 依赖健康度 — B+
 
 - ✅ Rust 依赖选择合理：hyper 1.x + rustls 0.23 + tokio 1.x + QuickJS + deno_ast
 - ✅ 无已知废弃或高危依赖
-- ⚠️ 同时使用 reqwest 和 hyper 增加编译时间和二进制体积
-- ✅ 空壳 crate 已删除；后续不得重新加入无真实职责的占位 crate
+- ⚠️ 同时使用 reqwest 和 hyper 增加编译时间和二进制体积（已由 ADR-003 记录分工理由：代理路径用 hyper + TimingConnector 采集 7 阶段 timing，Compose 路径用 reqwest）
+- ✅ 已删除空壳 crate（session-store、throttle-engine、exporter）
 
 ---
 
 ## 优先级排序的改进路线图
 
-### P0 — 安全与稳定性 ✅ 全部已完成（2026-06-07）
+### ✅ P0 — 安全与稳定性（已完成）
 
 | # | 改进项 | 状态 |
 |---|--------|------|
-| 1 | ✅ **配置 CSP 策略**：`tauri.conf.json` 已设置 `csp` + `devCsp` | 已完成 |
-| 2 | ✅ **JS 沙箱添加内存限制**：移除 `allocator` feature，添加 `set_memory_limit(16MB)` | 已完成 |
-| 3 | ✅ **添加前端 ErrorBoundary**：全局级 + 页面级 | 已完成 |
-| 4 | ✅ **修复 `http2Enabled` 前后端契约**：Rust DB/schema/workspace 层已补齐 | 已完成 |
-| 5 | ✅ **追踪 `Cargo.lock`**：已移出 `.gitignore` 并 `git add` | 已完成 |
+| 1 | 配置 CSP 策略 | ✅ 已完成 |
+| 2 | JS 沙箱添加内存限制（16MB） | ✅ 已完成 |
+| 3 | 添加前端 ErrorBoundary（全局 + 路由级） | ✅ 已完成 |
+| 4 | 修复 `http2Enabled` 前后端契约 | ✅ 已完成 |
+| 5 | 追踪 `Cargo.lock` | ✅ 已完成 |
 
-> 详细修复计划见 `docs/plan/p0-security-stability-fix-plan.md`
-
-### P1 — 代码质量与架构治理 ✅ 已完成（2026-06-07）
+### ✅ P1 — 代码质量与架构治理（已完成）
 
 | # | 改进项 | 状态 |
 |---|--------|------|
-| 6 | ✅ 将 SQLite 同步写入移到 `spawn_blocking`，同步 `upsert_session` 标记 deprecated | 已完成 |
-| 7 | ✅ 预编译 Rewrite regex 规则，Script/Breakpoint regex 缓存转 P2 | 已完成 |
-| 8 | ✅ 拆分 `handle_http_request` 为阶段函数 | 已完成 |
-| 9 | ✅ 拆分 `rules.rs` 为 `rules/` 模块目录 | 已完成 |
-| 10 | ✅ 引入 `ProxyError` enum + `ProxyManagers` / `ProxyConfig` | 已完成 |
-| 11 | ✅ 更新 `API_SPEC.md` Insights 章节 | 已完成 |
-| 12 | ✅ 建立共享 Rust 错误 helper，高频 command 路径迁移 | 已完成 |
-| 13 | ✅ 拆分 `AppShell` 为多个 Hook | 已完成 |
+| 6 | SQLite 同步写入迁移到 `spawn_blocking` | ✅ 已完成 |
+| 7 | 预编译 Rewrite regex 规则 | ✅ 已完成 |
+| 8 | 拆分 `handle_http_request` 为阶段函数 | ✅ 已完成 |
+| 9 | 拆分 `rules.rs` 为 `rules/` 模块目录 | ✅ 已完成 |
+| 10 | 引入 `ProxyError` + `ProxyManagers` / `ProxyConfig` | ✅ 已完成 |
+| 11 | 更新 `API_SPEC.md` Insights 章节 | ✅ 已完成 |
+| 12 | 建立共享 Rust 错误 helper，高频 command 迁移 | ✅ 已完成 |
+| 13 | 拆分 `AppShell` 为多个 Hook | ✅ 已完成 |
 
-> 详细执行计划与验收记录见 `docs/plan/p1-code-quality-architecture-governance.md`。
+### ✅ P2 — 工程规范（大部分已完成）
 
-### P2 — 工程规范（持续改进）
+| # | 改进项 | 状态 |
+|---|--------|------|
+| 14 | 清理空壳 crate 依赖声明 | ✅ 已完成 |
+| 15 | 提取 `TlsOrPlain<S>` 共享类型 | ✅ 已完成 |
+| 16 | 统一 HTTP 客户端 TLS 策略（ADR-003 记录分工） | ✅ 已完成 |
+| 17 | Windows 网络接口枚举（PowerShell `Get-NetIPAddress`） | ✅ 已完成 |
+| 18 | 添加 property-based 测试（`proptest`） | ✅ 已完成 |
+| 19 | 统一 `BodyType`/`RawLanguage` 等重复类型 | ✅ 已完成 |
+| 20 | 将 `emit_log` 迁移到 `tracing` 宏 | ✅ 已完成 |
+| 21 | Script/Breakpoint regex 编译缓存 | ✅ 已完成 |
+| 22 | `ProxyError` 推进到主要代理路径 | ✅ 已完成 |
+| 23 | 拆分 `bootstrap/mod.rs` 为 repository/cache/converters/events | ✅ 已完成 |
+| 24 | 拆分 `SessionsPage` hooks | ✅ 已完成 |
 
-| # | 改进项 |
-|---|--------|
-| 14 | ✅ 清理空壳 crate 依赖声明 |
-| 15 | 提取 `TlsOrPlain<S>` 共享类型 |
-| 16 | 统一 HTTP 客户端（reqwest vs hyper） |
-| 17 | 增强 Windows 网络接口枚举能力 |
-| 18 | 添加 property-based 测试（`proptest`） |
-| 19 | ✅ 统一 `BodyType`/`RawLanguage` 等重复类型定义 |
-| 20 | ✅ 将 `emit_log` 迁移到 `tracing` 宏 |
-| 21 | ✅ 将 Script/Breakpoint regex 编译缓存纳入 manager runtime wrapper |
-| 22 | ✅ 将 `ProxyError` 继续推进到主要代理/command 错误路径；局部 helper 仍可返回 `String` |
-| 23 | ✅ 拆分 `bootstrap/mod.rs` 为 repository/cache/converters/events 边界 |
-| 24 | ✅ 拆分 `SessionsPage` hooks；Session Inspector 仍可继续瘦身 |
+### 📋 P3 — 持续改进（待推进）
+
+| # | 改进项 | 优先级 |
+|---|--------|--------|
+| 25 | 继续瘦身 `http_proxy.rs`（WS upgrade / 响应构建独立模块化） | P3 |
+| 26 | 继续瘦身 `server.rs`（blind tunnel / 内建端点独立模块化） | P3 |
+| 27 | 拆分 `rule-engine` monolithic 为多模块 | P3 |
+| 28 | 为 `db` crate 引入 `DbError` 结构化错误类型 | P3 |
+| 29 | 将 `ProxyError` 扩展到 `handle_connection` 等外层函数 | P3 |
+| 30 | 修复 Tauri commands 2 处原始 `format!` 错误 | P3 |
+| 31 | 拆分大型前端页面（collections / compare / insights / throttling） | P3 |
+| 32 | 补齐 throttling / compare 页面 i18n 硬编码字符串 | P3 |
+| 33 | 补充核心 Store 单元测试（session-container / compose-editor） | P3 |
+| 34 | 全面审查列表查询命令错误传播 | P3 |
 
 ---
 
 ## 架构亮点 Top 5
 
-1. **代理核心与 UI 完全解耦** — `proxy-core` 纯 Rust、不依赖 Tauri，可独立测试和复用
-2. **三层同构命令架构** — Rust commands → TS commands → shared-types，一一对应、可审计
+1. **代理核心与 UI 完全解耦** — `proxy-core` 纯 Rust、不依赖 Tauri，12,614 行独立测试和复用
+2. **三层同构命令架构** — Rust commands → TS commands → shared-types，16 域一一对应、可审计
 3. **请求处理管线阶段化** — `handle_http_request` 已拆为 parse/rules/breakpoint/throttle/upstream/response 阶段
 4. **运行时类型边界校验** — `invoke<unknown>()` + parse 模式，前后端边界零信任
 5. **QuickJS 脚本沙箱** — 50ms 超时 + 16MB 内存限制 + 独立线程 + AtomicBool 中断，安全且不阻塞
 
 ## 架构风险 Top 5
 
-1. **`server.rs` / `http_proxy.rs` 仍偏大** — 热点边界已清晰，但 WS、响应处理、连接细节还可继续模块化
-2. **错误类型仍需防回归** — `ProxyError` 和 JSON command error 已建立基线，局部 helper 可保留 `String`，但新增用户可见错误必须结构化
-3. **前端大型业务页面仍需继续瘦身** — `SessionsPage` hooks 已拆分，Session Inspector 子组件仍是后续维护压力点
-4. **`rule-engine` 命名与职责仍容易误导** — crate 实际负责脚本沙箱，运行时规则管线在 `proxy-core`
-5. **跨平台能力仍需实测补强** — Windows 网络接口枚举与证书/系统代理路径需要持续验证
+1. **`http_proxy.rs`（2,315 行）和 `server.rs`（1,714 行）仍是维护热点** — 功能边界已清晰但体积仍大，后续新增协议处理或规则类型会继续膨胀
+2. **错误类型统一仍有差距** — `db`（89 处 String）和 `proxy-core` 外层（43 处 String vs 16 处 ProxyError）未完成迁移，新增代码需防止回归
+3. **前端大型页面是后续维护压力点** — `collections`（1,573 行）、`compare`（1,441 行）等页面超过 1,000 行，状态管理和组件拆分需持续推进
+4. **`rule-engine` monolithic 结构** — 1,178 行单文件含全部职责，随着脚本能力扩展会成为瓶颈
+5. **前端测试覆盖偏弱** — 17.4% 文件覆盖率，核心 Store 和页面组件缺少自动化回归保护
 
 ---
 
 ## 结论
 
-**P0 安全与稳定性修复 + P1 代码质量与架构治理完成后，AIProxy 的整体健康度提升至 A（生产级工程基础稳固）**。P0 解决了安全基线与稳定性缺口，P1 进一步完成了代理核心阶段化、规则模块拆分、async 阻塞 IO 迁移、错误格式基线、API 文档同步和前端 AppShell 拆分。
+AIProxy 当前整体健康度为 **A（工程基础稳固）**。
 
-当前项目状态：**工程基础扎实、安全基线达标、核心架构清晰、主要 P1 与多项 P2 治理已闭环**。剩余工作主要是持续防回归与少量深水区改进：`server.rs` / `http_proxy.rs` 继续瘦身、HTTP 客户端 TLS 策略审计、Windows 网络接口枚举、property-based 测试、Session Inspector 继续拆分，以及 `rule-engine` 命名/职责的 ADR 决策。
+**P0 安全基线 + P1 架构治理 + P2 工程规范** 三轮治理后，项目已建立扎实基础：
 
-**P0 ✅ 已完成**（2026-06-07）：CSP 配置、JS 沙箱内存限制、ErrorBoundary、`http2Enabled` 契约修复、Cargo.lock 追踪。
+- **架构层面**：四层分离清晰、三层同构严格执行、Crate 依赖图为 DAG、规则管线阶段化
+- **安全层面**：CSP 已配置、沙箱内存/时间双重限制、SQL 全参数化、Cargo.lock 追踪、零危险 unwrap
+- **代码质量**：前端零 `any`、Rust 结构化错误基线已建立、类型安全贯穿前后端
+- **跨平台**：Windows 网络接口枚举已实现（Phase 6）、系统代理三端适配到位
 
-**P1 ✅ 已完成**（2026-06-07）：SQLite async 路径修正、Rewrite regex 预编译、`handle_http_request` 阶段化、`rules.rs` 模块拆分、`ProxyError`/`ProxyManagers` 引入、Insights API 文档同步、Rust 错误格式基线、AppShell Hook 拆分。
-
-**P2/P4 部分 ✅ 已完成**（2026-06-08）：CI/格式化基线、重复共享类型统一、空壳 crate 删除、`emit_log` 迁移、Script/Breakpoint regex 缓存、列表查询错误传播、`bootstrap` 拆分、`SessionsPage` hooks 拆分。
+**剩余工作集中在持续改进**：`http_proxy.rs`/`server.rs` 继续瘦身、`db` crate 错误类型结构化、`rule-engine` 模块拆分、前端大型页面组件化、测试覆盖提升。这些问题均不影响当前功能交付，可在后续迭代中逐步收敛。
