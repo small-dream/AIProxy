@@ -58,6 +58,7 @@ mod timing_connector;
 mod types;
 mod upstream_pool;
 pub mod ws;
+mod ws_upgrade;
 
 #[cfg(test)]
 mod tests;
