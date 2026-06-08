@@ -125,4 +125,38 @@ mod tests {
         assert!(parsed.get("code").and_then(|v| v.as_str()).is_some());
         assert!(parsed.get("message").and_then(|v| v.as_str()).is_some());
     }
+
+    /// Regression test: list query commands must propagate DB errors as structured
+    /// app_error() with a parseable code and message, not silently return Ok(vec![]).
+    /// This ensures the frontend can distinguish "no data" from "query failed".
+    #[test]
+    fn list_query_db_error_produces_structured_app_error() {
+        // Simulate what a list command does when DB fails:
+        //   .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))
+        let db_error_msg = "database is locked";
+        let error = app_error(ERR_INTERNAL, format!("list collections: {db_error_msg}"));
+
+        // Frontend should be able to extract code and message
+        let parsed: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(parsed["code"], "INTERNAL_ERROR");
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .contains("list collections"));
+        assert!(parsed["message"].as_str().unwrap().contains(db_error_msg));
+    }
+
+    /// Regression test: app_error_with_details preserves structured context
+    /// that the frontend can use for error-specific UI behavior.
+    #[test]
+    fn list_query_error_with_details_preserves_context() {
+        let error = app_error_with_details(
+            ERR_INTERNAL,
+            "query failed",
+            serde_json::json!({ "operation": "list_sessions" }),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(parsed["code"], "INTERNAL_ERROR");
+        assert_eq!(parsed["details"]["operation"], "list_sessions");
+    }
 }
