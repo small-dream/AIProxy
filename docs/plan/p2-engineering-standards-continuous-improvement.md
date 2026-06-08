@@ -22,7 +22,7 @@
 | Phase 2b | ✅ 已完成 | 列表查询失败已向前端传播，并通过 notification store 做用户可见提示 |
 | Phase 3 | ✅ 已完成主体 | `SessionsPage` 已拆出 filters/selection/layout/import-export/repeat 等 hooks；Inspector 仍可继续瘦身 |
 | Phase 4 | ✅ 已完成 | `bootstrap` 已拆为 `repository.rs` / `cache.rs` / `converters.rs` / `events.rs` |
-| Phase 5 | ⏳ 待推进 | `TlsOrPlain<S>` 与 HTTP 客户端 TLS 策略审计仍待处理 |
+| Phase 5 | ✅ 已完成 | `TlsOrPlain<S>` 已提取到 `stream.rs`；客户端 TLS 配置统一到 `tls-manager::client`；reqwest 类型依赖已清理；ADR-003 已落地 |
 | Phase 6 | ⏳ 待推进 | Windows 网络接口枚举与 property-based 测试仍待处理 |
 
 **防回归要求**：已完成项不再按原方案重复执行；后续开发必须遵守 `docs/ENGINEERING_GUIDELINES.md` 与 `docs/ARCHITECTURE.md` 中新增的重构后边界约束。
