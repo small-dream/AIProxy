@@ -23,7 +23,7 @@ Phase 5 旨在消除 proxy-core 和 tls-manager 中 TLS 相关代码的重复和
 
 ### 新建文件
 
-`docs/DECISIONS/ADR-002-proxy-http-client-strategy.md`
+`docs/DECISIONS/ADR-003-proxy-http-client-strategy.md`
 
 ### 内容要点
 
