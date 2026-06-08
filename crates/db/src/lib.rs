@@ -9,4 +9,7 @@ pub mod schema;
 pub mod sessions;
 pub mod workspaces;
 
+#[cfg(test)]
+mod error_propagation_tests;
+
 pub use rusqlite;
