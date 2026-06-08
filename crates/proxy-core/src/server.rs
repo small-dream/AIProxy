@@ -281,7 +281,7 @@ async fn handle_connection(
     managers: ProxyManagers,
     config: ProxyConfig,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
-) -> Result<(), String> {
+) -> Result<(), ProxyError> {
     let ProxyManagers {
         tls: tls_manager,
         breakpoint: breakpoint_manager,
@@ -341,7 +341,7 @@ async fn handle_connection(
             stream
                 .write_all(response.as_bytes())
                 .await
-                .map_err(|e| format!("cert write: {e}"))?;
+                .map_err(|e| ProxyError::IoError(e))?;
             let _ = stream.shutdown().await;
             return Ok(());
         } else {
@@ -394,7 +394,8 @@ async fn handle_connection(
                     &dns_manager,
                     &active_workspace_id,
                 )
-                .await;
+                .await
+                .map_err(ProxyError::from);
             }
             Some(mgr) => {
                 tracing::debug!(
@@ -457,7 +458,7 @@ async fn handle_connection(
         .serve_connection(io, service)
         .with_upgrades()
         .await
-        .map_err(|e| format!("HTTP/1.1 server error: {e}"))?;
+        .map_err(|e| ProxyError::Other(format!("HTTP/1.1 server error: {e}")))?;
 
     Ok(())
 }
@@ -1295,12 +1296,12 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
     workspace_id: String,
     event_emitter: Option<BreakpointEventEmitter>,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
-) -> Result<(), String> {
+) -> Result<(), ProxyError> {
     // Send 200 Connection Established
     stream
         .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         .await
-        .map_err(map_io_error)?;
+        .map_err(ProxyError::IoError)?;
 
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
     let tls_instant = Instant::now();
@@ -1314,7 +1315,9 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
                 error = %error,
                 "tls_handshake_failed"
             );
-            return Err(format!("TLS handshake failed for {host}:{port}: {error}"));
+            return Err(ProxyError::TlsError(format!(
+                "TLS handshake failed for {host}:{port}: {error}"
+            )));
         }
     };
     let tls_ms = tls_instant.elapsed().as_millis();
@@ -1394,7 +1397,9 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
                     error = %e,
                     "h2_serve_error"
                 );
-                format!("HTTP/2 server connection error for {host}:{port}: {e}")
+                ProxyError::Other(format!(
+                    "HTTP/2 server connection error for {host}:{port}: {e}"
+                ))
             })?;
     } else {
         hyper::server::conn::http1::Builder::new()
@@ -1408,7 +1413,9 @@ async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>
                     error = %e,
                     "h1_serve_error"
                 );
-                format!("HTTP/1.1 server connection error for {host}:{port}: {e}")
+                ProxyError::Other(format!(
+                    "HTTP/1.1 server connection error for {host}:{port}: {e}"
+                ))
             })?;
     }
 
