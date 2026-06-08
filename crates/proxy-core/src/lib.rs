@@ -25,7 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::{mpsc, oneshot, Semaphore},
     task::JoinHandle,
@@ -55,6 +55,7 @@ mod http_io;
 mod http_proxy;
 mod rules;
 mod server;
+mod stream;
 mod timing_connector;
 mod types;
 mod upstream_pool;

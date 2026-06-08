@@ -1,5 +1,6 @@
 use super::*;
 use crate::connection::{ConnectionContext, ConnectionMode};
+use crate::stream::TlsOrPlain;
 use crate::MAX_CAPTURED_BODY_BYTES;
 use crate::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
@@ -12,11 +13,8 @@ use crate::{
 };
 use http_body_util::BodyExt;
 use std::future::Future;
-use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-use tokio::io::ReadBuf;
 
 const CLIENT_CLOSED_REQUEST_STATUS: u16 = 499;
 
@@ -232,9 +230,9 @@ async fn handle_ws_upgrade_via_hyper(
                     .await);
                 }
             };
-            WsUpstream::Tls(Box::new(tls_stream))
+            TlsOrPlain::Tls(Box::new(tls_stream))
         }
-        ConnectionMode::PlainHttp => WsUpstream::Plain(ws_tcp),
+        ConnectionMode::PlainHttp => TlsOrPlain::Plain(ws_tcp),
     };
 
     // Build and send the raw upgrade request to upstream.
@@ -588,57 +586,6 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
     }
     raw.push_str("\r\n");
     Ok(raw)
-}
-
-// ---------------------------------------------------------------------------
-// WebSocket upstream stream wrapper
-// ---------------------------------------------------------------------------
-
-/// Unified stream type for WebSocket upstream connections.
-/// Wraps either a plain TCP stream (ws://) or a TLS stream (wss://).
-enum WsUpstream {
-    Plain(TcpStream),
-    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
-}
-
-impl AsyncRead for WsUpstream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        match &mut *self {
-            WsUpstream::Plain(s) => Pin::new(s).poll_read(cx, buf),
-            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_read(cx, buf),
-        }
-    }
-}
-
-impl AsyncWrite for WsUpstream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        match &mut *self {
-            WsUpstream::Plain(s) => Pin::new(s).poll_write(cx, buf),
-            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_write(cx, buf),
-        }
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match &mut *self {
-            WsUpstream::Plain(s) => Pin::new(s).poll_flush(cx),
-            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_flush(cx),
-        }
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match &mut *self {
-            WsUpstream::Plain(s) => Pin::new(s).poll_shutdown(cx),
-            WsUpstream::Tls(s) => Pin::new(&mut *s).poll_shutdown(cx),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

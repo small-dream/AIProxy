@@ -6,14 +6,11 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
+use crate::stream::TlsOrPlain;
 use http::uri::Scheme;
 use http::Uri;
-use hyper::rt::{Read, ReadBufCursor, Write};
-use hyper_util::client::legacy::connect::{Connected, Connection};
 use rustls::pki_types::ServerName;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 use tower_service::Service;
 
@@ -48,7 +45,7 @@ impl TimingConnector {
 }
 
 impl Service<Uri> for TimingConnector {
-    type Response = (TimingStream, ConnectionTiming);
+    type Response = (TlsOrPlain<TcpStream>, ConnectionTiming);
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -92,9 +89,9 @@ impl Service<Uri> for TimingConnector {
                     .1
                     .alpn_protocol()
                     .map(|s| String::from_utf8_lossy(s).into_owned());
-                (TimingStream::Tls(Box::new(tls_stream)), Some(tls_ms), alpn)
+                (TlsOrPlain::Tls(Box::new(tls_stream)), Some(tls_ms), alpn)
             } else {
-                (TimingStream::Plain(tcp_stream), None, None)
+                (TlsOrPlain::Plain(tcp_stream), None, None)
             };
 
             let timing = ConnectionTiming {
@@ -106,73 +103,6 @@ impl Service<Uri> for TimingConnector {
 
             Ok((timing_stream, timing))
         })
-    }
-}
-
-/// Wrapper around a connected stream that implements hyper's IO traits.
-///
-/// Carries either a plain TCP stream or a TLS-wrapped stream. The hyper Read/Write
-/// trait implementations bridge from tokio's AsyncRead/AsyncWrite, following the same
-/// pattern as `hyper_util::rt::TokioIo`.
-pub enum TimingStream {
-    Plain(TcpStream),
-    Tls(Box<TlsStream<TcpStream>>),
-}
-
-impl Connection for TimingStream {
-    fn connected(&self) -> Connected {
-        Connected::new()
-    }
-}
-
-impl Read for TimingStream {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        mut buf: ReadBufCursor<'_>,
-    ) -> Poll<io::Result<()>> {
-        let n = unsafe {
-            let mut tbuf = tokio::io::ReadBuf::uninit(buf.as_mut());
-            let poll_result = match self.get_mut() {
-                TimingStream::Plain(stream) => Pin::new(stream).poll_read(cx, &mut tbuf),
-                TimingStream::Tls(stream) => Pin::new(stream).poll_read(cx, &mut tbuf),
-            };
-            match poll_result {
-                Poll::Ready(Ok(())) => tbuf.filled().len(),
-                other => return other,
-            }
-        };
-        unsafe {
-            buf.advance(n);
-        }
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl Write for TimingStream {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        match self.get_mut() {
-            TimingStream::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
-            TimingStream::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.get_mut() {
-            TimingStream::Plain(stream) => Pin::new(stream).poll_flush(cx),
-            TimingStream::Tls(stream) => Pin::new(stream).poll_flush(cx),
-        }
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.get_mut() {
-            TimingStream::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
-            TimingStream::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
-        }
     }
 }
 
