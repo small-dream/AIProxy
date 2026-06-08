@@ -6,10 +6,10 @@ use aiproxy_db::rules::{
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
-    BreakpointRule, BreakpointStage, CompiledScriptRule, DnsMappingRule, MapRule, ProxyBodyReference,
-    ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteRule,
-    RewriteRuleMatch, ScriptEntrypoints, ScriptRule, ScriptRuleLanguage, ScriptRuleSourceType,
-    ThrottleProfileData, ThrottleRuleData,
+    BreakpointRule, BreakpointStage, CompiledScriptRule, DnsMappingRule, MapRule,
+    ProxyBodyReference, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
+    ProxyTimingBreakdown, RewriteRule, RewriteRuleMatch, ScriptEntrypoints, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData, ThrottleRuleData,
 };
 
 use crate::workspace::WorkspaceData;
@@ -253,10 +253,7 @@ pub(crate) fn detail_row_to_proxy(
     }
 }
 
-fn body_to_json(
-    body: &Option<ProxyBodyReference>,
-    body_store: &BodyStore,
-) -> Option<String> {
+fn body_to_json(body: &Option<ProxyBodyReference>, body_store: &BodyStore) -> Option<String> {
     body.as_ref().map(|b| {
         let mut body_json = serde_json::json!({
             "size_bytes": b.size_bytes,

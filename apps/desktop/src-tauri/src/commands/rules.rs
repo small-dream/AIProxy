@@ -152,7 +152,9 @@ pub fn list_throttled_session_ids(
 }
 
 #[tauri::command]
-pub fn list_breakpoint_rules(state: State<'_, Arc<AppState>>) -> Result<Vec<BreakpointRule>, String> {
+pub fn list_breakpoint_rules(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<BreakpointRule>, String> {
     Ok(state.read_breakpoint_manager().list_rules())
 }
 

@@ -154,7 +154,11 @@ impl AppState {
     fn init_from_db(&self) {
         self.clear_session_storage();
 
-        let conn = self.repository.db().lock().expect("db mutex should not be poisoned");
+        let conn = self
+            .repository
+            .db()
+            .lock()
+            .expect("db mutex should not be poisoned");
 
         if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
             if !rows.is_empty() {
@@ -228,14 +232,11 @@ impl AppState {
         // Fallback: load from DB via Repository
         let row = self.repository.load_session_detail_or_log(session_id)?;
 
-        let summary = self
-            .cache
-            .find_summary(session_id)
-            .or_else(|| {
-                self.repository
-                    .load_session_summary_or_log(session_id)
-                    .map(summary_row_to_proxy)
-            })?;
+        let summary = self.cache.find_summary(session_id).or_else(|| {
+            self.repository
+                .load_session_summary_or_log(session_id)
+                .map(summary_row_to_proxy)
+        })?;
 
         let detail = detail_row_to_proxy(&row, summary, self.repository.body_store().as_ref());
 

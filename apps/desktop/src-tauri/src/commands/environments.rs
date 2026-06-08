@@ -126,7 +126,9 @@ pub fn list_api_environment_variables(
 ) -> Result<Vec<ApiEnvironmentVariableOutput>, String> {
     let conn = state.read_db_connection().lock().expect("db mutex");
     let rows = aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("list environment variables: {error}")))?;
+        .map_err(|error| {
+        app_error(ERR_INTERNAL, format!("list environment variables: {error}"))
+    })?;
     Ok(rows
         .into_iter()
         .map(|r| ApiEnvironmentVariableOutput {

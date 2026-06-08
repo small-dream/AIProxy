@@ -144,11 +144,7 @@ impl SessionCache {
 
     /// Insert a detail into the LRU, evicting oldest entries if at capacity.
     /// Returns the IDs of evicted entries.
-    pub fn insert_detail(
-        &self,
-        session_id: String,
-        detail: ProxySessionDetail,
-    ) -> Vec<String> {
+    pub fn insert_detail(&self, session_id: String, detail: ProxySessionDetail) -> Vec<String> {
         self.details
             .lock()
             .expect("session detail mutex should not be poisoned")

@@ -212,8 +212,7 @@ impl Repository {
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionDetailRow>, String> {
         let conn = self.db.lock().expect("db mutex should not be poisoned");
-        aiproxy_db::sessions::load_session_detail(&conn, session_id)
-            .map_err(|e| e.to_string())
+        aiproxy_db::sessions::load_session_detail(&conn, session_id).map_err(|e| e.to_string())
     }
 
     /// Load a session summary row from the database.
@@ -223,8 +222,7 @@ impl Repository {
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionSummaryRow>, String> {
         let conn = self.db.lock().expect("db mutex should not be poisoned");
-        aiproxy_db::sessions::load_session_summary(&conn, session_id)
-            .map_err(|e| e.to_string())
+        aiproxy_db::sessions::load_session_summary(&conn, session_id).map_err(|e| e.to_string())
     }
 
     /// Persist a single session (summary + detail rows) to SQLite.
@@ -480,8 +478,7 @@ impl Repository {
             }
             let spill_elapsed_us = spill_started_at.elapsed().as_micros();
 
-            let summary_row =
-                crate::bootstrap::converters::proxy_summary_to_row(&detail.summary);
+            let summary_row = crate::bootstrap::converters::proxy_summary_to_row(&detail.summary);
             let row_build_started_at = Instant::now();
             let detail_row =
                 crate::bootstrap::converters::proxy_detail_to_row(&detail, &body_store);
@@ -489,9 +486,7 @@ impl Repository {
             log_storage_stats(&detail, &detail_row, spill_elapsed_us, row_build_elapsed_us);
 
             let conn = db.lock().expect("db mutex should not be poisoned");
-            if let Err(e) =
-                aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row)
-            {
+            if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 tracing::error!(
                     component = "desktop.persistence",
                     event = "session_upsert_db_failed",
@@ -501,8 +496,14 @@ impl Repository {
             }
 
             persist_all_traces(
-                &conn, &detail.id, &wid, &detail.summary, &detail.script_traces,
-                &detail.rewrite_traces, &detail.map_traces, &detail.throttle_traces,
+                &conn,
+                &detail.id,
+                &wid,
+                &detail.summary,
+                &detail.script_traces,
+                &detail.rewrite_traces,
+                &detail.map_traces,
+                &detail.throttle_traces,
             );
 
             detail
@@ -555,8 +556,14 @@ impl Repository {
                 }
 
                 persist_all_traces(
-                    &conn, &session.id, &wid, &session.summary, &session.script_traces,
-                    &session.rewrite_traces, &session.map_traces, &session.throttle_traces,
+                    &conn,
+                    &session.id,
+                    &wid,
+                    &session.summary,
+                    &session.script_traces,
+                    &session.rewrite_traces,
+                    &session.map_traces,
+                    &session.throttle_traces,
                 );
             }
 
