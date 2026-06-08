@@ -79,3 +79,88 @@ pub(crate) fn contains_matches(normalized: &str, candidate: &str) -> bool {
     }
     candidate.contains(normalized)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // P1-1: Empty pattern / "*" matches everything
+    proptest! {
+        #[test]
+        fn empty_pattern_matches_any_candidate(candidate in ".*") {
+            prop_assert!(wildcard_matches("", &candidate));
+        }
+
+        #[test]
+        fn star_pattern_matches_any_candidate(candidate in ".*") {
+            prop_assert!(wildcard_matches("*", &candidate));
+        }
+    }
+
+    // P1-2: No wildcard = exact match
+    proptest! {
+        #[test]
+        fn no_wildcard_is_exact_match(
+            s in "[a-zA-Z0-9/._-]{1,50}",
+            candidate in "[a-zA-Z0-9/._-]{1,50}"
+        ) {
+            prop_assert_eq!(wildcard_matches(&s, &candidate), candidate == s);
+        }
+    }
+
+    // P1-3: Prefix anchored `foo*`
+    proptest! {
+        #[test]
+        fn prefix_anchored_matches(candidate in "foo.*") {
+            prop_assert!(wildcard_matches("foo*", &candidate));
+        }
+
+        #[test]
+        fn prefix_anchored_rejects_non_prefix(candidate in "bar[a-zA-Z0-9]*") {
+            prop_assert!(!wildcard_matches("foo*", &candidate));
+        }
+    }
+
+    // P1-4: Suffix anchored `*foo`
+    proptest! {
+        #[test]
+        fn suffix_anchored_matches(candidate in ".*foo") {
+            prop_assert!(wildcard_matches("*foo", &candidate));
+        }
+
+        #[test]
+        fn suffix_anchored_rejects_non_suffix(candidate in "[a-zA-Z0-9]*bar") {
+            prop_assert!(!wildcard_matches("*foo", &candidate));
+        }
+    }
+
+    // P1-5: Multi-segment `*foo*bar*`
+    proptest! {
+        #[test]
+        fn multi_segment_matches_ordered(candidate in ".*foo.*bar.*") {
+            prop_assert!(wildcard_matches("*foo*bar*", &candidate));
+        }
+
+        #[test]
+        fn multi_segment_rejects_wrong_order(candidate in ".*bar.*foo.*") {
+            // "bar...foo" does not have "foo" before "bar"
+            let has_foo_before_bar = candidate.find("foo").map_or(false, |fi| {
+                candidate[fi + 3..].contains("bar")
+            });
+            if has_foo_before_bar {
+                // This candidate accidentally satisfies the order, skip it
+                return Ok(());
+            }
+            prop_assert!(!wildcard_matches("*foo*bar*", &candidate));
+        }
+    }
+
+    // P1-6: No panic on arbitrary UTF-8
+    proptest! {
+        #[test]
+        fn no_panic_on_arbitrary_input(pattern in "\\PC*", candidate in "\\PC*") {
+            let _ = wildcard_matches(&pattern, &candidate);
+        }
+    }
+}

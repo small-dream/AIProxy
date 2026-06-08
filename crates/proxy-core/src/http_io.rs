@@ -585,3 +585,148 @@ pub(crate) fn find_header_end(buffer: &[u8]) -> Option<usize> {
 pub(crate) fn map_io_error(error: io::Error) -> String {
     format!("stream IO failure: {error}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // -----------------------------------------------------------------------
+    // P3: should_render_body_as_text
+    // -----------------------------------------------------------------------
+
+    // P3-1: text/* MIME always returns true
+    proptest! {
+        #[test]
+        fn text_mime_always_returns_true(sub in "[a-zA-Z0-9]+", body in ".*") {
+            let mime = format!("text/{sub}");
+            prop_assert!(should_render_body_as_text(Some(&mime), body.as_bytes()));
+        }
+    }
+
+    // P3-2: Valid UTF-8 body always returns true regardless of MIME
+    proptest! {
+        #[test]
+        fn valid_utf8_body_always_true(mime in "(application|image)/[a-zA-Z0-9]+", body in ".*") {
+            prop_assert!(should_render_body_as_text(Some(&mime), body.as_bytes()));
+        }
+    }
+
+    // P3-3: application/json always returns true
+    proptest! {
+        #[test]
+        fn application_json_always_true(body in ".*") {
+            prop_assert!(should_render_body_as_text(Some("application/json"), body.as_bytes()));
+        }
+    }
+
+    // P3-4: Non-text MIME + non-UTF-8 body -> false
+    // Use suffixes that won't match text-like keywords (json, xml, javascript, yaml, etc.)
+    proptest! {
+        #[test]
+        fn non_text_mime_non_utf8_body_returns_false(suffix in "png|gif|bmp|tiff|ico|webp|bin|exe", extra in prop::collection::vec(any::<u8>(), 0..50)) {
+            let mime = format!("image/{suffix}");
+            let mut body = vec![0xff, 0xfe];
+            body.extend_from_slice(&extra);
+            prop_assert!(!should_render_body_as_text(Some(&mime), &body));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // P4: find_header_end
+    // -----------------------------------------------------------------------
+
+    // P4-1: Buffer containing \r\n\r\n -> Some(n) where buffer[n-4..n] == b"\r\n\r\n"
+    proptest! {
+        #[test]
+        fn finds_header_end_marker(prefix in "[^\r]{0,50}", suffix in ".*") {
+            let mut buffer = prefix.into_bytes();
+            buffer.extend_from_slice(b"\r\n\r\n");
+            buffer.extend_from_slice(suffix.as_bytes());
+            let result = find_header_end(&buffer);
+            prop_assert!(result.is_some());
+            let n = result.unwrap();
+            prop_assert_eq!(&buffer[n - 4..n], b"\r\n\r\n");
+        }
+    }
+
+    // P4-2: Buffer without \r\n\r\n -> None (no CR means no CRLF CRLF)
+    proptest! {
+        #[test]
+        fn no_header_end_returns_none(content in "[^\r]{0,50}") {
+            let buffer = content.into_bytes();
+            prop_assert!(find_header_end(&buffer).is_none());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // P5: should_skip_request_header
+    // -----------------------------------------------------------------------
+
+    // P5-1: Known skip headers in ANY case variation -> true
+    proptest! {
+        #[test]
+        fn host_skip_in_any_case(bits: u8) {
+            for name in &["host", "connection", "proxy-connection", "content-length", "transfer-encoding"] {
+                let mixed: String = name.chars().enumerate().map(|(i, c): (usize, char)| {
+                    if (bits >> (i % 8)) & 1 == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }
+                }).collect();
+                prop_assert!(should_skip_request_header(&mixed), "header {:?} should be skipped", mixed);
+            }
+        }
+    }
+
+    // P5-2: Random header names (filtered) -> false
+    proptest! {
+        #[test]
+        fn unknown_headers_are_not_skipped(name in "x-[a-zA-Z0-9-]+") {
+            let lower = name.to_ascii_lowercase();
+            prop_assume!(!matches!(
+                lower.as_str(),
+                "host" | "connection" | "proxy-connection" | "content-length" | "transfer-encoding"
+            ));
+            prop_assert!(!should_skip_request_header(&name));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // P7: resolve_target_url
+    // -----------------------------------------------------------------------
+
+    // P7-1: Absolute URLs -> Ok(original_value)
+    proptest! {
+        #[test]
+        fn absolute_url_returns_ok(path in "[a-zA-Z0-9/._-]+") {
+            for prefix in &["http://", "https://", "ws://", "wss://"] {
+                let url = format!("{prefix}example.com/{path}");
+                let result = resolve_target_url(&url, &[]);
+                prop_assert_eq!(result, Ok(url.clone()));
+            }
+        }
+    }
+
+    // P7-2: Origin-form path + Host header -> Ok("http://{host}{path}")
+    proptest! {
+        #[test]
+        fn origin_form_with_host_returns_full_url(
+            path in "/[a-zA-Z0-9/._-]+",
+            host in "[a-zA-Z0-9.-]+"
+        ) {
+            let headers = [httparse::Header {
+                name: "Host",
+                value: host.as_bytes(),
+            }];
+            let result = resolve_target_url(&path, &headers);
+            prop_assert_eq!(result, Ok(format!("http://{host}{path}")));
+        }
+    }
+
+    // P7-3: Origin-form without Host header -> Err
+    proptest! {
+        #[test]
+        fn origin_form_without_host_returns_err(path in "/[a-zA-Z0-9/._-]+") {
+            let result = resolve_target_url(&path, &[]);
+            prop_assert!(result.is_err());
+        }
+    }
+}
