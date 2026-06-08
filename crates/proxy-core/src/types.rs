@@ -24,7 +24,7 @@ impl ProxyRuntimeConfig {
 /// Returns the local network IP addresses of this machine.
 /// Used to tell mobile devices what IP to configure as their proxy.
 pub fn get_local_ip_addresses() -> Vec<String> {
-    let mut ips = ranked_interface_ipv4_addresses();
+    let mut ips = platform::ranked_interface_ipv4_addresses();
 
     // Use a UDP socket trick to find the preferred outbound local IP.
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
@@ -43,125 +43,52 @@ pub fn get_local_ip_addresses() -> Vec<String> {
 }
 
 #[cfg(unix)]
-fn ranked_interface_ipv4_addresses() -> Vec<String> {
-    use std::{collections::HashSet, ffi::CStr, net::Ipv4Addr};
+#[path = "types_unix.rs"]
+mod platform;
 
-    let mut interface_addresses = Vec::new();
-    let mut addrs = std::ptr::null_mut();
+#[cfg(windows)]
+#[path = "types_windows.rs"]
+mod platform;
 
-    // SAFETY: getifaddrs takes a mutable pointer to a linked list head.
-    // On failure (result != 0) or null return, we bail early.
-    let result = unsafe { libc::getifaddrs(&mut addrs) };
-    if result != 0 || addrs.is_null() {
-        return Vec::new();
+#[cfg(not(any(unix, windows)))]
+mod platform {
+    pub(super) fn ranked_interface_ipv4_addresses() -> Vec<String> {
+        Vec::new()
     }
-
-    let mut cursor = addrs;
-    while !cursor.is_null() {
-        // SAFETY: cursor is non-null and points to a valid ifaddrs node in the
-        // linked list returned by getifaddrs. The list is null-terminated.
-        let ifaddr = unsafe { &*cursor };
-
-        if !ifaddr.ifa_addr.is_null() {
-            // SAFETY: ifa_addr is non-null and was populated by getifaddrs.
-            // We only read sa_family, which is always valid for any sockaddr variant.
-            let family = unsafe { (*ifaddr.ifa_addr).sa_family as i32 };
-            let flags = ifaddr.ifa_flags as i32;
-
-            if family == libc::AF_INET
-                && flags & libc::IFF_UP != 0
-                && flags & libc::IFF_LOOPBACK == 0
-            {
-                // SAFETY: ifa_name is a valid C string populated by getifaddrs.
-                let interface_name = unsafe { CStr::from_ptr(ifaddr.ifa_name) }
-                    .to_string_lossy()
-                    .into_owned();
-                // SAFETY: We checked sa_family == AF_INET, so ifa_addr points to
-                // a valid sockaddr_in. The pointer cast is sound.
-                let sockaddr_in = unsafe { &*(ifaddr.ifa_addr as *const libc::sockaddr_in) };
-                let ip = Ipv4Addr::from(u32::from_be(sockaddr_in.sin_addr.s_addr));
-
-                if is_usable_ipv4(ip) {
-                    interface_addresses.push((score_interface_ipv4(&interface_name, ip), ip));
-                }
-            }
-        }
-
-        cursor = ifaddr.ifa_next;
-    }
-
-    // SAFETY: addrs was allocated by getifaddrs and must be freed by freeifaddrs.
-    // After this call, the memory is released and must not be accessed again.
-    unsafe {
-        libc::freeifaddrs(addrs);
-    }
-
-    interface_addresses.sort_by(|left, right| right.cmp(left));
-
-    let mut seen = HashSet::new();
-    interface_addresses
-        .into_iter()
-        .filter_map(|(_, ip)| {
-            let ip = ip.to_string();
-            if seen.insert(ip.clone()) {
-                Some(ip)
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
-#[cfg(not(unix))]
-fn ranked_interface_ipv4_addresses() -> Vec<String> {
-    Vec::new()
-}
+/// Parses JSON output from PowerShell `Get-NetIPAddress | ConvertTo-Json`.
+/// Handles three shapes: array `[{...}]`, single object `{...}`, and `null`.
+/// Returns (InterfaceAlias, Ipv4Addr) pairs for valid entries.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_interface_json(json: &str) -> Vec<(String, std::net::Ipv4Addr)> {
+    use serde_json::Value;
+    use std::net::Ipv4Addr;
 
-#[cfg(unix)]
-fn is_usable_ipv4(ip: std::net::Ipv4Addr) -> bool {
-    !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified()
-}
-
-#[cfg(unix)]
-fn score_interface_ipv4(interface_name: &str, ip: std::net::Ipv4Addr) -> i32 {
-    let octets = ip.octets();
-    let mut score = if octets[0] == 192 && octets[1] == 168 {
-        500
-    } else if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-        450
-    } else if octets[0] == 10 {
-        400
-    } else if ip.is_private() {
-        350
-    } else {
-        100
+    let value: Value = match serde_json::from_str(json.trim()) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
     };
 
-    let lowercase_name = interface_name.to_ascii_lowercase();
+    let objects = match value {
+        Value::Array(arr) => arr,
+        Value::Object(_) => vec![value],
+        _ => return Vec::new(),
+    };
 
-    if lowercase_name.starts_with("en")
-        || lowercase_name.starts_with("eth")
-        || lowercase_name.starts_with("wlan")
-        || lowercase_name.starts_with("wifi")
-    {
-        score += 100;
-    }
-
-    if lowercase_name.starts_with("utun")
-        || lowercase_name.starts_with("tun")
-        || lowercase_name.starts_with("tap")
-        || lowercase_name.starts_with("docker")
-        || lowercase_name.starts_with("veth")
-        || lowercase_name.starts_with("br-")
-        || lowercase_name.starts_with("bridge")
-        || lowercase_name.starts_with("vmnet")
-        || lowercase_name.starts_with("awdl")
-        || lowercase_name.starts_with("llw")
-    {
-        score -= 250;
-    }
-
-    score
+    objects
+        .into_iter()
+        .filter_map(|obj| {
+            let ip_str = obj.get("IPAddress")?.as_str()?;
+            let ip: Ipv4Addr = ip_str.parse().ok()?;
+            let alias = obj
+                .get("InterfaceAlias")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((alias, ip))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -721,5 +648,48 @@ impl UpstreamResponse {
 impl Drop for UpstreamResponse {
     fn drop(&mut self) {
         self.clear_spooled_response();
+    }
+}
+
+#[cfg(test)]
+mod types_tests {
+    use super::*;
+
+    #[test]
+    fn parse_interface_json_array() {
+        let json = r#"[{"IPAddress":"192.168.1.100","InterfaceAlias":"Ethernet"},{"IPAddress":"10.0.0.5","InterfaceAlias":"Wi-Fi"}]"#;
+        let entries = parse_interface_json(json);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].0, "Ethernet");
+        assert_eq!(entries[0].1, std::net::Ipv4Addr::new(192, 168, 1, 100));
+        assert_eq!(entries[1].0, "Wi-Fi");
+    }
+
+    #[test]
+    fn parse_interface_json_single_object() {
+        let json = r#"{"IPAddress":"192.168.1.100","InterfaceAlias":"Ethernet"}"#;
+        let entries = parse_interface_json(json);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "Ethernet");
+    }
+
+    #[test]
+    fn parse_interface_json_null() {
+        let entries = parse_interface_json("null");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_interface_json_empty_string() {
+        let entries = parse_interface_json("");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_interface_json_invalid_ip_skipped() {
+        let json = r#"[{"IPAddress":"not-an-ip","InterfaceAlias":"Bad"},{"IPAddress":"10.0.0.1","InterfaceAlias":"Good"}]"#;
+        let entries = parse_interface_json(json);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "Good");
     }
 }
