@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use crate::DbError;
+
 pub const AI_SETTINGS_ID: &str = "default";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,7 +15,7 @@ pub struct AiSettingsRow {
     pub updated_at: String,
 }
 
-pub fn load_ai_settings(conn: &Connection) -> Result<Option<AiSettingsRow>, String> {
+pub fn load_ai_settings(conn: &Connection) -> Result<Option<AiSettingsRow>, DbError> {
     let result = conn.query_row(
         "SELECT provider, base_url, model, api_key, temperature, timeout_ms, updated_at
          FROM ai_settings WHERE id = ?1",
@@ -24,11 +26,11 @@ pub fn load_ai_settings(conn: &Connection) -> Result<Option<AiSettingsRow>, Stri
     match result {
         Ok(row) => Ok(Some(row)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(error) => Err(format!("load ai settings: {error}")),
+        Err(error) => Err(DbError::query("load ai settings", error)),
     }
 }
 
-pub fn upsert_ai_settings(conn: &Connection, settings: &AiSettingsRow) -> Result<(), String> {
+pub fn upsert_ai_settings(conn: &Connection, settings: &AiSettingsRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO ai_settings
             (id, provider, base_url, model, api_key, temperature, timeout_ms, updated_at)
@@ -44,7 +46,7 @@ pub fn upsert_ai_settings(conn: &Connection, settings: &AiSettingsRow) -> Result
             settings.updated_at,
         ],
     )
-    .map_err(|error| format!("upsert ai settings: {error}"))?;
+    .map_err(|error| DbError::query("upsert ai settings", error))?;
 
     Ok(())
 }

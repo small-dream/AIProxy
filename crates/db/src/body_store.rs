@@ -1,4 +1,6 @@
 use std::fs;
+
+use crate::DbError;
 use std::path::{Component, Path, PathBuf};
 
 /// Manages session body files on disk.
@@ -13,52 +15,51 @@ impl BodyStore {
     }
 
     /// Ensure the bodies directory exists.
-    pub fn ensure_dir(&self) -> Result<(), String> {
+    pub fn ensure_dir(&self) -> Result<(), DbError> {
         fs::create_dir_all(&self.base_dir)
-            .map_err(|e| format!("failed to create bodies directory: {e}"))?;
+            .map_err(DbError::Io)?;
         Ok(())
     }
 
     /// Write a body file for a session. Returns the relative file path.
-    pub fn write_body(&self, session_id: &str, kind: &str, data: &[u8]) -> Result<String, String> {
+    pub fn write_body(&self, session_id: &str, kind: &str, data: &[u8]) -> Result<String, DbError> {
         validate_safe_segment(session_id, "session id")?;
         validate_safe_segment(kind, "body kind")?;
 
         let dir = self.base_dir.join(session_id);
-        fs::create_dir_all(&dir).map_err(|e| format!("failed to create body directory: {e}"))?;
+        fs::create_dir_all(&dir).map_err(DbError::Io)?;
 
         let file_path = dir.join(format!("{kind}.body"));
-        fs::write(&file_path, data).map_err(|e| format!("failed to write body file: {e}"))?;
+        fs::write(&file_path, data).map_err(DbError::Io)?;
 
         Ok(format!("{session_id}/{kind}.body"))
     }
 
     /// Read a body file given its relative path.
-    pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, String> {
+    pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, DbError> {
         let full_path = self.checked_resolve_body_path(relative_path)?;
-        fs::read(&full_path)
-            .map_err(|e| format!("failed to read body file {}: {e}", full_path.display()))
+        Ok(fs::read(&full_path).map_err(DbError::Io)?)
     }
 
     /// Remove all body files for a session.
-    pub fn remove_bodies(&self, session_id: &str) -> Result<(), String> {
+    pub fn remove_bodies(&self, session_id: &str) -> Result<(), DbError> {
         validate_safe_segment(session_id, "session id")?;
         let dir = self.base_dir.join(session_id);
         if dir.exists() {
             fs::remove_dir_all(&dir)
-                .map_err(|e| format!("failed to remove body directory: {e}"))?;
+                .map_err(DbError::Io)?;
         }
         Ok(())
     }
 
     /// Remove all body files.
-    pub fn clear_all(&self) -> Result<(), String> {
+    pub fn clear_all(&self) -> Result<(), DbError> {
         if self.base_dir.exists() {
             fs::remove_dir_all(&self.base_dir)
-                .map_err(|e| format!("failed to clear bodies directory: {e}"))?;
+                .map_err(DbError::Io)?;
         }
         fs::create_dir_all(&self.base_dir)
-            .map_err(|e| format!("failed to recreate bodies directory: {e}"))?;
+            .map_err(DbError::Io)?;
         Ok(())
     }
 
@@ -86,20 +87,20 @@ impl BodyStore {
             .map(|path| path.to_string_lossy().into_owned())
     }
 
-    fn checked_resolve_body_path(&self, relative_path: &str) -> Result<PathBuf, String> {
+    fn checked_resolve_body_path(&self, relative_path: &str) -> Result<PathBuf, DbError> {
         let path = Path::new(relative_path);
         if path
             .components()
             .any(|component| !matches!(component, Component::Normal(_)))
         {
-            return Err(format!("invalid body path: {relative_path}"));
+            return Err(DbError::Validation(format!("invalid body path: {relative_path}")));
         }
 
         Ok(self.base_dir.join(path))
     }
 }
 
-fn validate_safe_segment(value: &str, label: &str) -> Result<(), String> {
+fn validate_safe_segment(value: &str, label: &str) -> Result<(), DbError> {
     if value.is_empty()
         || value == "."
         || value == ".."
@@ -108,7 +109,7 @@ fn validate_safe_segment(value: &str, label: &str) -> Result<(), String> {
             .bytes()
             .any(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'_' | b'.'))
     {
-        return Err(format!("invalid {label}: {value}"));
+        return Err(DbError::Validation(format!("invalid {label}: {value}")));
     }
 
     Ok(())

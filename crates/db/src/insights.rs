@@ -1,4 +1,6 @@
 use rusqlite::Connection;
+
+use crate::DbError;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
 pub fn compute_insights(
     conn: &Connection,
     filter: &InsightsFilter,
-) -> Result<InsightsResult, String> {
+) -> Result<InsightsResult, DbError> {
     let (where_clause, where_params) = build_where(filter);
     let params = || -> Vec<rusqlite::types::Value> { where_params.clone() };
 
@@ -168,7 +170,7 @@ pub fn compute_insights(
                 row.get::<_, Option<i64>>(3)?,
             ))
         })
-        .map_err(|e| format!("insights overview query: {e}"))?;
+        .map_err(|e| DbError::query("insights overview query", e))?;
 
     let total_errors = total_errors.unwrap_or(0);
     let avg_duration_ms = avg_duration_ms.unwrap_or(0.0);
@@ -189,13 +191,13 @@ pub fn compute_insights(
             .prepare(&format!(
                 "SELECT duration_ms FROM session_summaries{where_clause} ORDER BY duration_ms"
             ))
-            .map_err(|e| format!("insights percentile prepare: {e}"))?;
+            .map_err(|e| DbError::query("insights percentile prepare", e))?;
 
         let durations: Vec<i64> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 row.get::<_, i64>(0)
             })
-            .map_err(|e| format!("insights percentile query: {e}"))?
+            .map_err(|e| DbError::query("insights percentile query", e))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -218,7 +220,7 @@ pub fn compute_insights(
                  ORDER BY request_count DESC
                  LIMIT 50"
             ))
-            .map_err(|e| format!("insights by_host prepare: {e}"))?;
+            .map_err(|e| DbError::query("insights by_host prepare", e))?;
 
         let host_rows: Vec<HostInsightRaw> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
@@ -230,7 +232,7 @@ pub fn compute_insights(
                     total_bytes: row.get::<_, Option<i64>>("total_bytes")?.unwrap_or(0),
                 })
             })
-            .map_err(|e| format!("insights by_host query: {e}"))?
+            .map_err(|e| DbError::query("insights by_host query", e))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -259,7 +261,7 @@ pub fn compute_insights(
                  GROUP BY status_code
                  ORDER BY count DESC"
             ))
-            .map_err(|e| format!("insights by_status_code prepare: {e}"))?;
+            .map_err(|e| DbError::query("insights by_status_code prepare", e))?;
 
         let rows: Vec<StatusCodeDistribution> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
@@ -268,7 +270,7 @@ pub fn compute_insights(
                     count: row.get("count")?,
                 })
             })
-            .map_err(|e| format!("insights by_status_code query: {e}"))?
+            .map_err(|e| DbError::query("insights by_status_code query", e))?
             .filter_map(|r| r.ok())
             .collect();
         rows
@@ -283,7 +285,7 @@ pub fn compute_insights(
                  GROUP BY method
                  ORDER BY count DESC"
             ))
-            .map_err(|e| format!("insights by_method prepare: {e}"))?;
+            .map_err(|e| DbError::query("insights by_method prepare", e))?;
 
         let rows: Vec<MethodDistribution> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
@@ -292,7 +294,7 @@ pub fn compute_insights(
                     count: row.get("count")?,
                 })
             })
-            .map_err(|e| format!("insights by_method query: {e}"))?
+            .map_err(|e| DbError::query("insights by_method query", e))?
             .filter_map(|r| r.ok())
             .collect();
         rows
@@ -307,7 +309,7 @@ pub fn compute_insights(
                  ORDER BY duration_ms DESC
                  LIMIT 20"
             ))
-            .map_err(|e| format!("insights slow_requests prepare: {e}"))?;
+            .map_err(|e| DbError::query("insights slow_requests prepare", e))?;
 
         let rows: Vec<SlowRequest> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
@@ -319,7 +321,7 @@ pub fn compute_insights(
                     duration_ms: row.get("duration_ms")?,
                 })
             })
-            .map_err(|e| format!("insights slow_requests query: {e}"))?
+            .map_err(|e| DbError::query("insights slow_requests query", e))?
             .filter_map(|r| r.ok())
             .collect();
         rows

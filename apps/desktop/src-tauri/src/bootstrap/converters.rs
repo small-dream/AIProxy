@@ -402,7 +402,7 @@ fn spill_body_reference_to_disk(
         return Ok(());
     };
 
-    let relative_path = body_store.write_body(session_id, kind, bytes)?;
+    let relative_path = body_store.write_body(session_id, kind, bytes).map_err(|e| e.to_string())?;
     let full_path = body_store.resolve_body_path(&relative_path);
     body.replace_with_file_path(full_path.to_string_lossy().into_owned());
     Ok(())

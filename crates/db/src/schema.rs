@@ -1,5 +1,7 @@
 use rusqlite::Connection;
 
+use crate::DbError;
+
 const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS workspaces (
     id                   TEXT NOT NULL PRIMARY KEY,
@@ -349,9 +351,9 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 );
 ";
 
-pub fn run_migrations(conn: &Connection) -> Result<(), String> {
+pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(CREATE_TABLES)
-        .map_err(|e| format!("create tables: {e}"))?;
+        .map_err(|e| DbError::query("create tables", e))?;
 
     // Historical migrations — retained as .ok() to preserve existing startup behavior.
     conn.execute(
@@ -398,12 +400,12 @@ fn migrate_add_column(
     table: &str,
     column: &str,
     column_def: &str,
-) -> Result<(), String> {
+) -> Result<(), DbError> {
     let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}");
     match conn.execute(&sql, []) {
         Ok(_) => Ok(()),
         Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
-        Err(e) => Err(format!("migration add {table}.{column}: {e}")),
+        Err(e) => Err(DbError::MigrationFailed(format!("migration add {table}.{column}: {e}"))),
     }
 }
 
