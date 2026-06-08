@@ -120,6 +120,55 @@ pub const BODY_FILE_THRESHOLD: usize = 256 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    // P6-1: Strings containing slash or backslash are always rejected
+    proptest! {
+        #[test]
+        fn slash_or_backslash_rejected(rest in ".*") {
+            for ch in &['/', '\\'] {
+                let value = format!("{ch}{rest}");
+                prop_assert!(validate_safe_segment(&value, "test").is_err(),
+                    "expected {:?} to be rejected", value);
+            }
+        }
+    }
+
+    // P6-2: Pure safe strings (must contain at least one alnum char) -> Ok
+    proptest! {
+        #[test]
+        fn safe_alphanumeric_strings_accepted(value in "[a-zA-Z0-9][a-zA-Z0-9_-]*") {
+            prop_assert!(validate_safe_segment(&value, "test").is_ok());
+        }
+    }
+
+    // P6-3: Strings with dots but containing alphanumeric (e.g. "v1.2", "file.txt") -> Ok
+    proptest! {
+        #[test]
+        fn dotted_names_with_alnum_accepted(
+            prefix in "[a-zA-Z0-9][a-zA-Z0-9_-]*",
+            suffix in "[a-zA-Z0-9][a-zA-Z0-9_-]*"
+        ) {
+            let value = format!("{prefix}.{suffix}");
+            prop_assert!(validate_safe_segment(&value, "test").is_ok());
+        }
+    }
+
+    // P6-4: Empty, ".", ".." -> Err (fixed-value tests)
+    #[test]
+    fn empty_string_rejected() {
+        assert!(validate_safe_segment("", "test").is_err());
+    }
+
+    #[test]
+    fn single_dot_rejected() {
+        assert!(validate_safe_segment(".", "test").is_err());
+    }
+
+    #[test]
+    fn double_dot_rejected() {
+        assert!(validate_safe_segment("..", "test").is_err());
+    }
 
     #[test]
     fn write_and_read_body() {

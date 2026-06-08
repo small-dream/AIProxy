@@ -14,6 +14,7 @@ use super::{
 };
 use http::header::{HeaderMap, HeaderValue};
 use http::{Method, StatusCode};
+use proptest::prelude::*;
 use serde_json::json;
 use std::{fs, sync::Arc, time::Duration};
 use tokio::{
@@ -1884,6 +1885,87 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
 
     started_proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Property-based tests for infer_protocol_metadata
+// ---------------------------------------------------------------------------
+
+// P2-1: scheme is always "http" or "https"
+proptest! {
+    #[test]
+    fn scheme_is_always_http_or_https(protocol in ".*", url in "http[s]?://.*") {
+        let meta = infer_protocol_metadata(&protocol, &url);
+        prop_assert!(meta.scheme == "http" || meta.scheme == "https");
+    }
+}
+
+// P2-2: ws → http, wss → https
+proptest! {
+    #[test]
+    fn ws_maps_to_http(url in "ws://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("ws", &url);
+        prop_assert_eq!(meta.scheme, "http");
+    }
+
+    #[test]
+    fn wss_maps_to_https(url in "wss://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("wss", &url);
+        prop_assert_eq!(meta.scheme, "https");
+    }
+}
+
+// P2-3: h2 → TCP, h3 → QUIC
+proptest! {
+    #[test]
+    fn h2_transport_is_tcp(url in "https://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("h2", &url);
+        prop_assert_eq!(meta.transport_protocol, "tcp");
+    }
+
+    #[test]
+    fn h3_transport_is_quic(url in "https://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("h3", &url);
+        prop_assert_eq!(meta.transport_protocol, "quic");
+    }
+}
+
+// P2-4: ws/wss → application_protocol = "websocket"
+proptest! {
+    #[test]
+    fn ws_application_protocol_is_websocket(url in "ws://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("ws", &url);
+        prop_assert_eq!(meta.application_protocol, "websocket");
+    }
+
+    #[test]
+    fn wss_application_protocol_is_websocket(url in "wss://[a-zA-Z0-9].*") {
+        let meta = infer_protocol_metadata("wss", &url);
+        prop_assert_eq!(meta.application_protocol, "websocket");
+    }
+}
+
+// P2-5: Unknown protocol fallback — scheme from URL, http_version defaults "1.1"
+proptest! {
+    #[test]
+    fn unknown_protocol_falls_back_to_url_scheme_and_default_http_version(
+        protocol in "[a-zA-Z][a-zA-Z0-9]*",
+        host in "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
+        path in "[a-zA-Z0-9/._-]*"
+    ) {
+        let url = format!("https://{host}/{path}");
+        // Filter out known protocol names and digit-only/pattern patterns
+        prop_assume!(!matches!(
+            protocol.to_ascii_lowercase().as_str(),
+            "http" | "https" | "ws" | "wss" | "h2" | "h3" | "http2" | "http3" | "grpc" | "grpc-web"
+        ));
+        prop_assume!(!protocol.starts_with("HTTP/"));
+        prop_assume!(!protocol.chars().all(|c| c.is_ascii_digit() || c == '.'));
+
+        let meta = infer_protocol_metadata(&protocol, &url);
+        prop_assert_eq!(meta.scheme, "https");
+        prop_assert_eq!(meta.http_version, "1.1");
+    }
 }
 
 fn allocate_unused_port() -> u16 {

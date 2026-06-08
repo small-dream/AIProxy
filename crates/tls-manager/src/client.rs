@@ -165,10 +165,8 @@ mod tests {
 
     #[test]
     fn build_dangerous_tls_connector_with_alpn_returns_valid_connector() {
-        let _connector = build_dangerous_tls_connector_with_alpn(vec![
-            b"h2".to_vec(),
-            b"http/1.1".to_vec(),
-        ]);
+        let _connector =
+            build_dangerous_tls_connector_with_alpn(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
         // If this compiles and doesn't panic, the connector is valid
     }
 }
