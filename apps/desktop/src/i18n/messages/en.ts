@@ -821,6 +821,20 @@ export const enMessages = {
       "Generate a summary after the diff is ready. AI receives the redacted payload shown in Preview.",
     timeline: "Timeline",
     title: "Compare",
+    totalBytes: "Total bytes",
+    metricGrid: {
+      metric: "Metric",
+      left: "Left",
+      right: "Right",
+    },
+    metrics: {
+      requests: "Requests",
+      success: "Success",
+      failures: "Failures",
+      statusCodes: "Status codes",
+    },
+    emptyCell: "(empty)",
+    noneStatusCodes: "(none)",
   },
   sessionsExport: {
     allDescription: "{{count}} captured sessions are ready for export.",
@@ -896,6 +910,21 @@ export const enMessages = {
     newRule: "New rule",
     off: "off",
     on: "on",
+    anyMethod: "Any method",
+    copySuffix: "{{name}} copy",
+    defaultRuleName: "Targeted rule",
+    profileSummary: "{{latency}} ms • ↓ {{download}} kbps • ↑ {{upload}} kbps • loss {{loss}}%",
+    temporaryEnable: "15 min",
+    temporaryRemaining: "{{minutes}} min",
+    stats: {
+      hits: "Hits",
+      drops: "Drops",
+      delay: "Delay",
+    },
+    tabs: {
+      profiles: "Profiles",
+      rules: "Rules",
+    },
     presetsDescription:
       "Start from realistic defaults first, then create a custom profile when you need exact values.",
     presetsTitle: "Preset Profiles",

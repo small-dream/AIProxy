@@ -316,17 +316,17 @@ export function ThrottlingPage() {
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
               <StatusPill
                 icon={<RuleRoundedIcon />}
-                label="Hits"
+                label={t("throttlingPage.stats.hits")}
                 value={String(stats?.matchedRequests ?? 0)}
               />
               <StatusPill
                 icon={<SignalCellularAltRoundedIcon />}
-                label="Drops"
+                label={t("throttlingPage.stats.drops")}
                 value={String(stats?.droppedRequests ?? 0)}
               />
               <StatusPill
                 icon={<SpeedRoundedIcon />}
-                label="Delay"
+                label={t("throttlingPage.stats.delay")}
                 value={`${formatDelay((stats?.requestDelayMs ?? 0) + (stats?.responseDelayMs ?? 0))}`}
               />
               <Button
@@ -389,8 +389,8 @@ export function ThrottlingPage() {
               onChange={(_, value) => value && setMode(value)}
               sx={{ flex: 1, "& .MuiToggleButton-root": { flex: 1, py: 0.45 } }}
             >
-              <ToggleButton value="profiles">Profiles</ToggleButton>
-              <ToggleButton value="rules">Rules</ToggleButton>
+              <ToggleButton value="profiles">{t("throttlingPage.tabs.profiles")}</ToggleButton>
+              <ToggleButton value="rules">{t("throttlingPage.tabs.rules")}</ToggleButton>
             </ToggleButtonGroup>
           </Stack>
 
@@ -493,7 +493,7 @@ export function ThrottlingPage() {
                                 {rule.name}
                               </Typography>
                             }
-                            secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : "Any method"} • ${rule.stage}`}
+                            secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : t("throttlingPage.anyMethod")} • ${rule.stage}`}
                             secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
                           />
                           <Chip
@@ -638,7 +638,7 @@ function ProfileList(props: {
                 ) : null}
               </Stack>
             }
-            secondary={`${profile.latencyMs} ms • ↓ ${profile.downloadKbps} kbps • ↑ ${profile.uploadKbps} kbps • loss ${profile.packetLossRatio}%`}
+            secondary={t("throttlingPage.profileSummary", { latency: profile.latencyMs, download: profile.downloadKbps, upload: profile.uploadKbps, loss: profile.packetLossRatio })}
             secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 11.5 } }}
           />
           <Button

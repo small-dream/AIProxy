@@ -783,23 +783,24 @@ function SessionCompareWorkbench({
     <Stack spacing={1.25}>
       <BehaviorSection title={t("comparePage.overview")}>
         <MetricGrid
+          t={t}
           rows={[
-            ["Requests", payload.overview.left.requestCount, payload.overview.right.requestCount],
-            ["Success", payload.overview.left.successCount, payload.overview.right.successCount],
-            ["Failures", payload.overview.left.failureCount, payload.overview.right.failureCount],
-            ["Domains", payload.overview.left.domainCount, payload.overview.right.domainCount],
+            [t("comparePage.metrics.requests"), payload.overview.left.requestCount, payload.overview.right.requestCount],
+            [t("comparePage.metrics.success"), payload.overview.left.successCount, payload.overview.right.successCount],
+            [t("comparePage.metrics.failures"), payload.overview.left.failureCount, payload.overview.right.failureCount],
+            [t("comparePage.domains"), payload.overview.left.domainCount, payload.overview.right.domainCount],
             [
-              "Avg duration",
+              t("comparePage.avgDuration"),
               `${payload.overview.left.durationMs.average} ms`,
               `${payload.overview.right.durationMs.average} ms`,
             ],
             [
-              "Total bytes",
+              t("comparePage.totalBytes"),
               formatNumber(payload.overview.left.totalSizeBytes),
               formatNumber(payload.overview.right.totalSizeBytes),
             ],
             [
-              "Status codes",
+              t("comparePage.metrics.statusCodes"),
               formatStatusCodes(payload.overview.left.statusCodes),
               formatStatusCodes(payload.overview.right.statusCodes),
             ],
@@ -975,7 +976,7 @@ function BehaviorSection({ children, title }: { children: ReactNode; title: stri
   );
 }
 
-function MetricGrid({ rows }: { rows: Array<[string, string | number, string | number]> }) {
+function MetricGrid({ rows, t }: { rows: Array<[string, string | number, string | number]>; t: ReturnType<typeof useI18n>["t"] }) {
   return (
     <Box
       sx={{
@@ -985,13 +986,13 @@ function MetricGrid({ rows }: { rows: Array<[string, string | number, string | n
       }}
     >
       <Typography color="text.secondary" variant="caption">
-        Metric
+        {t("comparePage.metricGrid.metric")}
       </Typography>
       <Typography color="text.secondary" variant="caption">
-        Left
+        {t("comparePage.metricGrid.left")}
       </Typography>
       <Typography color="text.secondary" variant="caption">
-        Right
+        {t("comparePage.metricGrid.right")}
       </Typography>
       {rows.map(([label, left, right]) => (
         <Box key={label} sx={{ display: "contents" }}>
