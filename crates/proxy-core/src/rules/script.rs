@@ -43,7 +43,7 @@ fn build_script_request(
     let (body_text, body_base64, mime_type) = body_text_and_base64(
         &request.body,
         request.headers.get(CONTENT_TYPE),
-        request.headers.get(reqwest::header::CONTENT_ENCODING),
+        request.headers.get(CONTENT_ENCODING),
     );
 
     (
@@ -71,9 +71,7 @@ fn build_script_response(response: &UpstreamResponse) -> ScriptResponse {
     let (body_text, body_base64, mime_type) = body_text_and_base64(
         &response.response_body,
         response.response_headers.get(CONTENT_TYPE),
-        response
-            .response_headers
-            .get(reqwest::header::CONTENT_ENCODING),
+        response.response_headers.get(CONTENT_ENCODING),
     );
 
     ScriptResponse {

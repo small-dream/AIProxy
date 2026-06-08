@@ -1797,7 +1797,7 @@ fn build_request_headers_from_hyper(
 // Upstream header building
 // ---------------------------------------------------------------------------
 
-/// Build a `reqwest::HeaderMap` from hyper headers, filtering out pseudo-headers
+/// Build a `HeaderMap` from hyper headers, filtering out pseudo-headers
 /// and hop-by-hop headers that should not be forwarded upstream.
 fn build_upstream_headers_from_hyper(
     headers: &hyper::http::HeaderMap,

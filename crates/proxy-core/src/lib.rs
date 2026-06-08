@@ -2,15 +2,12 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use brotli::Decompressor;
 use chrono::{DateTime, Utc};
 use flate2::read::{GzDecoder, ZlibDecoder};
-use httparse::{Request, Status, EMPTY_HEADER};
-use reqwest::{
-    header::{
-        HeaderMap, HeaderName, HeaderValue, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST,
-        TRANSFER_ENCODING,
-    },
-    redirect::Policy,
-    Client, Method, StatusCode, Url,
+use http::header::{
+    CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING,
 };
+use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
+use httparse::{Request, Status, EMPTY_HEADER};
+use reqwest::{redirect::Policy, Client};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,6 +28,7 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, timeout},
 };
+use url::Url;
 use uuid::Uuid;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;

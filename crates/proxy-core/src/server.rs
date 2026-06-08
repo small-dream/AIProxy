@@ -229,6 +229,7 @@ fn format_listener_bind_error(bind_addr: &str, port: u16, error: &std::io::Error
 #[cfg(test)]
 mod tests {
     use super::format_listener_bind_error;
+    use super::Url;
 
     #[test]
     fn serializes_port_in_use_bind_failures_as_app_errors() {
@@ -251,7 +252,7 @@ mod tests {
         // by read_proxy_request. Verify that url::Url extracts the custom port.
         let raw_path = "example.com:8443";
         let target_url = format!("http://{raw_path}");
-        let url = reqwest::Url::parse(&target_url).expect("valid URL");
+        let url = Url::parse(&target_url).expect("valid URL");
 
         assert_eq!(url.port(), Some(8443));
         assert_eq!(url.host_str(), Some("example.com"));
@@ -261,7 +262,7 @@ mod tests {
     fn connect_default_port_when_absent() {
         let raw_path = "example.com";
         let target_url = format!("http://{raw_path}");
-        let url = reqwest::Url::parse(&target_url).expect("valid URL");
+        let url = Url::parse(&target_url).expect("valid URL");
 
         // No explicit port → url::Url returns None, proxy falls back to 443.
         assert_eq!(url.port(), None);
@@ -1684,7 +1685,7 @@ pub async fn send_direct_request(
         request_body: build_body_reference(
             &body_bytes,
             header_map.get(CONTENT_TYPE),
-            header_map.get(reqwest::header::CONTENT_ENCODING),
+            header_map.get(CONTENT_ENCODING),
             body_bytes.len(),
             false,
         ),
@@ -1692,7 +1693,7 @@ pub async fn send_direct_request(
         response_body: build_body_reference(
             &response_body,
             response_headers.get(CONTENT_TYPE),
-            response_headers.get(reqwest::header::CONTENT_ENCODING),
+            response_headers.get(CONTENT_ENCODING),
             response_body_size_bytes,
             body_truncated,
         ),

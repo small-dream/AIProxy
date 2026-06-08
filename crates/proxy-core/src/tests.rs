@@ -12,8 +12,8 @@ use super::{
     RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
     ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
-use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Method, StatusCode, Url};
+use http::header::{HeaderMap, HeaderValue};
+use http::{Method, StatusCode};
 use serde_json::json;
 use std::{fs, sync::Arc, time::Duration};
 use tokio::{
@@ -21,6 +21,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
     time::timeout,
 };
+use url::Url;
 
 #[test]
 fn validates_a_non_zero_port() {
@@ -1068,7 +1069,7 @@ fn applies_map_local_rules_by_reading_a_local_file() {
         apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
     let response = response.unwrap();
 
-    assert_eq!(response.status_code, reqwest::StatusCode::OK);
+    assert_eq!(response.status_code, StatusCode::OK);
     assert_eq!(
         String::from_utf8(response.response_body.clone()).unwrap(),
         "mapped body"
@@ -1107,7 +1108,7 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
         apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
     let response = response.unwrap();
 
-    assert_eq!(response.status_code, reqwest::StatusCode::OK);
+    assert_eq!(response.status_code, StatusCode::OK);
     assert_eq!(
         String::from_utf8(response.response_body.clone()).unwrap(),
         r#"{"mapped":true}"#

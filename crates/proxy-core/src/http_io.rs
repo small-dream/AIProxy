@@ -224,7 +224,7 @@ pub(crate) fn build_session_detail(
         request_body: build_body_reference(
             &request.body,
             request.headers.get(CONTENT_TYPE),
-            request.headers.get(reqwest::header::CONTENT_ENCODING),
+            request.headers.get(CONTENT_ENCODING),
             request.body.len(),
             false,
         ),
@@ -232,7 +232,7 @@ pub(crate) fn build_session_detail(
         response_body: build_body_reference(
             response_body,
             response_headers.get(CONTENT_TYPE),
-            response_headers.get(reqwest::header::CONTENT_ENCODING),
+            response_headers.get(CONTENT_ENCODING),
             response_body_size_bytes,
             response_body_truncated,
         ),
@@ -269,7 +269,7 @@ pub(crate) fn build_pending_session_detail(
         request_body: build_body_reference(
             &request.body,
             request.headers.get(CONTENT_TYPE),
-            request.headers.get(reqwest::header::CONTENT_ENCODING),
+            request.headers.get(CONTENT_ENCODING),
             request.body.len(),
             false,
         ),
