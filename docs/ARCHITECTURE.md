@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：系统架构文档
-- 当前阶段：`P0 功能闭环 / 实现同步`
-- 文档状态：`Living Spec v1.2`
+- 当前阶段：`P3 持续改进完成 / 实现同步`
+- 文档状态：`Living Spec v1.3`
 - 配套需求文档：`docs/PRD.md`
 - 配套接口文档：`docs/API_SPEC.md`
 - 配套设计文档：`docs/UI_GUIDELINES.md`
@@ -207,7 +207,10 @@ CSP 策略：
 - 内建 `RewriteManager`，支持 Header / Query / Body / Redirect 改写，并记录会话级 rewrite trace — `已实现`
 - 内建 `ScriptManager` + `aiproxy-rule-engine`，支持 JS/TS 单文件脚本在请求/响应阶段参与运行时处理 — `已实现`
 - 内建 `WsConnectionRegistry`（全局 OnceLock），追踪活跃 WebSocket 连接并支持消息注入（重放） — `已实现`
-- `http_proxy.rs`：统一 hyper Service 处理器（`HttpProxyService`），纯 HTTP 和 MITM 两条路径共用同一请求管线。根据 `ConnectionMode` enum（`PlainHttp` / `MitmHttps`）区分纯 HTTP 和 MITM HTTPS 场景。内含 `handle_http_request()` 共享请求处理、`handle_ws_upgrade_via_hyper()` WebSocket 升级处理。`ConnectionContext` 存储连接级状态（TLS 元数据为 `MitmHttps` 变体字段），per-request timing 由 `HttpProxyService::call` 独立生成，避免 keep-alive 污染。
+- `http_proxy.rs`：统一 hyper Service 处理器（`HttpProxyService`），纯 HTTP 和 MITM 两条路径共用同一请求管线。根据 `ConnectionMode` enum（`PlainHttp` / `MitmHttps`）区分纯 HTTP 和 MITM HTTPS 场景。`ConnectionContext` 存储连接级状态（TLS 元数据为 `MitmHttps` 变体字段），per-request timing 由 `HttpProxyService::call` 独立生成，避免 keep-alive 污染。
+- `ws_upgrade.rs`：WebSocket upgrade 处理模块，负责上游 101/非 101 响应解析、错误 session 构造、WS registry 注册和 relay task 建立。
+- `upstream.rs`：上游 HTTP 请求转发模块，负责 hyper upstream request、response body 读取、捕获体限制和大 body spool helper。
+- `connect.rs`：CONNECT 处理模块，负责 blind TCP relay、MITM TLS accept、CONNECT/WSS 相关 response head 读取。
 - `connection.rs`：`ConnectionContext` 结构体 + `ConnectionMode` enum，定义纯 HTTP / MITM 两条路径的连接级共享状态。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
 - `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
@@ -317,6 +320,7 @@ TLS 证书缓存机制：
 职责：
 
 - `crates/db` 负责 SQLite schema、会话 summary/detail row、查询、批量写入、trace 落库与 Insights 聚合查询
+- `crates/db/src/error.rs` 定义 `DbError`，DB 公共 API 返回 `Result<T, DbError>`；Tauri command 边界负责显式转换为 `app_error()` JSON 错误载荷
 - `apps/desktop/src-tauri/src/bootstrap/repository.rs` 负责 Tauri 运行时到 DB/body store 的访问边界
 - `apps/desktop/src-tauri/src/bootstrap/cache.rs` 负责最近会话 summary/detail 的内存缓存，供 `Inspector` 快速读取
 - 大体积请求/响应内容通过 body store 按策略落盘，Session detail payload 保持轻量，body/raw 内容按需补丁加载
@@ -327,12 +331,14 @@ TLS 证书缓存机制：
 - 会话持久化支持批量模式：collector task 每次批量写入最多 50 条会话到同一个 SQLite 事务，减少 DB 锁竞争，提升突发流量场景下的写入吞吐
 - Tauri async 路径通过 `spawn_blocking` 执行 SQLite 写入，避免阻塞 async runtime
 - 新增持久化能力必须落在 `Repository`，`AppState` 只做编排与 API 委托
+- 列表查询必须传播 prepare/query/row decode 错误，真实空数据才返回 `Ok(vec![])`
 
 ## 6.4 `rule-engine`
 
 职责：
 
 - `aiproxy-rule-engine` 只负责脚本规则模型、TypeScript 转译、导出校验、QuickJS 沙箱执行与 script trace 结构
+- 模块结构：`types.rs` 保存脚本规则和 trace 类型；`compile.rs` 处理 TS 转译与导出校验；`execute.rs` 处理 QuickJS 沙箱执行；`js_bridge.rs` 构建 JS host bridge；`lib.rs` 负责 re-export 与测试
 - Breakpoint、Rewrite、Map、DNS、Throttle 的运行时匹配与动作执行位于 `proxy-core/src/rules/` 以及对应 manager 中
 - 文档中提到“规则引擎”时需区分：
   - crate `aiproxy-rule-engine`：脚本沙箱与脚本类型

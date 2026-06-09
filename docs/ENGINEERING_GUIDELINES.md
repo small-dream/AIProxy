@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：工程开发规范
-- 当前阶段：`P2 / 重构后治理基线`
-- 文档状态：`Living Spec v1.3`（P2 更新：proxy-core、bootstrap、错误格式、前端拆分约束）
+- 当前阶段：`P3 / 持续改进完成后的治理基线`
+- 文档状态：`Living Spec v1.4`（P3 更新：DbError、proxy-core 模块边界、rule-engine 拆分、前端大型页面拆分约束）
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -109,6 +109,9 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 - `proxy-core` 不允许恢复单文件巨型实现：
   - HTTP 代理主链路归入 `http_proxy.rs`
+  - WebSocket upgrade、101/非 101 响应处理与 WS relay 建立归入 `ws_upgrade.rs`
+  - CONNECT blind relay、MITM TLS 与 CONNECT 相关 response head 读取归入 `connect.rs`
+  - 上游请求转发、响应读取与 body spool helper 归入 `upstream.rs`
   - 连接上下文归入 `connection.rs`
   - 请求/响应 I/O 工具归入 `http_io.rs`
   - 共享运行时上下文归入 `context.rs`
@@ -120,6 +123,12 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - session 内存缓存归入 `bootstrap/cache.rs`
   - DB row 与 domain/shared 类型转换归入 `bootstrap/converters.rs`
   - Tauri event emit 归入 `bootstrap/events.rs`
+- `aiproxy-rule-engine` 不允许恢复 monolithic `lib.rs`：
+  - 脚本规则与 trace 类型归入 `types.rs`
+  - TypeScript 转译、导出校验和 entrypoint 检测归入 `compile.rs`
+  - QuickJS 沙箱执行和 request/response hook 归入 `execute.rs`
+  - JS host bridge 与 runtime module 构造归入 `js_bridge.rs`
+  - `lib.rs` 只保留模块声明、public re-export 和测试
 - 前端大型页面必须按“页面负责布局、hook 负责状态流程、helper 负责纯计算、service 负责命令调用”的方式拆分。新增复杂交互时优先扩展 `features/<domain>/` 下的 hook/helper/component，不把业务流程堆回 `pages/<domain>/index.tsx`。
 - 三层同构命令架构必须保持一致：Rust `commands/<domain>.rs`、前端 `services/commands/<domain>.ts`、共享类型 `packages/shared-types/src/<domain>.ts` 同步演进。
 - 已删除的空壳 crate（`session-store`、`throttle-engine`、`exporter`）不得仅为占位重新加入；只有当存在可独立测试、可复用的真实领域逻辑时，才允许新增 crate，并需同步架构文档或 ADR。
@@ -162,7 +171,9 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 错误信息必须包含足够上下文，便于定位
 - Tauri command 边界保持 `Result<T, String>`，但错误字符串必须使用 `commands/common.rs` 的 `app_error()` / `app_error_with_details()` 生成 JSON 错误载荷；禁止新增裸字符串错误作为用户可见 command 失败。
 - `proxy-core` 核心代理路径优先使用 `ProxyError` 表达错误语义。仅限解析/转换/纯 helper 等局部边界可返回 `String`，向代理主流程或 Tauri 边界传播前必须补足上下文并映射为结构化错误。
-- 列表查询失败不得静默返回空数组。真实空状态返回 `Ok(vec![])`，查询/解析/IO 失败返回结构化错误，并由前端展示用户可见通知。
+- `crates/db` 公共 API 必须返回 `Result<T, DbError>`，禁止新增公共 `Result<T, String>`。新增 `DbError` variant 前需确认现有 `Connection` / `QueryFailed` / `NotFound` / `ConstraintViolation` / `MigrationFailed` / `Validation` / `Io` 是否足够表达语义。
+- DB 列表查询失败不得静默返回空数组。真实空状态返回 `Ok(vec![])`，prepare/query/row decode/IO 失败返回 `DbError`，并由 Tauri command 边界转换为结构化 `app_error()`。
+- 处理 `rusqlite::MappedRows` 时禁止使用 `.filter_map(|row| row.ok())` 或等价写法吞掉坏行；必须 `collect::<Result<Vec<_>, _>>()` 并把 row decode 错误映射为 `DbError::query("decode ...", err)`。
 - React ErrorBoundary：所有页面级组件必须被 ErrorBoundary 包裹。全局 ErrorBoundary 位于 `AppProviders` 内（`CssBaseline` 之后），页面级 ErrorBoundary 包裹每个 lazy route。Fallback 必须使用 MUI 组件（禁止纯文本），并提供「重试」与「重载应用」两个操作按钮
 
 ### 7.3 结构化日志
@@ -387,10 +398,10 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 Insights 页面通过 SQLite 聚合查询提供统计分析。以下是性能约束：
 
-- `compute_insights()` 应在单次调用中完成所有聚合，避免多次全表扫描
+- `compute_insights()` 应优先使用 SQLite 聚合查询，避免把完整会话列表加载到前端或 Rust 内存中再统计
 - Host 分组统计、状态码分布、方法分布使用 `GROUP BY` 聚合，不加载完整会话列表到内存
 - 慢请求排名使用 `ORDER BY duration_ms DESC LIMIT N`，避免无限制排序
-- P95 耗时计算应使用近似算法或 SQLite 窗口函数，不应对全量数据做排序
-- 查询仅覆盖当前 workspace 下的会话，通过 `workspace_id` 索引过滤
+- P50/P95/P99 使用有界查询结果计算；host 级 P95 子查询必须传播 prepare/query/row decode 错误，禁止失败时静默返回 `0.0`
+- 查询范围由 `InsightsFilter` 控制，支持 `session_ids`、`host_exact`、`host_keyword` 和 `excluded_hosts`
 - 当会话量超过一定阈值时，应考虑增加时间范围过滤（`startTime` / `endTime`）避免查询超时
 - 导出（Markdown / JSON）由前端纯函数生成，不涉及额外数据库查询

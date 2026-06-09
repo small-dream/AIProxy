@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：接口规范文档
-- 当前阶段：`P2 / 重构后契约同步`
-- 文档状态：`Living Spec v1.2`
+- 当前阶段：`P3 / 持续改进完成后的契约同步`
+- 文档状态：`Living Spec v1.3`
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -58,7 +58,7 @@ AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 
 ## 4.2 错误模型
 
-所有命令失败时，统一返回标准错误对象。
+所有命令失败时，语义上统一返回标准错误对象。Tauri command 的 Rust 签名仍保持 `Result<T, String>`，因此实际传输形态是由 `app_error()` / `app_error_with_details()` 生成的 JSON 字符串；前端必须通过 `coerceAppError()` 解析为 `AppError`。
 
 ```ts
 type AppError = {
@@ -67,6 +67,12 @@ type AppError = {
   details?: Record<string, unknown>;
 };
 ```
+
+约束：
+
+- Rust command 边界禁止新增用户可见裸字符串错误。
+- DB 错误由 `DbError` 在 command 边界显式转换为 `app_error(ERR_INTERNAL, ...)`。
+- 列表查询失败返回错误载荷；只有真实空结果返回空数组。
 
 错误码建议：
 
