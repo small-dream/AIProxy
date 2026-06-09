@@ -1,0 +1,186 @@
+import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
+import CloudUploadRoundedIcon from "@mui/icons-material/CloudUploadRounded";
+import SignalCellularAltRoundedIcon from "@mui/icons-material/SignalCellularAltRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
+import {
+  Alert,
+  Box,
+  Button,
+  Slider,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from "@mui/material";
+import type { ReactNode } from "react";
+
+import type { ThrottleProfile } from "@aiproxy/shared-types";
+
+import type { TranslationKey, TranslationParams } from "@/i18n";
+import { fontFamilies } from "@/themes/fonts";
+import { EditorHeader } from "./EditorHeader";
+
+export function ProfileEditor(props: {
+  active: boolean;
+  canSave: boolean;
+  draft: ThrottleProfile;
+  errors: string[];
+  onChange: (draft: ThrottleProfile) => void;
+  onSave: () => void;
+  onSaveAndApply: () => void;
+  t: (key: TranslationKey, params?: TranslationParams) => string;
+}) {
+  const { active, canSave, draft, errors, onChange, onSave, onSaveAndApply, t } = props;
+
+  return (
+    <Stack spacing={1.5}>
+      <EditorHeader
+        icon={<SignalCellularAltRoundedIcon />}
+        title={draft.name || t("throttlingPage.customUntitled")}
+        subtitle={
+          active
+            ? t("throttlingPage.profileEditorActiveHint")
+            : t("throttlingPage.profileEditorInactiveHint")
+        }
+      />
+      <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+        <TextField
+          size="small"
+          label={t("throttlingPage.fields.name")}
+          value={draft.name}
+          onChange={(event) => onChange({ ...draft, name: event.target.value })}
+          sx={{ flex: 1 }}
+        />
+        <Stack
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25 }}
+        >
+          <Typography color="text.secondary" variant="caption">
+            {t("throttlingPage.fields.enableImmediately")}
+          </Typography>
+          <Switch
+            size="small"
+            checked={draft.enabled}
+            onChange={(event) => onChange({ ...draft, enabled: event.target.checked })}
+          />
+        </Stack>
+      </Stack>
+      {errors.length > 0 ? (
+        <Alert severity="warning" variant="outlined">
+          {errors.join(" ")}
+        </Alert>
+      ) : null}
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1,
+          gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+        }}
+      >
+        <ThrottleParameter
+          icon={<SpeedRoundedIcon />}
+          label={t("throttlingPage.fields.latency")}
+          max={2000}
+          min={0}
+          step={10}
+          unit="ms"
+          value={draft.latencyMs}
+          onChange={(value) => onChange({ ...draft, latencyMs: value })}
+        />
+        <ThrottleParameter
+          icon={<SignalCellularAltRoundedIcon />}
+          label={t("throttlingPage.fields.loss")}
+          max={100}
+          min={0}
+          step={1}
+          unit="%"
+          value={draft.packetLossRatio}
+          onChange={(value) => onChange({ ...draft, packetLossRatio: value })}
+        />
+        <ThrottleParameter
+          icon={<CloudDownloadRoundedIcon />}
+          label={t("throttlingPage.fields.download")}
+          max={100000}
+          min={1}
+          step={100}
+          unit="kbps"
+          value={draft.downloadKbps}
+          onChange={(value) => onChange({ ...draft, downloadKbps: value })}
+        />
+        <ThrottleParameter
+          icon={<CloudUploadRoundedIcon />}
+          label={t("throttlingPage.fields.upload")}
+          max={50000}
+          min={1}
+          step={100}
+          unit="kbps"
+          value={draft.uploadKbps}
+          onChange={(value) => onChange({ ...draft, uploadKbps: value })}
+        />
+      </Box>
+      <Stack direction="row" spacing={1} justifyContent="flex-end">
+        <Button variant="outlined" onClick={onSave} disabled={!canSave}>
+          {t("throttlingPage.saveProfile")}
+        </Button>
+        <Button variant="contained" onClick={onSaveAndApply} disabled={!canSave}>
+          {t("throttlingPage.saveAndApply")}
+        </Button>
+      </Stack>
+    </Stack>
+  );
+}
+
+function ThrottleParameter(props: {
+  icon: ReactNode;
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  step: number;
+  unit: string;
+  value: number;
+}) {
+  const { icon, label, max, min, onChange, step, unit, value } = props;
+  const sliderValue = Math.min(max, Math.max(min, value));
+
+  return (
+    <Stack
+      spacing={1}
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        p: 1.35,
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>{icon}</Box>
+        <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>
+          {label}
+        </Typography>
+        <Typography color="text.secondary" sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}>
+          {value} {unit}
+        </Typography>
+      </Stack>
+      <Slider
+        size="small"
+        min={min}
+        max={max}
+        step={step}
+        value={sliderValue}
+        onChange={(_, nextValue) => onChange(Array.isArray(nextValue) ? nextValue[0] : nextValue)}
+      />
+      <TextField
+        size="small"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        inputProps={{ min, step }}
+        fullWidth
+      />
+    </Stack>
+  );
+}
