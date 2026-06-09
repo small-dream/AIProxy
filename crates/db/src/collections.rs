@@ -77,13 +77,13 @@ pub fn list_all_collections(conn: &Connection) -> Result<Vec<CollectionRow>, DbE
         )
         .map_err(|e| DbError::query("prepare list collections", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<CollectionRow>, DbError> = stmt
         .query_map([], row_to_collection)
         .map_err(|e| DbError::query("query collections", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn list_collections_by_parent(
@@ -98,12 +98,12 @@ pub fn list_collections_by_parent(
                      FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name",
                 )
                 .map_err(|e| DbError::query("prepare list collections by parent", e))?;
-            let rows: Vec<CollectionRow> = stmt
+            let rows: Result<Vec<CollectionRow>, DbError> = stmt
                 .query_map(params![pid], row_to_collection)
                 .map_err(|e| DbError::query("query collections by parent", e))?
-                .filter_map(|r| r.ok())
+                .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
                 .collect();
-            rows
+            rows?
         }
         None => {
             let mut stmt = conn
@@ -112,12 +112,12 @@ pub fn list_collections_by_parent(
                      FROM api_collections WHERE parent_id IS NULL ORDER BY sort_order, name",
                 )
                 .map_err(|e| DbError::query("prepare list root collections", e))?;
-            let rows: Vec<CollectionRow> = stmt
+            let rows: Result<Vec<CollectionRow>, DbError> = stmt
                 .query_map([], row_to_collection)
                 .map_err(|e| DbError::query("query root collections", e))?
-                .filter_map(|r| r.ok())
+                .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
                 .collect();
-            rows
+            rows?
         }
     };
 
@@ -143,15 +143,15 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), DbError> {
             continue;
         }
 
-        let children: Vec<String> = conn
+        let children: Result<Vec<String>, DbError> = conn
             .prepare("SELECT id FROM api_collections WHERE parent_id=?1")
             .map_err(|e| DbError::query("prepare find children", e))?
             .query_map(params![current_id], |row| row.get(0))
             .map_err(|e| DbError::query("query children", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
             .collect();
 
-        stack.extend(children);
+        stack.extend(children?);
     }
 
     for collection_id in &visited {
@@ -221,13 +221,13 @@ pub fn list_collection_items(
         )
         .map_err(|e| DbError::query("prepare list collection items", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<CollectionItemRow>, DbError> = stmt
         .query_map(params![collection_id], row_to_collection_item)
         .map_err(|e| DbError::query("query collection items", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn get_collection_item(
@@ -261,13 +261,13 @@ pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItem
         )
         .map_err(|e| DbError::query("prepare list all collection items", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<CollectionItemRow>, DbError> = stmt
         .query_map([], row_to_collection_item)
         .map_err(|e| DbError::query("query all collection items", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_collection_item(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -463,13 +463,13 @@ fn list_collection_ids_by_parent(
     conn: &Connection,
     parent_id: Option<&str>,
 ) -> Result<Vec<String>, DbError> {
-    let rows: Vec<String> = match parent_id {
+    let rows: Result<Vec<String>, DbError> = match parent_id {
         Some(p) => conn
             .prepare("SELECT id FROM api_collections WHERE parent_id=?1 ORDER BY sort_order, name")
             .map_err(|e| DbError::query("prepare list collection ids by parent", e))?
             .query_map(params![p], |row| row.get::<_, String>(0))
             .map_err(|e| DbError::query("query collection ids", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
             .collect(),
         None => conn
             .prepare(
@@ -478,26 +478,26 @@ fn list_collection_ids_by_parent(
             .map_err(|e| DbError::query("prepare list root collection ids", e))?
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(|e| DbError::query("query root collection ids", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
             .collect(),
     };
-    Ok(rows)
+    Ok(rows?)
 }
 
 fn list_collection_item_ids_by_collection(
     conn: &Connection,
     collection_id: &str,
 ) -> Result<Vec<String>, DbError> {
-    let rows: Vec<String> = conn
+    let rows: Result<Vec<String>, DbError> = conn
         .prepare(
             "SELECT id FROM api_collection_items WHERE collection_id=?1 ORDER BY sort_order, name",
         )
         .map_err(|e| DbError::query("prepare list item ids", e))?
         .query_map(params![collection_id], |row| row.get::<_, String>(0))
         .map_err(|e| DbError::query("query item ids", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
-    Ok(rows)
+    Ok(rows?)
 }
 
 // ---------------------------------------------------------------------------

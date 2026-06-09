@@ -58,7 +58,7 @@ pub fn load_rewrite_rules(
         )
         .map_err(|e| DbError::query("prepare load rewrite rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<RewriteRuleRow>, DbError> = stmt
         .query_map(params![workspace_id], |row| {
             Ok(RewriteRuleRow {
                 id: row.get(0)?,
@@ -76,10 +76,10 @@ pub fn load_rewrite_rules(
             })
         })
         .map_err(|e| DbError::query("query rewrite rules", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, DbError> {
@@ -91,7 +91,7 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
         )
         .map_err(|e| DbError::query("prepare load all rewrite rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<RewriteRuleRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(RewriteRuleRow {
                 id: row.get(0)?,
@@ -109,10 +109,10 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
             })
         })
         .map_err(|e| DbError::query("query all rewrite rules", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_rewrite_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -172,7 +172,7 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
         )
         .map_err(|e| DbError::query("prepare load map rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<MapRuleRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(MapRuleRow {
                 id: row.get(0)?,
@@ -189,10 +189,10 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
             })
         })
         .map_err(|e| DbError::query("query map rules", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode map rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_map_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -280,7 +280,7 @@ pub fn load_map_runs_for_session(
         )
         .map_err(|e| DbError::query("prepare load map runs", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<MapRunRow>, DbError> = stmt
         .query_map(params![session_id], |row| {
             Ok(MapRunRow {
                 id: row.get(0)?,
@@ -301,10 +301,10 @@ pub fn load_map_runs_for_session(
             })
         })
         .map_err(|e| DbError::query("query map runs", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode map rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
         )
         .map_err(|e| DbError::query("prepare load throttle profiles", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ThrottleProfileRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(ThrottleProfileRow {
                 id: row.get(0)?,
@@ -421,10 +421,10 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
             })
         })
         .map_err(|e| DbError::query("query throttle profiles", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode throttle profile row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -482,7 +482,7 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
         )
         .map_err(|e| DbError::query("prepare load throttle rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ThrottleRuleRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(ThrottleRuleRow {
                 id: row.get(0)?,
@@ -498,10 +498,10 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
             })
         })
         .map_err(|e| DbError::query("query throttle rules", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub struct ThrottleRunRow {
@@ -585,7 +585,7 @@ pub fn load_throttle_runs_for_session(
         )
         .map_err(|e| DbError::query("prepare load throttle runs", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ThrottleRunRow>, DbError> = stmt
         .query_map(params![session_id], |row| {
             Ok(ThrottleRunRow {
                 id: row.get(0)?,
@@ -607,10 +607,10 @@ pub fn load_throttle_runs_for_session(
             })
         })
         .map_err(|e| DbError::query("query throttle runs", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn load_throttled_session_ids(
@@ -625,13 +625,13 @@ pub fn load_throttled_session_ids(
         )
         .map_err(|e| DbError::query("prepare load throttled session ids", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<String>, DbError> = stmt
         .query_map(params![workspace_id], |row| row.get::<_, String>(0))
         .map_err(|e| DbError::query("query throttled session ids", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 // ---------------------------------------------------------------------------
@@ -688,7 +688,7 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
         )
         .map_err(|e| DbError::query("prepare load breakpoint rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<BreakpointRuleRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(BreakpointRuleRow {
                 id: row.get(0)?,
@@ -700,10 +700,10 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
             })
         })
         .map_err(|e| DbError::query("query breakpoint rules", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode breakpoint rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +749,7 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, Db
         )
         .map_err(|e| DbError::query("prepare load dns mappings", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<DnsMappingRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(DnsMappingRow {
                 id: row.get(0)?,
@@ -763,10 +763,10 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, Db
             })
         })
         .map_err(|e| DbError::query("query dns mappings", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode dns rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -888,7 +888,7 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, Db
         )
         .map_err(|e| DbError::query("prepare load script rules", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ScriptRuleRow>, DbError> = stmt
         .query_map([], |row| {
             Ok(ScriptRuleRow {
                 id: row.get(0)?,
@@ -912,10 +912,10 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, Db
             })
         })
         .map_err(|e| DbError::query("query script rules", e))?
-        .filter_map(|row| row.ok())
+        .map(|row| row.map_err(|e| DbError::query("decode script rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_script_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -1001,7 +1001,7 @@ pub fn load_script_runs_for_session(
         )
         .map_err(|e| DbError::query("prepare load script runs", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ScriptRunRow>, DbError> = stmt
         .query_map(params![session_id], |row| {
             Ok(ScriptRunRow {
                 id: row.get(0)?,
@@ -1015,10 +1015,10 @@ pub fn load_script_runs_for_session(
             })
         })
         .map_err(|e| DbError::query("query script runs", e))?
-        .filter_map(|row| row.ok())
+        .map(|row| row.map_err(|e| DbError::query("decode rule run row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn load_script_run_entries(
@@ -1050,7 +1050,7 @@ pub fn load_script_run_entries(
         .prepare(&sql)
         .map_err(|e| DbError::query("prepare load script run entries", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<ScriptRunEntryRow>, DbError> = stmt
         .query_map(params.as_slice(), |row| {
             Ok(ScriptRunEntryRow {
                 id: row.get(0)?,
@@ -1064,10 +1064,10 @@ pub fn load_script_run_entries(
             })
         })
         .map_err(|e| DbError::query("query script run entries", e))?
-        .filter_map(|row| row.ok())
+        .map(|row| row.map_err(|e| DbError::query("decode rule run entry row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn clear_script_runs(conn: &Connection) -> Result<(), DbError> {
@@ -1157,7 +1157,7 @@ pub fn load_rewrite_runs_for_session(
         )
         .map_err(|e| DbError::query("prepare load rewrite runs", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<RewriteRunRow>, DbError> = stmt
         .query_map(params![session_id], |row| {
             Ok(RewriteRunRow {
                 id: row.get(0)?,
@@ -1173,10 +1173,10 @@ pub fn load_rewrite_runs_for_session(
             })
         })
         .map_err(|e| DbError::query("query rewrite runs", e))?
-        .filter_map(|row| row.ok())
+        .map(|row| row.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn load_rewrite_run_entries(
@@ -1208,7 +1208,7 @@ pub fn load_rewrite_run_entries(
         .prepare(&sql)
         .map_err(|e| DbError::query("prepare load rewrite run entries", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<RewriteRunEntryRow>, DbError> = stmt
         .query_map(params.as_slice(), |row| {
             Ok(RewriteRunEntryRow {
                 id: row.get(0)?,
@@ -1222,10 +1222,10 @@ pub fn load_rewrite_run_entries(
             })
         })
         .map_err(|e| DbError::query("query rewrite run entries", e))?
-        .filter_map(|row| row.ok())
+        .map(|row| row.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 // ---------------------------------------------------------------------------

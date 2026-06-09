@@ -62,7 +62,7 @@ pub struct ApiEnvironmentVariableInput {
 pub fn list_api_environments(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiEnvironmentOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::environments::list_environments(&conn)
         .map_err(|error| app_error(ERR_INTERNAL, format!("list environments: {error}")))?;
     Ok(rows
@@ -94,9 +94,9 @@ pub fn upsert_api_environment(
     };
 
     {
-        let conn = state.read_db_connection().lock().expect("db mutex");
+        let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         aiproxy_db::environments::upsert_environment(&conn, &row)
-            .map_err(|e| format!("upsert environment: {e}"))?;
+            .map_err(|e| app_error(ERR_INTERNAL, format!("upsert environment: {e}")))?;
     }
 
     Ok(ApiEnvironmentOutput {
@@ -113,7 +113,7 @@ pub fn delete_api_environment(
     input: DeleteApiEnvironmentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::environments::delete_environment(&conn, &input.id)
         .map_err(|e| format!("delete environment: {e}"))?;
     Ok(())
@@ -124,7 +124,7 @@ pub fn list_api_environment_variables(
     input: ListApiEnvironmentVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiEnvironmentVariableOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id)
         .map_err(|error| {
         app_error(ERR_INTERNAL, format!("list environment variables: {error}"))
@@ -161,7 +161,7 @@ pub fn set_api_environment_variables(
         })
         .collect();
 
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::environments::set_environment_variables(&conn, &input.environment_id, &vars)
         .map_err(|e| format!("set environment variables: {e}"))?;
     Ok(())
@@ -201,7 +201,7 @@ pub struct ApiGlobalVariableInput {
 pub fn list_api_global_variables(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiGlobalVariableOutput>, String> {
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::environments::list_global_variables(&conn)
         .map_err(|error| app_error(ERR_INTERNAL, format!("list global variables: {error}")))?;
     Ok(rows
@@ -234,7 +234,7 @@ pub fn set_api_global_variables(
         })
         .collect();
 
-    let conn = state.read_db_connection().lock().expect("db mutex");
+    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::environments::set_global_variables(&conn, &vars)
         .map_err(|e| format!("set global variables: {e}"))?;
     Ok(())

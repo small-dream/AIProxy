@@ -90,13 +90,13 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbErr
         )
         .map_err(|e| DbError::query("prepare load workspaces", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<WorkspaceRow>, DbError> = stmt
         .query_map([], row_to_workspace)
         .map_err(|e| DbError::query("query workspaces", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode workspace row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 /// Check if the workspaces table is empty (for seeding the default).

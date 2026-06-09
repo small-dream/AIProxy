@@ -146,13 +146,13 @@ pub fn load_recent_summaries(
         )
         .map_err(|e| DbError::query("prepare load summaries", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<SessionSummaryRow>, DbError> = stmt
         .query_map(params![limit as i64], row_to_summary)
         .map_err(|e| DbError::query("query summaries", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode session summary row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 /// Load a single session summary by ID.
@@ -390,16 +390,16 @@ pub fn load_ws_messages(
         )
         .map_err(|e| DbError::query("prepare load ws messages", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<WsMessageRow>, DbError> = stmt
         .query_map(
             params![session_id, limit as i64, offset as i64],
             row_to_ws_message,
         )
         .map_err(|e| DbError::query("query ws messages", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode session detail row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 /// Count WebSocket messages for a session.
@@ -433,16 +433,16 @@ pub fn search_ws_messages(
         )
         .map_err(|e| DbError::query("prepare search ws messages", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<WsMessageRow>, DbError> = stmt
         .query_map(
             params![session_id, like_pattern, limit as i64, offset as i64],
             row_to_ws_message,
         )
         .map_err(|e| DbError::query("search ws messages", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode session detail row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> {

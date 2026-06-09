@@ -193,13 +193,14 @@ pub fn compute_insights(
             ))
             .map_err(|e| DbError::query("insights percentile prepare", e))?;
 
-        let durations: Vec<i64> = stmt
+        let durations: Result<Vec<i64>, DbError> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 row.get::<_, i64>(0)
             })
             .map_err(|e| DbError::query("insights percentile query", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
+        let durations = durations?;
 
         p50_duration_ms = percentile(&durations, 50);
         p95_duration_ms = percentile(&durations, 95);
@@ -222,7 +223,7 @@ pub fn compute_insights(
             ))
             .map_err(|e| DbError::query("insights by_host prepare", e))?;
 
-        let host_rows: Vec<HostInsightRaw> = stmt
+        let host_rows: Result<Vec<HostInsightRaw>, DbError> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(HostInsightRaw {
                     host: row.get("host")?,
@@ -233,8 +234,9 @@ pub fn compute_insights(
                 })
             })
             .map_err(|e| DbError::query("insights by_host query", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
+        let host_rows = host_rows?;
 
         // Compute per-host P95
         let mut result = Vec::with_capacity(host_rows.len());
@@ -263,7 +265,7 @@ pub fn compute_insights(
             ))
             .map_err(|e| DbError::query("insights by_status_code prepare", e))?;
 
-        let rows: Vec<StatusCodeDistribution> = stmt
+        let rows: Result<Vec<StatusCodeDistribution>, DbError> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(StatusCodeDistribution {
                     status_code: row.get("status_code")?,
@@ -271,9 +273,9 @@ pub fn compute_insights(
                 })
             })
             .map_err(|e| DbError::query("insights by_status_code query", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
-        rows
+        rows?
     };
 
     // --- By method ---
@@ -287,7 +289,7 @@ pub fn compute_insights(
             ))
             .map_err(|e| DbError::query("insights by_method prepare", e))?;
 
-        let rows: Vec<MethodDistribution> = stmt
+        let rows: Result<Vec<MethodDistribution>, DbError> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(MethodDistribution {
                     method: row.get("method")?,
@@ -295,9 +297,9 @@ pub fn compute_insights(
                 })
             })
             .map_err(|e| DbError::query("insights by_method query", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
-        rows
+        rows?
     };
 
     // --- Slow requests (top 20) ---
@@ -311,7 +313,7 @@ pub fn compute_insights(
             ))
             .map_err(|e| DbError::query("insights slow_requests prepare", e))?;
 
-        let rows: Vec<SlowRequest> = stmt
+        let rows: Result<Vec<SlowRequest>, DbError> = stmt
             .query_map(rusqlite::params_from_iter(params()), |row| {
                 Ok(SlowRequest {
                     session_id: row.get("id")?,
@@ -322,9 +324,9 @@ pub fn compute_insights(
                 })
             })
             .map_err(|e| DbError::query("insights slow_requests query", e))?
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
-        rows
+        rows?
     };
 
     Ok(InsightsResult {
@@ -374,7 +376,7 @@ fn compute_host_p95(conn: &Connection, host: &str, filter: &InsightsFilter) -> f
         row.get::<_, i64>(0)
     });
     let durations: Vec<i64> = match result {
-        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Ok(rows) => rows.map(|r| r.map_err(|e| DbError::query("decode insight row", e))).filter_map(|r| r.ok()).collect(),
         Err(_) => return 0.0,
     };
 

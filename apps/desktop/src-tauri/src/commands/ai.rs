@@ -78,8 +78,8 @@ pub async fn get_ai_settings(state: State<'_, Arc<AppState>>) -> Result<AiSettin
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("get_ai_settings", move || {
-        let conn = db.lock().map_err(|_| "db mutex poisoned".to_string())?;
-        let row = aiproxy_db::ai::load_ai_settings(&conn).map_err(|e| e.to_string())?;
+        let conn = db.lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let row = aiproxy_db::ai::load_ai_settings(&conn).map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
         Ok(row_to_public(row.as_ref()))
     })
     .await
@@ -146,7 +146,8 @@ pub async fn test_ai_connection(
         }),
         Err(error) => Ok(TestAiConnectionResult {
             ok: false,
-            message: error,
+            // Extract human-readable message from app_error JSON; fall back to raw string
+            message: extract_error_message(&error),
         }),
     }
 }
@@ -370,6 +371,15 @@ fn truncate_for_error(value: &str) -> String {
         return value.to_string();
     }
     format!("{}...", &value[..LIMIT])
+}
+
+/// Extract the human-readable `message` field from an `app_error()` JSON string.
+/// Falls back to the raw string if parsing fails.
+fn extract_error_message(error: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(error)
+        .ok()
+        .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
+        .unwrap_or_else(|| error.to_string())
 }
 
 #[cfg(test)]

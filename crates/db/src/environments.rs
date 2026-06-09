@@ -68,13 +68,13 @@ pub fn list_environments(conn: &Connection) -> Result<Vec<EnvironmentRow>, DbErr
         )
         .map_err(|e| DbError::query("prepare list environments", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<EnvironmentRow>, DbError> = stmt
         .query_map([], row_to_environment)
         .map_err(|e| DbError::query("query environments", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode environment row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -121,13 +121,13 @@ pub fn list_environment_variables(
         )
         .map_err(|e| DbError::query("prepare list env vars", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<EnvironmentVariableRow>, DbError> = stmt
         .query_map(params![environment_id], row_to_env_variable)
         .map_err(|e| DbError::query("query env vars", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode environment variable row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 /// Replace all variables for an environment atomically.
@@ -180,13 +180,13 @@ pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>
         )
         .map_err(|e| DbError::query("prepare list global variables", e))?;
 
-    let rows = stmt
+    let rows: Result<Vec<GlobalVariableRow>, DbError> = stmt
         .query_map([], row_to_global_variable)
         .map_err(|e| DbError::query("query global variables", e))?
-        .filter_map(|r| r.ok())
+        .map(|r| r.map_err(|e| DbError::query("decode environment variable row", e)))
         .collect();
 
-    Ok(rows)
+    Ok(rows?)
 }
 
 pub fn set_global_variables(conn: &Connection, vars: &[GlobalVariableRow]) -> Result<(), DbError> {

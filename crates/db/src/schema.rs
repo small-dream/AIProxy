@@ -418,15 +418,16 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
 
-        let tables: Vec<String> = conn
+        let tables: Result<Vec<String>, DbError> = conn
             .prepare(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
             )
             .unwrap()
             .query_map([], |row| row.get::<_, String>(0))
             .unwrap()
-            .filter_map(|r| r.ok())
+            .map(|r| r.map_err(|e| DbError::query("decode schema row", e)))
             .collect();
+        let tables = tables.unwrap();
 
         let expected = [
             "api_collection_items",
