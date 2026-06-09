@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 import { type BodyType, type RawLanguage } from "@/features/compose/types";
 
-type CollectionEditorState = {
+export type CollectionEditorState = {
   // Item identity
   itemId: string | null;
   collectionId: string | null;

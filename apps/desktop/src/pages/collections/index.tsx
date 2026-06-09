@@ -1,44 +1,15 @@
 import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
-import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
-import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
-import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
-import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
-import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import {
-  Alert,
   Box,
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
-  IconButton,
-  InputAdornment,
   Menu,
   MenuItem,
-  OutlinedInput,
-  Select,
   Snackbar,
-  Stack,
   TextField,
-  Tooltip,
-  Typography,
 } from "@mui/material";
-import type { Theme } from "@mui/material/styles";
 import { alpha } from "@mui/material/styles";
 import {
   useCallback,
@@ -46,17 +17,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import type { ApiCollection, ApiCollectionItem } from "@aiproxy/shared-types";
+import type { ApiCollectionItem } from "@aiproxy/shared-types";
 
-import { ComposeRequestSection } from "@/features/compose/components/ComposeRequestSection";
-import {
-  ComposeResponseSection,
-  type ComposeResponseTab,
-} from "@/features/compose/components/ComposeResponseSection";
 import {
   buildMultipartBody,
   FORMDATA_CONTENT_TYPE,
@@ -65,37 +30,16 @@ import {
 } from "@/features/compose/compose-editor.store";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useCollectionEditorStore } from "@/features/collections/collection-editor.store";
-import { countTreeNodes, filterCollectionTree } from "@/features/collections/collection-tree.helpers";
 import {
-  APPEND_SORT_ORDER,
   clampExplorerWidth,
   ensureContentType,
   EXPLORER_WIDTH_STORAGE_KEY,
-  HTTP_METHODS,
   INSPECTOR_SPLIT_RATIO_STORAGE_KEY,
   REQUEST_COLLAPSED_STORAGE_KEY,
 } from "@/features/collections/collections-layout.helpers";
-import {
-  EmptyPaneState,
-  EmptyWorkspace,
-  LoadingState,
-} from "@/features/collections/components/PaneStates";
-import { PaneHeader } from "@/features/collections/components/PaneHeader";
-import { SearchInput } from "@/features/collections/components/SearchInput";
-import { WorkbenchPane } from "@/features/collections/components/WorkbenchPane";
-import {
-  CollectionTreeNodeView,
-  parseDndId,
-} from "@/features/collections/components/CollectionTreeNodeView";
-import {
-  computeDropIntent,
-  isFolderCycleViolation,
-  type DropPosition,
-} from "@/features/collections/components/dnd-helpers";
-import type {
-  CollectionEditorItem,
-  RenameTarget,
-} from "@/features/collections/components/tree-types";
+import { CollectionEditorPane } from "@/features/collections/components/CollectionEditorPane";
+import { CollectionTreePane } from "@/features/collections/components/CollectionTreePane";
+import type { CollectionEditorItem } from "@/features/collections/components/tree-types";
 import {
   useCollectionItems,
   useDeleteCollectionItem,
@@ -109,6 +53,7 @@ import {
   useMoveCollection,
   useUpsertCollection,
 } from "@/features/collections/use-collections";
+import { useCollectionTree } from "@/features/collections/use-collection-tree";
 import { EnvironmentManagerDialog } from "@/features/environments/components/EnvironmentManagerDialog";
 import {
   buildMergedVariableMap,
@@ -123,10 +68,11 @@ import {
 } from "@/features/sessions/components/session-inspector.helpers";
 import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
 import { useI18n } from "@/i18n";
-import { appFontCssVars } from "@/themes/fonts";
 
 export function CollectionsPage() {
   const { t } = useI18n();
+
+  // --- Data queries ---
 
   const collectionsQuery = useCollections();
   const upsertCollection = useUpsertCollection();
@@ -141,8 +87,15 @@ export function CollectionsPage() {
   const itemsQuery = useCollectionItems(selectedCollectionId);
   const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
 
+  // --- Editor ---
+
   const editor = useCollectionEditorStore();
   const sendMutation = useSendComposedRequest();
+  const upsertItemMutation = useUpsertCollectionItem();
+  const deleteItemMutation = useDeleteCollectionItem();
+
+  // --- Layout state ---
+
   const explorerDragFrameRef = useRef<number | null>(null);
   const inspectorDragFrameRef = useRef<number | null>(null);
   const [explorerWidth, setExplorerWidth] = useState(() => {
@@ -158,6 +111,12 @@ export function CollectionsPage() {
   const [requestCollapsed, setRequestCollapsed] = useState(
     () => readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
   );
+  const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
+  const [responseTab, setResponseTab] = useState<
+    import("@/features/compose/components/ComposeResponseSection").ComposeResponseTab
+  >("overview");
+
+  // --- Environment ---
 
   const ACTIVE_ENV_KEY = "aiproxy.collections.activeEnvironmentId";
   const environmentsQuery = useEnvironments();
@@ -171,6 +130,39 @@ export function CollectionsPage() {
     () => buildMergedVariableMap(envVarsQuery.data ?? [], globalVarsQuery.data ?? []),
     [envVarsQuery.data, globalVarsQuery.data],
   );
+
+  // --- Dialog state ---
+
+  const [newCollectionDialogOpen, setNewCollectionDialogOpen] = useState(false);
+  const [newCollectionParentId, setNewCollectionParentId] = useState<string | null>(null);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
+
+  // --- Tree hook (DnD, context menu, rename, expansion) ---
+
+  const moveCollection = useMoveCollection();
+  const moveCollectionItem = useMoveCollectionItem();
+
+  const treeHook = useCollectionTree({
+    collections,
+    items,
+    tree,
+    selectedCollectionId,
+    selectedItemId,
+    collectionFilter,
+    upsertCollection,
+    deleteCollection: deleteCollectionMutation,
+    moveCollection,
+    upsertItem: upsertItemMutation,
+    deleteItem: deleteItemMutation,
+    moveItem: moveCollectionItem,
+    editor,
+    setSelectedCollectionId,
+    setSelectedItemId,
+    t,
+  });
+
+  // --- Persist layout state ---
 
   useEffect(() => {
     if (activeEnvironmentId) {
@@ -203,149 +195,7 @@ export function CollectionsPage() {
     };
   }, []);
 
-  const upsertItemMutation = useUpsertCollectionItem();
-  const deleteItemMutation = useDeleteCollectionItem();
-
-  const [newCollectionDialogOpen, setNewCollectionDialogOpen] = useState(false);
-  const [newCollectionParentId, setNewCollectionParentId] = useState<string | null>(null);
-  const [newCollectionName, setNewCollectionName] = useState("");
-  const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
-  const [treeMenuState, setTreeMenuState] = useState<{
-    mouseX: number;
-    mouseY: number;
-    target: RenameTarget;
-  } | null>(null);
-  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
-  const [renameName, setRenameName] = useState("");
-
-  const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
-  const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
-
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
-  const [activeDnd, setActiveDnd] = useState<{
-    kind: "folder" | "item";
-    id: string;
-    sourceCollectionId?: string;
-  } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{
-    overDndId: string;
-    position: DropPosition;
-  } | null>(null);
-  const [moveError, setMoveError] = useState<string | null>(null);
-  const cursorRef = useRef({ x: 0, y: 0 });
-  const springLoadRef = useRef<{ folderId: string; timer: number } | null>(null);
-
-  const moveCollection = useMoveCollection();
-  const moveCollectionItem = useMoveCollectionItem();
-
-  useEffect(() => {
-    function onMove(e: PointerEvent) {
-      cursorRef.current = { x: e.clientX, y: e.clientY };
-    }
-    window.addEventListener("pointermove", onMove);
-    return () => window.removeEventListener("pointermove", onMove);
-  }, []);
-
-  const isFolderExpanded = useCallback(
-    (id: string) => !collapsedFolders.has(id),
-    [collapsedFolders],
-  );
-
-  const handleToggleExpand = useCallback((id: string, expanded: boolean) => {
-    setCollapsedFolders((prev) => {
-      const next = new Set(prev);
-      if (expanded) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  function clearSpringLoad() {
-    if (springLoadRef.current) {
-      window.clearTimeout(springLoadRef.current.timer);
-      springLoadRef.current = null;
-    }
-  }
-
-  const filteredTree = useMemo(
-    () => filterCollectionTree(tree, collectionFilter),
-    [tree, collectionFilter],
-  );
-
-  function handleTreeContextMenu(event: ReactMouseEvent, target: RenameTarget) {
-    event.preventDefault();
-    event.stopPropagation();
-    setTreeMenuState({
-      mouseX: event.clientX + 2,
-      mouseY: event.clientY - 4,
-      target,
-    });
-  }
-
-  function handleTreeMenuClose() {
-    setTreeMenuState(null);
-  }
-
-  function handleBeginRename() {
-    if (!treeMenuState) return;
-    setRenameTarget(treeMenuState.target);
-    setRenameName(
-      treeMenuState.target.kind === "collection"
-        ? treeMenuState.target.name
-        : treeMenuState.target.item.name,
-    );
-    setTreeMenuState(null);
-  }
-
-  function handleRenameCancel() {
-    setRenameTarget(null);
-    setRenameName("");
-  }
-
-  function handleRenameSubmit() {
-    const nextName = renameName.trim();
-    if (!renameTarget || !nextName) return;
-
-    if (renameTarget.kind === "collection") {
-      upsertCollection.mutate(
-        {
-          id: renameTarget.id,
-          name: nextName,
-          parentId: renameTarget.parentId,
-        },
-        {
-          onSuccess: () => handleRenameCancel(),
-        },
-      );
-      return;
-    }
-
-    const item = renameTarget.item;
-    upsertItemMutation.mutate(
-      {
-        body: item.body,
-        bodyType: item.bodyType,
-        collectionId: item.collectionId,
-        description: item.description,
-        formData: item.formData,
-        headers: item.headers,
-        id: item.id,
-        method: item.method,
-        name: nextName,
-        rawLanguage: item.rawLanguage,
-        url: item.url,
-        urlEncoded: item.urlEncoded,
-      },
-      {
-        onSuccess: (updatedItem) => {
-          if (selectedItemId === updatedItem.id) {
-            editor.loadFromItem(updatedItem);
-          }
-          handleRenameCancel();
-        },
-      },
-    );
-  }
+  // --- Editor handlers ---
 
   function handleSelectCollection(collectionId: string) {
     setSelectedCollectionId(collectionId);
@@ -450,7 +300,7 @@ export function CollectionsPage() {
         urlEncoded: editor.urlEncodedEntries,
       },
       {
-        onSuccess: (item) => {
+        onSuccess: (item: ApiCollectionItem) => {
           setSelectedCollectionId(item.collectionId);
           setSelectedItemId(item.id);
           editor.loadFromItem(item);
@@ -476,244 +326,7 @@ export function CollectionsPage() {
     );
   }
 
-  function handleDeleteCollection(collectionId: string) {
-    deleteCollectionMutation.mutate(collectionId);
-    if (selectedCollectionId === collectionId) {
-      setSelectedCollectionId(null);
-      setSelectedItemId(null);
-      editor.reset();
-    }
-  }
-
-  function findFolder(id: string): ApiCollection | undefined {
-    return collections.find((c) => c.id === id);
-  }
-
-  function indexAmongCollectionSiblings(
-    targetId: string,
-    parentId: string | null,
-    excludeId: string | null,
-  ): number {
-    const siblings = collections
-      .filter((c) => c.parentId === parentId && c.id !== excludeId)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-    return siblings.findIndex((c) => c.id === targetId);
-  }
-
-  function indexAmongItemSiblings(
-    targetId: string,
-    itemList: ApiCollectionItem[],
-    excludeId: string | null,
-  ): number {
-    const sorted = itemList
-      .filter((it) => it.id !== excludeId)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-    return sorted.findIndex((it) => it.id === targetId);
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    const parsed = parseDndId(String(event.active.id));
-    if (!parsed) return;
-    setActiveDnd({
-      kind: parsed.kind,
-      id: parsed.id,
-      ...(parsed.kind === "item" && selectedCollectionId
-        ? { sourceCollectionId: selectedCollectionId }
-        : {}),
-    });
-  }
-
-  function handleDragOver(event: DragOverEvent) {
-    const { over } = event;
-    if (!over || !activeDnd) {
-      setDropTarget(null);
-      clearSpringLoad();
-      return;
-    }
-
-    const overParsed = parseDndId(String(over.id));
-    if (!overParsed) {
-      setDropTarget(null);
-      clearSpringLoad();
-      return;
-    }
-
-    if (overParsed.kind === "folder" && overParsed.id === activeDnd.id) {
-      setDropTarget(null);
-      clearSpringLoad();
-      return;
-    }
-
-    const overRect = over.rect;
-    if (!overRect) {
-      setDropTarget(null);
-      clearSpringLoad();
-      return;
-    }
-
-    const overFolder = overParsed.kind === "folder" ? findFolder(overParsed.id) : null;
-    const overIsExpanded = overParsed.kind === "folder" ? isFolderExpanded(overParsed.id) : false;
-    const overHasChildren = overFolder
-      ? collections.some((c) => c.parentId === overFolder.id) ||
-        (overFolder.id === selectedCollectionId && items.length > 0)
-      : false;
-
-    const intent = computeDropIntent({
-      activeKind: activeDnd.kind,
-      overKind: overParsed.kind,
-      overTop: overRect.top,
-      overHeight: overRect.height,
-      cursorY: cursorRef.current.y,
-      overIsExpanded,
-      overHasChildren,
-    });
-
-    if (!intent) {
-      setDropTarget(null);
-      clearSpringLoad();
-      return;
-    }
-
-    if (activeDnd.kind === "folder") {
-      const targetParentId =
-        intent === "into"
-          ? overParsed.id
-          : overParsed.kind === "folder"
-            ? (findFolder(overParsed.id)?.parentId ?? null)
-            : null;
-      if (isFolderCycleViolation(activeDnd.id, targetParentId, collections)) {
-        setDropTarget(null);
-        clearSpringLoad();
-        return;
-      }
-    }
-
-    setDropTarget({ overDndId: String(over.id), position: intent });
-
-    if (
-      activeDnd.kind === "folder" &&
-      overParsed.kind === "folder" &&
-      intent === "into" &&
-      !overIsExpanded
-    ) {
-      if (springLoadRef.current?.folderId !== overParsed.id) {
-        clearSpringLoad();
-        const folderId = overParsed.id;
-        const timer = window.setTimeout(() => {
-          handleToggleExpand(folderId, true);
-          springLoadRef.current = null;
-        }, 500);
-        springLoadRef.current = { folderId, timer };
-      }
-    } else {
-      clearSpringLoad();
-    }
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    clearSpringLoad();
-    const active = activeDnd;
-    const over = dropTarget;
-    setActiveDnd(null);
-    setDropTarget(null);
-
-    if (!active || !over) return;
-
-    const overParsed = parseDndId(over.overDndId);
-    if (!overParsed) return;
-    if (event.active.id === event.over?.id && over.position === "into") return;
-
-    if (active.kind === "folder") {
-      let targetParentId: string | null;
-      let sortOrder: number;
-      if (over.position === "into") {
-        if (overParsed.kind !== "folder") return;
-        targetParentId = overParsed.id;
-        const childCount = collections.filter(
-          (c) => c.parentId === targetParentId && c.id !== active.id,
-        ).length;
-        sortOrder = childCount;
-      } else {
-        if (overParsed.kind !== "folder") return;
-        const overFolder = findFolder(overParsed.id);
-        if (!overFolder) return;
-        targetParentId = overFolder.parentId;
-        const baseIdx = indexAmongCollectionSiblings(overParsed.id, targetParentId, active.id);
-        if (baseIdx === -1) return;
-        sortOrder = over.position === "after" ? baseIdx + 1 : baseIdx;
-      }
-      if (isFolderCycleViolation(active.id, targetParentId, collections)) return;
-      if (over.position === "into" && targetParentId) {
-        handleToggleExpand(targetParentId, true);
-      }
-      moveCollection.mutate(
-        { id: active.id, targetParentId, sortOrder },
-        {
-          onError: (err: unknown) => {
-            const msg =
-              err instanceof Error && err.message.includes("descendant")
-                ? t("collectionsPage.moveCycleBlocked")
-                : t("collectionsPage.moveFailed");
-            setMoveError(msg);
-          },
-        },
-      );
-      return;
-    }
-
-    if (active.kind === "item") {
-      const sourceCollectionId = active.sourceCollectionId ?? selectedCollectionId;
-      if (!sourceCollectionId) return;
-
-      let targetCollectionId: string;
-      let sortOrder: number;
-      if (over.position === "into") {
-        if (overParsed.kind !== "folder") return;
-        targetCollectionId = overParsed.id;
-        sortOrder =
-          targetCollectionId === sourceCollectionId
-            ? items.filter((it) => it.id !== active.id).length
-            : APPEND_SORT_ORDER;
-      } else {
-        if (overParsed.kind !== "item") return;
-        targetCollectionId = sourceCollectionId;
-        const baseIdx = indexAmongItemSiblings(overParsed.id, items, active.id);
-        if (baseIdx === -1) return;
-        sortOrder = over.position === "after" ? baseIdx + 1 : baseIdx;
-      }
-
-      const isCrossFolder = targetCollectionId !== sourceCollectionId;
-      if (isCrossFolder) {
-        handleToggleExpand(targetCollectionId, true);
-        setSelectedCollectionId(targetCollectionId);
-      }
-
-      moveCollectionItem.mutate(
-        {
-          id: active.id,
-          sourceCollectionId,
-          targetCollectionId,
-          sortOrder,
-        },
-        {
-          onError: () => {
-            setMoveError(t("collectionsPage.moveFailed"));
-          },
-        },
-      );
-    }
-  }
-
-  function handleDragCancel() {
-    clearSpringLoad();
-    setActiveDnd(null);
-    setDropTarget(null);
-  }
-
-  const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor),
-  );
+  // --- Resize handlers ---
 
   function startExplorerResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = event.currentTarget.parentElement;
@@ -796,8 +409,9 @@ export function CollectionsPage() {
     [requestCollapsed],
   );
 
-  const responseDetail = sendMutation.data;
-  const collectionCount = countTreeNodes(tree);
+  // --- Render ---
+
+  const hasEnvError = environmentsQuery.isError || envVarsQuery.isError || globalVarsQuery.isError;
 
   return (
     <Box
@@ -812,160 +426,45 @@ export function CollectionsPage() {
         p: 0,
       }}
     >
-      <WorkbenchPane
-        sx={{
-          borderRight: 0,
-          borderBottomRightRadius: 0,
-          borderTopRightRadius: 0,
+      <CollectionTreePane
+        activeEnvironmentId={activeEnvironmentId}
+        collectionCount={treeHook.collectionCount}
+        collectionFilter={collectionFilter}
+        dndSensors={treeHook.dndSensors}
+        dropTarget={treeHook.dropTarget}
+        environments={(environmentsQuery.data ?? []) as { id: string; name: string }[]}
+        filteredTree={treeHook.filteredTree}
+        hasEnvError={hasEnvError}
+        isCollectionsLoading={collectionsQuery.isLoading}
+        isFolderExpanded={treeHook.isFolderExpanded}
+        isItemsLoading={itemsQuery.isLoading}
+        items={items}
+        onAddChildFolder={(parentId) => {
+          setNewCollectionParentId(parentId);
+          setNewCollectionDialogOpen(true);
         }}
-      >
-        <PaneHeader
-          icon={<AccountTreeRoundedIcon />}
-          meta={t("collectionsPage.collectionCount", { count: collectionCount })}
-          title={t("collectionsPage.library")}
-          actions={
-            <Tooltip title={t("collectionsPage.newCollection")}>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setNewCollectionParentId(null);
-                  setNewCollectionDialogOpen(true);
-                }}
-              >
-                <CreateNewFolderRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          }
-        />
-        <Box sx={{ px: 1.25, pb: 1 }}>
-          <SearchInput
-            onChange={setCollectionFilter}
-            placeholder={t("collectionsPage.searchCollections")}
-            value={collectionFilter}
-          />
-        </Box>
-        <Divider />
-
-        <Box sx={{ flex: "1 1 0", minHeight: 0, overflow: "auto", py: 0.625 }}>
-          {collectionsQuery.isLoading ? (
-            <LoadingState />
-          ) : filteredTree.length > 0 ? (
-            <DndContext
-              collisionDetection={pointerWithin}
-              sensors={dndSensors}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
-              onDragCancel={handleDragCancel}
-            >
-              {filteredTree.map((node) => (
-                <CollectionTreeNodeView
-                  key={node.id}
-                  depth={0}
-                  deleteItemLabel={t("collectionsPage.deleteItem")}
-                  isFolderExpanded={isFolderExpanded}
-                  isItemsLoading={itemsQuery.isLoading}
-                  node={node}
-                  onAddChild={(parentId) => {
-                    setNewCollectionParentId(parentId);
-                    setNewCollectionDialogOpen(true);
-                  }}
-                  onContextMenu={handleTreeContextMenu}
-                  onDelete={handleDeleteCollection}
-                  onDeleteItem={(item) => {
-                    deleteItemMutation.mutate({ collectionId: item.collectionId, id: item.id });
-                    if (selectedItemId === item.id) {
-                      setSelectedItemId(null);
-                      editor.reset();
-                    }
-                  }}
-                  onNewRequest={handleCreateRequest}
-                  onSelect={handleSelectCollection}
-                  onSelectItem={handleSelectItem}
-                  onToggleExpand={handleToggleExpand}
-                  overId={dropTarget?.overDndId ?? null}
-                  overPosition={dropTarget?.position ?? null}
-                  selectedCollectionItems={items}
-                  selectedCollectionId={selectedCollectionId}
-                  selectedItemId={selectedItemId}
-                  t={t}
-                />
-              ))}
-            </DndContext>
-          ) : (
-            <EmptyPaneState
-              actionLabel={t("collectionsPage.newCollection")}
-              icon={<FolderRoundedIcon />}
-              onAction={() => {
-                setNewCollectionParentId(null);
-                setNewCollectionDialogOpen(true);
-              }}
-              title={t("collectionsPage.emptyCollections")}
-            />
-          )}
-        </Box>
-
-        <Divider />
-        <Box sx={{ p: 1 }}>
-          <Stack
-            direction="row"
-            spacing={0.75}
-            sx={(theme) => ({
-              alignItems: "center",
-              bgcolor: alpha(
-                theme.palette.primary.main,
-                theme.palette.mode === "dark" ? 0.1 : 0.06,
-              ),
-              border: 1,
-              borderColor: alpha(
-                theme.palette.primary.main,
-                theme.palette.mode === "dark" ? 0.22 : 0.16,
-              ),
-              borderRadius: 1,
-              p: 0.75,
-            })}
-          >
-            <BoltRoundedIcon sx={{ color: "primary.main", flex: "0 0 auto", fontSize: 18 }} />
-            <Typography noWrap sx={{ flex: 1, fontSize: 12, fontWeight: 700, minWidth: 0 }}>
-              {t("collectionsPage.environmentSelector")}
-            </Typography>
-            <Select
-              size="small"
-              value={activeEnvironmentId ?? ""}
-              onChange={(e) => setActiveEnvironmentId(e.target.value || null)}
-              sx={{
-                bgcolor: "background.paper",
-                flex: "0 0 132px",
-                fontSize: 12,
-                "& .MuiSelect-select": { py: 0.75 },
-              }}
-            >
-              <MenuItem value="">
-                <em>{t("collectionsPage.noEnvironment")}</em>
-              </MenuItem>
-              {(environmentsQuery.data ?? []).map((env) => (
-                <MenuItem key={env.id} value={env.id}>
-                  {env.name}
-                </MenuItem>
-              ))}
-            </Select>
-            <Tooltip title={t("collectionsPage.manageEnvironments")}>
-              <IconButton
-                size="small"
-                onClick={() => setManageEnvDialogOpen(true)}
-                sx={{ color: "text.secondary", flex: "0 0 auto" }}
-              >
-                <SettingsRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-          {(environmentsQuery.isError || envVarsQuery.isError || globalVarsQuery.isError) && (
-            <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
-              {t("common.errors.generic")}
-            </Alert>
-          )}
-        </Box>
-      </WorkbenchPane>
+        onCollectionFilterChange={setCollectionFilter}
+        onContextMenu={treeHook.handleTreeContextMenu}
+        onDragCancel={treeHook.handleDragCancel}
+        onDragEnd={treeHook.handleDragEnd}
+        onDragOver={treeHook.handleDragOver}
+        onDragStart={treeHook.handleDragStart}
+        onEnvironmentChange={setActiveEnvironmentId}
+        onManageEnvironments={() => setManageEnvDialogOpen(true)}
+        onNewCollection={() => {
+          setNewCollectionParentId(null);
+          setNewCollectionDialogOpen(true);
+        }}
+        onNewRequest={handleCreateRequest}
+        onSelectCollection={handleSelectCollection}
+        onSelectItem={handleSelectItem}
+        onDeleteCollection={treeHook.handleDeleteCollection}
+        onDeleteItem={treeHook.handleDeleteItem}
+        onToggleExpand={treeHook.handleToggleExpand}
+        selectedCollectionId={selectedCollectionId}
+        selectedItemId={selectedItemId}
+        t={t}
+      />
 
       <Box
         aria-hidden
@@ -999,264 +498,41 @@ export function CollectionsPage() {
         }}
       />
 
-      <WorkbenchPane
-        sx={{
-          borderBottomLeftRadius: 0,
-          borderTopLeftRadius: 0,
-          minWidth: 0,
-        }}
-      >
-        {editor.collectionId ? (
-          <Stack sx={{ flex: 1, minHeight: 0 }}>
-            <Box
-              sx={(theme) => ({
-                bgcolor: alpha(
-                  theme.palette.background.paper,
-                  theme.palette.mode === "dark" ? 0.74 : 0.86,
-                ),
-                borderBottom: 1,
-                borderColor: "divider",
-                flexShrink: 0,
-                p: 1,
-              })}
-            >
-              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0 }}>
-                <Select
-                  size="small"
-                  sx={{
-                    flex: "0 0 112px",
-                    fontFamily: appFontCssVars.content,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    "& .MuiSelect-select": {
-                      alignItems: "center",
-                      display: "flex",
-                      py: 0.9,
-                    },
-                  }}
-                  value={editor.method}
-                  onChange={(e) => editor.setMethod(e.target.value)}
-                >
-                  {HTTP_METHODS.map((method) => (
-                    <MenuItem
-                      key={method}
-                      sx={{ fontFamily: appFontCssVars.content, fontSize: 13, fontWeight: 700 }}
-                      value={method}
-                    >
-                      {method}
-                    </MenuItem>
-                  ))}
-                </Select>
-                <OutlinedInput
-                  fullWidth
-                  placeholder={t("composePage.urlPlaceholder")}
-                  size="small"
-                  startAdornment={
-                    <InputAdornment position="start">
-                      <LinkRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
-                    </InputAdornment>
-                  }
-                  sx={(theme: Theme) => ({
-                    bgcolor: alpha(
-                      theme.palette.background.default,
-                      theme.palette.mode === "dark" ? 0.38 : 0.62,
-                    ),
-                    fontFamily: appFontCssVars.content,
-                    fontSize: 13,
-                    minWidth: 0,
-                    "& .MuiOutlinedInput-input": {
-                      py: 1,
-                    },
-                  })}
-                  value={editor.url}
-                  onChange={(e) => editor.setUrl(e.target.value)}
-                  onKeyDown={(e: React.KeyboardEvent) => {
-                    if (
-                      e.key === "Enter" &&
-                      editor.url.trim() &&
-                      !envVarsQuery.isError &&
-                      !globalVarsQuery.isError
-                    )
-                      handleSend();
-                  }}
-                />
-                <Tooltip title={t("collectionsPage.saveRequest")}>
-                  <span>
-                    <Button
-                      disabled={upsertItemMutation.isPending}
-                      onClick={handleSave}
-                      size="small"
-                      sx={{ flex: "0 0 auto", minHeight: 36, minWidth: 104 }}
-                      variant="outlined"
-                    >
-                      {editor.itemId
-                        ? t("collectionsPage.updateRequest")
-                        : t("collectionsPage.saveAsNew")}
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Tooltip title={t("collectionsPage.sendRequest")}>
-                  <span>
-                    <Button
-                      disabled={
-                        !editor.url.trim() ||
-                        sendMutation.isPending ||
-                        envVarsQuery.isError ||
-                        globalVarsQuery.isError
-                      }
-                      onClick={handleSend}
-                      size="small"
-                      startIcon={sendMutation.isPending ? undefined : <SendRoundedIcon />}
-                      sx={{ flex: "0 0 auto", minHeight: 36, minWidth: 88 }}
-                      variant="contained"
-                    >
-                      {sendMutation.isPending ? (
-                        <CircularProgress color="inherit" size={18} />
-                      ) : (
-                        t("collectionsPage.sendRequest")
-                      )}
-                    </Button>
-                  </span>
-                </Tooltip>
-              </Stack>
-
-              <Stack
-                direction="row"
-                spacing={0.75}
-                sx={{ alignItems: "center", mt: 0.75, minWidth: 0 }}
-              >
-                <TextField
-                  placeholder={t("collectionsPage.requestName")}
-                  size="small"
-                  value={editor.name}
-                  onChange={(e) => editor.setName(e.target.value)}
-                  sx={{
-                    flex: "0 1 280px",
-                    minWidth: 180,
-                    "& .MuiInputBase-input": {
-                      fontSize: 13,
-                      fontWeight: 700,
-                      py: 0.75,
-                    },
-                  }}
-                />
-                <TextField
-                  placeholder={t("collectionsPage.descriptionPlaceholder")}
-                  size="small"
-                  value={editor.description}
-                  onChange={(e) => editor.setDescription(e.target.value)}
-                  sx={{
-                    flex: "1 1 240px",
-                    minWidth: 0,
-                    "& .MuiInputBase-input": {
-                      color: "text.secondary",
-                      fontSize: 12.5,
-                      py: 0.75,
-                    },
-                  }}
-                />
-              </Stack>
-            </Box>
-
-            <Box
-              sx={{
-                display: "grid",
-                flex: "1 1 0",
-                gridTemplateRows: requestCollapsed
-                  ? "auto 1px minmax(0, 1fr)"
-                  : `${inspectorSplitRatio}fr 1px ${1 - inspectorSplitRatio}fr`,
-                minHeight: 0,
-                overflow: "hidden",
-              }}
-            >
-              <ComposeRequestSection
-                activeTab={requestTab}
-                body={editor.body}
-                bodyType={editor.bodyType}
-                chromeless
-                formDataEntries={editor.formDataEntries}
-                headers={editor.headers}
-                onActiveTabChange={setRequestTab}
-                onBodyChange={editor.setBody}
-                onBodyTypeChange={editor.setBodyType}
-                onFormDataEntriesChange={editor.setFormDataEntries}
-                onHeadersChange={editor.setHeaders}
-                onRequestCollapsedChange={setRequestCollapsed}
-                onRawLanguageChange={editor.setRawLanguage}
-                onUrlChange={editor.setUrl}
-                onUrlEncodedEntriesChange={editor.setUrlEncodedEntries}
-                rawLanguage={editor.rawLanguage}
-                requestCollapsed={requestCollapsed}
-                url={editor.url}
-                urlEncodedEntries={editor.urlEncodedEntries}
-              />
-
-              {requestCollapsed ? (
-                <Divider />
-              ) : (
-                <Box
-                  aria-hidden
-                  onPointerDown={startInspectorResize}
-                  sx={{
-                    alignItems: "center",
-                    cursor: "row-resize",
-                    display: "flex",
-                    justifyContent: "center",
-                    minHeight: 0,
-                    position: "relative",
-                    touchAction: "none",
-                    userSelect: "none",
-                    "&::before": {
-                      bgcolor: (theme) =>
-                        alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.76 : 1),
-                      content: '""',
-                      height: 1,
-                      opacity: 1,
-                      transition: "background-color 120ms ease, opacity 120ms ease",
-                      width: "100%",
-                    },
-                    "&::after": {
-                      content: '""',
-                      inset: "-3px 0",
-                      position: "absolute",
-                    },
-                    "&:hover::before": {
-                      bgcolor: "primary.main",
-                      opacity: 1,
-                    },
-                  }}
-                />
-              )}
-
-              <ComposeResponseSection
-                chromeless
-                errorMessage={sendMutation.error?.message}
-                isError={sendMutation.isError}
-                isPending={sendMutation.isPending}
-                onResponseTabChange={setResponseTab}
-                responseDetail={responseDetail}
-                responseTab={responseTab}
-              />
-            </Box>
-          </Stack>
-        ) : (
-          <EmptyWorkspace
-            collectionSelected={Boolean(selectedCollectionId)}
-            onCreateRequest={() => handleCreateRequest()}
-            t={t}
-          />
-        )}
-      </WorkbenchPane>
+      <CollectionEditorPane
+        collectionId={editor.collectionId}
+        collectionSelected={Boolean(selectedCollectionId)}
+        editor={editor}
+        hasEnvError={hasEnvError}
+        inspectorSplitRatio={inspectorSplitRatio}
+        onCreateRequest={() => handleCreateRequest()}
+        onInspectorResizeStart={startInspectorResize}
+        onRequestCollapsedChange={setRequestCollapsed}
+        onRequestTabChange={setRequestTab}
+        onResponseTabChange={setResponseTab}
+        onSave={handleSave}
+        onSend={handleSend}
+        requestCollapsed={requestCollapsed}
+        requestTab={requestTab}
+        responseDetail={sendMutation.data}
+        responseTab={responseTab}
+        sendError={sendMutation.isError}
+        sendErrorMessage={sendMutation.error?.message}
+        sendPending={sendMutation.isPending}
+        t={t}
+        upsertPending={upsertItemMutation.isPending}
+      />
 
       <Menu
         anchorPosition={
-          treeMenuState ? { left: treeMenuState.mouseX, top: treeMenuState.mouseY } : undefined
+          treeHook.treeMenuState
+            ? { left: treeHook.treeMenuState.mouseX, top: treeHook.treeMenuState.mouseY }
+            : undefined
         }
         anchorReference="anchorPosition"
-        onClose={handleTreeMenuClose}
-        open={Boolean(treeMenuState)}
+        onClose={treeHook.handleTreeMenuClose}
+        open={Boolean(treeHook.treeMenuState)}
       >
-        <MenuItem onClick={handleBeginRename}>{t("collectionsPage.rename")}</MenuItem>
+        <MenuItem onClick={treeHook.handleBeginRename}>{t("collectionsPage.rename")}</MenuItem>
       </Menu>
 
       <Dialog
@@ -1297,28 +573,28 @@ export function CollectionsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog fullWidth maxWidth="xs" open={Boolean(renameTarget)} onClose={handleRenameCancel}>
+      <Dialog fullWidth maxWidth="xs" open={Boolean(treeHook.renameTarget)} onClose={treeHook.handleRenameCancel}>
         <DialogTitle>{t("collectionsPage.rename")}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
             label={
-              renameTarget?.kind === "item"
+              treeHook.renameTarget?.kind === "item"
                 ? t("collectionsPage.requestName")
                 : t("collectionsPage.namePlaceholder")
             }
-            value={renameName}
-            onChange={(e) => setRenameName(e.target.value)}
+            value={treeHook.renameName}
+            onChange={(e) => treeHook.setRenameName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleRenameSubmit();
+              if (e.key === "Enter") treeHook.handleRenameSubmit();
             }}
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleRenameCancel}>{t("common.actions.cancel")}</Button>
-          <Button disabled={!renameName.trim()} onClick={handleRenameSubmit} variant="contained">
+          <Button onClick={treeHook.handleRenameCancel}>{t("common.actions.cancel")}</Button>
+          <Button disabled={!treeHook.renameName.trim()} onClick={treeHook.handleRenameSubmit} variant="contained">
             {t("collectionsPage.rename")}
           </Button>
         </DialogActions>
@@ -1332,9 +608,9 @@ export function CollectionsPage() {
       <Snackbar
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         autoHideDuration={3000}
-        message={moveError ?? ""}
-        onClose={() => setMoveError(null)}
-        open={moveError !== null}
+        message={treeHook.moveError ?? ""}
+        onClose={() => treeHook.setMoveError(null)}
+        open={treeHook.moveError !== null}
       />
     </Box>
   );
