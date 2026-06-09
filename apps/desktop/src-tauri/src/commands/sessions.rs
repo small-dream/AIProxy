@@ -564,8 +564,11 @@ pub async fn get_insights(
     };
     run_blocking_command("get_insights", move || {
         let conn = state.read_db_connection();
-        let conn_guard = conn.lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        aiproxy_db::insights::compute_insights(&conn_guard, &filter).map_err(|e| app_error(ERR_INTERNAL, format!("compute insights: {e}")))
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::insights::compute_insights(&conn_guard, &filter)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("compute insights: {e}")))
     })
     .await
 }

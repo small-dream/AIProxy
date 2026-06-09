@@ -2,9 +2,8 @@ use super::*;
 use crate::connection::{ConnectionContext, ConnectionMode};
 use crate::stream::TlsOrPlain;
 use crate::{
-    build_header_entries_from_map, build_raw_http_head, build_request_path,
-    build_session_detail, infer_protocol_metadata, ParsedProxyRequest,
-    ProxyTimingBreakdown,
+    build_header_entries_from_map, build_raw_http_head, build_request_path, build_session_detail,
+    infer_protocol_metadata, ParsedProxyRequest, ProxyTimingBreakdown,
 };
 use http_body_util::BodyExt;
 
@@ -486,7 +485,9 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 
 /// Parse an HTTP response head string into a status code and header list.
 /// Input: "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n...\r\n\r\n"
-pub(crate) fn parse_upstream_response_head(head: &str) -> Result<(u16, Vec<(String, String)>), String> {
+pub(crate) fn parse_upstream_response_head(
+    head: &str,
+) -> Result<(u16, Vec<(String, String)>), String> {
     let mut lines = head.lines();
     let status_line = lines.next().unwrap_or("");
 

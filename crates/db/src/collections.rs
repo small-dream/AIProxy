@@ -48,7 +48,9 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbE
         ensure_collection_exists(conn, parent_id, "target parent")?;
     }
     if would_create_cycle(conn, &c.id, c.parent_id.as_deref())? {
-        return Err(DbError::Validation("cannot move a folder into its own descendant".to_string()));
+        return Err(DbError::Validation(
+            "cannot move a folder into its own descendant".to_string(),
+        ));
     }
 
     conn.execute(
@@ -353,7 +355,9 @@ pub fn move_collection(
         ensure_collection_exists(&tx, parent_id, "target parent")?;
     }
     if would_create_cycle(&tx, id, target_parent_id)? {
-        return Err(DbError::Validation("cannot move a folder into its own descendant".to_string()));
+        return Err(DbError::Validation(
+            "cannot move a folder into its own descendant".to_string(),
+        ));
     }
 
     let old_parent_id: Option<String> = tx
@@ -363,7 +367,9 @@ pub fn move_collection(
             |row| row.get(0),
         )
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => DbError::not_found("collection", &id.to_string()),
+            rusqlite::Error::QueryReturnedNoRows => {
+                DbError::not_found("collection", &id.to_string())
+            }
             other => DbError::query("read collection parent", other),
         })?;
 
@@ -422,7 +428,9 @@ fn would_create_cycle(
             return Ok(true);
         }
         if !visited.insert(cur.clone()) {
-            return Err(DbError::Validation("collection tree contains a pre-existing cycle".to_string()));
+            return Err(DbError::Validation(
+                "collection tree contains a pre-existing cycle".to_string(),
+            ));
         }
         let parent: Option<String> = conn
             .query_row(

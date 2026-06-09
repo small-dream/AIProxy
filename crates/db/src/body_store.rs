@@ -16,8 +16,7 @@ impl BodyStore {
 
     /// Ensure the bodies directory exists.
     pub fn ensure_dir(&self) -> Result<(), DbError> {
-        fs::create_dir_all(&self.base_dir)
-            .map_err(DbError::Io)?;
+        fs::create_dir_all(&self.base_dir).map_err(DbError::Io)?;
         Ok(())
     }
 
@@ -46,8 +45,7 @@ impl BodyStore {
         validate_safe_segment(session_id, "session id")?;
         let dir = self.base_dir.join(session_id);
         if dir.exists() {
-            fs::remove_dir_all(&dir)
-                .map_err(DbError::Io)?;
+            fs::remove_dir_all(&dir).map_err(DbError::Io)?;
         }
         Ok(())
     }
@@ -55,11 +53,9 @@ impl BodyStore {
     /// Remove all body files.
     pub fn clear_all(&self) -> Result<(), DbError> {
         if self.base_dir.exists() {
-            fs::remove_dir_all(&self.base_dir)
-                .map_err(DbError::Io)?;
+            fs::remove_dir_all(&self.base_dir).map_err(DbError::Io)?;
         }
-        fs::create_dir_all(&self.base_dir)
-            .map_err(DbError::Io)?;
+        fs::create_dir_all(&self.base_dir).map_err(DbError::Io)?;
         Ok(())
     }
 
@@ -93,7 +89,9 @@ impl BodyStore {
             .components()
             .any(|component| !matches!(component, Component::Normal(_)))
         {
-            return Err(DbError::Validation(format!("invalid body path: {relative_path}")));
+            return Err(DbError::Validation(format!(
+                "invalid body path: {relative_path}"
+            )));
         }
 
         Ok(self.base_dir.join(path))

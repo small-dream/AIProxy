@@ -405,7 +405,9 @@ fn migrate_add_column(
     match conn.execute(&sql, []) {
         Ok(_) => Ok(()),
         Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
-        Err(e) => Err(DbError::MigrationFailed(format!("migration add {table}.{column}: {e}"))),
+        Err(e) => Err(DbError::MigrationFailed(format!(
+            "migration add {table}.{column}: {e}"
+        ))),
     }
 }
 

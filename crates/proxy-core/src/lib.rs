@@ -46,8 +46,8 @@ const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 mod breakpoints;
-mod connection;
 mod connect;
+mod connection;
 mod context;
 mod error;
 mod http_io;

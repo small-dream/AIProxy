@@ -78,8 +78,11 @@ pub async fn get_ai_settings(state: State<'_, Arc<AppState>>) -> Result<AiSettin
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("get_ai_settings", move || {
-        let conn = db.lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let row = aiproxy_db::ai::load_ai_settings(&conn).map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
+        let conn = db
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let row = aiproxy_db::ai::load_ai_settings(&conn)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
         Ok(row_to_public(row.as_ref()))
     })
     .await
@@ -99,8 +102,11 @@ pub async fn save_ai_settings(
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("save_ai_settings", move || {
-        let conn = db.lock().map_err(|_| "db mutex poisoned".to_string())?;
-        let existing = aiproxy_db::ai::load_ai_settings(&conn).map_err(|e| e.to_string())?;
+        let conn = db
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let existing = aiproxy_db::ai::load_ai_settings(&conn)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
         let existing_api_key = existing
             .as_ref()
             .map(|row| row.api_key.as_str())
@@ -126,7 +132,8 @@ pub async fn save_ai_settings(
             timeout_ms: input.timeout_ms.clamp(5_000, 300_000),
             updated_at: Utc::now().to_rfc3339(),
         };
-        aiproxy_db::ai::upsert_ai_settings(&conn, &row).map_err(|e| e.to_string())?;
+        aiproxy_db::ai::upsert_ai_settings(&conn, &row)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("upsert AI settings: {e}")))?;
         Ok(row_to_public(Some(&row)))
     })
     .await
@@ -209,8 +216,11 @@ async fn load_configured_ai_settings(
 ) -> Result<aiproxy_db::ai::AiSettingsRow, String> {
     let db = Arc::clone(app_state.read_db_connection());
     let row = run_blocking_command("load_configured_ai_settings", move || {
-        let conn = db.lock().map_err(|_| "db mutex poisoned".to_string())?;
-        aiproxy_db::ai::load_ai_settings(&conn).map_err(|e| e.to_string())
+        let conn = db
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::ai::load_ai_settings(&conn)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))
     })
     .await?
     .ok_or_else(|| {
@@ -266,20 +276,28 @@ async fn call_chat_completion(
     if !status.is_success() {
         return Err(app_error_with_details(
             ERR_INTERNAL,
-            &format!("AI request failed with HTTP {status}: {}", truncate_for_error(&text)),
+            &format!(
+                "AI request failed with HTTP {status}: {}",
+                truncate_for_error(&text)
+            ),
             serde_json::json!({ "httpStatus": status.as_u16() }),
         ));
     }
 
-    let parsed: ChatCompletionResponse =
-        serde_json::from_str(&text).map_err(|error| app_error(ERR_INTERNAL, format!("parse AI response: {error}")))?;
+    let parsed: ChatCompletionResponse = serde_json::from_str(&text)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("parse AI response: {error}")))?;
     parsed
         .choices
         .first()
         .and_then(|choice| choice.message.content.as_ref())
         .map(|content| content.trim().to_string())
         .filter(|content| !content.is_empty())
-        .ok_or_else(|| app_error(ERR_INTERNAL, "AI response did not include any summary text."))
+        .ok_or_else(|| {
+            app_error(
+                ERR_INTERNAL,
+                "AI response did not include any summary text.",
+            )
+        })
 }
 
 fn row_to_public(row: Option<&aiproxy_db::ai::AiSettingsRow>) -> AiSettingsPublic {

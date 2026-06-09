@@ -241,7 +241,7 @@ pub fn compute_insights(
         // Compute per-host P95
         let mut result = Vec::with_capacity(host_rows.len());
         for hr in &host_rows {
-            let p95 = compute_host_p95(conn, &hr.host, filter);
+            let p95 = compute_host_p95(conn, &hr.host, filter)?;
             result.push(HostInsight {
                 host: hr.host.clone(),
                 request_count: hr.request_count,
@@ -358,7 +358,11 @@ struct HostInsightRaw {
 }
 
 /// Compute the P95 duration for a single host.
-fn compute_host_p95(conn: &Connection, host: &str, filter: &InsightsFilter) -> f64 {
+fn compute_host_p95(
+    conn: &Connection,
+    host: &str,
+    filter: &InsightsFilter,
+) -> Result<f64, DbError> {
     let (where_clause, mut where_params) = build_where(filter);
     let host_param_idx = where_params.len() + 1;
     let query = format!(
@@ -367,20 +371,20 @@ fn compute_host_p95(conn: &Connection, host: &str, filter: &InsightsFilter) -> f
     );
     where_params.push(rusqlite::types::Value::Text(host.to_lowercase()));
 
-    let mut stmt = match conn.prepare(&query) {
-        Ok(s) => s,
-        Err(_) => return 0.0,
-    };
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| DbError::query("prepare host p95 query", e))?;
 
-    let result = stmt.query_map(rusqlite::params_from_iter(where_params), |row| {
-        row.get::<_, i64>(0)
-    });
-    let durations: Vec<i64> = match result {
-        Ok(rows) => rows.map(|r| r.map_err(|e| DbError::query("decode insight row", e))).filter_map(|r| r.ok()).collect(),
-        Err(_) => return 0.0,
-    };
+    let durations: Result<Vec<i64>, DbError> = stmt
+        .query_map(rusqlite::params_from_iter(where_params), |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|e| DbError::query("query host p95", e))?
+        .map(|r| r.map_err(|e| DbError::query("decode host p95 row", e)))
+        .collect();
+    let durations = durations?;
 
-    percentile(&durations, 95)
+    Ok(percentile(&durations, 95))
 }
 
 /// Nearest-rank percentile. Returns 0.0 for empty slices.
