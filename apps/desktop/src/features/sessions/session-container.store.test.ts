@@ -218,4 +218,86 @@ describe("SessionContainerStore", () => {
       expect(at(state.containers, 0).sessionIds).toHaveLength(0);
     });
   });
+
+  // --- Edge cases ---
+
+  describe("concurrent upsert", () => {
+    it("handles rapid upsert of the same session without duplicating IDs", () => {
+      const store = useSessionContainerStore;
+      store.getState().init();
+
+      // Simulate rapid updates from real-time events
+      for (let i = 0; i < 10; i++) {
+        store.getState().upsertSummary(buildSummary("s1", { statusCode: 200 + i }));
+      }
+
+      const state = store.getState();
+      expect(state.sessionSummaryById["s1"]!.statusCode).toBe(209);
+      const occurrences = at(state.containers, 0).sessionIds.filter((id) => id === "s1").length;
+      expect(occurrences).toBe(1);
+    });
+
+    it("handles interleaved upsert of different sessions", () => {
+      const store = useSessionContainerStore;
+      store.getState().init();
+
+      // Interleave updates for multiple sessions
+      for (let i = 0; i < 5; i++) {
+        store.getState().upsertSummary(buildSummary(`s${i}`, { durationMs: 100 + i }));
+      }
+      for (let i = 0; i < 5; i++) {
+        store.getState().upsertSummary(buildSummary(`s${i}`, { durationMs: 200 + i }));
+      }
+
+      const state = store.getState();
+      for (let i = 0; i < 5; i++) {
+        expect(state.sessionSummaryById[`s${i}`]!.durationMs).toBe(200 + i);
+      }
+      expect(at(state.containers, 0).sessionIds).toHaveLength(5);
+    });
+
+    it("handles upsert after clearSessions", () => {
+      const store = useSessionContainerStore;
+      store.getState().init();
+      store.getState().upsertSummary(buildSummary("s1"));
+      store.getState().clearSessions();
+      store.getState().upsertSummary(buildSummary("s2"));
+
+      const state = store.getState();
+      expect(state.sessionSummaryById["s1"]).toBeUndefined();
+      expect(state.sessionSummaryById["s2"]).toBeDefined();
+    });
+  });
+
+  describe("large seed performance", () => {
+    it("seeds 500 sessions without errors", () => {
+      const store = useSessionContainerStore;
+      store.getState().init();
+
+      const summaries: SessionSummary[] = [];
+      for (let i = 0; i < 500; i++) {
+        summaries.push(buildSummary(`session-${i}`, { host: `host-${i % 10}.example.com`, durationMs: i }));
+      }
+
+      store.getState().seedSessions(summaries);
+
+      const state = store.getState();
+      expect(Object.keys(state.sessionSummaryById)).toHaveLength(500);
+      expect(at(state.containers, 0).sessionIds).toHaveLength(500);
+    });
+
+    it("upserts 200 unique sessions efficiently", () => {
+      const store = useSessionContainerStore;
+      store.getState().init();
+
+      for (let i = 0; i < 200; i++) {
+        store.getState().upsertSummary(buildSummary(`s-${i}`));
+      }
+
+      const state = store.getState();
+      expect(at(state.containers, 0).sessionIds).toHaveLength(200);
+      expect(state.sessionSummaryById["s-0"]).toBeDefined();
+      expect(state.sessionSummaryById["s-199"]).toBeDefined();
+    });
+  });
 });
