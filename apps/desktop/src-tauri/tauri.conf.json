@@ -18,7 +18,8 @@
         "width": 1440,
         "height": 960,
         "minWidth": 1024,
-        "minHeight": 720
+        "minHeight": 720,
+        "visible": false
       }
     ],
     "security": {
@@ -31,7 +32,7 @@
     "createUpdaterArtifacts": false,
     "targets": "all",
     "macOS": {
-      "bundleVersion": "5406012"
+      "bundleVersion": "6ef0146"
     },
     "icon": [
       "icons/32x32.png",
