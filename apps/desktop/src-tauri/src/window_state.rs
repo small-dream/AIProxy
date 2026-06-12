@@ -6,12 +6,17 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    async_runtime::JoinHandle, Monitor, PhysicalPosition, PhysicalSize, Position, Size,
-    WebviewWindow, WindowEvent,
+    async_runtime::JoinHandle, LogicalSize, Monitor, PhysicalPosition, PhysicalSize, Position,
+    Size, WebviewWindow, WindowEvent,
 };
 
 const WINDOW_STATE_FILE_NAME: &str = "window-state.json";
 const WINDOW_STATE_SAVE_DEBOUNCE_MS: u64 = 250;
+const DEFAULT_WINDOW_WORK_AREA_RATIO: f64 = 0.85;
+const MAX_DEFAULT_WINDOW_LOGICAL_WIDTH: f64 = 1440.0;
+const MAX_DEFAULT_WINDOW_LOGICAL_HEIGHT: f64 = 960.0;
+const MIN_WINDOW_LOGICAL_WIDTH: f64 = 1024.0;
+const MIN_WINDOW_LOGICAL_HEIGHT: f64 = 720.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedWindowState {
@@ -22,9 +27,19 @@ struct PersistedWindowState {
     is_maximized: bool,
 }
 
-pub fn restore_main_window_state(window: &WebviewWindow) {
-    let Some(state) = load_window_state() else {
+pub fn restore_or_initialize_main_window_state(window: &WebviewWindow) {
+    apply_main_window_min_size(window);
+
+    if restore_main_window_state(window) {
         return;
+    }
+
+    apply_default_window_state(window);
+}
+
+pub fn restore_main_window_state(window: &WebviewWindow) -> bool {
+    let Some(state) = load_window_state() else {
+        return false;
     };
 
     let normalized_state = normalize_window_state(window, state);
@@ -40,6 +55,8 @@ pub fn restore_main_window_state(window: &WebviewWindow) {
         is_maximized = normalized_state.is_maximized,
         "window_state_restored"
     );
+
+    true
 }
 
 pub fn schedule_main_window_state_restore(window: &WebviewWindow) {
@@ -49,6 +66,95 @@ pub fn schedule_main_window_state_restore(window: &WebviewWindow) {
         tokio::time::sleep(std::time::Duration::from_millis(180)).await;
         restore_main_window_state(&restore_window);
     });
+}
+
+fn apply_main_window_min_size(window: &WebviewWindow) {
+    if let Err(error) = window.set_min_size(Some(Size::Logical(LogicalSize::new(
+        MIN_WINDOW_LOGICAL_WIDTH,
+        MIN_WINDOW_LOGICAL_HEIGHT,
+    )))) {
+        tracing::warn!(
+            component = "desktop.window_state",
+            event = "set_window_min_size_failed",
+            error = %error,
+            "set_window_min_size_failed"
+        );
+    }
+}
+
+fn apply_default_window_state(window: &WebviewWindow) {
+    let default_size = default_window_logical_size(window);
+
+    if let Err(error) = window.set_size(Size::Logical(default_size)) {
+        tracing::warn!(
+            component = "desktop.window_state",
+            event = "set_default_window_size_failed",
+            error = %error,
+            "set_default_window_size_failed"
+        );
+    }
+
+    if let Err(error) = window.center() {
+        tracing::warn!(
+            component = "desktop.window_state",
+            event = "center_default_window_failed",
+            error = %error,
+            "center_default_window_failed"
+        );
+    }
+
+    tracing::info!(
+        component = "desktop.window_state",
+        event = "default_window_state_applied",
+        width = default_size.width,
+        height = default_size.height,
+        "default_window_state_applied"
+    );
+}
+
+fn default_window_logical_size(window: &WebviewWindow) -> LogicalSize<f64> {
+    let Some(monitor) = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+    else {
+        return LogicalSize::new(
+            MAX_DEFAULT_WINDOW_LOGICAL_WIDTH,
+            MAX_DEFAULT_WINDOW_LOGICAL_HEIGHT,
+        );
+    };
+
+    let work_area = monitor.work_area();
+    let scale_factor = monitor.scale_factor().max(1.0);
+    let work_width = f64::from(work_area.size.width) / scale_factor;
+    let work_height = f64::from(work_area.size.height) / scale_factor;
+
+    LogicalSize::new(
+        default_window_dimension(
+            work_width,
+            MIN_WINDOW_LOGICAL_WIDTH,
+            MAX_DEFAULT_WINDOW_LOGICAL_WIDTH,
+        ),
+        default_window_dimension(
+            work_height,
+            MIN_WINDOW_LOGICAL_HEIGHT,
+            MAX_DEFAULT_WINDOW_LOGICAL_HEIGHT,
+        ),
+    )
+}
+
+fn default_window_dimension(
+    work_area_dimension: f64,
+    min_dimension: f64,
+    max_dimension: f64,
+) -> f64 {
+    let max_fit_dimension = max_dimension.min(work_area_dimension);
+    let min_fit_dimension = min_dimension.min(max_fit_dimension);
+
+    (work_area_dimension * DEFAULT_WINDOW_WORK_AREA_RATIO)
+        .round()
+        .clamp(min_fit_dimension, max_fit_dimension)
 }
 
 pub fn register_main_window_state_tracking(window: &WebviewWindow) {
@@ -92,8 +198,9 @@ fn normalize_window_state(
     let work_top = work_area.position.y;
     let work_width = work_area.size.width.max(1);
     let work_height = work_area.size.height.max(1);
-    let clamped_width = state.width.min(work_width);
-    let clamped_height = state.height.min(work_height);
+    let min_size = min_window_physical_size(&target_monitor);
+    let clamped_width = state.width.max(min_size.width).min(work_width);
+    let clamped_height = state.height.max(min_size.height).min(work_height);
     let positioned_state = PersistedWindowState {
         width: clamped_width,
         height: clamped_height,
@@ -219,6 +326,19 @@ fn is_window_visible_in_monitor(state: &PersistedWindowState, monitor: &Monitor)
     let overlap_height = (window_bottom.min(work_bottom) - window_top.max(work_top)).max(0);
 
     overlap_width > 0 && overlap_height > 0
+}
+
+fn min_window_physical_size(monitor: &Monitor) -> PhysicalSize<u32> {
+    let scale_factor = monitor.scale_factor().max(1.0);
+
+    PhysicalSize::new(
+        logical_to_physical_px(MIN_WINDOW_LOGICAL_WIDTH, scale_factor),
+        logical_to_physical_px(MIN_WINDOW_LOGICAL_HEIGHT, scale_factor),
+    )
+}
+
+fn logical_to_physical_px(value: f64, scale_factor: f64) -> u32 {
+    (value * scale_factor).round().clamp(1.0, u32::MAX as f64) as u32
 }
 
 fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {

@@ -41,48 +41,68 @@ pub fn is_cert_trusted_on_platform(cert_path: &Path, platform: Platform) -> bool
 
 #[cfg(target_os = "windows")]
 fn is_trusted_windows(cert_path: &Path) -> bool {
-    use base64::Engine;
-    use sha1::{Digest, Sha1};
     use std::process::Command;
 
-    // Read and parse the PEM certificate
-    let cert_pem = match std::fs::read_to_string(cert_path) {
-        Ok(p) => p,
-        Err(_) => return false,
+    let thumbprint = match certificate_sha1_thumbprint(cert_path) {
+        Ok(thumbprint) => thumbprint,
+        Err(error) => {
+            tracing::warn!(
+                event = "windows_cert_trust_thumbprint_failed",
+                path = %cert_path.to_string_lossy(),
+                error,
+                "windows_cert_trust_thumbprint_failed"
+            );
+            return false;
+        }
     };
 
-    // Extract base64 content between BEGIN/END markers
-    let b64: String = cert_pem
-        .lines()
-        .filter(|line| !line.starts_with("-----"))
-        .collect();
-    let der = match base64::engine::general_purpose::STANDARD
-        .decode(b64.replace('\n', "").replace('\r', ""))
-    {
-        Ok(d) => d,
-        Err(_) => return false,
-    };
+    let script = r#"
+param([string]$Thumbprint)
+$ErrorActionPreference = 'Stop'
+$normalized = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
 
-    // Compute SHA-1 thumbprint (no spaces — PowerShell Thumbprint property format)
-    let mut hasher = Sha1::new();
-    hasher.update(&der);
-    let thumbprint: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect();
-
-    if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return false;
+foreach ($location in @('CurrentUser', 'LocalMachine')) {
+  try {
+    $certPath = "Cert:\$location\Root\$normalized"
+    if (Test-Path -LiteralPath $certPath) {
+      'True'
+      exit 0
     }
+  } catch {}
+}
 
-    // Query both Current User and Local Machine Root stores via PowerShell.
-    // Pass the thumbprint as an argument so it is not interpolated into the script.
-    let script = "param([string]$Thumbprint) \
-        ($null -ne (Get-ChildItem Cert:\\CurrentUser\\Root | \
-          Where-Object { $_.Thumbprint -eq $Thumbprint })) -or \
-        ($null -ne (Get-ChildItem Cert:\\LocalMachine\\Root | \
-          Where-Object { $_.Thumbprint -eq $Thumbprint }))";
+$storeName = [System.Security.Cryptography.X509Certificates.StoreName]::Root
+foreach ($locationName in @('CurrentUser', 'LocalMachine')) {
+  $store = $null
+  try {
+    $storeLocation = [System.Enum]::Parse(
+      [System.Security.Cryptography.X509Certificates.StoreLocation],
+      $locationName
+    )
+    $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+      $storeName,
+      $storeLocation
+    )
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+    $matches = $store.Certificates.Find(
+      [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+      $normalized,
+      $false
+    )
+    if ($matches.Count -gt 0) {
+      'True'
+      exit 0
+    }
+  } catch {
+  } finally {
+    if ($null -ne $store) {
+      $store.Close()
+    }
+  }
+}
+
+'False'
+"#;
 
     let output = match Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
@@ -90,10 +110,30 @@ fn is_trusted_windows(cert_path: &Path) -> bool {
         .output()
     {
         Ok(o) => o,
-        Err(_) => return false,
+        Err(error) => {
+            tracing::warn!(
+                event = "windows_cert_trust_check_spawn_failed",
+                error = %error,
+                "windows_cert_trust_check_spawn_failed"
+            );
+            return false;
+        }
     };
 
-    String::from_utf8_lossy(&output.stdout).trim() == "True"
+    if !output.status.success() {
+        tracing::warn!(
+            event = "windows_cert_trust_check_failed",
+            thumbprint,
+            status = ?output.status.code(),
+            stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+            "windows_cert_trust_check_failed"
+        );
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case("True"))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -132,7 +172,6 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
         Err(_) => return false,
     };
 
-    // Extract the base64 content and compute SHA-1 fingerprint.
     let b64: String = cert_pem
         .lines()
         .filter(|line| !line.starts_with("-----"))
@@ -153,10 +192,9 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
         .collect::<Vec<_>>()
         .join(":");
 
-    // System certificate store directories to search across Linux distributions.
     let search_dirs: &[&str] = &[
-        "/usr/local/share/ca-certificates/", // Debian/Ubuntu (user-installed CAs)
-        "/etc/pki/ca-trust/source/anchors/", // RHEL/Fedora/CentOS
+        "/usr/local/share/ca-certificates/",
+        "/etc/pki/ca-trust/source/anchors/",
     ];
 
     for dir in search_dirs {
@@ -202,6 +240,35 @@ fn is_trusted_linux(_cert_path: &Path) -> bool {
     false
 }
 
+fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
+    use base64::Engine;
+    use sha1::{Digest, Sha1};
+
+    let cert_pem = std::fs::read_to_string(cert_path).map_err(|_| "read certificate")?;
+    let b64: String = cert_pem
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("-----") && !line.is_empty())
+        .collect();
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|_| "decode certificate")?;
+
+    let mut hasher = Sha1::new();
+    hasher.update(&der);
+    let thumbprint: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
+
+    if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("invalid thumbprint");
+    }
+
+    Ok(thumbprint)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +287,26 @@ mod tests {
         assert_eq!(Platform::Windows.to_string(), "windows");
         assert_eq!(Platform::Macos.to_string(), "macos");
         assert_eq!(Platform::Linux.to_string(), "linux");
+    }
+
+    #[test]
+    fn computes_uppercase_sha1_thumbprint_from_pem() {
+        let cert = crate::RootCaPair::generate().unwrap();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = std::env::temp_dir().join(format!(
+            "aiproxy-thumbprint-test-{}-{nanos}.pem",
+            std::process::id()
+        ));
+        std::fs::write(&cert_path, cert.cert_pem()).unwrap();
+
+        let thumbprint = certificate_sha1_thumbprint(&cert_path).unwrap();
+        let _ = std::fs::remove_file(&cert_path);
+
+        assert_eq!(thumbprint.len(), 40);
+        assert!(thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(thumbprint, thumbprint.to_ascii_uppercase());
     }
 }

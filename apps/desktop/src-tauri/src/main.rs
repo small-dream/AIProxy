@@ -17,8 +17,8 @@ use std::sync::{
 use system_proxy::restore_system_proxy;
 use tauri::{Manager, RunEvent};
 use window_state::{
-    persist_main_window_state, register_main_window_state_tracking, restore_main_window_state,
-    schedule_main_window_state_restore,
+    persist_main_window_state, register_main_window_state_tracking,
+    restore_or_initialize_main_window_state, schedule_main_window_state_restore,
 };
 
 static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
@@ -235,8 +235,8 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             window.set_decorations(false)?;
             register_main_window_state_tracking(&window);
+            restore_or_initialize_main_window_state(&window);
             window.show()?;
-            restore_main_window_state(&window);
             schedule_main_window_state_restore(&window);
             Ok(())
         })
