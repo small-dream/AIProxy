@@ -43,6 +43,7 @@ pub mod ids {
     pub const SHOW_LOGS: &str = "show_logs";
     pub const DOCUMENTATION: &str = "documentation";
     pub const SHORTCUTS: &str = "shortcuts";
+    pub const SETUP_WIZARD: &str = "setup_wizard";
 }
 
 /// Builds and installs the application menu.
@@ -273,6 +274,12 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
 
     // --- Help ---
     let help_menu = SubmenuBuilder::new(handle, "Help")
+        .item(
+            &MenuItemBuilder::new("Setup Guide...")
+                .id(ids::SETUP_WIZARD)
+                .build(handle)?,
+        )
+        .separator()
         .item(
             &MenuItemBuilder::new("Check for Updates...")
                 .id(ids::CHECK_FOR_UPDATES)

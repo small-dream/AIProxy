@@ -91,6 +91,8 @@ export const WINDOWS_MENU_DEFINITIONS = [
     id: "help",
     label: "Help",
     items: [
+      { id: "setup_wizard", label: "Setup Guide..." },
+      { kind: "divider" },
       { id: "check_for_updates", label: "Check for Updates..." },
       { kind: "divider" },
       { id: "documentation", label: "AIProxy Documentation" },

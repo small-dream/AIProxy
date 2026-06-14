@@ -129,6 +129,19 @@ export function SetupWizard() {
     return () => window.clearTimeout(timeout);
   }, [activeStep, certTrusted]);
 
+  // Reopen the wizard on demand from the Help menu. The first-run auto-open
+  // gate (shouldShowWizard) never fires for a returning user who is already
+  // captureReady, so this imperative path lets them re-run the guide anytime.
+  useEffect(() => {
+    const openWizard = () => {
+      setActiveStep("welcome");
+      setActionError(null);
+      setOpen(true);
+    };
+    window.addEventListener("aiproxy-menu-setup-wizard", openWizard);
+    return () => window.removeEventListener("aiproxy-menu-setup-wizard", openWizard);
+  }, []);
+
   const goNext = () => {
     setActionError(null);
     setActiveStep((current) => {

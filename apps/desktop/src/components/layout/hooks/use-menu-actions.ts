@@ -182,6 +182,9 @@ export function useMenuActions(deps: MenuHandlerDeps) {
           requestedAt: Date.now(),
         });
         break;
+      case "setup_wizard":
+        window.dispatchEvent(new CustomEvent("aiproxy-menu-setup-wizard"));
+        break;
       case "documentation": {
         const docsUrl = "https://github.com/jakejiang/aiproxy";
         window.open(docsUrl, "_blank");
