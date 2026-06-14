@@ -1148,6 +1148,48 @@ User clicks Export dropdown
 - 页面容器只负责拼装，不承载复杂业务逻辑
 - 所有分栏页优先实现拖拽宽度记忆和空状态统一策略
 
+## 12. Setup Wizard & Setup Checklist — 首启引导
+
+### 12.1 目标
+
+让首次安装的新用户能走通"生成根证书 → 安装并信任 → 启动代理 → 开启系统代理/手动配置 → 抓到第一条 HTTPS 流量"。完成口径以 `captureReady` 为准(而非仅"证书已信任")。
+
+### 12.2 状态模型(纯函数 `computeSetupProgress`)
+
+派生自 `useCertificateStatus()` + `useProxyStatus()` + 持久化的 `manualProxyAcknowledgedFor`,无新增后端状态源:
+
+```ts
+httpsReady        = certGenerated && certTrusted;
+manualProxyStillValid = ack.port === proxyStatus.port && ack.workspaceId === activeWorkspaceId;
+proxySatisfied    = proxyRunning && (systemProxyOn || manualProxyStillValid);
+captureReady      = httpsReady && proxySatisfied;
+nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManual] 中首个未完成项;
+```
+
+持久化字段(`app-preferences.store`,key `aiproxy.app-preferences`):`setupWizardCompleted`、`setupWizardDismissedAt`、`manualProxyAcknowledgedFor`(带 port+workspace 上下文,变化即失效)。
+
+### 12.3 门控逻辑(`shouldShowSetupWizard`)
+
+- 弹模态向导 iff `!completed && !dismissedAt && !captureReady`。
+- 跳过 → 只写 `dismissedAt`,不再强弹;未完成项改由常驻清单承接。
+- 完成 → `captureReady` 为真时写 `completed`。
+- 回退(证书被删/代理停)→ `captureReady` 退回 false 时**不**重弹模态,由常驻清单指引自救。
+- 常驻清单显示 iff `!captureReady`(与 dismiss/complete 无关)。
+
+### 12.4 组件与文件映射
+
+- 向导:`features/setup-wizard/SetupWizard.tsx`(常驻挂载于 AppShell,自管 open)+ `SetupWizardSteps.tsx`(8 步:欢迎/生成/安装/验证信任轮询/启动代理/系统代理·手动/首条 HTTPS 流量检测/完成)+ `use-setup-wizard.ts`。
+- 常驻清单:`components/shared/SetupChecklistCard.tsx`,挂载于 Sessions 页顶部。
+- 错误闭环:`components/shared/CertificateErrorGuidance.tsx`(消费 `error-guidance.ts` 分类)。
+- 代理启动默认值:`features/proxy-status/use-proxy-start-defaults.ts`(AppShell 与向导共用)。
+- 移动端 preflight:`features/certificate-center/mobile-preflight.helpers.ts`,门控 `MobileSetupTab`。
+
+### 12.5 事件流
+
+- 各步动作调用既有 mutation(`useGenerateRootCertificate`/`useLaunchCertificateInstaller`/`useStartProxy`/`useEnableSystemProxy`),成功推进、失败经 `CertificateErrorGuidance` 渲染页面级指引。
+- 验证信任步轮询 `useCertificateStatus().trusted`(2s);首条流量步复用 `useSessions()` + `session-upsert` 事件检测首条会话。
+- 命令层 `reportCommandFailure` 仅记日志;全局 snackbar 与页面级 Alert 不重复表达(引导链路内以页面级为权威)。
+
 ## Sessions UX Constraints
 
 - The host tree in `Session Explorer` must stay collapsed by default.

@@ -145,6 +145,7 @@ pub fn run() {
             commands::read_har_file,
             commands::save_media_file,
             commands::get_certificate_status,
+            commands::diagnose_certificate_setup,
             commands::generate_root_certificate,
             commands::open_certificate_install_guide,
             commands::launch_certificate_installer,

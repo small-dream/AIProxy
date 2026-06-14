@@ -7,6 +7,7 @@ import {
   type AppFontPreference,
   type ContentFontPreference,
 } from "@/themes/fonts";
+import type { ManualProxyAck } from "@/features/certificate-center/setup-progress.helpers";
 
 export type LanguagePreference = "en" | "system" | "zh-CN";
 export type ThemePreference = "dark" | "light" | "system";
@@ -19,6 +20,11 @@ type AppPreferencesState = {
   uiCustomFontFamily: string;
   languagePreference: LanguagePreference;
   themePreference: ThemePreference;
+  // First-run setup wizard state. See features/certificate-center/setup-progress.helpers.ts
+  // for the derived state machine; these three values are the only persisted bits.
+  setupWizardCompleted: boolean;
+  setupWizardDismissedAt: string | undefined;
+  manualProxyAcknowledgedFor: ManualProxyAck | undefined;
   setContentCustomFontFamily: (fontFamily: string) => void;
   setContentFontPreference: (preference: ContentFontPreference) => void;
   setFontFamilyPreference: (preference: AppFontPreference) => void;
@@ -26,6 +32,10 @@ type AppPreferencesState = {
   setLanguagePreference: (preference: LanguagePreference) => void;
   setThemePreference: (preference: ThemePreference) => void;
   setUiCustomFontFamily: (fontFamily: string) => void;
+  markSetupWizardCompleted: () => void;
+  dismissSetupWizard: (dismissedAt: string) => void;
+  acknowledgeManualProxy: (ack: ManualProxyAck) => void;
+  resetSetupWizardState: () => void;
 };
 
 const fallbackStorage = {
@@ -61,6 +71,9 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       fontSizePreference: defaultAppFontSize,
       languagePreference: "system",
       themePreference: "system",
+      setupWizardCompleted: false,
+      setupWizardDismissedAt: undefined,
+      manualProxyAcknowledgedFor: undefined,
       uiCustomFontFamily: "",
       setContentCustomFontFamily: (contentCustomFontFamily) => set({ contentCustomFontFamily }),
       setContentFontPreference: (contentFontPreference) => set({ contentFontPreference }),
@@ -70,6 +83,15 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       setLanguagePreference: (languagePreference) => set({ languagePreference }),
       setThemePreference: (themePreference) => set({ themePreference }),
       setUiCustomFontFamily: (uiCustomFontFamily) => set({ uiCustomFontFamily }),
+      markSetupWizardCompleted: () => set({ setupWizardCompleted: true }),
+      dismissSetupWizard: (setupWizardDismissedAt) => set({ setupWizardDismissedAt }),
+      acknowledgeManualProxy: (manualProxyAcknowledgedFor) => set({ manualProxyAcknowledgedFor }),
+      resetSetupWizardState: () =>
+        set({
+          setupWizardCompleted: false,
+          setupWizardDismissedAt: undefined,
+          manualProxyAcknowledgedFor: undefined,
+        }),
     }),
     {
       name: "aiproxy.app-preferences",

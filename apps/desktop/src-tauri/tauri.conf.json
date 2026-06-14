@@ -32,7 +32,7 @@
     "createUpdaterArtifacts": false,
     "targets": "all",
     "macOS": {
-      "bundleVersion": "6ef0146"
+      "bundleVersion": "165a0bc"
     },
     "icon": [
       "icons/32x32.png",

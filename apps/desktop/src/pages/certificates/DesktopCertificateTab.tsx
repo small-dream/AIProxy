@@ -1,3 +1,6 @@
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
+import { useState } from "react";
 import {
   Button,
   Chip,
@@ -9,8 +12,9 @@ import {
   Typography,
 } from "@mui/material";
 import { type CertificateStatus } from "@aiproxy/shared-types";
+import { useDiagnoseCertificateSetup } from "@/features/certificate-center/use-certificate-status";
 import { SectionCard } from "@/components/shared/SectionCard";
-import { useI18n } from "@/i18n";
+import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
 type Props = {
@@ -175,6 +179,84 @@ export function DesktopCertificateTab({
           </Stack>
         </Stack>
       </SectionCard>
+
+      <DiagnosticsCard />
     </Stack>
+  );
+}
+
+const DIAGNOSTIC_CHECK_KEYS: Record<string, TranslationKey> = {
+  cert_present: "certificatesPage.diagnostics.checks.cert_present",
+  cert_trusted: "certificatesPage.diagnostics.checks.cert_trusted",
+  adb: "certificatesPage.diagnostics.checks.adb",
+  ios_simulator: "certificatesPage.diagnostics.checks.ios_simulator",
+};
+
+// Advanced, on-demand environment check backed by `diagnose_certificate_setup`.
+// Surfaces cert presence/trust, adb, and iOS Simulator tooling so users can
+// self-diagnose "installed but not capturing" situations.
+function DiagnosticsCard() {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(false);
+  const { data, isFetching, refetch } = useDiagnoseCertificateSetup({ enabled });
+
+  const handleRun = () => {
+    if (!enabled) {
+      setEnabled(true);
+    }
+    void refetch();
+  };
+
+  const checks = data?.checks ?? [];
+  const passed = checks.filter((check) => check.ok).length;
+
+  return (
+    <SectionCard
+      title={t("certificatesPage.diagnostics.title")}
+      toolbar={
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={handleRun}
+          disabled={isFetching}
+          startIcon={isFetching ? <CircularProgress size={16} /> : undefined}
+        >
+          {isFetching
+            ? t("certificatesPage.diagnostics.running")
+            : t("certificatesPage.diagnostics.run")}
+        </Button>
+      }
+    >
+      {data ? (
+        <Stack spacing={1}>
+          <Typography variant="body2" color="text.secondary">
+            {t("certificatesPage.diagnostics.summary", { passed, total: checks.length })}
+          </Typography>
+          {checks.map((check) => {
+            const Icon = check.ok ? CheckCircleRoundedIcon : ErrorOutlineRoundedIcon;
+            const labelKey = DIAGNOSTIC_CHECK_KEYS[check.key];
+            return (
+              <Stack key={check.key} direction="row" spacing={1} alignItems="start">
+                <Icon
+                  sx={{ fontSize: 18, mt: 0.25, color: check.ok ? "success.main" : "error.main" }}
+                />
+                <Stack spacing={0.25}>
+                  <Typography variant="body2">{labelKey ? t(labelKey) : check.key}</Typography>
+                  {check.message && !check.ok && (
+                    <Typography variant="caption" color="text.secondary">
+                      {check.message}
+                    </Typography>
+                  )}
+                </Stack>
+              </Stack>
+            );
+          })}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          {t("certificatesPage.diagnostics.hint")}
+        </Typography>
+      )}
+    </SectionCard>
   );
 }

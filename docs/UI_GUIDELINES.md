@@ -1008,3 +1008,30 @@ Insights Page
 - 核心操作均能在 3 步内完成
 - 页面之间的布局、间距、标题和按钮层级一致
 - 基础组件可复用，不出现业务页面各自造样式的情况
+
+## 21. 首启引导(Setup Wizard / Setup Checklist)
+
+### 21.1 交互规则
+
+- 首启向导为**模态 Dialog**,首次满足门控条件时自动弹出;`captureReady` 达成前保持可走通,用户可随时跳过。
+- 向导永远**可跳过、可后补**;不阻断使用,跳过后由常驻清单承接未完成项。
+- 常驻清单卡(`SetupChecklistCard`)挂在 Sessions 页顶部,`!captureReady` 时显示,`captureReady` 达成即消失;回退时自动重现,不重弹模态。
+- 向导顶部用 `LinearProgress` + "Step N/8" 表达进度,避免 8 步全列 Stepper 造成拥挤。
+
+### 21.2 跳过 / 完成 / 回退语义
+
+- **跳过**:只写 `setupWizardDismissedAt`,不写 `completed`;模态不再自动弹出。
+- **完成**:`captureReady` 为真时写 `setupWizardCompleted`。
+- **回退**:`captureReady` 退回 false(证书被删/代理停)**不**重弹模态,仅常驻清单重现并指引补齐。
+- **手动代理**:带 port+workspace 上下文持久化;端口或 workspace 变化即失效,清单提示重新确认。
+
+### 21.3 错误闭环层级
+
+- 引导链路内(向导 / 清单 / 证书页安装区)以**页面级 `CertificateErrorGuidance`** 为权威可操作 UI。
+- 命令层 `reportCommandFailure` **仅记日志**,不承载用户提示。
+- 全局 snackbar 仅用于引导链路之外的动作;同一动作不在两处重复表达。
+
+### 21.4 状态栏证书 chip 语义
+
+- chip 文案随 `nextAction` 表达 `captureReady` 进度:未安装 / 未信任 / 已信任·待启动代理 / 已信任·待开路由 / HTTPS 就绪。
+- chip 始终可点跳转证书页;`!captureReady` 时作为主动提醒入口(隐蔽入口→主动提醒)。

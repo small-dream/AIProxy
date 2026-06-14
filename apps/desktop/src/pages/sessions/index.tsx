@@ -15,6 +15,7 @@ import {
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
+import { SetupChecklistCard } from "@/components/shared/SetupChecklistCard";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
@@ -640,6 +641,7 @@ export function SessionsPage() {
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
+      <SetupChecklistCard />
       <SessionsWorkspacePanel
         activeContainerId={activeContainerId}
         containerTabs={containers.map((container) => ({

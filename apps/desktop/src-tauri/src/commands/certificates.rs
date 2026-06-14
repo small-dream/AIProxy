@@ -207,6 +207,121 @@ fn get_certificate_status_impl(state: Arc<AppState>) -> Result<CertificateStateS
     Ok(status)
 }
 
+/// A single structured diagnostic check surfaced to the UI.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticCheck {
+    pub key: String,
+    pub ok: bool,
+    pub message: Option<String>,
+}
+
+/// Structured certificate/proxy setup diagnostic. Aggregates the probes the
+/// first-run flow cares about (cert present/readable/trusted, adb available,
+/// iOS Simulator tooling) so the UI can render actionable guidance without
+/// re-deriving platform specifics. Reuses existing tls-manager probes.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupDiagnostic {
+    pub platform: String,
+    pub cert_present: bool,
+    pub cert_path: Option<String>,
+    pub cert_trusted: bool,
+    pub adb_available: bool,
+    pub ios_simulator_tooling: bool,
+    pub checks: Vec<DiagnosticCheck>,
+}
+
+#[tauri::command]
+pub fn diagnose_certificate_setup() -> Result<SetupDiagnostic, String> {
+    let platform = detect_platform();
+
+    let storage = CertStorage::resolve()
+        .map_err(|e| app_error(ERR_INTERNAL, format!("failed to resolve cert storage: {e}")))?;
+
+    let cert_present = storage.root_cert_exists();
+    let cert_path = if cert_present {
+        Some(certificate_display_path(&storage, platform))
+    } else {
+        None
+    };
+    let cert_trusted = if cert_present {
+        is_cert_trusted_on_platform(storage.root_cert_path(), platform)
+    } else {
+        false
+    };
+    let adb_available = resolve_adb_path().is_ok();
+    let ios_simulator_tooling = ios_simctl_available();
+
+    let mut checks = Vec::new();
+    checks.push(DiagnosticCheck {
+        key: "cert_present".into(),
+        ok: cert_present,
+        message: if cert_present {
+            None
+        } else {
+            Some("No root certificate found. Generate one first.".into())
+        },
+    });
+    checks.push(DiagnosticCheck {
+        key: "cert_trusted".into(),
+        ok: cert_trusted,
+        message: if cert_trusted {
+            None
+        } else if cert_present {
+            Some("Certificate exists but is not trusted on this platform. Complete the platform trust step.".into())
+        } else {
+            None
+        },
+    });
+    checks.push(DiagnosticCheck {
+        key: "adb".into(),
+        ok: adb_available,
+        message: if adb_available {
+            None
+        } else {
+            Some("adb was not found. Install Android Platform Tools to use Android quick actions.".into())
+        },
+    });
+    #[cfg(target_os = "macos")]
+    checks.push(DiagnosticCheck {
+        key: "ios_simulator".into(),
+        ok: ios_simulator_tooling,
+        message: if ios_simulator_tooling {
+            None
+        } else {
+            Some("xcrun simctl is unavailable. Install Xcode to use iOS Simulator quick actions.".into())
+        },
+    });
+
+    Ok(SetupDiagnostic {
+        platform: platform.to_string(),
+        cert_present,
+        cert_path,
+        cert_trusted,
+        adb_available,
+        ios_simulator_tooling,
+        checks,
+    })
+}
+
+/// Whether `xcrun simctl` is available (macOS only). On other platforms this is
+/// always false — iOS Simulator tooling requires macOS + Xcode.
+fn ios_simctl_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("xcrun")
+            .args(["simctl", "list", "devices", "--json"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 fn generate_root_certificate_impl(
     input: GenerateRootCertificateInput,
     state: Arc<AppState>,

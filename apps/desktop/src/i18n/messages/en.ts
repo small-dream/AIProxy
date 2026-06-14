@@ -130,6 +130,14 @@ export const enMessages = {
     sslOn: "SSL On",
     sslReady: "SSL Ready",
     sslSetup: "SSL Setup",
+    certStage: {
+      notInstalled: "Certificate: not installed",
+      installedNotTrusted: "Certificate: not trusted",
+      trustedProxyDown: "Trusted · start proxy",
+      trustedEnableSsl: "Trusted · enable SSL decryption",
+      trustedNoRouting: "Trusted · enable proxy routing",
+      ready: "HTTPS ready",
+    },
     startSystemProxyAction: "Start System Proxy",
     startProxyBeforeSystemProxy: "Start the proxy before enabling the system proxy",
     statusDisableSystemProxy: "Disable the system proxy",
@@ -710,6 +718,19 @@ export const enMessages = {
       title: "Certificate Status",
       trusted: "Trusted:",
       notGenerated: "Not Generated",
+    },
+    diagnostics: {
+      title: "Diagnostics",
+      run: "Run diagnostics",
+      running: "Running...",
+      hint: "Run a quick check of your certificate, adb, and simulator environment.",
+      summary: "{{passed}}/{{total}} checks passed",
+      checks: {
+        cert_present: "Root certificate present",
+        cert_trusted: "Certificate trusted on this platform",
+        adb: "adb available",
+        ios_simulator: "iOS Simulator tooling (xcrun)",
+      },
     },
     tabs: {
       desktop: "Desktop Certificate",
@@ -1430,6 +1451,154 @@ export const enMessages = {
     enabled: "Enabled",
     moveFailed: "Could not move item.",
     moveCycleBlocked: "Cannot move a folder into one of its own descendants.",
+  },
+  setupWizard: {
+    title: "Set up AIProxy",
+    subtitle: "Capture your first HTTPS request in a few guided steps.",
+    actions: {
+      back: "Back",
+      finish: "Finish",
+      next: "Next",
+      skip: "Skip",
+    },
+    welcome: {
+      title: "Welcome to AIProxy",
+      body: "AIProxy captures traffic between your apps and the network. To read HTTPS traffic, you'll install a local root certificate, start the proxy, then point your browser or device at it.",
+      privacyNote:
+        "The root certificate is generated on this machine and never leaves it. You can remove it anytime from the Certificates page.",
+    },
+    generate: {
+      title: "Generate the root certificate",
+      body: "AIProxy signs a local root CA used to decrypt HTTPS traffic on the fly.",
+      action: "Generate root certificate",
+      generating: "Generating...",
+      success: "Root certificate generated.",
+    },
+    install: {
+      title: "Install & trust the certificate",
+      body: "Add the root certificate to your system trust store so browsers trust AIProxy's decryption.",
+      action: "Open system installer",
+      opening: "Opening...",
+      installed: "I've installed it — verify trust",
+      macosHint:
+        "On macOS, add it to the System keychain, then set \"Always Trust\" and enter your administrator password.",
+      windowsHint:
+        "On Windows, place it in the \"Trusted Root Certification Authorities\" store for Local Machine.",
+      linuxHint:
+        "On Linux, copy it into the system CA directory and run sudo update-ca-certificates.",
+    },
+    verify: {
+      title: "Verifying trust...",
+      waiting: "Waiting for the system to report the certificate as trusted.",
+      success: "Certificate is trusted. Almost there.",
+      stuckTitle: "Still not trusted?",
+      stuckBody:
+        "If trust isn't detected, the certificate may be in the wrong store. Reopen the installer or review the platform guide.",
+      reopenInstaller: "Reopen installer",
+      backToInstall: "Back to install",
+      openCertificates: "Open certificates",
+    },
+    startProxy: {
+      title: "Start the proxy",
+      body: "The proxy listens for traffic on a local port. It usually starts automatically — confirm it's running here.",
+      action: "Start proxy",
+      starting: "Starting...",
+      running: "Proxy is running.",
+    },
+    sslDecryption: {
+      title: "Enable SSL decryption",
+      body: "SSL decryption lets AIProxy read HTTPS traffic. The proxy starts with it on by default.",
+      on: "SSL decryption is on.",
+      offTitle: "SSL decryption is off",
+      offBody:
+        "HTTPS traffic can't be decrypted until SSL is on. Restart the proxy with SSL to capture HTTPS.",
+      action: "Restart proxy with SSL",
+      enabling: "Restarting...",
+    },
+    routing: {
+      title: "Route traffic through AIProxy",
+      body: "Turn on the system proxy so browser traffic flows through AIProxy automatically.",
+      enableSystem: "Enable system proxy",
+      enabling: "Enabling...",
+      systemOn: "System proxy is on.",
+      manual: "I'll configure the proxy manually",
+      manualHint:
+        "Choose this if you point a specific app or device at the proxy yourself. You can change this anytime.",
+    },
+    verifyTraffic: {
+      title: "Capture your first HTTPS request",
+      body: "Open any HTTPS site to confirm everything works end to end.",
+      waiting: "Waiting for the first HTTPS request...",
+      openTestSite: "Open a test site",
+      success: "Captured! You're ready to inspect traffic on the Sessions page.",
+      triageTitle: "No traffic yet? Check these:",
+      triageItems: [
+        "The browser isn't using the proxy — confirm the system proxy is on, or point the browser at the proxy manually.",
+        "The certificate isn't effective yet — go back to the Install step and confirm it's trusted.",
+        "The target app uses certificate pinning — pinned apps reject the proxy; try a normal browser first.",
+      ],
+    },
+    complete: {
+      title: "You're all set",
+      body: "AIProxy is ready. Captured traffic appears on the Sessions page in real time.",
+      mobileInvite: "Want to capture from a phone or emulator?",
+      mobileAction: "Set up mobile capture",
+    },
+  },
+  errorGuidance: {
+    reason: {
+      portInUse: "The proxy port is already in use by another process.",
+      certNotFound: "No root certificate has been generated yet.",
+      proxyNotRunning: "The proxy isn't running.",
+      permissionDenied: "Permission was denied.",
+      installerFailed: "The system certificate installer couldn't be opened.",
+      generateFailed: "Generating the root certificate failed.",
+      unknown: "Something went wrong.",
+    },
+    steps: {
+      portInUse: [
+        "Close the app currently using the proxy port, then retry.",
+        "Or change the proxy port in the proxy settings, then retry.",
+      ],
+      certNotFound: ["Go back and generate the root certificate first."],
+      proxyNotRunning: ["Start the proxy, then retry."],
+      permissionDenied: [
+        "Grant the requested permission (administrator password or keychain access), then retry.",
+      ],
+      installerFailed: [
+        "Open the Certificates page and install the certificate manually, then return here.",
+      ],
+      generateFailed: ["Retry. If it keeps failing, check the dev log for details."],
+      unknown: ["Retry. If the problem persists, open the troubleshooting guide."],
+    },
+    actions: {
+      retry: "Retry",
+      openGuide: "Open troubleshooting guide",
+    },
+  },
+  setupChecklist: {
+    title: "Finish setup to start capturing",
+    subtitle: "A few steps remain before you can capture HTTPS traffic.",
+    steps: {
+      certGenerated: "Generate the root certificate",
+      certTrusted: "Install & trust the certificate",
+      proxyRunning: "Start the proxy",
+      sslDecryption: "Enable SSL decryption",
+      systemProxyOrManual: "Route traffic through AIProxy",
+    },
+    openCertificates: "Open certificates",
+    openWizard: "Open setup wizard",
+  },
+  mobilePreflight: {
+    title: "Finish these before capturing from a phone or emulator",
+    gaps: {
+      certGenerated: "Generate the root certificate",
+      certGeneratedHint: "Switch to the Desktop tab and generate it first.",
+      proxyRunning: "Start the proxy",
+      proxyRunningHint: "Start the proxy from the status bar so the phone can reach it.",
+      localIp: "Use a network with a local IP",
+      localIpHint: "Make sure both devices are on the same Wi-Fi network.",
+    },
   },
 } as const;
 

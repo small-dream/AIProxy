@@ -1456,6 +1456,32 @@ type GenerateRootCertificateInput = {
 type GenerateRootCertificateOutput = CertificateStatus;
 ```
 
+### `diagnose_certificate_setup`
+
+请求：无参数。聚合证书/代理环境探测,供 UI 渲染可操作的排障指引。
+
+响应：
+
+```ts
+type DiagnosticCheck = {
+  key: string; // "cert_present" | "cert_trusted" | "adb" | "ios_simulator"
+  ok: boolean;
+  message?: string;
+};
+
+type DiagnoseCertificateSetupOutput = {
+  platform: "windows" | "macos" | "linux";
+  certPresent: boolean;
+  certPath?: string;
+  certTrusted: boolean;
+  adbAvailable: boolean;
+  iosSimulatorTooling: boolean; // 仅 macOS 可能为 true
+  checks: DiagnosticCheck[];
+};
+```
+
+说明:`ios_simulator` 检查仅在 macOS 下出现;跨平台信任探测复用 `tls-manager::trust`。
+
 ### `open_certificate_install_guide`
 
 请求：无参数。

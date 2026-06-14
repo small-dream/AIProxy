@@ -8,6 +8,8 @@ import { alpha } from "@mui/material/styles";
 import type { CertificateStatus, ProxyStatus } from "@aiproxy/shared-types";
 import type { ReactNode } from "react";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
+import { computeSetupProgress } from "@/features/certificate-center/setup-progress.helpers";
 import { useI18n } from "@/i18n";
 import { defaultAppFontSize, fontFamilies } from "@/themes/fonts";
 
@@ -150,11 +152,29 @@ export function AppShellStatusBar({
   proxyStatus,
 }: AppShellStatusBarProps) {
   const { t } = useI18n();
-  const sslLabel = proxyStatus?.sslEnabled
-    ? t("appShell.sslOn")
-    : certificateStatus?.trusted
-      ? t("appShell.sslReady")
-      : t("appShell.sslSetup");
+  // Use the same state model as the checklist/wizard so the cert chip stays in
+  // lockstep — including SSL decryption and the manual-proxy acknowledgement,
+  // which the previous inline logic ignored.
+  const manualProxyAcknowledgedFor = useAppPreferencesStore(
+    (state) => state.manualProxyAcknowledgedFor,
+  );
+  const setupProgress = computeSetupProgress(
+    certificateStatus,
+    proxyStatus,
+    manualProxyAcknowledgedFor,
+  );
+  const certStageLabel = !setupProgress.certGenerated
+    ? t("appShell.certStage.notInstalled")
+    : !setupProgress.certTrusted
+      ? t("appShell.certStage.installedNotTrusted")
+      : !setupProgress.proxyRunning
+        ? t("appShell.certStage.trustedProxyDown")
+        : !setupProgress.sslEnabled
+          ? t("appShell.certStage.trustedEnableSsl")
+          : !setupProgress.proxySatisfied
+            ? t("appShell.certStage.trustedNoRouting")
+            : t("appShell.certStage.ready");
+  const captureReady = setupProgress.captureReady;
 
   return (
     <>
@@ -216,9 +236,9 @@ export function AppShellStatusBar({
         <StatusSeparator />
 
         <StatusItem
-          active={Boolean(proxyStatus?.sslEnabled || certificateStatus?.trusted)}
+          active={captureReady}
           icon={<LockRoundedIcon />}
-          label={sslLabel}
+          label={certStageLabel}
           onClick={onCertificatesClick}
           title={t("appShell.openCertificatesPage")}
         />

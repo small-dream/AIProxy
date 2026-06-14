@@ -104,6 +104,10 @@ vi.mock("@/services/commands", () => ({
   setFocusedHosts: () => Promise.resolve(),
 }));
 
+vi.mock("@/components/shared/SetupChecklistCard", () => ({
+  SetupChecklistCard: () => null,
+}));
+
 vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
   SessionsWorkspacePanel: ({
     domainFilterValue,

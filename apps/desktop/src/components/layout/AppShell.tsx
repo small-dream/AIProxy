@@ -22,6 +22,7 @@ import { isMacPlatform, isTauriRuntime } from "@/components/layout/hooks/helpers
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
+import { SetupWizard } from "@/features/setup-wizard/SetupWizard";
 import { useI18n } from "@/i18n";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useNotificationStore } from "@/services/notification.store";
@@ -242,6 +243,8 @@ export function AppShell() {
         portDialogOpen={portDialogOpen}
         portDraft={portDraft}
       />
+
+      <SetupWizard />
 
       <Snackbar
         key={menuSnackbarMessage ?? activeNotification?.id ?? "snackbar"}

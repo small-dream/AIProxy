@@ -9,6 +9,7 @@ import {
   parseIOSSimulatorDevices,
   parseCertificateStatus,
   parseCertificateInstallGuide,
+  parseSetupDiagnostic,
   type AndroidAdbDevice,
   type AndroidAdbCertificateInstallResult,
   type AndroidAdbProxyResult,
@@ -21,6 +22,7 @@ import {
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
   type SetAndroidProxyViaAdbInput,
+  type SetupDiagnostic,
 } from "@aiproxy/shared-types";
 
 import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
@@ -53,6 +55,37 @@ export async function getCertificateStatus(): Promise<CertificateStatus> {
     return status;
   } catch (error) {
     reportCommandFailure("get_certificate_status", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function diagnoseCertificateSetup(): Promise<SetupDiagnostic> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "diagnose_certificate_setup_bypassed_non_tauri_runtime");
+    return {
+      platform: detectBrowserPlatform(),
+      certPresent: false,
+      certTrusted: false,
+      adbAvailable: false,
+      iosSimulatorTooling: false,
+      checks: [],
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "diagnose_certificate_setup_requested");
+    const payload = await invoke<unknown>("diagnose_certificate_setup");
+    const diagnostic = parseSetupDiagnostic(payload);
+
+    logDevDebug("ui.commands", "diagnose_certificate_setup_succeeded", {
+      platform: diagnostic.platform,
+      certPresent: diagnostic.certPresent,
+      certTrusted: diagnostic.certTrusted,
+    });
+
+    return diagnostic;
+  } catch (error) {
+    reportCommandFailure("diagnose_certificate_setup", error);
     throw coerceAppError(error);
   }
 }

@@ -115,6 +115,45 @@ export function parseCertificateInstallGuide(value: unknown): CertificateInstall
   return value as CertificateInstallGuide;
 }
 
+export type DiagnosticCheck = {
+  key: string;
+  ok: boolean;
+  message?: string;
+};
+
+// Structured setup diagnostic returned by the `diagnose_certificate_setup` command.
+// Aggregates cert presence/trust, adb availability, and iOS Simulator tooling so
+// the UI can render actionable guidance without re-deriving platform specifics.
+export type SetupDiagnostic = {
+  platform: string;
+  certPresent: boolean;
+  certPath?: string;
+  certTrusted: boolean;
+  adbAvailable: boolean;
+  iosSimulatorTooling: boolean;
+  checks: DiagnosticCheck[];
+};
+
+export function isSetupDiagnostic(value: unknown): value is SetupDiagnostic {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<SetupDiagnostic>;
+  return (
+    typeof candidate.platform === "string" &&
+    typeof candidate.certPresent === "boolean" &&
+    typeof candidate.certTrusted === "boolean" &&
+    typeof candidate.adbAvailable === "boolean" &&
+    typeof candidate.iosSimulatorTooling === "boolean" &&
+    Array.isArray(candidate.checks)
+  );
+}
+
+export function parseSetupDiagnostic(value: unknown): SetupDiagnostic {
+  if (!isSetupDiagnostic(value)) {
+    throw coerceAppError(value);
+  }
+  return value as SetupDiagnostic;
+}
+
 export function isAndroidAdbCertificateInstallResult(
   value: unknown,
 ): value is AndroidAdbCertificateInstallResult {
