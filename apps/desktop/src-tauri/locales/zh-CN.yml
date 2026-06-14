@@ -1,0 +1,46 @@
+_version: 1
+menu.submenu.file: 文件
+menu.submenu.edit: 编辑
+menu.submenu.view: 视图
+menu.submenu.proxy: 代理
+menu.submenu.tools: 工具
+menu.submenu.window: 窗口
+menu.submenu.help: 帮助
+menu.submenu.app: AIProxy
+menu.submenu.android_quick_actions: Android 快捷操作
+menu.import_har: 导入 HAR...
+menu.export_har: 导出为 HAR...
+menu.clear_all_sessions: 清除所有会话
+menu.close_window: 关闭窗口
+menu.find: 查找...
+menu.refresh: 刷新
+menu.goto.sessions: 会话
+menu.goto.compose: 构造请求
+menu.goto.rules: 规则
+menu.goto.throttling: 弱网
+menu.goto.certificates: 证书
+menu.goto.settings: 设置
+menu.zoom.in: 放大
+menu.zoom.out: 缩小
+menu.zoom.reset: 重置缩放
+menu.theme.dark: 暗黑
+menu.theme.light: 浅色
+menu.theme.system: 跟随系统
+menu.start_proxy: 启动代理
+menu.stop_proxy: 停止代理
+menu.toggle_system_proxy: 切换系统代理
+menu.clear_sessions: 清除会话
+menu.breakpoint_rules: 断点规则...
+menu.throttling: 弱网...
+menu.install_cert: 安装根证书
+menu.cert_status: 证书状态
+menu.ios_quick_actions: iOS 快捷操作
+menu.adb_set_proxy: 通过 ADB 设置代理
+menu.adb_clear_proxy: 通过 ADB 清除代理
+menu.setup_wizard: 配置指南...
+menu.check_for_updates: 检查更新...
+menu.documentation: AIProxy 文档
+menu.show_logs: 显示日志
+menu.shortcuts: 键盘快捷键
+menu.about: 关于 AIProxy
+menu.preferences: 偏好设置...

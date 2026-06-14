@@ -1,0 +1,46 @@
+_version: 1
+menu.submenu.file: File
+menu.submenu.edit: Edit
+menu.submenu.view: View
+menu.submenu.proxy: Proxy
+menu.submenu.tools: Tools
+menu.submenu.window: Window
+menu.submenu.help: Help
+menu.submenu.app: AIProxy
+menu.submenu.android_quick_actions: Android Quick Actions
+menu.import_har: Import HAR...
+menu.export_har: Export as HAR...
+menu.clear_all_sessions: Clear All Sessions
+menu.close_window: Close Window
+menu.find: Find...
+menu.refresh: Refresh
+menu.goto.sessions: Sessions
+menu.goto.compose: Compose
+menu.goto.rules: Rules
+menu.goto.throttling: Throttling
+menu.goto.certificates: Certificates
+menu.goto.settings: Settings
+menu.zoom.in: Zoom In
+menu.zoom.out: Zoom Out
+menu.zoom.reset: Reset Zoom
+menu.theme.dark: Dark Theme
+menu.theme.light: Light Theme
+menu.theme.system: Follow System Theme
+menu.start_proxy: Start Proxy
+menu.stop_proxy: Stop Proxy
+menu.toggle_system_proxy: Toggle System Proxy
+menu.clear_sessions: Clear Sessions
+menu.breakpoint_rules: Breakpoint Rules...
+menu.throttling: Throttling...
+menu.install_cert: Install Root Certificate
+menu.cert_status: Certificate Status
+menu.ios_quick_actions: iOS Quick Actions
+menu.adb_set_proxy: Set Proxy via ADB
+menu.adb_clear_proxy: Clear Proxy via ADB
+menu.setup_wizard: Setup Guide...
+menu.check_for_updates: Check for Updates...
+menu.documentation: AIProxy Documentation
+menu.show_logs: Show Logs
+menu.shortcuts: Keyboard Shortcuts
+menu.about: About AIProxy
+menu.preferences: Preferences...

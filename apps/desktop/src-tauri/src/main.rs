@@ -1,3 +1,9 @@
+#[macro_use]
+extern crate rust_i18n;
+
+// Load compiled-in menu translations from src-tauri/locales/*.yml; English fallback.
+rust_i18n::i18n!("locales", fallback = "en");
+
 mod bootstrap;
 mod commands;
 mod dev_logger;
@@ -214,20 +220,18 @@ pub fn run() {
             commands::summarize_session_diff,
             commands::get_app_build_info,
             commands::show_log_file,
+            commands::set_menu_locale,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
-            if let Err(error) = menu::build_menu(app.handle()) {
-                tracing::warn!(
-                    component = "desktop.app",
-                    event = "menu_build_failed",
-                    error = %error,
-                    "menu_build_failed"
-                );
-            }
+            // Build the initial menu in the persisted (or default "system") language.
+            // apply_locale resolves `system` via sys-locale, set_locale, and rebuilds;
+            // all failures are logged best-effort inside it.
+            let menu_preference = menu::load_menu_locale().unwrap_or_else(|| "system".to_string());
+            menu::apply_locale(app.handle(), &menu_preference);
             menu::register_menu_event_handler(app.handle());
 
             let window = app

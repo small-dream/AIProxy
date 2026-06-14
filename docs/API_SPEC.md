@@ -1706,6 +1706,22 @@ type ReadHarFileOutput = string; // HAR 文件内容
 - 仅接受 `.har` 扩展名
 - 读取后由前端解析并导入为本地会话快照
 
+## 6.11 Menu Locale Command
+
+### set_menu_locale
+
+```ts
+invoke("set_menu_locale", { preference: "en" | "system" | "zh-CN" }): Promise<void>
+```
+
+设置原生（macOS）菜单的显示语言。`preference` 为三态语言偏好：`en` / `system` / `zh-CN`。Rust 侧由 `menu::apply_locale` 持久化偏好到 `menu-locale.json`、经 `sys-locale` 解析 `system`、`rust_i18n::set_locale` 后重建菜单。
+
+**语义：不可失败。** 命令返回 unit，持久化或重建失败仅 `tracing::warn!`，不向 JS reject。
+
+**平台：** 所有平台注册；macOS 重建菜单，Windows/Linux 仅持久化 + set_locale（无原生菜单）。
+
+**持久化：** `<app_data_dir>/menu-locale.json`，内容 `{ "preference": "en" | "system" | "zh-CN" }`，启动期读取并解析。
+
 ## 7. Event Specification
 
 ## 7.1 会话事件

@@ -57,6 +57,16 @@ AIProxy 的界面目标不是“炫”，而是“高效、稳定、可读、专
 - 跟随系统时，应响应桌面外观变化并自动切换，不要求用户重启应用
 - 首屏加载应尽量避免亮色/暗色闪烁
 
+## 3.3 原生菜单本地化
+
+macOS 原生菜单（File/Edit/View/Proxy/Tools/Window/Help）已本地化，随界面显示语言切换：
+
+- 字符串来源：Rust 侧 `rust-i18n`（`src-tauri/locales/{en,zh-CN}.yml`），独立于前端 webview 目录。
+- 切换流程：Settings 改显示语言 → `AppProviders` effect → `setMenuLocale(preference)` → Rust `apply_locale`（持久化 + `set_locale` + 重建）。
+- 术语约束：菜单导航/主题项译法必须与前端一致（Compose=构造请求、Throttling=弱网、主题=暗黑/浅色/跟随系统）。
+- `PredefinedMenuItem`（剪切/复制/最小化/退出等）由 macOS 系统本地化，不在本项目翻译范围。
+- Windows/Linux 暂无原生菜单；命令前向兼容。
+
 ## 4. 品牌与视觉基调
 
 ## 4.1 品牌关键词

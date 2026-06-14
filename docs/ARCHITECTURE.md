@@ -142,6 +142,10 @@ flowchart LR
 - 消息资源按领域分组，避免单一超大字典文件
 - 动态文案优先使用插值参数，避免业务组件内自行拼接多语言字符串
 
+### Rust 侧 i18n（菜单）
+
+`src-tauri/locales/{en,zh-CN}.yml` 由 `rust-i18n` 编译期嵌入；目前唯一消费方是原生菜单（`menu.rs`）。`sys-locale` 用于启动期在 Rust 侧解析 `system` 偏好。与前端 TS i18n 目录独立维护（跨语言不共享，业界常态）。
+
 ### 5.2 桌面接入层（Desktop Integration Layer）
 
 负责：

@@ -4,6 +4,7 @@ export * from "./sessions";
 export * from "./certificates";
 export * from "./compose";
 export * from "./files";
+export * from "./menu";
 export * from "./rules";
 export * from "./throttling";
 export * from "./workspaces";

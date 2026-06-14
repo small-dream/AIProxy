@@ -6,6 +6,7 @@ import { coerceAppError } from "@aiproxy/shared-types";
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { I18nProvider, resolveLocale, type SupportedLocale } from "@/i18n";
 import { logDevInfo } from "@/services/logger/dev-logger";
+import { setMenuLocale } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
 import { createAppTheme, resolveThemeMode } from "@/themes/app-theme";
 import {
@@ -217,6 +218,14 @@ export function AppProviders({ children }: PropsWithChildren) {
     locale,
     uiCustomFontFamily,
   ]);
+
+  // Keep the native (macOS) menu in sync with the display language. Depends on both
+  // the preference (en/system/zh-CN switches) and the resolved locale (so a system
+  // language change while preference is "system" also re-syncs). Fire-and-forget;
+  // setMenuLocale never rejects.
+  useEffect(() => {
+    void setMenuLocale(languagePreference);
+  }, [languagePreference, locale]);
 
   return (
     <ThemeProvider theme={theme}>

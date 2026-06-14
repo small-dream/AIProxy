@@ -1195,3 +1195,20 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - The host tree in `Session Explorer` must stay collapsed by default.
 - A host group expands only after explicit user interaction on that host row.
 - The Inspector must not auto-select and render an arbitrary request while every host group is collapsed.
+
+## 菜单 locale 同步事件流
+
+触发：`useAppPreferencesStore.languagePreference` 变更，或 `system` 偏好下系统语言变化（`navigator.languagechange`）。
+
+```text
+languagePreference/locale 变化
+  → AppProviders useEffect([languagePreference, locale])
+  → setMenuLocale(preference)            // 前端 service，fire-and-forget
+  → invoke("set_menu_locale", { preference })
+  → menu::apply_locale
+      ├─ save_menu_locale(preference)     // 持久化 menu-locale.json
+      ├─ rust_i18n::set_locale(resolved)  // 解析 system via sys-locale
+      └─ build_menu(app)                  // macOS 重建（t! 读全局 locale）
+```
+
+冷启动：`main.rs setup()` → `load_menu_locale()` → `apply_locale`（同上，无需前端参与）。
