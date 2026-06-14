@@ -1584,9 +1584,10 @@ export const enMessages = {
       certTrusted: "Install & trust the certificate",
       proxyRunning: "Start the proxy",
       sslDecryption: "Enable SSL decryption",
-      systemProxyOrManual: "Route traffic through AIProxy",
+      systemProxyOrManual: "Use system proxy or manual device proxy",
     },
     openCertificates: "Open certificates",
+    manualProxyConfigured: "I'm using manual/mobile proxy",
     openWizard: "Open setup wizard",
   },
   mobilePreflight: {

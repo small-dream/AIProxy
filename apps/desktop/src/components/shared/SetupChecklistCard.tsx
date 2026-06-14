@@ -3,9 +3,11 @@ import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
 import { Button, Paper, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import { DEFAULT_PROXY_PORT } from "@aiproxy/shared-types";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { type SetupStepKey } from "@/features/certificate-center/setup-progress.helpers";
+import { useProxyStartDefaults } from "@/features/proxy-status/use-proxy-start-defaults";
 import { useSetupWizard } from "@/features/setup-wizard/use-setup-wizard";
 import { useI18n, type TranslationKey } from "@/i18n";
 
@@ -32,8 +34,11 @@ const STEP_ORDER: readonly SetupStepKey[] = [
 export function SetupChecklistCard() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { progress, shouldShowChecklist } = useSetupWizard();
+  const { progress, shouldShowChecklist, acknowledgeManualProxy } = useSetupWizard();
+  const startDefaults = useProxyStartDefaults();
   const resetSetupWizardState = useAppPreferencesStore((s) => s.resetSetupWizardState);
+  const showManualProxyAction =
+    progress.nextAction === "systemProxyOrManual" && progress.proxyRunning;
 
   if (!shouldShowChecklist) {
     return null;
@@ -85,6 +90,17 @@ export function SetupChecklistCard() {
           >
             {t("setupChecklist.openCertificates")}
           </Button>
+          {showManualProxyAction && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() =>
+                acknowledgeManualProxy(startDefaults.port ?? DEFAULT_PROXY_PORT, startDefaults.workspaceId)
+              }
+            >
+              {t("setupChecklist.manualProxyConfigured")}
+            </Button>
+          )}
           <Button variant="text" size="small" color="inherit" onClick={resetSetupWizardState}>
             {t("setupChecklist.openWizard")}
           </Button>

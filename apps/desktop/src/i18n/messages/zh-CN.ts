@@ -1518,9 +1518,10 @@ export const zhCNMessages: Messages = {
       certTrusted: "安装并信任证书",
       proxyRunning: "启动代理",
       sslDecryption: "开启 SSL 解密",
-      systemProxyOrManual: "让流量走 AIProxy",
+      systemProxyOrManual: "开启系统代理或手动配置设备代理",
     },
     openCertificates: "打开证书",
+    manualProxyConfigured: "我在用手动/手机代理",
     openWizard: "打开设置向导",
   },
   mobilePreflight: {
