@@ -240,6 +240,7 @@ fn is_trusted_linux(_cert_path: &Path) -> bool {
     false
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
     use base64::Engine;
     use sha1::{Digest, Sha1};
