@@ -16,7 +16,7 @@ import { PlatformTrustGuide } from "./PlatformTrustGuide";
 import { MobileSetupTab } from "./MobileSetupTab";
 
 type CertTab = "desktop" | "mobile";
-type MobileQuickActionsPanel = "ios" | "android";
+type MobileQuickActionsPanel = "ios" | "android" | "harmony";
 
 export function CertificatesPage() {
   const { t } = useI18n();
@@ -29,12 +29,17 @@ export function CertificatesPage() {
   const [tab, setTab] = useState<CertTab>("desktop");
   const iosQuickActionsRef = useRef<HTMLDivElement | null>(null);
   const androidQuickActionsRef = useRef<HTMLDivElement | null>(null);
+  const harmonyQuickActionsRef = useRef<HTMLDivElement | null>(null);
 
   const requestedTab = searchParams.get("tab");
   const requestedPanel = searchParams.get("panel");
   const initialTab = requestedTab === "desktop" || requestedTab === "mobile" ? requestedTab : null;
   const initialPanel: MobileQuickActionsPanel | null =
-    requestedPanel === "ios" || requestedPanel === "android" ? requestedPanel : null;
+    requestedPanel === "ios" ||
+    requestedPanel === "android" ||
+    requestedPanel === "harmony"
+      ? requestedPanel
+      : null;
 
   useEffect(() => {
     if (initialTab) {
@@ -48,7 +53,11 @@ export function CertificatesPage() {
     }
 
     const target =
-      initialPanel === "ios" ? iosQuickActionsRef.current : androidQuickActionsRef.current;
+      initialPanel === "ios"
+        ? iosQuickActionsRef.current
+        : initialPanel === "android"
+          ? androidQuickActionsRef.current
+          : harmonyQuickActionsRef.current;
     if (!target) {
       return;
     }
@@ -185,6 +194,7 @@ export function CertificatesPage() {
           {tab === "mobile" && (
             <MobileSetupTab
               androidQuickActionsRef={androidQuickActionsRef}
+              harmonyQuickActionsRef={harmonyQuickActionsRef}
               proxyPort={proxyStatus?.port ?? 8888}
               proxyRunning={proxyStatus?.running ?? false}
               sslEnabled={proxyStatus?.sslEnabled ?? false}

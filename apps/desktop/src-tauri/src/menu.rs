@@ -41,6 +41,7 @@ pub mod ids {
     pub const IOS_QUICK_ACTIONS: &str = "ios_quick_actions";
     pub const ADB_SET_PROXY: &str = "adb_set_proxy";
     pub const ADB_CLEAR_PROXY: &str = "adb_clear_proxy";
+    pub const HARMONY_QUICK_ACTIONS: &str = "harmony_quick_actions";
     pub const CHECK_FOR_UPDATES: &str = "check_for_updates";
     pub const SHOW_LOGS: &str = "show_logs";
     pub const DOCUMENTATION: &str = "documentation";
@@ -93,8 +94,12 @@ pub(crate) fn save_menu_locale_to(path: &Path, preference: &str) -> Result<(), S
     let json = serde_json::to_string_pretty(&payload)
         .map_err(|error| format!("failed to serialize menu locale: {error}"))?;
 
-    std::fs::write(path, json)
-        .map_err(|error| format!("failed to write menu locale file {}: {error}", path.display()))
+    std::fs::write(path, json).map_err(|error| {
+        format!(
+            "failed to write menu locale file {}: {error}",
+            path.display()
+        )
+    })
 }
 
 /// Pure, path-injected reader. Returns `None` for missing file or parse failure
@@ -388,6 +393,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), tauri::Error> {
                 .build(handle)?,
         )
         .item(&android_quick_actions_menu)
+        .item(
+            &MenuItemBuilder::new(t!("menu.harmony_quick_actions"))
+                .id(ids::HARMONY_QUICK_ACTIONS)
+                .build(handle)?,
+        )
         .build()?;
 
     // --- Window ---
@@ -541,6 +551,7 @@ mod tests {
         "menu.ios_quick_actions",
         "menu.adb_set_proxy",
         "menu.adb_clear_proxy",
+        "menu.harmony_quick_actions",
         "menu.setup_wizard",
         "menu.check_for_updates",
         "menu.documentation",
@@ -589,7 +600,10 @@ mod tests {
 
     #[test]
     fn resolve_menu_locale_unknown_preference_falls_back_to_system() {
-        assert_eq!(super::resolve_menu_locale("garbage", Some("zh-CN")), "zh-CN");
+        assert_eq!(
+            super::resolve_menu_locale("garbage", Some("zh-CN")),
+            "zh-CN"
+        );
         assert_eq!(super::resolve_menu_locale("", Some("en-US")), "en");
     }
 
@@ -605,7 +619,10 @@ mod tests {
 
         // overwrite works
         super::save_menu_locale_to(&path, "zh-CN").expect("save overwrite");
-        assert_eq!(super::load_menu_locale_from(&path).as_deref(), Some("zh-CN"));
+        assert_eq!(
+            super::load_menu_locale_from(&path).as_deref(),
+            Some("zh-CN")
+        );
     }
 
     #[test]

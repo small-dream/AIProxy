@@ -5,6 +5,8 @@ import {
   parseAndroidAdbCertificateInstallResult,
   parseAndroidAdbDevices,
   parseAndroidAdbProxyResult,
+  parseHarmonyHdcCertificateInstallResult,
+  parseHarmonyHdcDevices,
   parseIOSSimulatorCertificateInstallResult,
   parseIOSSimulatorDevices,
   parseCertificateStatus,
@@ -17,7 +19,10 @@ import {
   type CertificateStatus,
   type ClearAndroidProxyViaAdbInput,
   type GenerateRootCertificateInput,
+  type HarmonyHdcCertificateInstallResult,
+  type HarmonyHdcDevice,
   type InstallAndroidCertificateViaAdbInput,
+  type InstallHarmonyCertificateViaHdcInput,
   type InstallIosCertificateViaSimulatorInput,
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
@@ -67,6 +72,7 @@ export async function diagnoseCertificateSetup(): Promise<SetupDiagnostic> {
       certPresent: false,
       certTrusted: false,
       adbAvailable: false,
+      hdcAvailable: false,
       iosSimulatorTooling: false,
       checks: [],
     };
@@ -373,6 +379,73 @@ export async function clearAndroidProxyViaAdb(
     return result;
   } catch (error) {
     reportCommandFailure("clear_android_proxy_via_adb", error, input?.deviceSerial);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listHarmonyHdcDevices(): Promise<HarmonyHdcDevice[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "list_harmony_hdc_devices_bypassed_non_tauri_runtime");
+    return [
+      {
+        serial: "50051abcdefg",
+        state: "Connected",
+        model: "HarmonyOS Device",
+      },
+    ];
+  }
+
+  try {
+    logDevInfo("ui.commands", "list_harmony_hdc_devices_requested");
+    const payload = await withTimeout(
+      invoke<unknown>("list_harmony_hdc_devices"),
+      MOBILE_DEVICE_SCAN_TIMEOUT_MS,
+      "Timed out while scanning HarmonyOS devices via hdc. Check that hdc is responsive, then refresh devices.",
+    );
+    const devices = parseHarmonyHdcDevices(payload);
+
+    logDevInfo("ui.commands", "list_harmony_hdc_devices_succeeded", {
+      deviceCount: devices.length,
+    });
+
+    return devices;
+  } catch (error) {
+    reportCommandFailure("list_harmony_hdc_devices", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function installHarmonyCertificateViaHdc(
+  input?: InstallHarmonyCertificateViaHdcInput,
+): Promise<HarmonyHdcCertificateInstallResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug(
+      "ui.commands",
+      "install_harmony_certificate_via_hdc_bypassed_non_tauri_runtime",
+      input,
+    );
+    return {
+      success: true,
+      deviceSerial: input?.deviceSerial ?? "50051abcdefg",
+      remotePath: "/data/local/tmp/aiproxy-root-ca.cer",
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "install_harmony_certificate_via_hdc_requested", input);
+    const payload = await invoke<unknown>("install_harmony_certificate_via_hdc", {
+      input: input ? { ...(input.deviceSerial ? { deviceSerial: input.deviceSerial } : {}) } : {},
+    });
+    const result = parseHarmonyHdcCertificateInstallResult(payload);
+
+    logDevInfo("ui.commands", "install_harmony_certificate_via_hdc_succeeded", {
+      deviceSerial: result.deviceSerial,
+      remotePath: result.remotePath,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("install_harmony_certificate_via_hdc", error);
     throw coerceAppError(error);
   }
 }

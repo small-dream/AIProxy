@@ -161,6 +161,8 @@ pub fn run() {
             commands::install_ios_certificate_via_simulator,
             commands::set_android_proxy_via_adb,
             commands::clear_android_proxy_via_adb,
+            commands::list_harmony_hdc_devices,
+            commands::install_harmony_certificate_via_hdc,
             commands::get_local_ip,
             commands::send_composed_request,
             commands::list_breakpoint_rules,

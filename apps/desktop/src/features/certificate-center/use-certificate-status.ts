@@ -7,7 +7,10 @@ import {
   type CertificateStatus,
   type ClearAndroidProxyViaAdbInput,
   type GenerateRootCertificateInput,
+  type HarmonyHdcCertificateInstallResult,
+  type HarmonyHdcDevice,
   type InstallAndroidCertificateViaAdbInput,
+  type InstallHarmonyCertificateViaHdcInput,
   type InstallIosCertificateViaSimulatorInput,
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
@@ -19,8 +22,10 @@ import {
   getCertificateStatus,
   generateRootCertificate,
   installAndroidCertificateViaAdb,
+  installHarmonyCertificateViaHdc,
   installIosCertificateViaSimulator,
   listAndroidAdbDevices,
+  listHarmonyHdcDevices,
   listIosSimulators,
   openCertificateInstallGuide,
   setAndroidProxyViaAdb,
@@ -30,6 +35,7 @@ import {
 
 const CERTIFICATE_STATUS_QUERY_KEY = ["certificate-status"] as const;
 const ANDROID_ADB_DEVICES_QUERY_KEY = ["android-adb-devices"] as const;
+const HARMONY_HDC_DEVICES_QUERY_KEY = ["harmony-hdc-devices"] as const;
 const IOS_SIMULATORS_QUERY_KEY = ["ios-simulators"] as const;
 const SETUP_DIAGNOSTIC_QUERY_KEY = ["setup-diagnostic"] as const;
 
@@ -130,5 +136,24 @@ export function useSetAndroidProxyViaAdb() {
 export function useClearAndroidProxyViaAdb() {
   return useMutation<AndroidAdbProxyResult, Error, ClearAndroidProxyViaAdbInput | undefined>({
     mutationFn: (input) => clearAndroidProxyViaAdb(input),
+  });
+}
+
+export function useHarmonyHdcDevices(options?: DeviceQueryOptions) {
+  return useQuery<HarmonyHdcDevice[]>({
+    queryKey: HARMONY_HDC_DEVICES_QUERY_KEY,
+    queryFn: listHarmonyHdcDevices,
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+export function useInstallHarmonyCertificateViaHdc() {
+  return useMutation<
+    HarmonyHdcCertificateInstallResult,
+    Error,
+    InstallHarmonyCertificateViaHdcInput | undefined
+  >({
+    mutationFn: (input) => installHarmonyCertificateViaHdc(input),
   });
 }

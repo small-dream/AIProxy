@@ -10,6 +10,7 @@ import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n, type TranslationKey } from "@/i18n";
 
 import { AndroidQuickActionsPanel } from "./AndroidQuickActionsPanel";
+import { HarmonyQuickActionsPanel } from "./HarmonyQuickActionsPanel";
 import { IosQuickActionsPanel } from "./IosQuickActionsPanel";
 import { NetworkInfoPanel } from "./NetworkInfoPanel";
 import { QrCodePanel } from "./QrCodePanel";
@@ -22,6 +23,7 @@ type Props = {
   hasCert: boolean;
   iosQuickActionsRef?: RefObject<HTMLDivElement | null> | undefined;
   androidQuickActionsRef?: RefObject<HTMLDivElement | null> | undefined;
+  harmonyQuickActionsRef?: RefObject<HTMLDivElement | null> | undefined;
 };
 
 const GAP_LABEL_KEYS: Record<MobilePreflightGap, TranslationKey> = {
@@ -68,6 +70,7 @@ export function MobileSetupTab({
   hasCert,
   iosQuickActionsRef,
   androidQuickActionsRef,
+  harmonyQuickActionsRef,
 }: Props) {
   const { t } = useI18n();
   const [devicesQueryEnabled, setDevicesQueryEnabled] = useState(false);
@@ -134,6 +137,16 @@ export function MobileSetupTab({
 
           <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
             <AndroidQuickActionsPanel
+              devicesQueryEnabled={devicesQueryEnabled}
+              hasCert={hasCert}
+              localIp={localIp ?? null}
+              proxyPort={proxyPort}
+              proxyRunning={proxyRunning}
+            />
+          </Box>
+
+          <Box ref={harmonyQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
+            <HarmonyQuickActionsPanel
               devicesQueryEnabled={devicesQueryEnabled}
               hasCert={hasCert}
               localIp={localIp ?? null}

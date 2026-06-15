@@ -711,7 +711,7 @@ User clicks Export in Sessions header
 │ ┌──────────────────┐  Cert URL: http://192.168.x.x:8888/aiproxy-ca.crt     │
 │ │   [QR Code]      │  (Copy Proxy Address)                                 │
 │ └──────────────────┘                                                        │
-│ iOS Guide | Android Guide                                                   │
+│ iOS Guide | Android Guide | HarmonyOS Guide                                 │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [FAQ / Risk Notes]                                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -729,7 +729,10 @@ CertificatesPage
 │  ├─ MobileSetupCard
 │  │  ├─ QRCodeSVG
 │  │  ├─ Network Information Display
-│  │  └─ MobilePlatformGuide (iOS / Android Tabs)
+│  │  ├─ IosQuickActionsPanel
+│  │  ├─ AndroidQuickActionsPanel
+│  │  ├─ HarmonyQuickActionsPanel
+│  │  └─ MobilePlatformGuide (iOS / Android / HarmonyOS Tabs)
 │  └─ CertificateRiskNotes
 └─ BottomStatusStrip
 ```
@@ -745,7 +748,7 @@ type CertificatesPageState = {
   };
   ui: {
     activePlatformTab: "windows" | "macos" | "linux";
-    activeMobileGuideTab: "ios" | "android";
+    activeMobileGuideTab: "ios" | "android" | "harmony";
   };
   mutation: {
     generatingCertificate: boolean;

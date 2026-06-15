@@ -37,6 +37,7 @@ menu.cert_status: Certificate Status
 menu.ios_quick_actions: iOS Quick Actions
 menu.adb_set_proxy: Set Proxy via ADB
 menu.adb_clear_proxy: Clear Proxy via ADB
+menu.harmony_quick_actions: HarmonyOS Quick Actions
 menu.setup_wizard: Setup Guide...
 menu.check_for_updates: Check for Updates...
 menu.documentation: AIProxy Documentation

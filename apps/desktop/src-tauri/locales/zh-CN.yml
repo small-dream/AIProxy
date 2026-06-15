@@ -37,6 +37,7 @@ menu.cert_status: 证书状态
 menu.ios_quick_actions: iOS 快捷操作
 menu.adb_set_proxy: 通过 ADB 设置代理
 menu.adb_clear_proxy: 通过 ADB 清除代理
+menu.harmony_quick_actions: 鸿蒙快捷操作
 menu.setup_wizard: 配置指南...
 menu.check_for_updates: 检查更新...
 menu.documentation: AIProxy 文档

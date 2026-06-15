@@ -71,6 +71,7 @@ export const WINDOWS_MENU_DEFINITIONS = [
       { kind: "divider" },
       { id: "ios_quick_actions", label: "iOS Quick Actions" },
       { id: "android_quick_actions", label: "Android Quick Actions" },
+      { id: "harmony_quick_actions", label: "HarmonyOS Quick Actions" },
       { kind: "divider" },
       { id: "adb_set_proxy", label: "Set Proxy via ADB" },
       { id: "adb_clear_proxy", label: "Clear Proxy via ADB" },

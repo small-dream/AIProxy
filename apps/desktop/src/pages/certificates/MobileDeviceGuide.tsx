@@ -3,7 +3,7 @@ import { Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
 
-type MobileTab = "ios" | "android";
+type MobileTab = "ios" | "android" | "harmony";
 
 export function MobileDeviceGuide() {
   const { t, tList } = useI18n();
@@ -12,7 +12,9 @@ export function MobileDeviceGuide() {
   const guideSteps =
     activeTab === "ios"
       ? tList("certificatesPage.mobile.iosSteps")
-      : tList("certificatesPage.mobile.androidSteps");
+      : activeTab === "android"
+        ? tList("certificatesPage.mobile.androidSteps")
+        : tList("certificatesPage.mobile.harmonySteps");
 
   return (
     <SectionCard
@@ -28,6 +30,7 @@ export function MobileDeviceGuide() {
         >
           <Tab label={t("certificatesPage.mobile.ios")} value="ios" />
           <Tab label={t("certificatesPage.mobile.android")} value="android" />
+          <Tab label={t("certificatesPage.mobile.harmony")} value="harmony" />
         </Tabs>
 
         <Box

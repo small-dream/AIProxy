@@ -92,7 +92,7 @@ flowchart LR
     G --> J[本地证书存储]
     H --> K[HAR / cURL / JSON 文件]
     L[浏览器 / App / 系统流量] --> D
-    M[手机 / iOS / Android] --> D
+    M[手机 / iOS / Android / HarmonyOS] --> D
     D --> N[目标服务器]
 ```
 
@@ -410,6 +410,7 @@ TLS 证书缓存机制：
 - `open_certificate_install_guide`
 - `launch_certificate_installer`
 - `list_android_adb_devices` / `install_android_certificate_via_adb` / `set_android_proxy_via_adb` / `clear_android_proxy_via_adb`
+- `list_harmony_hdc_devices` / `install_harmony_certificate_via_hdc`
 - `list_ios_simulators` / `install_ios_certificate_via_simulator`
 - `get_local_ip`
 - `list_api_collections` / `upsert_api_collection` / `delete_api_collection` / `move_api_collection`

@@ -1464,7 +1464,7 @@ type GenerateRootCertificateOutput = CertificateStatus;
 
 ```ts
 type DiagnosticCheck = {
-  key: string; // "cert_present" | "cert_trusted" | "adb" | "ios_simulator"
+  key: string; // "cert_present" | "cert_trusted" | "adb" | "hdc" | "ios_simulator"
   ok: boolean;
   message?: string;
 };
@@ -1475,12 +1475,13 @@ type DiagnoseCertificateSetupOutput = {
   certPath?: string;
   certTrusted: boolean;
   adbAvailable: boolean;
+  hdcAvailable: boolean; // hdc(HarmonyOS Device Connector)是否可用,跨平台检查
   iosSimulatorTooling: boolean; // 仅 macOS 可能为 true
   checks: DiagnosticCheck[];
 };
 ```
 
-说明:`ios_simulator` 检查仅在 macOS 下出现;跨平台信任探测复用 `tls-manager::trust`。
+说明:`ios_simulator` 检查仅在 macOS 下出现;`adb` 与 `hdc` 检查跨平台都会出现;跨平台信任探测复用 `tls-manager::trust`。
 
 ### `open_certificate_install_guide`
 
@@ -1646,6 +1647,56 @@ type InstallIosCertificateViaSimulatorOutput = {
   simulatorUdid: string;
 };
 ```
+
+### `list_harmony_hdc_devices`
+
+列出当前 `hdc list targets` 可见的 HarmonyOS NEXT 设备，用于在多台设备并存时选择目标 `serial`。
+
+请求：无参数。
+
+响应：
+
+```ts
+type ListHarmonyHdcDevicesOutput = Array<{
+  serial: string;
+  state: string; // "Connected" 表示就绪
+  model?: string;
+}>;
+```
+
+说明：
+
+- 需要本机已安装 HarmonyOS SDK / DevEco Studio，且 `hdc` 在 PATH 中可用，或设置了 `HDC_PATH` 环境变量
+- 设备需在开发者选项中开启 HDC 调试
+
+### `install_harmony_certificate_via_hdc`
+
+通过 `hdc` 将根证书推送到已连接 HarmonyOS NEXT 设备的 `/data/local/tmp/` 目录，并尽力拉起系统设置以便用户手动完成安装。
+
+请求：
+
+```ts
+type InstallHarmonyCertificateViaHdcInput = {
+  deviceSerial?: string;
+};
+```
+
+响应：
+
+```ts
+type InstallHarmonyCertificateViaHdcOutput = {
+  success: boolean;
+  deviceSerial: string;
+  remotePath: string;
+};
+```
+
+说明：
+
+- 需要本机已安装 HarmonyOS SDK / DevEco Studio，且 `hdc` 在 PATH 中可用，或设置了 `HDC_PATH` 环境变量
+- 若传入 `deviceSerial`，会安装到指定设备；若未传入，则仅在恰好 1 台设备处于 `Connected` 状态时自动选择
+- HarmonyOS NEXT **没有**等价于 `adb shell settings put global http_proxy` 的全局代理命令，系统代理需用户在 Wi-Fi 设置中手动配置
+- 该能力仅推送证书并尝试打开设置，**不会绕过** HarmonyOS 的手动确认步骤：用户需进入「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」完成安装
 
 ## 6.9 代理内建 HTTP 端点
 

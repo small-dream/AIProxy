@@ -668,6 +668,50 @@ export const enMessages = {
         "Note: Starting from Android 7 (Nougat), apps do not trust user-installed certificates by default. You may need to configure network_security_config.xml in your app, or use an Android emulator with a writable system partition for full HTTPS capture.",
         "You can now capture traffic from your Android device. Return to this page to view captured sessions.",
       ],
+      harmony: "HarmonyOS",
+      harmonySteps: [
+        "Make sure your HarmonyOS NEXT device is connected to this computer via USB with HDC debugging enabled, and that it is on the same Wi-Fi network.",
+        "On the device, go to Settings > Wi-Fi, tap the connected network, then configure the proxy: set the host to the Local IP shown above and the port to the Proxy Port. (HarmonyOS NEXT does not support setting the global proxy via hdc, so configure it manually on Wi-Fi.)",
+        "Click Install via hdc above to push the root certificate onto the device, then continue inside Settings > Security & Privacy > Encryption & credentials > Install from storage, selecting the pushed file.",
+        'If you prefer not to use hdc, scan the QR code above (or open the URL in the device browser) to download the root CA certificate, then install it under "Trusted root certificate (system)".',
+        "On HarmonyOS NEXT, user-installed certificates are not trusted by default by all apps. For HTTPS traffic from apps that pin certificates, you may need to disable certificate pinning in the target app or use a rooted device to install the CA as a system certificate.",
+        "You can now capture traffic from your HarmonyOS device. Return to this page to view captured sessions.",
+      ],
+      hdcDeviceLoadErrorTitle: "hdc Device Detection Failed",
+      hdcDevicePlaceholder: "Select a device",
+      hdcDeviceSelectorLabel: "HarmonyOS Device",
+      hdcDeviceStateHint:
+        'The selected target is in {{state}} state. Only devices in the "Connected" state can install the certificate.',
+      hdcErrorTitle: "hdc Install Failed",
+      hdcInstallAction: "Install via hdc",
+      hdcInstallBody:
+        "Connect one HarmonyOS NEXT device over USB and enable HDC debugging in Developer options, then click the button. AIProxy pushes the root certificate onto the device and tries to open system settings so you can finish the install manually.",
+      hdcInstallHint:
+        "This is not a silent install. HarmonyOS NEXT requires you to continue inside the system certificate management screen and choose install from storage, picking the pushed file.",
+      hdcInstallRequirements:
+        'Requires hdc from HarmonyOS SDK / DevEco Studio on PATH. The selected target must be in the "Connected" state.',
+      hdcInstallUnavailable: "Generate a root certificate first to enable hdc install.",
+      hdcInstalling: "Installing via hdc...",
+      hdcLoadingDevices: "Detecting hdc devices...",
+      hdcManualInstallSteps: [
+        "On the device, open Settings > Security & Privacy > Encryption & credentials.",
+        'Tap "Install from storage" / "More security settings" and select the certificate file.',
+        'When prompted for the name, enter "AIProxy Root CA" and confirm installation as a trusted root certificate (VPN & apps).',
+        "Restart the browser or target app on the device for the change to take effect.",
+      ],
+      hdcManualProxyBody:
+        "HarmonyOS NEXT does not expose a hdc command to set the global HTTP proxy, so configure the Wi-Fi proxy manually on the device using the address below.",
+      hdcManualProxyTitle: "Wi-Fi Proxy (manual)",
+      hdcNoDevices:
+        "No hdc devices found yet. Connect a HarmonyOS NEXT device, enable HDC debugging in Developer options, then refresh.",
+      hdcProxyAddressHint: "Enter this proxy address in the device Wi-Fi proxy settings: {{proxyAddress}}",
+      hdcQuickActionsInfoTitle: "HarmonyOS Quick Action Notes",
+      hdcRefreshDevices: "Refresh Devices",
+      hdcRefreshingDevices: "Refreshing...",
+      hdcSuccessBody:
+        "The certificate was pushed to {{remotePath}} on {{deviceSerial}}, and system settings were opened. Continue from Settings > Security & Privacy > Encryption & credentials > Install from storage, then pick this file.",
+      hdcSuccessTitle: "Certificate Pushed, Settings Opened",
+      harmonyQuickActionsTitle: "HarmonyOS Quick Actions",
     },
     platformLabels: {
       linux: "Linux",
@@ -723,12 +767,13 @@ export const enMessages = {
       title: "Diagnostics",
       run: "Run diagnostics",
       running: "Running...",
-      hint: "Run a quick check of your certificate, adb, and simulator environment.",
+      hint: "Run a quick check of your certificate, adb, hdc, and simulator environment.",
       summary: "{{passed}}/{{total}} checks passed",
       checks: {
         cert_present: "Root certificate present",
         cert_trusted: "Certificate trusted on this platform",
         adb: "adb available",
+        hdc: "hdc available (HarmonyOS Device Connector)",
         ios_simulator: "iOS Simulator tooling (xcrun)",
       },
     },

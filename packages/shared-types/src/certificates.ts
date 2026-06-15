@@ -70,6 +70,22 @@ export type IOSSimulatorCertificateInstallResult = {
   simulatorUdid: string;
 };
 
+export type HarmonyHdcDevice = {
+  serial: string;
+  state: string;
+  model?: string;
+};
+
+export type InstallHarmonyCertificateViaHdcInput = {
+  deviceSerial?: string;
+};
+
+export type HarmonyHdcCertificateInstallResult = {
+  success: boolean;
+  deviceSerial: string;
+  remotePath: string;
+};
+
 export function isCertificateStatus(value: unknown): value is CertificateStatus {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<CertificateStatus> & {
@@ -122,14 +138,16 @@ export type DiagnosticCheck = {
 };
 
 // Structured setup diagnostic returned by the `diagnose_certificate_setup` command.
-// Aggregates cert presence/trust, adb availability, and iOS Simulator tooling so
-// the UI can render actionable guidance without re-deriving platform specifics.
+// Aggregates cert presence/trust, adb availability, hdc availability, and iOS
+// Simulator tooling so the UI can render actionable guidance without re-deriving
+// platform specifics.
 export type SetupDiagnostic = {
   platform: string;
   certPresent: boolean;
   certPath?: string;
   certTrusted: boolean;
   adbAvailable: boolean;
+  hdcAvailable: boolean;
   iosSimulatorTooling: boolean;
   checks: DiagnosticCheck[];
 };
@@ -142,6 +160,7 @@ export function isSetupDiagnostic(value: unknown): value is SetupDiagnostic {
     typeof candidate.certPresent === "boolean" &&
     typeof candidate.certTrusted === "boolean" &&
     typeof candidate.adbAvailable === "boolean" &&
+    typeof candidate.hdcAvailable === "boolean" &&
     typeof candidate.iosSimulatorTooling === "boolean" &&
     Array.isArray(candidate.checks)
   );
@@ -231,6 +250,49 @@ export function parseAndroidAdbDevices(value: unknown): AndroidAdbDevice[] {
       ? { transportId: device.transportId }
       : {}),
   }));
+}
+
+export function isHarmonyHdcDevice(value: unknown): value is HarmonyHdcDevice {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<HarmonyHdcDevice>;
+  return (
+    typeof candidate.serial === "string" &&
+    typeof candidate.state === "string" &&
+    isNullableString(candidate.model)
+  );
+}
+
+export function parseHarmonyHdcDevices(value: unknown): HarmonyHdcDevice[] {
+  if (!Array.isArray(value) || !value.every(isHarmonyHdcDevice)) {
+    throw coerceAppError(value);
+  }
+
+  return value.map((device) => ({
+    serial: device.serial,
+    state: device.state,
+    ...(device.model !== null && device.model !== undefined ? { model: device.model } : {}),
+  }));
+}
+
+export function isHarmonyHdcCertificateInstallResult(
+  value: unknown,
+): value is HarmonyHdcCertificateInstallResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<HarmonyHdcCertificateInstallResult>;
+  return (
+    typeof candidate.success === "boolean" &&
+    typeof candidate.deviceSerial === "string" &&
+    typeof candidate.remotePath === "string"
+  );
+}
+
+export function parseHarmonyHdcCertificateInstallResult(
+  value: unknown,
+): HarmonyHdcCertificateInstallResult {
+  if (!isHarmonyHdcCertificateInstallResult(value)) {
+    throw coerceAppError(value);
+  }
+  return value;
 }
 
 export function isIOSSimulatorDevice(value: unknown): value is IOSSimulatorDevice {

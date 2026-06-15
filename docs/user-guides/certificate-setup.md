@@ -78,16 +78,17 @@ AIProxy 通过本地根证书解密 HTTPS 流量。本文说明三平台(macOS /
 
 ## 移动端 / 模拟器抓包
 
-进入「证书」页的「移动端」标签。移动端有 **preflight 前置检查**:必须先「生成根证书 + 代理运行 + 本机局域网 IP 可达」,二维码/ADB/Simulator 面板才会解锁。
+进入「证书」页的「移动端」标签。移动端有 **preflight 前置检查**:必须先「生成根证书 + 代理运行 + 本机局域网 IP 可达」,二维码/ADB/hdc/Simulator 面板才会解锁。
 
 - **Android 真机(USB)**:开启 USB 调试,连接后用「Android 快捷操作」一键推送证书并设置系统代理(需 `adb` 在 PATH 或 `ANDROID_HOME` 已设)。注意多数 Android 设备仍需在系统证书管理里手动确认安装。
 - **Android 模拟器**:同样通过 ADB,模拟器通常已带 root,证书可装为系统证书。
+- **HarmonyOS NEXT 真机(USB)**:在开发者选项中开启 HDC 调试,连接后用「鸿蒙快捷操作」通过 `hdc` 推送证书到设备 `/data/local/tmp/`(需 `hdc` 在 PATH 或 `HDC_PATH` 已设,或已安装 DevEco Studio)。推送后需手动进入「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」完成安装。HarmonyOS NEXT 无等价于 ADB 的全局代理命令,系统代理需在设备 Wi-Fi 设置里手动配置指向电脑 IP:端口。同一 Wi-Fi 网络是前提。
 - **iOS 模拟器**(仅 macOS):用「iOS 快捷操作」通过 `xcrun simctl keychain` 安装;安装后仍需在模拟器「设置 → 通用 → 关于本机 → 证书信任设置」手动开启完全信任。
 - **iOS 真机**:不支持自动安装。用「证书下载二维码」在手机 Safari 打开下载,按系统引导安装描述文件并在「证书信任设置」启用;代理在手机 Wi-Fi 设置里手动配置指向电脑 IP:端口。同一 Wi-Fi 网络是前提。
 
 ## 诊断
 
-「证书」页提供「运行诊断」(基于 `diagnose_certificate_setup` 命令),会汇总:证书是否存在/可读/已信任、`adb` 是否可用、iOS 模拟器工具链是否就绪(仅 macOS),并给出每项结论与提示,帮助快速定位环境问题。
+「证书」页提供「运行诊断」(基于 `diagnose_certificate_setup` 命令),会汇总:证书是否存在/可读/已信任、`adb` 是否可用、`hdc` 是否可用、iOS 模拟器工具链是否就绪(仅 macOS),并给出每项结论与提示,帮助快速定位环境问题。
 
 ## FAQ
 

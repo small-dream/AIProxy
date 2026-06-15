@@ -163,6 +163,11 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "adb_clear_proxy":
         void h.handleAdbClearProxy();
         break;
+      case "harmony_quick_actions":
+        h.navigate("/certificates?tab=mobile&panel=harmony", {
+          state: { menuActionAt: Date.now() },
+        });
+        break;
       case "check_for_updates":
         h.navigate("/settings");
         window.setTimeout(() => {
