@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -207,10 +207,14 @@ export function useInsightsData() {
   }, [activeSessionIds, debouncedDomain, excludedHosts, hostExact]);
 
   const debouncedSessionIds = useDebouncedValue(activeSessionIds, 5000);
+  // Keep the previous result while the debounced sessionIds/filter keys change,
+  // so the page does not flip back into a loading state every time a fresh
+  // query is issued (e.g. when activeSessionIds settles after the 5s debounce).
   const { data: backendData, isLoading } = useQuery({
     queryKey: ["insights", debouncedSessionIds, debouncedDomain, hostExact, excludedHosts],
     queryFn: () => invokeGetInsights(input),
     enabled: activeSessionIds.length > 0,
+    placeholderData: keepPreviousData,
   });
   const fallbackData = useMemo(
     () => computeInsightsFromSummaries(activeSessionSummaries, insightsFilters),
@@ -222,6 +226,13 @@ export function useInsightsData() {
       : fallbackData.totalRequests > 0
         ? fallbackData
         : (backendData ?? fallbackData);
+  const hasAnyData = Boolean(backendData) || fallbackData.totalRequests > 0;
+  // Only show the full-page loader when there is genuinely nothing to render:
+  // the backend query is fetching for the first time AND the frontend fallback
+  // has no data. Background refetches (re-keyed by debounced sessionIds) keep
+  // the previous result via keepPreviousData, so they stay on the content view
+  // instead of flickering the page back to a spinner.
+  const showLoading = isLoading && !hasAnyData;
   const hasActiveFilters = Boolean(debouncedDomain.trim() || hostExact || excludedHosts.length > 0);
   const filteredOutAllData = hasActiveFilters && data.totalRequests === 0;
   const slowRequestMaxDuration =
@@ -286,7 +297,7 @@ export function useInsightsData() {
   return {
     // Data
     data,
-    isLoading,
+    showLoading,
     hasActiveFilters,
     filteredOutAllData,
     slowRequestMaxDuration,

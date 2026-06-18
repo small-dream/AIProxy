@@ -156,7 +156,7 @@ export function InsightsPage() {
   const navigate = useNavigate();
   const ins = useInsightsData();
 
-  if (ins.isLoading) {
+  if (ins.showLoading) {
     return (
       <Stack
         alignItems="center"
