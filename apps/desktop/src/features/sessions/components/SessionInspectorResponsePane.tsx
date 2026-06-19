@@ -250,10 +250,14 @@ export const SessionInspectorResponsePane = forwardRef<
 
   return (
     <Stack
-      minHeight={0}
       spacing={0}
-      sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}
-    >
+      sx={{
+        minHeight: 0,
+        height: "100%",
+        overflow: "hidden",
+        position: "relative",
+        width: "100%"
+      }}>
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -306,7 +310,9 @@ export const SessionInspectorResponsePane = forwardRef<
         {responseMeta ? <Box sx={{ flex: "0 0 auto", mr: 0.5 }}>{responseMeta}</Box> : null}
 
         {isSearchable ? (
-          <Stack alignItems="center" direction="row" spacing={0.25}>
+          <Stack direction="row" spacing={0.25} sx={{
+            alignItems: "center"
+          }}>
             <Tooltip
               arrow
               title={
@@ -352,9 +358,7 @@ export const SessionInspectorResponsePane = forwardRef<
           </Stack>
         ) : null}
       </Box>
-
       <Divider />
-
       <Box
         sx={{
           display: "flex",
@@ -387,7 +391,6 @@ export const SessionInspectorResponsePane = forwardRef<
           session={session}
         />
       </Box>
-
       {isSearchOpen ? (
         <Box
           sx={{
@@ -413,7 +416,6 @@ export const SessionInspectorResponsePane = forwardRef<
           />
         </Box>
       ) : null}
-
       <Snackbar
         autoHideDuration={1800}
         message={t("contextMenu.copiedToClipboard")}
@@ -533,7 +535,9 @@ function ResponseTabContent({
     if (isResponseRawLoading && detail?.rawResponseDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -556,7 +560,9 @@ function ResponseTabContent({
     if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -590,7 +596,9 @@ function ResponseTabContent({
     if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -637,11 +645,15 @@ function ResponseTabContent({
 
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
       {isResponseBodyLoading && detail?.responseBody?.textDeferred ? (
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("inspector.workspace.loading")}
         </Typography>
       ) : (

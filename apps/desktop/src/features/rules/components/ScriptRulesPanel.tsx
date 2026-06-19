@@ -201,7 +201,9 @@ export function ScriptRulesPanel() {
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       createActions={
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <Button
             size="small"
             variant="outlined"
@@ -252,9 +254,12 @@ export function ScriptRulesPanel() {
           <Stack
             direction={{ xs: "column", md: "row" }}
             spacing={1.25}
-            alignItems={{ xs: "stretch", md: "center" }}
-            sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
-          >
+            sx={{
+              alignItems: { xs: "stretch", md: "center" },
+              borderBottom: 1,
+              borderColor: "divider",
+              pb: 1.5
+            }}>
             <TextField
               size="small"
               label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
@@ -265,10 +270,17 @@ export function ScriptRulesPanel() {
             <Stack
               direction="row"
               spacing={0.75}
-              alignItems="center"
-              sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}
-            >
-              <Typography color="text.secondary" variant="caption">
+              sx={{
+                alignItems: "center",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: "8px",
+                minHeight: 40,
+                px: 1
+              }}>
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 {t("rulesPage.editor.enabled")}
               </Typography>
               <Switch
@@ -340,7 +352,12 @@ export function ScriptRulesPanel() {
               />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                 <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      fontWeight: 650
+                    }}>
                     {formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t)}
                   </Typography>
                   <Select
@@ -366,7 +383,12 @@ export function ScriptRulesPanel() {
                   </Select>
                 </Stack>
                 <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      fontWeight: 650
+                    }}>
                     {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
                   </Typography>
                   <Select
@@ -385,7 +407,12 @@ export function ScriptRulesPanel() {
                   </Select>
                 </Stack>
                 <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      fontWeight: 650
+                    }}>
                     {formatRuleFieldLabel(t("rulesPage.script.language"), "required", t)}
                   </Typography>
                   <Select
@@ -401,7 +428,9 @@ export function ScriptRulesPanel() {
                 </Stack>
               </Stack>
               {draft.sourcePath && (
-                <Typography color="text.secondary" variant="caption">
+                <Typography variant="caption" sx={{
+                  color: "text.secondary"
+                }}>
                   {t("rulesPage.script.importedFrom", { path: draft.sourcePath })}
                 </Typography>
               )}

@@ -113,9 +113,14 @@ export function RuleEditor(props: {
       <Stack
         direction="row"
         spacing={0.75}
-        alignItems="center"
-        sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 0.75 }}
-      >
+        sx={{
+          alignItems: "center",
+          border: 1,
+          borderColor: "divider",
+          borderRadius: "8px",
+          px: 1.25,
+          py: 0.75
+        }}>
         <Switch
           size="small"
           checked={draft.enabled}
@@ -124,11 +129,15 @@ export function RuleEditor(props: {
         <Typography variant="body2" sx={{ fontWeight: 650 }}>
           {t("throttlingPage.ruleFields.enabled")}
         </Typography>
-        <Typography color="text.secondary" variant="caption">
+        <Typography variant="caption" sx={{
+          color: "text.secondary"
+        }}>
           {t("throttlingPage.ruleFields.enabledHint")}
         </Typography>
       </Stack>
-      <Stack direction="row" spacing={1} justifyContent="space-between">
+      <Stack direction="row" spacing={1} sx={{
+        justifyContent: "space-between"
+      }}>
         <Button
           color="error"
           variant="outlined"
@@ -159,10 +168,15 @@ export function RuleEditor(props: {
 function EmptyHint({ children }: { children: React.ReactNode }) {
   return (
     <Typography
-      color="text.secondary"
       variant="body2"
-      sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25, py: 1.5 }}
-    >
+      sx={{
+        color: "text.secondary",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: "8px",
+        px: 1.25,
+        py: 1.5
+      }}>
       {children}
     </Typography>
   );

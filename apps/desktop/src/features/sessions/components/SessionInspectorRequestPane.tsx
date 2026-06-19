@@ -100,10 +100,14 @@ export const SessionInspectorRequestPane = forwardRef<
 
   return (
     <Stack
-      minHeight={0}
       spacing={0}
-      sx={{ height: "100%", overflow: "hidden", position: "relative", width: "100%" }}
-    >
+      sx={{
+        minHeight: 0,
+        height: "100%",
+        overflow: "hidden",
+        position: "relative",
+        width: "100%"
+      }}>
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -139,9 +143,7 @@ export const SessionInspectorRequestPane = forwardRef<
           {requestCollapsed ? t("common.actions.expand") : t("common.actions.collapse")}
         </Button>
       </Box>
-
       <Divider />
-
       {requestCollapsed ? null : (
         <Box
           sx={{
@@ -176,7 +178,6 @@ export const SessionInspectorRequestPane = forwardRef<
           />
         </Box>
       )}
-
       {isSearchOpen && !requestCollapsed ? (
         <Box
           sx={{
@@ -274,7 +275,9 @@ function RequestTabContent({
     ) {
       return (
         <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -315,7 +318,9 @@ function RequestTabContent({
     if (isRequestRawLoading && detail?.rawRequestDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -337,7 +342,9 @@ function RequestTabContent({
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
       {isRequestBodyLoading && detail?.requestBody?.textDeferred ? (
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("inspector.workspace.loading")}
         </Typography>
       ) : (
@@ -366,7 +373,9 @@ function MultipartFormTable({
 
   if (entries.length === 0) {
     return (
-      <Typography color="text.secondary" variant="body2">
+      <Typography variant="body2" sx={{
+        color: "text.secondary"
+      }}>
         {emptyMessage}
       </Typography>
     );

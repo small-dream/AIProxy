@@ -166,7 +166,9 @@ export function AndroidQuickActionsPanel({
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
-          alignItems={{ xs: "stretch", md: "center" }}
+          sx={{
+            alignItems: { xs: "stretch", md: "center" }
+          }}
         >
           <FormControl
             size="small"
@@ -260,7 +262,9 @@ export function AndroidQuickActionsPanel({
         </Stack>
 
         {adbDevicesQuery.isLoading ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.adbLoadingDevices")}
           </Typography>
         ) : null}
@@ -268,7 +272,9 @@ export function AndroidQuickActionsPanel({
         {!adbDevicesQuery.isLoading &&
         !adbDevicesQuery.isError &&
         (adbDevices?.length ?? 0) === 0 ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.adbNoDevices")}
           </Typography>
         ) : null}
@@ -280,13 +286,17 @@ export function AndroidQuickActionsPanel({
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.adbInstallUnavailable")}
           </Typography>
         ) : null}
 
         {proxySetupBlockedReason ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {proxySetupBlockedReason}
           </Typography>
         ) : null}

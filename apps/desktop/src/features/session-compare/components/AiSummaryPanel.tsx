@@ -31,11 +31,17 @@ export function AiSummaryPanel({
         <Stack
           direction="row"
           spacing={1}
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center">
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: 1,
+            borderColor: "divider",
+            px: 1.5,
+            py: 1
+          }}>
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "center"
+          }}>
             <AutoFixHighRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
               {t("comparePage.aiSummary")}

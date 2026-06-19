@@ -54,10 +54,16 @@ export function ProfileEditor(props: {
         <Stack
           direction="row"
           spacing={0.75}
-          alignItems="center"
-          sx={{ border: 1, borderColor: "divider", borderRadius: "8px", px: 1.25 }}
-        >
-          <Typography color="text.secondary" variant="caption">
+          sx={{
+            alignItems: "center",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            px: 1.25
+          }}>
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {t("throttlingPage.fields.enableImmediately")}
           </Typography>
           <Switch
@@ -120,7 +126,9 @@ export function ProfileEditor(props: {
           onChange={(value) => onChange({ ...draft, uploadKbps: value })}
         />
       </Box>
-      <Stack direction="row" spacing={1} justifyContent="flex-end">
+      <Stack direction="row" spacing={1} sx={{
+        justifyContent: "flex-end"
+      }}>
         <Button variant="outlined" onClick={onSave} disabled={!canSave}>
           {t("throttlingPage.saveProfile")}
         </Button>
@@ -156,12 +164,19 @@ function ThrottleParameter(props: {
         p: 1.35,
       }}
     >
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction="row" spacing={1} sx={{
+        alignItems: "center"
+      }}>
         <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>{icon}</Box>
         <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>
           {label}
         </Typography>
-        <Typography color="text.secondary" sx={{ fontFamily: fontFamilies.mono, fontSize: 12 }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontFamily: fontFamilies.mono,
+            fontSize: 12
+          }}>
           {value} {unit}
         </Typography>
       </Stack>
@@ -178,7 +193,7 @@ function ThrottleParameter(props: {
         type="number"
         value={value}
         onChange={(event) => onChange(Number(event.target.value) || 0)}
-        inputProps={{ min, step }}
+        slotProps={{ htmlInput: { min, step } }}
         fullWidth
       />
     </Stack>

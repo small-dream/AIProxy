@@ -38,7 +38,12 @@ export function PaneHeader({
         <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 800 }}>
           {title}
         </Typography>
-        <Typography color="text.secondary" noWrap sx={{ fontSize: 11.25 }}>
+        <Typography
+          noWrap
+          sx={{
+            color: "text.secondary",
+            fontSize: 11.25
+          }}>
           {meta}
         </Typography>
       </Box>

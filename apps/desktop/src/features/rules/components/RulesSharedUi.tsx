@@ -39,14 +39,13 @@ export function FieldGroup({ title, children }: { title: string; children: React
     <Stack spacing={1.5}>
       <Typography
         variant="subtitle2"
-        color="text.secondary"
         sx={{
+          color: "text.secondary",
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: 0,
-          textTransform: "uppercase",
-        }}
-      >
+          textTransform: "uppercase"
+        }}>
         {title}
       </Typography>
       {children}
@@ -69,17 +68,18 @@ export function InlineSwitch({
     <Stack
       direction="row"
       spacing={1}
-      alignItems="center"
       sx={{
+        alignItems: "center",
+
         bgcolor: (theme) =>
           alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.04 : 0.035),
+
         border: 1,
         borderColor: "divider",
         borderRadius: "8px",
         minHeight: 36,
-        px: 1,
-      }}
-    >
+        px: 1
+      }}>
       <Typography variant="body2" sx={{ fontSize: 13 }}>
         {label}
       </Typography>
@@ -173,14 +173,15 @@ export function ManagedRulesWorkbench(props: {
               height: 36,
             }}
           />
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{
+            flexWrap: "wrap"
+          }}>
             {createActions}
           </Stack>
         </Stack>
 
         <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>{list}</Box>
       </Paper>
-
       <Box
         aria-hidden
         sx={{
@@ -198,7 +199,6 @@ export function ManagedRulesWorkbench(props: {
           },
         }}
       />
-
       <Paper
         elevation={0}
         sx={{
@@ -286,11 +286,23 @@ export function ManagedRuleList(props: {
         >
           <ListItemText
             primary={
-              <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
                 <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
                   {item.name}
                 </Typography>
-                <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  sx={{
+                    alignItems: "center",
+                    flexShrink: 0
+                  }}>
                   {!item.enabled && (
                     <Chip
                       size="small"
@@ -314,12 +326,13 @@ export function ManagedRuleList(props: {
             }
             secondary={
               <Typography
-                sx={{ mt: 0.35 }}
                 variant="caption"
-                color="text.secondary"
                 noWrap
                 component="p"
-              >
+                sx={{
+                  color: "text.secondary",
+                  mt: 0.35
+                }}>
                 {item.subtitle}
               </Typography>
             }

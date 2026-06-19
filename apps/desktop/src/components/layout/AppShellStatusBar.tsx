@@ -61,19 +61,18 @@ function StatusItem({
     `${(themeFontSize / defaultAppFontSize) * 12}px`;
   const content = (
     <Stack
-      alignItems="center"
       direction="row"
       spacing={0.625}
       sx={{
+        alignItems: "center",
         color: active ? "text.primary" : "text.secondary",
         borderRadius: 999,
         minHeight: 24,
         minWidth: 0,
         px: 0.875,
         py: 0.25,
-        whiteSpace: "nowrap",
-      }}
-    >
+        whiteSpace: "nowrap"
+      }}>
       {icon ? (
         <Box
           sx={{
@@ -179,12 +178,12 @@ export function AppShellStatusBar({
   return (
     <>
       <Divider />
-
       <Stack
-        alignItems="center"
         direction="row"
         spacing={0.5}
-        sx={(theme) => ({
+        sx={[{
+          alignItems: "center"
+        }, (theme) => ({
           bgcolor:
             theme.palette.mode === "dark"
               ? alpha(theme.palette.background.paper, 0.82)
@@ -195,8 +194,7 @@ export function AppShellStatusBar({
           py: 0.375,
           scrollbarWidth: "thin",
           whiteSpace: "nowrap",
-        })}
-      >
+        })]}>
         <StatusItem
           active={proxyStatus?.running ?? false}
           icon={<FiberManualRecordRoundedIcon />}

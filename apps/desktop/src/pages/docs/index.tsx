@@ -65,18 +65,25 @@ export function DocsPage() {
       spacing={2}
       sx={{ height: "100%", minHeight: 0, maxWidth: 1180, mx: "auto", width: "100%" }}
     >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+          flexShrink: 0
+        }}>
         <MenuBookRoundedIcon sx={{ color: "primary.main", fontSize: 28 }} />
         <Stack spacing={0.25}>
           <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
             {t("docsPage.title")}
           </Typography>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("docsPage.subtitle")}
           </Typography>
         </Stack>
       </Stack>
-
       {/* Narrow-screen guide selector (replaces the sidebar below the md breakpoint) */}
       <FormControl
         size="small"
@@ -100,7 +107,6 @@ export function DocsPage() {
           ])}
         </Select>
       </FormControl>
-
       <Box
         sx={{
           display: "grid",
@@ -142,7 +148,7 @@ export function DocsPage() {
                   >
                     <ListItemText
                       primary={t(entry.titleKey)}
-                      primaryTypographyProps={{ fontSize: 13 }}
+                      slotProps={{ primary: { sx: { fontSize: 13 } } }}
                     />
                   </ListItemButton>
                 ))}

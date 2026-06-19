@@ -176,18 +176,22 @@ export function InspectorSummaryBar({
       })}
     >
       <Stack
-        alignItems="center"
         direction="row"
-        justifyContent="space-between"
         spacing={1.5}
-        sx={{ minWidth: 0 }}
-      >
+        sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
+          minWidth: 0
+        }}>
         <Stack
-          alignItems="center"
           direction="row"
           spacing={1}
-          sx={{ flex: "1 1 0", minWidth: 0, overflow: "hidden" }}
-        >
+          sx={{
+            alignItems: "center",
+            flex: "1 1 0",
+            minWidth: 0,
+            overflow: "hidden"
+          }}>
           <Tooltip arrow title={summaryTitle}>
             <Typography
               sx={{
@@ -206,7 +210,13 @@ export function InspectorSummaryBar({
               {summaryTitle}
             </Typography>
           </Tooltip>
-          <Stack alignItems="center" direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+              flexShrink: 0
+            }}>
             <Chip color="warning" label={durationLabel} size="small" variant="outlined" />
             {isMediaResponse ? null : (
               <Chip
@@ -225,7 +235,13 @@ export function InspectorSummaryBar({
           </Stack>
         </Stack>
 
-        <Stack alignItems="center" direction="row" spacing={0.5} sx={{ flex: "0 0 auto" }}>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          sx={{
+            alignItems: "center",
+            flex: "0 0 auto"
+          }}>
           {onRepeat ? (
             <Tooltip arrow title={t("inspector.summary.repeatInCompose")}>
               <IconButton
@@ -264,7 +280,6 @@ export function InspectorSummaryBar({
           ) : null}
         </Stack>
       </Stack>
-
       <Tooltip
         arrow
         slotProps={{
@@ -278,8 +293,9 @@ export function InspectorSummaryBar({
         title={session.url}
       >
         <Typography
-          color="text.secondary"
+          variant="body2"
           sx={{
+            color: "text.secondary",
             alignItems: "baseline",
             display: "flex",
             fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
@@ -287,10 +303,8 @@ export function InspectorSummaryBar({
             lineHeight: 1.45,
             minWidth: 0,
             overflow: "hidden",
-            whiteSpace: "nowrap",
-          }}
-          variant="body2"
-        >
+            whiteSpace: "nowrap"
+          }}>
           {displayHost ? (
             <Box
               component="span"
@@ -334,7 +348,9 @@ export function InspectorDefinitionList({
 
   if (items.length === 0) {
     return (
-      <Typography color="text.secondary" variant="body2">
+      <Typography variant="body2" sx={{
+        color: "text.secondary"
+      }}>
         {emptyMessage ?? t("common.empty.noData")}
       </Typography>
     );
@@ -350,10 +366,12 @@ export function InspectorDefinitionList({
           sx={{ alignItems: "center", columnGap: 3, minHeight: 32, py: 0.5 }}
         >
           <Typography
-            color="text.secondary"
-            sx={{ ...inspectorKeyTypographySx, flex: "0 0 180px", pr: 1 }}
             variant="body2"
-          >
+            sx={{
+              ...inspectorKeyTypographySx,
+              flex: "0 0 180px",
+              pr: 1
+            }}>
             {label}
           </Typography>
           <Typography
@@ -401,18 +419,16 @@ export function InspectorFlatTable({
         >
           {headers.map((header) => (
             <Typography
-              color="text.secondary"
               key={header}
+              variant="caption"
               sx={{
                 ...inspectorKeyTypographySx,
                 fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_AUX_FONT_SIZE),
                 fontWeight: 500,
                 lineHeight: 1.25,
                 px: 0.75,
-                py: 0.375,
-              }}
-              variant="caption"
-            >
+                py: 0.375
+              }}>
               {header}
             </Typography>
           ))}
@@ -518,7 +534,14 @@ export function EllipsizedCell({
 
   return (
     <>
-      <Stack alignItems="center" direction="row" spacing={0.25} sx={{ minWidth: 0, width: "100%" }}>
+      <Stack
+        direction="row"
+        spacing={0.25}
+        sx={{
+          alignItems: "center",
+          minWidth: 0,
+          width: "100%"
+        }}>
         <Tooltip arrow enterDelay={350} placement="top-start" title={isOverflowing ? text : ""}>
           <Typography
             ref={textRef}
@@ -579,7 +602,6 @@ export function EllipsizedCell({
           </Tooltip>
         ) : null}
       </Stack>
-
       <Popover
         anchorEl={anchorEl}
         anchorOrigin={{ horizontal: "left", vertical: "bottom" }}
@@ -654,7 +676,9 @@ export function InspectorKeyValueTable({
             {title}
           </Typography>
         ) : null}
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {emptyMessage ?? t("common.empty.noData")}
         </Typography>
       </Stack>

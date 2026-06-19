@@ -117,17 +117,23 @@ export function BreakpointRulesPanel() {
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
-          alignItems={{ xs: "stretch", md: "center" }}
+          sx={{
+            alignItems: { xs: "stretch", md: "center" }
+          }}
         >
           <Stack spacing={0.25} sx={{ flex: 1 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 650 }}>
               {t("rulesPage.quickBreakpointTitle")}
             </Typography>
-            <Typography color="text.secondary" variant="caption">
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("rulesPage.quickBreakpointDescription")}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{
+            flexWrap: "wrap"
+          }}>
             <Button
               size="small"
               variant="outlined"
@@ -160,7 +166,6 @@ export function BreakpointRulesPanel() {
           </Stack>
         </Stack>
       </Paper>
-
       {rules.length === 0 ? (
         <Paper
           elevation={0}
@@ -196,8 +201,9 @@ export function BreakpointRulesPanel() {
                 key={rule.id}
                 direction="row"
                 spacing={1.5}
-                alignItems="center"
                 sx={{
+                  alignItems: "center",
+
                   bgcolor: rule.enabled
                     ? "transparent"
                     : (theme) =>
@@ -205,11 +211,11 @@ export function BreakpointRulesPanel() {
                           theme.palette.text.primary,
                           theme.palette.mode === "dark" ? 0.025 : 0.02,
                         ),
+
                   px: 2,
                   py: 1,
-                  "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" },
-                }}
-              >
+                  "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" }
+                }}>
                 <Switch
                   size="small"
                   checked={rule.enabled}
@@ -241,7 +247,6 @@ export function BreakpointRulesPanel() {
           </List>
         </Paper>
       )}
-
       <Dialog fullWidth maxWidth="sm" onClose={handleDialogClose} open={dialogOpen}>
         <DialogTitle>{t("rulesPage.addDialogTitle")}</DialogTitle>
         <DialogContent>
@@ -282,14 +287,21 @@ export function BreakpointRulesPanel() {
               </Select>
               <Typography
                 variant="caption"
-                color="text.secondary"
-                sx={{ mt: 0.5, lineHeight: 1.35 }}
-              >
+                sx={{
+                  color: "text.secondary",
+                  mt: 0.5,
+                  lineHeight: 1.35
+                }}>
                 {t(`rulesPage.editor.matchTypes.${draft.matchType ?? "contains"}Hint`)}
               </Typography>
             </FormControl>
             <Stack spacing={0.5}>
-              <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 650 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: "text.secondary",
+                  fontWeight: 650
+                }}>
                 {methodsLabel}
               </Typography>
               <Select

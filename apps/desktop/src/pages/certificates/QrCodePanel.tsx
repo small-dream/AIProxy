@@ -42,9 +42,12 @@ export function QrCodePanel({ certDownloadUrl, proxyAddress, sslEnabled, hasCert
             </Box>
             <Typography
               variant="body2"
-              color="text.secondary"
-              sx={{ fontFamily: fontFamilies.mono, wordBreak: "break-all", mt: 1 }}
-            >
+              sx={{
+                color: "text.secondary",
+                fontFamily: fontFamilies.mono,
+                wordBreak: "break-all",
+                mt: 1
+              }}>
               {certDownloadUrl}
             </Typography>
           </Box>

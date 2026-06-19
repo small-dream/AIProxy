@@ -48,7 +48,9 @@ export function AppShellDialogs({
           <DialogTitle>{t("appShell.changePortTitle")}</DialogTitle>
           <DialogContent>
             <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-              <Typography color="text.secondary" variant="body2">
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>
                 {isRunning
                   ? t("appShell.portChangesRestartImmediately")
                   : t("appShell.portChangesStartOnNewPort")}

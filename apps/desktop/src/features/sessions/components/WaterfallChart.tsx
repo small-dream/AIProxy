@@ -69,18 +69,19 @@ export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined
   if (!hasTimingData && (totalMs == null || totalMs === 0)) {
     return (
       <Typography
-        color="text.disabled"
+        variant="body2"
         sx={{
+          color: "text.disabled",
+
           fontSize: (theme) => {
             const scale = theme.typography.fontSize / 14;
             return `${scale * 12}px`;
           },
+
           fontStyle: "italic",
           lineHeight: 1.45,
-          py: 0.5,
-        }}
-        variant="body2"
-      >
+          py: 0.5
+        }}>
         {t("inspector.waterfall.unavailable")}
       </Typography>
     );
@@ -96,7 +97,9 @@ export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined
 
   return (
     <Stack spacing={0.5}>
-      <Stack alignItems="center" direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{
+        alignItems: "center"
+      }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <WaterfallBar phases={phases} scale={scale} />
         </Box>
@@ -192,7 +195,9 @@ function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
       }}
     >
       {phases.map((phase) => (
-        <Stack key={phase.labelKey} alignItems="center" direction="row" spacing={0.5}>
+        <Stack key={phase.labelKey} direction="row" spacing={0.5} sx={{
+          alignItems: "center"
+        }}>
           <Box
             sx={{
               bgcolor: phase.color,
@@ -202,15 +207,16 @@ function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
             }}
           />
           <Typography
-            color="text.secondary"
             sx={{
+              color: "text.secondary",
+
               fontSize: (theme) => {
                 const scale = theme.typography.fontSize / 14;
                 return `${scale * 10.5}px`;
               },
-              lineHeight: 1.25,
-            }}
-          >
+
+              lineHeight: 1.25
+            }}>
             {t(phase.labelKey)}
           </Typography>
         </Stack>

@@ -205,7 +205,9 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
   if ((isLoading && isDeferred) || isSvgWithoutText) {
     return (
       <InspectorScrollArea>
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("inspector.response.preview.loading")}
         </Typography>
       </InspectorScrollArea>
@@ -256,7 +258,9 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
         {mediaKind === "audio" && (
           <Box sx={{ p: 2 }}>
             <audio controls onError={handleMediaError} src={dataUri} style={{ width: "100%" }}>
-              <Typography color="text.secondary" variant="body2">
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>
                 {t("inspector.response.preview.unsupportedFormat")}
               </Typography>
             </audio>
@@ -277,32 +281,38 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
               margin: "0 auto",
             }}
           >
-            <Typography color="text.secondary" variant="body2">
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>
               {t("inspector.response.preview.unsupportedFormat")}
             </Typography>
           </Box>
         )}
       </Box>
-
       <Stack direction="row" spacing={2} sx={{ px: 1, pb: 0.5 }}>
         {imageDimensions && (
-          <Typography color="text.secondary" variant="caption">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.response.preview.dimensions")}: {imageDimensions.width} x{" "}
             {imageDimensions.height}
           </Typography>
         )}
         {body.sizeBytes > 0 && (
-          <Typography color="text.secondary" variant="caption">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {body.sizeBytes} bytes
           </Typography>
         )}
         {body.truncated && (
-          <Typography color="warning.main" variant="caption">
+          <Typography variant="caption" sx={{
+            color: "warning.main"
+          }}>
             Truncated
           </Typography>
         )}
       </Stack>
-
       <Menu
         anchorPosition={contextMenu?.anchorPosition ?? { left: 0, top: 0 }}
         anchorReference="anchorPosition"
@@ -375,7 +385,6 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
           />
         </MenuItem>
       </Menu>
-
       <Snackbar
         autoHideDuration={1800}
         message={snackbarMessage}

@@ -68,9 +68,17 @@ export function ComposeResponseSection({
       }}
     >
       {isPending ? (
-        <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ flex: 1 }}>
+        <Stack
+          spacing={2}
+          sx={{
+            alignItems: "center",
+            justifyContent: "center",
+            flex: 1
+          }}>
           <CircularProgress size={32} />
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("composePage.sendingRequest")}
           </Typography>
         </Stack>
@@ -98,15 +106,22 @@ export function ComposeResponseSection({
         />
       ) : (
         <Stack
-          alignItems="center"
-          justifyContent="center"
           spacing={0.75}
-          sx={{ flex: 1, pl: 2, pr: 0.5, py: 2, textAlign: "center" }}
-        >
+          sx={{
+            alignItems: "center",
+            justifyContent: "center",
+            flex: 1,
+            pl: 2,
+            pr: 0.5,
+            py: 2,
+            textAlign: "center"
+          }}>
           <Typography sx={{ fontWeight: 600 }} variant="body2">
             {t("composePage.responsePreviewTitle")}
           </Typography>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("composePage.configureHint")}
           </Typography>
         </Stack>

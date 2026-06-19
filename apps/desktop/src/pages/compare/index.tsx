@@ -41,20 +41,25 @@ export function ComparePage() {
       <Stack
         direction={{ md: "row", xs: "column" }}
         spacing={1.25}
-        alignItems={{ md: "center", xs: "stretch" }}
-        justifyContent="space-between"
-      >
+        sx={{
+          alignItems: { md: "center", xs: "stretch" },
+          justifyContent: "space-between"
+        }}>
         <Stack spacing={0.25}>
           <Typography variant="h4" sx={{ fontSize: 28, lineHeight: 1.15 }}>
             {t("comparePage.title")}
           </Typography>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {cmp.compareMode === "request"
               ? t("comparePage.requestDescription")
               : t("comparePage.sessionDescription")}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <Button
             size="small"
             variant="outlined"
@@ -77,7 +82,6 @@ export function ComparePage() {
           </Button>
         </Stack>
       </Stack>
-
       <Paper
         elevation={0}
         sx={{
@@ -128,14 +132,12 @@ export function ComparePage() {
           )}
         </Stack>
       </Paper>
-
       {cmp.isSameSelection ? (
         <Alert severity="warning">{t("comparePage.sameSessionWarning")}</Alert>
       ) : null}
       {cmp.compareMode === "request" && cmp.detailState.error ? (
         <Alert severity="error">{cmp.detailState.error}</Alert>
       ) : null}
-
       <Box
         sx={{
           display: "grid",
@@ -159,9 +161,13 @@ export function ComparePage() {
             <Stack
               direction="row"
               spacing={1}
-              alignItems="center"
-              sx={{ borderBottom: 1, borderColor: "divider", px: 1.5, py: 1 }}
-            >
+              sx={{
+                alignItems: "center",
+                borderBottom: 1,
+                borderColor: "divider",
+                px: 1.5,
+                py: 1
+              }}>
               <CompareArrowsRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
                 {cmp.compareMode === "request"
@@ -169,7 +175,9 @@ export function ComparePage() {
                   : t("comparePage.behaviorWorkbench")}
               </Typography>
               {cmp.compareMode === "request" && cmp.detailState.loading ? (
-                <Typography component="span" variant="body2" color="text.secondary">
+                <Typography component="span" variant="body2" sx={{
+                  color: "text.secondary"
+                }}>
                   {t("comparePage.loadingDetails")}
                 </Typography>
               ) : null}
@@ -210,7 +218,6 @@ export function ComparePage() {
           onConfigure={() => navigate("/settings")}
         />
       </Box>
-
       <Dialog open={cmp.previewOpen} onClose={() => cmp.setPreviewOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>{t("comparePage.previewPayload")}</DialogTitle>
         <DialogContent>

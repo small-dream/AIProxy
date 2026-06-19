@@ -14,9 +14,12 @@ export function EditorHeader({
     <Stack
       direction="row"
       spacing={1}
-      alignItems="center"
-      sx={{ borderBottom: 1, borderColor: "divider", pb: 1 }}
-    >
+      sx={{
+        alignItems: "center",
+        borderBottom: 1,
+        borderColor: "divider",
+        pb: 1
+      }}>
       <Box
         sx={{
           alignItems: "center",
@@ -36,7 +39,9 @@ export function EditorHeader({
         <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>
           {title}
         </Typography>
-        <Typography color="text.secondary" variant="caption" noWrap>
+        <Typography variant="caption" noWrap sx={{
+          color: "text.secondary"
+        }}>
           {subtitle}
         </Typography>
       </Stack>

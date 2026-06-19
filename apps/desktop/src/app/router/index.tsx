@@ -38,7 +38,13 @@ const DocsPage = lazy(async () => ({
 
 function LazyRouteFallback() {
   return (
-    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 240, width: "100%" }}>
+    <Stack
+      sx={{
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 240,
+        width: "100%"
+      }}>
       <CircularProgress size={24} />
     </Stack>
   );

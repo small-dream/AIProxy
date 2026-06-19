@@ -310,7 +310,11 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
           {selected && (isItemsLoading || selectedCollectionItems.length > 0) ? (
             <Box sx={{ py: 0.125 }}>
               {isItemsLoading ? (
-                <Stack alignItems="center" sx={{ py: 1.25 }}>
+                <Stack
+                  sx={{
+                    alignItems: "center",
+                    py: 1.25
+                  }}>
                   <CircularProgress size={16} />
                 </Stack>
               ) : (

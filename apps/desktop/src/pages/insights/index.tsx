@@ -72,7 +72,13 @@ function OverviewCard({
       })}
     >
       <CardContent sx={{ px: 2, py: 1.35, "&:last-child": { pb: 1.35 } }}>
-        <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 600, mb: 0.25 }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontSize: 12,
+            fontWeight: 600,
+            mb: 0.25
+          }}>
           {label}
         </Typography>
         <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3 }}>{value}</Typography>
@@ -223,7 +229,13 @@ function RequestRankingRow({
             {urlSummary.primary}
           </Typography>
         </Stack>
-        <Typography color="text.secondary" noWrap sx={{ fontFamily: "monospace", fontSize: 12 }}>
+        <Typography
+          noWrap
+          sx={{
+            color: "text.secondary",
+            fontFamily: "monospace",
+            fontSize: 12
+          }}>
           {[urlSummary.host, urlSummary.secondary].filter(Boolean).join("  ")}
         </Typography>
       </Box>
@@ -315,13 +327,19 @@ export function InsightsPage() {
   if (ins.showLoading) {
     return (
       <Stack
-        alignItems="center"
-        justifyContent="center"
         spacing={1.5}
-        sx={{ height: "100%", minHeight: 240 }}
-      >
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          minHeight: 240
+        }}>
         <CircularProgress size={24} />
-        <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontSize: 13
+          }}>
           {t("insightsPage.states.loading")}
         </Typography>
       </Stack>
@@ -330,8 +348,18 @@ export function InsightsPage() {
 
   if (ins.data.totalRequests === 0 && !ins.hasActiveFilters) {
     return (
-      <Stack alignItems="center" justifyContent="center" sx={{ height: "100%", minHeight: 240 }}>
-        <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+      <Stack
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          minHeight: 240
+        }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontSize: 13
+          }}>
           {t("insightsPage.states.noData")}
         </Typography>
       </Stack>
@@ -433,13 +461,12 @@ export function InsightsPage() {
           </Stack>
         ) : null}
         <Typography
-          color="text.secondary"
           sx={{
+            color: "text.secondary",
             flex: "0 0 auto",
             fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
+            fontWeight: 600
+          }}>
           {t("insightsPage.scope.current", { count: formatNumber(ins.data.totalRequests) })}
         </Typography>
       </Stack>
@@ -467,8 +494,17 @@ export function InsightsPage() {
         variant="outlined"
       >
         {ins.filteredOutAllData ? (
-          <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 180 }}>
-            <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+          <Stack
+            sx={{
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 180
+            }}>
+            <Typography
+              sx={{
+                color: "text.secondary",
+                fontSize: 13
+              }}>
               {t("insightsPage.states.noFilteredData")}
             </Typography>
           </Stack>
@@ -812,7 +848,6 @@ export function InsightsPage() {
           </Box>
         )}
       </Paper>
-
       <HostContextMenu
         anchorPosition={ins.hostContextMenu?.anchorPosition}
         host={ins.hostContextMenu?.host ?? null}
@@ -825,7 +860,6 @@ export function InsightsPage() {
         onFilterSelection={ins.handleFilterSelectedHostText}
         onOpenSessions={ins.handleOpenSessionsForHost}
       />
-
       <Snackbar
         autoHideDuration={2200}
         message={ins.snackbarMessage}

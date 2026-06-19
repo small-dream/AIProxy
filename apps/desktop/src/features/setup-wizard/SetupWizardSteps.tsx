@@ -65,7 +65,9 @@ function StepHeader({ title, body }: { title: string; body?: string }) {
     <Stack spacing={0.75}>
       <Typography variant="h6">{title}</Typography>
       {body && (
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {body}
         </Typography>
       )}
@@ -205,7 +207,14 @@ export function SetupWizardStepContent(props: Props) {
             <Alert severity="warning">
               <AlertTitle>{t("setupWizard.verify.stuckTitle")}</AlertTitle>
               {t("setupWizard.verify.stuckBody")}
-              <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  flexWrap: "wrap",
+                  mt: 1
+                }}>
                 <Button size="small" variant="outlined" color="inherit" onClick={onBack}>
                   {t("setupWizard.verify.backToInstall")}
                 </Button>
@@ -278,7 +287,7 @@ export function SetupWizardStepContent(props: Props) {
               // No "Next" while SSL is off: the user must enable it to proceed
               // (or go back / skip via the title-bar close). Avoids a silent
               // downgrade to dismiss at the finish step.
-              <Button
+              (<Button
                 variant="contained"
                 onClick={onEnableSsl}
                 disabled={enablingSsl}
@@ -287,7 +296,7 @@ export function SetupWizardStepContent(props: Props) {
                 {enablingSsl
                   ? t("setupWizard.sslDecryption.enabling")
                   : t("setupWizard.sslDecryption.action")}
-              </Button>
+              </Button>)
             )}
           </ActionRow>
         </Stack>

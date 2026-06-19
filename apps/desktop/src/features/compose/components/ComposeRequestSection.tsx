@@ -129,7 +129,6 @@ export function ComposeRequestSection({
         ) : null}
       </Box>
       <Divider />
-
       {requestCollapsed ? null : (
         <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pl: 2, pr: 0.5, pb: 2, pt: 1.5 }}>
           {activeTab === "headers" && (
@@ -222,7 +221,13 @@ export function ComposeRequestSection({
               <Divider />
 
               {bodyType === "none" && (
-                <Typography color="text.secondary" sx={{ fontSize: 13, px: 1, py: 2 }}>
+                <Typography
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: 13,
+                    px: 1,
+                    py: 2
+                  }}>
                   {t("composePage.noBody")}
                 </Typography>
               )}

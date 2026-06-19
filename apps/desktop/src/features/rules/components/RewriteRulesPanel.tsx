@@ -418,7 +418,9 @@ export function RewriteRulesPanel() {
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         createActions={
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{
+            flexWrap: "wrap"
+          }}>
             {(["header", "query", "body", "redirect"] as const).map((type) => (
               <Button
                 key={type}
@@ -487,7 +489,9 @@ export function RewriteRulesPanel() {
                 gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
               }}
             >
-              <Stack spacing={2} minWidth={0}>
+              <Stack spacing={2} sx={{
+                minWidth: 0
+              }}>
                 <RuleSection>
                   <FieldGroup title="When">
                     <TextField
@@ -506,10 +510,11 @@ export function RewriteRulesPanel() {
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                       <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
                         <Typography
-                          color="text.secondary"
                           variant="caption"
-                          sx={{ fontWeight: 650 }}
-                        >
+                          sx={{
+                            color: "text.secondary",
+                            fontWeight: 650
+                          }}>
                           {t("rulesPage.editor.matchType")}
                         </Typography>
                         <Select
@@ -537,9 +542,10 @@ export function RewriteRulesPanel() {
                         </Select>
                         <Typography
                           variant="caption"
-                          color="text.secondary"
-                          sx={{ lineHeight: 1.35 }}
-                        >
+                          sx={{
+                            color: "text.secondary",
+                            lineHeight: 1.35
+                          }}>
                           {t(
                             `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
                           )}
@@ -549,10 +555,11 @@ export function RewriteRulesPanel() {
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                       <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
                         <Typography
-                          color="text.secondary"
                           variant="caption"
-                          sx={{ fontWeight: 650 }}
-                        >
+                          sx={{
+                            color: "text.secondary",
+                            fontWeight: 650
+                          }}>
                           {httpMethodsLabel}
                         </Typography>
                         <Select
@@ -579,10 +586,11 @@ export function RewriteRulesPanel() {
                       </Stack>
                       <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
                         <Typography
-                          color="text.secondary"
                           variant="caption"
-                          sx={{ fontWeight: 650 }}
-                        >
+                          sx={{
+                            color: "text.secondary",
+                            fontWeight: 650
+                          }}>
                           {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
                         </Typography>
                         <Select
@@ -652,7 +660,6 @@ export function RewriteRulesPanel() {
           </Stack>
         }
       />
-
       <Dialog
         fullWidth
         maxWidth="sm"
@@ -680,7 +687,9 @@ export function RewriteRulesPanel() {
                 }}
               >
                 <Stack spacing={0.15}>
-                  <Stack alignItems="center" direction="row" spacing={0.75}>
+                  <Stack direction="row" spacing={0.75} sx={{
+                    alignItems: "center"
+                  }}>
                     <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
                       {template.label}
                     </Typography>
@@ -690,7 +699,9 @@ export function RewriteRulesPanel() {
                       sx={{ height: 18, fontSize: 10 }}
                     />
                   </Stack>
-                  <Typography color="text.secondary" variant="caption">
+                  <Typography variant="caption" sx={{
+                    color: "text.secondary"
+                  }}>
                     {template.description}
                   </Typography>
                 </Stack>
@@ -743,7 +754,9 @@ function RewriteEditorHeader({
       <Stack
         direction={{ xs: "column", md: "row" }}
         spacing={1.25}
-        alignItems={{ xs: "stretch", md: "center" }}
+        sx={{
+          alignItems: { xs: "stretch", md: "center" }
+        }}
       >
         <TextField
           size="small"
@@ -755,10 +768,17 @@ function RewriteEditorHeader({
         <Stack
           direction="row"
           spacing={0.75}
-          alignItems="center"
-          sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}
-        >
-          <Typography color="text.secondary" variant="caption">
+          sx={{
+            alignItems: "center",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            minHeight: 40,
+            px: 1
+          }}>
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {t("rulesPage.editor.enabled")}
           </Typography>
           <Switch
@@ -822,7 +842,9 @@ function RewriteRuleTester({
   return (
     <RuleSection>
       <FieldGroup title="Test">
-        <Stack direction="row" spacing={0.75} alignItems="center">
+        <Stack direction="row" spacing={0.75} sx={{
+          alignItems: "center"
+        }}>
           <FactCheckRoundedIcon color={testResult.ok ? "success" : "disabled"} fontSize="small" />
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
             Rule tester
@@ -866,7 +888,9 @@ function RewriteRuleTester({
         <Alert severity={testResult.ok ? "success" : "info"} variant="outlined" sx={{ py: 0.25 }}>
           {testResult.reason}
         </Alert>
-        <Typography color="text.secondary" variant="caption">
+        <Typography variant="caption" sx={{
+          color: "text.secondary"
+        }}>
           {testResult.ok
             ? describeRewriteAction(draft)
             : `Waiting for ${draft.match.urlPattern || "(url pattern)"}`}

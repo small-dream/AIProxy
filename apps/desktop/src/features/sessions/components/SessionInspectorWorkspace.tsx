@@ -320,7 +320,9 @@ export const SessionInspectorWorkspace = forwardRef<
       >
         <Box sx={{ maxWidth: 460, p: 4 }}>
           <Typography variant="h6">{t("inspector.workspace.emptyTitle")}</Typography>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.emptyDescription")}
           </Typography>
         </Box>
@@ -346,21 +348,20 @@ export const SessionInspectorWorkspace = forwardRef<
         session={selectedSession}
       />
       <Divider />
-
       {detailErrorMessage ? (
         <Alert severity="error" sx={{ borderRadius: 0 }}>
           {detailErrorMessage}
         </Alert>
       ) : null}
-
       {isDetailLoading && !detail ? (
         <Box sx={{ p: 2 }}>
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("inspector.workspace.loading")}
           </Typography>
         </Box>
       ) : null}
-
       <Box
         data-testid="session-inspector-grid"
         sx={{

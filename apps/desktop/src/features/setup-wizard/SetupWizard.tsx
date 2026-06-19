@@ -269,7 +269,9 @@ export function SetupWizard() {
           <Typography variant="h6" component="span">
             {t("setupWizard.title")}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {t("setupWizard.subtitle")} · {stepIndex + 1}/{STEP_ORDER.length}
           </Typography>
         </Stack>
@@ -277,13 +279,11 @@ export function SetupWizard() {
           <CloseRoundedIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-
       <LinearProgress
         variant="determinate"
         value={((stepIndex + 1) / STEP_ORDER.length) * 100}
         sx={{ height: 2 }}
       />
-
       <DialogContent sx={{ py: 2 }}>
         <Stack spacing={2}>
           <SetupWizardStepContent

@@ -45,7 +45,13 @@ export function EditableKeyValueTable({
   return (
     <Box sx={{ minWidth: 0 }}>
       {items.length === 0 ? (
-        <Typography color="text.secondary" sx={{ px: 1, py: 1.25 }} variant="body2">
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+            px: 1,
+            py: 1.25
+          }}>
           {t("common.empty.noData")}
         </Typography>
       ) : (
@@ -64,19 +70,18 @@ export function EditableKeyValueTable({
           >
             {[namePlaceholder, valuePlaceholder, ""].map((label, index) => (
               <Typography
-                color="text.secondary"
                 key={`${label}:${index}`}
+                variant="caption"
                 sx={{
+                  color: "text.secondary",
                   alignItems: "center",
                   display: "flex",
                   fontSize: 11.5,
                   fontWeight: 600,
                   letterSpacing: 0,
                   minWidth: 0,
-                  px: 1,
-                }}
-                variant="caption"
-              >
+                  px: 1
+                }}>
                 {label}
               </Typography>
             ))}
@@ -133,7 +138,6 @@ export function EditableKeyValueTable({
           ))}
         </Stack>
       )}
-
       <Box sx={{ mt: 1 }}>
         <Button
           startIcon={<AddRoundedIcon sx={{ fontSize: 18 }} />}

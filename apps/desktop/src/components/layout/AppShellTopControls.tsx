@@ -52,10 +52,11 @@ export function AppShellTopControls({
   function renderControls(variant: "floating" | "commandBar") {
     return (
       <Stack
-        alignItems="center"
         direction="row"
         spacing={variant === "floating" ? 1.25 : 0.75}
-        sx={(theme) => ({
+        sx={[{
+          alignItems: "center"
+        }, (theme) => ({
           ...(variant === "floating"
             ? {
                 backdropFilter: "blur(18px)",
@@ -85,8 +86,7 @@ export function AppShellTopControls({
           flexWrap: "wrap",
           justifyContent: "center",
           rowGap: 0.5,
-        })}
-      >
+        })]}>
         {proxyRunning ? (
           <TopBarActionButton
             disabled={isProxyBusy}
@@ -106,7 +106,6 @@ export function AppShellTopControls({
             variant="filled"
           />
         )}
-
         <TopBarActionButton
           ariaPressed={systemProxyEnabled}
           disabled={systemProxyActionDisabled}
@@ -116,7 +115,6 @@ export function AppShellTopControls({
           tone={systemProxyEnabled ? "success" : "default"}
           variant={systemProxyEnabled ? "filled" : "outlined"}
         />
-
         {headerActions}
       </Stack>
     );

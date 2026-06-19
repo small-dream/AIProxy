@@ -132,8 +132,10 @@ export function AppShellWindowsMenuBar({
           anchorEl={menuAnchorEl}
           open={openMenuId === menu.id}
           onClose={closeMenu}
-          MenuListProps={{
-            dense: true,
+          slotProps={{
+            list: {
+              dense: true,
+            },
           }}
         >
           {menu.items.map((item, index) =>

@@ -146,9 +146,17 @@ export function SessionExplorerPane({
     >
       <Box ref={scrollContainerRef} sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}>
         {isLoading ? (
-          <Stack alignItems="center" spacing={1.25} sx={{ px: 2, py: 5 }}>
+          <Stack
+            spacing={1.25}
+            sx={{
+              alignItems: "center",
+              px: 2,
+              py: 5
+            }}>
             <CircularProgress size={22} />
-            <Typography color="text.secondary" variant="body2">
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>
               {t("sessionExplorer.loading")}
             </Typography>
           </Stack>
@@ -157,7 +165,14 @@ export function SessionExplorerPane({
             <Alert severity="error">{errorMessage}</Alert>
           </Box>
         ) : groups.length === 0 ? (
-          <Stack alignItems="center" spacing={1.25} sx={{ px: 2.5, py: 6, textAlign: "center" }}>
+          <Stack
+            spacing={1.25}
+            sx={{
+              alignItems: "center",
+              px: 2.5,
+              py: 6,
+              textAlign: "center"
+            }}>
             <Box
               sx={{
                 alignItems: "center",
@@ -185,17 +200,22 @@ export function SessionExplorerPane({
               >
                 {t("sessionExplorer.emptyTitle")}
               </Typography>
-              <Typography color="text.secondary" sx={{ maxWidth: 320 }} variant="body2">
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "text.secondary",
+                  maxWidth: 320
+                }}>
                 {t("sessionExplorer.emptyDescription")}
               </Typography>
             </Stack>
             <Typography
-              color="text.secondary"
-              sx={(theme) => ({
+              sx={[{
+                color: "text.secondary"
+              }, (theme) => ({
                 fontFamily: theme.typography.fontFamily,
                 fontSize: getWorkbenchFontSize(theme, 12.5),
-              })}
-            >
+              })]}>
               {t("sessionExplorer.emptyTip")}
             </Typography>
           </Stack>
@@ -273,7 +293,6 @@ export function SessionExplorerPane({
           </Box>
         )}
       </Box>
-
       <Box
         sx={(theme) => ({
           borderTop: "1px solid",

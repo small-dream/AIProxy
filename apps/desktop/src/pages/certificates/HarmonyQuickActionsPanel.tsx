@@ -94,7 +94,12 @@ export function HarmonyQuickActionsPanel({
                 {t("certificatesPage.mobile.hdcInstallRequirements")}
               </Typography>
               <Typography variant="body2">{t("certificatesPage.mobile.hdcInstallHint")}</Typography>
-              <Typography variant="body2" fontWeight={500} sx={{ mt: 0.5 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 500,
+                  mt: 0.5
+                }}>
                 {t("certificatesPage.mobile.hdcManualProxyTitle")}
               </Typography>
               <Typography variant="body2">
@@ -128,7 +133,9 @@ export function HarmonyQuickActionsPanel({
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
-          alignItems={{ xs: "stretch", md: "center" }}
+          sx={{
+            alignItems: { xs: "stretch", md: "center" }
+          }}
         >
           <FormControl
             size="small"
@@ -193,7 +200,9 @@ export function HarmonyQuickActionsPanel({
         </Button>
 
         {hdcDevicesQuery.isLoading ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.hdcLoadingDevices")}
           </Typography>
         ) : null}
@@ -201,7 +210,9 @@ export function HarmonyQuickActionsPanel({
         {!hdcDevicesQuery.isLoading &&
         !hdcDevicesQuery.isError &&
         (hdcDevices?.length ?? 0) === 0 ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.hdcNoDevices")}
           </Typography>
         ) : null}
@@ -213,7 +224,9 @@ export function HarmonyQuickActionsPanel({
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.hdcInstallUnavailable")}
           </Typography>
         ) : null}

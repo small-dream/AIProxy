@@ -8,7 +8,12 @@ import type { TranslationKey } from "@/i18n";
 
 export function LoadingState() {
   return (
-    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 140 }}>
+    <Stack
+      sx={{
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 140
+      }}>
       <CircularProgress size={22} />
     </Stack>
   );
@@ -27,11 +32,14 @@ export function EmptyPaneState({
 }) {
   return (
     <Stack
-      alignItems="center"
-      justifyContent="center"
       spacing={1.25}
-      sx={{ minHeight: 180, px: 2, textAlign: "center" }}
-    >
+      sx={{
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 180,
+        px: 2,
+        textAlign: "center"
+      }}>
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -47,7 +55,12 @@ export function EmptyPaneState({
       >
         {icon}
       </Box>
-      <Typography color="text.secondary" sx={{ fontSize: 12.5, lineHeight: 1.45 }}>
+      <Typography
+        sx={{
+          color: "text.secondary",
+          fontSize: 12.5,
+          lineHeight: 1.45
+        }}>
         {title}
       </Typography>
       {actionLabel && onAction ? (
@@ -70,11 +83,14 @@ export function EmptyWorkspace({
 }) {
   return (
     <Stack
-      alignItems="center"
-      justifyContent="center"
       spacing={1.5}
-      sx={{ flex: 1, px: 4, textAlign: "center" }}
-    >
+      sx={{
+        alignItems: "center",
+        justifyContent: "center",
+        flex: 1,
+        px: 4,
+        textAlign: "center"
+      }}>
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -100,7 +116,12 @@ export function EmptyWorkspace({
           ? t("collectionsPage.readyToCreateRequest")
           : t("collectionsPage.noCollectionSelected")}
       </Typography>
-      <Typography color="text.secondary" sx={{ fontSize: 13, maxWidth: 420 }}>
+      <Typography
+        sx={{
+          color: "text.secondary",
+          fontSize: 13,
+          maxWidth: 420
+        }}>
         {collectionSelected
           ? t("collectionsPage.createRequestHint")
           : t("collectionsPage.selectCollectionHint")}

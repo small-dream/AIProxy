@@ -55,28 +55,45 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={1}
-        alignItems={{ xs: "flex-start", sm: "center" }}
-        justifyContent="space-between"
-        sx={(theme) => ({
+        sx={[{
+          alignItems: { xs: "flex-start", sm: "center" },
+          justifyContent: "space-between"
+        }, (theme) => ({
           bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.055),
           borderBottom: 1,
           borderColor: "divider",
           px: 1.5,
           py: 1,
-        })}
-      >
-        <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+        })]}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            alignItems: "center",
+            minWidth: 0
+          }}>
           <RuleRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-          <Box minWidth={0}>
+          <Box sx={{
+            minWidth: 0
+          }}>
             <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
               {title}
             </Typography>
-            <Typography color="text.secondary" variant="caption" noWrap>
+            <Typography variant="caption" noWrap sx={{
+              color: "text.secondary"
+            }}>
               {trace.ruleId}
             </Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          useFlexGap
+          sx={{
+            alignItems: "center",
+            flexWrap: "wrap"
+          }}>
           <Chip size="small" label={trace.rewriteType} />
           <Chip size="small" label={trace.stage} variant="outlined" />
           <Chip
@@ -88,10 +105,11 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
           <Chip size="small" label={`${trace.durationMs} ms`} variant="outlined" />
         </Stack>
       </Stack>
-
       <Stack spacing={1} sx={{ p: 1.5 }}>
         {trace.entries.length === 0 ? (
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             No recorded changes.
           </Typography>
         ) : (
@@ -111,10 +129,11 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
                 <Stack
                   direction="row"
                   spacing={0.75}
-                  alignItems="center"
-                  flexWrap="wrap"
                   useFlexGap
-                >
+                  sx={{
+                    alignItems: "center",
+                    flexWrap: "wrap"
+                  }}>
                   <DifferenceRoundedIcon sx={{ color: "text.secondary", fontSize: 16 }} />
                   <Typography variant="body2" sx={{ fontWeight: 700 }}>
                     {entry.kind}
@@ -123,7 +142,9 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
                     <Chip size="small" label={entry.key} sx={{ height: 20, fontSize: 11 }} />
                   ) : null}
                   {entry.message ? (
-                    <Typography color="text.secondary" variant="caption">
+                    <Typography variant="caption" sx={{
+                      color: "text.secondary"
+                    }}>
                       {entry.message}
                     </Typography>
                   ) : null}
@@ -150,7 +171,12 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
 function DiffValue({ label, value }: { label: string; value: string | undefined }) {
   return (
     <Stack spacing={0.4}>
-      <Typography color="text.secondary" variant="caption" sx={{ fontWeight: 700 }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          fontWeight: 700
+        }}>
         {label}
       </Typography>
       <Typography
@@ -181,14 +207,33 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
       sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}
     >
       <Stack spacing={1}>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: "center",
+              minWidth: 0
+            }}>
             <CodeRoundedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
             <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
               {trace.ruleId}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            useFlexGap
+            sx={{
+              alignItems: "center",
+              flexWrap: "wrap"
+            }}>
             <Chip size="small" label={trace.stage} />
             <Chip
               size="small"
@@ -205,7 +250,9 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
         <Stack spacing={0.75}>
           {trace.entries.map((entry) => (
             <Stack key={`${trace.ruleId}-${trace.stage}-${entry.sequence}`} spacing={0.35}>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 {entry.kind}
                 {entry.level ? ` - ${entry.level}` : ""}
                 {entry.key ? ` - ${entry.key}` : ""}
@@ -240,19 +287,42 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
       <Stack spacing={1}>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: "center",
+              minWidth: 0
+            }}>
             <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-            <Box minWidth={0}>
+            <Box sx={{
+              minWidth: 0
+            }}>
               <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
                 {trace.ruleName || trace.ruleId}
               </Typography>
-              <Typography color="text.secondary" variant="caption" noWrap>
+              <Typography variant="caption" noWrap sx={{
+                color: "text.secondary"
+              }}>
                 {trace.ruleId}
               </Typography>
             </Box>
           </Stack>
-          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            useFlexGap
+            sx={{
+              alignItems: "center",
+              flexWrap: "wrap"
+            }}>
             <Chip size="small" label={trace.mode} />
             <Chip
               size="small"
@@ -270,7 +340,9 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
             value={trace.localPath ?? trace.mappedUrl}
           />
         </Box>
-        <Typography color="text.secondary" variant="caption" noWrap>
+        <Typography variant="caption" noWrap sx={{
+          color: "text.secondary"
+        }}>
           {`${trace.sourcePattern} -> ${trace.targetValue}`}
         </Typography>
       </Stack>
@@ -282,24 +354,47 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
       <Stack spacing={1}>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: "center",
+              minWidth: 0
+            }}>
             <SpeedRoundedIcon
               sx={{
                 color: trace.outcome === "dropped" ? "error.main" : "primary.main",
                 fontSize: 18,
               }}
             />
-            <Box minWidth={0}>
+            <Box sx={{
+              minWidth: 0
+            }}>
               <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
                 {trace.ruleName ?? trace.profileName}
               </Typography>
-              <Typography color="text.secondary" variant="caption" noWrap>
+              <Typography variant="caption" noWrap sx={{
+                color: "text.secondary"
+              }}>
                 {trace.profileName}
               </Typography>
             </Box>
           </Stack>
-          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            useFlexGap
+            sx={{
+              alignItems: "center",
+              flexWrap: "wrap"
+            }}>
             <Chip size="small" label={trace.stage} />
             <Chip
               size="small"
@@ -322,7 +417,9 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
           <Metric label="Body" value={`${trace.bodyBytes} B`} />
         </Box>
         {trace.message ? (
-          <Typography color="text.secondary" variant="body2">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {trace.message}
           </Typography>
         ) : null}
@@ -334,7 +431,9 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <Stack spacing={0.25} sx={{ bgcolor: "action.hover", borderRadius: "6px", px: 1, py: 0.75 }}>
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {label}
       </Typography>
       <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>
@@ -374,7 +473,12 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     mapQuery.isLoading
   ) {
     return (
-      <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 160 }}>
+      <Stack
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: 160
+        }}>
         <CircularProgress size={22} />
       </Stack>
     );
@@ -400,7 +504,9 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     mapTraces.length === 0
   ) {
     return (
-      <Typography color="text.secondary" variant="body2">
+      <Typography variant="body2" sx={{
+        color: "text.secondary"
+      }}>
         {t("automationTab.emptyDescription")}
       </Typography>
     );
@@ -410,7 +516,9 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     <Stack spacing={2}>
       {throttleTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} alignItems="center">
+          <Stack direction="row" spacing={0.75} sx={{
+            alignItems: "center"
+          }}>
             <SpeedRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">Throttling</Typography>
             <Chip size="small" label={throttleTraces.length} sx={{ height: 20 }} />
@@ -423,10 +531,11 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
           ))}
         </Stack>
       ) : null}
-
       {mapTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} alignItems="center">
+          <Stack direction="row" spacing={0.75} sx={{
+            alignItems: "center"
+          }}>
             <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">Map</Typography>
             <Chip size="small" label={mapTraces.length} sx={{ height: 20 }} />
@@ -436,10 +545,11 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
           ))}
         </Stack>
       ) : null}
-
       {rewriteTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} alignItems="center">
+          <Stack direction="row" spacing={0.75} sx={{
+            alignItems: "center"
+          }}>
             <RuleRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">Rewrite</Typography>
             <Chip size="small" label={rewriteTraces.length} sx={{ height: 20 }} />
@@ -452,10 +562,11 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
           ))}
         </Stack>
       ) : null}
-
       {scriptTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} alignItems="center">
+          <Stack direction="row" spacing={0.75} sx={{
+            alignItems: "center"
+          }}>
             <CodeRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
             <Typography variant="subtitle2">Script</Typography>
             <Chip size="small" label={scriptTraces.length} sx={{ height: 20 }} />

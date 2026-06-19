@@ -132,9 +132,12 @@ export function DnsMappingsPanel() {
           <Stack
             direction={{ xs: "column", md: "row" }}
             spacing={1.25}
-            alignItems={{ xs: "stretch", md: "center" }}
-            sx={{ borderBottom: 1, borderColor: "divider", pb: 1.5 }}
-          >
+            sx={{
+              alignItems: { xs: "stretch", md: "center" },
+              borderBottom: 1,
+              borderColor: "divider",
+              pb: 1.5
+            }}>
             <TextField
               size="small"
               label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
@@ -145,10 +148,17 @@ export function DnsMappingsPanel() {
             <Stack
               direction="row"
               spacing={0.75}
-              alignItems="center"
-              sx={{ border: 1, borderColor: "divider", borderRadius: "8px", minHeight: 40, px: 1 }}
-            >
-              <Typography color="text.secondary" variant="caption">
+              sx={{
+                alignItems: "center",
+                border: 1,
+                borderColor: "divider",
+                borderRadius: "8px",
+                minHeight: 40,
+                px: 1
+              }}>
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 {t("rulesPage.editor.enabled")}
               </Typography>
               <Switch

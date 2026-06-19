@@ -174,13 +174,16 @@ function ProxySettingsSection() {
         <Stack
           direction={{ md: "row", xs: "column" }}
           spacing={1.5}
-          alignItems={{ md: "center", xs: "stretch" }}
-          justifyContent="space-between"
-        >
+          sx={{
+            alignItems: { md: "center", xs: "stretch" },
+            justifyContent: "space-between"
+          }}>
           <Stack
             direction={{ sm: "row", xs: "column" }}
             spacing={1.5}
-            alignItems={{ sm: "center", xs: "stretch" }}
+            sx={{
+              alignItems: { sm: "center", xs: "stretch" }
+            }}
           >
             <TextField
               size="small"
@@ -196,7 +199,7 @@ function ProxySettingsSection() {
               }}
               error={portError}
               helperText={portError ? t("proxyPresets.portValidation") : undefined}
-              inputProps={{ inputMode: "numeric", min: 1, max: 65535 }}
+              slotProps={{ htmlInput: { inputMode: "numeric", min: 1, max: 65535 } }}
               sx={{ ...compactFieldSx, width: { sm: 180, xs: "100%" } }}
             />
 
@@ -212,7 +215,9 @@ function ProxySettingsSection() {
                 />
               }
               label={
-                <Typography color="text.secondary" variant="body2">
+                <Typography variant="body2" sx={{
+                  color: "text.secondary"
+                }}>
                   {t("proxyPresets.sslEnabled")}
                 </Typography>
               }
@@ -233,7 +238,9 @@ function ProxySettingsSection() {
               label={
                 <Box>
                   <Typography variant="body2">{t("proxyPresets.http2Enabled")}</Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" sx={{
+                    color: "text.secondary"
+                  }}>
                     {t("proxyPresets.http2EnabledDescription")}
                   </Typography>
                 </Box>
@@ -370,7 +377,9 @@ function UpdatesSection() {
         <Stack
           direction={{ sm: "row", xs: "column" }}
           spacing={1.5}
-          alignItems={{ sm: "center", xs: "stretch" }}
+          sx={{
+            alignItems: { sm: "center", xs: "stretch" }
+          }}
         >
           <Button
             size="small"
@@ -413,7 +422,9 @@ function UpdatesSection() {
         ) : null}
 
         {progressText ? (
-          <Typography color="text.secondary" variant="caption">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {progressText}
           </Typography>
         ) : null}
@@ -586,7 +597,9 @@ function AiModelSettingsSection() {
         <Stack
           direction={{ sm: "row", xs: "column" }}
           spacing={1}
-          alignItems={{ sm: "center", xs: "stretch" }}
+          sx={{
+            alignItems: { sm: "center", xs: "stretch" }
+          }}
         >
           <Button
             size="small"
@@ -674,7 +687,9 @@ function AboutSection() {
 function BuildInfoField({ label, value }: { label: string; value: string }) {
   return (
     <Stack spacing={0.5}>
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {label}
       </Typography>
       <Typography
@@ -738,19 +753,16 @@ export function SettingsPage() {
         <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
           {t("settingsPage.title")}
         </Typography>
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("settingsPage.description")}
         </Typography>
       </Stack>
-
       <ProxySettingsSection />
-
       <AiModelSettingsSection />
-
       <UpdatesSection />
-
       <AboutSection />
-
       <SectionCard compact title={t("settingsPage.languageSectionTitle")}>
         <FormControl size="small" sx={{ ...compactFieldSx, width: { sm: 260, xs: "100%" } }}>
           <InputLabel>{t("settingsPage.languageLabel")}</InputLabel>
@@ -765,7 +777,6 @@ export function SettingsPage() {
           </Select>
         </FormControl>
       </SectionCard>
-
       <SectionCard compact title={t("settingsPage.themeSectionTitle")}>
         <Stack spacing={1.5}>
           <Box

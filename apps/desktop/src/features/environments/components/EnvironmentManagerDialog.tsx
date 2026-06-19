@@ -239,9 +239,11 @@ export function EnvironmentManagerDialog({
                   !environmentsQuery.isError && (
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ p: 1, display: "block" }}
-                    >
+                      sx={{
+                        color: "text.secondary",
+                        p: 1,
+                        display: "block"
+                      }}>
                       {t("common.empty.noData")}
                     </Typography>
                   )}
@@ -323,7 +325,9 @@ export function EnvironmentManagerDialog({
                     justifyContent: "center",
                   }}
                 >
-                  <Typography color="text.secondary" variant="body2">
+                  <Typography variant="body2" sx={{
+                    color: "text.secondary"
+                  }}>
                     {t("common.empty.noData")}
                   </Typography>
                 </Box>

@@ -50,6 +50,12 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@docs": docsGuidesDir,
+      // MUI v9's internal/Transition.mjs imports react-transition-group via a
+      // directory import (no extension) that strict ESM (vitest) can't resolve
+      // because the subpath isn't in react-transition-group's `exports`.
+      // Redirect to the real file.
+      "react-transition-group/TransitionGroupContext":
+        "react-transition-group/cjs/TransitionGroupContext.js",
     },
   },
   server: {
@@ -60,5 +66,16 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // MUI v9 ships internal ESM (internal/Transition.mjs) that imports
+    // react-transition-group/TransitionGroupContext as a directory import.
+    // vitest externalizes node_modules by default, so Node's strict ESM
+    // resolver rejects it (and skips the resolve.alias above). Inline
+    // @mui/material so vite's resolver — with the alias — handles its
+    // internal imports instead.
+    server: {
+      deps: {
+        inline: ["@mui/material"],
+      },
+    },
   },
 });

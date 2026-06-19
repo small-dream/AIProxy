@@ -254,11 +254,22 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
 
   if (messages.length === 0) {
     return (
-      <Stack alignItems="center" justifyContent="center" sx={{ flex: 1, gap: 1, py: 4 }}>
-        <Typography color="text.secondary" variant="body1">
+      <Stack
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          flex: 1,
+          gap: 1,
+          py: 4
+        }}>
+        <Typography variant="body1" sx={{
+          color: "text.secondary"
+        }}>
           {t("websocket.emptyTitle")}
         </Typography>
-        <Typography color="text.secondary" variant="body2">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("websocket.emptyDescription")}
         </Typography>
       </Stack>
@@ -303,11 +314,19 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             status: isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed"),
           })}
         >
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ cursor: "default" }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+              cursor: "default"
+            }}>
             <FiberManualRecordRoundedIcon
               sx={{ fontSize: 12, color: isActive ? "success.main" : "action.disabled" }}
             />
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed")}
             </Typography>
           </Stack>
@@ -321,7 +340,6 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
           </span>
         </Tooltip>
       </Stack>
-
       {/* Message list + detail */}
       <Box sx={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         <Box
@@ -362,13 +380,18 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
           {selected ? (
             <MessageDetail message={selected} onCopy={handleCopy} />
           ) : (
-            <Typography color="text.secondary" variant="body2" sx={{ pt: 2, textAlign: "center" }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                pt: 2,
+                textAlign: "center"
+              }}>
               {t("websocket.selectMessage")}
             </Typography>
           )}
         </Box>
       </Box>
-
       {/* Compose panel */}
       <Collapse in={composeOpen}>
         <Stack
@@ -381,10 +404,14 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             bgcolor: alpha(theme.palette.background.default, 0.5),
           }}
         >
-          <Typography variant="caption" fontWeight={500}>
+          <Typography variant="caption" sx={{
+            fontWeight: 500
+          }}>
             {t("websocket.composeTitle")}
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "center"
+          }}>
             <ToggleButtonGroup
               size="small"
               value={composeDirection}
@@ -446,7 +473,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             onChange={(e) => setComposePayload(e.target.value)}
             sx={{ "& .MuiInputBase-input": { fontSize: 13, fontFamily: "monospace" } }}
           />
-          <Stack direction="row" spacing={1} justifyContent="flex-end">
+          <Stack direction="row" spacing={1} sx={{
+            justifyContent: "flex-end"
+          }}>
             <Button
               size="small"
               onClick={() => setComposeOpen(false)}
@@ -467,7 +496,6 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
           </Stack>
         </Stack>
       </Collapse>
-
       <Snackbar
         autoHideDuration={1800}
         message={snackbarMsg}
@@ -506,36 +534,40 @@ function MessageRowImpl({
     <Stack
       direction="row"
       spacing={1}
-      alignItems="center"
       onClick={onClick}
       sx={{
+        alignItems: "center",
         cursor: "pointer",
         px: 1.5,
         py: 0.75,
         mx: 0.5,
         my: 0.25,
         borderRadius: 1,
+
         bgcolor: selected
           ? "action.selected"
           : isSent
             ? alpha(theme.palette.primary.main, 0.06)
             : "transparent",
+
         borderLeft: 2,
         borderColor: isSent ? "primary.main" : "transparent",
+
         "&:hover": {
           bgcolor: selected
             ? "action.selected"
             : isSent
               ? alpha(theme.palette.primary.main, 0.1)
               : "action.hover",
-        },
-      }}
-    >
+        }
+      }}>
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ minWidth: 52, fontVariantNumeric: "tabular-nums" }}
-      >
+        sx={{
+          color: "text.secondary",
+          minWidth: 52,
+          fontVariantNumeric: "tabular-nums"
+        }}>
         {formatTimestamp(message.timestamp)}
       </Typography>
       <Chip
@@ -558,9 +590,10 @@ function MessageRowImpl({
       </Typography>
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ fontVariantNumeric: "tabular-nums" }}
-      >
+        sx={{
+          color: "text.secondary",
+          fontVariantNumeric: "tabular-nums"
+        }}>
         {formatBytes(message.payloadSize)}
       </Typography>
       {canReplay && (
@@ -633,14 +666,23 @@ function MessageDetail({
       >
         <Typography
           variant="caption"
-          color="text.secondary"
-          sx={{ mb: 0.75, display: "block", fontWeight: 500 }}
-        >
+          sx={{
+            color: "text.secondary",
+            mb: 0.75,
+            display: "block",
+            fontWeight: 500
+          }}>
           {t("websocket.frameDetails")}
         </Typography>
-        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">
+        <Stack direction="row" spacing={2} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
+          <Stack direction="row" spacing={0.5} sx={{
+            alignItems: "center"
+          }}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("websocket.direction")}:
             </Typography>
             <Chip
@@ -651,8 +693,12 @@ function MessageDetail({
               sx={{ height: 20, fontSize: 11 }}
             />
           </Stack>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">
+          <Stack direction="row" spacing={0.5} sx={{
+            alignItems: "center"
+          }}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("websocket.opcode")}:
             </Typography>
             <Chip
@@ -662,39 +708,61 @@ function MessageDetail({
               sx={{ height: 20, fontSize: 11 }}
             />
           </Stack>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">
+          <Stack direction="row" spacing={0.5} sx={{
+            alignItems: "center"
+          }}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("websocket.fin")}:
             </Typography>
-            <Typography variant="caption" fontWeight={500}>
+            <Typography variant="caption" sx={{
+              fontWeight: 500
+            }}>
               {message.fin ? "true" : "false"}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">
+          <Stack direction="row" spacing={0.5} sx={{
+            alignItems: "center"
+          }}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("websocket.timestamp")}:
             </Typography>
             <Typography
               variant="caption"
-              fontFamily="monospace"
-              sx={{ fontVariantNumeric: "tabular-nums" }}
-            >
+              sx={{
+                fontFamily: "monospace",
+                fontVariantNumeric: "tabular-nums"
+              }}>
               {new Date(message.timestamp).toLocaleString()}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography variant="caption" color="text.secondary">
+          <Stack direction="row" spacing={0.5} sx={{
+            alignItems: "center"
+          }}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>
               {t("websocket.payloadSize")}:
             </Typography>
-            <Typography variant="caption" fontWeight={500}>
+            <Typography variant="caption" sx={{
+              fontWeight: 500
+            }}>
               {formatBytes(message.payloadSize)}
             </Typography>
           </Stack>
         </Stack>
       </Box>
-
       {/* Format toggle + copy */}
-      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}>
         <ToggleButtonGroup
           size="small"
           value={format}
@@ -736,7 +804,6 @@ function MessageDetail({
           </span>
         </Tooltip>
       </Stack>
-
       {/* Payload content */}
       <Box
         sx={{
@@ -748,7 +815,13 @@ function MessageDetail({
         }}
       >
         {isBinaryWithoutText ? (
-          <Typography color="text.secondary" variant="body2" sx={{ p: 2, textAlign: "center" }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+              p: 2,
+              textAlign: "center"
+            }}>
             {t("websocket.binaryHexUnavailable", { size: formatBytes(message.payloadSize) })}
           </Typography>
         ) : format === "json" && canJson ? (

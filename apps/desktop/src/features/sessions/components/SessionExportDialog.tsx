@@ -264,7 +264,9 @@ function SelectableCard(props: {
       }}
     >
       <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{
+          alignItems: "center"
+        }}>
           {icon ? <Box sx={{ display: "flex" }}>{icon}</Box> : null}
           <Typography sx={{ fontWeight: 600 }}>{title}</Typography>
         </Stack>
@@ -286,24 +288,35 @@ function SelectableCard(props: {
 function SessionScopePreview({ session }: { session: SessionSummary }) {
   return (
     <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+          minWidth: 0
+        }}>
         <Chip label={session.method} size="small" sx={{ fontWeight: 700 }} />
         <Typography sx={{ fontWeight: 600, minWidth: 0 }} variant="body2">
           {session.host}
         </Typography>
       </Stack>
       <Typography
-        color="text.primary"
-        sx={{ fontFamily: "ui-monospace, monospace", minWidth: 0, overflowWrap: "anywhere" }}
         variant="body2"
-      >
+        sx={{
+          color: "text.primary",
+          fontFamily: "ui-monospace, monospace",
+          minWidth: 0,
+          overflowWrap: "anywhere"
+        }}>
         {session.path}
       </Typography>
       <Typography
-        color="text.secondary"
-        sx={{ minWidth: 0, overflowWrap: "anywhere" }}
         variant="caption"
-      >
+        sx={{
+          color: "text.secondary",
+          minWidth: 0,
+          overflowWrap: "anywhere"
+        }}>
         {session.url}
       </Typography>
     </Stack>

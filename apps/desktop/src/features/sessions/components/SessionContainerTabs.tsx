@@ -251,16 +251,15 @@ function SessionContainerTabsImpl({
       }}
     >
       <Stack
-        alignItems="center"
         direction="row"
-        justifyContent="space-between"
         spacing={1}
         sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
           minHeight: 42,
           px: 0.75,
-          py: 0.5,
-        }}
-      >
+          py: 0.5
+        }}>
         <Box
           sx={{
             alignItems: "center",
@@ -277,13 +276,13 @@ function SessionContainerTabsImpl({
           }}
         >
           <Stack
-            alignItems="center"
             direction="row"
             onScroll={handleTabListScroll}
             onWheel={handleTabListWheel}
             ref={tabListRef}
             spacing={0.5}
             sx={{
+              alignItems: "center",
               flex: 1,
               height: 30,
               minWidth: 0,
@@ -292,11 +291,11 @@ function SessionContainerTabsImpl({
               overflowY: "hidden",
               scrollbarWidth: "none",
               WebkitOverflowScrolling: "touch",
+
               "&::-webkit-scrollbar": {
                 display: "none",
-              },
-            }}
-          >
+              }
+            }}>
             {containers.map((container) => (
               <ButtonBase
                 key={container.id}

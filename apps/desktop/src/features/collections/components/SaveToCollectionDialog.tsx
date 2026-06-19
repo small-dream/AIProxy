@@ -53,7 +53,12 @@ export function SaveToCollectionDialog({
           sx={{ mt: 1, mb: 2 }}
           size="small"
         />
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: "text.secondary",
+            mb: 1
+          }}>
           {t("collectionsPage.selectCollection")}
         </Typography>
         <List
@@ -74,12 +79,17 @@ export function SaveToCollectionDialog({
             >
               <ListItemText
                 primary={c.name}
-                primaryTypographyProps={{ fontSize: 13, pl: c.depth * 2 }}
+                slotProps={{ primary: { sx: { fontSize: 13, pl: c.depth * 2 } } }}
               />
             </ListItemButton>
           ))}
           {allCollections.length === 0 && (
-            <Typography variant="caption" color="text.secondary" sx={{ p: 2 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                p: 2
+              }}>
               {t("collectionsPage.emptyCollections")}
             </Typography>
           )}

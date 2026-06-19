@@ -46,13 +46,19 @@ function MobilePreflightPanel({ gaps }: { gaps: readonly MobilePreflightGap[] })
       <AlertTitle>{t("mobilePreflight.title")}</AlertTitle>
       <Stack spacing={1} sx={{ mt: 0.5 }}>
         {gaps.map((gap) => (
-          <Stack key={gap} direction="row" spacing={1} alignItems="start">
+          <Stack key={gap} direction="row" spacing={1} sx={{
+            alignItems: "start"
+          }}>
             <ErrorOutlineRoundedIcon sx={{ fontSize: 18, mt: 0.25, color: "warning.main" }} />
             <Stack spacing={0.25}>
-              <Typography variant="body2" fontWeight={500}>
+              <Typography variant="body2" sx={{
+                fontWeight: 500
+              }}>
                 {t(GAP_LABEL_KEYS[gap])}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 {t(GAP_HINT_KEYS[gap])}
               </Typography>
             </Stack>

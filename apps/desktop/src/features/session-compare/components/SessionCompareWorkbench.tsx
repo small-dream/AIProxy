@@ -146,7 +146,9 @@ function SequenceSummary({ payload }: { payload: SessionComparePayload }) {
 
   return (
     <Stack spacing={1}>
-      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+      <Stack direction="row" spacing={0.75} useFlexGap sx={{
+        flexWrap: "wrap"
+      }}>
         <Chip
           size="small"
           color="success"
@@ -239,13 +241,19 @@ function MetricGrid({ rows, t }: { rows: Array<[string, string | number, string 
         gridTemplateColumns: { md: "180px minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
       }}
     >
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {t("comparePage.metricGrid.metric")}
       </Typography>
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {t("comparePage.metricGrid.left")}
       </Typography>
-      <Typography color="text.secondary" variant="caption">
+      <Typography variant="caption" sx={{
+        color: "text.secondary"
+      }}>
         {t("comparePage.metricGrid.right")}
       </Typography>
       {rows.map(([label, left, right]) => (
@@ -270,7 +278,9 @@ function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] })
 
   if (rows.length === 0) {
     return (
-      <Typography color="text.secondary" variant="body2">
+      <Typography variant="body2" sx={{
+        color: "text.secondary"
+      }}>
         {t("comparePage.noVisibleChanges")}
       </Typography>
     );
@@ -290,10 +300,11 @@ function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] })
         {columns.map((column) => (
           <Typography
             key={column}
-            color="text.secondary"
             variant="caption"
-            sx={{ fontWeight: 700 }}
-          >
+            sx={{
+              color: "text.secondary",
+              fontWeight: 700
+            }}>
             {column}
           </Typography>
         ))}

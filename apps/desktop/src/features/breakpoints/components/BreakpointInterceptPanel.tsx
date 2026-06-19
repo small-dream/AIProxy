@@ -218,21 +218,25 @@ function HeaderEditor({
       sx={{ borderRadius: 1, minHeight: 0, overflow: "hidden" }}
     >
       <Stack
-        alignItems="center"
         direction="row"
         spacing={1}
         sx={{
+          alignItems: "center",
           px: 1.25,
           py: 0.75,
           borderBottom: 1,
           borderColor: "divider",
-          bgcolor: "action.hover",
-        }}
-      >
+          bgcolor: "action.hover"
+        }}>
         <Typography id={headerId} sx={{ fontSize: 12, fontWeight: 700 }}>
           {title}
         </Typography>
-        <Typography color="text.secondary" sx={{ flex: 1, fontSize: 11 }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            flex: 1,
+            fontSize: 11
+          }}>
           {countLabel}
         </Typography>
         <Button size="small" onClick={add} sx={{ fontSize: 12, minHeight: 26, px: 1 }}>
@@ -241,7 +245,13 @@ function HeaderEditor({
       </Stack>
       <Stack spacing={0.5} sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 0.75 }}>
         {headers.length === 0 ? (
-          <Typography color="text.secondary" sx={{ px: 0.5, py: 1.25, fontSize: 12 }}>
+          <Typography
+            sx={{
+              color: "text.secondary",
+              px: 0.5,
+              py: 1.25,
+              fontSize: 12
+            }}>
             {noHeadersLabel}
           </Typography>
         ) : (
@@ -461,7 +471,13 @@ function BodyEditor({
           searchActive={isSearchOpen}
         />
         {jsonResult && !jsonResult.ok ? (
-          <Typography color="warning.main" sx={{ px: 1.25, py: 0.75, fontSize: 12 }}>
+          <Typography
+            sx={{
+              color: "warning.main",
+              px: 1.25,
+              py: 0.75,
+              fontSize: 12
+            }}>
             {t("breakpointPanel.invalidJson", { message: jsonResult.message })}
           </Typography>
         ) : null}
@@ -495,7 +511,6 @@ function BodyEditor({
           </Box>
         ) : null}
       </Paper>
-
       <Dialog
         fullWidth
         maxWidth="lg"
@@ -508,11 +523,18 @@ function BodyEditor({
         }}
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Stack alignItems="center" direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "center"
+          }}>
             <Typography component="span" sx={{ fontWeight: 700 }}>
               {label}
             </Typography>
-            <Typography color="text.secondary" component="span" sx={{ fontSize: 12 }}>
+            <Typography
+              component="span"
+              sx={{
+                color: "text.secondary",
+                fontSize: 12
+              }}>
               {activeMetadata}
             </Typography>
             <Box sx={{ flex: 1 }} />
@@ -625,20 +647,24 @@ function BodyEditorToolbar({
 
   return (
     <Stack
-      alignItems="center"
       direction="row"
       spacing={1}
       sx={{
+        alignItems: "center",
         px: 1.25,
         py: 0.75,
         borderBottom: 1,
         borderColor: "divider",
         bgcolor: "action.hover",
-        flexShrink: 0,
-      }}
-    >
+        flexShrink: 0
+      }}>
       <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{label}</Typography>
-      <Typography color="text.secondary" sx={{ flex: 1, fontSize: 11 }}>
+      <Typography
+        sx={{
+          color: "text.secondary",
+          flex: 1,
+          fontSize: 11
+        }}>
         {activeMetadata}
       </Typography>
       <Stack direction="row" spacing={0.25}>
@@ -928,7 +954,13 @@ function UrlEncodedBodyTable({
         </Box>
       ) : null}
       {entries.length === 0 ? (
-        <Typography color="text.secondary" sx={{ px: 0.5, py: 1.25, fontSize: 12 }}>
+        <Typography
+          sx={{
+            color: "text.secondary",
+            px: 0.5,
+            py: 1.25,
+            fontSize: 12
+          }}>
           {t("breakpointPanel.noFormParams")}
         </Typography>
       ) : (
@@ -1306,18 +1338,17 @@ export function BreakpointInterceptPanel() {
     >
       {/* Top summary bar */}
       <Stack
-        alignItems="center"
         direction="row"
         spacing={1}
         sx={{
+          alignItems: "center",
           px: 2,
           py: 0.75,
           borderBottom: 1,
           borderColor: "divider",
           minWidth: 0,
-          flexShrink: 0,
-        }}
-      >
+          flexShrink: 0
+        }}>
         <Chip
           label={activeHit.method}
           size="small"
@@ -1360,7 +1391,9 @@ export function BreakpointInterceptPanel() {
           </Typography>
         </Stack>
 
-        <Stack alignItems="center" direction="row" spacing={0.25}>
+        <Stack direction="row" spacing={0.25} sx={{
+          alignItems: "center"
+        }}>
           <IconButton size="small" disabled={activeIdx <= 0} onClick={() => navigateHit(-1)}>
             <NavigateBeforeRoundedIcon fontSize="small" />
           </IconButton>
@@ -1376,7 +1409,6 @@ export function BreakpointInterceptPanel() {
           </IconButton>
         </Stack>
       </Stack>
-
       {/* 2-pane grid: Request (top) + Response (bottom) */}
       <Box
         sx={{
@@ -1594,17 +1626,16 @@ export function BreakpointInterceptPanel() {
               <Box role="tabpanel">
                 <Paper variant="outlined" sx={{ borderRadius: 1, overflow: "hidden" }}>
                   <Stack
-                    alignItems="center"
                     direction="row"
                     spacing={1}
                     sx={{
+                      alignItems: "center",
                       px: 1.25,
                       py: 0.75,
                       borderBottom: 1,
                       borderColor: "divider",
-                      bgcolor: "action.hover",
-                    }}
-                  >
+                      bgcolor: "action.hover"
+                    }}>
                     <Typography sx={{ fontSize: 12, fontWeight: 700 }}>
                       {t("breakpointPanel.statusLabel")}
                     </Typography>
@@ -1662,9 +1693,7 @@ export function BreakpointInterceptPanel() {
           </Box>
         </Box>
       </Box>
-
       <Divider />
-
       {/* Bottom action bar */}
       <Stack
         direction="row"
@@ -1736,7 +1765,6 @@ export function BreakpointInterceptPanel() {
           </Button>
         </Stack>
       </Stack>
-
       <Snackbar
         autoHideDuration={5000}
         onClose={() => setResolveError(null)}

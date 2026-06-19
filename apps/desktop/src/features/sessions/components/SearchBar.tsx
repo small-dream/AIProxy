@@ -77,24 +77,25 @@ export function SearchBar({
 
   return (
     <Stack
-      alignItems="center"
       direction="row"
       spacing={0.5}
       sx={{
+        alignItems: "center",
         bgcolor: "background.paper",
         border: 1,
         borderColor: "divider",
         borderRadius: 1,
+
         boxShadow: (theme) =>
           theme.palette.mode === "dark"
             ? "0 10px 24px rgba(0, 0, 0, 0.32)"
             : "0 8px 18px rgba(15, 23, 42, 0.12)",
+
         minHeight: 38,
         px: 0.75,
         py: 0.5,
-        width: "fit-content",
-      }}
-    >
+        width: "fit-content"
+      }}>
       <OutlinedInput
         autoFocus
         endAdornment={
@@ -117,13 +118,13 @@ export function SearchBar({
                 sx={buildOptionButtonSx(options.caseSensitive)}
               >
                 <Typography
-                  fontWeight={600}
-                  sx={(theme) => ({
+                  sx={[{
+                    fontWeight: 600
+                  }, (theme) => ({
                     fontSize: getWorkbenchFontSize(theme, 11),
                     letterSpacing: 0,
                     lineHeight: 1,
-                  })}
-                >
+                  })]}>
                   Aa
                 </Typography>
               </IconButton>
@@ -139,13 +140,13 @@ export function SearchBar({
                   sx={buildOptionButtonSx(options.wholeWord, options.useRegex)}
                 >
                   <Typography
-                    fontWeight={600}
-                    sx={(theme) => ({
+                    sx={[{
+                      fontWeight: 600
+                    }, (theme) => ({
                       fontSize: getWorkbenchFontSize(theme, 11),
                       letterSpacing: 0,
                       lineHeight: 1,
-                    })}
-                  >
+                    })]}>
                     ab
                   </Typography>
                 </IconButton>
@@ -217,7 +218,6 @@ export function SearchBar({
         }}
         value={query}
       />
-
       <Typography
         sx={{
           color: regexInvalid ? "error.main" : "text.secondary",
@@ -230,7 +230,6 @@ export function SearchBar({
       >
         {matchLabel}
       </Typography>
-
       <Tooltip arrow title={t("inspector.search.previousMatch")}>
         <span>
           <IconButton
@@ -248,7 +247,6 @@ export function SearchBar({
           </IconButton>
         </span>
       </Tooltip>
-
       <Tooltip arrow title={t("inspector.search.nextMatch")}>
         <span>
           <IconButton
@@ -266,7 +264,6 @@ export function SearchBar({
           </IconButton>
         </span>
       </Tooltip>
-
       <Tooltip arrow title={t("inspector.search.close")}>
         <IconButton
           onClick={onClose}

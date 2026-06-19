@@ -113,7 +113,9 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
-          alignItems={{ xs: "stretch", md: "center" }}
+          sx={{
+            alignItems: { xs: "stretch", md: "center" }
+          }}
         >
           <FormControl
             size="small"
@@ -173,7 +175,9 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
         </Stack>
 
         {simulatorsQuery.isLoading ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.iosSimulatorLoading")}
           </Typography>
         ) : null}
@@ -181,13 +185,17 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
         {!simulatorsQuery.isLoading &&
         !simulatorsQuery.isError &&
         (simulators?.length ?? 0) === 0 ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.iosSimulatorNoDevices")}
           </Typography>
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.mobile.iosSimulatorInstallUnavailable")}
           </Typography>
         ) : null}

@@ -56,20 +56,22 @@ export function DiffSectionCard({
       <Stack
         direction={{ sm: "row", xs: "column" }}
         spacing={1}
-        alignItems={{ sm: "center", xs: "flex-start" }}
-        justifyContent="space-between"
-        sx={(theme) => ({
+        sx={[{
+          alignItems: { sm: "center", xs: "flex-start" },
+          justifyContent: "space-between"
+        }, (theme) => ({
           bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.045),
           borderBottom: 1,
           borderColor: "divider",
           px: 1.25,
           py: 1,
-        })}
-      >
+        })]}>
         <Typography variant="body2" sx={{ fontWeight: 750 }}>
           {section.title}
         </Typography>
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <Chip size="small" color="success" label={`+${section.added}`} variant="outlined" />
           <Chip size="small" color="error" label={`-${section.removed}`} variant="outlined" />
           <Chip size="small" color="warning" label={`~${section.changed}`} variant="outlined" />
@@ -78,7 +80,13 @@ export function DiffSectionCard({
       </Stack>
       <Stack spacing={0} divider={<Divider />}>
         {section.note ? (
-          <Typography color="text.secondary" variant="body2" sx={{ px: 1.25, py: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+              px: 1.25,
+              py: 1
+            }}>
             {section.note}
           </Typography>
         ) : null}
@@ -102,7 +110,13 @@ export function DiffSectionCard({
           </Box>
         ) : null}
         {visibleEntries.length === 0 ? (
-          <Typography color="text.secondary" variant="body2" sx={{ px: 1.25, py: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+              px: 1.25,
+              py: 1
+            }}>
             {t("comparePage.noVisibleChanges")}
           </Typography>
         ) : (
@@ -120,7 +134,13 @@ export function DiffSectionCard({
                 py: 1,
               }}
             >
-              <Stack direction="row" spacing={0.75} alignItems="center" minWidth={0}>
+              <Stack
+                direction="row"
+                spacing={0.75}
+                sx={{
+                  alignItems: "center",
+                  minWidth: 0
+                }}>
                 <Chip size="small" label={entry.kind} />
                 <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono }} noWrap>
                   {entry.path}

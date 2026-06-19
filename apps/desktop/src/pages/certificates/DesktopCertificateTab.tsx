@@ -111,7 +111,9 @@ export function DesktopCertificateTab({
           </Stepper>
 
           {/* Status rows */}
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={2} sx={{
+            alignItems: "center"
+          }}>
             <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
               {t("certificatesPage.status.rootCertificate")}
             </Typography>
@@ -128,7 +130,9 @@ export function DesktopCertificateTab({
             )}
           </Stack>
 
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={2} sx={{
+            alignItems: "center"
+          }}>
             <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
               {t("certificatesPage.status.trusted")}
             </Typography>
@@ -142,7 +146,9 @@ export function DesktopCertificateTab({
           </Stack>
 
           {status?.fingerprint ? (
-            <Stack direction="row" spacing={2} alignItems="center">
+            <Stack direction="row" spacing={2} sx={{
+              alignItems: "center"
+            }}>
               <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
                 {t("certificatesPage.status.fingerprint")}
               </Typography>
@@ -156,7 +162,9 @@ export function DesktopCertificateTab({
           ) : null}
 
           {status?.certPath ? (
-            <Stack direction="row" spacing={2} alignItems="center">
+            <Stack direction="row" spacing={2} sx={{
+              alignItems: "center"
+            }}>
               <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
                 {t("certificatesPage.status.certificatePath")}
               </Typography>
@@ -169,7 +177,9 @@ export function DesktopCertificateTab({
             </Stack>
           ) : null}
 
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={2} sx={{
+            alignItems: "center"
+          }}>
             <Typography variant="body2" sx={{ minWidth: 100, color: "text.secondary" }}>
               {t("certificatesPage.status.platform")}
             </Typography>
@@ -179,7 +189,6 @@ export function DesktopCertificateTab({
           </Stack>
         </Stack>
       </SectionCard>
-
       <DiagnosticsCard />
     </Stack>
   );
@@ -229,21 +238,27 @@ function DiagnosticsCard() {
     >
       {data ? (
         <Stack spacing={1}>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             {t("certificatesPage.diagnostics.summary", { passed, total: checks.length })}
           </Typography>
           {checks.map((check) => {
             const Icon = check.ok ? CheckCircleRoundedIcon : ErrorOutlineRoundedIcon;
             const labelKey = DIAGNOSTIC_CHECK_KEYS[check.key];
             return (
-              <Stack key={check.key} direction="row" spacing={1} alignItems="start">
+              <Stack key={check.key} direction="row" spacing={1} sx={{
+                alignItems: "start"
+              }}>
                 <Icon
                   sx={{ fontSize: 18, mt: 0.25, color: check.ok ? "success.main" : "error.main" }}
                 />
                 <Stack spacing={0.25}>
                   <Typography variant="body2">{labelKey ? t(labelKey) : check.key}</Typography>
                   {check.message && !check.ok && (
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" sx={{
+                      color: "text.secondary"
+                    }}>
                       {check.message}
                     </Typography>
                   )}
@@ -253,7 +268,9 @@ function DiagnosticsCard() {
           })}
         </Stack>
       ) : (
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{
+          color: "text.secondary"
+        }}>
           {t("certificatesPage.diagnostics.hint")}
         </Typography>
       )}
