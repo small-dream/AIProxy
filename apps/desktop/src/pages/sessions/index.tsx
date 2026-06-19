@@ -471,7 +471,7 @@ export function SessionsPage() {
 
       navigate(`/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(session.id)}`);
     },
-    [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession?.id],
+    [compareBaseSessionId, handleSetCompareBase, navigate, selectedSession],
   );
 
   const handleAddContainer = useCallback(() => {

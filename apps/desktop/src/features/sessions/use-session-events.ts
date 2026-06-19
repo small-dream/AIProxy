@@ -1,5 +1,5 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useSessionContainerStore } from "./session-container.store";
@@ -20,10 +20,7 @@ import {
 const FLUSH_INTERVAL_MS = 100;
 
 export function useSessionEvents() {
-  const store = useSessionContainerStore;
   const queryClient = useQueryClient();
-  const storeRef = useRef(store);
-  storeRef.current = store;
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +35,7 @@ export function useSessionEvents() {
       flushTimer = null;
 
       for (const summary of batch) {
-        storeRef.current.getState().upsertSummary(summary);
+        useSessionContainerStore.getState().upsertSummary(summary);
       }
 
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) => {
@@ -70,7 +67,7 @@ export function useSessionEvents() {
 
     onSessionRemove((sessionId) => {
       if (cancelled) return;
-      storeRef.current.getState().removeSummary(sessionId);
+      useSessionContainerStore.getState().removeSummary(sessionId);
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
         removeSessionSummary(currentSessions, sessionId),
       );
@@ -87,7 +84,7 @@ export function useSessionEvents() {
         clearTimeout(flushTimer);
         flushTimer = null;
       }
-      storeRef.current.getState().clearSessions();
+      useSessionContainerStore.getState().clearSessions();
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });
     }).then((fn) => {
@@ -98,7 +95,7 @@ export function useSessionEvents() {
     onSessionsRemoved((ids) => {
       if (cancelled) return;
       for (const id of ids) {
-        storeRef.current.getState().removeSummary(id);
+        useSessionContainerStore.getState().removeSummary(id);
       }
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
         removeSessionSummaries(currentSessions, ids),
