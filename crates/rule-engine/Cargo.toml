@@ -11,7 +11,7 @@ path = "src/lib.rs"
 base64 = "0.22"
 deno_ast = { version = "0.53", features = ["transpiling"] }
 regex = "1"
-rquickjs = { version = "0.8", features = [
+rquickjs = { version = "0.12", features = [
   "chrono", "loader", "dyn-load", "either", "indexmap",
   "classes", "properties", "array-buffer", "macro", "phf"
 ] }
