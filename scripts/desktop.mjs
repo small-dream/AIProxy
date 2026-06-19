@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -45,11 +44,6 @@ if (cli.action === "bundle" && !hasCargoTauri()) {
 
 const steps = createSteps(cli.action);
 
-// Sync the git short hash into tauri.conf.json so macOS uses it as
-// CFBundleVersion. This must happen BEFORE Tauri reads the config,
-// otherwise the About dialog shows "Version 0.1.0 (0.1.0)" (duplicated).
-syncTauriBundleVersion();
-
 for (const step of steps) {
   console.log(`[aiproxy-scripts] ${step.label}`);
   runCommand(step.command, step.args, step.cwd);
@@ -67,7 +61,7 @@ function createSteps(action) {
 
       return [
         {
-          args: ["tauri", "dev", "--no-watch"],
+          args: ["tauri", "dev", "--no-watch", ...tauriConfigArgs()],
           command: resolveCommand("cargo"),
           cwd: tauriDir,
           label: "Launching AIProxy desktop application",
@@ -116,7 +110,7 @@ function createSteps(action) {
       label: "Building desktop frontend bundle",
     },
     {
-      args: ["tauri", "build"],
+      args: ["tauri", "build", ...tauriConfigArgs()],
       command: resolveCommand("cargo"),
       cwd: tauriDir,
       label: "Building platform bundle with Tauri",
@@ -258,31 +252,26 @@ function printUsage() {
 }
 
 /**
- * Updates bundle.macOS.bundleVersion in tauri.conf.json with the current
- * git short hash so the macOS About dialog shows "Version 0.1.0 (64c454b)"
- * instead of the duplicated "Version 0.1.0 (0.1.0)".
+ * Builds the --config override args for the Tauri CLI so the macOS bundle
+ * uses the current git short hash as CFBundleVersion. Injecting it at
+ * build/dev time (instead of writing it into tauri.conf.json) keeps the
+ * working tree clean on every build, while still showing "Version 0.1.0
+ * (64c454b)" in the About dialog instead of the duplicated "Version 0.1.0
+ * (0.1.0)".
  */
-function syncTauriBundleVersion() {
-  const configPath = path.join(tauriDir, "tauri.conf.json");
+function tauriConfigArgs() {
   const shortHash = runSilent("git", ["rev-parse", "--short", "HEAD"], repoRoot);
 
   if (!shortHash) {
-    console.warn("[aiproxy-scripts] Could not resolve git short hash, skipping bundleVersion sync.");
-    return;
+    console.warn(
+      "[aiproxy-scripts] Could not resolve git short hash; macOS About will fall back to the version string.",
+    );
+    return [];
   }
 
-  const raw = fs.readFileSync(configPath, "utf8");
-  const config = JSON.parse(raw);
-
-  if (!config.bundle) config.bundle = {};
-  if (!config.bundle.macOS) config.bundle.macOS = {};
-
-  const current = config.bundle.macOS.bundleVersion;
-  if (current === shortHash) return;
-
-  config.bundle.macOS.bundleVersion = shortHash;
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  console.log(`[aiproxy-scripts] Synced bundle.macOS.bundleVersion → ${shortHash}`);
+  const override = JSON.stringify({ bundle: { macOS: { bundleVersion: shortHash } } });
+  console.log(`[aiproxy-scripts] Injecting bundle.macOS.bundleVersion → ${shortHash}`);
+  return ["--config", override];
 }
 
 function runSilent(command, args, cwd) {
