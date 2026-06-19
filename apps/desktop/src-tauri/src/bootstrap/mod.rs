@@ -6,9 +6,6 @@
 //!
 //! Heavy persistence work (body spill, SQLite writes, trace persistence) lives
 //! in [repository]; in-memory session caching and LRU eviction live in [cache].
-//!
-//! See `docs/plan/p2-engineering-standards-continuous-improvement.md` Phase 4
-//! for the full refactoring history.
 
 mod cache;
 mod converters;
