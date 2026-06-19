@@ -1407,20 +1407,18 @@ export const enMessages = {
     slowRequests: {
       title: "Slow Requests",
       url: "URL",
-      method: "Method",
       status: "Status",
+      size: "Size",
       duration: "Duration",
+    },
+    largestRequests: {
+      title: "Largest Requests",
     },
     statusCodes: {
       title: "Status Codes",
     },
     methods: {
       title: "Methods",
-    },
-    export: {
-      title: "Export",
-      markdown: "Export as Markdown",
-      json: "Export as JSON",
     },
     states: {
       noData: "No session data available",

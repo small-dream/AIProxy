@@ -934,7 +934,7 @@ Insights Page 是流量统计分析面板，基于已捕获会话的聚合数据
 
 ```text
 Insights Page
-├─ Page Header (title + Export dropdown: Markdown / JSON)
+├─ Page Header (title)
 ├─ Overview Cards Row
 │  ├─ Total Requests Card
 │  ├─ Avg Duration Card
@@ -956,10 +956,9 @@ Insights Page
 ### 设计要求
 
 - 概览卡片使用 MUI `Card`，数值使用 `Typography h4`，标签使用 `caption`
-- Host 表格使用 MUI `Table`，支持点击表头排序
+- Host 表格使用 MUI `Table`，支持点击表头排序；无过滤时 flex 撑满剩余空间并在表格内滚动（表头 sticky），有过滤时自然高度让位给慢请求列表
 - 分布图使用 Chip 或小型水平条形展示，不引入重量级图表库
-- 慢请求列表使用紧凑的列表布局，显示排名、方法徽章、URL 和耗时
-- 导出使用 `Button` + 下拉菜单，导出操作通过 `save_text_file` 写入下载目录
+- 慢请求列表使用虚拟列表布局，显示方法徽章、URL 和耗时；仅在应用了过滤（关键词 / 聚焦 Host / 排除 Host）时渲染，全局视角下隐藏，避免单条偶发请求干扰概览
 - 空状态：未捕获会话时显示提示引导用户返回 Sessions 开始抓包
 
 ## 14. 可访问性规范

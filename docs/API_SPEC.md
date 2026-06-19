@@ -1993,6 +1993,7 @@ type SlowRequest = {
   method: string;
   statusCode: number;
   durationMs: number;
+  sizeBytes: number;
 };
 
 type InsightsResult = {
@@ -2008,6 +2009,7 @@ type InsightsResult = {
   byStatusCode: StatusCodeDistribution[];
   byMethod: MethodDistribution[];
   slowRequests: SlowRequest[];
+  largestRequests: SlowRequest[];
 };
 ```
 
@@ -2037,9 +2039,9 @@ type GetInsightsOutput = InsightsResult;
 - `byHost` 按 host 分组聚合请求计数、平均/P95 耗时、错误数和总字节数
 - `byStatusCode` 统计各状态码出现次数
 - `byMethod` 统计各 HTTP 方法出现次数
-- `slowRequests` 按耗时降序返回最慢的 20 个请求（SQL LIMIT 20）
+- `slowRequests` 按耗时降序返回最慢的请求；总览态（无 host 过滤）取前 20 条（SQL LIMIT 20），聚焦 host（`hostExact` / `hostKeyword`）时不设上限，用于逐条排障
+- `largestRequests` 按响应字节数降序返回最大的请求；上限规则同 `slowRequests`
 - `InsightsResult` 包含全局统计：`totalErrors`、`avgDurationMs`、分位数 `p50` / `p95` / `p99`
-- 前端可通过 `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 导出分析结果
 
 ## 10.1 Script Rule Commands
 

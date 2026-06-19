@@ -22,6 +22,7 @@ pub struct InsightsResult {
     pub by_status_code: Vec<StatusCodeDistribution>,
     pub by_method: Vec<MethodDistribution>,
     pub slow_requests: Vec<SlowRequest>,
+    pub largest_requests: Vec<SlowRequest>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +58,7 @@ pub struct SlowRequest {
     pub method: String,
     pub status_code: i64,
     pub duration_ms: i64,
+    pub size_bytes: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -139,6 +141,23 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
     }
 }
 
+/// A positive host filter (exact host or host keyword) scopes the view to one or
+/// a few hosts; in that case the slow/largest rankings show every matching
+/// request instead of the top-20 overview cap.
+fn is_host_scoped(filter: &InsightsFilter) -> bool {
+    let host_exact_active = filter
+        .host_exact
+        .as_ref()
+        .map(|host| !host.trim().is_empty())
+        .unwrap_or(false);
+    let host_keyword_active = filter
+        .host_keyword
+        .as_ref()
+        .map(|keyword| !keyword.trim().is_empty())
+        .unwrap_or(false);
+    host_exact_active || host_keyword_active
+}
+
 // ---------------------------------------------------------------------------
 // Aggregation query
 // ---------------------------------------------------------------------------
@@ -152,6 +171,11 @@ pub fn compute_insights(
 ) -> Result<InsightsResult, DbError> {
     let (where_clause, where_params) = build_where(filter);
     let params = || -> Vec<rusqlite::types::Value> { where_params.clone() };
+    let ranking_limit_clause = if is_host_scoped(filter) {
+        String::new()
+    } else {
+        " LIMIT 20".to_string()
+    };
 
     // --- Overview stats ---
     let query = format!(
@@ -261,6 +285,7 @@ pub fn compute_insights(
                 "SELECT status_code, COUNT(*) AS count
                  FROM session_summaries{where_clause}
                  GROUP BY status_code
+                 HAVING status_code > 0
                  ORDER BY count DESC"
             ))
             .map_err(|e| DbError::query("insights by_status_code prepare", e))?;
@@ -306,10 +331,9 @@ pub fn compute_insights(
     let slow_requests: Vec<SlowRequest> = {
         let mut stmt = conn
             .prepare(&format!(
-                "SELECT id, url, method, status_code, duration_ms
+                "SELECT id, url, method, status_code, duration_ms, size_bytes
                  FROM session_summaries{where_clause}
-                 ORDER BY duration_ms DESC
-                 LIMIT 20"
+                 ORDER BY duration_ms DESC{ranking_limit_clause}"
             ))
             .map_err(|e| DbError::query("insights slow_requests prepare", e))?;
 
@@ -321,9 +345,37 @@ pub fn compute_insights(
                     method: row.get("method")?,
                     status_code: row.get("status_code")?,
                     duration_ms: row.get("duration_ms")?,
+                    size_bytes: row.get("size_bytes")?,
                 })
             })
             .map_err(|e| DbError::query("insights slow_requests query", e))?
+            .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
+            .collect();
+        rows?
+    };
+
+    // --- Largest requests (top 20) ---
+    let largest_requests: Vec<SlowRequest> = {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT id, url, method, status_code, duration_ms, size_bytes
+                 FROM session_summaries{where_clause}
+                 ORDER BY size_bytes DESC{ranking_limit_clause}"
+            ))
+            .map_err(|e| DbError::query("insights largest_requests prepare", e))?;
+
+        let rows: Result<Vec<SlowRequest>, DbError> = stmt
+            .query_map(rusqlite::params_from_iter(params()), |row| {
+                Ok(SlowRequest {
+                    session_id: row.get("id")?,
+                    url: row.get("url")?,
+                    method: row.get("method")?,
+                    status_code: row.get("status_code")?,
+                    duration_ms: row.get("duration_ms")?,
+                    size_bytes: row.get("size_bytes")?,
+                })
+            })
+            .map_err(|e| DbError::query("insights largest_requests query", e))?
             .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
             .collect();
         rows?
@@ -342,6 +394,7 @@ pub fn compute_insights(
         by_status_code,
         by_method,
         slow_requests,
+        largest_requests,
     })
 }
 
@@ -446,6 +499,7 @@ mod tests {
         assert!(result.by_status_code.is_empty());
         assert!(result.by_method.is_empty());
         assert!(result.slow_requests.is_empty());
+        assert!(result.largest_requests.is_empty());
     }
 
     #[test]
@@ -470,6 +524,64 @@ mod tests {
         assert_eq!(result.by_method.len(), 2);
         assert_eq!(result.slow_requests.len(), 3);
         assert_eq!(result.slow_requests[0].session_id, "s2"); // highest duration
+        assert_eq!(result.slow_requests[0].size_bytes, 1000);
+        assert_eq!(result.largest_requests.len(), 3);
+        assert_eq!(result.largest_requests[0].session_id, "s2"); // largest size
+        assert_eq!(result.largest_requests[0].size_bytes, 1000);
+    }
+
+    #[test]
+    fn pending_request_excluded_from_status_distribution() {
+        let conn = test_conn();
+        insert_session(&conn, "d1", "api.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "d2", "api.example.com", "GET", 0, 100, 500);
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+
+        // The in-flight request (status 0) still counts toward volume...
+        assert_eq!(result.total_requests, 2);
+        // ...but status code 0 is not a real HTTP status, so it is excluded from
+        // the status-code distribution, which only reflects completed responses.
+        assert_eq!(result.by_status_code.len(), 1);
+        assert_eq!(result.by_status_code[0].status_code, 200);
+        assert_eq!(result.by_status_code[0].count, 1);
+    }
+
+    #[test]
+    fn host_scoped_ranking_is_not_capped_at_twenty() {
+        let conn = test_conn();
+        for i in 0..25 {
+            let n = i as i64 + 1;
+            insert_session(
+                &conn,
+                &format!("h{i}"),
+                "api.example.com",
+                "GET",
+                200,
+                n * 10,
+                n * 100,
+            );
+        }
+        for i in 0..5 {
+            insert_session(&conn, &format!("o{i}"), "other.example.com", "GET", 200, 10, 100);
+        }
+
+        // Unscoped overview: rankings are capped at 20.
+        let unscoped = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        assert_eq!(unscoped.slow_requests.len(), 20);
+        assert_eq!(unscoped.largest_requests.len(), 20);
+
+        // Scoped to a host (focused debugging): no cap, all 25 for that host.
+        let scoped = compute_insights(
+            &conn,
+            &InsightsFilter {
+                host_exact: Some("api.example.com".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(scoped.slow_requests.len(), 25);
+        assert_eq!(scoped.largest_requests.len(), 25);
     }
 
     #[test]

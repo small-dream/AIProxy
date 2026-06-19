@@ -1355,20 +1355,18 @@ export const zhCNMessages: Messages = {
     slowRequests: {
       title: "慢请求",
       url: "URL",
-      method: "方法",
       status: "状态",
+      size: "大小",
       duration: "耗时",
+    },
+    largestRequests: {
+      title: "最大请求",
     },
     statusCodes: {
       title: "状态码分布",
     },
     methods: {
       title: "请求方法分布",
-    },
-    export: {
-      title: "导出",
-      markdown: "导出为 Markdown",
-      json: "导出为 JSON",
     },
     states: {
       noData: "暂无会话数据",

@@ -2,7 +2,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import type { GetInsightsInput, InsightsResult } from "@aiproxy/shared-types";
 
 import {
-  buildMarkdownReport,
+  areSessionIdsEqual,
   computeInsightsFromSummaries,
   normalizeHostValue,
   type InsightsComputationFilters,
@@ -22,20 +21,13 @@ import type { HostContextMenuState } from "@/features/insights/components/HostCo
 import { useInsightsFilterStore } from "@/features/insights/insights-filter.store";
 import { useSessionContainerStore } from "@/features/sessions/session-container.store";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { downloadTextFile } from "@/lib/download";
+import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useI18n } from "@/i18n";
 import { invokeGetInsights } from "@/services/commands/sessions";
-
-import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
-import { useOutletContext } from "react-router-dom";
-import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
-import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
-import { Menu, MenuItem } from "@mui/material";
 
 export function useInsightsData() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
 
   // --- Store state ---
 
@@ -192,8 +184,18 @@ export function useInsightsData() {
     [debouncedDomain, excludedHosts, hostExact],
   );
 
+  // Throttle the (already batched) session summaries before recomputing the
+  // frontend insights, so a sustained burst of traffic can't push the O(n)
+  // aggregation onto the main thread faster than ~150ms per pass.
+  const throttledSummaries = useThrottledValue(activeSessionSummaries, 150);
+  // The backend query is keyed (and gated) by a 5s-debounced snapshot of the
+  // active session ids, so a burst of new sessions doesn't trigger a query on
+  // every tick. `input` MUST be built from the same debounced ids: the cached
+  // result is keyed by them, so building it from the fresher live ids would let
+  // the two drift (and keep serving a stale result until the key catches up).
+  const debouncedSessionIds = useDebouncedValue(activeSessionIds, 5000);
   const input = useMemo<GetInsightsInput>(() => {
-    const base: GetInsightsInput = { sessionIds: activeSessionIds };
+    const base: GetInsightsInput = { sessionIds: debouncedSessionIds };
     const trimmedKeyword = debouncedDomain.trim();
     const trimmedExactHost = hostExact?.trim() ?? "";
     const filteredExcludedHosts = excludedHosts.map((host) => host.trim()).filter(Boolean);
@@ -204,24 +206,36 @@ export function useInsightsData() {
       ...(trimmedExactHost ? { hostExact: trimmedExactHost } : {}),
       ...(trimmedKeyword ? { hostKeyword: trimmedKeyword } : {}),
     };
-  }, [activeSessionIds, debouncedDomain, excludedHosts, hostExact]);
-
-  const debouncedSessionIds = useDebouncedValue(activeSessionIds, 5000);
+  }, [debouncedSessionIds, debouncedDomain, excludedHosts, hostExact]);
   // Keep the previous result while the debounced sessionIds/filter keys change,
   // so the page does not flip back into a loading state every time a fresh
   // query is issued (e.g. when activeSessionIds settles after the 5s debounce).
-  const { data: backendData, isLoading } = useQuery({
+  const { data: backendData, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["insights", debouncedSessionIds, debouncedDomain, hostExact, excludedHosts],
     queryFn: () => invokeGetInsights(input),
-    enabled: activeSessionIds.length > 0,
+    enabled: debouncedSessionIds.length > 0,
     placeholderData: keepPreviousData,
   });
   const fallbackData = useMemo(
-    () => computeInsightsFromSummaries(activeSessionSummaries, insightsFilters),
-    [activeSessionSummaries, insightsFilters],
+    () => computeInsightsFromSummaries(throttledSummaries, insightsFilters),
+    [throttledSummaries, insightsFilters],
+  );
+  // Real-time path: drive the view from the live frontend computation while the
+  // live session ids have diverged from the debounced backend snapshot — either
+  // because sessions are still being captured (the snapshot lags ~5s) or because
+  // the user switched to a different session set of the SAME length, which a
+  // length-only check would miss (it would keep serving the stale backend result
+  // for the whole debounce window). Compare contents, not just length. The
+  // frontend path also wins while the backend result is a placeholder carried
+  // over from the previous query key. Both paths are numerically equivalent; the
+  // persisted backend result only takes over once the ids realign AND it
+  // reflects the current snapshot.
+  const isCapturing = useMemo(
+    () => !areSessionIdsEqual(activeSessionIds, debouncedSessionIds),
+    [activeSessionIds, debouncedSessionIds],
   );
   const data: InsightsResult =
-    backendData && backendData.totalRequests > 0
+    !isCapturing && !isPlaceholderData && backendData !== undefined && backendData.totalRequests > 0
       ? backendData
       : fallbackData.totalRequests > 0
         ? fallbackData
@@ -235,64 +249,6 @@ export function useInsightsData() {
   const showLoading = isLoading && !hasAnyData;
   const hasActiveFilters = Boolean(debouncedDomain.trim() || hostExact || excludedHosts.length > 0);
   const filteredOutAllData = hasActiveFilters && data.totalRequests === 0;
-  const slowRequestMaxDuration =
-    data?.slowRequests.reduce((maxDuration, req) => Math.max(maxDuration, req.durationMs), 0) ?? 0;
-
-  // --- Export ---
-
-  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [exportAnchorEl, setExportAnchorEl] = useState<HTMLElement | null>(null);
-
-  const handleExport = useCallback(
-    (format: "markdown" | "json") => {
-      if (!data) return;
-      const timestamp = new Date().toISOString().slice(0, 10);
-
-      if (format === "json") {
-        const json = JSON.stringify(data, null, 2);
-        downloadTextFile(`insights-${timestamp}.json`, json, "application/json");
-      } else {
-        const md = buildMarkdownReport(data, t);
-        downloadTextFile(`insights-${timestamp}.md`, md, "text/markdown");
-      }
-
-      setExportAnchorEl(null);
-    },
-    [data, t],
-  );
-
-  const headerActions = useMemo(
-    () => (
-      <>
-        <TopBarActionButton
-          disabled={data.totalRequests === 0}
-          icon={<FileDownloadRoundedIcon />}
-          label={t("insightsPage.export.title")}
-          onClick={() => setExportAnchorEl(exportButtonRef.current)}
-          buttonRef={exportButtonRef}
-        />
-        <Menu
-          anchorEl={exportAnchorEl}
-          open={Boolean(exportAnchorEl)}
-          onClose={() => setExportAnchorEl(null)}
-        >
-          <MenuItem onClick={() => handleExport("markdown")}>
-            {t("insightsPage.export.markdown")}
-          </MenuItem>
-          <MenuItem onClick={() => handleExport("json")}>{t("insightsPage.export.json")}</MenuItem>
-        </Menu>
-      </>
-    ),
-    [t, data, exportAnchorEl, handleExport],
-  );
-
-  useLayoutEffect(() => {
-    setHeaderActions(headerActions);
-
-    return () => {
-      setHeaderActions(null);
-    };
-  }, [headerActions, setHeaderActions]);
 
   return {
     // Data
@@ -300,7 +256,6 @@ export function useInsightsData() {
     showLoading,
     hasActiveFilters,
     filteredOutAllData,
-    slowRequestMaxDuration,
 
     // Filter state
     domainFilter,
@@ -313,10 +268,6 @@ export function useInsightsData() {
 
     // Snackbar
     snackbarMessage,
-
-    // Export
-    handleExport,
-    exportAnchorEl,
 
     // Callbacks
     handleDomainChange,

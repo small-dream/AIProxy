@@ -1,5 +1,4 @@
-import type { InsightsResult, SessionSummary } from "@aiproxy/shared-types";
-import type { TranslationKey } from "@/i18n";
+import type { InsightsResult, SessionSummary, SlowRequest } from "@aiproxy/shared-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +23,7 @@ export const EMPTY_INSIGHTS_RESULT: InsightsResult = {
   byStatusCode: [],
   byMethod: [],
   slowRequests: [],
+  largestRequests: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -70,6 +70,20 @@ export function normalizeHostValue(host: string): string {
   return host.trim().toLowerCase();
 }
 
+/**
+ * Order-sensitive equality check for session-id snapshots. Used to detect when
+ * the live `activeSessionIds` has diverged from its 5s-debounced backend
+ * snapshot — including the same-length-different-content case (e.g. switching
+ * to another session container with the same number of sessions), which a
+ * length-only check would miss.
+ */
+export function areSessionIdsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((id, index) => id === b[index]);
+}
+
 export function percentile(sortedValues: number[], percentileValue: number): number {
   if (sortedValues.length === 0) {
     return 0;
@@ -102,12 +116,23 @@ export function summarizeUrl(url: string): { host: string; primary: string; seco
   }
 }
 
-export function getDurationIntensity(durationMs: number, maxDurationMs: number): number {
-  if (maxDurationMs <= 0) {
+export function getIntensity(value: number, maxValue: number): number {
+  if (maxValue <= 0) {
     return 0;
   }
 
-  return Math.min(1, durationMs / maxDurationMs);
+  return Math.min(1, value / maxValue);
+}
+
+function toSlowRequest(summary: SessionSummary): SlowRequest {
+  return {
+    sessionId: summary.id,
+    url: summary.url,
+    method: summary.method,
+    statusCode: summary.statusCode,
+    durationMs: summary.durationMs,
+    sizeBytes: summary.sizeBytes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +161,10 @@ export function computeInsightsFromSummaries(
   }
 
   const totalRequests = filteredSummaries.length;
+  // When the view is scoped to a host (focused debugging), show every matching
+  // request instead of the top-20 overview cap.
+  const isHostScoped = Boolean(filters.hostExact?.trim()) || filters.hostKeyword.trim().length > 0;
+  const rankingLimit = isHostScoped ? Number.POSITIVE_INFINITY : 20;
   const totalErrors = filteredSummaries.filter((summary) => summary.statusCode >= 400).length;
   const totalBytes = filteredSummaries.reduce((sum, summary) => sum + summary.sizeBytes, 0);
   const sortedDurations = filteredSummaries
@@ -148,7 +177,11 @@ export function computeInsightsFromSummaries(
 
   for (const summary of filteredSummaries) {
     hostBuckets.set(summary.host, [...(hostBuckets.get(summary.host) ?? []), summary]);
-    statusCodeCounts.set(summary.statusCode, (statusCodeCounts.get(summary.statusCode) ?? 0) + 1);
+    // statusCode 0 means the request is still in flight (no response yet); it is
+    // not a real HTTP status code, so it is excluded from the distribution.
+    if (summary.statusCode > 0) {
+      statusCodeCounts.set(summary.statusCode, (statusCodeCounts.get(summary.statusCode) ?? 0) + 1);
+    }
     methodCounts.set(summary.method, (methodCounts.get(summary.method) ?? 0) + 1);
   }
 
@@ -193,49 +226,12 @@ export function computeInsightsFromSummaries(
     slowRequests: filteredSummaries
       .slice()
       .sort((a, b) => b.durationMs - a.durationMs)
-      .slice(0, 20)
-      .map((summary) => ({
-        sessionId: summary.id,
-        url: summary.url,
-        method: summary.method,
-        statusCode: summary.statusCode,
-        durationMs: summary.durationMs,
-      })),
+      .slice(0, rankingLimit)
+      .map(toSlowRequest),
+    largestRequests: filteredSummaries
+      .slice()
+      .sort((a, b) => b.sizeBytes - a.sizeBytes)
+      .slice(0, rankingLimit)
+      .map(toSlowRequest),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Markdown report builder
-// ---------------------------------------------------------------------------
-
-export function buildMarkdownReport(data: InsightsResult, t: (key: TranslationKey) => string): string {
-  const lines: string[] = [
-    `# ${t("insightsPage.title")}`,
-    "",
-    `## ${t("insightsPage.hosts.title")}`,
-    "",
-    `| Host | Requests | Errors | Avg | P95 | Traffic |`,
-    `|------|----------|--------|-----|-----|---------|`,
-  ];
-
-  for (const host of data.byHost.slice(0, 20)) {
-    lines.push(
-      `| ${host.host} | ${host.requestCount} | ${host.errorCount} | ${formatDuration(host.avgDurationMs)} | ${formatDuration(host.p95DurationMs)} | ${formatBytes(host.totalBytes)} |`,
-    );
-  }
-
-  lines.push("");
-  lines.push(`## ${t("insightsPage.slowRequests.title")}`);
-  lines.push("");
-  lines.push(`| URL | Method | Status | Duration |`);
-  lines.push(`|-----|--------|--------|----------|`);
-
-  for (const req of data.slowRequests) {
-    lines.push(
-      `| ${req.url} | ${req.method} | ${req.statusCode} | ${formatDuration(req.durationMs)} |`,
-    );
-  }
-
-  lines.push("");
-  return lines.join("\n");
 }

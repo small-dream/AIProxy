@@ -481,9 +481,6 @@ sequenceDiagram
     S-->>T: InsightsResult
     T-->>UI: 返回聚合数据
     UI->>UI: 渲染概览卡片、Host 表格、分布图、慢请求列表
-    U->>UI: 点击导出
-    UI->>UI: exportInsightsAsMarkdown / exportInsightsAsJson
-    UI->>T: save_text_file
 ```
 
 ## 9. 数据模型
@@ -797,7 +794,7 @@ erDiagram
 - `collections` — `已实现`：CollectionsPage + collection-editor.store + use-collections hooks + use-collection-items hooks + CollectionTreePane + CollectionItemListPane + SaveToCollectionDialog
 - `environments` — `已实现`：EnvironmentManagerDialog + VariableEditorTable + use-environments hooks（含全局变量支持）+ 变量替换引擎 `substituteVariables`
 - `workspace-manager` — 代理预设管理模块，当前保留 workspace 命名以兼容共享类型与 Tauri/Rust 命令层
-- `insights` — `已实现首版`：InsightsPage + use-insights hooks + SQLite 聚合查询；支持 host breakdown、status code/method 分布、慢请求排名和导出（Markdown/JSON）
+- `insights` — `已实现首版`：InsightsPage + use-insights hooks + SQLite 聚合查询；支持 host breakdown、status code/method 分布、慢请求排名
 
 ## 11.3 组件分层
 

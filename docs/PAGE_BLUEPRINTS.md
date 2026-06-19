@@ -1039,7 +1039,7 @@ CollectionsPage
 ```text
 [Insights Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Insights                                            (Export ▾)         │
+│ Title: Insights                                                               │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Overview Cards]                                                             │
 │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
@@ -1069,7 +1069,7 @@ CollectionsPage
 
 ```text
 InsightsPage
-├─ PageHeader (title + export dropdown)
+├─ PageHeader (title)
 ├─ OverviewCardsSection
 │  ├─ OverviewCard (Total Requests)
 │  ├─ OverviewCard (Avg Duration)
@@ -1082,7 +1082,7 @@ InsightsPage
 │  ├─ DistributionSection
 │  │  ├─ StatusCodeDistribution (chips or mini bars)
 │  │  └─ MethodDistribution (chips or mini bars)
-│  └─ SlowRequestsSection
+│  └─ SlowRequestsSection (仅在有过滤时渲染，见 10.7.6)
 │     └─ SlowRequestList (ranked list with method/host/path/duration)
 ```
 
@@ -1092,7 +1092,6 @@ InsightsPage
 |------|------|
 | `pages/insights/index.tsx` | InsightsPage 主页面，组合概览卡片、Host 表格、分布和慢请求 |
 | `features/insights/use-insights.ts` | React Query hook，调用 `getInsights` |
-| `features/insights/insights-export.helpers.ts` | `exportInsightsAsMarkdown()` / `exportInsightsAsJson()` 纯函数 |
 | `services/commands/insights.ts` | `getInsights` 命令包装 |
 | `crates/db/src/insights.rs` | `compute_insights()` SQLite 聚合查询实现 |
 
@@ -1106,7 +1105,6 @@ type InsightsPageState = {
   ui: {
     hostSortField: "requestCount" | "avgDurationMs" | "p95DurationMs" | "totalSizeBytes" | "errorCount";
     hostSortOrder: "asc" | "desc";
-    exportAnchorEl?: HTMLElement;
   };
 };
 ```
@@ -1122,7 +1120,9 @@ User navigates to /insights
 -> OverviewCardsSection renders summary metrics
 -> HostBreakdownTable renders per-host breakdown
 -> DistributionSection renders status code and method distributions
--> SlowRequestsSection renders slowest requests list
+-> SlowRequestsSection renders slowest requests list (only when a domain/host
+   filter is active; with no filter the section is hidden and HostBreakdownTable
+   flexes to fill the remaining space with its own scroll + sticky head)
 
 User clicks Export dropdown
 -> menu opens with Markdown / JSON options

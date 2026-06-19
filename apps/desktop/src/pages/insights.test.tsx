@@ -3,12 +3,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
+import { useInsightsFilterStore } from "@/features/insights/insights-filter.store";
 import { useSessionContainerFilterStore } from "@/features/sessions/session-container.store";
 
 import { InsightsPage } from "./insights";
 
 const mockNavigate = vi.fn();
-const mockSetHeaderActions = vi.fn();
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
@@ -16,7 +16,6 @@ vi.mock("react-router-dom", async () => {
   return {
     ...actual,
     useNavigate: () => mockNavigate,
-    useOutletContext: () => ({ setHeaderActions: mockSetHeaderActions }),
   };
 });
 
@@ -34,6 +33,7 @@ vi.mock("@/services/commands/sessions", () => ({
     byStatusCode: [],
     byMethod: [],
     slowRequests: [],
+    largestRequests: [],
   })),
 }));
 
@@ -75,7 +75,6 @@ async function findHostTableCell(host: string) {
 
 beforeEach(() => {
   mockNavigate.mockReset();
-  mockSetHeaderActions.mockReset();
   useSessionContainerFilterStore.setState({
     activeSessionIds: ["session-1", "session-2", "session-3"],
     activeSessionSummaries: [
@@ -96,6 +95,7 @@ afterEach(() => {
     activeSessionIds: [],
     activeSessionSummaries: [],
   });
+  useInsightsFilterStore.getState().resetFilters();
   vi.restoreAllMocks();
 });
 

@@ -133,7 +133,7 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 请求 / 响应 Diff 对比与 AI 总结（当前已实现发布硬化版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload、Body lazy diff、截断可见提示、body size guard 与 binary body 明确状态）
 - 规则模板共享
 - 轻量插件系统
-- 流量统计与聚合分析面板 — `M2 已实现首版`：Insights 独立页面，支持概览卡片、Host 维度分析、状态码/方法分布、慢请求排名和导出（Markdown/JSON）
+- 流量统计与聚合分析面板 — `M2 已实现首版`：Insights 独立页面，支持概览卡片、Host 维度分析、状态码/方法分布、慢请求排名
 
 ## 6. MVP 范围
 

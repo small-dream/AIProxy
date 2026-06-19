@@ -19,20 +19,27 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
   darken,
 } from "@mui/material";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
+import type { SlowRequest } from "@aiproxy/shared-types";
 
 import {
   formatBytes,
   formatDuration,
   formatNumber,
   formatPercent,
-  getDurationIntensity,
+  getIntensity,
   normalizeHostValue,
   summarizeUrl,
 } from "@/features/insights/compute-insights.helpers";
+import { getMethodColor } from "@/features/sessions/components/session-inspector.helpers";
 import { HostContextMenu } from "@/features/insights/components/HostContextMenu";
 import { useInsightsData } from "@/features/insights/use-insights-data";
 import { useI18n } from "@/i18n";
@@ -148,6 +155,139 @@ function DistributionItem({
 }
 
 // ---------------------------------------------------------------------------
+// Virtualized request ranking table
+// ---------------------------------------------------------------------------
+
+// A fixed row height lets the virtualizer window the list (only visible rows +
+// overscan are in the DOM), so a host with thousands of requests scrolls as
+// smoothly as twenty. The two-line URL cell (method pill + path, plus the
+// host/query sub-line) fits within this height.
+const INSIGHTS_REQUEST_ROW_HEIGHT = 48;
+const INSIGHTS_REQUEST_OVERSCAN = 8;
+// The panel flexes to fill the remaining space inside the insights card, but
+// keeps a floor so it stays usable when the host/distribution sections above
+// are tall enough to push the card into scrolling.
+const INSIGHTS_REQUEST_PANEL_MIN_HEIGHT = 220;
+// Shared between the sticky header and every row so the columns line up.
+const INSIGHTS_REQUEST_GRID_COLUMNS = "minmax(200px, 1fr) 56px 88px 88px";
+
+function RequestRankingRow({
+  req,
+  maxDuration,
+  maxSize,
+}: {
+  maxDuration: number;
+  maxSize: number;
+  req: SlowRequest;
+}) {
+  const urlSummary = summarizeUrl(req.url);
+  const durationIntensity = getIntensity(req.durationMs, maxDuration);
+  const sizeIntensity = getIntensity(req.sizeBytes, maxSize);
+
+  return (
+    <Box
+      sx={{
+        columnGap: 1.5,
+        display: "grid",
+        gridTemplateColumns: INSIGHTS_REQUEST_GRID_COLUMNS,
+        height: "100%",
+        minWidth: 0,
+        px: 1.5,
+      }}
+    >
+      <Box
+        sx={{ display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 0 }}
+        title={req.url}
+      >
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0 }}>
+          <Chip
+            color={getMethodColor(req.method)}
+            label={req.method.toUpperCase()}
+            size="small"
+            variant="outlined"
+            sx={{ flexShrink: 0 }}
+          />
+          <Typography
+            component="span"
+            noWrap
+            sx={{
+              fontFamily: "monospace",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.35,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {urlSummary.primary}
+          </Typography>
+        </Stack>
+        <Typography color="text.secondary" noWrap sx={{ fontFamily: "monospace", fontSize: 12 }}>
+          {[urlSummary.host, urlSummary.secondary].filter(Boolean).join("  ")}
+        </Typography>
+      </Box>
+      <Box sx={{ alignItems: "center", display: "flex", justifyContent: "flex-end" }}>
+        <Typography
+          sx={(theme) => ({
+            color: req.statusCode >= 400 ? theme.palette.error.main : theme.palette.success.main,
+            fontSize: 13,
+            fontWeight: 700,
+          })}
+        >
+          {req.statusCode}
+        </Typography>
+      </Box>
+      <Box
+        sx={(theme) => ({
+          alignItems: "center",
+          bgcolor: alpha(theme.palette.info.main, 0.06 + sizeIntensity * 0.14),
+          borderRadius: 0.5,
+          // Inset vertically so the tinted block clears the row's top/bottom
+          // divider lines instead of sitting flush on top of them.
+          my: 0.5,
+          color:
+            sizeIntensity > 0.85
+              ? darken(theme.palette.info.main, theme.palette.mode === "dark" ? 0 : 0.25)
+              : "text.primary",
+          display: "flex",
+          fontFamily: "monospace",
+          fontSize: 13,
+          fontWeight: 700,
+          justifyContent: "flex-end",
+          pr: 0.75,
+          whiteSpace: "nowrap",
+        })}
+      >
+        {formatBytes(req.sizeBytes)}
+      </Box>
+      <Box
+        sx={(theme) => ({
+          alignItems: "center",
+          bgcolor: alpha(theme.palette.warning.main, 0.08 + durationIntensity * 0.16),
+          borderRadius: 0.5,
+          // See Size cell: keep the tinted block clear of the row dividers.
+          my: 0.5,
+          color:
+            durationIntensity > 0.85
+              ? darken(theme.palette.warning.main, theme.palette.mode === "dark" ? 0 : 0.25)
+              : "text.primary",
+          display: "flex",
+          fontFamily: "monospace",
+          fontSize: 13,
+          fontWeight: 700,
+          justifyContent: "flex-end",
+          pr: 0.75,
+          whiteSpace: "nowrap",
+        })}
+      >
+        {formatDuration(req.durationMs)}
+      </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -155,6 +295,22 @@ export function InsightsPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const ins = useInsightsData();
+
+  const [requestView, setRequestView] = useState<"largest" | "slow">("slow");
+  const rankedRequests =
+    requestView === "largest" ? ins.data.largestRequests : ins.data.slowRequests;
+  // Intensity is relative to the currently displayed ranking set, so both
+  // metric columns stay meaningful regardless of which ranking is active.
+  const maxDuration = rankedRequests.reduce((max, req) => Math.max(max, req.durationMs), 0);
+  const maxSize = rankedRequests.reduce((max, req) => Math.max(max, req.sizeBytes), 0);
+
+  const requestsScrollRef = useRef<HTMLDivElement>(null);
+  const requestsVirtualizer = useVirtualizer({
+    count: rankedRequests.length,
+    getScrollElement: () => requestsScrollRef.current,
+    estimateSize: () => INSIGHTS_REQUEST_ROW_HEIGHT,
+    overscan: INSIGHTS_REQUEST_OVERSCAN,
+  });
 
   if (ins.showLoading) {
     return (
@@ -301,6 +457,8 @@ export function InsightsPage() {
             theme.palette.mode === "dark"
               ? "0 16px 44px rgba(0, 0, 0, 0.28)"
               : "0 16px 40px rgba(15, 23, 42, 0.08)",
+          display: "flex",
+          flexDirection: "column",
           flex: 1,
           minHeight: 0,
           overflow: "auto",
@@ -317,7 +475,7 @@ export function InsightsPage() {
         ) : null}
 
         {!ins.filteredOutAllData && (
-          <Stack direction="row" spacing={1.1} sx={{ flexWrap: "wrap", mb: 2.25 }}>
+          <Stack direction="row" spacing={1.1} sx={{ flexWrap: "wrap", flexShrink: 0, mb: 2.25 }}>
             <OverviewCard
               label={t("insightsPage.overview.totalRequests")}
               tone="primary"
@@ -346,191 +504,286 @@ export function InsightsPage() {
           </Stack>
         )}
 
-        {!ins.filteredOutAllData && ins.data.byHost.length > 0 && (
-          <Box sx={{ mb: 2.25 }}>
+        {!ins.filteredOutAllData && ins.data.byHost.length > 1 && (
+          <Box
+            sx={{
+              display: "flex",
+              flex: ins.hasActiveFilters ? "0 0 auto" : "1 1 0",
+              flexDirection: "column",
+              minHeight: 0,
+              mb: 2.25,
+            }}
+          >
             <SectionTitle>{t("insightsPage.hosts.title")}</SectionTitle>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
-                    {t("insightsPage.hosts.host")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.hosts.requests")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.hosts.errors")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.hosts.avgDuration")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.hosts.p95Duration")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.hosts.traffic")}
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {ins.data.byHost.map((host) => (
-                  <TableRow
-                    hover
-                    key={host.host}
-                    onClick={() => ins.handleOpenSessionsForHost(host.host)}
-                    onContextMenu={(event) => ins.handleHostContextMenu(host.host, event)}
-                    sx={{
-                      cursor: "pointer",
-                      "&:last-child td": { borderBottom: 0 },
-                      "& .host-filter-action": {
-                        opacity: 0,
-                      },
-                      "&:hover .host-filter-action, &:focus-within .host-filter-action": {
-                        opacity: 1,
-                      },
-                    }}
-                  >
-                    <TableCell sx={{ fontSize: 13, fontFamily: "monospace" }}>
-                      <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, minWidth: 0 }}>
-                        <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                          {host.host}
-                        </Box>
-                        <Tooltip arrow title={t("insightsPage.hosts.contextMenu.filterByHost")}>
-                          <IconButton
-                            aria-label={t("insightsPage.hosts.contextMenu.filterByHost")}
-                            className="host-filter-action"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              ins.handleFilterHost(host.host);
-                            }}
-                            size="small"
-                            sx={{
-                              height: 22,
-                              transition: "opacity 120ms ease, background-color 120ms ease",
-                              width: 22,
-                            }}
-                          >
-                            <FilterAltRoundedIcon sx={{ fontSize: 15 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+              <Table size="small">
+                <TableHead
+                  sx={{
+                    bgcolor: (theme) =>
+                      alpha(
+                        theme.palette.background.paper,
+                        theme.palette.mode === "dark" ? 0.98 : 1,
+                      ),
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                  }}
+                >
+                  <TableRow>
+                    <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
+                      {t("insightsPage.hosts.host")}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>
-                      {formatNumber(host.requestCount)}
+                    <TableCell
+                      align="right"
+                      sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                    >
+                      {t("insightsPage.hosts.requests")}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>
-                      {formatNumber(host.errorCount)}
+                    <TableCell
+                      align="right"
+                      sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                    >
+                      {t("insightsPage.hosts.errors")}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>
-                      {formatDuration(host.avgDurationMs)}
+                    <TableCell
+                      align="right"
+                      sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                    >
+                      {t("insightsPage.hosts.avgDuration")}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>
-                      {formatDuration(host.p95DurationMs)}
+                    <TableCell
+                      align="right"
+                      sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                    >
+                      {t("insightsPage.hosts.p95Duration")}
                     </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 13 }}>
-                      {formatBytes(host.totalBytes)}
+                    <TableCell
+                      align="right"
+                      sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
+                    >
+                      {t("insightsPage.hosts.traffic")}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHead>
+                <TableBody>
+                  {ins.data.byHost.map((host) => (
+                    <TableRow
+                      hover
+                      key={host.host}
+                      onClick={() => ins.handleOpenSessionsForHost(host.host)}
+                      onContextMenu={(event) => ins.handleHostContextMenu(host.host, event)}
+                      sx={{
+                        cursor: "pointer",
+                        "&:last-child td": { borderBottom: 0 },
+                        "& .host-filter-action": {
+                          opacity: 0,
+                        },
+                        "&:hover .host-filter-action, &:focus-within .host-filter-action": {
+                          opacity: 1,
+                        },
+                      }}
+                    >
+                      <TableCell sx={{ fontSize: 13, fontFamily: "monospace" }}>
+                        <Stack
+                          direction="row"
+                          sx={{ alignItems: "center", gap: 0.75, minWidth: 0 }}
+                        >
+                          <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                            {host.host}
+                          </Box>
+                          <Tooltip arrow title={t("insightsPage.hosts.contextMenu.filterByHost")}>
+                            <IconButton
+                              aria-label={t("insightsPage.hosts.contextMenu.filterByHost")}
+                              className="host-filter-action"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                ins.handleFilterHost(host.host);
+                              }}
+                              size="small"
+                              sx={{
+                                height: 22,
+                                transition: "opacity 120ms ease, background-color 120ms ease",
+                                width: 22,
+                              }}
+                            >
+                              <FilterAltRoundedIcon sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 13 }}>
+                        {formatNumber(host.requestCount)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 13 }}>
+                        {formatNumber(host.errorCount)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 13 }}>
+                        {formatDuration(host.avgDurationMs)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 13 }}>
+                        {formatDuration(host.p95DurationMs)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 13 }}>
+                        {formatBytes(host.totalBytes)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
           </Box>
         )}
 
-        {!ins.filteredOutAllData && (
-          <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap", mb: 2.25 }}>
-            {ins.data.byStatusCode.length > 0 && (
-              <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
-                <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
-                <Stack spacing={0.25}>
-                  {ins.data.byStatusCode
-                    .slice()
-                    .sort((a, b) => b.count - a.count)
-                    .map((entry) => (
-                      <DistributionItem
-                        key={entry.statusCode}
-                        label={String(entry.statusCode)}
-                        count={entry.count}
-                        maxCount={ins.data.byStatusCode[0]?.count ?? 0}
-                      />
-                    ))}
-                </Stack>
-              </Box>
-            )}
+        {!ins.filteredOutAllData &&
+          (ins.data.byStatusCode.length > 1 || ins.data.byMethod.length > 1) && (
+            <Stack direction="row" spacing={3} sx={{ flexWrap: "wrap", flexShrink: 0, mb: 2.25 }}>
+              {ins.data.byStatusCode.length > 1 && (
+                <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
+                  <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
+                  <Stack spacing={0.25}>
+                    {ins.data.byStatusCode
+                      .slice()
+                      .sort((a, b) => b.count - a.count)
+                      .map((entry) => (
+                        <DistributionItem
+                          key={entry.statusCode}
+                          label={String(entry.statusCode)}
+                          count={entry.count}
+                          maxCount={ins.data.byStatusCode[0]?.count ?? 0}
+                        />
+                      ))}
+                  </Stack>
+                </Box>
+              )}
 
-            {ins.data.byMethod.length > 0 && (
-              <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
-                <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
-                <Stack spacing={0.25}>
-                  {ins.data.byMethod
-                    .slice()
-                    .sort((a, b) => b.count - a.count)
-                    .map((entry) => (
-                      <DistributionItem
-                        key={entry.method}
-                        label={entry.method}
-                        count={entry.count}
-                        maxCount={ins.data.byMethod[0]?.count ?? 0}
-                      />
-                    ))}
-                </Stack>
-              </Box>
-            )}
-          </Stack>
-        )}
+              {ins.data.byMethod.length > 1 && (
+                <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
+                  <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
+                  <Stack spacing={0.25}>
+                    {ins.data.byMethod
+                      .slice()
+                      .sort((a, b) => b.count - a.count)
+                      .map((entry) => (
+                        <DistributionItem
+                          key={entry.method}
+                          label={entry.method}
+                          count={entry.count}
+                          maxCount={ins.data.byMethod[0]?.count ?? 0}
+                        />
+                      ))}
+                  </Stack>
+                </Box>
+              )}
+            </Stack>
+          )}
 
-        {!ins.filteredOutAllData && ins.data.slowRequests.length > 0 && (
-          <Box>
-            <SectionTitle>{t("insightsPage.slowRequests.title")}</SectionTitle>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
-                    {t("insightsPage.slowRequests.url")}
-                  </TableCell>
-                  <TableCell sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}>
-                    {t("insightsPage.slowRequests.method")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.slowRequests.status")}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{ color: "text.secondary", fontWeight: 700, fontSize: 12 }}
-                  >
-                    {t("insightsPage.slowRequests.duration")}
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {ins.data.slowRequests.map((req) => {
-                  const urlSummary = summarizeUrl(req.url);
-                  const durationIntensity = getDurationIntensity(
-                    req.durationMs,
-                    ins.slowRequestMaxDuration,
-                  );
+        {!ins.filteredOutAllData && ins.hasActiveFilters && rankedRequests.length > 0 && (
+          <Box
+            sx={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              minHeight: INSIGHTS_REQUEST_PANEL_MIN_HEIGHT,
+            }}
+          >
+            <ToggleButtonGroup
+              exclusive
+              onChange={(_event, value) => {
+                if (value === "largest" || value === "slow") {
+                  setRequestView(value);
+                }
+              }}
+              size="small"
+              sx={{ mb: 0.75, mt: 0.5 }}
+              value={requestView}
+            >
+              <ToggleButton value="slow">{t("insightsPage.slowRequests.title")}</ToggleButton>
+              <ToggleButton value="largest">{t("insightsPage.largestRequests.title")}</ToggleButton>
+            </ToggleButtonGroup>
+            <Box
+              ref={requestsScrollRef}
+              sx={{
+                border: "1px solid",
+                borderColor: (theme) =>
+                  alpha(theme.palette.divider, theme.palette.mode === "dark" ? 0.78 : 0.92),
+                borderRadius: 1,
+                flex: 1,
+                minHeight: 0,
+                overflow: "auto",
+              }}
+            >
+              <Box
+                sx={{
+                  alignItems: "center",
+                  bgcolor: (theme) =>
+                    alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.98 : 1),
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                  columnGap: 1.5,
+                  display: "grid",
+                  gridTemplateColumns: INSIGHTS_REQUEST_GRID_COLUMNS,
+                  px: 1.5,
+                  py: 0.5,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 1,
+                }}
+              >
+                <Typography sx={{ color: "text.secondary", fontSize: 12, fontWeight: 700 }}>
+                  {t("insightsPage.slowRequests.url")}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    textAlign: "right",
+                  }}
+                >
+                  {t("insightsPage.slowRequests.status")}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    pr: 0.75,
+                    textAlign: "right",
+                  }}
+                >
+                  {t("insightsPage.slowRequests.size")}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    pr: 0.75,
+                    textAlign: "right",
+                  }}
+                >
+                  {t("insightsPage.slowRequests.duration")}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  height: requestsVirtualizer.getTotalSize(),
+                  minWidth: "100%",
+                  position: "relative",
+                }}
+              >
+                {requestsVirtualizer.getVirtualItems().map((virtualItem) => {
+                  const req = rankedRequests[virtualItem.index];
+                  if (!req) {
+                    return null;
+                  }
+
+                  // The scroll container already draws the panel border, so the
+                  // last row omits its divider to avoid a doubled bottom line.
+                  const isLastRequestRow = virtualItem.index === rankedRequests.length - 1;
 
                   return (
-                    <TableRow
-                      hover
+                    <Box
                       key={req.sessionId}
                       onClick={() =>
                         navigate("/", {
@@ -542,72 +795,26 @@ export function InsightsPage() {
                           },
                         })
                       }
-                      sx={{ cursor: "pointer", "&:last-child td": { borderBottom: 0 } }}
+                      style={{
+                        height: virtualItem.size,
+                        left: 0,
+                        position: "absolute",
+                        top: virtualItem.start,
+                        width: "100%",
+                      }}
+                      sx={{
+                        borderBottom: isLastRequestRow ? 0 : "1px solid",
+                        borderColor: "divider",
+                        cursor: "pointer",
+                        "&:hover": { bgcolor: "action.hover" },
+                      }}
                     >
-                      <TableCell sx={{ minWidth: 360 }} title={req.url}>
-                        <Typography
-                          sx={{
-                            fontFamily: "monospace",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          {urlSummary.primary}
-                        </Typography>
-                        <Typography
-                          color="text.secondary"
-                          noWrap
-                          sx={{
-                            fontFamily: "monospace",
-                            fontSize: 12,
-                            maxWidth: 820,
-                          }}
-                        >
-                          {[urlSummary.host, urlSummary.secondary].filter(Boolean).join("  ")}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 13, fontWeight: 600 }}>{req.method}</TableCell>
-                      <TableCell
-                        align="right"
-                        sx={(theme) => ({
-                          color:
-                            req.statusCode >= 400
-                              ? theme.palette.error.main
-                              : theme.palette.success.main,
-                          fontSize: 13,
-                          fontWeight: 700,
-                        })}
-                      >
-                        {req.statusCode}
-                      </TableCell>
-                      <TableCell
-                        align="right"
-                        sx={(theme) => ({
-                          bgcolor: alpha(
-                            theme.palette.warning.main,
-                            0.08 + durationIntensity * 0.16,
-                          ),
-                          borderRadius: 0.5,
-                          color:
-                            durationIntensity > 0.85
-                              ? darken(
-                                  theme.palette.warning.main,
-                                  theme.palette.mode === "dark" ? 0 : 0.25,
-                                )
-                              : "text.primary",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          whiteSpace: "nowrap",
-                        })}
-                      >
-                        {formatDuration(req.durationMs)}
-                      </TableCell>
-                    </TableRow>
+                      <RequestRankingRow maxDuration={maxDuration} maxSize={maxSize} req={req} />
+                    </Box>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </Box>
+            </Box>
           </Box>
         )}
       </Paper>

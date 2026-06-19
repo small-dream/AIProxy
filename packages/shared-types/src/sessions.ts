@@ -132,6 +132,7 @@ export type InsightsResult = {
   byStatusCode: StatusCodeDistribution[];
   byMethod: MethodDistribution[];
   slowRequests: SlowRequest[];
+  largestRequests: SlowRequest[];
 };
 
 export type HostInsight = {
@@ -159,6 +160,7 @@ export type SlowRequest = {
   method: string;
   statusCode: number;
   durationMs: number;
+  sizeBytes: number;
 };
 
 export type GetInsightsInput = {
@@ -788,7 +790,8 @@ function isSlowRequest(value: unknown): value is SlowRequest {
     typeof candidate.url === "string" &&
     typeof candidate.method === "string" &&
     typeof candidate.statusCode === "number" &&
-    typeof candidate.durationMs === "number"
+    typeof candidate.durationMs === "number" &&
+    typeof candidate.sizeBytes === "number"
   );
 }
 
@@ -815,7 +818,9 @@ function isInsightsResult(value: unknown): value is InsightsResult {
     Array.isArray(candidate.byMethod) &&
     candidate.byMethod.every(isMethodDistribution) &&
     Array.isArray(candidate.slowRequests) &&
-    candidate.slowRequests.every(isSlowRequest)
+    candidate.slowRequests.every(isSlowRequest) &&
+    Array.isArray(candidate.largestRequests) &&
+    candidate.largestRequests.every(isSlowRequest)
   );
 }
 
