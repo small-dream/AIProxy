@@ -335,6 +335,34 @@ export function resolveResponseEmptyStateMessage(
     : messages.noJsonBody;
 }
 
+/**
+ * Whether a response body tab (json / jsonText / text) is still waiting for its
+ * content and should render a loading state instead of an empty-body message.
+ *
+ * The body is considered still loading in two situations:
+ *  - the captured detail has no `responseBody` yet, but the detail query is
+ *    still being fetched. This happens when a session was selected while the
+ *    request was still in flight: on completion the summary updates (and the
+ *    body tab appears) before the detail refetch resolves, so for a moment the
+ *    tab is visible while the body is not.
+ *  - the body is present but its text was deferred and is being loaded on
+ *    demand.
+ *
+ * Only when neither holds should a missing body be treated as genuinely empty.
+ */
+export function isResponseBodyStillLoading(
+  detail: SessionDetail | undefined,
+  options: { isDeferredContentLoading: boolean; isDetailFetching: boolean },
+): boolean {
+  const body = detail?.responseBody;
+
+  if (!body) {
+    return options.isDetailFetching;
+  }
+
+  return Boolean(options.isDeferredContentLoading && body.textDeferred);
+}
+
 export function formatJsonText(value: JsonValue) {
   return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
 }

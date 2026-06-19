@@ -180,6 +180,22 @@ impl SessionCache {
         evicted
     }
 
+    /// If a detail for this session is already cached, replace it with the given
+    /// (fresh) detail so a viewer does not keep reading a stale snapshot — for
+    /// example one captured while the request was still in flight, before the
+    /// response body arrived. Does NOT insert a new entry: details still enter
+    /// the LRU only when explicitly viewed, so completing a session the user
+    /// never opened does not pollute or thrash the cache.
+    pub fn refresh_detail_if_cached(&self, session_id: &str, detail: ProxySessionDetail) {
+        let mut details = self
+            .details
+            .lock()
+            .expect("session detail mutex should not be poisoned");
+        if details.contains_key(session_id) {
+            details.insert(session_id.to_string(), detail);
+        }
+    }
+
     /// Remove specific detail entries.
     pub fn remove_details(&self, ids: &HashSet<String>) {
         let mut details = self
@@ -254,7 +270,7 @@ fn select_eviction_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aiproxy_proxy_core::ProxySessionSummary;
+    use aiproxy_proxy_core::{ProxyBodyReference, ProxySessionDetail, ProxySessionSummary};
     use std::collections::HashSet;
 
     fn build_summary(id: &str, host: &str) -> ProxySessionSummary {
@@ -280,6 +296,87 @@ mod tests {
 
     fn build_focused_hosts(hosts: &[&str]) -> HashSet<String> {
         hosts.iter().map(|h| h.to_string()).collect()
+    }
+
+    fn build_detail(
+        summary: &ProxySessionSummary,
+        response_body: Option<ProxyBodyReference>,
+    ) -> ProxySessionDetail {
+        ProxySessionDetail {
+            client_address: Some("127.0.0.1:54321".to_string()),
+            id: summary.id.clone(),
+            query_params: Vec::new(),
+            cookies: Vec::new(),
+            raw_request_head: Some("GET / HTTP/1.1".to_string()),
+            raw_response_head: Some("HTTP/1.1 200 OK".to_string()),
+            request_body: None,
+            request_headers: Vec::new(),
+            response_body,
+            response_headers: Vec::new(),
+            map_traces: Vec::new(),
+            rewrite_traces: Vec::new(),
+            server_ip: Some("1.2.3.4".to_string()),
+            script_traces: Vec::new(),
+            summary: summary.clone(),
+            throttle_traces: Vec::new(),
+            tls_cipher_suite: Some("TLS_AES_128_GCM_SHA256".to_string()),
+            tls_protocol: Some("TLSv1.3".to_string()),
+            timing: None,
+            timing_source: None,
+            trailers: None,
+            h2_stream_id: None,
+        }
+    }
+
+    #[test]
+    fn refresh_detail_if_cached_replaces_stale_snapshot() {
+        // Reproduces the in-flight selection bug: a detail captured before the
+        // response arrived (no response_body) is cached, then the session
+        // completes and the cached snapshot must be refreshed in place.
+        let cache = SessionCache::new();
+        let summary = build_summary("1", "api.example.com");
+        cache.insert_detail(summary.id.clone(), build_detail(&summary, None));
+        assert!(cache
+            .try_get_detail(&summary.id)
+            .unwrap()
+            .response_body
+            .is_none());
+
+        let fresh = build_detail(
+            &summary,
+            Some(ProxyBodyReference::from_decoded_bytes(
+                b"{\"ok\":true}".to_vec(),
+                Some("application/json".to_string()),
+                11,
+                false,
+                true,
+            )),
+        );
+        cache.refresh_detail_if_cached(&summary.id, fresh);
+
+        let cached = cache.try_get_detail(&summary.id).unwrap();
+        assert!(cached.response_body.is_some());
+    }
+
+    #[test]
+    fn refresh_detail_if_cached_does_not_cache_unviewed_session() {
+        // Completing a session the user never opened must not pollute the LRU.
+        let cache = SessionCache::new();
+        let summary = build_summary("1", "api.example.com");
+        let fresh = build_detail(
+            &summary,
+            Some(ProxyBodyReference::from_decoded_bytes(
+                b"{}".to_vec(),
+                Some("application/json".to_string()),
+                2,
+                false,
+                true,
+            )),
+        );
+
+        cache.refresh_detail_if_cached(&summary.id, fresh);
+
+        assert!(cache.try_get_detail(&summary.id).is_none());
     }
 
     #[test]

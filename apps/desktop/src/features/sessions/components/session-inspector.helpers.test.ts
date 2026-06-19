@@ -10,6 +10,7 @@ import {
   getJsonChildren,
   getRequestOperationLabel,
   hasPreviewableMediaMimeType,
+  isResponseBodyStillLoading,
   parseFormEntries,
   parseJsonBody,
   resolveResponseEmptyStateMessage,
@@ -416,5 +417,58 @@ describe("resolveResponseEmptyStateMessage", () => {
     expect(
       resolveResponseEmptyStateMessage({ status: "tooLarge", message: "big" }, false, messages),
     ).toBe("NO_JSON_BODY");
+  });
+});
+
+describe("isResponseBodyStillLoading", () => {
+  it("loads while the detail is still being fetched and no body is captured yet", () => {
+    // Reproduces the in-flight selection bug: the body tab is already visible
+    // (driven by the session summary) while the completed detail refetch has
+    // not resolved, so the body must not be reported as empty yet.
+    const detail = createSessionDetail();
+
+    expect(
+      isResponseBodyStillLoading(detail, {
+        isDeferredContentLoading: false,
+        isDetailFetching: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats a missing body as settled once the detail fetch completes", () => {
+    const detail = createSessionDetail();
+
+    expect(
+      isResponseBodyStillLoading(detail, {
+        isDeferredContentLoading: false,
+        isDetailFetching: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("loads while deferred body text is being fetched on demand", () => {
+    const detail = createSessionDetail({
+      responseBody: createBodyReference({ textDeferred: true }),
+    });
+
+    expect(
+      isResponseBodyStillLoading(detail, {
+        isDeferredContentLoading: true,
+        isDetailFetching: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not load once the deferred body text is available", () => {
+    const detail = createSessionDetail({
+      responseBody: createBodyReference({ textDeferred: true }),
+    });
+
+    expect(
+      isResponseBodyStillLoading(detail, {
+        isDeferredContentLoading: false,
+        isDetailFetching: false,
+      }),
+    ).toBe(false);
   });
 });

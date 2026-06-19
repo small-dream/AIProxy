@@ -44,6 +44,7 @@ import {
   getBodyText,
   getRawMessageText,
   hasPreviewableMediaMimeType,
+  isResponseBodyStillLoading,
   type JsonParseResult,
   type ResponseInspectorTab,
   resolveResponseEmptyStateMessage,
@@ -53,6 +54,7 @@ import { isWebSocketSession } from "./session-inspector.helpers";
 import { SessionInspectorMediaPreview } from "./SessionInspectorMediaPreview";
 import { SearchBar } from "./SearchBar";
 import { useSearchController } from "./use-search-controller";
+import { useSessionDetailFetching } from "../use-session-detail";
 
 export type ResponsePaneHandle = {
   activateSearch: () => void;
@@ -454,6 +456,11 @@ function ResponseTabContent({
   session: SessionSummary;
 }) {
   const { t } = useI18n();
+  const isSessionDetailFetching = useSessionDetailFetching(session.id);
+  const isResponseBodyPending = isResponseBodyStillLoading(detail, {
+    isDeferredContentLoading: isResponseBodyLoading,
+    isDetailFetching: isSessionDetailFetching,
+  });
   const bodyDescription = describeBody(detail?.responseBody, {
     formatBytes: (value) => t("common.tech.bytes", { value }),
     truncatedPreviewLabel: t("common.tech.truncatedPreview"),
@@ -557,7 +564,7 @@ function ResponseTabContent({
   }
 
   if (responseTab === "json") {
-    if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
+    if (isResponseBodyPending) {
       return (
         <InspectorScrollArea>
           <Typography variant="body2" sx={{
@@ -593,7 +600,7 @@ function ResponseTabContent({
   }
 
   if (responseTab === "jsonText") {
-    if (isResponseBodyLoading && detail?.responseBody?.textDeferred) {
+    if (isResponseBodyPending) {
       return (
         <InspectorScrollArea>
           <Typography variant="body2" sx={{
@@ -650,7 +657,7 @@ function ResponseTabContent({
       }}>
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
-      {isResponseBodyLoading && detail?.responseBody?.textDeferred ? (
+      {isResponseBodyPending ? (
         <Typography variant="body2" sx={{
           color: "text.secondary"
         }}>

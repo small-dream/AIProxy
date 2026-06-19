@@ -314,8 +314,11 @@ impl AppState {
     }
 
     /// Update the in-memory caches and emit frontend events for a session.
-    /// Detail is NOT inserted into the LRU here — only the summary Vec is.
-    /// Detail enters the LRU only when explicitly viewed via `read_session_detail()`.
+    /// A new detail is NOT inserted into the LRU here — only the summary Vec
+    /// is; details enter the LRU only when explicitly viewed via
+    /// `read_session_detail()`. An already-cached detail for this session is,
+    /// however, refreshed in place so a viewer does not keep reading a stale
+    /// snapshot (e.g. one captured before the response body arrived).
     fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) {
         let session_summary = session_detail.summary.clone();
         let focused_hosts = self.read_focused_hosts();
@@ -323,6 +326,13 @@ impl AppState {
         let removed_ids = self
             .cache
             .upsert_summary(session_summary.clone(), &focused_hosts);
+
+        // A session update (e.g. the response arriving for a request that was
+        // captured while still in flight) makes any previously-cached detail
+        // stale. Refresh it in place if present so viewers do not keep reading
+        // the old snapshot; unviewed sessions are left out of the LRU.
+        self.cache
+            .refresh_detail_if_cached(&session_detail.id, session_detail.clone());
 
         if !removed_ids.is_empty() {
             tracing::warn!(
