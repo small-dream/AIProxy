@@ -23,6 +23,8 @@ describe("groupDocsEntries", () => {
       "script-rules",
       "script-rules-examples",
       "throttling",
+      "breakpoints",
+      "map-rules",
     ]);
   });
 

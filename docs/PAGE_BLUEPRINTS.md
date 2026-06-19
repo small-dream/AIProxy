@@ -1199,7 +1199,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 ### 13.1 页面目标
 
-- 离线提供证书安装、规则、弱网、WebSocket 等用户指南，无需维护独立文档站。
+- 离线提供覆盖主要功能的用户指南，按四组组织（快速上手 / 抓包与检视 / 规则与改写 / 进阶），含证书安装、会话检视、DNS 映射、WebSocket、Rewrite、脚本、限速、断点、映射（本地/远程）、集合与环境变量、Compose、Insights、会话对比、设置等，无需维护独立文档站。
 - 文档源单一：`apps/desktop/user-guides/*.md` 是应用内置指南的事实源，经 Vite `@docs` 别名 + `import.meta.glob ?raw` eager 内联进前端 bundle。
 
 ### 13.2 低保真线框

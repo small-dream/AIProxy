@@ -38,16 +38,22 @@ export const docsEntries: DocsEntry[] = [
     order: 0,
   },
   {
+    slug: "sessions",
+    titleKey: "docsPage.entries.sessions",
+    group: "capture",
+    order: 0,
+  },
+  {
     slug: "dns-mapping",
     titleKey: "docsPage.entries.dnsMapping",
     group: "capture",
-    order: 0,
+    order: 1,
   },
   {
     slug: "websocket-inspector",
     titleKey: "docsPage.entries.websocketInspector",
     group: "capture",
-    order: 1,
+    order: 2,
   },
   {
     slug: "rewrite-rules",
@@ -74,9 +80,45 @@ export const docsEntries: DocsEntry[] = [
     order: 3,
   },
   {
+    slug: "breakpoints",
+    titleKey: "docsPage.entries.breakpoints",
+    group: "rules",
+    order: 4,
+  },
+  {
+    slug: "map-rules",
+    titleKey: "docsPage.entries.mapRules",
+    group: "rules",
+    order: 5,
+  },
+  {
     slug: "collections-and-environments",
     titleKey: "docsPage.entries.collectionsAndEnvironments",
     group: "advanced",
     order: 0,
+  },
+  {
+    slug: "compose",
+    titleKey: "docsPage.entries.compose",
+    group: "advanced",
+    order: 1,
+  },
+  {
+    slug: "insights",
+    titleKey: "docsPage.entries.insights",
+    group: "advanced",
+    order: 2,
+  },
+  {
+    slug: "session-compare",
+    titleKey: "docsPage.entries.sessionCompare",
+    group: "advanced",
+    order: 3,
+  },
+  {
+    slug: "settings",
+    titleKey: "docsPage.entries.settings",
+    group: "advanced",
+    order: 4,
   },
 ];

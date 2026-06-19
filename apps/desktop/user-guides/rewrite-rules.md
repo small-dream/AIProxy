@@ -278,7 +278,7 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 补充说明：
 
 - `Map Local` 直接返回本地响应时，请求阶段 Script 不执行，但响应阶段 Rewrite / Script 仍可继续处理返回内容
-- 响应体超过捕获限制时，AIProxy 会跳过响应 Body 改写，避免大文件造成性能问题
+- 响应体超过捕获上限（当前为 20 MB）时，AIProxy 会跳过响应 Body 改写，避免大文件造成性能问题
 
 ## 无效组合保护
 
