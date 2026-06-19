@@ -1,0 +1,5 @@
+# Pin the Rust toolchain so the whole team and CI build with the same version.
+# Bump when upgrading Rust — e.g. rusqlite 0.40 pulls libsqlite3-sys 0.38 which
+# needs `cfg_select!`, stabilized in Rust 1.95.
+[toolchain]
+channel = "1.96.0"
