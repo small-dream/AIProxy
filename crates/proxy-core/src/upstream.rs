@@ -265,6 +265,14 @@ async fn build_upstream_response_from_hyper(
             })?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
+    // Surface both the declared and actually-captured body size so that an
+    // "empty body" success (e.g. a 200 with zero DATA frames) can be told apart
+    // from a capture failure directly from the logs, without inspecting the UI.
+    let content_length = response_headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+
     tracing::info!(
         event = "upstream_request_succeeded",
         request_id = %request.request_id,
@@ -278,6 +286,8 @@ async fn build_upstream_response_from_hyper(
         tls_ms = %connection_timing.tls_ms.map_or_else(|| "n/a".to_string(), |v| v.to_string()),
         waiting_ms = waiting_ms,
         response_read_ms = response_read_ms,
+        response_body_size_bytes = response_body_size_bytes,
+        content_length = %content_length.map_or_else(|| "n/a".to_string(), |v| v.to_string()),
         "upstream_request_succeeded"
     );
 

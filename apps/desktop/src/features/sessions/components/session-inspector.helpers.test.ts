@@ -12,6 +12,7 @@ import {
   hasPreviewableMediaMimeType,
   parseFormEntries,
   parseJsonBody,
+  resolveResponseEmptyStateMessage,
   serializeJsonNode,
 } from "./session-inspector.helpers";
 
@@ -384,5 +385,36 @@ describe("hasPreviewableMediaMimeType", () => {
 
   it("returns false for empty string", () => {
     expect(hasPreviewableMediaMimeType("")).toBe(false);
+  });
+});
+
+describe("resolveResponseEmptyStateMessage", () => {
+  const messages = {
+    noJsonBody: "NO_JSON_BODY",
+    emptyBodyReceived: "EMPTY_BODY_RECEIVED",
+  };
+
+  it("attributes an empty body to the server when no body was captured", () => {
+    expect(resolveResponseEmptyStateMessage({ status: "idle" }, false, messages)).toBe(
+      "EMPTY_BODY_RECEIVED",
+    );
+  });
+
+  it("falls back to the generic copy when a non-JSON body is present", () => {
+    expect(resolveResponseEmptyStateMessage({ status: "idle" }, true, messages)).toBe(
+      "NO_JSON_BODY",
+    );
+  });
+
+  it("uses the generic copy for parse errors even with no body", () => {
+    expect(
+      resolveResponseEmptyStateMessage({ status: "error", message: "boom" }, false, messages),
+    ).toBe("NO_JSON_BODY");
+  });
+
+  it("uses the generic copy for too-large bodies", () => {
+    expect(
+      resolveResponseEmptyStateMessage({ status: "tooLarge", message: "big" }, false, messages),
+    ).toBe("NO_JSON_BODY");
   });
 });

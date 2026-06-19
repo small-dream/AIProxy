@@ -166,6 +166,42 @@ describe("SessionInspectorWorkspace", () => {
     ]);
   });
 
+  it.each(["json", "jsonText"] as const)(
+    "renders missing JSON body as an empty state in the %s response tab",
+    (responseTab) => {
+      const { container } = render(
+        <AppProviders>
+          <SessionInspectorWorkspace
+            detailErrorMessage={undefined}
+            inspectorSplitRatio={0.4}
+            isDetailLoading={false}
+            onCopyCurl={undefined}
+            onCopyUrl={undefined}
+            onInspectorResizeStart={() => {}}
+            onRepeat={undefined}
+            onRequestCollapsedChange={() => {}}
+            onRequestTabChange={() => {}}
+            onResponseTabChange={() => {}}
+            requestCollapsed={false}
+            requestTab="query"
+            responseTab={responseTab}
+            selectedSession={createSessionSummary()}
+            selectedSessionDetail={createSessionDetail({
+              responseBody: {
+                mimeType: "application/json",
+                sizeBytes: 0,
+              },
+            })}
+            sessionSelectionNonce={0}
+          />
+        </AppProviders>,
+      );
+
+      expect(screen.getByText("No JSON body available for this response.")).toBeInTheDocument();
+      expect(container.querySelector("pre")).not.toBeInTheDocument();
+    },
+  );
+
   it("shows captured response timing and marks unsupported proxy timing phases unavailable", () => {
     render(
       <AppProviders>

@@ -1192,6 +1192,7 @@ export const enMessages = {
       jsonSearchPlaceholder: "Search JSON tree",
       jsonTextSearchPlaceholder: "Search JSON text",
       noJsonBody: "No JSON body available for this response.",
+      emptyBodyReceived: "Server returned an empty response body (0 bytes).",
       noTextBody: "No text response body available.",
       noResponseBodyCaptured: "No response body captured",
       rawUnavailable: "Raw response is not available.",

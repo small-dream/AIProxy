@@ -318,6 +318,23 @@ export function parseJsonBody(
   }
 }
 
+/**
+ * Resolve the empty-state copy shown when a response's JSON view has nothing to
+ * render. When the upstream returned no body at all (idle parse result and no
+ * captured body), attribute the empty body to the server so it is not mistaken
+ * for a proxy capture failure; a present-but-non-JSON body keeps the generic
+ * "no JSON body" copy.
+ */
+export function resolveResponseEmptyStateMessage(
+  responseJsonResult: JsonParseResult,
+  hasResponseBody: boolean,
+  messages: { noJsonBody: string; emptyBodyReceived: string },
+): string {
+  return responseJsonResult.status === "idle" && !hasResponseBody
+    ? messages.emptyBodyReceived
+    : messages.noJsonBody;
+}
+
 export function formatJsonText(value: JsonValue) {
   return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
 }

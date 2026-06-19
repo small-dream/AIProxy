@@ -1,10 +1,12 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Alert,
   Box,
   Divider,
   IconButton,
+  Paper,
   Snackbar,
   Stack,
   Tab,
@@ -30,6 +32,8 @@ import { SessionInspectorAutomationPane } from "./SessionInspectorAutomationPane
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
 import {
+  getWorkbenchFontSize,
+  INSPECTOR_UI_FONT_SIZE,
   InspectorKeyValueTable,
   InspectorScrollArea,
   SearchableCodeBlock,
@@ -42,6 +46,7 @@ import {
   hasPreviewableMediaMimeType,
   type JsonParseResult,
   type ResponseInspectorTab,
+  resolveResponseEmptyStateMessage,
   type SearchMatcher,
 } from "./session-inspector.helpers";
 import { isWebSocketSession } from "./session-inspector.helpers";
@@ -452,6 +457,14 @@ function ResponseTabContent({
     truncatedPreviewLabel: t("common.tech.truncatedPreview"),
     unknownMimeTypeLabel: t("common.tech.unknownMimeType"),
   });
+  const responseEmptyStateMessage = resolveResponseEmptyStateMessage(
+    responseJsonResult,
+    Boolean(detail?.responseBody),
+    {
+      noJsonBody: t("inspector.response.noJsonBody"),
+      emptyBodyReceived: t("inspector.response.emptyBodyReceived"),
+    },
+  );
 
   if (responseTab === "overview") {
     return <SessionInspectorOverview detail={detail} session={session} />;
@@ -559,13 +572,7 @@ function ResponseTabContent({
     }
 
     if (responseJsonResult.status !== "success") {
-      return (
-        <InspectorScrollArea>
-          <Typography color="text.secondary" variant="body2">
-            {t("inspector.response.noJsonBody")}
-          </Typography>
-        </InspectorScrollArea>
-      );
+      return <ResponseEmptyState message={responseEmptyStateMessage} />;
     }
 
     return (
@@ -611,13 +618,13 @@ function ResponseTabContent({
       return <Alert severity="warning">{responseJsonResult.message}</Alert>;
     }
 
+    if (responseJsonResult.status !== "success") {
+      return <ResponseEmptyState message={responseEmptyStateMessage} />;
+    }
+
     return (
       <SearchableCodeBlock
-        code={
-          responseJsonResult.status === "success"
-            ? (responseJsonDisplayText ?? t("inspector.response.noJsonBody"))
-            : t("inspector.response.noJsonBody")
-        }
+        code={responseJsonDisplayText ?? t("inspector.response.noJsonBody")}
         currentMatchIndex={currentMatchIndex}
         language="json"
         matcher={searchMatcher}
@@ -648,5 +655,48 @@ function ResponseTabContent({
         />
       )}
     </Stack>
+  );
+}
+
+function ResponseEmptyState({ message }: { message: string }) {
+  return (
+    <Box
+      sx={{
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        justifyContent: "center",
+        minHeight: 0,
+        px: 2,
+        py: 3,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={(theme) => ({
+          alignItems: "center",
+          bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.045 : 0.035),
+          border: `1px solid ${alpha(theme.palette.divider, 0.72)}`,
+          borderRadius: 1,
+          color: "text.secondary",
+          display: "flex",
+          gap: 1,
+          maxWidth: "min(360px, 100%)",
+          px: 1.5,
+          py: 1,
+        })}
+      >
+        <DescriptionOutlinedIcon sx={{ color: "text.disabled", flex: "0 0 auto", fontSize: 18 }} />
+        <Typography
+          sx={{
+            fontSize: (theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+            lineHeight: 1.4,
+          }}
+          variant="body2"
+        >
+          {message}
+        </Typography>
+      </Paper>
+    </Box>
   );
 }

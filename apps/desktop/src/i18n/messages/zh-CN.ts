@@ -1143,6 +1143,7 @@ export const zhCNMessages: Messages = {
       jsonSearchPlaceholder: "搜索 JSON 树",
       jsonTextSearchPlaceholder: "搜索 JSON 文本",
       noJsonBody: "当前响应没有可用的 JSON Body。",
+      emptyBodyReceived: "服务端未返回响应正文（0 字节）。",
       noTextBody: "当前响应没有可用的文本 Body。",
       noResponseBodyCaptured: "未捕获响应 Body",
       rawUnavailable: "原始响应内容不可用。",
