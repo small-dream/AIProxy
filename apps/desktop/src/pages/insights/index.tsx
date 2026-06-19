@@ -641,10 +641,7 @@ export function InsightsPage() {
                 <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
                   <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
                   <Stack spacing={0.25}>
-                    {ins.data.byStatusCode
-                      .slice()
-                      .sort((a, b) => b.count - a.count)
-                      .map((entry) => (
+                    {ins.data.byStatusCode.map((entry) => (
                         <DistributionItem
                           key={entry.statusCode}
                           label={String(entry.statusCode)}
@@ -660,10 +657,7 @@ export function InsightsPage() {
                 <Box sx={{ flex: "1 1 280px", minWidth: 280 }}>
                   <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
                   <Stack spacing={0.25}>
-                    {ins.data.byMethod
-                      .slice()
-                      .sort((a, b) => b.count - a.count)
-                      .map((entry) => (
+                    {ins.data.byMethod.map((entry) => (
                         <DistributionItem
                           key={entry.method}
                           label={entry.method}

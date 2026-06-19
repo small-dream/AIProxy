@@ -2036,11 +2036,11 @@ type GetInsightsOutput = InsightsResult;
 
 - 后端通过 `aiproxy-db` 的 `compute_insights()` 函数执行 SQLite 聚合查询（`crates/db/src/insights.rs`）
 - 输入以 `sessionIds` 确定查询范围，支持 `excludedHosts` / `hostExact` / `hostKeyword` 进一步过滤
-- `byHost` 按 host 分组聚合请求计数、平均/P95 耗时、错误数和总字节数
-- `byStatusCode` 统计各状态码出现次数
-- `byMethod` 统计各 HTTP 方法出现次数
-- `slowRequests` 按耗时降序返回最慢的请求；总览态（无 host 过滤）取前 20 条（SQL LIMIT 20），聚焦 host（`hostExact` / `hostKeyword`）时不设上限，用于逐条排障
-- `largestRequests` 按响应字节数降序返回最大的请求；上限规则同 `slowRequests`
+- `byHost` 按 host 分组聚合请求计数、平均/P95 耗时、错误数和总字节数；按请求计数降序，计数并列时按 host 升序作确定性次级键
+- `byStatusCode` 统计各状态码出现次数；按次数降序，并列时按状态码升序
+- `byMethod` 统计各 HTTP 方法出现次数；按次数降序，并列时按方法升序
+- `slowRequests` 按耗时降序返回最慢的请求；总览态（无 host 过滤）取前 20 条（SQL LIMIT 20），聚焦 host（`hostExact` / `hostKeyword`）时不设上限，用于逐条排障；耗时并列时按 `started_at` 降序、`id` 升序作确定性次级键，保证后端持久化结果与前端实时计算逐项一致、不抖动
+- `largestRequests` 按响应字节数降序返回最大的请求；上限规则同 `slowRequests`；字节数并列时的次级键同 `slowRequests`
 - `InsightsResult` 包含全局统计：`totalErrors`、`avgDurationMs`、分位数 `p50` / `p95` / `p99`
 
 ## 10.1 Script Rule Commands

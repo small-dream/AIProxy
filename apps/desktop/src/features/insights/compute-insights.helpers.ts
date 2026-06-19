@@ -124,6 +124,45 @@ export function getIntensity(value: number, maxValue: number): number {
   return Math.min(1, value / maxValue);
 }
 
+// ---------------------------------------------------------------------------
+// Comparison helpers (deterministic tiebreakers)
+// ---------------------------------------------------------------------------
+//
+// Every ranking sorts on a single primary key (duration / size / count), so
+// rows that tie on it have no defined order. The backend `ORDER BY` and this
+// frontend sort must agree on the tiebreaker, otherwise tied rows reorder every
+// time the view flips between the persisted backend result and the live
+// frontend computation (see use-insights-data.tsx). These helpers encode the
+// shared rule: newest-first by `startedAt`, then `id` ASC, for the request
+// lists; the natural key ASC for the distributions.
+
+// ISO 8601 UTC `startedAt` values sort chronologically under lexicographic
+// comparison, so plain `<` / `>` stays in lockstep with the backend
+// `ORDER BY ... started_at DESC`.
+function compareStartedAtDesc(a: { startedAt: string }, b: { startedAt: string }): number {
+  if (a.startedAt > b.startedAt) {
+    return -1;
+  }
+  if (a.startedAt < b.startedAt) {
+    return 1;
+  }
+  return 0;
+}
+
+function compareStringAsc(a: string, b: string): number {
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
+}
+
+function compareNumberAsc(a: number, b: number): number {
+  return a - b;
+}
+
 function toSlowRequest(summary: SessionSummary): SlowRequest {
   return {
     sessionId: summary.id,
@@ -215,22 +254,28 @@ export function computeInsightsFromSummaries(
           totalBytes: hostSummaries.reduce((sum, summary) => sum + summary.sizeBytes, 0),
         };
       })
-      .sort((a, b) => b.requestCount - a.requestCount)
+      .sort((a, b) => b.requestCount - a.requestCount || compareStringAsc(a.host, b.host))
       .slice(0, 50),
     byStatusCode: Array.from(statusCodeCounts.entries())
       .map(([statusCode, count]) => ({ statusCode, count }))
-      .sort((a, b) => b.count - a.count),
+      .sort((a, b) => b.count - a.count || compareNumberAsc(a.statusCode, b.statusCode)),
     byMethod: Array.from(methodCounts.entries())
       .map(([method, count]) => ({ method, count }))
-      .sort((a, b) => b.count - a.count),
+      .sort((a, b) => b.count - a.count || compareStringAsc(a.method, b.method)),
     slowRequests: filteredSummaries
       .slice()
-      .sort((a, b) => b.durationMs - a.durationMs)
+      .sort(
+        (a, b) =>
+          b.durationMs - a.durationMs || compareStartedAtDesc(a, b) || compareStringAsc(a.id, b.id),
+      )
       .slice(0, rankingLimit)
       .map(toSlowRequest),
     largestRequests: filteredSummaries
       .slice()
-      .sort((a, b) => b.sizeBytes - a.sizeBytes)
+      .sort(
+        (a, b) =>
+          b.sizeBytes - a.sizeBytes || compareStartedAtDesc(a, b) || compareStringAsc(a.id, b.id),
+      )
       .slice(0, rankingLimit)
       .map(toSlowRequest),
   };

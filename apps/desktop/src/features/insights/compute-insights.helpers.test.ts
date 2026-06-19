@@ -81,6 +81,72 @@ describe("computeInsightsFromSummaries", () => {
     // ...but status code 0 is not a real HTTP status, so it is excluded.
     expect(result.byStatusCode).toEqual([{ statusCode: 200, count: 1 }]);
   });
+
+  // Rankings share a deterministic tiebreaker with the backend so tied rows do
+  // not reorder when the view flips between the backend and frontend paths.
+  it("breaks slow-request ties by startedAt desc, then id asc", () => {
+    const result = computeInsightsFromSummaries(
+      [
+        summary({ id: "a", durationMs: 50, startedAt: "2026-06-19T00:00:01.000Z" }),
+        summary({ id: "b", durationMs: 50, startedAt: "2026-06-19T00:00:03.000Z" }),
+        summary({ id: "c", durationMs: 50, startedAt: "2026-06-19T00:00:02.000Z" }),
+      ],
+      unscoped,
+    );
+
+    expect(result.slowRequests.map((req) => req.sessionId)).toEqual(["b", "c", "a"]);
+  });
+
+  it("breaks slow-request ties by id asc when startedAt is equal", () => {
+    const result = computeInsightsFromSummaries(
+      [summary({ id: "x2", durationMs: 50 }), summary({ id: "x1", durationMs: 50 })],
+      unscoped,
+    );
+
+    expect(result.slowRequests.map((req) => req.sessionId)).toEqual(["x1", "x2"]);
+  });
+
+  it("breaks largest-request ties by startedAt desc, then id asc", () => {
+    const result = computeInsightsFromSummaries(
+      [
+        summary({ id: "a", sizeBytes: 500, startedAt: "2026-06-19T00:00:01.000Z" }),
+        summary({ id: "b", sizeBytes: 500, startedAt: "2026-06-19T00:00:03.000Z" }),
+      ],
+      unscoped,
+    );
+
+    expect(result.largestRequests.map((req) => req.sessionId)).toEqual(["b", "a"]);
+  });
+
+  it("breaks byHost ties by host asc", () => {
+    const result = computeInsightsFromSummaries(
+      [
+        summary({ id: "1", host: "zebra.com" }),
+        summary({ id: "2", host: "alpha.com" }),
+        summary({ id: "3", host: "mango.com" }),
+      ],
+      unscoped,
+    );
+
+    expect(result.byHost.map((host) => host.host)).toEqual([
+      "alpha.com",
+      "mango.com",
+      "zebra.com",
+    ]);
+  });
+
+  it("breaks byStatusCode / byMethod ties by key asc", () => {
+    const result = computeInsightsFromSummaries(
+      [
+        summary({ id: "1", method: "DELETE", statusCode: 500 }),
+        summary({ id: "2", method: "GET", statusCode: 200 }),
+      ],
+      unscoped,
+    );
+
+    expect(result.byStatusCode.map((entry) => entry.statusCode)).toEqual([200, 500]);
+    expect(result.byMethod.map((entry) => entry.method)).toEqual(["DELETE", "GET"]);
+  });
 });
 
 describe("areSessionIdsEqual", () => {

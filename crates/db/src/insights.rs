@@ -242,7 +242,7 @@ pub fn compute_insights(
                         SUM(size_bytes) AS total_bytes
                  FROM session_summaries{where_clause}
                  GROUP BY host
-                 ORDER BY request_count DESC
+                 ORDER BY request_count DESC, host
                  LIMIT 50"
             ))
             .map_err(|e| DbError::query("insights by_host prepare", e))?;
@@ -286,7 +286,7 @@ pub fn compute_insights(
                  FROM session_summaries{where_clause}
                  GROUP BY status_code
                  HAVING status_code > 0
-                 ORDER BY count DESC"
+                 ORDER BY count DESC, status_code"
             ))
             .map_err(|e| DbError::query("insights by_status_code prepare", e))?;
 
@@ -310,7 +310,7 @@ pub fn compute_insights(
                 "SELECT method, COUNT(*) AS count
                  FROM session_summaries{where_clause}
                  GROUP BY method
-                 ORDER BY count DESC"
+                 ORDER BY count DESC, method"
             ))
             .map_err(|e| DbError::query("insights by_method prepare", e))?;
 
@@ -333,7 +333,7 @@ pub fn compute_insights(
             .prepare(&format!(
                 "SELECT id, url, method, status_code, duration_ms, size_bytes
                  FROM session_summaries{where_clause}
-                 ORDER BY duration_ms DESC{ranking_limit_clause}"
+                 ORDER BY duration_ms DESC, started_at DESC, id{ranking_limit_clause}"
             ))
             .map_err(|e| DbError::query("insights slow_requests prepare", e))?;
 
@@ -360,7 +360,7 @@ pub fn compute_insights(
             .prepare(&format!(
                 "SELECT id, url, method, status_code, duration_ms, size_bytes
                  FROM session_summaries{where_clause}
-                 ORDER BY size_bytes DESC{ranking_limit_clause}"
+                 ORDER BY size_bytes DESC, started_at DESC, id{ranking_limit_clause}"
             ))
             .map_err(|e| DbError::query("insights largest_requests prepare", e))?;
 
@@ -482,6 +482,31 @@ mod tests {
         .unwrap();
     }
 
+    // Like `insert_session` but with an explicit `started_at`, so tiebreak
+    // ordering (started_at DESC, id ASC) can be exercised in tests.
+    fn insert_session_started_at(
+        conn: &Connection,
+        id: &str,
+        host: &str,
+        method: &str,
+        status_code: i32,
+        duration_ms: i64,
+        size_bytes: i64,
+        started_at: &str,
+    ) {
+        let url = format!("https://{host}/");
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version,
+                 transport_protocol, application_protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url)
+             VALUES (?1, ?2, ?3, '/', 'HTTP/1.1', 'https', '1.1', 'tcp', 'http',
+                     ?8, '2026-05-25T00:00:01Z', ?4, ?5, ?6, ?7)",
+            params![id, method, host, duration_ms, size_bytes, status_code, url, started_at],
+        )
+        .unwrap();
+    }
+
     #[test]
     fn empty_table_returns_zeros() {
         let conn = test_conn();
@@ -528,6 +553,75 @@ mod tests {
         assert_eq!(result.largest_requests.len(), 3);
         assert_eq!(result.largest_requests[0].session_id, "s2"); // largest size
         assert_eq!(result.largest_requests[0].size_bytes, 1000);
+    }
+
+    // Rankings only sort on their primary key (duration / size / count). Without
+    // a deterministic tiebreaker, SQLite returns tied rows in an undefined order
+    // that also differs from the frontend stable sort — so the view would reorder
+    // tied rows whenever it flips between the backend and frontend paths. These
+    // tests pin the shared tiebreaker rule (started_at DESC, then id ASC for the
+    // request lists; the natural key ASC for the distributions).
+    #[test]
+    fn slow_requests_tiebreak_follows_started_at_then_id() {
+        let conn = test_conn();
+        // Identical duration: order is started_at DESC.
+        insert_session_started_at(&conn, "a", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:01Z");
+        insert_session_started_at(&conn, "b", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:03Z");
+        insert_session_started_at(&conn, "c", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:02Z");
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        let ids: Vec<&str> = result.slow_requests.iter().map(|r| r.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "c", "a"]);
+    }
+
+    #[test]
+    fn slow_requests_tiebreak_falls_back_to_id_when_started_at_equal() {
+        let conn = test_conn();
+        insert_session_started_at(&conn, "x2", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:00Z");
+        insert_session_started_at(&conn, "x1", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:00Z");
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        let ids: Vec<&str> = result.slow_requests.iter().map(|r| r.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["x1", "x2"]); // id ASC
+    }
+
+    #[test]
+    fn largest_requests_tiebreak_follows_started_at() {
+        let conn = test_conn();
+        insert_session_started_at(&conn, "a", "h.com", "GET", 200, 10, 500, "2026-05-25T00:00:01Z");
+        insert_session_started_at(&conn, "b", "h.com", "GET", 200, 10, 500, "2026-05-25T00:00:03Z");
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        let ids: Vec<&str> = result.largest_requests.iter().map(|r| r.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "a"]); // size_bytes tie -> started_at DESC
+    }
+
+    #[test]
+    fn by_host_tiebreak_by_host_name() {
+        let conn = test_conn();
+        // One request per host -> equal request_count -> host ASC.
+        insert_session(&conn, "1", "zebra.com", "GET", 200, 10, 10);
+        insert_session(&conn, "2", "alpha.com", "GET", 200, 10, 10);
+        insert_session(&conn, "3", "mango.com", "GET", 200, 10, 10);
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        let hosts: Vec<&str> = result.by_host.iter().map(|h| h.host.as_str()).collect();
+        assert_eq!(hosts, vec!["alpha.com", "mango.com", "zebra.com"]);
+    }
+
+    #[test]
+    fn distributions_tiebreak_by_key() {
+        let conn = test_conn();
+        // Each status code / method appears once -> count tie -> key ASC.
+        insert_session(&conn, "1", "h.com", "DELETE", 500, 10, 10);
+        insert_session(&conn, "2", "h.com", "GET", 200, 10, 10);
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+        let codes: Vec<i64> = result.by_status_code.iter().map(|s| s.status_code).collect();
+        assert_eq!(codes, vec![200, 500]);
+
+        let methods: Vec<String> = result.by_method.iter().map(|m| m.method.clone()).collect();
+        assert_eq!(methods, vec!["DELETE", "GET"]);
     }
 
     #[test]
