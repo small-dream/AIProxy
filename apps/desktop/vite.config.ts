@@ -1,4 +1,7 @@
-import { defineConfig } from "vite";
+// Import defineConfig from vitest/config so the `test` field is typed. Vitest 4
+// no longer augments vite's UserConfig globally, so importing from "vite" alone
+// makes tsc reject the `test` key below.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
