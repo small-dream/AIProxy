@@ -190,11 +190,9 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "setup_wizard":
         window.dispatchEvent(new CustomEvent("aiproxy-menu-setup-wizard"));
         break;
-      case "documentation": {
-        const docsUrl = "https://github.com/jakejiang/aiproxy";
-        window.open(docsUrl, "_blank");
+      case "documentation":
+        h.navigate("/docs");
         break;
-      }
       case "show_logs":
         void showLogFile().catch((error) => {
           h.onSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));

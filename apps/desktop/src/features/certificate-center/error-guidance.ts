@@ -26,7 +26,7 @@ export type CertificateErrorGuidance = {
   // Whether retrying the same action could succeed. certNotFound in install
   // context is not retryable — the user must generate a cert first.
   canRetry: boolean;
-  // Anchor into docs/user-guides/certificate-setup.md (added in P4).
+  // Anchor into apps/desktop/user-guides/certificate-setup.md (added in P4).
   guideAnchor: string;
 };
 

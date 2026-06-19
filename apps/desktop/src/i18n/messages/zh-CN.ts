@@ -1576,4 +1576,26 @@ export const zhCNMessages: Messages = {
       localIpHint: "确保手机和电脑在同一 Wi-Fi 网络。",
     },
   },
+  docsPage: {
+    title: "文档",
+    subtitle: "离线浏览 AIProxy 用户指南",
+    tocTitle: "目录",
+    tocSelectLabel: "选择指南",
+    groups: {
+      gettingStarted: "快速上手",
+      capture: "抓包与检视",
+      rules: "规则与改写",
+      advanced: "进阶",
+    },
+    entries: {
+      certificateSetup: "证书安装与抓包排障",
+      dnsMapping: "DNS 映射 / Host Override",
+      websocketInspector: "WebSocket 检视器",
+      rewriteRules: "改写规则",
+      scriptRules: "脚本规则",
+      scriptRulesExamples: "脚本规则示例",
+      throttling: "限速模拟",
+      collectionsAndEnvironments: "API 集合与环境变量",
+    },
+  },
 };

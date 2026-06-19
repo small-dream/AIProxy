@@ -42,12 +42,12 @@ AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能
 
 ## 用户指南
 
-- `docs/user-guides/dns-mapping.md`
-- `docs/user-guides/throttling.md`
-- `docs/user-guides/websocket-inspector.md`
-- `docs/user-guides/script-rules.md`
-- `docs/user-guides/script-rules-examples.md`
-- `docs/user-guides/collections-and-environments.md`
+- `apps/desktop/user-guides/dns-mapping.md`
+- `apps/desktop/user-guides/throttling.md`
+- `apps/desktop/user-guides/websocket-inspector.md`
+- `apps/desktop/user-guides/script-rules.md`
+- `apps/desktop/user-guides/script-rules-examples.md`
+- `apps/desktop/user-guides/collections-and-environments.md`
 
 ## 仓库结构
 

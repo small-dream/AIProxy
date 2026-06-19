@@ -1,6 +1,6 @@
 # 脚本规则示例集
 
-这份示例集用于配合 [script-rules.md](/Users/jake/AI/pharles/docs/user-guides/script-rules.md) 使用。
+这份示例集用于配合 [script-rules.md](./script-rules.md) 使用。
 
 如果你是第一次接触脚本规则，建议顺序是：
 

@@ -1193,6 +1193,59 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 验证信任步轮询 `useCertificateStatus().trusted`(2s);首条流量步复用 `useSessions()` + `session-upsert` 事件检测首条会话。
 - 命令层 `reportCommandFailure` 仅记日志;全局 snackbar 与页面级 Alert 不重复表达(引导链路内以页面级为权威)。
 
+## 13. Docs Page — 应用内文档查看器 `已实现`
+
+入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`）。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览，不进入左侧主导航。
+
+### 13.1 页面目标
+
+- 离线提供证书安装、规则、弱网、WebSocket 等用户指南，无需维护独立文档站。
+- 文档源单一：`apps/desktop/user-guides/*.md` 是应用内置指南的事实源，经 Vite `@docs` 别名 + `import.meta.glob ?raw` eager 内联进前端 bundle。
+
+### 13.2 低保真线框
+
+```text
+┌─────────────────────────────────────────────────┐
+│ 📖 文档 / 离线浏览 AIProxy 用户指南             │
+├──────────────┬──────────────────────────────────┤
+│ 目录          │ <当前指南 Markdown 正文>          │
+│ ▸ 快速上手    │ # H1                             │
+│ ▾ 抓包与检视  │ 正文 / 列表 / 代码块 / 表格       │
+│ ▸ 规则与改写  │                                  │
+│ ▸ 进阶        │                                  │
+└──────────────┴──────────────────────────────────┘
+```
+
+窄屏（`< md`）：左侧目录收起为顶部 `Select`（`ListSubheader` 分组）。
+
+### 13.3 组件树
+
+- `DocsPage`（`pages/docs/index.tsx`）
+  - 页面标题区（icon + `docsPage.title` / `docsPage.subtitle`）
+  - 窄屏 `FormControl` / `Select`（`ListSubheader` 分组，`flatMap` 扁平 children）
+  - 两栏 `Box`（grid `260px minmax(0,1fr)`）
+    - 侧栏 `Paper` + `List` / `ListSubheader` / `ListItemButton`
+    - 正文 `Paper`（独立 `overflowY: auto`）+ `MarkdownRenderer`（`density="comfortable"`）
+
+### 13.4 文件映射
+
+- 页面：`pages/docs/index.tsx`、`pages/docs/index.test.tsx`
+- 文档加载：`features/docs/docs-content.ts`（`import.meta.glob("@docs/*.md", ?raw, eager)`，按 basename 归一化 slug）
+- 元数据清单：`features/docs/docs-manifest.ts`（`slug` / `titleKey` / `group` / `order`，标题与分组走 i18n，正文不 i18n）
+- 导航纯函数：`features/docs/docs-navigation.ts`（`groupDocsEntries` / `resolveInitialSlug` / `resolveDocLink`）+ `.test.ts`
+- 共享渲染：`components/shared/MarkdownRenderer.tsx`（compact / comfortable，链接分派）
+
+### 13.5 状态模型
+
+- `activeSlug`：由 URL `?doc=` 派生，`resolveInitialSlug` 在缺失/未知时回退到清单第一项。
+- 切换文档：`setSearchParams({ doc: slug })`；URL 缺失/无效时用 `replace` 回填规范化 slug。
+- 正文滚动复位：`viewportRef.scrollTo({ top: 0 })`（依赖 `activeSlug`）。
+
+### 13.6 数据流
+
+- 构建期：Vite 把 `apps/desktop/user-guides/*.md` 作为 raw 字符串内联；`docs-content.ts` 按 basename 归一化为 `slug → content`。
+- 运行期：`DocsPage` 据 `activeSlug` 取 content，交 `MarkdownRenderer` 渲染；`MarkdownRenderer` 经 `resolveInternalLink`（`DocsPage` 注入 `resolveDocLink`）把 `*.md` 相对引用归一化为 slug → `onInternalLink` 站内切换；`http(s)` 经 `onExternalLink`（`@tauri-apps/plugin-opener` 的 `openUrl`）交系统浏览器；`#anchor` 走默认行为。
+
 ## Sessions UX Constraints
 
 - The host tree in `Session Explorer` must stay collapsed by default.

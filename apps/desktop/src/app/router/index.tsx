@@ -32,6 +32,9 @@ const CertificatesPage = lazy(async () => ({
 const SettingsPage = lazy(async () => ({
   default: (await import("@/pages/settings")).SettingsPage,
 }));
+const DocsPage = lazy(async () => ({
+  default: (await import("@/pages/docs")).DocsPage,
+}));
 
 function LazyRouteFallback() {
   return (
@@ -91,6 +94,10 @@ const router = createHashRouter([
       {
         path: "settings",
         element: renderLazyRoute(SettingsPage),
+      },
+      {
+        path: "docs",
+        element: renderLazyRoute(DocsPage),
       },
     ],
   },

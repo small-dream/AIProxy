@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
+// User guides are bundled into the desktop app; @docs points at their source so
+// docs-content.ts can import them as raw strings (single source of truth).
+const docsGuidesDir = fileURLToPath(new URL("./user-guides", import.meta.url));
+
 export default defineConfig({
   base: "./",
   plugins: [react()],
@@ -42,6 +46,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@docs": docsGuidesDir,
     },
   },
   server: {

@@ -155,6 +155,7 @@ macOS 原生菜单（File/Edit/View/Proxy/Tools/Window/Help）已本地化，随
 - 表格内容：`13 / 20`
 - 辅助信息：`12 / 18`
 - 代码区：`12` 或 `13`
+- Markdown 阅读区（`MarkdownRenderer` comfortable density）：H1 `26`、H2 `22`、H3 `18`、正文 `15`、代码 `13`；`compact` density 用于 AI 总结面板（正文 `13`、代码 `12`）
 
 ## 6.3 字重规范
 
@@ -328,6 +329,7 @@ Capture Workspace
 - `Rules Page`：规则类型切换、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
 - `Settings Page`：代理预设、设置导航与设置内容区
+- `Docs Page`：应用内文档查看器，离线浏览 `apps/desktop/user-guides` 用户指南（Help 菜单入口，不进入主导航）
 
 ## 9.1 Sessions Page
 

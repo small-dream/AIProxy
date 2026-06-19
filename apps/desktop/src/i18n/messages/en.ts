@@ -1644,6 +1644,28 @@ export const enMessages = {
       localIpHint: "Make sure both devices are on the same Wi-Fi network.",
     },
   },
+  docsPage: {
+    title: "Documentation",
+    subtitle: "Browse AIProxy user guides offline.",
+    tocTitle: "Contents",
+    tocSelectLabel: "Select a guide",
+    groups: {
+      gettingStarted: "Getting Started",
+      capture: "Capture & Inspection",
+      rules: "Rules & Rewriting",
+      advanced: "Advanced",
+    },
+    entries: {
+      certificateSetup: "Certificate Setup & Capture Troubleshooting",
+      dnsMapping: "DNS Mapping / Host Override",
+      websocketInspector: "WebSocket Inspector",
+      rewriteRules: "Rewrite Rules",
+      scriptRules: "Script Rules",
+      scriptRulesExamples: "Script Rules Examples",
+      throttling: "Throttling",
+      collectionsAndEnvironments: "Collections & Environments",
+    },
+  },
 } as const;
 
 type MessageCatalog<T> = T extends string
