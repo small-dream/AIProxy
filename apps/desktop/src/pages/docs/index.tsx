@@ -24,14 +24,14 @@ import { groupDocsEntries, resolveDocLink, resolveInitialSlug } from "@/features
 import { useI18n } from "@/i18n";
 
 export function DocsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const rawSlug = searchParams.get("doc");
   const activeSlug = useMemo(() => resolveInitialSlug(rawSlug), [rawSlug]);
   const grouped = useMemo(() => groupDocsEntries(), []);
-  const content = getDocContent(activeSlug);
+  const content = getDocContent(activeSlug, locale);
 
   // Normalize the URL when the ?doc= param is missing or points to an unknown guide.
   useEffect(() => {
@@ -40,10 +40,10 @@ export function DocsPage() {
     }
   }, [rawSlug, activeSlug, setSearchParams]);
 
-  // Reset the article scroll position when switching documents.
+  // Reset the article scroll position when switching documents or language.
   useEffect(() => {
     viewportRef.current?.scrollTo({ top: 0 });
-  }, [activeSlug]);
+  }, [activeSlug, locale]);
 
   function handleSelect(slug: string) {
     setSearchParams({ doc: slug });
@@ -160,6 +160,7 @@ export function DocsPage() {
           <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 820 }}>
             {content ? (
               <MarkdownRenderer
+                key={`${activeSlug}:${locale}`}
                 allowHtml
                 density="comfortable"
                 resolveInternalLink={resolveDocLink}

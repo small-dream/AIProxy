@@ -29,7 +29,9 @@ export const docsGroupTitleKey: Record<DocsGroup, TranslationKey> = {
 };
 
 // Titles/groups are maintained here (not parsed from markdown) because the guides
-// have no frontmatter and their H1 carries a "使用指南" suffix unsuited to nav copy.
+// have no frontmatter and their H1 is a prose title unsuited to compact nav copy.
+// Article bodies live in user-guides/{en,zh-CN}/<slug>.md and are selected by locale
+// in docs-content.ts; slugs here must match a file in both locales (parity-enforced).
 export const docsEntries: DocsEntry[] = [
   {
     slug: "certificate-setup",

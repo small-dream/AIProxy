@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { DocsPage } from "@/pages/docs";
 
 const openUrlMock = vi.fn();
@@ -32,6 +33,9 @@ function articleHeading() {
 describe("DocsPage", () => {
   beforeEach(() => {
     openUrlMock.mockReset();
+    // Pin Chinese so the H1 assertions below are deterministic regardless of the
+    // jsdom navigator language (which resolves to "en" by default).
+    useAppPreferencesStore.getState().setLanguagePreference("zh-CN");
   });
 
   it("renders the guide named in the ?doc= search param", async () => {
@@ -83,5 +87,20 @@ describe("DocsPage", () => {
       expect(articleHeading()).toHaveTextContent("TypeScript");
     });
     expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
+  it("switches article content when the display language changes", async () => {
+    renderDocsAt("/docs?doc=rewrite-rules");
+    // rewrite-rules.md Chinese H1 is "Rewrite 改写规则使用指南".
+    await waitFor(() => expect(articleHeading()).toHaveTextContent("改写规则"));
+
+    // Switching to English must reload the same guide in English (no fallback mixing).
+    useAppPreferencesStore.getState().setLanguagePreference("en");
+
+    await waitFor(() => {
+      // English H1 contains "Rules"; the Chinese phrasing must be gone.
+      expect(articleHeading()).toHaveTextContent("Rules");
+    });
+    expect(articleHeading()).not.toHaveTextContent("改写规则");
   });
 });

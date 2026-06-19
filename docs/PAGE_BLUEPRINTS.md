@@ -1230,8 +1230,8 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 ### 13.4 文件映射
 
 - 页面：`pages/docs/index.tsx`、`pages/docs/index.test.tsx`
-- 文档加载：`features/docs/docs-content.ts`（`import.meta.glob("@docs/*.md", ?raw, eager)`，按 basename 归一化 slug）
-- 元数据清单：`features/docs/docs-manifest.ts`（`slug` / `titleKey` / `group` / `order`，标题与分组走 i18n，正文不 i18n）
+- 文档加载：`features/docs/docs-content.ts`（两个 `import.meta.glob("@docs/{en,zh-CN}/*.md", ?raw, eager)`，各按 basename 归一化 slug，导出 `getDocContent(slug, locale)` 与按 locale 的 slug 列表）
+- 元数据清单：`features/docs/docs-manifest.ts`（`slug` / `titleKey` / `group` / `order`，标题与分组走 i18n；正文按 locale 取，两种语言 1:1，由 `docs-navigation.test.ts` 的 bilingual parity 用例锁死）
 - 导航纯函数：`features/docs/docs-navigation.ts`（`groupDocsEntries` / `resolveInitialSlug` / `resolveDocLink`）+ `.test.ts`
 - 共享渲染：`components/shared/MarkdownRenderer.tsx`（compact / comfortable，链接分派）
 
@@ -1239,12 +1239,13 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 - `activeSlug`：由 URL `?doc=` 派生，`resolveInitialSlug` 在缺失/未知时回退到清单第一项。
 - 切换文档：`setSearchParams({ doc: slug })`；URL 缺失/无效时用 `replace` 回填规范化 slug。
-- 正文滚动复位：`viewportRef.scrollTo({ top: 0 })`（依赖 `activeSlug`）。
+- 正文滚动复位：`viewportRef.scrollTo({ top: 0 })`（依赖 `activeSlug` + `locale`，切文档或切语言都回到顶部）。
+- 正文按当前 `locale`（来自 `useI18n`）取；`MarkdownRenderer` 用 `key={activeSlug + locale}` 强制 remount，避免切语言时旧标题/锚点残留。
 
 ### 13.6 数据流
 
-- 构建期：Vite 把 `apps/desktop/user-guides/*.md` 作为 raw 字符串内联；`docs-content.ts` 按 basename 归一化为 `slug → content`。
-- 运行期：`DocsPage` 据 `activeSlug` 取 content，交 `MarkdownRenderer` 渲染；`MarkdownRenderer` 经 `resolveInternalLink`（`DocsPage` 注入 `resolveDocLink`）把 `*.md` 相对引用归一化为 slug → `onInternalLink` 站内切换；`http(s)` 经 `onExternalLink`（`@tauri-apps/plugin-opener` 的 `openUrl`）交系统浏览器；`#anchor` 走默认行为。
+- 构建期：Vite 把 `apps/desktop/user-guides/{en,zh-CN}/*.md` 作为 raw 字符串内联；`docs-content.ts` 按 locale 分桶、各按 basename 归一化为 `slug → content`，两种语言必须 1:1 同名 slug（parity 测试强制）。
+- 运行期：`DocsPage` 据 `activeSlug` + 当前 `locale` 调 `getDocContent(slug, locale)` 取对应语言正文（精确取，不回退），交 `MarkdownRenderer` 渲染；`MarkdownRenderer` 经 `resolveInternalLink`（`DocsPage` 注入 `resolveDocLink`）把 `*.md` 相对引用归一化为 slug → `onInternalLink` 站内切换（按当前 locale 重载）；`http(s)` 经 `onExternalLink`（`@tauri-apps/plugin-opener` 的 `openUrl`）交系统浏览器；`#anchor` 走默认行为。
 
 ## Sessions UX Constraints
 

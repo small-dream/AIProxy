@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { docsEntries } from "./docs-manifest";
-import { contentSlugs } from "./docs-content";
+import { contentSlugs, contentSlugsByLocale } from "./docs-content";
 import { groupDocsEntries, resolveDocLink, resolveInitialSlug } from "./docs-navigation";
 
 const firstSlug = docsEntries[0]?.slug ?? "";
@@ -88,6 +88,19 @@ describe("manifest <-> content consistency", () => {
   it("every manifest slug has a matching guide file", () => {
     for (const entry of docsEntries) {
       expect(contentSlugs).toContain(entry.slug);
+    }
+  });
+});
+
+describe("bilingual parity", () => {
+  it("en and zh-CN expose the same slug set", () => {
+    expect([...contentSlugsByLocale.en]).toEqual([...contentSlugsByLocale["zh-CN"]]);
+  });
+
+  it("every manifest slug exists in both locales", () => {
+    for (const entry of docsEntries) {
+      expect(contentSlugsByLocale.en).toContain(entry.slug);
+      expect(contentSlugsByLocale["zh-CN"]).toContain(entry.slug);
     }
   });
 });
