@@ -690,8 +690,8 @@ export const enMessages = {
       harmonySteps: [
         "For a physical HarmonyOS NEXT device, connect it over USB, enable HDC debugging, and keep it on the same Wi-Fi network as this computer. For the emulator, make sure hdc can see it and that it can reach the computer's proxy address.",
         "On a physical device, go to Settings > Wi-Fi, tap the connected network, then configure the proxy manually: set the host to the Local IP shown above and the port to the Proxy Port. For the emulator, configure the same proxy address in the emulator's system network settings. HarmonyOS NEXT does not provide an official hdc command for setting a global HTTP proxy.",
-        "Click Push via hdc above to copy the root certificate onto the target and try to open system settings. This does not silently install or trust the certificate.",
-        "On the device, continue inside Settings > Security & Privacy > Encryption & credentials > Install from storage. If the system file picker cannot see the hdc push path, download the certificate with the QR code or device browser and install it from Downloads.",
+        "Click Push via hdc above to copy the root certificate into the device's Downloads folder and try to open the certificate manager. This does not silently install or trust the certificate.",
+        "On the device, continue inside Settings > Security & Privacy > Encryption & credentials > Install from storage, then open the Downloads folder in the file picker and pick the pushed certificate. If it is still not visible, download the certificate with the QR code or device browser and install it.",
         "Manual installation creates a user/VPN & apps certificate, not a system root certificate. Installing into the system trust store requires a rooted or writable-system test device.",
         "Apps that do not trust user CAs, or apps that pin certificates, still need a debug network trust configuration, disabled pinning, or a system-installed CA on a test device.",
         "You can now capture traffic from your HarmonyOS device. Return to this page to view captured sessions.",
@@ -714,7 +714,7 @@ export const enMessages = {
       hdcLoadingDevices: "Detecting hdc devices...",
       hdcManualInstallSteps: [
         "On the device, open Settings > Security & Privacy > Encryption & credentials.",
-        'Tap "Install from storage" / "More security settings" and select the certificate file. If the hdc-pushed file is not visible, download the certificate again with the QR code or device browser.',
+        'Tap "Install from storage" / "More security settings", open the Downloads folder in the file picker, and select the pushed certificate. If it is still not visible, download the certificate again with the QR code or device browser.',
         'When prompted for the name, enter "AIProxy Root CA" and confirm installation as a user certificate (VPN & apps).',
         "Restart the browser or target app on the device for the change to take effect.",
       ],
@@ -729,7 +729,7 @@ export const enMessages = {
       hdcRefreshingDevices: "Refreshing...",
       hdcScanHint: 'Click "Refresh Devices" to scan for HarmonyOS devices.',
       hdcSuccessBody:
-        "The certificate was pushed to {{remotePath}} on {{deviceSerial}}, and AIProxy tried to open system settings. Continue from Settings > Security & Privacy > Encryption & credentials > Install from storage. If that file is not visible, download the certificate with the QR code or device browser.",
+        "The certificate was pushed to the Downloads folder ({{remotePath}}) on {{deviceSerial}}, and AIProxy tried to open the certificate manager. Continue from Settings > Security & Privacy > Encryption & credentials > Install from storage, then open the Downloads folder in the file picker and pick that file. If it is still not visible, download the certificate with the QR code or device browser.",
       hdcSuccessTitle: "Certificate Pushed",
       harmonyQuickActionsTitle: "HarmonyOS Quick Actions",
     },

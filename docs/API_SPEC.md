@@ -1711,7 +1711,7 @@ type ListHarmonyHdcDevicesOutput = Array<{
 
 ### `install_harmony_certificate_via_hdc`
 
-通过 `hdc` 将根证书推送到已连接 HarmonyOS NEXT 设备的 `/data/local/tmp/` 目录，并尽力拉起系统设置以便用户手动完成安装。
+通过 `hdc` 将根证书推送到已连接 HarmonyOS NEXT 设备的「下载」目录（`/storage/media/100/local/files/Download/`），并尽力拉起系统证书管理器以便用户手动完成安装。
 
 请求：
 
@@ -1736,7 +1736,7 @@ type InstallHarmonyCertificateViaHdcOutput = {
 - 需要本机已安装 HarmonyOS SDK / DevEco Studio，且 `hdc` 在 PATH 中可用，或设置了 `HDC_PATH` 环境变量
 - 若传入 `deviceSerial`，会安装到指定设备；若未传入，则仅在恰好 1 台设备处于 `Connected` 状态时自动选择
 - HarmonyOS NEXT **没有**等价于 `adb shell settings put global http_proxy` 的全局代理命令，系统代理需用户在 Wi-Fi 设置中手动配置
-- 该能力仅推送证书并尝试打开设置，**不会绕过** HarmonyOS 的手动确认步骤：用户需进入「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」完成安装
+- 该能力仅推送证书并尝试打开证书管理器，**不会绕过** HarmonyOS 的手动确认步骤：用户需进入「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」，在文件选择器中进入「下载」目录选中推送的证书完成安装
 
 ## 6.9 代理内建 HTTP 端点
 

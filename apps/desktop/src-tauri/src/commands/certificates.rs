@@ -701,10 +701,14 @@ fn list_harmony_hdc_devices_impl() -> Result<Vec<HarmonyHdcDevice>, String> {
 }
 
 /// Push the root certificate to a HarmonyOS NEXT device via hdc, then attempt
-/// to open the system settings page so the user can complete the manual
+/// to open the system certificate manager so the user can complete the manual
 /// install (HarmonyOS NEXT has no adb-style `am install` equivalent that
 /// trusts a user CA in one shot — the user must finish via
 /// Settings → Security → Encryption & credentials → Install from storage).
+///
+/// The cert is pushed to the user-visible Downloads directory so the system
+/// file picker can see it during "Install from storage". The `100` segment is
+/// the default single-user id on HarmonyOS NEXT.
 fn install_harmony_certificate_via_hdc_impl(
     input: InstallHarmonyCertificateViaHdcInput,
     _state: Arc<AppState>,
@@ -727,7 +731,10 @@ fn install_harmony_certificate_via_hdc_impl(
     })?;
 
     let device_serial = resolve_harmony_target_device(input.device_serial.as_deref())?;
-    let remote_path = "/data/local/tmp/aiproxy-root-ca.cer";
+    // Push into the user-visible Downloads directory so the system file picker
+    // can reach it during "Install from storage". `/data/local/tmp/` is not
+    // visible to the picker, which forced users to fall back to QR/browser.
+    let remote_path = "/storage/media/100/local/files/Download/aiproxy-root-ca.cer";
 
     let hdc = resolve_hdc_path()?;
     let push_output = std::process::Command::new(&hdc)
@@ -747,12 +754,12 @@ fn install_harmony_certificate_via_hdc_impl(
         ));
     }
 
-    // Best-effort: open the device's settings so the user can navigate to the
-    // certificate installer. HarmonyOS NEXT does not expose a deterministic
-    // `aa start` action that lands directly on the CA install page, and the
-    // exact bundle/ability differs across device builds — so we log a warning
-    // instead of failing when this is unavailable. The push above is the
-    // authoritative success criterion.
+    // Best-effort: open the system certificate manager so the user can go
+    // straight to "Install from storage". `com.ohos.certmanager` is the
+    // built-in cert manager on HarmonyOS NEXT; the exact bundle/ability can
+    // differ across device builds, so we log a warning instead of failing
+    // when this is unavailable. The push above is the authoritative success
+    // criterion.
     let launch_output = std::process::Command::new(&hdc)
         .args([
             "-t",
@@ -761,9 +768,9 @@ fn install_harmony_certificate_via_hdc_impl(
             "aa",
             "start",
             "-a",
-            "EntryAbility",
+            "MainAbility",
             "-b",
-            "com.android.settings",
+            "com.ohos.certmanager",
         ])
         .output();
 

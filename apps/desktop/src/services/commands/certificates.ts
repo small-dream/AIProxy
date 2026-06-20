@@ -427,7 +427,7 @@ export async function installHarmonyCertificateViaHdc(
     return {
       success: true,
       deviceSerial: input?.deviceSerial ?? "50051abcdefg",
-      remotePath: "/data/local/tmp/aiproxy-root-ca.cer",
+      remotePath: "/storage/media/100/local/files/Download/aiproxy-root-ca.cer",
     };
   }
 
