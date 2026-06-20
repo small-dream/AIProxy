@@ -18,6 +18,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 aiproxy-db = { path = "../../../crates/db" }
 aiproxy-proxy-core = { path = "../../../crates/proxy-core" }
 aiproxy-rule-engine = { path = "../../../crates/rule-engine" }
+aiproxy-sys-util = { path = "../../../crates/sys-util" }
 aiproxy-tls-manager = { path = "../../../crates/tls-manager" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

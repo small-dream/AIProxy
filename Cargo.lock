@@ -48,6 +48,7 @@ dependencies = [
  "aiproxy-db",
  "aiproxy-proxy-core",
  "aiproxy-rule-engine",
+ "aiproxy-sys-util",
  "aiproxy-tls-manager",
  "chrono",
  "dirs",
@@ -79,6 +80,7 @@ name = "aiproxy-proxy-core"
 version = "0.1.0"
 dependencies = [
  "aiproxy-rule-engine",
+ "aiproxy-sys-util",
  "aiproxy-tls-manager",
  "base64 0.22.1",
  "brotli",
@@ -123,9 +125,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiproxy-sys-util"
+version = "0.1.0"
+
+[[package]]
 name = "aiproxy-tls-manager"
 version = "0.1.0"
 dependencies = [
+ "aiproxy-sys-util",
  "base64 0.22.1",
  "chrono",
  "dirs",

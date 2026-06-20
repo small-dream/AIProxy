@@ -1,4 +1,5 @@
 use super::common::*;
+use aiproxy_sys_util::CommandExt;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -370,6 +371,7 @@ fn ios_simctl_available() -> bool {
     {
         std::process::Command::new("xcrun")
             .args(["simctl", "list", "devices", "--json"])
+            .no_window()
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
@@ -524,6 +526,7 @@ fn install_android_certificate_via_adb_impl(
         .args(["-s", &device_serial, "push"])
         .arg(storage.root_cert_install_path())
         .arg(remote_path)
+        .no_window()
         .output()
         .map_err(adb_spawn_error)?;
 
@@ -547,6 +550,7 @@ fn install_android_certificate_via_adb_impl(
             "-a",
             "android.settings.SECURITY_SETTINGS",
         ])
+        .no_window()
         .output()
         .map_err(adb_spawn_error)?;
 
@@ -609,6 +613,7 @@ fn install_ios_certificate_via_simulator_impl(
     let output = std::process::Command::new("xcrun")
         .args(["simctl", "keychain", &simulator.udid, "add-root-cert"])
         .arg(storage.root_cert_path())
+        .no_window()
         .output()
         .map_err(xcrun_spawn_error)?;
 
@@ -741,6 +746,7 @@ fn install_harmony_certificate_via_hdc_impl(
         .args(["-t", &device_serial, "file", "send"])
         .arg(storage.root_cert_install_path())
         .arg(remote_path)
+        .no_window()
         .output()
         .map_err(hdc_spawn_error)?;
 
@@ -772,6 +778,7 @@ fn install_harmony_certificate_via_hdc_impl(
             "-b",
             "com.ohos.certmanager",
         ])
+        .no_window()
         .output();
 
     if let Ok(output) = &launch_output {
@@ -806,6 +813,7 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     {
         std::process::Command::new("rundll32.exe")
             .args(["cryptext.dll,CryptExtOpenCER", cert_path])
+            .no_window()
             .spawn()
             .map_err(|e| {
                 app_error(
@@ -820,6 +828,7 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     {
         std::process::Command::new("open")
             .args(["-a", "Keychain Access", cert_path])
+            .no_window()
             .spawn()
             .map_err(|e| {
                 app_error(
@@ -834,6 +843,7 @@ fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     {
         std::process::Command::new("xdg-open")
             .arg(cert_path)
+            .no_window()
             .spawn()
             .map_err(|e| {
                 app_error(
@@ -858,6 +868,7 @@ fn read_adb_devices() -> Result<Vec<AndroidAdbDevice>, String> {
     let adb = resolve_adb_path()?;
     let output = std::process::Command::new(&adb)
         .args(["devices", "-l"])
+        .no_window()
         .output()
         .map_err(adb_spawn_error)?;
 
@@ -937,6 +948,7 @@ fn read_hdc_devices() -> Result<Vec<HarmonyHdcDevice>, String> {
     let hdc = resolve_hdc_path()?;
     let output = std::process::Command::new(&hdc)
         .args(["list", "targets", "-v"])
+        .no_window()
         .output()
         .map_err(hdc_spawn_error)?;
 
@@ -1015,6 +1027,7 @@ fn read_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
     {
         let output = std::process::Command::new("xcrun")
             .args(["simctl", "list", "devices", "available", "--json"])
+            .no_window()
             .output()
             .map_err(xcrun_spawn_error)?;
 
@@ -1285,7 +1298,7 @@ fn resolve_harmony_target_device(requested_serial: Option<&str>) -> Result<Strin
 
 fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
     // 1. Try bare "adb" from PATH
-    if let Ok(output) = std::process::Command::new("adb").arg("--version").output() {
+    if let Ok(output) = std::process::Command::new("adb").arg("--version").no_window().output() {
         if output.status.success() {
             return Ok(std::path::PathBuf::from("adb"));
         }
@@ -1349,7 +1362,7 @@ fn xcrun_spawn_error(error: std::io::Error) -> String {
 ///   3. DevEco Studio / HarmonyOS SDK common install locations per platform
 fn resolve_hdc_path() -> Result<std::path::PathBuf, String> {
     // 1. Try bare "hdc" from PATH
-    if let Ok(output) = std::process::Command::new("hdc").arg("-v").output() {
+    if let Ok(output) = std::process::Command::new("hdc").arg("-v").no_window().output() {
         if output.status.success() {
             return Ok(std::path::PathBuf::from("hdc"));
         }
@@ -1652,6 +1665,7 @@ fn run_adb_shell_command(device_serial: &str, shell_args: &[&str]) -> Result<(),
     let output = std::process::Command::new(&adb)
         .args(["-s", device_serial, "shell"])
         .args(shell_args)
+        .no_window()
         .output()
         .map_err(adb_spawn_error)?;
 

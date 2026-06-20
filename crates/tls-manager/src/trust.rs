@@ -42,6 +42,7 @@ pub fn is_cert_trusted_on_platform(cert_path: &Path, platform: Platform) -> bool
 #[cfg(target_os = "windows")]
 fn is_trusted_windows(cert_path: &Path) -> bool {
     use std::process::Command;
+    use aiproxy_sys_util::CommandExt;
 
     let thumbprint = match certificate_sha1_thumbprint(cert_path) {
         Ok(thumbprint) => thumbprint,
@@ -107,6 +108,7 @@ foreach ($locationName in @('CurrentUser', 'LocalMachine')) {
     let output = match Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .arg(&thumbprint)
+        .no_window()
         .output()
     {
         Ok(o) => o,

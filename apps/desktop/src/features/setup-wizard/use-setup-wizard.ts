@@ -30,8 +30,8 @@ export function useSetupWizard(): {
   dismiss: () => void;
   complete: () => void;
 } {
-  const { data: certStatus } = useCertificateStatus();
-  const { data: proxyStatus } = useProxyStatus();
+  const { data: certStatus, isLoading: certStatusLoading } = useCertificateStatus();
+  const { data: proxyStatus, isLoading: proxyStatusLoading } = useProxyStatus();
 
   const setupWizardCompleted = useAppPreferencesStore((s) => s.setupWizardCompleted);
   const setupWizardDismissedAt = useAppPreferencesStore((s) => s.setupWizardDismissedAt);
@@ -46,17 +46,25 @@ export function useSetupWizard(): {
 
   const progress = computeSetupProgress(certStatus, proxyStatus, manualProxyAcknowledgedFor);
 
-  const shouldShowWizard = shouldShowSetupWizard({
-    setupWizardCompleted,
-    setupWizardDismissedAt,
-    captureReady: progress.captureReady,
-  });
+  // Hide the wizard/checklist while the backend status is still loading on
+  // startup. Without this guard the undefined cert/proxy status computes to
+  // captureReady=false, which briefly flashes the checklist before the real
+  // status arrives and hides it again.
+  const statusLoading = certStatusLoading || proxyStatusLoading;
+
+  const shouldShowWizard =
+    !statusLoading &&
+    shouldShowSetupWizard({
+      setupWizardCompleted,
+      setupWizardDismissedAt,
+      captureReady: progress.captureReady,
+    });
 
   return {
     progress,
     setupWizardCompleted,
     shouldShowWizard,
-    shouldShowChecklist: !progress.captureReady,
+    shouldShowChecklist: !statusLoading && !progress.captureReady,
     manualProxyAcknowledgedFor,
     acknowledgeManualProxy: (port, workspaceId) =>
       acknowledgeManualProxyInStore({

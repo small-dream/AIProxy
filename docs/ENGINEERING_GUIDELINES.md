@@ -54,6 +54,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 - 文件路径必须使用 `std::path::Path` / `PathBuf` 或 `path.join()`，禁止硬编码路径分隔符
 - 调用外部命令前必须检查命令是否存在或提供 fallback
+- 通过 `std::process::Command` spawn 任何外部命令时，必须链式调用 `aiproxy_sys_util::CommandExt::no_window()`：Windows 上默认会为子进程分配控制台窗口，会在启动或用户操作时闪现黑色 cmd 窗口；该 helper 在 macOS / Linux 为 no-op，调用点无需 `#[cfg]` 守卫
 - 配置文件目录使用 `dirs` crate 获取平台标准路径
 - 日志文件路径通过 `discover_workspace_root_from_current_exe()` 或 `env::temp_dir()` 解析
 

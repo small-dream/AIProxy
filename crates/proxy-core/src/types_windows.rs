@@ -1,5 +1,7 @@
 use std::net::Ipv4Addr;
 
+use aiproxy_sys_util::CommandExt;
+
 pub(super) fn ranked_interface_ipv4_addresses() -> Vec<String> {
     const POWERSHELL_SCRIPT: &str = r#"
 Get-NetIPAddress -AddressFamily IPv4 |
@@ -19,6 +21,7 @@ Get-NetIPAddress -AddressFamily IPv4 |
             "-Command",
             POWERSHELL_SCRIPT,
         ])
+        .no_window()
         .output();
 
     let stdout = match output {

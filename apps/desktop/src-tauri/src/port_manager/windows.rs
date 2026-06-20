@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use aiproxy_sys_util::CommandExt;
 use super::{parse_netstat_pid, parse_tasklist_name, PortOccupant};
 
 /// Resolves the process listening on `port` via `netstat` + `tasklist`. Returns
@@ -8,6 +9,7 @@ use super::{parse_netstat_pid, parse_tasklist_name, PortOccupant};
 pub fn find_port_occupant(port: u16) -> Result<Option<PortOccupant>, String> {
     let netstat = Command::new("netstat")
         .args(["-ano", "-p", "TCP"])
+        .no_window()
         .output()
         .map_err(|error| format!("failed to run netstat: {error}"))?;
     let netstat_stdout = String::from_utf8_lossy(&netstat.stdout);
@@ -17,6 +19,7 @@ pub fn find_port_occupant(port: u16) -> Result<Option<PortOccupant>, String> {
 
     let tasklist = Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .no_window()
         .output()
         .map_err(|error| format!("failed to run tasklist for pid {pid}: {error}"))?;
     let name = parse_tasklist_name(&String::from_utf8_lossy(&tasklist.stdout))
@@ -30,6 +33,7 @@ pub fn find_port_occupant(port: u16) -> Result<Option<PortOccupant>, String> {
 pub fn kill_process_by_pid(pid: u32) -> Result<(), String> {
     let status = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
+        .no_window()
         .status()
         .map_err(|error| format!("failed to run taskkill for pid {pid}: {error}"))?;
 

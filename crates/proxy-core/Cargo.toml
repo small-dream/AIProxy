@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 aiproxy-rule-engine = { path = "../rule-engine" }
+aiproxy-sys-util = { path = "../sys-util" }
 aiproxy-tls-manager = { path = "../tls-manager" }
 base64 = "0.22"
 bytes = "1"

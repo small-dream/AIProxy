@@ -4,6 +4,7 @@ members = [
   "crates/db",
   "crates/proxy-core",
   "crates/rule-engine",
+  "crates/sys-util",
   "crates/tls-manager",
 ]
 resolver = "2"
