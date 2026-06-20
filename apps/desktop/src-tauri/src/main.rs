@@ -1,3 +1,8 @@
+// Prevent Windows from allocating a console window for the release build. In
+// debug builds the console subsystem is kept so logs printed to stdout/stderr
+// remain visible during development.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 #[macro_use]
 extern crate rust_i18n;
 
