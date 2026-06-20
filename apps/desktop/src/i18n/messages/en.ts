@@ -577,6 +577,7 @@ export const enMessages = {
       adbProxyTitle: "ADB Proxy Shortcuts",
       adbRefreshDevices: "Refresh Devices",
       adbRefreshingDevices: "Refreshing...",
+      adbScanHint: 'Click "Refresh Devices" to scan for Android devices.',
       adbSelectedDeviceHint:
         "When both a phone and an emulator are connected, choose the exact target device here.",
       adbSetProxyAction: "Set Proxy via ADB",
@@ -633,6 +634,7 @@ export const enMessages = {
       iosSimulatorPlaceholder: "Select a booted Simulator",
       iosSimulatorRefreshAction: "Refresh Simulators",
       iosSimulatorRefreshing: "Refreshing...",
+      iosSimulatorScanHint: 'Click "Refresh Simulators" to scan for iOS simulators.',
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "The root certificate was installed into {{simulatorName}}. Next, open Certificate Trust Settings in the Simulator and enable full trust manually.",
@@ -708,6 +710,7 @@ export const enMessages = {
       hdcQuickActionsInfoTitle: "HarmonyOS Quick Action Notes",
       hdcRefreshDevices: "Refresh Devices",
       hdcRefreshingDevices: "Refreshing...",
+      hdcScanHint: 'Click "Refresh Devices" to scan for HarmonyOS devices.',
       hdcSuccessBody:
         "The certificate was pushed to {{remotePath}} on {{deviceSerial}}, and system settings were opened. Continue from Settings > Security & Privacy > Encryption & credentials > Install from storage, then pick this file.",
       hdcSuccessTitle: "Certificate Pushed, Settings Opened",

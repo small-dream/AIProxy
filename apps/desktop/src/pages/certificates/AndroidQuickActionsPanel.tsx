@@ -29,7 +29,6 @@ type Props = {
   localIp: string | null;
   proxyPort: number;
   proxyRunning: boolean;
-  devicesQueryEnabled?: boolean;
 };
 
 function formatAdbDeviceLabel(device: {
@@ -48,13 +47,25 @@ export function AndroidQuickActionsPanel({
   localIp,
   proxyPort,
   proxyRunning,
-  devicesQueryEnabled = true,
 }: Props) {
   const { t } = useI18n();
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
 
-  const adbDevicesQuery = useAndroidAdbDevices({ enabled: devicesQueryEnabled });
+  // Device scan is opt-in: many users (e.g. web-only capture) don't have
+  // adb installed, so probing on mount would surface a red error immediately.
+  // Scan only when the user explicitly refreshes.
+  const [adbQueryTriggered, setAdbQueryTriggered] = useState(false);
+
+  const adbDevicesQuery = useAndroidAdbDevices({ enabled: adbQueryTriggered });
+
+  function ensureAdbDevicesLoaded() {
+    if (!adbQueryTriggered) {
+      setAdbQueryTriggered(true);
+      return;
+    }
+    adbDevicesQuery.refetch();
+  }
   const adbInstallMutation = useInstallAndroidCertificateViaAdb();
   const adbSetProxyMutation = useSetAndroidProxyViaAdb();
   const adbClearProxyMutation = useClearAndroidProxyViaAdb();
@@ -156,7 +167,7 @@ export function AndroidQuickActionsPanel({
           </Alert>
         ) : null}
 
-        {adbDevicesQuery.isError ? (
+        {adbQueryTriggered && adbDevicesQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.adbDeviceLoadErrorTitle")}</AlertTitle>
             {adbDevicesQuery.error.message}
@@ -202,7 +213,7 @@ export function AndroidQuickActionsPanel({
           <Button
             variant="outlined"
             size="small"
-            onClick={() => adbDevicesQuery.refetch()}
+            onClick={ensureAdbDevicesLoaded}
             disabled={adbDevicesQuery.isFetching || isBusy}
           >
             {adbDevicesQuery.isFetching
@@ -261,7 +272,15 @@ export function AndroidQuickActionsPanel({
           </Button>
         </Stack>
 
-        {adbDevicesQuery.isLoading ? (
+        {!adbQueryTriggered ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.adbScanHint")}
+          </Typography>
+        ) : null}
+
+        {adbQueryTriggered && adbDevicesQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -269,7 +288,8 @@ export function AndroidQuickActionsPanel({
           </Typography>
         ) : null}
 
-        {!adbDevicesQuery.isLoading &&
+        {adbQueryTriggered &&
+        !adbDevicesQuery.isLoading &&
         !adbDevicesQuery.isError &&
         (adbDevices?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{

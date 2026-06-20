@@ -28,7 +28,6 @@ type Props = {
   localIp: string | null;
   proxyPort: number;
   proxyRunning: boolean;
-  devicesQueryEnabled?: boolean;
 };
 
 function formatHdcDeviceLabel(device: { serial: string; state: string; model?: string }) {
@@ -41,13 +40,25 @@ export function HarmonyQuickActionsPanel({
   localIp,
   proxyPort,
   proxyRunning,
-  devicesQueryEnabled = true,
 }: Props) {
   const { t, tList } = useI18n();
   const [selectedDeviceSerial, setSelectedDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
 
-  const hdcDevicesQuery = useHarmonyHdcDevices({ enabled: devicesQueryEnabled });
+  // Device scan is opt-in: most users (e.g. web-only capture) don't have
+  // hdc installed, so probing on mount would surface a red error immediately.
+  // Scan only when the user explicitly refreshes.
+  const [hdcQueryTriggered, setHdcQueryTriggered] = useState(false);
+
+  const hdcDevicesQuery = useHarmonyHdcDevices({ enabled: hdcQueryTriggered });
+
+  function ensureHdcDevicesLoaded() {
+    if (!hdcQueryTriggered) {
+      setHdcQueryTriggered(true);
+      return;
+    }
+    hdcDevicesQuery.refetch();
+  }
   const hdcInstallMutation = useInstallHarmonyCertificateViaHdc();
 
   const hdcDevices = hdcDevicesQuery.data;
@@ -123,7 +134,7 @@ export function HarmonyQuickActionsPanel({
           </Alert>
         ) : null}
 
-        {hdcDevicesQuery.isError ? (
+        {hdcQueryTriggered && hdcDevicesQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.hdcDeviceLoadErrorTitle")}</AlertTitle>
             {hdcDevicesQuery.error.message}
@@ -169,7 +180,7 @@ export function HarmonyQuickActionsPanel({
           <Button
             variant="outlined"
             size="small"
-            onClick={() => hdcDevicesQuery.refetch()}
+            onClick={ensureHdcDevicesLoaded}
             disabled={hdcDevicesQuery.isFetching || hdcInstallMutation.isPending}
           >
             {hdcDevicesQuery.isFetching
@@ -199,7 +210,15 @@ export function HarmonyQuickActionsPanel({
             : t("certificatesPage.mobile.hdcInstallAction")}
         </Button>
 
-        {hdcDevicesQuery.isLoading ? (
+        {!hdcQueryTriggered ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.hdcScanHint")}
+          </Typography>
+        ) : null}
+
+        {hdcQueryTriggered && hdcDevicesQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -207,7 +226,8 @@ export function HarmonyQuickActionsPanel({
           </Typography>
         ) : null}
 
-        {!hdcDevicesQuery.isLoading &&
+        {hdcQueryTriggered &&
+        !hdcDevicesQuery.isLoading &&
         !hdcDevicesQuery.isError &&
         (hdcDevices?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{

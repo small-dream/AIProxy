@@ -25,20 +25,32 @@ import { useI18n } from "@/i18n";
 
 type Props = {
   hasCert: boolean;
-  devicesQueryEnabled?: boolean;
 };
 
 function formatSimulatorLabel(simulator: { name: string; runtime: string; state: string }) {
   return `${simulator.name} · ${simulator.runtime} · ${simulator.state}`;
 }
 
-export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Props) {
+export function IosQuickActionsPanel({ hasCert }: Props) {
   const { t, tList } = useI18n();
   const [selectedSimulatorUdid, setSelectedSimulatorUdid] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showTrustSteps, setShowTrustSteps] = useState(false);
 
-  const simulatorsQuery = useIosSimulators({ enabled: devicesQueryEnabled });
+  // Device scan is opt-in: most users (e.g. web-only capture) don't have
+  // Xcode simctl installed, so probing on mount would surface a red error
+  // immediately. Scan only when the user explicitly refreshes.
+  const [simulatorsQueryTriggered, setSimulatorsQueryTriggered] = useState(false);
+
+  const simulatorsQuery = useIosSimulators({ enabled: simulatorsQueryTriggered });
+
+  function ensureSimulatorsLoaded() {
+    if (!simulatorsQueryTriggered) {
+      setSimulatorsQueryTriggered(true);
+      return;
+    }
+    simulatorsQuery.refetch();
+  }
   const installMutation = useInstallIosCertificateViaSimulator();
 
   const simulators = simulatorsQuery.data;
@@ -103,7 +115,7 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           </Alert>
         ) : null}
 
-        {simulatorsQuery.isError ? (
+        {simulatorsQueryTriggered && simulatorsQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.iosSimulatorLoadErrorTitle")}</AlertTitle>
             {simulatorsQuery.error.message}
@@ -149,7 +161,7 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           <Button
             variant="outlined"
             size="small"
-            onClick={() => simulatorsQuery.refetch()}
+            onClick={ensureSimulatorsLoaded}
             disabled={simulatorsQuery.isFetching || installMutation.isPending}
           >
             {simulatorsQuery.isFetching
@@ -174,7 +186,15 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           </Button>
         </Stack>
 
-        {simulatorsQuery.isLoading ? (
+        {!simulatorsQueryTriggered ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.iosSimulatorScanHint")}
+          </Typography>
+        ) : null}
+
+        {simulatorsQueryTriggered && simulatorsQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -182,7 +202,8 @@ export function IosQuickActionsPanel({ hasCert, devicesQueryEnabled = true }: Pr
           </Typography>
         ) : null}
 
-        {!simulatorsQuery.isLoading &&
+        {simulatorsQueryTriggered &&
+        !simulatorsQuery.isLoading &&
         !simulatorsQuery.isError &&
         (simulators?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{

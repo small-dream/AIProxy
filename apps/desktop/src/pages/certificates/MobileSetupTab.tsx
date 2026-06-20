@@ -1,5 +1,5 @@
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
-import { useEffect, useState, type RefObject } from "react";
+import { type RefObject } from "react";
 import { Alert, AlertTitle, Box, Stack, Typography } from "@mui/material";
 
 import {
@@ -79,7 +79,6 @@ export function MobileSetupTab({
   harmonyQuickActionsRef,
 }: Props) {
   const { t } = useI18n();
-  const [devicesQueryEnabled, setDevicesQueryEnabled] = useState(false);
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
   const localIp = localIps?.[0];
   const certDownloadUrl =
@@ -94,16 +93,6 @@ export function MobileSetupTab({
     proxyRunning,
     localIp: localIp ?? null,
   });
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDevicesQueryEnabled(true);
-    }, 150);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, []);
 
   // Preflight gate: until a cert exists, the proxy is running, and a local IP is
   // reachable, QR codes / ADB / Simulator panels would be useless or misleading.
@@ -138,12 +127,11 @@ export function MobileSetupTab({
       >
         <Stack spacing={1.5} sx={{ minWidth: 0 }}>
           <Box ref={iosQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
-            <IosQuickActionsPanel devicesQueryEnabled={devicesQueryEnabled} hasCert={hasCert} />
+            <IosQuickActionsPanel hasCert={hasCert} />
           </Box>
 
           <Box ref={androidQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
             <AndroidQuickActionsPanel
-              devicesQueryEnabled={devicesQueryEnabled}
               hasCert={hasCert}
               localIp={localIp ?? null}
               proxyPort={proxyPort}
@@ -153,7 +141,6 @@ export function MobileSetupTab({
 
           <Box ref={harmonyQuickActionsRef} sx={{ scrollMarginTop: 16 }}>
             <HarmonyQuickActionsPanel
-              devicesQueryEnabled={devicesQueryEnabled}
               hasCert={hasCert}
               localIp={localIp ?? null}
               proxyPort={proxyPort}

@@ -556,6 +556,7 @@ export const zhCNMessages: Messages = {
       adbProxyTitle: "ADB 代理快捷设置",
       adbRefreshDevices: "刷新设备",
       adbRefreshingDevices: "刷新中...",
+      adbScanHint: "点击「刷新设备」以扫描 Android 设备。",
       adbSelectedDeviceHint: "当手机和模拟器同时连接时，可以在这里明确选择要安装到哪一台设备。",
       adbSetProxyAction: "通过 ADB 设置代理",
       adbSetProxyErrorTitle: "ADB 设置代理失败",
@@ -608,6 +609,7 @@ export const zhCNMessages: Messages = {
       iosSimulatorPlaceholder: "请选择已启动的 Simulator",
       iosSimulatorRefreshAction: "刷新 Simulator",
       iosSimulatorRefreshing: "刷新中...",
+      iosSimulatorScanHint: "点击「刷新 Simulator」以扫描 iOS 模拟器。",
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "已把根证书安装到 {{simulatorName}}。接下来请在 Simulator 的证书信任设置里手动打开完全信任。",
@@ -681,6 +683,7 @@ export const zhCNMessages: Messages = {
       hdcQuickActionsInfoTitle: "鸿蒙快捷操作说明",
       hdcRefreshDevices: "刷新设备",
       hdcRefreshingDevices: "刷新中...",
+      hdcScanHint: "点击「刷新设备」以扫描 HarmonyOS 设备。",
       hdcSuccessBody:
         "证书已推送到设备 {{deviceSerial}} 的 {{remotePath}}，并已打开系统设置。请继续进入“设置 > 安全与隐私 > 加密与凭据 > 从存储设备安装”，选择该文件完成安装。",
       hdcSuccessTitle: "已推送证书并打开系统设置",

@@ -737,6 +737,8 @@ CertificatesPage
 └─ BottomStatusStrip
 ```
 
+> 移动端设备扫描（`IosQuickActionsPanel` / `AndroidQuickActionsPanel` / `HarmonyQuickActionsPanel`）为**按需触发**：进入面板时不自动发起设备/模拟器查询，仅在用户点击「刷新」时才查询。这样可避免对未安装对应工具链（Xcode simctl / adb / hdc）或当前无该平台抓包需求（如纯网页抓包）的用户立即弹出红色「设备检测失败」。仅在用户主动刷新后查询失败（工具缺失等）时，才在面板内显示错误。
+
 ### 7.4 页面状态模型
 
 ```ts
