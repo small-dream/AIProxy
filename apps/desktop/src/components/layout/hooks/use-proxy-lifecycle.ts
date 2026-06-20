@@ -1,4 +1,4 @@
-import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import { DEFAULT_PROXY_PORT, DEFAULT_WORKSPACE_ID, type PortOccupant } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCertificateStatus } from "@/features/certificate-center/use-certificate-status";
@@ -12,7 +12,14 @@ import {
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 
-import { getErrorMessage, isPortInUseError } from "./helpers";
+import { getErrorMessage, isTauriRuntime } from "./helpers";
+import {
+  isPortInUseError,
+  readPortFromError,
+  retryWhilePortInUse,
+} from "@/features/proxy-status/proxy-start.helpers";
+import { useProxyStartStore } from "@/features/proxy-status/proxy-start.store";
+import { getPortOccupant, killProxyPortProcess } from "@/services/commands";
 
 interface UseProxyLifecycleParams {
   onSnackbarMessage: (message: string | null) => void;
@@ -50,6 +57,13 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
   const autoStartAttemptedRef = useRef(false);
 
+  // Port-in-use recovery: the occupying process and the kill-and-restart flow.
+  const [occupant, setOccupant] = useState<PortOccupant | null>(null);
+  const [occupantLoading, setOccupantLoading] = useState(false);
+  const [killConfirmOpen, setKillConfirmOpen] = useState(false);
+  const [isKilling, setIsKilling] = useState(false);
+  const [occupantRefreshNonce, setOccupantRefreshNonce] = useState(0);
+
   const isProxyBusy = startProxyMutation.isPending || stopProxyMutation.isPending;
   const isSystemProxyBusy =
     enableSystemProxyMutation.isPending || disableSystemProxyMutation.isPending;
@@ -71,9 +85,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
 
   // --- Auto-start proxy on launch ---
   useEffect(() => {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-    if (!isTauri || autoStartAttemptedRef.current) {
+    if (!isTauriRuntime() || autoStartAttemptedRef.current) {
       return;
     }
 
@@ -98,8 +110,19 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
         }
 
         await enableSystemProxyMutation.mutateAsync(undefined);
-      } catch {
-        // Startup auto-boot is best-effort. Manual controls remain available.
+      } catch (error) {
+        // Don't silently swallow startup failures. A port conflict is the most
+        // common cause and must surface immediately: open the port-change dialog
+        // so the user knows the proxy never started. useStartProxy.onError also
+        // records PORT_IN_USE in the shared store for SetupChecklistCard.
+        if (isPortInUseError(error)) {
+          const port = readPortFromError(error, initialStartProxyInput.port);
+          setPortDraft(String(port));
+          setPortDialogOpen(true);
+          return;
+        }
+
+        onSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
       }
     })();
 
@@ -110,11 +133,63 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     certificateStatus,
     enableSystemProxyMutation,
     initialStartProxyInput,
+    onSnackbarMessage,
     proxyStatus,
     startProxyMutation,
+    t,
     workspaceId,
     workspaces.length,
   ]);
+
+  // Bridge out-of-tree port-dialog requests (e.g. SetupChecklistCard's "Change
+  // port" button, which lives outside this hook's tree) into the dialog this
+  // hook owns. One-shot signal: consume immediately so it never re-opens.
+  const openPortDialogRequested = useProxyStartStore((s) => s.openPortDialogRequested);
+  const consumeOpenPortDialogRequest = useProxyStartStore((s) => s.consumeOpenPortDialogRequest);
+  useEffect(() => {
+    if (!openPortDialogRequested) {
+      return;
+    }
+    setPortDraft(String(port));
+    setPortDialogError(null);
+    setPortDialogOpen(true);
+    consumeOpenPortDialogRequest();
+  }, [openPortDialogRequested, port, consumeOpenPortDialogRequest]);
+
+  // Current port-in-use failure (shared store). Drives the "end the occupying
+  // process" option inside the port dialog.
+  const portInUse = useProxyStartStore((s) => s.portInUse);
+
+  // When the port dialog opens on a port-in-use failure, resolve the occupying
+  // process so the user can choose to end it. `cancelled` discards stale
+  // responses if the dialog closes or the failure changes mid-flight.
+  useEffect(() => {
+    if (!portDialogOpen || !portInUse) {
+      setOccupant(null);
+      return;
+    }
+    let cancelled = false;
+    setOccupantLoading(true);
+    void getPortOccupant(portInUse.port)
+      .then((info) => {
+        if (!cancelled) {
+          setOccupant(info);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOccupant(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setOccupantLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [portDialogOpen, portInUse, occupantRefreshNonce]);
 
   // --- Port dialog helpers ---
   function openPortDialog() {
@@ -124,19 +199,13 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   }
 
   function getProxyStartErrorMessage(error: unknown, requestedPort: number) {
-    const normalizedError = error as Parameters<typeof isPortInUseError>[0];
-    const errorPort = (() => {
-      const appError = error as { details?: { port?: number } };
-      return typeof appError?.details?.port === "number" ? appError.details.port : requestedPort;
-    })();
-
-    if (isPortInUseError(normalizedError)) {
+    if (isPortInUseError(error)) {
       return t("appShell.proxyPortInUse", {
-        port: errorPort,
+        port: readPortFromError(error, requestedPort),
       });
     }
 
-    return getErrorMessage(normalizedError, t("common.errors.generic"));
+    return getErrorMessage(error, t("common.errors.generic"));
   }
 
   // --- Proxy control handlers ---
@@ -146,16 +215,14 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       await startProxyMutation.mutateAsync(input);
     } catch (error) {
       const requestedPort = input.port ?? port;
-      const message = getProxyStartErrorMessage(error, requestedPort);
 
       if (isPortInUseError(error)) {
         setPortDraft(String(requestedPort));
-        setPortDialogError(message);
         setPortDialogOpen(true);
         return;
       }
 
-      onSnackbarMessage(message);
+      onSnackbarMessage(getProxyStartErrorMessage(error, requestedPort));
     }
   }
 
@@ -193,6 +260,41 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       setPortDialogOpen(false);
     } catch (error) {
       setPortDialogError(getProxyStartErrorMessage(error, nextPort));
+    }
+  }
+
+  // Kill the occupying process (after server-side PID re-verification) and
+  // restart the proxy on the same port. System-proxy rebind follows start_proxy's
+  // existing semantics — the frontend does not call enable/disable here.
+  async function handleKillAndRestart() {
+    if (!occupant || !portInUse) {
+      return;
+    }
+    setIsKilling(true);
+    try {
+      await killProxyPortProcess({
+        port: portInUse.port,
+        pid: occupant.pid,
+        name: occupant.name,
+      });
+      // SIGKILL is asynchronous: the kill command returning success only means
+      // the signal was delivered, not that the port is reaped. Retry the bind
+      // with a short backoff so we don't lose the race against the kernel.
+      await retryWhilePortInUse(() =>
+        startProxyMutation.mutateAsync({ ...initialStartProxyInput, port: portInUse.port }),
+      );
+      setKillConfirmOpen(false);
+      setPortDialogOpen(false);
+      useProxyStartStore.getState().clearPortInUse();
+    } catch (error) {
+      // The kill already ran; if the restart still fails, drop back to the port
+      // dialog (refreshed) so the user can change port instead of being stuck.
+      setKillConfirmOpen(false);
+      onSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
+      // The occupant may have changed (PROCESS_CHANGED) — re-query before retry.
+      setOccupantRefreshNonce((nonce) => nonce + 1);
+    } finally {
+      setIsKilling(false);
     }
   }
 
@@ -236,6 +338,15 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     setPortDraft,
     setPortDialogError,
     openPortDialog,
+
+    // Port-in-use recovery (end the occupying process, restart on same port)
+    portInUse,
+    occupant,
+    occupantLoading,
+    killConfirmOpen,
+    setKillConfirmOpen,
+    handleKillAndRestart,
+    isKilling,
 
     // Proxy control handlers
     handleStartProxy,

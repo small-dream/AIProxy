@@ -38,6 +38,7 @@ pub(super) const ERR_PROXY_NOT_RUNNING: &str = "PROXY_NOT_RUNNING";
 pub(super) const ERR_INVALID_INPUT: &str = "INVALID_INPUT";
 pub(super) const ERR_CERT_NOT_FOUND: &str = "CERT_NOT_FOUND";
 pub(super) const ERR_INTERNAL: &str = "INTERNAL_ERROR";
+pub(super) const ERR_PROCESS_CHANGED: &str = "PROCESS_CHANGED";
 
 /// Produces a structured JSON error string with `code` and `message`.
 /// Tauri commands return `Result<T, String>`, so the error payload is a

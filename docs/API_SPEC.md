@@ -590,6 +590,46 @@ type GetBootstrapStatusInput = Record<string, never>;
 type GetBootstrapStatusOutput = ProxyStatus;
 ```
 
+### `get_port_occupant`
+
+用途：
+
+- 解析当前占用指定 TCP 端口的进程（PID + 名称），供端口占用时「结束占用进程并用原端口重启代理」使用。
+- 跨平台：Unix 用 `lsof`，Windows 用 `netstat` + `tasklist`。无法确定占用者（端口空闲、Linux 缺 `lsof` 等）返回 `null`，不报错。
+
+请求参数：`{ port: number }`（`invoke("get_port_occupant", { port })`）。
+
+响应：
+
+```ts
+type GetPortOccupantOutput = PortOccupant | null;
+// PortOccupant = { pid: number; name: string }
+```
+
+失败场景：系统命令执行失败或解析异常时返回 `null`（静默降级为仅「更换端口」），不抛错。
+
+### `kill_proxy_port_process`
+
+用途：结束占用代理端口的进程，使代理能在原端口重启。**TOCTOU 防护**：后端 kill 前用 `find_port_occupant(port)` 重新核对当前占用者 pid（+ name 若提供）仍匹配，不匹配则拒绝，避免 PID 复用后误杀无关进程。
+
+请求：
+
+```ts
+type KillPortProcessInput = {
+  port: number;
+  pid: number;
+  name?: string; // 占用者名称辅助校验，若提供则需匹配
+};
+```
+
+响应：`void`。
+
+失败场景：
+
+- `PROCESS_CHANGED`：占用进程已变化（PID/名称不再匹配）→ 前端应重新查询占用者。
+- `INVALID_INPUT`：拒绝结束保留进程（PID 0；Windows 额外拒绝 PID 4）。
+- 权限不足 / 进程已退出：底层 kill（Unix `kill -9` / Windows `taskkill /F`）失败。
+
 ### `list_sessions`
 
 用途：

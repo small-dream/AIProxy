@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getErrorMessage, isPortInUseError, isMacPlatform, isTauriRuntime } from "./helpers";
+import { getErrorMessage, isMacPlatform, isTauriRuntime } from "./helpers";
 
 describe("getErrorMessage", () => {
   it("returns the error message from a JSON AppError string", () => {
@@ -24,30 +24,6 @@ describe("getErrorMessage", () => {
 
   it("returns the error message from an Error instance", () => {
     expect(getErrorMessage(new Error("instance message"), "fallback")).toBe("instance message");
-  });
-});
-
-describe("isPortInUseError", () => {
-  it("detects PORT_IN_USE code in a JSON error string", () => {
-    const error = JSON.stringify({ code: "PORT_IN_USE", message: "Port busy" });
-    expect(isPortInUseError(error)).toBe(true);
-  });
-
-  it("detects 'already in use' in the message text", () => {
-    expect(isPortInUseError("Address already in use")).toBe(true);
-  });
-
-  it("detects 'address already in use' case-insensitively", () => {
-    expect(isPortInUseError("ADDRESS ALREADY IN USE")).toBe(true);
-  });
-
-  it("returns false for unrelated errors", () => {
-    expect(isPortInUseError("something else")).toBe(false);
-  });
-
-  it("returns false for a JSON error with a different code", () => {
-    const error = JSON.stringify({ code: "INTERNAL_ERROR", message: "other" });
-    expect(isPortInUseError(error)).toBe(false);
   });
 });
 

@@ -15,20 +15,6 @@ export function getErrorMessage(error: unknown, fallbackMessage: string) {
 }
 
 /**
- * Checks whether an error indicates that a port is already in use.
- */
-export function isPortInUseError(error: unknown) {
-  const normalizedError = coerceAppError(error);
-  const normalizedMessage = normalizedError.message.toLowerCase();
-
-  return (
-    normalizedError.code === "PORT_IN_USE" ||
-    normalizedMessage.includes("already in use") ||
-    normalizedMessage.includes("address already in use")
-  );
-}
-
-/**
  * Returns true when running inside a Tauri desktop shell.
  */
 export function isTauriRuntime() {

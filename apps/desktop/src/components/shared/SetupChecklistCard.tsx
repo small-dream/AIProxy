@@ -1,12 +1,14 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
-import { Button, Paper, Stack, Typography } from "@mui/material";
+import { Alert, AlertTitle, Button, Paper, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_PROXY_PORT } from "@aiproxy/shared-types";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { type SetupStepKey } from "@/features/certificate-center/setup-progress.helpers";
+import { useProxyStartStore } from "@/features/proxy-status/proxy-start.store";
+import { useStartProxy } from "@/features/proxy-status/use-proxy-status";
 import { useProxyStartDefaults } from "@/features/proxy-status/use-proxy-start-defaults";
 import { useSetupWizard } from "@/features/setup-wizard/use-setup-wizard";
 import { useI18n, type TranslationKey } from "@/i18n";
@@ -37,8 +39,16 @@ export function SetupChecklistCard() {
   const { progress, shouldShowChecklist, acknowledgeManualProxy } = useSetupWizard();
   const startDefaults = useProxyStartDefaults();
   const resetSetupWizardState = useAppPreferencesStore((s) => s.resetSetupWizardState);
+  const startProxyMutation = useStartProxy();
+  const portInUse = useProxyStartStore((s) => s.portInUse);
+  const requestOpenPortDialog = useProxyStartStore((s) => s.requestOpenPortDialog);
   const showManualProxyAction =
     progress.nextAction === "systemProxyOrManual" && progress.proxyRunning;
+  // When the proxy step is the blocker, the primary action must start the proxy
+  // (not "Open certificates"). If the last start failed because the port was
+  // taken, surface it inline with a one-click path to change the port.
+  const isProxyStep = progress.nextAction === "proxyRunning";
+  const showPortInUseWarning = isProxyStep && portInUse !== null;
 
   if (!shouldShowChecklist) {
     return null;
@@ -88,14 +98,39 @@ export function SetupChecklistCard() {
           })}
         </Stack>
 
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => navigate("/certificates?tab=desktop")}
+        {showPortInUseWarning && portInUse ? (
+          <Alert
+            severity="warning"
+            action={
+              <Button color="inherit" size="small" variant="outlined" onClick={requestOpenPortDialog}>
+                {t("setupChecklist.changePort")}
+              </Button>
+            }
           >
-            {t("setupChecklist.openCertificates")}
-          </Button>
+            <AlertTitle>{t("errorGuidance.reason.portInUse")}</AlertTitle>
+            {t("appShell.proxyPortInUse", { port: portInUse.port })}
+          </Alert>
+        ) : null}
+
+        <Stack direction="row" spacing={1}>
+          {isProxyStep ? (
+            <Button
+              variant="contained"
+              size="small"
+              disabled={startProxyMutation.isPending}
+              onClick={() => startProxyMutation.mutate(startDefaults)}
+            >
+              {t("common.actions.startProxy")}
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => navigate("/certificates?tab=desktop")}
+            >
+              {t("setupChecklist.openCertificates")}
+            </Button>
+          )}
           {showManualProxyAction && (
             <Button
               variant="outlined"

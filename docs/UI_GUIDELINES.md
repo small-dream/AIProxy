@@ -1028,6 +1028,7 @@ Insights Page
 - 向导永远**可跳过、可后补**;不阻断使用,跳过后由常驻清单承接未完成项。
 - 常驻清单卡(`SetupChecklistCard`)挂在 Sessions 页顶部,`!captureReady` 时显示,`captureReady` 达成即消失;回退时自动重现,不重弹模态。
 - 向导顶部用 `LinearProgress` + "Step N/8" 表达进度,避免 8 步全列 Stepper 造成拥挤。
+- 常驻清单卡的主按钮随 `nextAction` 动态化:卡在"启动代理"步骤时为"启动代理"(而非固定"打开证书"),调用 `useStartProxy`;该步启动失败且为端口占用时,清单内 inline 显示端口占用 Alert 并提供"更改端口"(复用 AppShell 端口对话框,经 `proxy-start.store` 桥接)。其余步骤仍为"打开证书"。
 
 ### 21.2 跳过 / 完成 / 回退语义
 
@@ -1041,6 +1042,8 @@ Insights Page
 - 引导链路内(向导 / 清单 / 证书页安装区)以**页面级 `CertificateErrorGuidance`** 为权威可操作 UI。
 - 命令层 `reportCommandFailure` **仅记日志**,不承载用户提示。
 - 全局 snackbar 仅用于引导链路之外的动作;同一动作不在两处重复表达。
+- 应用启动自动拉起代理(auto-start)属引导链路之外:端口占用时直接弹端口修改对话框,其他启动错误走全局 snackbar;端口占用事实由 `useStartProxy` 统一写入 `proxy-start.store`,清单卡据此 inline 表达,二者不重复(模态对话框在前,关闭后清单卡承接持续提醒)。
+- 端口占用对话框标题切为「解决端口冲突」,用 `Divider` 分两路径:① 结束占用进程(展示 `进程名 · PID` + 危险色「结束并重启」按钮,经 MUI 二次确认;后端 kill 前重新核对 PID 仍属该端口防 TOCTOU,不匹配返回 `PROCESS_CHANGED` 并重查);② 在其他端口启动(端口输入)。查不到占用者(Linux 缺 `lsof` 等)或非占用场景(主动改端口)时回到单一路径的端口输入。占用场景不再用红框/重复错误文案,`portDialogError` 仅用于换端口的校验失败。
 
 ### 21.4 状态栏证书 chip 语义
 

@@ -71,6 +71,13 @@ export function AppShell() {
     setPortDraft,
     setPortDialogError,
     openPortDialog,
+    portInUse,
+    occupant,
+    occupantLoading,
+    killConfirmOpen,
+    setKillConfirmOpen,
+    handleKillAndRestart,
+    isKilling,
     handleStartProxy,
     handleStopProxy,
     handlePortApply,
@@ -242,6 +249,16 @@ export function AppShell() {
         portDialogError={portDialogError}
         portDialogOpen={portDialogOpen}
         portDraft={portDraft}
+        portInUse={portInUse}
+        occupant={occupant}
+        occupantLoading={occupantLoading}
+        killConfirmOpen={killConfirmOpen}
+        onOpenKillConfirm={() => setKillConfirmOpen(true)}
+        onCloseKillConfirm={() => setKillConfirmOpen(false)}
+        onKillAndRestart={() => {
+          void handleKillAndRestart();
+        }}
+        isKilling={isKilling}
       />
 
       <SetupWizard />

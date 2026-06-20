@@ -124,7 +124,23 @@ export const enMessages = {
     portChangesRestartImmediately:
       "Port changes restart the proxy and rebind the listener immediately.",
     portStatus: ":{{port}}",
+    endProcessAndRestartOnPort: "End {{name}} and restart on port {{port}}",
+    endProcessSectionLabel: "End the process and restart",
+    killProcessConfirm: "End and restart",
+    killProcessTitle: "End process and restart?",
+    killProcessWarning:
+      "This will forcefully terminate {{name}} (PID: {{pid}}). Unsaved data in that process may be lost.",
+    killProcessWarningGeneric:
+      "This will forcefully terminate the process. Any unsaved data may be lost.",
+    orDivider: "or",
+    portInUseByProcess: "Port {{port}} is in use by another process.",
+    portOccupantLine: "Port {{port}} is held by {{name}} (PID: {{pid}}).",
+    portOccupantResolving: "Resolving what holds port {{port}}…",
+    portOccupantUnresolved: "Couldn't identify the process holding the port.",
+    processWithPid: "{{name}} · PID {{pid}}",
     proxyPortInUse: "Port {{port}} is already in use. Choose another port and try again.",
+    resolvePortConflictTitle: "Resolve Port Conflict",
+    startOnDifferentPort: "Start on a different port",
     proxyPortValidation: "Enter a valid TCP port between 1 and 65535.",
     settings: "Settings",
     sslOn: "SSL On",
@@ -1636,6 +1652,7 @@ export const enMessages = {
     openCertificates: "Open certificates",
     manualProxyConfigured: "I'm using manual/mobile proxy",
     openWizard: "Open setup wizard",
+    changePort: "Change port",
   },
   mobilePreflight: {
     title: "Finish these before capturing from a phone or emulator",

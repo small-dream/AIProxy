@@ -8,6 +8,7 @@ mod bootstrap;
 mod commands;
 mod dev_logger;
 mod menu;
+mod port_manager;
 mod session_stats;
 mod system_proxy;
 mod system_proxy_recovery;
@@ -147,6 +148,8 @@ pub fn run() {
             commands::stop_proxy,
             commands::enable_system_proxy,
             commands::disable_system_proxy,
+            commands::get_port_occupant,
+            commands::kill_proxy_port_process,
             commands::save_text_file,
             commands::read_har_file,
             commands::save_media_file,

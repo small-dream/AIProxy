@@ -8,12 +8,14 @@ import {
   isAppError,
   isSessionDetail,
   isProxyStatus,
+  isPortOccupant,
   isSessionSummary,
   normalizeStartProxyInput,
   parseSessionDetail,
   parseSessionSummary,
   parseSessionSummaries,
   parseProxyStatus,
+  parsePortOccupant,
 } from "./index";
 
 describe("isAppError", () => {
@@ -190,6 +192,48 @@ describe("normalizeStartProxyInput", () => {
       port: DEFAULT_PROXY_PORT,
       workspaceId: "default-workspace",
     });
+  });
+});
+
+describe("isPortOccupant", () => {
+  it("accepts a positive integer pid and non-empty name", () => {
+    expect(isPortOccupant({ pid: 48213, name: "node" })).toBe(true);
+  });
+
+  it("rejects zero or negative pid", () => {
+    expect(isPortOccupant({ pid: 0, name: "node" })).toBe(false);
+    expect(isPortOccupant({ pid: -1, name: "node" })).toBe(false);
+  });
+
+  it("rejects non-integer pid", () => {
+    expect(isPortOccupant({ pid: 1.5, name: "node" })).toBe(false);
+  });
+
+  it("rejects empty or missing name", () => {
+    expect(isPortOccupant({ pid: 1, name: "" })).toBe(false);
+    expect(isPortOccupant({ pid: 1, name: "   " })).toBe(false);
+    expect(isPortOccupant({ pid: 1 })).toBe(false);
+  });
+
+  it("rejects non-object payloads", () => {
+    expect(isPortOccupant(null)).toBe(false);
+    expect(isPortOccupant("node")).toBe(false);
+    expect(isPortOccupant({})).toBe(false);
+  });
+});
+
+describe("parsePortOccupant", () => {
+  it("returns a typed occupant for valid input", () => {
+    expect(parsePortOccupant({ pid: 48213, name: "node" })).toEqual({
+      pid: 48213,
+      name: "node",
+    });
+  });
+
+  it("returns null for malformed input", () => {
+    expect(parsePortOccupant({ pid: 0, name: "x" })).toBeNull();
+    expect(parsePortOccupant(null)).toBeNull();
+    expect(parsePortOccupant({ pid: 1 })).toBeNull();
   });
 });
 

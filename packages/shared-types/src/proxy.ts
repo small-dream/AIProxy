@@ -136,3 +136,44 @@ export function normalizeStartProxyInput(input: StartProxyInput): StartProxyInpu
     workspaceId: input.workspaceId.trim(),
   };
 }
+
+// --- Port occupant (for the "end the process holding the proxy port" flow) ---
+
+export type PortOccupant = {
+  pid: number;
+  name: string;
+};
+
+export type KillPortProcessInput = {
+  port: number;
+  pid: number;
+  name?: string;
+};
+
+export function isPortOccupant(value: unknown): value is PortOccupant {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Partial<PortOccupant>;
+
+  return (
+    typeof candidate.pid === "number" &&
+    Number.isInteger(candidate.pid) &&
+    candidate.pid > 0 &&
+    typeof candidate.name === "string" &&
+    candidate.name.trim().length > 0
+  );
+}
+
+// Defensive parser for the Tauri `get_port_occupant` payload: returns null for
+// malformed data so the UI never trusts an anomalous pid/name.
+export function parsePortOccupant(value: unknown): PortOccupant | null {
+  if (!isPortOccupant(value)) {
+    return null;
+  }
+
+  const candidate = value as PortOccupant;
+
+  return { pid: candidate.pid, name: candidate.name };
+}

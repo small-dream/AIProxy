@@ -1184,7 +1184,9 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 ### 12.4 组件与文件映射
 
 - 向导:`features/setup-wizard/SetupWizard.tsx`(常驻挂载于 AppShell,自管 open)+ `SetupWizardSteps.tsx`(8 步:欢迎/生成/安装/验证信任轮询/启动代理/系统代理·手动/首条 HTTPS 流量检测/完成)+ `use-setup-wizard.ts`。
-- 常驻清单:`components/shared/SetupChecklistCard.tsx`,挂载于 Sessions 页顶部。
+- 常驻清单:`components/shared/SetupChecklistCard.tsx`,挂载于 Sessions 页顶部;主按钮随 `nextAction` 动态化("启动代理"步骤→"启动代理"按钮,调用 `useStartProxy`),端口占用时 inline Alert + "更改端口"。
+- 端口占用状态:`features/proxy-status/proxy-start.store.ts`(非持久 Zustand),`useStartProxy` 在端口占用失败时写入、成功时清除;`requestOpenPortDialog` 为一次性信号,桥接清单卡(Outlet 外)到 `useProxyLifecycle` 拥有的端口对话框;判断/取值用 `features/proxy-status/proxy-start.helpers.ts`(`isPortInUseError`/`readPortFromError`)。
+- 端口占用进程管理:`apps/desktop/src-tauri/src/port_manager/`(跨平台 `#[cfg]`:Unix `lsof`+`kill -9` / Windows `netstat`+`taskkill`,零新依赖),command `get_port_occupant` / `kill_proxy_port_process`(`src-tauri/src/commands/port_manager.rs`);前端 `services/commands/port-manager.ts`。`PortOccupant` / `KillPortProcessInput` / `parsePortOccupant` 契约在 `packages/shared-types/src/proxy.ts`。kill 前 re-verify PID 防 TOCTOU(`PROCESS_CHANGED`)。
 - 错误闭环:`components/shared/CertificateErrorGuidance.tsx`(消费 `error-guidance.ts` 分类)。
 - 代理启动默认值:`features/proxy-status/use-proxy-start-defaults.ts`(AppShell 与向导共用)。
 - 移动端 preflight:`features/certificate-center/mobile-preflight.helpers.ts`,门控 `MobileSetupTab`。
@@ -1193,6 +1195,8 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 - 各步动作调用既有 mutation(`useGenerateRootCertificate`/`useLaunchCertificateInstaller`/`useStartProxy`/`useEnableSystemProxy`),成功推进、失败经 `CertificateErrorGuidance` 渲染页面级指引。
 - 验证信任步轮询 `useCertificateStatus().trusted`(2s);首条流量步复用 `useSessions()` + `session-upsert` 事件检测首条会话。
+- 启动代理失败:端口占用经 `proxy-start.store` 汇聚;auto-start 弹端口对话框、清单卡 inline 提示(二者不重复,模态在前、关闭后清单卡承接);其他启动失败 auto-start 走全局 snackbar、引导链路内走页面级 `CertificateErrorGuidance`。
+- 结束占用进程并重启:端口对话框(占用场景,标题「解决端口冲突」+ `Divider` 两路径)查 `get_port_occupant` 展示 `进程名 · PID` → MUI 二次确认 → `kill_proxy_port_process`(后端 re-verify PID 防 TOCTOU,失败含 `PROCESS_CHANGED`)→ 用 `retryWhilePortInUse`(`proxy-start.helpers`)带退避重试 `start_proxy`(SIGKILL 异步、端口释放有 race,默认 5 次 × 300ms)→ 成功则关对话框 + `clearPortInUse`;失败关确认窗回端口对话框、走 snackbar 并重查占用者。
 - 命令层 `reportCommandFailure` 仅记日志;全局 snackbar 与页面级 Alert 不重复表达(引导链路内以页面级为权威)。
 
 ## 13. Docs Page — 应用内文档查看器 `已实现`
