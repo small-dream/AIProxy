@@ -18,17 +18,25 @@ interface ProxyStartState {
   portInUse: PortInUseFailure | null;
   // One-shot request to open the port-change dialog. Consumed by useProxyLifecycle.
   openPortDialogRequested: boolean;
+  // True while the app is auto-starting the proxy on launch. First-run guidance
+  // (checklist/wizard) reads this to stay hidden until startProxy +
+  // enableSystemProxy finish — captureReady is transiently false during the
+  // auto-start window and would otherwise flash the guidance every launch.
+  autoStartInProgress: boolean;
   setPortInUse: (failure: PortInUseFailure | null) => void;
   clearPortInUse: () => void;
   requestOpenPortDialog: () => void;
   consumeOpenPortDialogRequest: () => void;
+  setAutoStartInProgress: (inProgress: boolean) => void;
 }
 
 export const useProxyStartStore = create<ProxyStartState>((set) => ({
   portInUse: null,
   openPortDialogRequested: false,
+  autoStartInProgress: false,
   setPortInUse: (portInUse) => set({ portInUse }),
   clearPortInUse: () => set({ portInUse: null }),
   requestOpenPortDialog: () => set({ openPortDialogRequested: true }),
   consumeOpenPortDialogRequest: () => set({ openPortDialogRequested: false }),
+  setAutoStartInProgress: (autoStartInProgress) => set({ autoStartInProgress }),
 }));

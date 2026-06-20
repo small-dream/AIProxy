@@ -5,6 +5,7 @@ import {
   shouldShowSetupWizard,
   type SetupProgress,
 } from "@/features/certificate-center/setup-progress.helpers";
+import { useProxyStartStore } from "@/features/proxy-status/proxy-start.store";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 
 // Wires the (already unit-tested) pure state machine to live hook data and the
@@ -46,14 +47,16 @@ export function useSetupWizard(): {
 
   const progress = computeSetupProgress(certStatus, proxyStatus, manualProxyAcknowledgedFor);
 
-  // Hide the wizard/checklist while the backend status is still loading on
-  // startup. Without this guard the undefined cert/proxy status computes to
-  // captureReady=false, which briefly flashes the checklist before the real
-  // status arrives and hides it again.
-  const statusLoading = certStatusLoading || proxyStatusLoading;
+  // Suppress first-run guidance until the real status is available: while the
+  // cert/proxy status is still loading (undefined → captureReady=false) and
+  // while the app auto-starts the proxy on launch (captureReady stays false
+  // until startProxy + enableSystemProxy finish). Without this the checklist
+  // and wizard flash on every launch.
+  const autoStartInProgress = useProxyStartStore((s) => s.autoStartInProgress);
+  const guidanceSuppressed = certStatusLoading || proxyStatusLoading || autoStartInProgress;
 
   const shouldShowWizard =
-    !statusLoading &&
+    !guidanceSuppressed &&
     shouldShowSetupWizard({
       setupWizardCompleted,
       setupWizardDismissedAt,
@@ -64,7 +67,7 @@ export function useSetupWizard(): {
     progress,
     setupWizardCompleted,
     shouldShowWizard,
-    shouldShowChecklist: !statusLoading && !progress.captureReady,
+    shouldShowChecklist: !guidanceSuppressed && !progress.captureReady,
     manualProxyAcknowledgedFor,
     acknowledgeManualProxy: (port, workspaceId) =>
       acknowledgeManualProxyInStore({

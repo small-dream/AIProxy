@@ -39,6 +39,8 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const disableSystemProxyMutation = useDisableSystemProxy();
   const updateWorkspaceMutation = useUpdateWorkspace();
   const { data: workspaces = [], isError: isWorkspacesError } = useWorkspaces();
+  // Stable Zustand setter; declared before the auto-start effect that uses it.
+  const setAutoStartInProgress = useProxyStartStore((s) => s.setAutoStartInProgress);
 
   const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const currentWorkspace = useMemo(
@@ -99,6 +101,11 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       return;
     }
 
+    // Signal that auto-start is in flight so first-run guidance (checklist /
+    // wizard) stays hidden until startProxy + enableSystemProxy finish.
+    // captureReady is transiently false during this window.
+    setAutoStartInProgress(true);
+
     let cancelled = false;
 
     void (async () => {
@@ -123,6 +130,8 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
         }
 
         onSnackbarMessage(getErrorMessage(error, t("common.errors.generic")));
+      } finally {
+        setAutoStartInProgress(false);
       }
     })();
 
@@ -135,6 +144,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     initialStartProxyInput,
     onSnackbarMessage,
     proxyStatus,
+    setAutoStartInProgress,
     startProxyMutation,
     t,
     workspaceId,
