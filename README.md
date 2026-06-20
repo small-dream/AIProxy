@@ -132,7 +132,7 @@ scripts/        开发、构建、发布脚本
 - Tauri 侧已提供最小状态命令用于后续接入真实代理运行时
 - P0-1 已支持本地明文 HTTP 代理捕获与会话列表展示
 - P0-2 已支持 HTTPS 证书生成、MITM 解密、系统代理接管
-- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书、iOS/Android/HarmonyOS 配置指引，以及 Android 开发者 ADB 辅助安装、HarmonyOS 开发者 hdc 辅助安装
+- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书、iOS/Android/HarmonyOS 配置指引，以及 Android 开发者 ADB 辅助安装、HarmonyOS 开发者 hdc 辅助推送
 - P0-4 已支持 Compose / Repeat（构造请求与重发）
 - P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
 - WebSocket Inspector 已支持消息查看、搜索、连接状态展示与活跃连接消息注入（重放）
@@ -172,10 +172,10 @@ scripts/        开发、构建、发布脚本
 
 Android 开发者也可以在 Certificates 页的 Android 标签中使用 `ADB Install`，在多台设备/模拟器同时连接时选择目标 serial，将证书推送到对应设备并直接拉起系统安装器。
 
-HarmonyOS NEXT 开发者可以在 Certificates 页的「鸿蒙」标签中使用 `hdc Install`，在多台设备同时连接时选择目标 serial，通过 hdc 将证书推送到设备 `/data/local/tmp/` 并尝试拉起系统设置（HarmonyOS NEXT 无一键信任命令，仍需手动在「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」完成安装；系统代理也需在设备 Wi-Fi 设置中手动配置）。
+HarmonyOS NEXT 开发者可以在 Certificates 页的「鸿蒙」标签中使用 `hdc` 推送证书，在多台设备/模拟器同时连接时选择目标 serial，通过 hdc 将证书推送到目标 `/data/local/tmp/` 并尝试拉起系统设置（HarmonyOS NEXT 无一键信任命令，仍需手动在「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」完成安装；若系统文件选择器看不到该路径，可改用二维码/设备浏览器下载证书。用户安装的是 VPN 与应用证书，不是系统根证书；系统代理也需在设备或模拟器网络设置中手动配置）。
 
 当前限制：
 
 - HTTPS 证书信任流程跨平台复杂度高
 - Android 7+ 默认不信任用户证书，需要额外配置
-- HarmonyOS NEXT 无等价于 `adb shell settings put global http_proxy` 的全局代理命令，代理需在设备 Wi-Fi 设置中手动配置
+- HarmonyOS NEXT 无官方 hdc 全局 HTTP 代理命令，代理需在设备 Wi-Fi 或模拟器网络设置中手动配置
