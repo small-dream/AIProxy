@@ -43,7 +43,7 @@ sys-locale = "0.3"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet", "Win32_Globalization"] }
 winreg = "0.56"
 
 [features]
