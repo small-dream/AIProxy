@@ -194,44 +194,63 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
         .collect::<Vec<_>>()
         .join(":");
 
-    let search_dirs: &[&str] = &[
+    // Source anchor directories: certificates pending `update-ca-certificates` /
+    // `update-ca-trust` (Debian/Ubuntu and RHEL/Fedora respectively).
+    let source_dirs: &[&str] = &[
         "/usr/local/share/ca-certificates/",
         "/etc/pki/ca-trust/source/anchors/",
     ];
+    // The live trust store directory: after `update-ca-certificates`, certs are
+    // installed here as subject-hash-named files (e.g. `a1b2c3d4.0`) with no
+    // friendly extension. Checking only the source dirs missed certs that were
+    // already installed (source .crt may be removed/renamed post-update), so the
+    // UI reported "not trusted" even after a successful install (M5).
+    let live_dir: &str = "/etc/ssl/certs/";
 
-    for dir in search_dirs {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
+    let check_dir = |dir: &str, require_cert_ext: bool| -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if require_cert_ext {
                 if let Some(ext) = path.extension() {
                     let ext_lower = ext.to_string_lossy().to_ascii_lowercase();
                     if ext_lower != "crt" && ext_lower != "pem" && ext_lower != "cer" {
                         continue;
                     }
                 }
-                if let Ok(other_pem) = std::fs::read_to_string(&path) {
-                    let other_b64: String = other_pem
-                        .lines()
-                        .filter(|line| !line.starts_with("-----"))
-                        .collect();
-                    if let Ok(other_der) = base64::engine::general_purpose::STANDARD
-                        .decode(other_b64.replace('\n', "").replace('\r', ""))
-                    {
-                        let mut other_hasher = Sha1::new();
-                        other_hasher.update(&other_der);
-                        let other_fingerprint: String = other_hasher
-                            .finalize()
-                            .iter()
-                            .map(|byte| format!("{byte:02X}"))
-                            .collect::<Vec<_>>()
-                            .join(":");
-                        if fingerprint == other_fingerprint {
-                            return true;
-                        }
+            }
+            if let Ok(other_pem) = std::fs::read_to_string(&path) {
+                let other_b64: String = other_pem
+                    .lines()
+                    .filter(|line| !line.starts_with("-----"))
+                    .collect();
+                if let Ok(other_der) = base64::engine::general_purpose::STANDARD
+                    .decode(other_b64.replace('\n', "").replace('\r', ""))
+                {
+                    let mut other_hasher = Sha1::new();
+                    other_hasher.update(&other_der);
+                    let other_fingerprint: String = other_hasher
+                        .finalize()
+                        .iter()
+                        .map(|byte| format!("{byte:02X}"))
+                        .collect::<Vec<_>>()
+                        .join(":");
+                    if fingerprint == other_fingerprint {
+                        return true;
                     }
                 }
             }
         }
+        false
+    };
+
+    if source_dirs.iter().any(|dir| check_dir(dir, true)) {
+        return true;
+    }
+    if check_dir(live_dir, false) {
+        return true;
     }
 
     false

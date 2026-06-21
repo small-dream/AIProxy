@@ -91,9 +91,34 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
         .map_err(ProxyError::IoError)?;
 
     let fin = (head[0] & 0x80) != 0;
-    let opcode = WsOpcode::from_u8(head[0] & 0x0F);
+    let opcode_raw = head[0] & 0x0F;
+    // RFC 6455 §5.2: opcodes 3-7 and 11-15 are reserved and MUST fail the
+    // connection (close code 1002). The previous `from_u8` silently mapped
+    // them to Binary, letting malformed/reserved frames pass through the relay.
+    if (3..=7).contains(&opcode_raw) || (11..=15).contains(&opcode_raw) {
+        return Err(ProxyError::Other(format!(
+            "ws frame uses reserved opcode {opcode_raw}"
+        )));
+    }
+    let opcode = WsOpcode::from_u8(opcode_raw);
     let mask = (head[1] & 0x80) != 0;
     let mut payload_len = (head[1] & 0x7F) as u64;
+
+    // RFC 6455 §5.5: control frames (close/ping/pong) MUST have FIN=1 and a
+    // payload no longer than 125 bytes. A malicious/buggy peer sending a
+    // fragmented or oversized control frame would otherwise corrupt relay state.
+    if opcode.is_control() {
+        if !fin {
+            return Err(ProxyError::Other(
+                "ws control frame must not be fragmented (FIN=1 required)".to_string(),
+            ));
+        }
+        if payload_len > 125 {
+            return Err(ProxyError::Other(format!(
+                "ws control frame payload length {payload_len} exceeds 125-byte limit"
+            )));
+        }
+    }
 
     if payload_len == 126 {
         let mut ext = [0u8; 2];

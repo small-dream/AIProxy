@@ -5,8 +5,14 @@ use std::sync::Mutex;
 pub(crate) const MAX_LOG_ENTRY_BYTES: usize = 8 * 1024;
 pub(crate) const MAX_SCRIPT_ENTRIES: usize = 50;
 pub(crate) const MAX_SCRIPT_SOURCE_BYTES: usize = 128 * 1024;
+/// Wall-clock budget for a single script rule hook (onRequest/onResponse).
+///
+/// Debug scripts routinely `JSON.parse` sizeable request/response bodies and
+/// run a few iterations; 50ms (the previous value) was too tight and tripped
+/// the interrupt handler on legitimate hooks, masking them as "timed out".
+/// 500ms still bounds runaway loops while leaving real scripts room to run.
 pub(crate) const SCRIPT_EXECUTION_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(50);
+    std::time::Duration::from_millis(500);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
