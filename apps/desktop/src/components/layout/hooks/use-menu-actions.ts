@@ -49,14 +49,22 @@ export function useMenuActions(deps: MenuHandlerDeps) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
     onMenuEvent((payload) => {
       handleMenuCommand(payload.menuId);
     }).then((fn) => {
-      unlisten = fn;
+      // If the component unmounted before the listener registered, tear it
+      // down immediately so the Tauri menu-event listener does not leak (M8).
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads latest handlers via menuHandlerRef

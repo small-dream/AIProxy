@@ -26,8 +26,15 @@ export function buildMultipartBody(entries: HeaderEntry[], boundary: string): st
   const parts: string[] = [];
   for (const entry of entries) {
     if (!entry.name.trim()) continue;
+    // Escape structural characters in the field name so a crafted name can't
+    // break out of the Content-Disposition header, inject an extra part, or
+    // forge the closing boundary (RFC 2388 / M16). Quotes become %22 per the
+    // spec; CR/LF are stripped to prevent header/frame injection.
+    const safeName = entry.name
+      .replace(/"/g, "%22")
+      .replace(/[\r\n]/g, "");
     parts.push(
-      `--${boundary}\r\nContent-Disposition: form-data; name="${entry.name}"\r\n\r\n${entry.value}`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="${safeName}"\r\n\r\n${entry.value}`,
     );
   }
   if (parts.length > 0) {

@@ -26,6 +26,23 @@ import {
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
+/**
+ * Error carrying a stable machine code alongside the human message.
+ *
+ * Thrown (instead of a plain object) so callers keep a real `Error` stack trace,
+ * `instanceof Error` checks hold, and TanStack Query / Sentry can classify it.
+ * The `code` field preserves the structured signaling the previous plain-object
+ * throws relied on (M10).
+ */
+export class AppCommandError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "AppCommandError";
+    this.code = code;
+  }
+}
+
 export async function listSessions(): Promise<SessionSummary[]> {
   const importedSessions = listImportedSessionSummaries();
 
@@ -61,10 +78,10 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   }
 
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Session detail requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Session detail requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -166,10 +183,10 @@ export async function getSessionDetailContent(
   }
 
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Session detail content requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Session detail content requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -297,10 +314,10 @@ export async function setFocusedHosts(hosts: string[]): Promise<void> {
 
 export async function invokeGetInsights(input: GetInsightsInput): Promise<InsightsResult> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Insights requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Insights requires the Tauri desktop runtime.",
+    );
   }
 
   try {

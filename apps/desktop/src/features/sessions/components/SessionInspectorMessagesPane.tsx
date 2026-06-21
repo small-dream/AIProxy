@@ -146,26 +146,34 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
 
   // Live updates
   useEffect(() => {
-    const unlisten = onWsMessage((msg) => {
+    let cancelled = false;
+    const unlistenPromise = onWsMessage((msg) => {
+      if (cancelled) return;
       if (msg.sessionId === sessionId) {
         setMessages((prev) => trimWsMessages([...prev, msg]));
       }
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      cancelled = true;
+      void unlistenPromise.then((fn) => fn());
     };
   }, [sessionId]);
 
   // Connection status
   useEffect(() => {
-    getWsConnectionStatus(sessionId).then(setConnectionStatus);
-    const unlisten = onWsConnectionStatus((evt) => {
+    let cancelled = false;
+    getWsConnectionStatus(sessionId).then((status) => {
+      if (!cancelled) setConnectionStatus(status);
+    });
+    const unlistenPromise = onWsConnectionStatus((evt) => {
+      if (cancelled) return;
       if (evt.sessionId === sessionId) {
         setConnectionStatus(evt.status);
       }
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      cancelled = true;
+      void unlistenPromise.then((fn) => fn());
     };
   }, [sessionId]);
 

@@ -383,7 +383,15 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     isNullableBoolean(candidate.rawResponseDeferred) &&
     isNullableString(candidate.serverIp) &&
     isNullableString(candidate.tlsCipherSuite) &&
-    isNullableString(candidate.tlsProtocol)
+    isNullableString(candidate.tlsProtocol) &&
+    // timingSource must be one of the declared union values when present (M14);
+    // previously the parser `as`-cast it without validation, letting a typo'd
+    // backend value reach switch/case logic and fall through.
+    (candidate.timingSource === undefined ||
+      candidate.timingSource === null ||
+      candidate.timingSource === "proxy" ||
+      candidate.timingSource === "compose" ||
+      candidate.timingSource === "har-import")
   );
 }
 

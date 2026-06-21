@@ -6,22 +6,34 @@ use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
 const SESSION_DETAIL_CACHE_CAPACITY: usize = 1_000;
 const SESSION_SUMMARY_MAX: usize = 15_000;
 
+/// Bounded LRU for session details.
+///
+/// The map and the LRU order deque are held behind a single mutex so that
+/// insert/evict/touch/remove are each atomic — previously two separate mutexes
+/// left windows where a concurrent op could desynchronize the map from the
+/// order (M7).
+struct DetailState {
+    map: HashMap<String, ProxySessionDetail>,
+    order: VecDeque<String>,
+}
+
 /// In-memory cache for session summaries and a bounded LRU for session details.
 ///
 /// Separated from `AppState` so that cache policies and eviction are testable
 /// in isolation, and so that `AppState` focuses on coordination (persistence,
 /// events, status).
 pub(crate) struct SessionCache {
-    details: Mutex<HashMap<String, ProxySessionDetail>>,
-    detail_order: Mutex<VecDeque<String>>,
+    details: Mutex<DetailState>,
     summaries: Mutex<Vec<ProxySessionSummary>>,
 }
 
 impl SessionCache {
     pub fn new() -> Self {
         Self {
-            details: Mutex::new(HashMap::new()),
-            detail_order: Mutex::new(VecDeque::new()),
+            details: Mutex::new(DetailState {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+            }),
             summaries: Mutex::new(Vec::new()),
         }
     }
@@ -130,14 +142,18 @@ impl SessionCache {
     /// Try to get a cached detail. Returns `None` on miss (caller should
     /// fall back to DB).
     pub fn try_get_detail(&self, session_id: &str) -> Option<ProxySessionDetail> {
-        let detail = self
+        let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned")
-            .get(session_id)
-            .cloned();
+            .expect("session detail mutex should not be poisoned");
+        let detail = state.map.get(session_id).cloned();
         if detail.is_some() {
-            self.touch_detail_order(session_id);
+            // Touch the LRU order inside the same lock acquisition so the
+            // map and order can't desynchronize (M7).
+            if let Some(idx) = state.order.iter().position(|id| id == session_id) {
+                state.order.remove(idx);
+            }
+            state.order.push_back(session_id.to_string());
         }
         detail
     }
@@ -145,35 +161,23 @@ impl SessionCache {
     /// Insert a detail into the LRU, evicting oldest entries if at capacity.
     /// Returns the IDs of evicted entries.
     pub fn insert_detail(&self, session_id: String, detail: ProxySessionDetail) -> Vec<String> {
-        self.details
+        let mut state = self
+            .details
             .lock()
-            .expect("session detail mutex should not be poisoned")
-            .insert(session_id.clone(), detail);
+            .expect("session detail mutex should not be poisoned");
 
-        let mut order = self
-            .detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned");
-        if let Some(idx) = order.iter().position(|id| id == &session_id) {
-            order.remove(idx);
+        state.map.insert(session_id.clone(), detail);
+
+        if let Some(idx) = state.order.iter().position(|id| id == &session_id) {
+            state.order.remove(idx);
         }
-        order.push_back(session_id.clone());
+        state.order.push_back(session_id);
 
         let mut evicted = Vec::new();
-        while order.len() > SESSION_DETAIL_CACHE_CAPACITY {
-            if let Some(evicted_id) = order.pop_front() {
+        while state.order.len() > SESSION_DETAIL_CACHE_CAPACITY {
+            if let Some(evicted_id) = state.order.pop_front() {
+                state.map.remove(&evicted_id);
                 evicted.push(evicted_id);
-            }
-        }
-        drop(order);
-
-        if !evicted.is_empty() {
-            let mut details = self
-                .details
-                .lock()
-                .expect("session detail mutex should not be poisoned");
-            for id in &evicted {
-                details.remove(id);
             }
         }
 
@@ -187,52 +191,36 @@ impl SessionCache {
     /// the LRU only when explicitly viewed, so completing a session the user
     /// never opened does not pollute or thrash the cache.
     pub fn refresh_detail_if_cached(&self, session_id: &str, detail: ProxySessionDetail) {
-        let mut details = self
+        let mut state = self
             .details
             .lock()
             .expect("session detail mutex should not be poisoned");
-        if details.contains_key(session_id) {
-            details.insert(session_id.to_string(), detail);
+        if state.map.contains_key(session_id) {
+            state.map.insert(session_id.to_string(), detail);
         }
     }
 
     /// Remove specific detail entries.
     pub fn remove_details(&self, ids: &HashSet<String>) {
-        let mut details = self
+        let mut state = self
             .details
             .lock()
             .expect("session detail mutex should not be poisoned");
         for id in ids {
-            details.remove(id);
+            state.map.remove(id);
         }
-        self.detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned")
-            .retain(|id| !ids.contains(id));
+        state.order.retain(|id| !ids.contains(id));
     }
 
     /// Clear all details (summaries are kept).
     #[allow(dead_code)] // only exercised by integration tests currently
     pub fn clear_details(&self) {
-        self.details
+        let mut state = self
+            .details
             .lock()
-            .expect("session detail mutex should not be poisoned")
-            .clear();
-        self.detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned")
-            .clear();
-    }
-
-    fn touch_detail_order(&self, session_id: &str) {
-        let mut order = self
-            .detail_order
-            .lock()
-            .expect("session detail order mutex should not be poisoned");
-        if let Some(idx) = order.iter().position(|id| id == session_id) {
-            order.remove(idx);
-        }
-        order.push_back(session_id.to_string());
+            .expect("session detail mutex should not be poisoned");
+        state.map.clear();
+        state.order.clear();
     }
 }
 

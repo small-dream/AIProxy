@@ -65,13 +65,13 @@ ensure_rustup() {
   if ! has_command rustup; then
     log "Installing rustup"
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    export PATH="$HOME/.cargo/bin:$PATH"
+    log "Setting Rust stable toolchain"
+    rustup default stable
+    rustup update stable
+  else
+    log "rustup already installed; skipping toolchain update"
   fi
-
-  export PATH="$HOME/.cargo/bin:$PATH"
-
-  log "Updating Rust stable toolchain"
-  rustup default stable
-  rustup update stable
 }
 
 ensure_tauri_cli() {

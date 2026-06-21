@@ -144,6 +144,14 @@ ensure_node_and_pnpm() {
     exit 1
   fi
 
+  # Corepack ships with Node.js >= 16.10, but some Debian/Ubuntu `nodejs`
+  # packages do not bundle it (M17). Install it explicitly if missing so the
+  # script doesn't fail with "command not found" under `set -e`.
+  if ! has_command corepack; then
+    log "Installing Corepack (not bundled with this Node.js package)"
+    sudo apt-get install -y corepack
+  fi
+
   log "Enabling Corepack"
   corepack enable
   corepack prepare pnpm@10.0.0 --activate
@@ -153,13 +161,13 @@ ensure_rustup() {
   if ! has_command rustup; then
     log "Installing rustup"
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    export PATH="$HOME/.cargo/bin:$PATH"
+    log "Setting Rust stable toolchain"
+    rustup default stable
+    rustup update stable
+  else
+    log "rustup already installed; skipping toolchain update"
   fi
-
-  export PATH="$HOME/.cargo/bin:$PATH"
-
-  log "Updating Rust stable toolchain"
-  rustup default stable
-  rustup update stable
 }
 
 ensure_tauri_cli() {

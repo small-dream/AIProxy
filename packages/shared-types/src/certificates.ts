@@ -121,7 +121,18 @@ export function parseCertificateStatus(value: unknown): CertificateStatus {
 export function isCertificateInstallGuide(value: unknown): value is CertificateInstallGuide {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<CertificateInstallGuide>;
-  return typeof candidate.success === "boolean" && Array.isArray(candidate.steps);
+  if (typeof candidate.success !== "boolean") return false;
+  if (typeof candidate.certPath !== "string") return false;
+  if (typeof candidate.platform !== "string") return false;
+  if (!Array.isArray(candidate.steps)) return false;
+  // Each step must have a numeric order and a string description (M14).
+  return candidate.steps.every(
+    (step): step is { order: number; description: string } =>
+      typeof step === "object" &&
+      step !== null &&
+      typeof step.order === "number" &&
+      typeof step.description === "string",
+  );
 }
 
 export function parseCertificateInstallGuide(value: unknown): CertificateInstallGuide {
@@ -155,14 +166,25 @@ export type SetupDiagnostic = {
 export function isSetupDiagnostic(value: unknown): value is SetupDiagnostic {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<SetupDiagnostic>;
-  return (
-    typeof candidate.platform === "string" &&
-    typeof candidate.certPresent === "boolean" &&
-    typeof candidate.certTrusted === "boolean" &&
-    typeof candidate.adbAvailable === "boolean" &&
-    typeof candidate.hdcAvailable === "boolean" &&
-    typeof candidate.iosSimulatorTooling === "boolean" &&
-    Array.isArray(candidate.checks)
+  if (
+    typeof candidate.platform !== "string" ||
+    typeof candidate.certPresent !== "boolean" ||
+    typeof candidate.certTrusted !== "boolean" ||
+    typeof candidate.adbAvailable !== "boolean" ||
+    typeof candidate.hdcAvailable !== "boolean" ||
+    typeof candidate.iosSimulatorTooling !== "boolean" ||
+    !Array.isArray(candidate.checks)
+  ) {
+    return false;
+  }
+  // Each check must match the DiagnosticCheck shape (M14).
+  return candidate.checks.every(
+    (check): check is DiagnosticCheck =>
+      typeof check === "object" &&
+      check !== null &&
+      typeof check.key === "string" &&
+      typeof check.ok === "boolean" &&
+      (check.message === undefined || typeof check.message === "string"),
   );
 }
 

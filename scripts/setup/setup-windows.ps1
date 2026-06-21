@@ -73,11 +73,12 @@ function Ensure-Rust {
   if (-not (Test-Command "rustup")) {
     Install-WingetPackage -Id "Rustlang.Rustup" -DisplayName "Rustup"
     Refresh-Path
+    Write-Step "Setting Rust stable MSVC toolchain"
+    & rustup default stable-x86_64-pc-windows-msvc
+    & rustup update stable
+  } else {
+    Write-Step "Rustup already installed; skipping toolchain update"
   }
-
-  Write-Step "Ensuring Rust stable MSVC toolchain"
-  & rustup default stable-x86_64-pc-windows-msvc
-  & rustup update stable
 }
 
 function Ensure-WebView2 {

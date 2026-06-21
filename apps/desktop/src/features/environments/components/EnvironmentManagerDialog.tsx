@@ -91,6 +91,16 @@ export function EnvironmentManagerDialog({
     }
   }, [globalVarsQuery.data]);
 
+  // Clear any pending debounced-save timers on unmount so a half-second-late
+  // mutate() can't fire after the dialog closed, writing stale edits or
+  // operating on an unmounted closure (M9, "ghost save").
+  useEffect(() => {
+    return () => {
+      if (envSaveTimeoutRef.current) clearTimeout(envSaveTimeoutRef.current);
+      if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
+    };
+  }, []);
+
   const debouncedSaveEnvVars = useCallback(
     (variables: VariableRow[]) => {
       if (envSaveTimeoutRef.current) clearTimeout(envSaveTimeoutRef.current);
