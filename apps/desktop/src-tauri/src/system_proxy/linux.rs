@@ -369,27 +369,25 @@ fn restore_kde(snapshot: Option<&KdeProxySnapshot>) -> Result<(), String> {
 
     let mut errors = Vec::new();
 
-    if let Some(ref val) = snapshot.proxy_type {
-        if let Err(e) = kwrite_config("ProxyType", val) {
-            errors.push(format!("restore ProxyType: {e}"));
-        }
-    }
-    if let Some(ref val) = snapshot.http_proxy {
-        if let Err(e) = kwrite_config("httpProxy", val) {
-            errors.push(format!("restore httpProxy: {e}"));
-        }
-    }
-    // httpsProxy must be restored too: apply_kde_proxy overwrites it with the
-    // proxy endpoint, so leaving it unrestored would leak the proxy address
-    // into the user's KDE config even after they disable the system proxy.
-    if let Some(ref val) = snapshot.https_proxy {
-        if let Err(e) = kwrite_config("httpsProxy", val) {
-            errors.push(format!("restore httpsProxy: {e}"));
-        }
-    }
-    if let Some(ref val) = snapshot.no_proxy_for {
-        if let Err(e) = kwrite_config("NoProxyFor", val) {
-            errors.push(format!("restore NoProxyFor: {e}"));
+    // For each key: if the snapshot captured a value, write it back; if it was
+    // None (the key had no value before apply), DELETE the key so the value
+    // apply_kde_proxy wrote does not leak into the user's config after they
+    // disable the system proxy. This applies to all four keys, not just
+    // httpsProxy (H2 residual — previously None left the apply-written value
+    // in place).
+    let keys: [(&str, &Option<String>); 4] = [
+        ("ProxyType", &snapshot.proxy_type),
+        ("httpProxy", &snapshot.http_proxy),
+        ("httpsProxy", &snapshot.https_proxy),
+        ("NoProxyFor", &snapshot.no_proxy_for),
+    ];
+    for (key, value) in keys {
+        let result = match value {
+            Some(val) => kwrite_config(key, val),
+            None => kdelete_config(key),
+        };
+        if let Err(e) = result {
+            errors.push(format!("restore {key}: {e}"));
         }
     }
 
@@ -427,6 +425,32 @@ fn kwrite_config(key: &str, value: &str) -> Result<(), String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!("kwriteconfig6 {key} failed: {stderr}"));
+    }
+
+    Ok(())
+}
+
+/// Delete a KDE config key (kwriteconfig6 --delete). Used during restore when
+/// the captured snapshot was `None` (the key had no value before apply), so the
+/// value apply_kde_proxy wrote does not leak into the user's config after they
+/// disable the system proxy (H2 residual).
+fn kdelete_config(key: &str) -> Result<(), String> {
+    let output = Command::new("kwriteconfig6")
+        .args([
+            "--file",
+            "kioslaverc",
+            "--group",
+            "Proxy Settings",
+            "--key",
+            key,
+            "--delete",
+        ])
+        .output()
+        .map_err(|e| format!("kwriteconfig6 --delete {key}: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("kwriteconfig6 --delete {key} failed: {stderr}"));
     }
 
     Ok(())

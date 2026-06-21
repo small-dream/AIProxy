@@ -36,43 +36,28 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .map_err(|e| format!("failed to connect to upstream {host}:{port}: {e}"))?;
 
-    // Bidirectional copy via tokio::io::split (works with any AsyncRead + AsyncWrite).
-    let (mut cr, mut cw) = tokio::io::split(&mut client_stream);
-    let (mut ur, mut uw) = tokio::io::split(&mut upstream);
+    // Bidirectional relay honoring TCP half-close.
+    //
+    // `copy_bidirectional` is the correct primitive here: when one side reaches
+    // EOF it shuts down the OTHER side's writer (so a server waiting on EOF
+    // proceeds and returns its response), while continuing to flush any in-flight
+    // data on the surviving direction. The loop returns once both directions are
+    // done. This replaces a hand-rolled select loop that (a) aborted the tunnel
+    // on the first EOF (dropping in-flight data) and (b) when patched to wait for
+    // both directions, failed to shut down the peer writer, which could hang a
+    // server still expecting an EOF (H6 + hang regression).
+    let (client_bytes, upstream_bytes) =
+        tokio::io::copy_bidirectional(&mut client_stream, &mut upstream)
+            .await
+            .map_err(map_io_error)?;
 
-    let mut client_to_upstream = Box::pin(tokio::io::copy(&mut cr, &mut uw));
-    let mut upstream_to_client = Box::pin(tokio::io::copy(&mut ur, &mut cw));
-
-    // A CONNECT tunnel must honor TCP half-close: when one direction reaches EOF
-    // (Ok, the peer finished sending), the other direction may still have data
-    // to deliver. The previous `select!` aborted the whole tunnel as soon as
-    // either copy resolved, dropping in-flight data from the surviving
-    // direction. Relay until BOTH directions finish; exit early on an error
-    // (which signals a broken connection worth tearing down).
-    let mut c2u_done = false;
-    let mut u2c_done = false;
-    while !(c2u_done && u2c_done) {
-        tokio::select! {
-            r = &mut client_to_upstream, if !c2u_done => {
-                match r {
-                    Ok(_) => c2u_done = true,
-                    Err(e) => {
-                        tracing::warn!(event = "tunnel_client_to_upstream_error", error = %e, "tunnel_client_to_upstream_error");
-                        break;
-                    }
-                }
-            }
-            r = &mut upstream_to_client, if !u2c_done => {
-                match r {
-                    Ok(_) => u2c_done = true,
-                    Err(e) => {
-                        tracing::warn!(event = "tunnel_upstream_to_client_error", error = %e, "tunnel_upstream_to_client_error");
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    tracing::debug!(
+        event = "tunnel_relay_completed",
+        host = %host,
+        client_to_upstream_bytes = client_bytes,
+        upstream_to_client_bytes = upstream_bytes,
+        "tunnel_relay_completed"
+    );
 
     Ok(())
 }

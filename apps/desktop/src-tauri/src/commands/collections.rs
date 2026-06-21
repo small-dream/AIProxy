@@ -267,7 +267,10 @@ pub struct SaveSessionToCollectionInput {
 pub fn list_api_collections(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiCollectionOutput>, String> {
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::collections::list_all_collections(&conn)
         .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))?;
     Ok(rows
@@ -303,7 +306,10 @@ pub fn upsert_api_collection(
     };
 
     {
-        let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         aiproxy_db::collections::upsert_collection(&conn, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection: {e}")))?;
     }
@@ -324,7 +330,10 @@ pub fn delete_api_collection(
     input: DeleteApiCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::collections::delete_collection(&conn, &input.id)
         .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection: {e}")))?;
     Ok(())
@@ -335,7 +344,10 @@ pub fn list_api_collection_items(
     input: ListApiCollectionItemsInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiCollectionItemOutput>, String> {
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::collections::list_collection_items(&conn, &input.collection_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("list collection items: {error}")))?;
     Ok(rows
@@ -349,7 +361,10 @@ pub fn get_api_collection_item(
     input: GetApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let row = aiproxy_db::collections::get_collection_item(&conn, &input.id)
         .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
         .ok_or_else(|| {
@@ -394,7 +409,10 @@ pub fn upsert_api_collection_item(
     };
 
     {
-        let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         aiproxy_db::collections::upsert_collection_item(&conn, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection item: {e}")))?;
     }
@@ -407,7 +425,10 @@ pub fn delete_api_collection_item(
     input: DeleteApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::collections::delete_collection_item(&conn, &input.id)
         .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection item: {e}")))?;
     Ok(())
@@ -419,7 +440,10 @@ pub fn move_api_collection_item(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::collections::move_collection_item(
         &conn,
         &input.id,
@@ -437,7 +461,10 @@ pub fn move_api_collection(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::collections::move_collection(
         &conn,
         &input.id,
@@ -535,7 +562,10 @@ pub async fn batch_execute_collection_items(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ProxySessionDetail>, String> {
     let items: Vec<aiproxy_db::collections::CollectionItemRow> = {
-        let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = state
+            .read_db_connection()
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let mut found = Vec::new();
         for id in &input.item_ids {
             if let Some(item) = aiproxy_db::collections::get_collection_item(&conn, id)
@@ -550,7 +580,10 @@ pub async fn batch_execute_collection_items(
     // Load environment variables if specified
     let env_vars: std::collections::HashMap<String, String> = match &input.environment_id {
         Some(env_id) => {
-            let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn = state
+                .read_db_connection()
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
             let vars = aiproxy_db::environments::list_environment_variables(&conn, env_id)
                 .map_err(|e| app_error(ERR_INTERNAL, format!("load environment variables: {e}")))?;
             vars.into_iter()

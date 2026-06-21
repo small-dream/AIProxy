@@ -190,7 +190,11 @@ fn dns_san(hostname: &str) -> Result<SanType, TlsManagerError> {
 /// (L21). Chrono's date arithmetic handles month/year rollover correctly.
 fn leaf_not_before_ymd() -> (i32, u8, u8) {
     let backdated = chrono::Utc::now() - chrono::Duration::days(1);
-    (backdated.year(), backdated.month() as u8, backdated.day() as u8)
+    (
+        backdated.year(),
+        backdated.month() as u8,
+        backdated.day() as u8,
+    )
 }
 
 /// Sign a leaf certificate for a specific hostname using the root CA.

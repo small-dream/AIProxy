@@ -318,9 +318,8 @@ mod tests {
         let mut updated = ws.clone();
         updated.proxy_port = 9090;
         updated.updated_at = "2026-01-02T00:00:00Z".into();
-        upsert_workspace(&conn, &updated).expect(
-            "re-upserting a workspace with child rules must succeed (H8 regression)",
-        );
+        upsert_workspace(&conn, &updated)
+            .expect("re-upserting a workspace with child rules must succeed (H8 regression)");
 
         // Workspace updated in place, child rule preserved.
         let loaded = load_workspace(&conn, "ws-fk").unwrap().unwrap();

@@ -1,5 +1,7 @@
 use super::common::*;
-use crate::port_manager::{find_port_occupant, kill_process_by_pid, occupant_matches, PortOccupant};
+use crate::port_manager::{
+    find_port_occupant, kill_process_by_pid, occupant_matches, PortOccupant,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,8 +48,9 @@ pub async fn kill_proxy_port_process(input: KillPortProcessInput) -> Result<(), 
         ));
     }
 
-    run_blocking_command("kill_proxy_port_process", move || {
-        match find_port_occupant(input.port)?.as_ref() {
+    run_blocking_command(
+        "kill_proxy_port_process",
+        move || match find_port_occupant(input.port)?.as_ref() {
             Some(occupant)
                 if occupant_matches(Some(occupant), input.pid, input.name.as_deref()) =>
             {
@@ -65,7 +68,7 @@ pub async fn kill_proxy_port_process(input: KillPortProcessInput) -> Result<(), 
                 ERR_PROCESS_CHANGED,
                 "The process holding the port has changed. Refresh and try again.",
             )),
-        }
-    })
+        },
+    )
     .await
 }

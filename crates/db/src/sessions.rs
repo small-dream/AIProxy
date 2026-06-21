@@ -760,7 +760,11 @@ mod tests {
         upsert_session(&conn, &updated_summary, &test_detail("re1")).unwrap();
 
         let messages = load_ws_messages(&conn, "re1", 100, 0).unwrap();
-        assert_eq!(messages.len(), 1, "ws messages must survive session re-upsert");
+        assert_eq!(
+            messages.len(),
+            1,
+            "ws messages must survive session re-upsert"
+        );
         assert_eq!(messages[0].payload_text.as_deref(), Some("preserved"));
     }
 
@@ -782,7 +786,11 @@ mod tests {
         upsert_session(&conn, &updated, &test_detail("re2")).unwrap();
 
         let summaries = load_recent_summaries(&conn, 100).unwrap();
-        assert_eq!(summaries.len(), 1, "re-upsert must not duplicate the summary");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "re-upsert must not duplicate the summary"
+        );
         assert_eq!(summaries[0].status_code, 404);
         assert_eq!(summaries[0].finished_at, "2026-04-19T00:00:09Z");
     }

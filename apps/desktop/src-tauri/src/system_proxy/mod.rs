@@ -41,15 +41,15 @@ pub use macos::{
     capture_system_proxy_snapshot, restore_system_proxy,
     MacosSystemProxySnapshot as SystemProxySnapshot,
 };
-#[cfg(target_os = "windows")]
-pub use windows::{
-    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
-    capture_system_proxy_snapshot, restore_system_proxy,
-    WindowsSystemProxySnapshot as SystemProxySnapshot,
-};
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use unsupported::{
     apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
     capture_system_proxy_snapshot, restore_system_proxy,
     UnsupportedSystemProxySnapshot as SystemProxySnapshot,
+};
+#[cfg(target_os = "windows")]
+pub use windows::{
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy,
+    WindowsSystemProxySnapshot as SystemProxySnapshot,
 };

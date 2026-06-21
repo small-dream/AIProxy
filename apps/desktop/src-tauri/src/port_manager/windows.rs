@@ -1,7 +1,7 @@
 use std::process::Command;
 
-use aiproxy_sys_util::CommandExt;
 use super::{parse_netstat_pid, parse_tasklist_name, PortOccupant};
+use aiproxy_sys_util::CommandExt;
 
 /// Decodes the stdout of legacy Windows console tools (`netstat`, `tasklist`).
 ///

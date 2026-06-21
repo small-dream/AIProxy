@@ -66,23 +66,43 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("decode base64 content: {error}"))
 }
 
-/// Reject paths that target OS-protected locations. The intended caller passes
-/// a user-chosen path from the native save dialog (the trust boundary for a
-/// local tool), but a direct `invoke` with a crafted path could otherwise write
-/// into system directories. This is defense-in-depth, not a full sandbox (M3).
+fn allowed_media_save_roots() -> Vec<PathBuf> {
+    [
+        dirs::download_dir(),
+        dirs::picture_dir(),
+        dirs::video_dir(),
+        dirs::desktop_dir(),
+        dirs::document_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|dir| std::fs::canonicalize(dir).ok())
+    .collect()
+}
+
 fn reject_unsafe_write_path(path: &Path) -> Result<(), String> {
-    let Some(path_str) = path.to_str() else {
-        return Err("save path is not valid UTF-8".to_string());
-    };
-    let normalized = path_str.replace('\\', "/");
-    // Block writes into Windows system directories. Drive letters vary, so match
-    // on the well-known system folder segments.
-    let lowered = normalized.to_ascii_lowercase();
-    let blocked_segments = ["/windows/system32", "/windows/syswow64"];
-    if blocked_segments.iter().any(|seg| lowered.contains(seg)) {
-        return Err("refusing to write into a protected system directory".to_string());
+    if !path.is_absolute() {
+        return Err("save path must be absolute".to_string());
     }
-    Ok(())
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "save path has no parent directory".to_string())?;
+    let canon_parent =
+        std::fs::canonicalize(parent).map_err(|e| format!("cannot resolve save directory: {e}"))?;
+    if path.file_name().is_none() {
+        return Err("save path has no file name".to_string());
+    }
+
+    let allowed_roots = allowed_media_save_roots();
+    if allowed_roots
+        .iter()
+        .any(|root| canon_parent.starts_with(root))
+    {
+        return Ok(());
+    }
+
+    Err("save path must be inside Downloads, Pictures, Videos, Desktop, or Documents".to_string())
 }
 
 #[tauri::command]

@@ -28,7 +28,10 @@ pub fn list_ws_messages(
 ) -> Result<Vec<WsMessageOutput>, String> {
     let limit = input.limit.unwrap_or(500);
     let offset = input.offset.unwrap_or(0);
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::sessions::load_ws_messages(&conn, &input.session_id, limit, offset)
         .map_err(|error| app_error(ERR_INTERNAL, format!("list ws messages: {error}")))?;
     Ok(rows
@@ -137,7 +140,10 @@ pub fn search_ws_messages(
 ) -> Result<Vec<WsMessageOutput>, String> {
     let limit = input.limit.unwrap_or(500);
     let offset = input.offset.unwrap_or(0);
-    let conn = state.read_db_connection().lock().map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+    let conn = state
+        .read_db_connection()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let rows = aiproxy_db::sessions::search_ws_messages(
         &conn,
         &input.session_id,

@@ -962,7 +962,9 @@ fn read_hdc_devices() -> Result<Vec<HarmonyHdcDevice>, String> {
         ));
     }
 
-    Ok(parse_hdc_devices_output(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_hdc_devices_output(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 fn parse_hdc_devices_output(stdout: &str) -> Vec<HarmonyHdcDevice> {
@@ -1298,7 +1300,11 @@ fn resolve_harmony_target_device(requested_serial: Option<&str>) -> Result<Strin
 
 fn resolve_adb_path() -> Result<std::path::PathBuf, String> {
     // 1. Try bare "adb" from PATH
-    if let Ok(output) = std::process::Command::new("adb").arg("--version").no_window().output() {
+    if let Ok(output) = std::process::Command::new("adb")
+        .arg("--version")
+        .no_window()
+        .output()
+    {
         if output.status.success() {
             return Ok(std::path::PathBuf::from("adb"));
         }
@@ -1362,7 +1368,11 @@ fn xcrun_spawn_error(error: std::io::Error) -> String {
 ///   3. DevEco Studio / HarmonyOS SDK common install locations per platform
 fn resolve_hdc_path() -> Result<std::path::PathBuf, String> {
     // 1. Try bare "hdc" from PATH
-    if let Ok(output) = std::process::Command::new("hdc").arg("-v").no_window().output() {
+    if let Ok(output) = std::process::Command::new("hdc")
+        .arg("-v")
+        .no_window()
+        .output()
+    {
         if output.status.success() {
             return Ok(std::path::PathBuf::from("hdc"));
         }
@@ -1469,10 +1479,7 @@ fn windows_hdc_path_registry_values() -> Vec<String> {
     };
 
     let keys = [
-        (
-            HKEY_CURRENT_USER,
-            r"Environment",
-        ),
+        (HKEY_CURRENT_USER, r"Environment"),
         (
             HKEY_LOCAL_MACHINE,
             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
@@ -1634,7 +1641,8 @@ mod tests {
 
     #[test]
     fn parse_hdc_devices_output_accepts_verbose_emulator_row() {
-        let devices = parse_hdc_devices_output("127.0.0.1:5555\t\tTCP\tConnected\tlocalhost\thdc\n");
+        let devices =
+            parse_hdc_devices_output("127.0.0.1:5555\t\tTCP\tConnected\tlocalhost\thdc\n");
 
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].serial, "127.0.0.1:5555");

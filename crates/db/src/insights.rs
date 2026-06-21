@@ -502,7 +502,16 @@ mod tests {
                  duration_ms, size_bytes, status_code, url)
              VALUES (?1, ?2, ?3, '/', 'HTTP/1.1', 'https', '1.1', 'tcp', 'http',
                      ?8, '2026-05-25T00:00:01Z', ?4, ?5, ?6, ?7)",
-            params![id, method, host, duration_ms, size_bytes, status_code, url, started_at],
+            params![
+                id,
+                method,
+                host,
+                duration_ms,
+                size_bytes,
+                status_code,
+                url,
+                started_at
+            ],
         )
         .unwrap();
     }
@@ -565,34 +574,109 @@ mod tests {
     fn slow_requests_tiebreak_follows_started_at_then_id() {
         let conn = test_conn();
         // Identical duration: order is started_at DESC.
-        insert_session_started_at(&conn, "a", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:01Z");
-        insert_session_started_at(&conn, "b", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:03Z");
-        insert_session_started_at(&conn, "c", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:02Z");
+        insert_session_started_at(
+            &conn,
+            "a",
+            "h.com",
+            "GET",
+            200,
+            100,
+            10,
+            "2026-05-25T00:00:01Z",
+        );
+        insert_session_started_at(
+            &conn,
+            "b",
+            "h.com",
+            "GET",
+            200,
+            100,
+            10,
+            "2026-05-25T00:00:03Z",
+        );
+        insert_session_started_at(
+            &conn,
+            "c",
+            "h.com",
+            "GET",
+            200,
+            100,
+            10,
+            "2026-05-25T00:00:02Z",
+        );
 
         let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
-        let ids: Vec<&str> = result.slow_requests.iter().map(|r| r.session_id.as_str()).collect();
+        let ids: Vec<&str> = result
+            .slow_requests
+            .iter()
+            .map(|r| r.session_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["b", "c", "a"]);
     }
 
     #[test]
     fn slow_requests_tiebreak_falls_back_to_id_when_started_at_equal() {
         let conn = test_conn();
-        insert_session_started_at(&conn, "x2", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:00Z");
-        insert_session_started_at(&conn, "x1", "h.com", "GET", 200, 100, 10, "2026-05-25T00:00:00Z");
+        insert_session_started_at(
+            &conn,
+            "x2",
+            "h.com",
+            "GET",
+            200,
+            100,
+            10,
+            "2026-05-25T00:00:00Z",
+        );
+        insert_session_started_at(
+            &conn,
+            "x1",
+            "h.com",
+            "GET",
+            200,
+            100,
+            10,
+            "2026-05-25T00:00:00Z",
+        );
 
         let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
-        let ids: Vec<&str> = result.slow_requests.iter().map(|r| r.session_id.as_str()).collect();
+        let ids: Vec<&str> = result
+            .slow_requests
+            .iter()
+            .map(|r| r.session_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["x1", "x2"]); // id ASC
     }
 
     #[test]
     fn largest_requests_tiebreak_follows_started_at() {
         let conn = test_conn();
-        insert_session_started_at(&conn, "a", "h.com", "GET", 200, 10, 500, "2026-05-25T00:00:01Z");
-        insert_session_started_at(&conn, "b", "h.com", "GET", 200, 10, 500, "2026-05-25T00:00:03Z");
+        insert_session_started_at(
+            &conn,
+            "a",
+            "h.com",
+            "GET",
+            200,
+            10,
+            500,
+            "2026-05-25T00:00:01Z",
+        );
+        insert_session_started_at(
+            &conn,
+            "b",
+            "h.com",
+            "GET",
+            200,
+            10,
+            500,
+            "2026-05-25T00:00:03Z",
+        );
 
         let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
-        let ids: Vec<&str> = result.largest_requests.iter().map(|r| r.session_id.as_str()).collect();
+        let ids: Vec<&str> = result
+            .largest_requests
+            .iter()
+            .map(|r| r.session_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["b", "a"]); // size_bytes tie -> started_at DESC
     }
 
@@ -617,7 +701,11 @@ mod tests {
         insert_session(&conn, "2", "h.com", "GET", 200, 10, 10);
 
         let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
-        let codes: Vec<i64> = result.by_status_code.iter().map(|s| s.status_code).collect();
+        let codes: Vec<i64> = result
+            .by_status_code
+            .iter()
+            .map(|s| s.status_code)
+            .collect();
         assert_eq!(codes, vec![200, 500]);
 
         let methods: Vec<String> = result.by_method.iter().map(|m| m.method.clone()).collect();
@@ -657,7 +745,15 @@ mod tests {
             );
         }
         for i in 0..5 {
-            insert_session(&conn, &format!("o{i}"), "other.example.com", "GET", 200, 10, 100);
+            insert_session(
+                &conn,
+                &format!("o{i}"),
+                "other.example.com",
+                "GET",
+                200,
+                10,
+                100,
+            );
         }
 
         // Unscoped overview: rankings are capped at 20.

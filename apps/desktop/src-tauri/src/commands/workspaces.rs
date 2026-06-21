@@ -18,7 +18,7 @@ pub struct CreateWorkspaceInput {
 pub fn create_workspace(
     input: CreateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
-) -> WorkspaceData {
+) -> Result<WorkspaceData, String> {
     let ssl_enabled = input.ssl_enabled.unwrap_or(true);
     let http2_enabled = input.http2_enabled.unwrap_or(true);
 
@@ -44,7 +44,7 @@ pub fn create_workspace(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::workspaces::WorkspaceRow {
             id: workspace.id.clone(),
             name: workspace.name.clone(),
@@ -73,7 +73,7 @@ pub fn create_workspace(
         "create_workspace_succeeded"
     );
 
-    workspace
+    Ok(workspace)
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,7 +150,7 @@ pub fn update_workspace(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         if let Err(error) = aiproxy_db::workspaces::update_workspace(
             &conn,
             &input.workspace_id,

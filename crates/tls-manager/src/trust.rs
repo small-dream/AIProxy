@@ -41,8 +41,8 @@ pub fn is_cert_trusted_on_platform(cert_path: &Path, platform: Platform) -> bool
 
 #[cfg(target_os = "windows")]
 fn is_trusted_windows(cert_path: &Path) -> bool {
-    use std::process::Command;
     use aiproxy_sys_util::CommandExt;
+    use std::process::Command;
 
     let thumbprint = match certificate_sha1_thumbprint(cert_path) {
         Ok(thumbprint) => thumbprint,

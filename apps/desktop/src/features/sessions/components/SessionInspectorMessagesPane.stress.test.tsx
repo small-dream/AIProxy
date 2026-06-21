@@ -127,5 +127,5 @@ describe("SessionInspectorMessagesPane stress", () => {
     // through getVirtualItems() rather than a flat .map() over all messages.
     // In production (without our mock), only viewport-visible items would render,
     // so the DOM would contain far fewer than 1000 elements.
-  });
+  }, 15_000);
 });

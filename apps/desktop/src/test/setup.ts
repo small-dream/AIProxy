@@ -20,3 +20,18 @@ if (typeof Element.prototype.scrollTo !== "function") {
 if (typeof Element.prototype.scrollIntoView !== "function") {
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
+
+// jsdom does not implement canvas. AppProviders probes font metrics with a
+// throwaway canvas in production, so provide the tiny 2D surface tests need.
+if (typeof HTMLCanvasElement !== "undefined") {
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value(contextId: string) {
+      if (contextId !== "2d") return null;
+      return {
+        font: "",
+        measureText: (text: string) => ({ width: text.length * 8 }),
+      };
+    },
+  });
+}
