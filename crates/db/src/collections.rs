@@ -53,21 +53,44 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbE
         ));
     }
 
-    conn.execute(
-        "INSERT OR REPLACE INTO api_collections
-            (id, parent_id, name, description, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            c.id,
-            c.parent_id,
-            c.name,
-            c.description,
-            c.sort_order as i32,
-            c.created_at,
-            c.updated_at,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert collection", e))?;
+    // UPDATE-or-INSERT instead of INSERT OR REPLACE: a REPLACE on api_collections
+    // triggers ON DELETE CASCADE on api_collection_items (foreign_keys=ON),
+    // silently wiping all items in the collection on every re-save.
+    let affected = conn
+        .execute(
+            "UPDATE api_collections
+                SET parent_id=?2, name=?3, description=?4, sort_order=?5,
+                    created_at=?6, updated_at=?7
+             WHERE id=?1",
+            params![
+                c.id,
+                c.parent_id,
+                c.name,
+                c.description,
+                c.sort_order as i32,
+                c.created_at,
+                c.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("update collection", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO api_collections
+                (id, parent_id, name, description, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                c.id,
+                c.parent_id,
+                c.name,
+                c.description,
+                c.sort_order as i32,
+                c.created_at,
+                c.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("insert collection", e))?;
+    }
     Ok(())
 }
 

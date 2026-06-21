@@ -44,19 +44,27 @@ pub struct GlobalVariableRow {
 // ---------------------------------------------------------------------------
 
 pub fn upsert_environment(conn: &Connection, env: &EnvironmentRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO api_environments
-            (id, name, sort_order, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            env.id,
-            env.name,
-            env.sort_order as i32,
-            env.created_at,
-            env.updated_at,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert environment", e))?;
+    // UPDATE-or-INSERT instead of INSERT OR REPLACE: a REPLACE on api_environments
+    // triggers ON DELETE CASCADE on api_environment_variables (foreign_keys=ON),
+    // silently wiping all variables in the environment on every re-save.
+    let affected = conn
+        .execute(
+            "UPDATE api_environments
+                SET name=?2, sort_order=?3, created_at=?4, updated_at=?5
+             WHERE id=?1",
+            params![env.id, env.name, env.sort_order as i32, env.created_at, env.updated_at],
+        )
+        .map_err(|e| DbError::query("update environment", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO api_environments
+                (id, name, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![env.id, env.name, env.sort_order as i32, env.created_at, env.updated_at],
+        )
+        .map_err(|e| DbError::query("insert environment", e))?;
+    }
     Ok(())
 }
 

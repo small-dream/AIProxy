@@ -21,28 +21,59 @@ pub struct RewriteRuleRow {
     pub payload: String, // JSON value
 }
 
+/// Save (insert or update) a rewrite rule.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE: a REPLACE on
+/// rewrite_rules triggers ON DELETE CASCADE on rewrite_runs/rewrite_run_entries
+/// (foreign_keys=ON), silently wiping the rule's run history on every re-save.
 pub fn save_rewrite_rule(conn: &Connection, r: &RewriteRuleRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO rewrite_rules
-            (id, workspace_id, name, note, enabled, priority,
-             match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            r.id,
-            r.workspace_id,
-            r.name,
-            r.note,
-            r.enabled as i32,
-            r.priority,
-            r.match_methods,
-            r.match_stage,
-            r.match_url_pattern,
-            r.match_type,
-            r.rewrite_type,
-            r.payload,
-        ],
-    )
-    .map_err(|e| DbError::query("save rewrite rule", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE rewrite_rules
+                SET workspace_id=?2, name=?3, note=?4, enabled=?5, priority=?6,
+                    match_methods=?7, match_stage=?8, match_url_pattern=?9, match_type=?10,
+                    rewrite_type=?11, payload=?12
+             WHERE id=?1",
+            params![
+                r.id,
+                r.workspace_id,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.priority,
+                r.match_methods,
+                r.match_stage,
+                r.match_url_pattern,
+                r.match_type,
+                r.rewrite_type,
+                r.payload,
+            ],
+        )
+        .map_err(|e| DbError::query("update rewrite rule", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO rewrite_rules
+                (id, workspace_id, name, note, enabled, priority,
+                 match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                r.id,
+                r.workspace_id,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.priority,
+                r.match_methods,
+                r.match_stage,
+                r.match_url_pattern,
+                r.match_type,
+                r.rewrite_type,
+                r.payload,
+            ],
+        )
+        .map_err(|e| DbError::query("insert rewrite rule", e))?;
+    }
     Ok(())
 }
 
@@ -139,27 +170,57 @@ pub struct MapRuleRow {
     pub target_value: String,
 }
 
+/// Save (insert or update) a map rule.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE: a REPLACE on map_rules
+/// triggers ON DELETE CASCADE on map_runs (foreign_keys=ON), silently wiping
+/// the rule's run history on every re-save.
 pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO map_rules
-            (id, workspace_id, mode, name, note, enabled, preserve_path,
-             preserve_query, priority, source_pattern, target_value)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![
-            r.id,
-            r.workspace_id,
-            r.mode,
-            r.name,
-            r.note,
-            r.enabled as i32,
-            r.preserve_path as i32,
-            r.preserve_query as i32,
-            r.priority,
-            r.source_pattern,
-            r.target_value,
-        ],
-    )
-    .map_err(|e| DbError::query("save map rule", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE map_rules
+                SET workspace_id=?2, mode=?3, name=?4, note=?5, enabled=?6,
+                    preserve_path=?7, preserve_query=?8, priority=?9,
+                    source_pattern=?10, target_value=?11
+             WHERE id=?1",
+            params![
+                r.id,
+                r.workspace_id,
+                r.mode,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.preserve_path as i32,
+                r.preserve_query as i32,
+                r.priority,
+                r.source_pattern,
+                r.target_value,
+            ],
+        )
+        .map_err(|e| DbError::query("update map rule", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO map_rules
+                (id, workspace_id, mode, name, note, enabled, preserve_path,
+                 preserve_query, priority, source_pattern, target_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                r.id,
+                r.workspace_id,
+                r.mode,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.preserve_path as i32,
+                r.preserve_query as i32,
+                r.priority,
+                r.source_pattern,
+                r.target_value,
+            ],
+        )
+        .map_err(|e| DbError::query("insert map rule", e))?;
+    }
     Ok(())
 }
 
@@ -337,25 +398,52 @@ pub fn save_throttle_profile(conn: &Connection, p: &ThrottleProfileRow) -> Resul
         .map_err(|e| DbError::query("deactivate other throttle profiles", e))?;
     }
 
-    tx.execute(
-        "INSERT OR REPLACE INTO throttle_profiles
-            (id, workspace_id, name, note, enabled, preset, latency_ms,
-             upload_kbps, download_kbps, packet_loss_ratio)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            p.id,
-            p.workspace_id,
-            p.name,
-            p.note,
-            p.enabled as i32,
-            p.preset as i32,
-            p.latency_ms,
-            p.upload_kbps,
-            p.download_kbps,
-            p.packet_loss_ratio,
-        ],
-    )
-    .map_err(|e| DbError::query("save throttle profile", e))?;
+    // UPDATE-or-INSERT instead of INSERT OR REPLACE: a REPLACE on
+    // throttle_profiles fails with a FOREIGN KEY constraint error when
+    // throttle_rules reference it (NO ACTION), so re-saving a profile that
+    // already has rules would error out.
+    let affected = tx
+        .execute(
+            "UPDATE throttle_profiles
+                SET workspace_id=?2, name=?3, note=?4, enabled=?5, preset=?6,
+                    latency_ms=?7, upload_kbps=?8, download_kbps=?9, packet_loss_ratio=?10
+             WHERE id=?1",
+            params![
+                p.id,
+                p.workspace_id,
+                p.name,
+                p.note,
+                p.enabled as i32,
+                p.preset as i32,
+                p.latency_ms,
+                p.upload_kbps,
+                p.download_kbps,
+                p.packet_loss_ratio,
+            ],
+        )
+        .map_err(|e| DbError::query("update throttle profile", e))?;
+
+    if affected == 0 {
+        tx.execute(
+            "INSERT INTO throttle_profiles
+                (id, workspace_id, name, note, enabled, preset, latency_ms,
+                 upload_kbps, download_kbps, packet_loss_ratio)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                p.id,
+                p.workspace_id,
+                p.name,
+                p.note,
+                p.enabled as i32,
+                p.preset as i32,
+                p.latency_ms,
+                p.upload_kbps,
+                p.download_kbps,
+                p.packet_loss_ratio,
+            ],
+        )
+        .map_err(|e| DbError::query("insert throttle profile", e))?;
+    }
 
     tx.commit()
         .map_err(|e| DbError::query("commit save throttle profile transaction", e))?;
@@ -846,35 +934,73 @@ pub struct RewriteRunEntryRow {
     pub seq: u32,
 }
 
+/// Save (insert or update) a script rule.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE: a REPLACE on
+/// script_rules triggers ON DELETE CASCADE on script_runs/script_run_entries
+/// (foreign_keys=ON), silently wiping the rule's run history on every re-save.
 pub fn save_script_rule(conn: &Connection, row: &ScriptRuleRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO script_rules
-            (id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
-             match_url_pattern, match_type, language, source_type, source_code, source_path, entrypoints,
-             compiled_code, source_map, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
-        params![
-            row.id,
-            row.workspace_id,
-            row.name,
-            row.note,
-            row.enabled as i32,
-            row.priority,
-            row.match_methods,
-            row.match_stage,
-            row.match_url_pattern,
-            row.match_type,
-            row.language,
-            row.source_type,
-            row.source_code,
-            row.source_path,
-            row.entrypoints,
-            row.compiled_code,
-            row.source_map,
-            row.updated_at,
-        ],
-    )
-    .map_err(|e| DbError::query("save script rule", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE script_rules
+                SET workspace_id=?2, name=?3, note=?4, enabled=?5, priority=?6,
+                    match_methods=?7, match_stage=?8, match_url_pattern=?9, match_type=?10,
+                    language=?11, source_type=?12, source_code=?13, source_path=?14,
+                    entrypoints=?15, compiled_code=?16, source_map=?17, updated_at=?18
+             WHERE id=?1",
+            params![
+                row.id,
+                row.workspace_id,
+                row.name,
+                row.note,
+                row.enabled as i32,
+                row.priority,
+                row.match_methods,
+                row.match_stage,
+                row.match_url_pattern,
+                row.match_type,
+                row.language,
+                row.source_type,
+                row.source_code,
+                row.source_path,
+                row.entrypoints,
+                row.compiled_code,
+                row.source_map,
+                row.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("update script rule", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO script_rules
+                (id, workspace_id, name, note, enabled, priority, match_methods, match_stage,
+                 match_url_pattern, match_type, language, source_type, source_code, source_path, entrypoints,
+                 compiled_code, source_map, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            params![
+                row.id,
+                row.workspace_id,
+                row.name,
+                row.note,
+                row.enabled as i32,
+                row.priority,
+                row.match_methods,
+                row.match_stage,
+                row.match_url_pattern,
+                row.match_type,
+                row.language,
+                row.source_type,
+                row.source_code,
+                row.source_path,
+                row.entrypoints,
+                row.compiled_code,
+                row.source_map,
+                row.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("insert script rule", e))?;
+    }
     Ok(())
 }
 
@@ -1282,6 +1408,74 @@ mod tests {
 
         delete_rewrite_rule(&conn, "r1").unwrap();
         assert!(load_all_rewrite_rules(&conn).unwrap().is_empty());
+    }
+
+    // Regression for H1/H8: re-saving a rewrite rule that already has run
+    // history must NOT wipe it. The old INSERT OR REPLACE triggered
+    // ON DELETE CASCADE on rewrite_runs (rule_id FK) on every re-save.
+    #[test]
+    fn save_rewrite_rule_preserves_runs_on_resave() {
+        let conn = test_conn();
+
+        fn make_rule(id: &str, note: Option<&str>) -> RewriteRuleRow {
+            RewriteRuleRow {
+                id: id.into(),
+                workspace_id: "default".into(),
+                name: "Test".into(),
+                note: note.map(str::to_string),
+                enabled: true,
+                priority: 10,
+                match_methods: "[]".into(),
+                match_stage: "request".into(),
+                match_url_pattern: "example.com".into(),
+                match_type: "contains".into(),
+                rewrite_type: "header".into(),
+                payload: "{}".into(),
+            }
+        }
+
+        save_rewrite_rule(&conn, &make_rule("r-run", None)).unwrap();
+
+        // Insert a rewrite_run referencing the rule (rule_id CASCADE FK).
+        // session_id also references session_summaries, so seed a minimal row.
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version, transport_protocol,
+                 application_protocol, started_at, finished_at, duration_ms, size_bytes,
+                 status_code, url, response_mime_type)
+             VALUES ('sess-1', 'GET', 'example.com', '/', 'HTTP/1.1', 'https', '1.1', 'tcp',
+                     'http', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z', 0, 0, 200, 'https://example.com/', NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO rewrite_runs
+                (id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at)
+             VALUES ('run-1', 'sess-1', 'r-run', 'Test', 'default', 'header', 'request', 'success', 5, '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // Re-save the same rule (e.g. user edited the note). Old code would
+        // cascade-delete the run via the implicit REPLACE delete.
+        save_rewrite_rule(&conn, &make_rule("r-run", Some("edited"))).unwrap();
+
+        let run_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewrite_runs WHERE rule_id = 'r-run'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            run_count, 1,
+            "rewrite run must survive rule re-save (H8 regression)"
+        );
+
+        // And the rule itself was updated in place.
+        let loaded = load_all_rewrite_rules(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].note.as_deref(), Some("edited"));
     }
 
     #[test]

@@ -67,62 +67,132 @@ pub fn upsert_session(
         .unchecked_transaction()
         .map_err(|e| DbError::query("begin upsert session transaction", e))?;
 
-    tx.execute(
-        "INSERT OR REPLACE INTO session_summaries
-            (id, method, host, path, protocol, scheme, http_version, transport_protocol,
-             application_protocol, started_at, finished_at, duration_ms, size_bytes,
-             status_code, url, response_mime_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-        params![
-            summary.id,
-            summary.method,
-            summary.host,
-            summary.path,
-            summary.protocol,
-            summary.scheme,
-            summary.http_version,
-            summary.transport_protocol,
-            summary.application_protocol,
-            summary.started_at,
-            summary.finished_at,
-            u128_to_i64_saturating(summary.duration_ms),
-            summary.size_bytes as i64,
-            summary.status_code as i32,
-            summary.url,
-            summary.response_mime_type,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert session summary", e))?;
+    // Use UPDATE-or-INSERT instead of INSERT OR REPLACE: a REPLACE on
+    // session_summaries triggers ON DELETE CASCADE on ws_messages,
+    // script_runs, rewrite_runs, map_runs, throttle_runs and session_details
+    // (foreign_keys=ON), silently wiping child rows on every re-insert.
+    let affected = tx
+        .execute(
+            "UPDATE session_summaries
+                SET method=?2, host=?3, path=?4, protocol=?5, scheme=?6, http_version=?7,
+                    transport_protocol=?8, application_protocol=?9, started_at=?10,
+                    finished_at=?11, duration_ms=?12, size_bytes=?13, status_code=?14,
+                    url=?15, response_mime_type=?16
+             WHERE id=?1",
+            params![
+                summary.id,
+                summary.method,
+                summary.host,
+                summary.path,
+                summary.protocol,
+                summary.scheme,
+                summary.http_version,
+                summary.transport_protocol,
+                summary.application_protocol,
+                summary.started_at,
+                summary.finished_at,
+                u128_to_i64_saturating(summary.duration_ms),
+                summary.size_bytes as i64,
+                summary.status_code as i32,
+                summary.url,
+                summary.response_mime_type,
+            ],
+        )
+        .map_err(|e| DbError::query("update session summary", e))?;
 
-    tx.execute(
-        "INSERT OR REPLACE INTO session_details
-            (id, session_summary_id, query_params, cookies,
-             request_headers, response_headers, raw_request, raw_response,
-             client_address, server_ip, tls_cipher_suite, tls_protocol,
-             request_body_ref, response_body_ref, timing,
-             trailers, h2_stream_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-        params![
-            detail.id,
-            detail.session_summary_id,
-            detail.query_params,
-            detail.cookies,
-            detail.request_headers,
-            detail.response_headers,
-            detail.raw_request,
-            detail.raw_response,
-            detail.client_address,
-            detail.server_ip,
-            detail.tls_cipher_suite,
-            detail.tls_protocol,
-            detail.request_body_ref,
-            detail.response_body_ref,
-            detail.timing,
-            detail.trailers,
-            detail.h2_stream_id,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert session detail", e))?;
+    if affected == 0 {
+        tx.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version, transport_protocol,
+                 application_protocol, started_at, finished_at, duration_ms, size_bytes,
+                 status_code, url, response_mime_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                summary.id,
+                summary.method,
+                summary.host,
+                summary.path,
+                summary.protocol,
+                summary.scheme,
+                summary.http_version,
+                summary.transport_protocol,
+                summary.application_protocol,
+                summary.started_at,
+                summary.finished_at,
+                u128_to_i64_saturating(summary.duration_ms),
+                summary.size_bytes as i64,
+                summary.status_code as i32,
+                summary.url,
+                summary.response_mime_type,
+            ],
+        )
+        .map_err(|e| DbError::query("insert session summary", e))?;
+    }
+
+    // session_details has no child tables, so INSERT OR REPLACE is safe here;
+    // but use UPDATE-or-INSERT for consistency and to keep the same id.
+    let detail_affected = tx
+        .execute(
+            "UPDATE session_details
+                SET session_summary_id=?2, query_params=?3, cookies=?4,
+                    request_headers=?5, response_headers=?6, raw_request=?7, raw_response=?8,
+                    client_address=?9, server_ip=?10, tls_cipher_suite=?11, tls_protocol=?12,
+                    request_body_ref=?13, response_body_ref=?14, timing=?15,
+                    trailers=?16, h2_stream_id=?17
+             WHERE id=?1",
+            params![
+                detail.id,
+                detail.session_summary_id,
+                detail.query_params,
+                detail.cookies,
+                detail.request_headers,
+                detail.response_headers,
+                detail.raw_request,
+                detail.raw_response,
+                detail.client_address,
+                detail.server_ip,
+                detail.tls_cipher_suite,
+                detail.tls_protocol,
+                detail.request_body_ref,
+                detail.response_body_ref,
+                detail.timing,
+                detail.trailers,
+                detail.h2_stream_id,
+            ],
+        )
+        .map_err(|e| DbError::query("update session detail", e))?;
+
+    if detail_affected == 0 {
+        tx.execute(
+            "INSERT INTO session_details
+                (id, session_summary_id, query_params, cookies,
+                 request_headers, response_headers, raw_request, raw_response,
+                 client_address, server_ip, tls_cipher_suite, tls_protocol,
+                 request_body_ref, response_body_ref, timing,
+                 trailers, h2_stream_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            params![
+                detail.id,
+                detail.session_summary_id,
+                detail.query_params,
+                detail.cookies,
+                detail.request_headers,
+                detail.response_headers,
+                detail.raw_request,
+                detail.raw_response,
+                detail.client_address,
+                detail.server_ip,
+                detail.tls_cipher_suite,
+                detail.tls_protocol,
+                detail.request_body_ref,
+                detail.response_body_ref,
+                detail.timing,
+                detail.trailers,
+                detail.h2_stream_id,
+            ],
+        )
+        .map_err(|e| DbError::query("insert session detail", e))?;
+    }
 
     tx.commit()
         .map_err(|e| DbError::query("commit upsert session transaction", e))?;
@@ -645,5 +715,68 @@ mod tests {
         delete_sessions_by_ids(&conn, &["ws2".into()]).unwrap();
         let loaded = load_ws_messages(&conn, "ws2", 100, 0).unwrap();
         assert!(loaded.is_empty());
+    }
+
+    // Regression for H1: re-upserting an existing session must NOT wipe its
+    // child rows. The old INSERT OR REPLACE implementation triggered
+    // ON DELETE CASCADE on ws_messages/runs via the REPLACE's implicit delete.
+    #[test]
+    fn upsert_session_preserves_ws_messages_on_reinsert() {
+        let conn = test_conn();
+        upsert_session(
+            &conn,
+            &test_summary("re1", "re.example.com"),
+            &test_detail("re1"),
+        )
+        .unwrap();
+
+        insert_ws_message(
+            &conn,
+            &WsMessageRow {
+                id: "rm1".into(),
+                session_id: "re1".into(),
+                direction: "clientToServer".into(),
+                timestamp: "2026-04-19T00:00:01Z".into(),
+                opcode: "text".into(),
+                payload_text: Some("preserved".into()),
+                payload_size: 9,
+                fin: true,
+            },
+        )
+        .unwrap();
+
+        // Second upsert with the same id (e.g. response arrives, finished_at
+        // updated) must keep the ws message that was already stored.
+        let mut updated_summary = test_summary("re1", "re.example.com");
+        updated_summary.finished_at = "2026-04-19T00:00:05Z".into();
+        updated_summary.duration_ms = 5_000;
+        upsert_session(&conn, &updated_summary, &test_detail("re1")).unwrap();
+
+        let messages = load_ws_messages(&conn, "re1", 100, 0).unwrap();
+        assert_eq!(messages.len(), 1, "ws messages must survive session re-upsert");
+        assert_eq!(messages[0].payload_text.as_deref(), Some("preserved"));
+    }
+
+    // Regression for H1: re-upserting a session must also preserve the detail
+    // row and update summary fields (status_code/finished_at) in place.
+    #[test]
+    fn upsert_session_updates_summary_in_place_on_reinsert() {
+        let conn = test_conn();
+        upsert_session(
+            &conn,
+            &test_summary("re2", "re2.example.com"),
+            &test_detail("re2"),
+        )
+        .unwrap();
+
+        let mut updated = test_summary("re2", "re2.example.com");
+        updated.status_code = 404;
+        updated.finished_at = "2026-04-19T00:00:09Z".into();
+        upsert_session(&conn, &updated, &test_detail("re2")).unwrap();
+
+        let summaries = load_recent_summaries(&conn, 100).unwrap();
+        assert_eq!(summaries.len(), 1, "re-upsert must not duplicate the summary");
+        assert_eq!(summaries[0].status_code, 404);
+        assert_eq!(summaries[0].finished_at, "2026-04-19T00:00:09Z");
     }
 }

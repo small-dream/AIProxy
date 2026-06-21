@@ -16,25 +16,53 @@ pub struct WorkspaceRow {
     pub updated_at: String,
 }
 
-/// Insert or replace a workspace row.
+/// Insert or update a workspace row.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE: a REPLACE on
+/// workspaces fails with a FOREIGN KEY constraint error when child rows
+/// exist (rewrite_rules/map_rules/throttle_profiles/etc. reference it with
+/// the default NO ACTION), so any re-save of a workspace that already has
+/// rules would error out.
 pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO workspaces
-            (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            ws.id,
-            ws.name,
-            ws.proxy_port,
-            ws.ssl_enabled as i32,
-            ws.http2_enabled as i32,
-            ws.system_proxy_enabled as i32,
-            ws.storage_path,
-            ws.created_at,
-            ws.updated_at,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert workspace", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE workspaces
+                SET name=?2, proxy_port=?3, ssl_enabled=?4, http2_enabled=?5,
+                    system_proxy_enabled=?6, storage_path=?7, created_at=?8, updated_at=?9
+             WHERE id=?1",
+            params![
+                ws.id,
+                ws.name,
+                ws.proxy_port,
+                ws.ssl_enabled as i32,
+                ws.http2_enabled as i32,
+                ws.system_proxy_enabled as i32,
+                ws.storage_path,
+                ws.created_at,
+                ws.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("update workspace", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO workspaces
+                (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                ws.id,
+                ws.name,
+                ws.proxy_port,
+                ws.ssl_enabled as i32,
+                ws.http2_enabled as i32,
+                ws.system_proxy_enabled as i32,
+                ws.storage_path,
+                ws.created_at,
+                ws.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("insert workspace", e))?;
+    }
     Ok(())
 }
 
@@ -245,5 +273,57 @@ mod tests {
             !loaded.http2_enabled,
             "http2_enabled should be preserved as false"
         );
+    }
+
+    // Regression for H8: re-upserting a workspace that already has child rows
+    // (referenced via NO ACTION FK) must NOT error. The old INSERT OR REPLACE
+    // implementation failed with a FOREIGN KEY constraint error because the
+    // implicit delete violated the NO ACTION reference from rewrite_rules.
+    #[test]
+    fn upsert_workspace_succeeds_when_child_rules_exist() {
+        let conn = test_conn();
+        let ws = WorkspaceRow {
+            id: "ws-fk".into(),
+            name: "FK".into(),
+            proxy_port: 8080,
+            ssl_enabled: true,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_workspace(&conn, &ws).unwrap();
+
+        // Add a child row referencing the workspace via NO ACTION FK.
+        conn.execute(
+            "INSERT INTO rewrite_rules
+                (id, workspace_id, name, note, enabled, priority,
+                 match_methods, match_stage, match_url_pattern, match_type, rewrite_type, payload)
+             VALUES ('rw-1', 'ws-fk', 'rule', NULL, 1, 0, '[]', '', '*.example.com', 'contains', 'add_header', '{}')",
+            [],
+        )
+        .unwrap();
+
+        // Re-upsert the same workspace (e.g. user edits proxy_port). Under the
+        // old INSERT OR REPLACE this returned a FOREIGN KEY constraint error.
+        let mut updated = ws.clone();
+        updated.proxy_port = 9090;
+        updated.updated_at = "2026-01-02T00:00:00Z".into();
+        upsert_workspace(&conn, &updated).expect(
+            "re-upserting a workspace with child rules must succeed (H8 regression)",
+        );
+
+        // Workspace updated in place, child rule preserved.
+        let loaded = load_workspace(&conn, "ws-fk").unwrap().unwrap();
+        assert_eq!(loaded.proxy_port, 9090);
+        let rule_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewrite_rules WHERE workspace_id = 'ws-fk'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rule_count, 1, "child rule must survive workspace re-upsert");
     }
 }
