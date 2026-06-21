@@ -48,7 +48,7 @@ pub fn save_throttle_profile(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::ThrottleProfileRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -84,7 +84,7 @@ pub fn save_throttle_rule(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::ThrottleRuleRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -119,7 +119,7 @@ pub fn delete_throttle_rule(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         aiproxy_db::rules::delete_throttle_rule(&conn, &input.rule_id)
             .map_err(|error| app_error(ERR_INTERNAL, format!("delete throttle rule: {error}")))?;
     }
@@ -143,7 +143,7 @@ pub fn set_active_throttle_profile(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         aiproxy_db::rules::set_active_throttle_profile(
             &conn,
             &input.workspace_id,

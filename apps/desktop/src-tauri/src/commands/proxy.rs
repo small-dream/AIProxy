@@ -192,7 +192,7 @@ async fn start_proxy_impl(
                                 fin: msg.fin,
                             };
                             let _ = tauri::async_runtime::spawn_blocking(move || {
-                                let conn = db.lock().expect("db mutex");
+                                let conn = db.lock().unwrap_or_else(|e| e.into_inner());
                                 if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
                                     tracing::error!(
                                         component = "desktop.ws_collector",

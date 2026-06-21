@@ -46,7 +46,7 @@ impl Repository {
     /// Clear all session data from SQLite and BodyStore.
     pub fn clear_all_sessions(&self) {
         {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
             if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -78,7 +78,7 @@ impl Repository {
     /// blocking thread.
     pub fn delete_sessions_by_ids(&self, ids: &[String]) {
         {
-            let conn = self.db.lock().expect("db mutex should not be poisoned");
+            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
             if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -108,11 +108,21 @@ impl Repository {
     pub async fn delete_sessions_and_bodies_async(&self, ids: Vec<String>) {
         let db = Arc::clone(&self.db);
         let body_store = Arc::clone(&self.body_store);
-        tauri::async_runtime::spawn_blocking(move || {
+        match tauri::async_runtime::spawn_blocking(move || {
             delete_sessions_impl(&db, &body_store, &ids);
         })
         .await
-        .expect("delete_sessions spawn_blocking should not panic");
+        {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "delete_sessions_spawn_failed",
+                    error = %error,
+                    "delete_sessions spawn_blocking failed"
+                );
+            }
+        }
     }
 
     /// Fire-and-forget variant for callers that have already updated caches
@@ -132,7 +142,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Option<aiproxy_db::sessions::SessionDetailRow> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
             Ok(Some(row)) => {
                 tracing::debug!(
@@ -170,7 +180,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Option<aiproxy_db::sessions::SessionSummaryRow> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
             Ok(Some(row)) => {
                 tracing::debug!(
@@ -211,7 +221,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionDetailRow>, String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         aiproxy_db::sessions::load_session_detail(&conn, session_id).map_err(|e| e.to_string())
     }
 
@@ -221,7 +231,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionSummaryRow>, String> {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         aiproxy_db::sessions::load_session_summary(&conn, session_id).map_err(|e| e.to_string())
     }
 
@@ -233,7 +243,7 @@ impl Repository {
         summary_row: &aiproxy_db::sessions::SessionSummaryRow,
         detail_row: &aiproxy_db::sessions::SessionDetailRow,
     ) {
-        let conn = self.db.lock().expect("db mutex should not be poisoned");
+        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, summary_row, detail_row) {
             tracing::error!(
                 component = "desktop.persistence",
@@ -466,8 +476,12 @@ impl Repository {
         let db = Arc::clone(&self.db);
         let body_store = Arc::clone(&self.body_store);
         let wid = workspace_id.to_string();
+        // Keep a fallback copy: if spawn_blocking panics (JoinError), return the
+        // session unchanged so the collector task survives instead of crashing
+        // (H9). The session simply won't be persisted in that rare case.
+        let fallback = detail.clone();
 
-        tauri::async_runtime::spawn_blocking(move || {
+        match tauri::async_runtime::spawn_blocking(move || {
             // Spill bodies
             let spill_started_at = Instant::now();
             if let Err(error) =
@@ -489,7 +503,7 @@ impl Repository {
             let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
             log_storage_stats(&detail, &detail_row, spill_elapsed_us, row_build_elapsed_us);
 
-            let conn = db.lock().expect("db mutex should not be poisoned");
+            let conn = db.lock().unwrap_or_else(|e| e.into_inner());
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -513,7 +527,18 @@ impl Repository {
             detail
         })
         .await
-        .expect("persist_session_full spawn_blocking should not panic")
+        {
+            Ok(detail) => detail,
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "persist_session_spawn_failed",
+                    error = %error,
+                    "persist_session_full spawn_blocking failed; returning unpersisted session"
+                );
+                fallback
+            }
+        }
     }
 
     /// Full persistence of a batch of sessions.  Same pipeline as
@@ -526,8 +551,11 @@ impl Repository {
         let db = Arc::clone(&self.db);
         let body_store = Arc::clone(&self.body_store);
         let wid = workspace_id.to_string();
+        // Fallback copy in case spawn_blocking panics (H9): return the sessions
+        // unchanged so the collector survives instead of crashing.
+        let fallback = sessions.clone();
 
-        tauri::async_runtime::spawn_blocking(move || {
+        match tauri::async_runtime::spawn_blocking(move || {
             for session in sessions.iter_mut() {
                 if let Err(error) =
                     crate::bootstrap::converters::spill_session_bodies_to_disk(session, &body_store)
@@ -541,7 +569,7 @@ impl Repository {
                 }
             }
 
-            let conn = db.lock().expect("db mutex should not be poisoned");
+            let conn = db.lock().unwrap_or_else(|e| e.into_inner());
             for session in sessions.iter() {
                 let summary_row =
                     crate::bootstrap::converters::proxy_summary_to_row(&session.summary);
@@ -574,7 +602,18 @@ impl Repository {
             sessions
         })
         .await
-        .expect("persist_session_batch_full spawn_blocking should not panic")
+        {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "persist_session_batch_spawn_failed",
+                    error = %error,
+                    "persist_session_batch_full spawn_blocking failed; returning unpersisted sessions"
+                );
+                fallback
+            }
+        }
     }
 }
 
@@ -678,7 +717,7 @@ fn delete_sessions_impl(
     ids: &[String],
 ) {
     {
-        let conn = db.lock().expect("db mutex should not be poisoned");
+        let conn = db.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
             tracing::error!(
                 component = "desktop.persistence",

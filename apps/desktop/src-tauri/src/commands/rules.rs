@@ -8,7 +8,7 @@ pub fn list_script_session_trace(
     let conn = state
         .read_db_connection()
         .lock()
-        .expect("db mutex should not be poisoned");
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let runs = aiproxy_db::rules::load_script_runs_for_session(&conn, &input.session_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("Load script runs: {error}")))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -46,7 +46,7 @@ pub fn list_rewrite_session_trace(
     let conn = state
         .read_db_connection()
         .lock()
-        .expect("db mutex should not be poisoned");
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn, &input.session_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite runs: {error}")))?;
     let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -86,7 +86,7 @@ pub fn list_map_session_trace(
     let conn = state
         .read_db_connection()
         .lock()
-        .expect("db mutex should not be poisoned");
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let runs = aiproxy_db::rules::load_map_runs_for_session(&conn, &input.session_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("Load map runs: {error}")))?;
 
@@ -115,7 +115,7 @@ pub fn list_throttle_session_trace(
     let conn = state
         .read_db_connection()
         .lock()
-        .expect("db mutex should not be poisoned");
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     let runs = aiproxy_db::rules::load_throttle_runs_for_session(&conn, &input.session_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttle runs: {error}")))?;
 
@@ -146,7 +146,7 @@ pub fn list_throttled_session_ids(
     let conn = state
         .read_db_connection()
         .lock()
-        .expect("db mutex should not be poisoned");
+        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
     aiproxy_db::rules::load_throttled_session_ids(&conn, &input.workspace_id)
         .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttled session IDs: {error}")))
 }
@@ -168,7 +168,7 @@ pub fn set_breakpoint_rules(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let rows: Vec<aiproxy_db::rules::BreakpointRuleRow> = rules
             .iter()
             .map(|r| aiproxy_db::rules::BreakpointRuleRow {
@@ -236,7 +236,7 @@ pub fn save_rewrite_rule(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::RewriteRuleRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -424,7 +424,7 @@ pub fn save_map_rule(input: MapRule, state: State<'_, Arc<AppState>>) -> Result<
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::MapRuleRow {
             id: input.id.clone(),
             workspace_id: input.workspace_id.clone(),
@@ -532,7 +532,7 @@ pub fn save_script_rule(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::ScriptRuleRow {
             id: compiled.rule.id.clone(),
             workspace_id: compiled.rule.workspace_id.clone(),
@@ -658,7 +658,7 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let db_result = match input.rule_type.as_str() {
             "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
             "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
@@ -712,7 +712,7 @@ pub fn save_dns_mapping(
         let conn = state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::rules::DnsMappingRow {
             id: rule.id.clone(),
             workspace_id: rule.workspace_id.clone(),
