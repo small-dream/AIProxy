@@ -40,18 +40,36 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     let (mut cr, mut cw) = tokio::io::split(&mut client_stream);
     let (mut ur, mut uw) = tokio::io::split(&mut upstream);
 
-    let client_to_upstream = tokio::io::copy(&mut cr, &mut uw);
-    let upstream_to_client = tokio::io::copy(&mut ur, &mut cw);
+    let mut client_to_upstream = Box::pin(tokio::io::copy(&mut cr, &mut uw));
+    let mut upstream_to_client = Box::pin(tokio::io::copy(&mut ur, &mut cw));
 
-    tokio::select! {
-        r = client_to_upstream => {
-            if let Err(e) = r {
-                tracing::warn!(event = "tunnel_client_to_upstream_error", error = %e, "tunnel_client_to_upstream_error");
+    // A CONNECT tunnel must honor TCP half-close: when one direction reaches EOF
+    // (Ok, the peer finished sending), the other direction may still have data
+    // to deliver. The previous `select!` aborted the whole tunnel as soon as
+    // either copy resolved, dropping in-flight data from the surviving
+    // direction. Relay until BOTH directions finish; exit early on an error
+    // (which signals a broken connection worth tearing down).
+    let mut c2u_done = false;
+    let mut u2c_done = false;
+    while !(c2u_done && u2c_done) {
+        tokio::select! {
+            r = &mut client_to_upstream, if !c2u_done => {
+                match r {
+                    Ok(_) => c2u_done = true,
+                    Err(e) => {
+                        tracing::warn!(event = "tunnel_client_to_upstream_error", error = %e, "tunnel_client_to_upstream_error");
+                        break;
+                    }
+                }
             }
-        }
-        r = upstream_to_client => {
-            if let Err(e) = r {
-                tracing::warn!(event = "tunnel_upstream_to_client_error", error = %e, "tunnel_upstream_to_client_error");
+            r = &mut upstream_to_client, if !u2c_done => {
+                match r {
+                    Ok(_) => u2c_done = true,
+                    Err(e) => {
+                        tracing::warn!(event = "tunnel_upstream_to_client_error", error = %e, "tunnel_upstream_to_client_error");
+                        break;
+                    }
+                }
             }
         }
     }

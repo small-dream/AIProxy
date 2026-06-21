@@ -336,6 +336,12 @@ enum BreakpointRequestOutcome {
         rewrite_traces: Vec<crate::RewriteTrace>,
         script_traces: Vec<aiproxy_rule_engine::ScriptTrace>,
         throttle_traces: Vec<crate::ThrottleTrace>,
+        /// When a breakpoint Forward resolution carried user edits (header/
+        /// query/body changes), the edited request is returned here so the
+        /// caller forwards the modified request upstream instead of the
+        /// original. `None` when no breakpoint matched or the resolution had
+        /// no edits.
+        edited_request: Option<ParsedProxyRequest>,
     },
 }
 
@@ -374,6 +380,7 @@ async fn stage_intercept_request_breakpoint(
             rewrite_traces,
             script_traces,
             throttle_traces,
+            edited_request: None,
         });
     };
 
@@ -389,6 +396,7 @@ async fn stage_intercept_request_breakpoint(
                     rewrite_traces,
                     script_traces,
                     throttle_traces,
+                    edited_request: None,
                 });
             };
 
@@ -496,6 +504,11 @@ async fn stage_intercept_request_breakpoint(
             rewrite_traces,
             script_traces,
             throttle_traces,
+            // `intercept_request_stage` applied the user's header/query/body
+            // edits to `request_mut` (a clone). Hand it back so the caller
+            // forwards the modified request upstream — otherwise the edits are
+            // silently discarded (H5).
+            edited_request: Some(request_mut),
         }),
     }
 }
@@ -989,7 +1002,15 @@ pub(crate) async fn handle_http_request(
                 rewrite_traces,
                 script_traces,
                 throttle_traces,
-            } => (map_traces, rewrite_traces, script_traces, throttle_traces),
+                edited_request,
+            } => {
+                // Adopt the breakpoint-edited request (if any) so stages 4/5
+                // and the upstream forward see the user's modifications (H5).
+                if let Some(edited) = edited_request {
+                    request = edited;
+                }
+                (map_traces, rewrite_traces, script_traces, throttle_traces)
+            }
         };
 
     // --- Stage 4: Pending session + request throttle ---
