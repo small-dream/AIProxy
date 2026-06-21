@@ -388,7 +388,14 @@ fn truncate_for_error(value: &str) -> String {
     if value.len() <= LIMIT {
         return value.to_string();
     }
-    format!("{}...", &value[..LIMIT])
+    // `&value[..LIMIT]` panics when LIMIT lands inside a multibyte UTF-8
+    // character (common for AI error bodies containing CJK/emoji). Back up to
+    // the nearest char boundary before slicing.
+    let mut end = LIMIT;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
 }
 
 /// Extract the human-readable `message` field from an `app_error()` JSON string.
@@ -432,5 +439,45 @@ mod tests {
     #[test]
     fn rejects_non_http_base_url() {
         assert!(normalize_base_url("file:///tmp/model").is_err());
+    }
+
+    #[test]
+    fn truncate_for_error_keeps_short_values_unchanged() {
+        assert_eq!(truncate_for_error("short"), "short");
+        assert_eq!(truncate_for_error(""), "");
+    }
+
+    #[test]
+    fn truncate_for_error_handles_multibyte_boundary_without_panicking() {
+        // Build a string whose byte length straddles the 512-byte limit inside
+        // a multibyte character (CJK '字' = 3 bytes). Reproduces the panic the
+        // old `&value[..512]` produced when an AI error body contained CJK.
+        let prefix_bytes = 510; // 510 + 3 = 513 > 512, so 512 lands mid-character
+        let mut value = String::with_capacity(prefix_bytes + 3);
+        for _ in 0..prefix_bytes {
+            value.push('a');
+        }
+        value.push('字'); // 3-byte char, byte indices 510..513
+
+        // Must not panic and must end with "...".
+        let truncated = truncate_for_error(&value);
+        assert!(truncated.ends_with("..."), "truncated = {truncated}");
+        // The slice backed off to a char boundary (510 bytes) before the "...", so
+        // the result length is 510 (prefix) + 3 ("...") = 513.
+        assert_eq!(truncated.len(), 513);
+        // And it's still valid UTF-8.
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn truncate_for_error_keeps_ascii_at_boundary() {
+        // Exactly 512 ASCII bytes: not truncated.
+        let exactly: String = "a".repeat(512);
+        assert_eq!(truncate_for_error(&exactly), exactly);
+        // 513 ASCII bytes: truncated at 512.
+        let over: String = "a".repeat(513);
+        let truncated = truncate_for_error(&over);
+        assert!(truncated.ends_with("..."));
+        assert_eq!(truncated.len(), 512 + 3);
     }
 }
