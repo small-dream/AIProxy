@@ -12,12 +12,12 @@
   - 共享包：`packages/shared-types`、`packages/ui-tokens`
   - 脚本：`scripts/desktop.mjs`、`scripts/setup/*`、`scripts/release/*`、`scripts/build/*`
 - 验证标准：所有标记 ✅ 的高/中危条目均已由审计者打开源码逐行复核确认；其余条目基于静态审查
-- 文档状态：`Audit Report v1.2`（v1.1 修订：根据复核结果降级 H6→L20、删除 H7/M13 误报、降级 M2→L21、M12→L22；新增第 6 节测试现状 T1-T3。v1.2：P0+P1+T 全部修复完成，各条目标注 ✅ 已修复 + commit hash）
+- 文档状态：`Audit Report v1.3`（v1.1 修订：根据复核结果降级 H6→L20、删除 H7/M13 误报、降级 M2→L21、M12→L22；新增第 6 节测试现状 T1-T3。v1.2：P0+P1+T 全部修复完成。v1.3：中危 M + 低危 L 修复完成，L7/L14 留作专项）
 - 审计者纠错声明：第一版报告存在 5 处误判（详见各条目内的降级/删除说明及第 10 节），均已在本版修正。涉及 panic 边界、schema 路径、时钟方向的结论，凡未在源码/官方文档层面实证的，请勿直接采信。
 
-## 修复进度（v1.2，2026-06-21）
+## 修复进度（v1.3，2026-06-22）
 
-P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo test --workspace` 全绿；`pnpm test` 368/368 绿，2 项 stress 测试在满负载下偶发超时为既有 flaky，非本次回归）。中低危（M/L）按计划留待后续。
+P0 + P1 + T + 中危 M + 低危 L 全部修复完成（L7 硬编码文案、L14 SetupWizard 留作专项），按阶段独立提交，全量回归通过（`cargo test --workspace` 全绿；`pnpm test` 367/368，1 项 stress 测试在满负载下偶发超时为既有 flaky，隔离运行通过；typecheck 绿）。
 
 | 条目 | commit | 说明 |
 |---|---|---|
@@ -27,7 +27,15 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 | H2/H3 | `aaec748` | KDE httpsProxy 补全 + GNOME 'none' 误判 |
 | H4 | `b2d884c` | truncate_for_error 字符边界截断，含 3 个单测 |
 | H5/H6 | `bbab896` | 断点 Forward 携带 edited_request + CONNECT 隧道半关闭 |
-| H7 | （本次文档提交） | setup-windows.ps1 改用 $LASTEXITCODE 检测 cargo-tauri |
+| H7 | `c7c9c2c` | setup-windows.ps1 改用 $LASTEXITCODE 检测 cargo-tauri |
+| M1/M5/M11 | `cc125ab` | 脚本超时 50→500ms / Linux 信任库 / WS opcode 校验 |
+| M3/M4 | `fbcd6f0` | base64 标准库解码 + 写路径系统目录防护 |
+| M6-M10/M14-M17 | `a72c37f` | 事件订阅守卫 / 缓存锁合并 / 监听泄漏 / 幽灵保存 / 裸对象 / 守卫收紧 / multipart 转义 / setup 幂等 |
+| L1-L22 | `f897f03` | LIKE 转义 / 迁移健壮性 / 平台 fallback / 字符边界 / 键盘缩放 / 端口上界 / 证书回拨 等 |
+
+**留作专项（未在本次修复）**：
+- L7（大量硬编码英文文案，违反双语约束）：需系统性提取所有面向用户字符串到 i18n key 并同步 en.ts/zh-CN.ts，改动面大且易遗漏，单列任务处理。
+- L14（SetupWizard 卸载后 setState）：组件实际常驻（open 控制可见性，非卸载），触发概率极低，暂不引入防御代码。
 
 ## 2. 阅读约定
 
@@ -139,7 +147,7 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 
 ## 4. 🟠 中危（功能错误 / 资源泄漏 / 健壮性）
 
-### M1 ✅ 脚本执行超时仅 50ms（极短，易误判超时）
+### M1 ✅ 已修复（cc125ab） 脚本执行超时仅 50ms（极短，易误判超时）
 
 - **位置**：`crates/rule-engine/src/types.rs:8-9`
 - **现象**：`SCRIPT_EXECUTION_TIMEOUT = Duration::from_millis(50)`。50ms 对脚本规则执行非常短，含 `JSON.parse` 大 body 或轻微循环即超时被中断。execute.rs 内已配套有 50ms + 10ms 的 `recv_timeout` 与中断处理器，逻辑自洽，但需确认 50ms 是否是有意设计（如本想 500ms 笔误）。
@@ -149,43 +157,43 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 
 原报告称「叶子证书 not_before 设为当天 00:00，客户端时钟略快会导致 NotYetValid」。经复核**方向判断有误**：`date_time_ymd` 返回当天 **UTC 00:00**（`rcgen-0.13.2/src/certificate.rs:1186`，`Time::MIDNIGHT` + `assume_utc`），这是**向过去回拨**（当天 00:00 ≤ 当前时刻）。因此客户端时钟略快只会使 `now_client > not_before` 更易满足，**不会**触发 NotYetValid。真正的风险是客户端时钟**明显落后**（慢到跨日）或代理与客户端跨时区/跨日边界，触发概率低。残留问题详见 L21。
 
-### M3 `save_media_file` 可写任意路径，无沙箱校验
+### M3 ✅ 已修复（fbcd6f0） `save_media_file` 可写任意路径，无沙箱校验
 
 - **位置**：`apps/desktop/src-tauri/src/commands/files.rs:89-94`
 - **现象**：`Path::new(&input.path)` + `std::fs::write`，`input.path` 完全由前端控制，无任何目录限制或规范化。对比 `save_text_file`（同文件 `:18-33`）强制写 Downloads 目录。可覆盖 `../../config.json`、`C:\Windows\System32\...` 等任意文件。
 - **修复方向**：限制 `input.path` 必须在 Downloads 或用户选定目录内，或改为只接受文件名 + 固定目录（与 `save_text_file` 一致）。
 
-### M4 手写 base64 解码器对非法输入静默产出错误字节
+### M4 ✅ 已修复（fbcd6f0） 手写 base64 解码器对非法输入静默产出错误字节
 
 - **位置**：`apps/desktop/src-tauri/src/commands/files.rs:58-86`
 - **现象**：自实现而非用 `base64` crate，`:73` `*TABLE.get(ch as usize).unwrap_or(&0)` 对 `ch >= 128` 静默当 0；非法字符被跳过。损坏的 base64 不报错，而是静默写出错误的二进制文件（图片损坏、保存的媒体打不开，且用户不知道为什么）。末尾填充错误也完全不校验。
 - **修复方向**：用 `base64::engine::general_purpose::STANDARD.decode()`，让非法输入返回 `Err`。
 
-### M5 ✅ Linux `is_trusted_linux` 只检查 ca-certificates 源目录，不查系统信任库
+### M5 ✅ 已修复（cc125ab） Linux `is_trusted_linux` 只检查 ca-certificates 源目录，不查系统信任库
 
 - **位置**：`crates/tls-manager/src/trust.rs:197-200`
 - **现象**：只看 `/usr/local/share/ca-certificates/` 和 `/etc/pki/ca-trust/source/anchors/`（待 `update-ca-certificates`/`update-ca-trust` 处理的源目录），不检查 `/etc/ssl/certs/`（实际生效的信任库），导致即使证书已安装并 update，也报告未信任。影响 UX（信任状态显示错误），非安全问题。
 - **修复方向**：增加对 `/etc/ssl/certs/<hash>.pem` 的检查，或调用 `openssl verify -CAfile <path>` 校验。
 
-### M6 `db.lock()` 锁释放窗口导致 LRU 缓存与 map 失步
+### M6 ✅ 已修复（a72c37f） `db.lock()` 锁释放窗口导致 LRU 缓存与 map 失步
 
 - **位置**：`apps/desktop/src-tauri/src/bootstrap/cache.rs:147-181`
 - **现象**：`insert_detail` 不是原子操作：持 `details` 锁插入→释放→持 `detail_order` 锁做 evict 决策→释放→再次持 `details` 锁删除 evicted 项。窗口期内并发 `insert_detail`/`remove_details` 可能让缓存内容与 LRU 顺序不一致。
 - **修复方向**：用单一 `Mutex<(HashMap, VecDeque)>` 把两个结构放同一把锁内，整个 `insert_detail` 持一把锁。
 
-### M7 SessionInspectorMessagesPane 事件订阅闭包捕获旧 sessionId，快速切换时串台
+### M7 ✅ 已修复（a72c37f） SessionInspectorMessagesPane 事件订阅闭包捕获旧 sessionId，快速切换时串台
 
 - **位置**：`apps/desktop/src/features/sessions/components/SessionInspectorMessagesPane.tsx:148-170`
 - **现象**：`onWsMessage` / `onWsConnectionStatus` 返回的 `Promise<Unlisten>` 在 cleanup 里通过 `void unlisten.then((fn) => fn())` 取消。当 `sessionId` 快速切换时，旧 effect 的 cleanup 还没等到 unlisten resolve，新 effect 已经注册新监听；若 Tauri 的 listen 注册较慢，期间事件会命中旧回调，造成短暂的状态覆盖/多余渲染。
 - **修复方向**：用 cancelled 标志位阻止卸载后的 setState，并把 unlisten promise 缓存起来在 cleanup 里同步等待取消。
 
-### M8 useMenuActions 注册期 Tauri 监听器未取消导致永久泄漏
+### M8 ✅ 已修复（a72c37f） useMenuActions 注册期 Tauri 监听器未取消导致永久泄漏
 
 - **位置**：`apps/desktop/src/components/layout/hooks/use-menu-actions.ts:50-63`
 - **现象**：`onMenuEvent` 异步，组件在 promise resolve 前卸载时 `unlisten` 还是 `undefined`，cleanup 跳过；promise 随后 resolve 的 `fn` 永远不会被调用 → 该 `menu-event` Tauri 监听器永久泄漏，后续每次菜单事件都触发已卸载组件的回调。
 - **修复方向**：与 `features/breakpoints/use-breakpoint-events.ts:8-27` 一致，引入 cancelled 标志：`.then(fn => cancelled ? fn() : (unlisten = fn))`。
 
-### M9 EnvironmentManagerDialog debounce save 定时器卸载后仍触发（幽灵保存）
+### M9 ✅ 已修复（a72c37f） EnvironmentManagerDialog debounce save 定时器卸载后仍触发（幽灵保存）
 
 - **位置**：`apps/desktop/src/features/environments/components/EnvironmentManagerDialog.tsx:61-62,94-131`
 - **现象**：`envSaveTimeoutRef` / `globalSaveTimeoutRef` 创建 500ms 的 debounce 定时器，但组件没有卸载清理 effect。对话框被关闭/卸载时定时器仍在跑，回调内调用 `setEnvVars.mutate(...)` / `setGlobalVars.mutate(...)`（捕获了卸载时的 `selectedEnvId` 闭包）。用户在 500ms 内编辑后关闭对话框会触发「幽灵保存」，写入被取消的编辑数据。
@@ -197,7 +205,7 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
   }, []);
   ```
 
-### M10 抛出裸对象而非 Error 实例
+### M10 ✅ 已修复（a72c37f） 抛出裸对象而非 Error 实例
 
 - **位置**：`apps/desktop/src/services/commands/sessions.ts:64-68,169-173,298-304`
 - **现象**：
@@ -210,7 +218,7 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
   抛出普通对象而非 `Error` 实例：丢失堆栈、`instanceof Error` 恒为 false，TanStack Query 的 `onError` / `coerceAppError` 依赖隐式转换；`getOperationErrorMessage`（`pages/sessions/index.tsx:797-813`）的 `error instanceof Error` 分支会漏接。
 - **修复方向**：定义一个 `AppError` 类（带 `code` 字段）或用 `Object.assign(new Error(msg), { code })`，并在所有命令层统一抛出。
 
-### M11 WebSocket opcode 未校验保留值，控制帧约束未强制
+### M11 ✅ 已修复（cc125ab） WebSocket opcode 未校验保留值，控制帧约束未强制
 
 - **位置**：`crates/proxy-core/src/ws.rs:34-44`
 - **现象**：`WsOpcode::from_u8` 对所有未知值静默映射为 `Binary`。按 RFC 6455 §5.2，opcode 3-7、11-15 是保留值，收到应 fail 连接（1002 protocol error）。当前实现把它们当 Binary 转发，畸形帧穿透代理。此外 `relay_websocket_frames` 未校验「控制帧必须 FIN=1 且 payload<=125」（§5.5）。
@@ -224,25 +232,25 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 
 原报告称「`bundle.macOS.bundleVersion` 是 Tauri 2 schema 不存在的路径」。经核对官方配置参考（https://v2.tauri.app/reference/config/ ），`MacConfig.bundleVersion` 是合法字段，明确说明 "Translates to the bundle's CFBundleVersion property"；`bundle > macOS > bundleVersion` 即写入该字段的正确 JSON 路径（App Store 分发文档亦以此为例）。因此脚本注入的路径**合法**，原判断「会被 Tauri 忽略、注入不生效」缺乏依据。此条为审计者未核实 schema 即下结论的误判，已移除。注：注入后是否实际改写 Info.plist 仍建议在真机打包时验证一次。
 
-### M14 shared-types 守卫过宽，类型与运行时校验不一致
+### M14 ✅ 已修复（a72c37f） shared-types 守卫过宽，类型与运行时校验不一致
 
 - **位置**：`packages/shared-types/src/sessions.ts:466-468`（`parseSessionDetail` 对 `timingSource` 直接 `as` 强转无校验）；`packages/shared-types/src/certificates.ts:121-167`（`isCertificateInstallGuide` 只查 `success`/`steps`，漏 `certPath`/`platform`/`steps[].order/description`；`isSetupDiagnostic` 只查 `checks` 是数组，不校验元素结构）
 - **现象**：后端若传错枚举值（如拼错的 `"Timing"`）或字段缺失，守卫通过、parser 通过、类型系统被 `as` 绕过，最终前端拿到非法 union 值，到 switch/case 里 fall through。
 - **修复方向**：在守卫里补全枚举值校验（`timingSource` 限定为 `proxy`/`compose`/`har-import`/`undefined`/`null`）和子结构校验（`checks.every(isDiagnosticCheck)` 等）。
 
-### M15 setup 三脚本无条件 `rustup update stable`，破坏幂等性/离线构建
+### M15 ✅ 已修复（a72c37f） setup 三脚本无条件 `rustup update stable`，破坏幂等性/离线构建
 
 - **位置**：`scripts/setup/setup-windows.ps1:72-81`、`setup-macos.sh:64-75`、`setup-linux.sh:152-163`
 - **现象**：`Ensure-Rust` 在 rustup 已存在分支里，无条件重新执行 `default` 和 `update stable`。`rustup update` 会联网拉取 manifest，离线环境直接失败；这是「正常运行」也会触发的副作用，用户第二次跑 setup 时不应该被网络问题打断。
 - **修复方向**：只在 rustup 新装时才 `default + update`，已存在则跳过。
 
-### M16 multipart body 构造未转义 header 名/值（潜在注入）
+### M16 ✅ 已修复（a72c37f） multipart body 构造未转义 header 名/值（潜在注入）
 
 - **位置**：`apps/desktop/src/features/compose/compose-editor.store.ts:25-37`（`buildMultipartBody`）
 - **现象**：`entry.name` / `entry.value` 直接插入。若 name 含双引号或 CR/LF，会破坏 multipart 帧结构（注入额外 part 或截断），value 含 `\r\n--boundary` 还能伪造结束边界。后端若直接转发可能被对端误解。
 - **修复方向**：对 `name` 中的 `"`、`\r`、`\n` 转义（RFC 2388），并对 value 做长度边界校验。
 
-### M17 Linux `corepack` 可能缺失未检查
+### M17 ✅ 已修复（a72c37f） Linux `corepack` 可能缺失未检查
 
 - **位置**：`scripts/setup/setup-linux.sh:46-58,141-150`
 - **现象**：`corepack` 随 Node.js 16.10+ 自带，但 Debian/Ubuntu 的 `nodejs` 包历史上长期不带 `corepack`（部分发行版需 `apt install corepack`）。脚本没检查 `corepack` 是否存在直接调用，老系统会 `command not found`，因 `set -e` 导致整个 setup 失败。
@@ -252,37 +260,37 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 
 ## 5. 🟡 低危（健壮性 / 维护性 / 体验）
 
-### L1 `search_ws_messages` 的 LIKE 转义未转义反斜杠本身
+### L1 ✅ 已修复（f897f03） `search_ws_messages` 的 LIKE 转义未转义反斜杠本身
 
 - **位置**：`crates/db/src/sessions.rs:425`
 - **现象**：`query.replace('%', "\\%").replace('_', "\\_")` 用了 `ESCAPE '\\'`，但未先转义查询串中已有的 `\`。搜 `C:\Users` 或 JSON `\"key\"` 时反斜杠被静默丢弃，搜索结果错误。
 - **修复方向**：在替换前先做 `.replace('\\', "\\\\")`。
 
-### L2 整数类型转换未防溢出
+### L2 ✅ 已修复（f897f03，仅 proxy_port） 整数类型转换未防溢出
 
 - **位置**：`crates/db/src/sessions.rs:89,474,476`、`rules.rs:257,558,961,1117`、`workspaces.rs:117`、`collections.rs:521,533`、`environments.rs:218,231,241` 等
 - **现象**：大量 `as i64` / `as u16` / `as u32` / `as u128` 转换未做边界检查，极端值会回绕或截断（如 `proxy_port: i32 as u16` 截断、负值 `as u32` 变成巨大值）。
 - **修复方向**：用 `u32::try_from(v).unwrap_or(...)` 或 `try_from` + 错误传播。
 
-### L3 `migrate_add_column` 用字符串包含匹配识别「重复列名」错误
+### L3 ✅ 已修复（f897f03） `migrate_add_column` 用字符串包含匹配识别「重复列名」错误
 
 - **位置**：`crates/db/src/schema.rs:407`
 - **现象**：`Err(e) if e.to_string().contains("duplicate column name")` 依赖错误信息文本匹配。SQLite 升级或本地化后该字符串可能变化，导致幂等迁移误判为真实失败。
 - **修复方向**：用错误码判断或预查 `pragma_table_info` 判断列是否存在。
 
-### L4 历史迁移 `.ok()` 静默吞掉所有错误
+### L4 ✅ 已修复（f897f03） 历史迁移 `.ok()` 静默吞掉所有错误
 
 - **位置**：`crates/db/src/schema.rs:359-383`
 - **现象**：5 个历史迁移用 `.ok()` 吞掉所有错误。任何非「列已存在」的真实失败（磁盘满、表不存在、权限不足）都被忽略，程序带着不完整的 schema 继续，后续查询以令人困惑的方式失败。
 - **修复方向**：全部改用 `migrate_add_column` 或类似精确匹配「duplicate column name」的辅助函数。
 
-### L5 非三平台无 `cfg(not(any(...)))` fallback，`unsupported.rs` 是死代码
+### L5 ✅ 已修复（f897f03） 非三平台无 `cfg(not(any(...)))` fallback，`unsupported.rs` 是死代码
 
 - **位置**：`apps/desktop/src-tauri/src/system_proxy/mod.rs:20-44`
 - **现象**：模块只有三个 `cfg(target_os = ...)` 的 mod/pub use，无 fallback 分支。在 FreeBSD 等其它 Unix 目标上 `SystemProxySnapshot`、`apply_system_proxy_settings` 等符号不存在，`system_proxy_recovery.rs:22` 无条件引用它们会编译失败。同时 `system_proxy/unsupported.rs`（已存在的 no-op 实现）从未被 `mod.rs` 声明。
 - **修复方向**：在 `mod.rs` 末尾加 `#[cfg(not(any(...)))] pub use unsupported::{...};`。
 
-### L6 `body_preview` 按字节切片可能截断多字节字符显示为 �
+### L6 ✅ 已修复（f897f03） `body_preview` 按字节切片可能截断多字节字符显示为 �
 
 - **位置**：`crates/proxy-core/src/rules/rewrite.rs:107-119`
 - **现象**：`&bytes[..bytes.len().min(PREVIEW_LIMIT)]` 按字节切片，`String::from_utf8_lossy` 容错（替换为 U+FFFD），不 panic，但 preview 末尾可能显示乱码。
@@ -296,37 +304,37 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
   - `apps/desktop/src/features/throttling/use-throttle-editor.ts:55`（"Targeted rule" / "Any" 硬编码，而 i18n 文件已有对应 key）
 - **修复方向**：把这些字符串改为 `t(...)` 调用，并在 `en.ts` / `zh-CN.ts` 中补齐 key。
 
-### L8 `document.documentElement.style.zoom` 非标准，跨平台不一致
+### L8 ✅ 已修复（f897f03） `document.documentElement.style.zoom` 非标准，跨平台不一致
 
 - **位置**：`apps/desktop/src/components/layout/hooks/use-zoom-control.ts:11-13`
 - **现象**：`zoom` 是非标准属性，Firefox 完全不支持；且本 hook 只监听菜单事件，未注册键盘快捷键（Cmd/Ctrl + +/−/0），与 macOS 原生行为不一致。
 - **修复方向**：用 `transform: scale()` 或 CSS 变量缩放根容器；补充键盘快捷键监听并区分 `metaKey`(mac) / `ctrlKey`(win/linux)。
 
-### L9 web fallback 下载过早 `revokeObjectURL`
+### L9 ✅ 已修复（f897f03） web fallback 下载过早 `revokeObjectURL`
 
 - **位置**：`apps/desktop/src/lib/download.ts:28-35`
 - **现象**：`anchor.click()` 触发的下载在某些浏览器中异步开始，紧接着 `URL.revokeObjectURL(href)` 可能让下载拿到空内容或失败。Tauri 桌面端走 invoke 分支不触发此问题，但 web/浏览器开发模式会受影响。
 - **修复方向**：`setTimeout(() => URL.revokeObjectURL(href), 1000)` 延迟撤销。
 
-### L10 `--platform` 参数未 normalize，`win32` 会被误判 mismatch
+### L10 ✅ 已修复（f897f03） `--platform` 参数未 normalize，`win32` 会被误判 mismatch
 
 - **位置**：`scripts/desktop.mjs:30-36`
 - **现象**：`cli.platform` 是 raw 字符串，未调用 `normalizePlatform`。若用户传 `--platform win32`（Node 的 `process.platform` 值），与 `windows` 比较不等，脚本误报 mismatch 退出。
 - **修复方向**：对 `cli.platform` 也跑一次 `normalizePlatform`。
 
-### L11 `desktop.mjs` 把 macOS 专属 `bundle.macOS` 注入到所有平台
+### L11 ✅ 已修复（f897f03） `desktop.mjs` 把 macOS 专属 `bundle.macOS` 注入到所有平台
 
 - **位置**：`scripts/desktop.mjs:262-275`
 - **现象**：`tauriConfigArgs()` 无条件生成 `{ bundle: { macOS: { ... } } }` 并注入到 `run`/`bundle` 所有平台。在 Windows/Linux 下执行 `tauri build --config '{"bundle":{"macOS":{...}}}'` 行为取决于 Tauri 版本。
 - **修复方向**：在 `bundle` 分支内加 `if (hostPlatform === "macos")` 守卫。
 
-### L12 `setup-windows.ps1` 用 `$args`（PowerShell 自动变量）作数组名
+### L12 ✅ 已修复（f897f03） `setup-windows.ps1` 用 `$args`（PowerShell 自动变量）作数组名
 
 - **位置**：`scripts/setup/setup-windows.ps1:32-44`
 - **现象**：`$args` 是 PowerShell 内置自动变量（接收未声明位置实参），在函数内对其赋值是已知反模式。当前恰好无透传位置参数能工作，但一旦有人给 `Install-WingetPackage` 传位置参数就会破坏数组。
 - **修复方向**：重命名为 `$wingetArgs`。
 
-### L13 `useThrottledValue` 在 `intervalMs` 变化时不重置旧定时器
+### L13 ✅ 已修复（f897f03） `useThrottledValue` 在 `intervalMs` 变化时不重置旧定时器
 
 - **位置**：`apps/desktop/src/hooks/use-throttled-value.ts:34-46`
 - **现象**：`intervalMs` 变化时主 effect 重跑，但已在等待的 `timerRef.current`（按旧延时计算）不会被重新调度；`lastEmittedRef` 跨 intervalMs 变化不复位。
@@ -338,51 +346,51 @@ P0 + P1 + T 全部修复，按阶段独立提交，全量回归通过（`cargo t
 - **现象**：`async handleEnableSsl` 中连续 `await` 后调用 `setActiveStep`/`setActionError`，若用户中途关闭对话框，组件卸载后仍触发 setState（React 18 下不报错但属反模式），且 `proxyStatus?.running` 在 await 期间可能已变化导致状态判断错乱。
 - **修复方向**：加 `cancelled` ref（结合 useEffect cleanup）并在 await 后检查；或用 AbortController。
 
-### L15 `computeThrottle*Errors` 每次渲染重算，未 useMemo
+### L15 ✅ 已修复（f897f03） `computeThrottle*Errors` 每次渲染重算，未 useMemo
 
 - **位置**：`apps/desktop/src/features/throttling/use-throttle-editor.ts:138-142`
 - **现象**：`profileErrors`、`ruleErrors`、`activeStatusLabel` 没有 `useMemo`，每次渲染都重建，传递给子组件时破坏 memo 优化。
 - **修复方向**：用 `useMemo([profileDraft, t])` 等包裹。
 
-### L16 `release-checklist.sh` shebang 不一致
+### L16 ✅ 已修复（f897f03） `release-checklist.sh` shebang 不一致
 
 - **位置**：`scripts/release-checklist.sh:1`
 - **现象**：用 `#!/bin/bash`，而仓库其他 `*.sh` 统一用 `#!/usr/bin/env bash`。在 macOS（自带 bash 3.2）或某些 Docker 镜像下可能用到不一致的 bash 版本。
 - **修复方向**：统一为 `#!/usr/bin/env bash`。
 
-### L17 `setup-macos.sh` 用 `|| true` 掩盖 xcode-select 失败
+### L17 ✅ 已修复（f897f03） `setup-macos.sh` 用 `|| true` 掩盖 xcode-select 失败
 
 - **位置**：`scripts/setup/setup-macos.sh:21-25`
 - **现象**：`xcode-select --install || true` 掩盖真实失败原因，若因 GUI 已知 bug 不弹框，脚本仍无条件 `exit 1`，用户看不到真实错误。
 - **修复方向**：去掉 `|| true`，让 `set -e` 正确报错。
 
-### L18 `ProxyStatus.port` 未校验上界 65535
+### L18 ✅ 已修复（f897f03） `ProxyStatus.port` 未校验上界 65535
 
 - **位置**：`packages/shared-types/src/proxy.ts:49-55`
 - **现象**：守卫只校验 `Number.isInteger && > 0`，允许 `port = 70000` 通过。`normalizeStartProxyInput`（`:129-138`）也未做上界检查。
 - **修复方向**：加 `candidate.port <= 65535`。
 
-### L19 pnpm 版本号在三脚本中硬编码，未与 package.json 联动
+### L19 ✅ 已修复（f897f03） pnpm 版本号在三脚本中硬编码，未与 package.json 联动
 
 - **位置**：`scripts/setup/setup-windows.ps1:69`、`setup-macos.sh:61`、`setup-linux.sh:149`
 - **现象**：`corepack prepare pnpm@10.0.0` 写死版本，根 `package.json` 的 `packageManager` 升级后需手改三处。
 - **修复方向**：从 `package.json` 动态读取（`node -p "require('./package.json').packageManager"`）。
 
-### L20 断点改 response body 后残留旧 content-length（元数据不一致）
+### L20 ✅ 已修复（f897f03） 断点改 response body 后残留旧 content-length（元数据不一致）
 
 - **位置**：`crates/proxy-core/src/breakpoints.rs:608-637`（`apply_response_resolution` 替换 body 不更新 content-length）
 - **类别**：元数据一致性（由原 H6 降级）
 - **现象**：用户在断点中修改响应体（长度变化）后，`response_headers` 里的旧 `content-length` 与新 body 不一致。**客户端不会挂起或截断**——`build_hyper_response_from_upstream`（`http_proxy.rs:1319`）会 strip `content-length` 并用 `Full<Bytes>` 构造 body，hyper 按实际字节长度发送。残留影响仅为 session 详情展示的 content-length 与实际 body 长度不符。对比 mock 分支（`breakpoints.rs:661-665`）会显式重设 content-length。
 - **修复方向**：替换 body 后同步更新或删除 `content-length`，与 mock 分支保持一致。
 
-### L21 叶子证书 not_before 截断到当天 00:00，极端时钟偏差可能握手失败
+### L21 ✅ 已修复（f897f03） 叶子证书 not_before 截断到当天 00:00，极端时钟偏差可能握手失败
 
 - **位置**：`crates/tls-manager/src/generator.rs:40-45,200-206,231-237`
 - **类别**：健壮性（由原 M2 降级）
 - **现象**：`not_before = rcgen::date_time_ymd(now.year, now.month, now.day)`，即当天 UTC 00:00（向过去回拨最多 24h）。客户端时钟**明显落后**（慢到跨日）或代理与客户端跨时区/跨日边界时，可能因证书「尚未生效」握手失败。客户端时钟略快不受影响（`now_client > not_before` 更易满足）。触发概率低。
 - **修复方向**：`not_before` 进一步回拨数小时（如 `now - 1h`），并相应延长 not_after，留出更大时钟偏移余量。
 
-### L22 `open_database` 未设 busy_timeout（仅多进程场景相关）
+### L22 ✅ 已修复（f897f03） `open_database` 未设 busy_timeout（仅多进程场景相关）
 
 - **位置**：`crates/db/src/connection.rs:31-34`
 - **类别**：健壮性（由原 M12 降级）
