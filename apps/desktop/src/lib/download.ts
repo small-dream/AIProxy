@@ -31,5 +31,9 @@ export async function downloadTextFile(
   anchor.href = href;
   anchor.download = filename;
   anchor.click();
-  URL.revokeObjectURL(href);
+  // Defer revocation: the download triggered by click() begins asynchronously
+  // in some browsers, so revoking immediately can yield an empty/failed
+  // download in the web/development path (L9). The Tauri desktop path returns
+  // earlier and never reaches here.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
 }

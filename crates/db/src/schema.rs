@@ -355,34 +355,36 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(CREATE_TABLES)
         .map_err(|e| DbError::query("create tables", e))?;
 
-    // Historical migrations — retained as .ok() to preserve existing startup behavior.
-    conn.execute(
-        "ALTER TABLE rewrite_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
-        [],
-    )
-    .ok();
-    conn.execute(
-        "ALTER TABLE breakpoint_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
-        [],
-    )
-    .ok();
-    conn.execute(
-        "ALTER TABLE script_rules ADD COLUMN match_type TEXT NOT NULL DEFAULT 'contains'",
-        [],
-    )
-    .ok();
-    conn.execute(
-        "ALTER TABLE session_details ADD COLUMN trailers TEXT DEFAULT NULL",
-        [],
-    )
-    .ok();
-    conn.execute(
-        "ALTER TABLE session_details ADD COLUMN h2_stream_id INTEGER DEFAULT NULL",
-        [],
-    )
-    .ok();
-
-    // New migration — uses strict helper that only ignores "duplicate column name".
+    // Historical column migrations. All use the strict helper that ignores
+    // only the idempotent "duplicate column name" error and propagates
+    // everything else (disk full, missing table, permission denied). The
+    // previous `.ok()` calls silently swallowed real failures and left the
+    // schema half-applied (L3/L4).
+    migrate_add_column(
+        conn,
+        "rewrite_rules",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "breakpoint_rules",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "script_rules",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(conn, "session_details", "trailers", "TEXT DEFAULT NULL")?;
+    migrate_add_column(
+        conn,
+        "session_details",
+        "h2_stream_id",
+        "INTEGER DEFAULT NULL",
+    )?;
     migrate_add_column(
         conn,
         "workspaces",
@@ -393,22 +395,36 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
-/// Add a column to a table, ignoring "duplicate column name" errors (idempotent migration).
-/// All other errors are propagated.
+/// Add a column to a table idempotently. Pre-checks `pragma_table_info` so the
+/// migration is a no-op when the column already exists, and any ALTER error is
+/// propagated verbatim (no string matching on SQLite messages, which would
+/// break under localization/version changes — L3).
 fn migrate_add_column(
     conn: &Connection,
     table: &str,
     column: &str,
     column_def: &str,
 ) -> Result<(), DbError> {
-    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}");
-    match conn.execute(&sql, []) {
-        Ok(_) => Ok(()),
-        Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
-        Err(e) => Err(DbError::MigrationFailed(format!(
-            "migration add {table}.{column}: {e}"
-        ))),
+    if column_exists(conn, table, column)? {
+        return Ok(());
     }
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}");
+    conn.execute(&sql, [])
+        .map_err(|e| DbError::MigrationFailed(format!("migration add {table}.{column}: {e}")))?;
+    Ok(())
+}
+
+/// Return true if `table` already has a column named `column`.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, DbError> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| DbError::query("check column existence", e))?;
+    let names: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| DbError::query("read column names", e))?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(names.iter().any(|name| name.eq_ignore_ascii_case(column)))
 }
 
 #[cfg(test)]

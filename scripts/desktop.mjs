@@ -27,12 +27,17 @@ if (!["run", "build", "bundle"].includes(cli.action)) {
   process.exit(1);
 }
 
-if (cli.platform && cli.platform !== hostPlatform) {
-  console.error(
-    `[aiproxy-scripts] Platform mismatch. Requested ${cli.platform}, current host is ${hostPlatform}. ` +
-      "Desktop compile/run/package must be executed on the matching native host.",
-  );
-  process.exit(1);
+if (cli.platform) {
+  // Normalize so `--platform win32` (Node's process.platform value) is treated
+  // the same as `--platform windows`, instead of misreporting a mismatch (L10).
+  cli.platform = normalizePlatform(cli.platform);
+  if (cli.platform !== hostPlatform) {
+    console.error(
+      `[aiproxy-scripts] Platform mismatch. Requested ${cli.platform}, current host is ${hostPlatform}. ` +
+        "Desktop compile/run/package must be executed on the matching native host.",
+    );
+    process.exit(1);
+  }
 }
 
 if (cli.action === "bundle" && !hasCargoTauri()) {
@@ -260,6 +265,13 @@ function printUsage() {
  * (0.1.0)".
  */
 function tauriConfigArgs() {
+  // bundle.macOS.bundleVersion is macOS-specific; injecting it on Windows/Linux
+  // is at best ignored and at worst a schema surprise, so only emit it when
+  // bundling on macOS (L11).
+  if (hostPlatform !== "macos") {
+    return [];
+  }
+
   const shortHash = runSilent("git", ["rev-parse", "--short", "HEAD"], repoRoot);
 
   if (!shortHash) {

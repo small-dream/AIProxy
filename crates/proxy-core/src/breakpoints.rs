@@ -633,6 +633,11 @@ pub(crate) fn apply_response_resolution(
                 .unwrap_or_else(|_| body_b64.as_bytes().to_vec()),
         );
         strip_plain_body_edit_headers(&mut upstream_response.response_headers);
+        // Drop any stale content-length so session-detail metadata matches the
+        // replacement body (L20). The client never hangs — build_hyper_response
+        // also strips content-length and lets hyper recompute it — but leaving
+        // the old value made the cached detail inconsistent.
+        upstream_response.response_headers.remove("content-length");
     }
 }
 

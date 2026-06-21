@@ -45,6 +45,20 @@ export function useThrottledValue<T>(value: T, intervalMs: number): T {
     }, intervalMs - elapsed);
   }, [value, intervalMs]);
 
+  // When the throttle interval changes, drop any timer scheduled under the old
+  // interval and reset the emit baseline so the new window starts clean (L13).
+  // Without this, a stale timer fires on the old cadence and the leading-edge
+  // check compares against a timestamp from the previous interval.
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      lastEmittedRef.current = 0;
+    };
+  }, [intervalMs]);
+
   useEffect(() => {
     return () => {
       if (timerRef.current) {

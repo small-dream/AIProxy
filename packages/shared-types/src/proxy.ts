@@ -49,7 +49,8 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
   if (
     typeof candidate.port !== "number" ||
     !Number.isInteger(candidate.port) ||
-    candidate.port <= 0
+    candidate.port <= 0 ||
+    candidate.port > 65535
   ) {
     return false;
   }

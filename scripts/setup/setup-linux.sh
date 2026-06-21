@@ -154,7 +154,10 @@ ensure_node_and_pnpm() {
 
   log "Enabling Corepack"
   corepack enable
-  corepack prepare pnpm@10.0.0 --activate
+  # Read the pinned pnpm version from package.json instead of hardcoding it, so
+  # a packageManager bump doesn't desync the setup script (L19).
+  pnpm_spec=$(node -p "require('./package.json').packageManager")
+  corepack prepare "$pnpm_spec" --activate
 }
 
 ensure_rustup() {

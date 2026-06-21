@@ -23,6 +23,11 @@ mod linux;
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+// Fallback for any platform that is not Windows/macOS/Linux (e.g. FreeBSD),
+// so the crate still compiles and commands return a clear "not implemented"
+// error instead of failing to resolve symbols (L5).
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+mod unsupported;
 
 #[cfg(target_os = "linux")]
 pub use linux::{
@@ -41,4 +46,10 @@ pub use windows::{
     apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
     capture_system_proxy_snapshot, restore_system_proxy,
     WindowsSystemProxySnapshot as SystemProxySnapshot,
+};
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+pub use unsupported::{
+    apply_system_proxy_settings, apply_system_proxy_settings_with_pre_snapshot,
+    capture_system_proxy_snapshot, restore_system_proxy,
+    UnsupportedSystemProxySnapshot as SystemProxySnapshot,
 };

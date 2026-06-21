@@ -19,7 +19,10 @@ ensure_xcode_clt() {
   fi
 
   log "Installing Xcode Command Line Tools"
-  xcode-select --install || true
+  # Run without `|| true`: if the installer fails to present the dialog (a known
+  # macOS GUI quirk), `set -e` surfaces the real error instead of masking it
+  # and then blindly exiting 1 below (L17).
+  xcode-select --install
   log "Finish the Xcode Command Line Tools installation dialog, then rerun this script"
   exit 1
 }
@@ -58,7 +61,10 @@ ensure_node_and_pnpm() {
 
   log "Enabling Corepack"
   corepack enable
-  corepack prepare pnpm@10.0.0 --activate
+  # Read the pinned pnpm version from package.json instead of hardcoding it, so
+  # a packageManager bump doesn't desync the setup script (L19).
+  pnpm_spec=$(node -p "require('./package.json').packageManager")
+  corepack prepare "$pnpm_spec" --activate
 }
 
 ensure_rustup() {

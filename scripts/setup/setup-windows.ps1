@@ -29,7 +29,10 @@ function Install-WingetPackage {
 
   Write-Step "Ensuring $DisplayName"
 
-  $args = @(
+  # Use $wingetArgs instead of the $args automatic variable, which is reserved
+  # for a function's leftover positional parameters and silently misbehaves if
+  # any are passed (L12).
+  $wingetArgs = @(
     "install",
     "--id", $Id,
     "-e",
@@ -38,10 +41,10 @@ function Install-WingetPackage {
   )
 
   if ($OverrideArgs -ne "") {
-    $args += @("--override", $OverrideArgs)
+    $wingetArgs += @("--override", $OverrideArgs)
   }
 
-  & winget @args
+  & winget @wingetArgs
 }
 
 function Refresh-Path {
@@ -66,7 +69,10 @@ function Ensure-NodeAndPnpm {
 
   Write-Step "Enabling Corepack"
   & corepack enable
-  & corepack prepare pnpm@10.0.0 --activate
+  # Read the pinned pnpm version from package.json instead of hardcoding it, so
+  # a packageManager bump doesn't desync the setup script (L19).
+  $pnpmSpec = (Get-Content "$PSScriptRoot\..\..\package.json" | ConvertFrom-Json).packageManager
+  & corepack prepare $pnpmSpec --activate
 }
 
 function Ensure-Rust {

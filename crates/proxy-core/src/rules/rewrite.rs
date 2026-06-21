@@ -110,12 +110,21 @@ fn body_preview(bytes: &[u8]) -> Option<String> {
     }
 
     const PREVIEW_LIMIT: usize = 2048;
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(PREVIEW_LIMIT)]).to_string();
-    if bytes.len() > PREVIEW_LIMIT {
-        Some(format!("{text}..."))
+    // Decode the whole slice lossily first, then truncate the resulting string
+    // at a char boundary so the preview doesn't end mid-character (L6).
+    let full = String::from_utf8_lossy(bytes);
+    let text = if full.len() > PREVIEW_LIMIT {
+        let mut end = PREVIEW_LIMIT;
+        while end > 0 && !full.is_char_boundary(end) {
+            end -= 1;
+        }
+        let mut head = full[..end].to_string();
+        head.push_str("...");
+        head
     } else {
-        Some(text)
-    }
+        full.into_owned()
+    };
+    Some(text)
 }
 
 fn trace_entry(

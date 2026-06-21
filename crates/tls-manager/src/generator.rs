@@ -183,6 +183,16 @@ fn dns_san(hostname: &str) -> Result<SanType, TlsManagerError> {
     Ok(SanType::DnsName(ia5))
 }
 
+/// `rcgen::date_time_ymd` values for a leaf cert's not_before, rolled back one
+/// day to tolerate client clocks that lag the proxy host (or cross a date/timezone
+/// boundary). `date_time_ymd` truncates to midnight, so without this rollback a
+/// client whose clock is a few hours behind could see the cert as NotYetValid
+/// (L21). Chrono's date arithmetic handles month/year rollover correctly.
+fn leaf_not_before_ymd() -> (i32, u8, u8) {
+    let backdated = chrono::Utc::now() - chrono::Duration::days(1);
+    (backdated.year(), backdated.month() as u8, backdated.day() as u8)
+}
+
 /// Sign a leaf certificate for a specific hostname using the root CA.
 pub fn sign_host_certificate(
     root_ca: &RootCaPair,
@@ -198,7 +208,8 @@ pub fn sign_host_certificate(
         .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
 
     let now = chrono::Utc::now();
-    params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
+    let (nb_year, nb_month, nb_day) = leaf_not_before_ymd();
+    params.not_before = rcgen::date_time_ymd(nb_year, nb_month, nb_day);
     params.not_after = rcgen::date_time_ymd(
         now.year() + DYNAMIC_CERT_VALIDITY_YEARS as i32,
         now.month() as u8,
@@ -229,7 +240,8 @@ pub fn sign_host_certificate_from_data(
         .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
 
     let now = chrono::Utc::now();
-    params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
+    let (nb_year, nb_month, nb_day) = leaf_not_before_ymd();
+    params.not_before = rcgen::date_time_ymd(nb_year, nb_month, nb_day);
     params.not_after = rcgen::date_time_ymd(
         now.year() + DYNAMIC_CERT_VALIDITY_YEARS as i32,
         now.month() as u8,

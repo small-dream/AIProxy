@@ -2,6 +2,12 @@ use rusqlite::{params, Connection};
 
 use crate::DbError;
 
+/// Clamp a stored i32 port into a valid u16 (0..=65535). Guards against
+/// truncation if a corrupt/out-of-range value is read back (L2).
+fn i32_to_port(value: i32) -> u16 {
+    value.clamp(0, 65535) as u16
+}
+
 /// Workspace row matching `WorkspaceData` from the desktop app.
 #[derive(Debug, Clone)]
 pub struct WorkspaceRow {
@@ -142,7 +148,9 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
     Ok(WorkspaceRow {
         id: row.get("id")?,
         name: row.get("name")?,
-        proxy_port: row.get::<_, i32>("proxy_port")? as u16,
+        // Clamp i32 → u16 to avoid truncation if a corrupt/out-of-range value
+        // ever lands in the column (L2). Valid ports are 0..=65535.
+        proxy_port: i32_to_port(row.get::<_, i32>("proxy_port")?),
         ssl_enabled: row.get::<_, i32>("ssl_enabled")? != 0,
         http2_enabled: row.get::<_, i32>("http2_enabled")? != 0,
         system_proxy_enabled: row.get::<_, i32>("system_proxy_enabled")? != 0,

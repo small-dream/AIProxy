@@ -135,11 +135,24 @@ export function useThrottleEditor() {
     [rules, selectedRuleId],
   );
   const activeRuleCount = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
-  const profileErrors = getThrottleValidationErrors(profileDraft, t);
-  const ruleErrors = ruleDraft ? getRuleValidationErrors(ruleDraft, t) : [];
-  const activeStatusLabel = activeProfile
-    ? t("throttlingPage.activeSummary", { name: activeProfile.name })
-    : t("throttlingPage.inactiveSummary");
+  // Memoize the derived error/label values so child components receiving them
+  // aren't re-rendered on every keystroke (the inputs update profileDraft/ruleDraft
+  // frequently). Previously these rebuilt new arrays/strings each render (L15).
+  const profileErrors = useMemo(
+    () => getThrottleValidationErrors(profileDraft, t),
+    [profileDraft, t],
+  );
+  const ruleErrors = useMemo(
+    () => (ruleDraft ? getRuleValidationErrors(ruleDraft, t) : []),
+    [ruleDraft, t],
+  );
+  const activeStatusLabel = useMemo(
+    () =>
+      activeProfile
+        ? t("throttlingPage.activeSummary", { name: activeProfile.name })
+        : t("throttlingPage.inactiveSummary"),
+    [activeProfile, t],
+  );
   const temporaryRemaining = temporaryUntil ? Math.max(0, temporaryUntil - temporaryNow) : 0;
 
   // Effects

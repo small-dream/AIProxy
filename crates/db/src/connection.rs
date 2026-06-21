@@ -32,6 +32,12 @@ pub fn open_database() -> Result<Connection, DbError> {
         .map_err(|e| DbError::query("failed to enable WAL mode", e))?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")
         .map_err(|e| DbError::query("failed to enable foreign keys", e))?;
+    // Wait up to 5s for a write lock instead of failing immediately with
+    // SQLITE_BUSY. Single-process today (one Mutex-guarded connection), but this
+    // defends against multi-process access (two app instances) and any future
+    // connection pool (L22).
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .map_err(|e| DbError::query("failed to set busy_timeout", e))?;
 
     crate::schema::run_migrations(&conn)?;
 

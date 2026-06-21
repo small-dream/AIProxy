@@ -492,7 +492,14 @@ pub fn search_ws_messages(
     limit: usize,
     offset: usize,
 ) -> Result<Vec<WsMessageRow>, DbError> {
-    let like_pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+    // Escape LIKE wildcards AND the escape char itself. Backslash must be
+    // escaped first, otherwise the backslashes added for %/_ would themselves
+    // get escaped on the next pass (L1).
+    let escaped_query = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let like_pattern = format!("%{escaped_query}%");
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
