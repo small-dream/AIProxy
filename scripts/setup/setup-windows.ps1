@@ -94,10 +94,15 @@ function Ensure-BuildTools {
 function Ensure-TauriCli {
   Refresh-Path
 
-  try {
-    & cargo tauri -V | Out-Null
+  # NOTE: `$ErrorActionPreference = "Stop"` does NOT throw on a native
+  # process's non-zero exit code — `cargo tauri -V` simply exits non-zero when
+  # the subcommand is absent, so the previous `try/catch` never entered its
+  # catch block and cargo-tauri was never installed (H7). Check $LASTEXITCODE
+  # explicitly instead.
+  & cargo tauri -V | Out-Null
+  if ($LASTEXITCODE -eq 0) {
     Write-Step "cargo-tauri already installed"
-  } catch {
+  } else {
     Write-Step "Installing cargo-tauri"
     & cargo install tauri-cli --version "^2.0.0" --locked
   }
