@@ -1,4 +1,5 @@
 use super::common::*;
+use base64::Engine as _;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,39 +57,39 @@ pub struct SaveMediaFileInput {
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8; 128] = &[
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 0, 62, 0, 63, 52, 53, 54, 55, 56, 57, 58, 59,
-        60, 61, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-        18, 19, 20, 21, 22, 23, 24, 25, 0, 0, 0, 0, 63, 0, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-        36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 0, 0, 0, 0, 0,
-    ];
+    // Use the standard base64 crate instead of a hand-rolled decoder. The old
+    // implementation silently skipped illegal bytes and produced corrupted
+    // output for malformed input (M4), so saved media could be unopenable with
+    // no error reported.
+    base64::engine::general_purpose::STANDARD
+        .decode(input.trim())
+        .map_err(|error| format!("decode base64 content: {error}"))
+}
 
-    let trimmed = input.trim_end_matches('=');
-    let mut bytes = Vec::with_capacity(trimmed.len() * 3 / 4);
-    let mut buf: u32 = 0;
-    let mut bits = 0u32;
-
-    for ch in trimmed.bytes() {
-        let val = *TABLE.get(ch as usize).unwrap_or(&0);
-        if val == 0 && ch != b'A' {
-            continue;
-        }
-        buf = (buf << 6) | val as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            bytes.push((buf >> bits) as u8);
-        }
+/// Reject paths that target OS-protected locations. The intended caller passes
+/// a user-chosen path from the native save dialog (the trust boundary for a
+/// local tool), but a direct `invoke` with a crafted path could otherwise write
+/// into system directories. This is defense-in-depth, not a full sandbox (M3).
+fn reject_unsafe_write_path(path: &Path) -> Result<(), String> {
+    let Some(path_str) = path.to_str() else {
+        return Err("save path is not valid UTF-8".to_string());
+    };
+    let normalized = path_str.replace('\\', "/");
+    // Block writes into Windows system directories. Drive letters vary, so match
+    // on the well-known system folder segments.
+    let lowered = normalized.to_ascii_lowercase();
+    let blocked_segments = ["/windows/system32", "/windows/syswow64"];
+    if blocked_segments.iter().any(|seg| lowered.contains(seg)) {
+        return Err("refusing to write into a protected system directory".to_string());
     }
-
-    Ok(bytes)
+    Ok(())
 }
 
 #[tauri::command]
 pub fn save_media_file(input: SaveMediaFileInput) -> Result<String, String> {
     let bytes = decode_base64(&input.base64_content)?;
     let path = Path::new(&input.path);
+    reject_unsafe_write_path(path)?;
     std::fs::write(path, &bytes).map_err(|error| format!("write file: {error}"))?;
     Ok(path.display().to_string())
 }

@@ -50,6 +50,7 @@ dependencies = [
  "aiproxy-rule-engine",
  "aiproxy-sys-util",
  "aiproxy-tls-manager",
+ "base64 0.22.1",
  "chrono",
  "dirs",
  "mime_guess",
