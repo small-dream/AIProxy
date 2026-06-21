@@ -164,14 +164,20 @@ Windows 当前实现基于：
 
 接管流程：
 
-1. 通过 `kreadconfig6` 保存 `kioslaverc` 中 Proxy Settings 组的 ProxyType、httpProxy、NoProxyFor
+1. 通过 `kreadconfig6` 保存 `kioslaverc` 中 Proxy Settings 组的 ProxyType、httpProxy、httpsProxy、NoProxyFor
 2. 设置 ProxyType=1 (手动代理)
 3. 设置 httpProxy 和 httpsProxy 到 AIProxy 代理地址
 4. 设置 NoProxyFor
 
 恢复流程：
 
-1. 从快照恢复所有 kioslaverc 键值
+1. 从快照恢复所有 kioslaverc 键值（含 httpProxy、httpsProxy、NoProxyFor、ProxyType），确保接管期间被改写的 httpsProxy 也被还原
+
+> 注：`httpsProxy` 在接管时会被改写为代理地址，必须在快照捕获与恢复中成对处理，否则用户关闭系统代理后 httpsProxy 会残留为 AIProxy 地址。
+
+### GNOME 取值归一化
+
+`gsettings_get_optional` 在读取 `org.gnome.system.proxy` 的键值时，会将空串、`''`、`'none'` 三种值统一视为「未设置」（返回 `None`），避免把 GNOME 表达「无代理」的 `'none'` 误当成有效 host 捕获进快照。
 
 ## 9. 已知限制
 

@@ -68,6 +68,7 @@ struct GnomeProxySnapshot {
 struct KdeProxySnapshot {
     proxy_type: Option<String>,
     http_proxy: Option<String>,
+    https_proxy: Option<String>,
     no_proxy_for: Option<String>,
 }
 
@@ -242,7 +243,7 @@ fn gsettings_get(child_schema: &str, key: &str) -> String {
 
 fn gsettings_get_optional(child_schema: &str, key: &str) -> Option<String> {
     let val = gsettings_get(child_schema, key);
-    if val.is_empty() || val == "''" || val == "''" {
+    if val.is_empty() || val == "''" || val == "'none'" {
         None
     } else {
         Some(val)
@@ -336,6 +337,7 @@ fn capture_kde_snapshot() -> Result<KdeProxySnapshot, String> {
     Ok(KdeProxySnapshot {
         proxy_type: kread_config("ProxyType"),
         http_proxy: kread_config("httpProxy"),
+        https_proxy: kread_config("httpsProxy"),
         no_proxy_for: kread_config("NoProxyFor"),
     })
 }
@@ -375,6 +377,14 @@ fn restore_kde(snapshot: Option<&KdeProxySnapshot>) -> Result<(), String> {
     if let Some(ref val) = snapshot.http_proxy {
         if let Err(e) = kwrite_config("httpProxy", val) {
             errors.push(format!("restore httpProxy: {e}"));
+        }
+    }
+    // httpsProxy must be restored too: apply_kde_proxy overwrites it with the
+    // proxy endpoint, so leaving it unrestored would leak the proxy address
+    // into the user's KDE config even after they disable the system proxy.
+    if let Some(ref val) = snapshot.https_proxy {
+        if let Err(e) = kwrite_config("httpsProxy", val) {
+            errors.push(format!("restore httpsProxy: {e}"));
         }
     }
     if let Some(ref val) = snapshot.no_proxy_for {
