@@ -37,18 +37,19 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
   const [showInfo, setShowInfo] = useState(false);
   const [showTrustSteps, setShowTrustSteps] = useState(false);
 
-  // Device scan is opt-in: most users (e.g. web-only capture) don't have
-  // Xcode simctl installed, so probing on mount would surface a red error
-  // immediately. Scan only when the user explicitly refreshes.
-  const [simulatorsQueryTriggered, setSimulatorsQueryTriggered] = useState(false);
+  // Silent auto-detection: scan on mount so booted iOS Simulators show up
+  // without the user clicking anything. If Xcode simctl isn't installed (or
+  // the probe fails for any reason — e.g. not on macOS) during this passive
+  // scan, stay quiet — a red error on entry is noisy for users who simply
+  // don't have Xcode. A *manual* refresh sets `userRefreshed`, after which
+  // errors are shown: if the user explicitly asks to re-scan, they want to
+  // know why it failed.
+  const [userRefreshed, setUserRefreshed] = useState(false);
 
-  const simulatorsQuery = useIosSimulators({ enabled: simulatorsQueryTriggered });
+  const simulatorsQuery = useIosSimulators();
 
-  function ensureSimulatorsLoaded() {
-    if (!simulatorsQueryTriggered) {
-      setSimulatorsQueryTriggered(true);
-      return;
-    }
+  function handleRefreshDevices() {
+    setUserRefreshed(true);
     simulatorsQuery.refetch();
   }
   const installMutation = useInstallIosCertificateViaSimulator();
@@ -115,7 +116,7 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
           </Alert>
         ) : null}
 
-        {simulatorsQueryTriggered && simulatorsQuery.isError ? (
+        {userRefreshed && simulatorsQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.iosSimulatorLoadErrorTitle")}</AlertTitle>
             {simulatorsQuery.error.message}
@@ -161,7 +162,7 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
           <Button
             variant="outlined"
             size="small"
-            onClick={ensureSimulatorsLoaded}
+            onClick={handleRefreshDevices}
             disabled={simulatorsQuery.isFetching || installMutation.isPending}
           >
             {simulatorsQuery.isFetching
@@ -186,15 +187,7 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
           </Button>
         </Stack>
 
-        {!simulatorsQueryTriggered ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
-            {t("certificatesPage.mobile.iosSimulatorScanHint")}
-          </Typography>
-        ) : null}
-
-        {simulatorsQueryTriggered && simulatorsQuery.isLoading ? (
+        {simulatorsQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -202,14 +195,24 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
           </Typography>
         ) : null}
 
-        {simulatorsQueryTriggered &&
-        !simulatorsQuery.isLoading &&
+        {!simulatorsQuery.isLoading &&
         !simulatorsQuery.isError &&
         (simulators?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
             {t("certificatesPage.mobile.iosSimulatorNoDevices")}
+          </Typography>
+        ) : null}
+
+        {/* Silent probe failure (e.g. simctl unavailable / not on macOS): keep
+            the panel quiet with a neutral prompt instead of a red error. A
+            manual refresh surfaces the real error. */}
+        {simulatorsQuery.isError && !userRefreshed ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.iosSimulatorScanHint")}
           </Typography>
         ) : null}
 

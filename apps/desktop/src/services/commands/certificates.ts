@@ -226,7 +226,7 @@ export async function installAndroidCertificateViaAdb(
     return {
       success: true,
       deviceSerial: input?.deviceSerial ?? "emulator-5554",
-      remotePath: "/sdcard/Download/aiproxy-root-ca.cer",
+      remotePath: "/sdcard/Download/aiproxy-ca.crt",
     };
   }
 

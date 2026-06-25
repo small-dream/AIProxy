@@ -45,18 +45,18 @@ export function HarmonyQuickActionsPanel({
   const [selectedDeviceSerial, setSelectedDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
 
-  // Device scan is opt-in: most users (e.g. web-only capture) don't have
-  // hdc installed, so probing on mount would surface a red error immediately.
-  // Scan only when the user explicitly refreshes.
-  const [hdcQueryTriggered, setHdcQueryTriggered] = useState(false);
+  // Silent auto-detection: scan on mount so connected HarmonyOS devices show
+  // up without the user clicking anything. If hdc isn't installed (or the
+  // probe fails for any reason) during this passive scan, stay quiet — a red
+  // error on entry is noisy for users who simply don't have hdc. A *manual*
+  // refresh sets `userRefreshed`, after which errors are shown: if the user
+  // explicitly asks to re-scan, they want to know why it failed.
+  const [userRefreshed, setUserRefreshed] = useState(false);
 
-  const hdcDevicesQuery = useHarmonyHdcDevices({ enabled: hdcQueryTriggered });
+  const hdcDevicesQuery = useHarmonyHdcDevices();
 
-  function ensureHdcDevicesLoaded() {
-    if (!hdcQueryTriggered) {
-      setHdcQueryTriggered(true);
-      return;
-    }
+  function handleRefreshDevices() {
+    setUserRefreshed(true);
     hdcDevicesQuery.refetch();
   }
   const hdcInstallMutation = useInstallHarmonyCertificateViaHdc();
@@ -134,7 +134,7 @@ export function HarmonyQuickActionsPanel({
           </Alert>
         ) : null}
 
-        {hdcQueryTriggered && hdcDevicesQuery.isError ? (
+        {userRefreshed && hdcDevicesQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.hdcDeviceLoadErrorTitle")}</AlertTitle>
             {hdcDevicesQuery.error.message}
@@ -180,7 +180,7 @@ export function HarmonyQuickActionsPanel({
           <Button
             variant="outlined"
             size="small"
-            onClick={ensureHdcDevicesLoaded}
+            onClick={handleRefreshDevices}
             disabled={hdcDevicesQuery.isFetching || hdcInstallMutation.isPending}
           >
             {hdcDevicesQuery.isFetching
@@ -210,15 +210,7 @@ export function HarmonyQuickActionsPanel({
             : t("certificatesPage.mobile.hdcInstallAction")}
         </Button>
 
-        {!hdcQueryTriggered ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
-            {t("certificatesPage.mobile.hdcScanHint")}
-          </Typography>
-        ) : null}
-
-        {hdcQueryTriggered && hdcDevicesQuery.isLoading ? (
+        {hdcDevicesQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -226,14 +218,24 @@ export function HarmonyQuickActionsPanel({
           </Typography>
         ) : null}
 
-        {hdcQueryTriggered &&
-        !hdcDevicesQuery.isLoading &&
+        {!hdcDevicesQuery.isLoading &&
         !hdcDevicesQuery.isError &&
         (hdcDevices?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
             {t("certificatesPage.mobile.hdcNoDevices")}
+          </Typography>
+        ) : null}
+
+        {/* Silent probe failure (e.g. hdc not installed): keep the panel quiet
+            with a neutral prompt instead of a red error. A manual refresh
+            surfaces the real error. */}
+        {hdcDevicesQuery.isError && !userRefreshed ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.hdcScanHint")}
           </Typography>
         ) : null}
 

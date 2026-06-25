@@ -91,9 +91,14 @@ export function AppProviders({ children }: PropsWithChildren) {
           },
         },
         queryCache: new QueryCache({
-          onError: (error) => {
-            // Skip benign errors that callers handle intentionally
-            // (e.g. stale session-detail lookups after the session was cleared).
+          onError: (error, query) => {
+            // Skip errors that callers handle intentionally and do not want
+            // surfaced globally: queries marked with meta
+            // `suppressGlobalErrorNotification` (e.g. the mobile device probes,
+            // which fail quietly when adb/hdc/Xcode is absent and only show
+            // errors in-panel on an explicit refresh), and stale
+            // session-detail lookups after the session was cleared.
+            if (query.meta?.suppressGlobalErrorNotification) return;
             if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
 
             const message =

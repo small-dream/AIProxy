@@ -95,6 +95,9 @@ export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
     queryFn: listAndroidAdbDevices,
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+    // adb may be absent; the probe fails silently and is handled in-panel
+    // (AndroidQuickActionsPanel shows the error only on a manual refresh).
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -114,6 +117,10 @@ export function useIosSimulators(options?: DeviceQueryOptions) {
     queryFn: listIosSimulators,
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+    // Xcode simctl may be absent (or this isn't macOS); the probe fails
+    // silently and is handled in-panel (IosQuickActionsPanel shows the error
+    // only on a manual refresh).
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -145,6 +152,9 @@ export function useHarmonyHdcDevices(options?: DeviceQueryOptions) {
     queryFn: listHarmonyHdcDevices,
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+    // hdc may be absent; the probe fails silently and is handled in-panel
+    // (HarmonyQuickActionsPanel shows the error only on a manual refresh).
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 

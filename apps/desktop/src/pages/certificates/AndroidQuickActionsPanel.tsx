@@ -52,18 +52,18 @@ export function AndroidQuickActionsPanel({
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
 
-  // Device scan is opt-in: many users (e.g. web-only capture) don't have
-  // adb installed, so probing on mount would surface a red error immediately.
-  // Scan only when the user explicitly refreshes.
-  const [adbQueryTriggered, setAdbQueryTriggered] = useState(false);
+  // Silent auto-detection: scan on mount so connected Android devices show up
+  // without the user clicking anything. If adb isn't installed (or the probe
+  // fails for any reason) during this passive scan, stay quiet — a red error
+  // on entry is noisy for users who simply don't have adb. A *manual* refresh
+  // sets `userRefreshed`, after which errors are shown: if the user explicitly
+  // asks to re-scan, they want to know why it failed.
+  const [userRefreshed, setUserRefreshed] = useState(false);
 
-  const adbDevicesQuery = useAndroidAdbDevices({ enabled: adbQueryTriggered });
+  const adbDevicesQuery = useAndroidAdbDevices();
 
-  function ensureAdbDevicesLoaded() {
-    if (!adbQueryTriggered) {
-      setAdbQueryTriggered(true);
-      return;
-    }
+  function handleRefreshDevices() {
+    setUserRefreshed(true);
     adbDevicesQuery.refetch();
   }
   const adbInstallMutation = useInstallAndroidCertificateViaAdb();
@@ -167,7 +167,7 @@ export function AndroidQuickActionsPanel({
           </Alert>
         ) : null}
 
-        {adbQueryTriggered && adbDevicesQuery.isError ? (
+        {userRefreshed && adbDevicesQuery.isError ? (
           <Alert severity="error">
             <AlertTitle>{t("certificatesPage.mobile.adbDeviceLoadErrorTitle")}</AlertTitle>
             {adbDevicesQuery.error.message}
@@ -213,7 +213,7 @@ export function AndroidQuickActionsPanel({
           <Button
             variant="outlined"
             size="small"
-            onClick={ensureAdbDevicesLoaded}
+            onClick={handleRefreshDevices}
             disabled={adbDevicesQuery.isFetching || isBusy}
           >
             {adbDevicesQuery.isFetching
@@ -272,15 +272,7 @@ export function AndroidQuickActionsPanel({
           </Button>
         </Stack>
 
-        {!adbQueryTriggered ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
-            {t("certificatesPage.mobile.adbScanHint")}
-          </Typography>
-        ) : null}
-
-        {adbQueryTriggered && adbDevicesQuery.isLoading ? (
+        {adbDevicesQuery.isLoading ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
@@ -288,14 +280,24 @@ export function AndroidQuickActionsPanel({
           </Typography>
         ) : null}
 
-        {adbQueryTriggered &&
-        !adbDevicesQuery.isLoading &&
+        {!adbDevicesQuery.isLoading &&
         !adbDevicesQuery.isError &&
         (adbDevices?.length ?? 0) === 0 ? (
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
             {t("certificatesPage.mobile.adbNoDevices")}
+          </Typography>
+        ) : null}
+
+        {/* Silent probe failure (e.g. adb not installed): keep the panel quiet
+            with a neutral prompt instead of a red error. A manual refresh
+            surfaces the real error. */}
+        {adbDevicesQuery.isError && !userRefreshed ? (
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            {t("certificatesPage.mobile.adbScanHint")}
           </Typography>
         ) : null}
 

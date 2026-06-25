@@ -519,7 +519,14 @@ fn install_android_certificate_via_adb_impl(
     })?;
 
     let device_serial = resolve_adb_target_device(input.device_serial.as_deref())?;
-    let remote_path = "/sdcard/Download/aiproxy-root-ca.cer";
+    // Push as `.crt` (not `.cer`) and nudge MediaStore afterward. Android's
+    // "Install from storage" file picker reads from MediaStore, which a raw
+    // `adb push` does NOT refresh, and OEM cert pickers recognize `.crt` far
+    // more reliably than `.cer`. Both come for free on the browser-download
+    // path (http://<ip>:<port>/aiproxy-ca.crt) via the download manager, which
+    // is why that route installs cleanly while a raw push ended up invisible
+    // or "unable to install". Match that route's filename exactly.
+    let remote_path = "/sdcard/Download/aiproxy-ca.crt";
 
     let adb = resolve_adb_path()?;
     let push_output = std::process::Command::new(&adb)
@@ -538,6 +545,48 @@ fn install_android_certificate_via_adb_impl(
                 format_command_output(&push_output)
             ),
         ));
+    }
+
+    // Best-effort: ask MediaStore to index the freshly pushed file so the
+    // "Install from storage" picker lists it. The broadcast is honored on
+    // Android <= 10 and silently ignored on some 11+ builds, so failure here
+    // is non-fatal — the file is still on disk and reachable manually. Never
+    // block the install flow on this.
+    let scan_uri = format!("file://{remote_path}");
+    match std::process::Command::new(&adb)
+        .args([
+            "-s",
+            &device_serial,
+            "shell",
+            "am",
+            "broadcast",
+            "-a",
+            "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d",
+            &scan_uri,
+        ])
+        .no_window()
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "android_media_scan_non_success",
+                device_serial = %device_serial,
+                output = %format_command_output(&output),
+                "media scan broadcast reported non-success; the pushed file may not appear in the Install-from-storage picker"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "android_media_scan_spawn_failed",
+                device_serial = %device_serial,
+                error = %error,
+                "media scan broadcast failed to spawn; the pushed file may not appear in the Install-from-storage picker"
+            );
+        }
     }
 
     let launch_output = std::process::Command::new(&adb)
