@@ -15,11 +15,45 @@ pub struct ReadHarFileInput {
     pub path: String,
 }
 
+/// Validate that `name` is a plain file basename safe to join under the
+/// Downloads directory. Rejects path separators, `..`/`.` segments, and
+/// absolute paths so a hostile/broken caller cannot escape Downloads.
+/// Returns the validated name for convenience.
+fn validate_export_basename(name: &str) -> Result<&str, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("file name must not be empty".to_string());
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err("file name must not be a dot segment".to_string());
+    }
+    // Reject anything that Path would interpret as a separator or traversal.
+    // We check the raw string (not just std::path::Component) so behavior is
+    // identical on every platform: a backslash is rejected on unix too.
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("file name must not contain path separators".to_string());
+    }
+    let path = std::path::Path::new(trimmed);
+    if path.is_absolute() {
+        return Err("file name must not be an absolute path".to_string());
+    }
+    if path.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)
+        )
+    }) {
+        return Err("file name must be a plain file name".to_string());
+    }
+    Ok(trimmed)
+}
+
 #[tauri::command]
 pub fn save_text_file(input: SaveTextFileInput, app: tauri::AppHandle) -> Result<String, String> {
+    let safe_name = validate_export_basename(&input.file_name)?;
     let downloads_dir = dirs::download_dir()
         .ok_or_else(|| "Unable to locate the Downloads directory.".to_string())?;
-    let target_path = next_available_export_path(&downloads_dir, &input.file_name);
+    let target_path = next_available_export_path(&downloads_dir, safe_name);
 
     std::fs::write(&target_path, input.content.as_bytes())
         .map_err(|error| format!("write exported file: {error}"))?;
@@ -141,4 +175,38 @@ fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf 
     }
 
     requested_path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_export_basename;
+
+    #[test]
+    fn accepts_plain_basename() {
+        assert_eq!(validate_export_basename("export.har").unwrap(), "export.har");
+        assert_eq!(validate_export_basename("session (1).json").unwrap(), "session (1).json");
+    }
+
+    #[test]
+    fn rejects_empty_and_dot_segments() {
+        assert!(validate_export_basename("").is_err());
+        assert!(validate_export_basename(".").is_err());
+        assert!(validate_export_basename("..").is_err());
+        assert!(validate_export_basename(" ").is_err());
+    }
+
+    #[test]
+    fn rejects_path_traversal() {
+        assert!(validate_export_basename("../foo.txt").is_err());
+        assert!(validate_export_basename("a/../b.txt").is_err());
+        assert!(validate_export_basename("sub/dir/foo.txt").is_err());
+        assert!(validate_export_basename("a\\b.txt").is_err());
+        assert!(validate_export_basename("\\\\host\\share\\f").is_err());
+    }
+
+    #[test]
+    fn rejects_absolute_paths() {
+        assert!(validate_export_basename("/etc/passwd").is_err());
+        assert!(validate_export_basename("C:\\Users\\x").is_err());
+    }
 }
