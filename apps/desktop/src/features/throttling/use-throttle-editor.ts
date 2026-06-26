@@ -121,6 +121,13 @@ export function useThrottleEditor() {
   const [temporaryUntil, setTemporaryUntil] = useState<number | null>(null);
   const [temporaryNow, setTemporaryNow] = useState(() => Date.now());
   const seedAppliedRef = useRef(false);
+  // Track the last id we synced a draft from, so a TanStack Query refetch
+  // (new rules[]/profiles[] array identity → new selectedRule/selectedProfile
+  // object identity) does NOT re-run the draft-sync and clobber an in-flight
+  // edit. The sync effect now fires only when the selected id actually
+  // changes (H1).
+  const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
+  const lastSyncedProfileIdRef = useRef<string | undefined>(undefined);
 
   // Computed
   const activeProfile = useMemo(() => profiles.find((profile) => profile.enabled), [profiles]);
@@ -164,6 +171,7 @@ export function useThrottleEditor() {
       const draft = createRuleDraft(baseProfile.id, seed);
       setMode("rules");
       setSelectedRuleId(draft.id);
+      lastSyncedRuleIdRef.current = draft.id;
       setRuleDraft(draft);
     }
   }, [activeProfile, profiles, seed]);
@@ -177,24 +185,30 @@ export function useThrottleEditor() {
   }, [activeProfile, customProfiles, presetProfiles, profiles, selectedProfileId]);
 
   useEffect(() => {
-    if (!selectedProfile) return;
-    if (mode === "profiles") {
+    // Only sync the profile draft when the selection actually changes —
+    // NOT on every profiles[] refetch (new selectedProfile object identity).
+    // This protects in-flight profile edits from being clobbered (H1).
+    if (mode !== "profiles") return;
+    if (lastSyncedProfileIdRef.current === selectedProfileId) return;
+    lastSyncedProfileIdRef.current = selectedProfileId;
+    if (selectedProfile) {
       setProfileDraft(selectedProfile);
       setValidationAttempted(false);
     }
-  }, [mode, selectedProfile]);
+  }, [mode, selectedProfileId, selectedProfile]);
 
   useEffect(() => {
+    // Only sync from the server value when the selection actually changes —
+    // NOT on every rules[] refetch (new selectedRule object identity). This
+    // protects in-flight edits from being clobbered (H1).
+    if (lastSyncedRuleIdRef.current === selectedRuleId) return;
+    lastSyncedRuleIdRef.current = selectedRuleId;
     if (selectedRule) {
       setRuleDraft(selectedRule);
-      return;
-    }
-
-    if (!ruleDraft && rules[0]) {
+    } else if (rules[0]) {
       setSelectedRuleId(rules[0].id);
-      setRuleDraft(rules[0]);
     }
-  }, [ruleDraft, rules, selectedRule]);
+  }, [selectedRuleId, selectedRule, rules]);
 
   useEffect(() => {
     if (!temporaryUntil) return undefined;
@@ -219,7 +233,34 @@ export function useThrottleEditor() {
   function selectProfile(profile: ThrottleProfile) {
     setMode("profiles");
     setSelectedProfileId(profile.id);
+    lastSyncedProfileIdRef.current = profile.id;
     setProfileDraft(profile);
+    setValidationAttempted(false);
+  }
+
+  function selectRule(rule: ThrottleRule) {
+    setMode("rules");
+    setSelectedRuleId(rule.id);
+    // Pre-mark as synced so the id-based effect doesn't overwrite the draft we
+    // are about to set with the (possibly stale) server value.
+    lastSyncedRuleIdRef.current = rule.id;
+    setRuleDraft(rule);
+    setValidationAttempted(false);
+  }
+
+  function duplicateRule(rule: ThrottleRule) {
+    const copy: ThrottleRule = {
+      ...rule,
+      id: crypto.randomUUID(),
+      name: `${rule.name} copy`,
+    };
+    // Move selection AND draft together so the copy survives — otherwise the
+    // sync effect would immediately revert the copy back to the original
+    // (H2).
+    setMode("rules");
+    setSelectedRuleId(copy.id);
+    lastSyncedRuleIdRef.current = copy.id;
+    setRuleDraft(copy);
     setValidationAttempted(false);
   }
 
@@ -263,6 +304,7 @@ export function useThrottleEditor() {
     const draft = createRuleDraft(profileId);
     setMode("rules");
     setSelectedRuleId(draft.id);
+    lastSyncedRuleIdRef.current = draft.id;
     setRuleDraft(draft);
     setValidationAttempted(false);
   }
@@ -275,6 +317,7 @@ export function useThrottleEditor() {
     saveRuleMutation.mutate(ruleDraft, {
       onSuccess: (saved) => {
         setSelectedRuleId(saved.id);
+        lastSyncedRuleIdRef.current = saved.id;
         setRuleDraft(saved);
         setValidationAttempted(false);
       },
@@ -289,6 +332,7 @@ export function useThrottleEditor() {
     deleteRuleMutation.mutate(ruleId, {
       onSuccess: () => {
         setSelectedRuleId(undefined);
+        lastSyncedRuleIdRef.current = undefined;
         setRuleDraft(null);
       },
     });
@@ -339,6 +383,8 @@ export function useThrottleEditor() {
 
     // Actions
     selectProfile,
+    selectRule,
+    duplicateRule,
     handleNewProfile,
     handleSaveProfile,
     handleTemporaryEnable,

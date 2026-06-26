@@ -334,6 +334,7 @@ export function ThrottlingPage() {
               profiles={ed.profiles}
               t={t}
               onChange={ed.updateRuleDraft}
+              onDuplicate={ed.duplicateRule}
               onDelete={ed.handleDeleteRule}
               onSave={ed.handleSaveRule}
               saving={ed.saveRulePending || ed.isRulesError}

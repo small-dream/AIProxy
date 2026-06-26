@@ -27,11 +27,12 @@ export function RuleEditor(props: {
   profiles: ThrottleProfile[];
   t: (key: TranslationKey, params?: TranslationParams) => string;
   onChange: (patch: Partial<ThrottleRule>) => void;
+  onDuplicate: (rule: ThrottleRule) => void;
   onDelete: (ruleId: string) => void;
   onSave: () => void;
   saving: boolean;
 }) {
-  const { draft, errors, isError = false, profiles, t, onChange, onDelete, onSave, saving } = props;
+  const { draft, errors, isError = false, profiles, t, onChange, onDuplicate, onDelete, onSave, saving } = props;
 
   if (!draft) {
     return <EmptyHint>{t("throttlingPage.rulesSelectHint")}</EmptyHint>;
@@ -152,7 +153,7 @@ export function RuleEditor(props: {
             variant="outlined"
             disabled={isError}
             startIcon={<ReplayRoundedIcon />}
-            onClick={() => onChange({ id: crypto.randomUUID(), name: `${draft.name} copy` })}
+            onClick={() => onDuplicate(draft)}
           >
             {t("throttlingPage.duplicateRule")}
           </Button>
