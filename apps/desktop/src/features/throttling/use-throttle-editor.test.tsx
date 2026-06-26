@@ -112,7 +112,7 @@ beforeEach(resetFixtures);
 
 describe("useThrottleEditor draft sync (H1/H2)", () => {
   it("does not overwrite an edited rule draft when rules refetch with a new array identity (H1)", () => {
-    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+    const { result, rerender } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
 
     // Pick r1 explicitly so a draft exists.
     const r1 = rulesState.current[0]!;
@@ -129,7 +129,15 @@ describe("useThrottleEditor draft sync (H1/H2)", () => {
       rulesState.current = [{ ...r1, name: "R1" }];
     });
 
-    // Re-render so the new identity flows in. Draft must stay edited.
+    // Force a re-render so the mocked useThrottleRules re-runs and returns the
+    // new array identity. Without this the mock never re-executes (mutating the
+    // module-level rulesState.current alone triggers no React state change), the
+    // sync effect never sees the new identity, and the refetch path would go
+    // untested — so do NOT remove this rerender() call.
+    act(() => rerender());
+
+    // The ref-based sync must early-return on same id and NOT overwrite the
+    // edit. Draft must stay edited despite the new server array identity.
     expect(result.current.ruleDraft?.name).toBe("EDITED");
   });
 
