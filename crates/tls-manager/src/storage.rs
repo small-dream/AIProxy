@@ -136,9 +136,22 @@ impl CertStorage {
             "root_cert_save_started"
         );
 
-        std::fs::create_dir_all(&self.cert_dir).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to create cert dir: {e}"))
-        })?;
+        // Create cert dir with 0700 on unix to keep the private key private.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true).mode(0o700);
+            builder
+                .create(&self.cert_dir)
+                .map_err(|e| TlsManagerError::StorageError(format!("failed to create cert dir: {e}")))?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir_all(&self.cert_dir).map_err(|e| {
+                TlsManagerError::StorageError(format!("failed to create cert dir: {e}"))
+            })?;
+        }
 
         std::fs::write(&self.root_cert_path, cert_pem).map_err(|e| {
             TlsManagerError::StorageError(format!("failed to write root cert: {e}"))
@@ -150,6 +163,16 @@ impl CertStorage {
 
         std::fs::write(&self.root_key_path, key_pem)
             .map_err(|e| TlsManagerError::StorageError(format!("failed to write root key: {e}")))?;
+
+        // Restrict the private key to the current user (0600 on unix).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&self.root_key_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| {
+                    TlsManagerError::StorageError(format!("failed to restrict root key perms: {e}"))
+                })?;
+        }
 
         tracing::info!(
             event = "root_cert_save_succeeded",
@@ -261,5 +284,46 @@ mod tests {
         assert!(cache.len() <= 512);
         // The first entry should have been evicted
         assert!(cache.get(&"host0.example.com".to_string()).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_key_file_has_restricted_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let mode = std::fs::metadata(storage.root_key_path())
+            .expect("root key file exists")
+            .permissions()
+            .mode();
+        // Group and other must have no permissions on the private key.
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "root key must not be accessible by group/other (mode={mode:o})"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cert_dir_created_with_restricted_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let dir_mode = std::fs::metadata(storage.cert_dir())
+            .expect("cert dir exists")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o077,
+            0,
+            "cert dir must not be accessible by group/other (mode={dir_mode:o})"
+        );
     }
 }
