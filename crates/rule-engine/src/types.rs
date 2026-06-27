@@ -266,4 +266,12 @@ pub(crate) struct ScriptInvocationResult {
     pub response: Option<ScriptResponse>,
     pub response_override: Option<ScriptResponseOverride>,
     pub skipped: bool,
+    /// Set by the JS bridge when the hook threw/rejected. The bridge catches
+    /// the throw, pushes an error entry capturing the message where possible,
+    /// and serializes the full collected trace (so pre-throw entries survive)
+    /// instead of letting the Promise reject (which would discard the entries).
+    /// The Rust side then marks the outcome as `RuntimeError` while keeping
+    /// the preserved entries.
+    #[serde(default)]
+    pub runtime_error: bool,
 }

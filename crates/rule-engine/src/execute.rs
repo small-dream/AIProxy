@@ -87,16 +87,29 @@ fn execute_hook(
     match receiver.recv_timeout(SCRIPT_EXECUTION_TIMEOUT + Duration::from_millis(10)) {
         Ok(Ok(result)) => {
             let mut entries = sanitize_entries(result.entries);
-            let outcome = if result.skipped {
+            // The JS bridge catches hook throws/rejections and re-resolves with
+            // `runtimeError: true` so the pre-throw entries survive (M3). Such
+            // a result is a deliberate failure: mark it RuntimeError and, to
+            // preserve the fail-open semantics shared with `runtime_failure_trace`,
+            // drop any request/response mutations the script made before throwing
+            // — but keep the entries (logs/extractions) the user needs to debug.
+            let outcome = if result.runtime_error {
+                ScriptRunOutcome::RuntimeError
+            } else if result.skipped {
                 ScriptRunOutcome::Skipped
             } else {
                 ScriptRunOutcome::Success
             };
+            let (request, response, response_override) = if result.runtime_error {
+                (None, None, None)
+            } else {
+                (result.request, result.response, result.response_override)
+            };
 
             ScriptHookResult {
-                request: result.request,
-                response: result.response,
-                response_override: result.response_override,
+                request,
+                response,
+                response_override,
                 trace: ScriptTrace {
                     duration_ms: start.elapsed().as_millis(),
                     entries: std::mem::take(&mut entries),
@@ -123,14 +136,21 @@ fn execute_hook(
             match receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(Ok(result)) => {
                     let mut entries = sanitize_entries(result.entries);
+                    let (request, response, response_override) = if result.runtime_error {
+                        (None, None, None)
+                    } else {
+                        (result.request, result.response, result.response_override)
+                    };
                     ScriptHookResult {
-                        request: result.request,
-                        response: result.response,
-                        response_override: result.response_override,
+                        request,
+                        response,
+                        response_override,
                         trace: ScriptTrace {
                             duration_ms: start.elapsed().as_millis(),
                             entries: std::mem::take(&mut entries),
-                            outcome: if result.skipped {
+                            outcome: if result.runtime_error {
+                                ScriptRunOutcome::RuntimeError
+                            } else if result.skipped {
                                 ScriptRunOutcome::Skipped
                             } else {
                                 ScriptRunOutcome::Success
