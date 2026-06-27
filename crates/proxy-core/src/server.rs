@@ -24,9 +24,16 @@ fn direct_http_client() -> Result<Client, String> {
         return Ok(client.clone());
     }
 
+    // Bound the TCP connect phase so a hanging connect cannot block forever.
+    // The full request/response timeout is enforced per-call in
+    // send_direct_request via tokio::time::timeout (which respects the test
+    // override), so we only set connect_timeout here to keep the static client
+    // reusable across runs.
+    let connect_timeout = crate::upstream_request_timeout();
     let client = Client::builder()
         .redirect(Policy::none())
         .no_proxy()
+        .connect_timeout(connect_timeout)
         .build()
         .map_err(|e| format!("failed to create HTTP client: {e}"))?;
     let _ = DIRECT_HTTP_CLIENT.set(client);
@@ -639,11 +646,29 @@ pub async fn send_direct_request(
     let started_at = Utc::now();
     let started_at_instant = Instant::now();
 
+    // Bound the upstream send + response so a hanging upstream (TCP open but
+    // no response, or a slow body) cannot block the Compose/Replay command
+    // forever. The test override flows through upstream_request_timeout().
+    let upstream_timeout = crate::upstream_request_timeout();
+    let timeout_secs = upstream_timeout.as_secs();
+
     let waiting_started_at = Instant::now();
-    let response = request_builder
-        .send()
-        .await
-        .map_err(|e| format!("failed to send request to '{url}': {e}"))?;
+    let response = match tokio::time::timeout(upstream_timeout, request_builder.send()).await {
+        Ok(result) => result.map_err(|e| format!("failed to send request to '{url}': {e}"))?,
+        Err(_) => {
+            tracing::warn!(
+                event = "direct_request_timed_out",
+                request_id = %request_id,
+                url = %url,
+                timeout_secs,
+                stage = "send",
+                "direct_request_timed_out"
+            );
+            return Err(format!(
+                "upstream '{url}' did not respond within {timeout_secs}s."
+            ));
+        }
+    };
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
     let status_code = response.status();
@@ -651,9 +676,27 @@ pub async fn send_direct_request(
 
     let response_read_started_at = Instant::now();
     let (response_body, response_body_size_bytes, body_truncated, _) =
-        crate::upstream::read_response_body_with_limit(response, &request_id, false)
-            .await
-            .map_err(|error| format!("failed to read response body: {error}"))?;
+        match tokio::time::timeout(
+            upstream_timeout,
+            crate::upstream::read_response_body_with_limit(response, &request_id, false),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(|error| format!("failed to read response body: {error}"))?,
+            Err(_) => {
+                tracing::warn!(
+                    event = "direct_request_timed_out",
+                    request_id = %request_id,
+                    url = %url,
+                    timeout_secs,
+                    stage = "body_read",
+                    "direct_request_timed_out"
+                );
+                return Err(format!(
+                    "upstream '{url}' stopped sending the response body within {timeout_secs}s."
+                ));
+            }
+        };
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     tracing::debug!(

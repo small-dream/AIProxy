@@ -2146,3 +2146,48 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
     started_proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// H3: send_direct_request must be bounded by an upstream timeout.
+// A hanging upstream (accepts + reads request, then never responds) must NOT
+// block send_direct_request forever — it must resolve within the timeout
+// window and return an error (gateway-timeout semantics).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn direct_request_times_out_on_hanging_upstream() {
+    let _timeout_guard =
+        override_upstream_request_timeout_for_test(Duration::from_millis(200));
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let upstream = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // Read the request, then hang — TCP stays open, no response.
+        let mut buf = [0_u8; 1024];
+        let _ = stream.read(&mut buf).await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    // Outer timeout (3s) is larger than the inner override (200ms): if
+    // send_direct_request hangs, the outer timeout elapses and result.is_err().
+    let result = timeout(
+        Duration::from_secs(3),
+        send_direct_request(
+            "GET".to_string(),
+            format!("http://127.0.0.1:{port}/"),
+            Vec::new(),
+            None,
+        ),
+    )
+    .await;
+
+    upstream.abort();
+
+    assert!(result.is_ok(), "send_direct_request must not hang");
+    let inner = result.unwrap();
+    assert!(
+        inner.is_err(),
+        "send_direct_request must return an error on a hanging upstream"
+    );
+}
