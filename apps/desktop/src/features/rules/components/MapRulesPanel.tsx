@@ -62,7 +62,11 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }, [draft.mode, mode]);
 
   useEffect(() => {
-    if (selectedRuleId && rules.some((r) => r.id === selectedRuleId)) return;
+    if (
+      selectedRuleId &&
+      (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId)
+    )
+      return;
     const next = filteredRules[0];
     if (next) {
       setSelectedRuleId(next.id);
@@ -72,7 +76,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
     }
     setSelectedRuleId(undefined);
     setValidationAttempted(false);
-  }, [filteredRules, rules, selectedRuleId]);
+  }, [draft.id, filteredRules, rules, selectedRuleId]);
 
   function selectRule(rule: MapRule) {
     setSelectedRuleId(rule.id);

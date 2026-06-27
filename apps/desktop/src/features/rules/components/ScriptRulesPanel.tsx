@@ -90,7 +90,11 @@ export function ScriptRulesPanel() {
   }, [rules, searchValue]);
 
   useEffect(() => {
-    if (selectedRuleId && rules.some((rule) => rule.id === selectedRuleId)) return;
+    if (
+      selectedRuleId &&
+      (rules.some((rule) => rule.id === selectedRuleId) || draft.id === selectedRuleId)
+    )
+      return;
     const next = filteredRules[0];
     if (next) {
       setSelectedRuleId(next.id);
@@ -100,7 +104,7 @@ export function ScriptRulesPanel() {
     }
     setSelectedRuleId(undefined);
     setValidationAttempted(false);
-  }, [filteredRules, rules, selectedRuleId]);
+  }, [draft.id, filteredRules, rules, selectedRuleId]);
 
   function selectRule(rule: ScriptRule) {
     setSelectedRuleId(rule.id);
