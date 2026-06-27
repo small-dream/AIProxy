@@ -60,14 +60,26 @@ pub(crate) fn validate_script_rule(rule: &ScriptRule) -> Result<(), String> {
 pub(crate) fn detect_entrypoints(source: &str) -> Result<ScriptEntrypoints, String> {
     static ALLOWED_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
     static ANY_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
+    static ON_REQUEST_RE: OnceLock<Regex> = OnceLock::new();
+    static ON_RESPONSE_RE: OnceLock<Regex> = OnceLock::new();
 
     let allowed_export_re = ALLOWED_EXPORT_RE.get_or_init(|| {
-        Regex::new(r"export\s+function\s+(onRequest|onResponse)\s*\(")
+        Regex::new(r"export\s+(?:async\s+)?function\s+(onRequest|onResponse)\s*\(")
             .expect("valid allowed export regex")
     });
     let any_export_re =
         ANY_EXPORT_RE.get_or_init(|| Regex::new(r"\bexport\b").expect("valid any export regex"));
+    let on_request_re = ON_REQUEST_RE.get_or_init(|| {
+        Regex::new(r"export\s+(?:async\s+)?function\s+onRequest\s*\(")
+            .expect("valid onRequest export regex")
+    });
+    let on_response_re = ON_RESPONSE_RE.get_or_init(|| {
+        Regex::new(r"export\s+(?:async\s+)?function\s+onResponse\s*\(")
+            .expect("valid onResponse export regex")
+    });
 
+    // Strip every allowed export (both sync and async) down to a bare `function`,
+    // so that any remaining `export` keyword is by definition unsupported.
     let stripped = allowed_export_re.replace_all(source, "function $1(");
     if any_export_re.is_match(&stripped) {
         return Err(
@@ -76,8 +88,8 @@ pub(crate) fn detect_entrypoints(source: &str) -> Result<ScriptEntrypoints, Stri
         );
     }
 
-    let on_request = source.contains("export function onRequest");
-    let on_response = source.contains("export function onResponse");
+    let on_request = on_request_re.is_match(source);
+    let on_response = on_response_re.is_match(source);
 
     if !on_request && !on_response {
         return Err("script must export onRequest and/or onResponse".to_string());
@@ -143,8 +155,16 @@ pub(crate) fn transpile_source(
 pub(crate) fn build_runtime_module(transpiled_source: &str) -> String {
     transpiled_source
         .replace(
+            "export async function onRequest",
+            "globalThis.__aiproxyScriptExports.onRequest = async function onRequest",
+        )
+        .replace(
             "export function onRequest",
             "globalThis.__aiproxyScriptExports.onRequest = function onRequest",
+        )
+        .replace(
+            "export async function onResponse",
+            "globalThis.__aiproxyScriptExports.onResponse = async function onResponse",
         )
         .replace(
             "export function onResponse",

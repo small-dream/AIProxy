@@ -98,6 +98,43 @@ export function onRequest(ctx: { request: { setHeader: (name: string, value: str
     }
 
     #[test]
+    fn detects_async_function_entrypoints() {
+        use crate::compile::detect_entrypoints;
+        let source = "export async function onRequest(ctx) { await ctx.request.getText(); }";
+        let entrypoints = detect_entrypoints(source).expect("async export is valid");
+        assert!(entrypoints.on_request);
+        assert!(!entrypoints.on_response);
+    }
+
+    #[test]
+    fn detects_mixed_async_and_sync_entrypoints() {
+        use crate::compile::detect_entrypoints;
+        let source = r#"
+export async function onRequest(ctx) { await ctx.request.getText(); }
+export function onResponse(ctx) { ctx.log.info("sync"); }
+"#;
+        let entrypoints = detect_entrypoints(source).expect("mixed exports are valid");
+        assert!(entrypoints.on_request);
+        assert!(entrypoints.on_response);
+    }
+
+    #[test]
+    fn compiles_async_function_export_and_runs() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            "export async function onRequest(ctx) { ctx.log.info(\"async ok\"); }",
+        );
+        let compiled = compile_script_rule(rule).expect("async TS compiles");
+        let result = execute_request_hook(&compiled, payload());
+        // Should run (not be rejected); at minimum not a compile/skip failure.
+        assert!(result
+            .trace
+            .entries
+            .iter()
+            .any(|e| e.message.as_deref() == Some("async ok")));
+    }
+
+    #[test]
     fn rejects_unsupported_exports() {
         let error = compile_script_rule(base_rule(
             ScriptRuleLanguage::JavaScript,
