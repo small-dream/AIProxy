@@ -13,10 +13,6 @@ import {
 
 type Unlisten = () => void;
 
-export async function subscribeToProxyStatus(): Promise<Unlisten> {
-  return () => undefined;
-}
-
 export type MenuEventPayload = {
   menuId: string;
 };

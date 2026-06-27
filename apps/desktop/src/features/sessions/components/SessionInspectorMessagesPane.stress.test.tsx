@@ -42,7 +42,6 @@ vi.mock("@/services/events", () => ({
   onSessionsRemoved: vi.fn().mockResolvedValue(() => {}),
   onBreakpointHit: vi.fn().mockResolvedValue(() => {}),
   onMenuEvent: vi.fn().mockResolvedValue(() => {}),
-  subscribeToProxyStatus: vi.fn().mockResolvedValue(() => {}),
 }));
 
 // Mock dev logger
