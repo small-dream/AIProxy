@@ -200,14 +200,34 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
     });
   }
 
-  fn(ctx);
-
-  return JSON.stringify({
-    skipped: false,
-    request: ctx.request,
-    response: ctx.response,
-    responseOverride,
-    entries,
-  });
+  // Invoke the hook and capture its return value, then serialize the result.
+  //
+  // IMPORTANT (async hook semantics): an `export async function onRequest`
+  // returns a Promise. If we serialized the result synchronously right after
+  // calling `fn(ctx)`, everything after the first `await` in the hook body
+  // (including a trailing `ctx.respond(...)`) would be silently dropped,
+  // because the microtask queue is not drained here.
+  //
+  // To make `await` inside async hooks actually take effect, we wrap the
+  // serialization in a `Promise.resolve(...).then(...)` chain. The Rust invoke
+  // path drives the QuickJS microtask queue (rquickjs `Promise::finish`) until
+  // this returned Promise settles, so the hook body runs to completion before
+  // we serialize `ctx.request` / `response` / `responseOverride` / `entries`.
+  // For sync hooks the wrapper resolves on the first microtask tick with no
+  // observable behavior change. The Rust side decodes the settled value as a
+  // JSON string.
+  return Promise.resolve()
+    .then(function runHook() {
+      return fn(ctx);
+    })
+    .then(function serializeResult() {
+      return JSON.stringify({
+        skipped: false,
+        request: ctx.request,
+        response: ctx.response,
+        responseOverride: responseOverride,
+        entries: entries,
+      });
+    });
 };
 "#;

@@ -1,4 +1,6 @@
-use rquickjs::{Context, Function, Runtime};
+use rquickjs::{
+    promise::MaybePromise, Context, Function, Runtime,
+};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -225,9 +227,25 @@ fn run_script_in_thread(
         let invoke: Function = globals
             .get("__aiproxyInvoke")
             .map_err(|error| format!("load invoke bridge: {error}"))?;
-        let result_json: String = invoke
+
+        // `__aiproxyInvoke` always returns a Promise (a `Promise.resolve().then(...)`
+        // chain) so that async hooks (`export async function`) genuinely run their
+        // `await` continuations. Drive the QuickJS microtask queue until the Promise
+        // settles, then decode the JSON string it resolves to.
+        //
+        // `MaybePromise::finish::<T>` runs `execute_pending_job` in a loop. For a
+        // resolved Promise it returns the inner value via `FromJs::<T>`; for a
+        // non-Promise value it would behave identically to direct coercion. If the
+        // job queue drains before settlement (e.g. the hook awaits a never-resolving
+        // external async operation, which QuickJS cannot drive on its own), it
+        // returns `Error::WouldBlock` — we surface that as a clear runtime failure
+        // rather than silently truncating the hook body.
+        let maybe: MaybePromise = invoke
             .call((hook_name.to_string(), payload_json.to_string()))
             .map_err(|error| format!("run {hook_name}: {error}"))?;
+        let result_json: String = maybe
+            .finish::<String>()
+            .map_err(|error| format!("await {hook_name} result: {error}"))?;
 
         serde_json::from_str(&result_json)
             .map_err(|error| format!("decode {hook_name} result: {error}"))

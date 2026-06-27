@@ -134,6 +134,123 @@ export function onResponse(ctx) { ctx.log.info("sync"); }
             .any(|e| e.message.as_deref() == Some("async ok")));
     }
 
+    /// Locks the async-await semantics for `export async function` hooks.
+    ///
+    /// Before this fix, an async hook whose body used `await` would execute only
+    /// up to the first `await`; everything after it (including a trailing
+    /// `ctx.log.info("after-await")`) was silently dropped because the returned
+    /// Promise was never awaited and the microtask queue was never drained.
+    ///
+    /// The invoke path now drives the QuickJS microtask queue via
+    /// `rquickjs::promise::MaybePromise::finish`, so the post-await continuation
+    /// genuinely runs. This test asserts the deciding case: the "after-await" log
+    /// entry MUST be present. If it is missing with outcome `Success`, the silent
+    /// truncation bug has regressed.
+    #[test]
+    fn async_hook_runs_continuations_after_await() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export async function onRequest(ctx) {
+  ctx.log.info("before-await");
+  await Promise.resolve();
+  ctx.log.info("after-await");
+  ctx.request.setHeader("x-async", "ran");
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("async TS with await compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(
+            result.trace.outcome,
+            ScriptRunOutcome::Success,
+            "async hook should complete successfully, got {:?}: {:?}",
+            result.trace.outcome,
+            result.trace.entries
+        );
+        let messages: Vec<&str> = result
+            .trace
+            .entries
+            .iter()
+            .map(|e| e.message.as_deref().unwrap_or(""))
+            .collect();
+        assert!(
+            messages.contains(&"before-await"),
+            "pre-await log missing: {:?}",
+            messages
+        );
+        assert!(
+            messages.contains(&"after-await"),
+            "post-await continuation did NOT run (silent truncation regressed): {:?}",
+            messages
+        );
+        // Mutation performed after the await must also be visible.
+        assert!(
+            result
+                .request
+                .as_ref()
+                .and_then(|r| r.headers.iter().find(|h| h.name == "x-async"))
+                .map(|h| h.value.as_str())
+                == Some("ran"),
+            "post-await request mutation missing"
+        );
+    }
+
+    /// An async hook that performs a short-circuit `ctx.respond(...)` AFTER an
+    /// await must produce the mock response. This is the exact failure mode the
+    /// reviewer flagged (respond-after-await was silently dropped).
+    #[test]
+    fn async_hook_short_circuits_after_await() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export async function onRequest(ctx) {
+  await Promise.resolve();
+  ctx.respond({ status: 202, bodyText: "mocked", mimeType: "text/plain" });
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("async short-circuit compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        assert_eq!(
+            result
+                .response_override
+                .as_ref()
+                .expect("respond() after await should set override")
+                .status,
+            202
+        );
+    }
+
+    /// An async hook that throws AFTER an await must surface as a runtime
+    /// failure (Promise rejection), not be silently swallowed. This complements
+    /// `fails_open_on_runtime_errors` (which covers sync throws) for the async
+    /// post-await path.
+    #[test]
+    fn async_hook_throw_after_await_surfaces_as_runtime_error() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export async function onRequest(ctx) {
+  await Promise.resolve();
+  throw new Error("async boom");
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("async throw compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(
+            result.trace.outcome,
+            ScriptRunOutcome::RuntimeError,
+            "async throw-after-await must surface, not silently truncate: {:?}",
+            result.trace.entries
+        );
+    }
+
     #[test]
     fn rejects_unsupported_exports() {
         let error = compile_script_rule(base_rule(
