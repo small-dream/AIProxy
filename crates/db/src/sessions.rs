@@ -290,93 +290,99 @@ pub fn load_session_detail(
     }
 }
 
-/// Delete sessions by ID list. Returns the number of deleted rows.
+/// Maximum number of bound variables per statement. SQLite caps this at
+/// `SQLITE_LIMIT_VARIABLE_NUMBER` (default 999, 32766 on newer builds), so
+/// binding the entire id list at once makes `prepare` fail once the list grows
+/// past the limit. 500 stays well under both ceilings.
+const DELETE_SESSIONS_BATCH_SIZE: usize = 500;
+
+/// Delete sessions by ID list. Returns the number of deleted summary rows.
+///
+/// IDs are deleted in batches of [`DELETE_SESSIONS_BATCH_SIZE`] so each
+/// statement's placeholder count stays under SQLite's
+/// `SQLITE_LIMIT_VARIABLE_NUMBER`. The whole operation runs in a single
+/// transaction; if any batch fails the transaction is rolled back.
 pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize, DbError> {
     if ids.is_empty() {
         return Ok(0);
     }
 
-    let placeholders: Vec<String> = ids
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!("?{}", i + 1))
-        .collect();
-    let params: Vec<&dyn rusqlite::types::ToSql> = ids
-        .iter()
-        .map(|id| id as &dyn rusqlite::types::ToSql)
-        .collect();
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| DbError::query("begin delete sessions transaction", e))?;
 
-    let delete_script_entries_sql = format!(
-        "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_script_entries_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete script run entries for sessions", e))?;
+    let mut total_deleted = 0usize;
+    for chunk in ids.chunks(DELETE_SESSIONS_BATCH_SIZE) {
+        let placeholders: Vec<String> = (0..chunk.len())
+            .map(|i| format!("?{}", i + 1))
+            .collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = chunk
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+        let placeholder_list = placeholders.join(",");
 
-    let delete_script_runs_sql = format!(
-        "DELETE FROM script_runs WHERE session_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_script_runs_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete script runs for sessions", e))?;
+        let delete_script_entries_sql = format!(
+            "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
+            placeholder_list
+        );
+        tx.execute(&delete_script_entries_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete script run entries for sessions", e))?;
 
-    let delete_rewrite_entries_sql = format!(
-        "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id IN ({}))",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_rewrite_entries_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete rewrite run entries for sessions", e))?;
+        let delete_script_runs_sql =
+            format!("DELETE FROM script_runs WHERE session_id IN ({})", placeholder_list);
+        tx.execute(&delete_script_runs_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete script runs for sessions", e))?;
 
-    let delete_rewrite_runs_sql = format!(
-        "DELETE FROM rewrite_runs WHERE session_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_rewrite_runs_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete rewrite runs for sessions", e))?;
+        let delete_rewrite_entries_sql = format!(
+            "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id IN ({}))",
+            placeholder_list
+        );
+        tx.execute(&delete_rewrite_entries_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete rewrite run entries for sessions", e))?;
 
-    let delete_map_runs_sql = format!(
-        "DELETE FROM map_runs WHERE session_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_map_runs_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete map runs for sessions", e))?;
+        let delete_rewrite_runs_sql = format!(
+            "DELETE FROM rewrite_runs WHERE session_id IN ({})",
+            placeholder_list
+        );
+        tx.execute(&delete_rewrite_runs_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete rewrite runs for sessions", e))?;
 
-    let delete_throttle_runs_sql = format!(
-        "DELETE FROM throttle_runs WHERE session_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_throttle_runs_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete throttle runs for sessions", e))?;
+        let delete_map_runs_sql =
+            format!("DELETE FROM map_runs WHERE session_id IN ({})", placeholder_list);
+        tx.execute(&delete_map_runs_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete map runs for sessions", e))?;
 
-    let delete_ws_messages_sql = format!(
-        "DELETE FROM ws_messages WHERE session_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_ws_messages_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete ws messages for sessions", e))?;
+        let delete_throttle_runs_sql = format!(
+            "DELETE FROM throttle_runs WHERE session_id IN ({})",
+            placeholder_list
+        );
+        tx.execute(&delete_throttle_runs_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete throttle runs for sessions", e))?;
 
-    let delete_session_details_sql = format!(
-        "DELETE FROM session_details WHERE session_summary_id IN ({})",
-        placeholders.join(",")
-    );
-    tx.execute(&delete_session_details_sql, params.as_slice())
-        .map_err(|e| DbError::query("delete session details", e))?;
+        let delete_ws_messages_sql =
+            format!("DELETE FROM ws_messages WHERE session_id IN ({})", placeholder_list);
+        tx.execute(&delete_ws_messages_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete ws messages for sessions", e))?;
 
-    let sql = format!(
-        "DELETE FROM session_summaries WHERE id IN ({})",
-        placeholders.join(",")
-    );
+        let delete_session_details_sql = format!(
+            "DELETE FROM session_details WHERE session_summary_id IN ({})",
+            placeholder_list
+        );
+        tx.execute(&delete_session_details_sql, params.as_slice())
+            .map_err(|e| DbError::query("delete session details", e))?;
 
-    let count = tx
-        .execute(&sql, params.as_slice())
-        .map_err(|e| DbError::query("delete sessions", e))?;
+        let sql = format!("DELETE FROM session_summaries WHERE id IN ({})", placeholder_list);
+        let count = tx
+            .execute(&sql, params.as_slice())
+            .map_err(|e| DbError::query("delete sessions", e))?;
+        total_deleted += count;
+    }
+
     tx.commit()
         .map_err(|e| DbError::query("commit delete sessions transaction", e))?;
 
-    Ok(count)
+    Ok(total_deleted)
 }
 
 /// Delete all sessions (summaries cascade to details and ws_messages).
@@ -664,6 +670,35 @@ mod tests {
         let remaining = load_recent_summaries(&conn, 100).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, "s2");
+    }
+
+    // Regression for H7: building ?1..?N placeholders for the entire id list
+    // exceeds SQLITE_LIMIT_VARIABLE_NUMBER when N is large, causing prepare to
+    // fail and the whole delete to abort. The background cleaner swallows the
+    // error, so old sessions never get pruned. Batching the deletes (batch
+    // size well under the limit) keeps each statement within the SQLite
+    // variable limit.
+    //
+    // The bundled SQLite ships with MAX_VARIABLE_NUMBER=32766, and system
+    // SQLite on older platforms defaults to 999. 40000 exceeds both, so the
+    // unbatched implementation fails to prepare on any supported toolchain.
+    #[test]
+    fn delete_sessions_by_ids_handles_more_than_variable_limit() {
+        let conn = test_conn();
+        let ids: Vec<String> = (0..40000).map(|i| format!("bulk-{i}")).collect();
+        for id in &ids {
+            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id))
+                .unwrap();
+        }
+        let deleted = delete_sessions_by_ids(&conn, &ids).expect("batched delete succeeds");
+        assert_eq!(deleted, ids.len());
+        // Confirm they are actually gone.
+        for id in &ids {
+            assert!(
+                load_session_summary(&conn, id).unwrap().is_none(),
+                "session {id} should be deleted"
+            );
+        }
     }
 
     #[test]
