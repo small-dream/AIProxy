@@ -705,6 +705,8 @@ pub fn save_dns_mapping(
     input: DnsMappingRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<DnsMappingRule, String> {
+    validate_dns_mapping(&input)?;
+
     let rule = input;
 
     // Persist to DB
@@ -730,4 +732,117 @@ pub fn save_dns_mapping(
     // Update in-memory manager
     state.read_dns_manager().save_rule(rule.clone());
     Ok(rule)
+}
+
+/// Validates a DNS mapping rule before persistence. Mirrors `validate_map_rule`:
+/// required fields are checked, and `target_ip` must parse as a legal `IpAddr`.
+/// Without this guard, a malformed IP is stored "successfully" but the runtime
+/// resolver (`proxy-core/src/rules/mod.rs`) does `target_ip.parse().ok()` and
+/// silently never matches, leaving the user with dead config and no feedback.
+fn validate_dns_mapping(input: &DnsMappingRule) -> Result<(), String> {
+    if input.name.trim().is_empty() {
+        return Err(app_error(ERR_INVALID_INPUT, "DNS mapping name is required."));
+    }
+    if input.host_pattern.trim().is_empty() {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "DNS mapping host pattern is required.",
+        ));
+    }
+    let target_ip = input.target_ip.trim();
+    if target_ip.is_empty() {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "DNS mapping target IP is required.",
+        ));
+    }
+    if target_ip.parse::<std::net::IpAddr>().is_err() {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!("DNS mapping target IP is not a valid IP address: {target_ip}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_dns_mapping(target_ip: &str) -> DnsMappingRule {
+        DnsMappingRule {
+            id: "dns-1".to_string(),
+            enabled: true,
+            name: "Test DNS".to_string(),
+            note: None,
+            priority: 1,
+            host_pattern: "example.com".to_string(),
+            target_ip: target_ip.to_string(),
+            workspace_id: "ws-1".to_string(),
+        }
+    }
+
+    /// Parses an app_error() JSON string back into (code, message) for assertions.
+    fn err_parts(err: &str) -> (String, String) {
+        let parsed: serde_json::Value = serde_json::from_str(err).expect("valid JSON error");
+        (
+            parsed["code"].as_str().unwrap().to_string(),
+            parsed["message"].as_str().unwrap().to_string(),
+        )
+    }
+
+    #[test]
+    fn validate_dns_mapping_accepts_valid_ipv4_and_ipv6() {
+        assert!(validate_dns_mapping(&sample_dns_mapping("127.0.0.1")).is_ok());
+        assert!(validate_dns_mapping(&sample_dns_mapping("10.0.0.1")).is_ok());
+        assert!(validate_dns_mapping(&sample_dns_mapping("::1")).is_ok());
+        assert!(validate_dns_mapping(&sample_dns_mapping("::ffff:192.0.2.1")).is_ok());
+    }
+
+    #[test]
+    fn validate_dns_mapping_rejects_garbage_target_ip_with_structured_error() {
+        let err = validate_dns_mapping(&sample_dns_mapping("not-an-ip"))
+            .expect_err("garbage IP must be rejected");
+        let (code, message) = err_parts(&err);
+        assert_eq!(code, ERR_INVALID_INPUT);
+        assert!(
+            message.contains("not a valid IP address"),
+            "message should explain the validation failure, got: {message}"
+        );
+        assert!(message.contains("not-an-ip"), "message should include the bad value");
+    }
+
+    #[test]
+    fn validate_dns_mapping_rejects_non_ip_strings_that_look_ipish() {
+        // Hostnames, partial segments, and out-of-range octets must all be rejected.
+        for bad in &["localhost", "999.999.999.999", "1.2.3", "192.168.0.0/24", "[::1]"] {
+            let err =
+                validate_dns_mapping(&sample_dns_mapping(bad)).expect_err("should be rejected");
+            let (code, _msg) = err_parts(&err);
+            assert_eq!(code, ERR_INVALID_INPUT, "rejected value: {bad}");
+        }
+    }
+
+    #[test]
+    fn validate_dns_mapping_rejects_empty_target_ip() {
+        let err = validate_dns_mapping(&sample_dns_mapping("   "))
+            .expect_err("empty IP must be rejected");
+        let (code, message) = err_parts(&err);
+        assert_eq!(code, ERR_INVALID_INPUT);
+        assert!(message.contains("target IP is required"));
+    }
+
+    #[test]
+    fn validate_dns_mapping_rejects_empty_name_and_host_pattern() {
+        let mut rule = sample_dns_mapping("127.0.0.1");
+        rule.name = "  ".to_string();
+        let (code, _) = err_parts(&validate_dns_mapping(&rule).expect_err("empty name rejected"));
+        assert_eq!(code, ERR_INVALID_INPUT);
+
+        let mut rule = sample_dns_mapping("127.0.0.1");
+        rule.host_pattern = "".to_string();
+        let (code, _) =
+            err_parts(&validate_dns_mapping(&rule).expect_err("empty host pattern rejected"));
+        assert_eq!(code, ERR_INVALID_INPUT);
+    }
 }
