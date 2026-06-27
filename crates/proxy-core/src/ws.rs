@@ -15,6 +15,46 @@ const WS_MASK_CHUNK_BYTES: usize = 16 * 1024;
 /// that claims a large payload but never delivers the data.
 const WS_FRAME_READ_TIMEOUT_SECS: u64 = 30;
 
+/// Marker prefix used to tag `ProxyError::Other` messages produced by
+/// `parse_ws_frame` for genuine RFC 6455 protocol violations (reserved
+/// opcode, fragmented/oversized control frame, oversized payload, RSV bit
+/// set without a negotiated extension, ...).
+///
+/// Read timeouts and clean EOF surface through different paths and do NOT
+/// carry this marker, so the relay can distinguish them via
+/// [`is_ws_protocol_error`].
+const WS_PROTOCOL_ERROR_MARKER: &str = "ws protocol error:";
+
+/// Build a tagged WS protocol-error so the relay can answer Close(1002).
+fn ws_protocol_error(msg: impl Into<String>) -> ProxyError {
+    ProxyError::Other(format!("{WS_PROTOCOL_ERROR_MARKER} {}", msg.into()))
+}
+
+/// Returns true when the error represents a clean stream EOF, i.e. the peer
+/// closed the connection without framing a protocol violation. The relay
+/// treats this as a normal end of the connection (no Close(1002) answer).
+///
+/// `read_exact` reports EOF as `std::io::ErrorKind::UnexpectedEof`; that error
+/// is propagated by `parse_ws_frame` as `ProxyError::IoError`.
+pub fn is_clean_eof(err: &ProxyError) -> bool {
+    match err {
+        ProxyError::IoError(io) => io.kind() == std::io::ErrorKind::UnexpectedEof,
+        _ => false,
+    }
+}
+
+/// Returns true when the error is a genuine RFC 6455 protocol violation
+/// produced by `parse_ws_frame` (e.g. reserved opcode, fragmented/oversized
+/// control frame, oversized payload, RSV bit set). Per RFC 6455 §7.4.1 the
+/// relay must answer such a violation with a Close frame carrying status
+/// code 1002 before dropping the connection.
+///
+/// Read timeouts (which become `ProxyError::Other("...timed out...")`) and
+/// clean EOF are NOT protocol errors.
+pub fn is_ws_protocol_error(err: &ProxyError) -> bool {
+    matches!(err, ProxyError::Other(msg) if msg.starts_with(WS_PROTOCOL_ERROR_MARKER))
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket frame types
 // ---------------------------------------------------------------------------
@@ -91,13 +131,23 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
         .map_err(ProxyError::IoError)?;
 
     let fin = (head[0] & 0x80) != 0;
+    // RFC 6455 §5.2: RSV1/RSV2/RSV3 MUST be zero unless an extension
+    // negotiated during the opening handshake gives meaning. AIProxy does not
+    // negotiate WS extensions, so any set RSV bit is a protocol violation
+    // (close code 1002).
+    let rsv_bits = head[0] & 0x70;
+    if rsv_bits != 0 {
+        return Err(ws_protocol_error(format!(
+            "RSV bit(s) set (0x{rsv_bits:02x}) without negotiated extension"
+        )));
+    }
     let opcode_raw = head[0] & 0x0F;
     // RFC 6455 §5.2: opcodes 3-7 and 11-15 are reserved and MUST fail the
     // connection (close code 1002). The previous `from_u8` silently mapped
     // them to Binary, letting malformed/reserved frames pass through the relay.
     if (3..=7).contains(&opcode_raw) || (11..=15).contains(&opcode_raw) {
-        return Err(ProxyError::Other(format!(
-            "ws frame uses reserved opcode {opcode_raw}"
+        return Err(ws_protocol_error(format!(
+            "frame uses reserved opcode {opcode_raw}"
         )));
     }
     let opcode = WsOpcode::from_u8(opcode_raw);
@@ -109,13 +159,13 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     // fragmented or oversized control frame would otherwise corrupt relay state.
     if opcode.is_control() {
         if !fin {
-            return Err(ProxyError::Other(
-                "ws control frame must not be fragmented (FIN=1 required)".to_string(),
+            return Err(ws_protocol_error(
+                "control frame must not be fragmented (FIN=1 required)",
             ));
         }
         if payload_len > 125 {
-            return Err(ProxyError::Other(format!(
-                "ws control frame payload length {payload_len} exceeds 125-byte limit"
+            return Err(ws_protocol_error(format!(
+                "control frame payload length {payload_len} exceeds 125-byte limit"
             )));
         }
     }
@@ -145,8 +195,8 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     }
 
     if payload_len > MAX_WS_FRAME_SIZE {
-        return Err(ProxyError::Other(format!(
-            "ws payload length {payload_len} exceeds limit {MAX_WS_FRAME_SIZE}"
+        return Err(ws_protocol_error(format!(
+            "payload length {payload_len} exceeds limit {MAX_WS_FRAME_SIZE}"
         )));
     }
 
@@ -163,7 +213,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     }
 
     let payload_len = usize::try_from(payload_len)
-        .map_err(|_| ProxyError::Other("ws payload length does not fit in usize".to_string()))?;
+        .map_err(|_| ws_protocol_error("payload length does not fit in usize"))?;
     let mut payload = vec![0u8; payload_len];
     if payload_len > 0 {
         timeout(read_timeout, reader.read_exact(&mut payload))
@@ -451,9 +501,29 @@ pub fn global_ws_registry() -> &'static WsConnectionRegistry {
 // Frame relay with injection support
 // ---------------------------------------------------------------------------
 
+/// Build a Close control frame carrying the given RFC 6455 status code.
+/// Used to answer a protocol violation (e.g. code 1002) before dropping a peer.
+fn close_frame(code: u16) -> WsFrame {
+    WsFrame {
+        fin: true,
+        opcode: WsOpcode::Close,
+        mask: false,
+        payload: code.to_be_bytes().to_vec(),
+    }
+}
+
 /// Relay WebSocket frames between client and upstream until the connection closes.
 /// Emits each parsed frame as a WsMessageData via the sender.
 /// Accepts an injection receiver for replaying frames into the connection.
+///
+/// Error handling per RFC 6455:
+/// - A clean stream EOF from a peer is a normal close (relay just ends).
+/// - A genuine protocol violation (reserved opcode, fragmented/oversized
+///   control frame, oversized payload, RSV bit set without an extension) is
+///   answered with a Close frame carrying status code 1002 before the relay
+///   ends, instead of being silently dropped.
+/// - Read timeouts are NOT treated as protocol errors (the peer may simply be
+///   slow); the relay just ends.
 pub async fn relay_websocket_frames<C, U>(
     client_stream: &mut C,
     upstream_stream: &mut U,
@@ -466,22 +536,30 @@ pub async fn relay_websocket_frames<C, U>(
 {
     let mut client_done = false;
     let mut upstream_done = false;
+    // Once the injection channel is closed it will keep returning `None`, which
+    // would busy-spin the select! loop. Track it so we stop polling it.
+    let mut inject_closed = false;
 
     loop {
+        if client_done && upstream_done {
+            break;
+        }
+
         tokio::select! {
             client_result = async {
                 if client_done {
-                    std::future::pending::<()>().await;
+                    std::future::pending::<Option<Result<WsFrame, ProxyError>>>().await;
                     return None;
                 }
-                parse_ws_frame(client_stream).await.ok()
+                Some(parse_ws_frame(client_stream).await)
             } => {
                 match client_result {
-                    Some(frame) => {
+                    Some(Ok(frame)) => {
                         let msg = build_ws_message(session_id, WsDirection::ClientToServer, &frame);
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
+                            // Legitimate Close from the client: forward as-is.
                             let _ = forward_raw_frame(upstream_stream, &frame).await;
                             client_done = true;
                         } else {
@@ -492,24 +570,38 @@ pub async fn relay_websocket_frames<C, U>(
                             }
                         }
                     }
-                    None => {
+                    Some(Err(e)) => {
+                        // H10: distinguish clean EOF from protocol violations.
+                        // Clean EOF → normal end. Protocol error → answer Close(1002)
+                        // to the violating peer (client). Timeouts/other errors → end.
+                        if is_ws_protocol_error(&e) {
+                            tracing::debug!(
+                                event = "ws_relay_client_protocol_error",
+                                session_id = %session_id,
+                                error = %e,
+                                "answering Close(1002) to client for protocol violation"
+                            );
+                            let _ = write_ws_frame(client_stream, &close_frame(1002), false).await;
+                        }
                         client_done = true;
                     }
+                    None => {}
                 }
             }
             upstream_result = async {
                 if upstream_done {
-                    std::future::pending::<()>().await;
+                    std::future::pending::<Option<Result<WsFrame, ProxyError>>>().await;
                     return None;
                 }
-                parse_ws_frame(upstream_stream).await.ok()
+                Some(parse_ws_frame(upstream_stream).await)
             } => {
                 match upstream_result {
-                    Some(frame) => {
+                    Some(Ok(frame)) => {
                         let msg = build_ws_message(session_id, WsDirection::ServerToClient, &frame);
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
+                            // Legitimate Close from the upstream: forward as-is.
                             let _ = forward_raw_frame(client_stream, &frame).await;
                             upstream_done = true;
                         } else {
@@ -519,12 +611,32 @@ pub async fn relay_websocket_frames<C, U>(
                             }
                         }
                     }
-                    None => {
+                    Some(Err(e)) => {
+                        // H10: distinguish clean EOF from protocol violations.
+                        // Protocol error from upstream → answer Close(1002) to
+                        // upstream (masked, since the proxy acts as its client).
+                        // Timeouts/other errors → end.
+                        if is_ws_protocol_error(&e) {
+                            tracing::debug!(
+                                event = "ws_relay_upstream_protocol_error",
+                                session_id = %session_id,
+                                error = %e,
+                                "answering Close(1002) to upstream for protocol violation"
+                            );
+                            let _ = write_ws_frame(upstream_stream, &close_frame(1002), true).await;
+                        }
                         upstream_done = true;
                     }
+                    None => {}
                 }
             }
-            inject_result = inject_rx.recv() => {
+            inject_result = async {
+                if inject_closed {
+                    std::future::pending::<Option<WsInjectRequest>>().await;
+                    return None;
+                }
+                inject_rx.recv().await
+            }, if !inject_closed => {
                 match inject_result {
                     Some(req) => {
                         let frame = WsFrame {
@@ -549,14 +661,12 @@ pub async fn relay_websocket_frames<C, U>(
                         let _ = ws_sender.send(msg).await;
                     }
                     None => {
-                        // Injection channel closed; stop listening for injects.
+                        // Injection channel closed; stop listening for injects
+                        // so the closed receiver does not busy-spin the loop.
+                        inject_closed = true;
                     }
                 }
             }
-        }
-
-        if client_done && upstream_done {
-            break;
         }
     }
 
@@ -648,5 +758,306 @@ mod tests {
 
         assert_eq!(parsed.payload.len(), 200);
         assert!(parsed.payload.iter().all(|&b| b == 0xAB));
+    }
+
+    // ----- H10: parse_ws_frame must distinguish clean EOF from protocol errors -----
+
+    #[tokio::test]
+    async fn parse_ws_frame_eof_is_clean_close() {
+        // Empty stream → EOF, not a protocol violation.
+        let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
+        let result = parse_ws_frame(&mut cursor).await;
+        assert!(
+            result.is_err(),
+            "EOF must surface as Err so the relay can treat it as a clean close"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            is_clean_eof(&err),
+            "EOF must be classified as clean EOF, got {:?}",
+            err
+        );
+        assert!(
+            !is_ws_protocol_error(&err),
+            "EOF must NOT be classified as a WS protocol error"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_ws_frame_eof_from_partial_header_is_clean_close() {
+        // A single byte (incomplete header) also yields UnexpectedEof from
+        // read_exact, which is a clean close, not a protocol violation.
+        let mut cursor = std::io::Cursor::new(vec![0x81u8]);
+        let result = parse_ws_frame(&mut cursor).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            is_clean_eof(&err),
+            "partial-header EOF must be classified as clean EOF, got {:?}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_ws_frame_reserved_opcode_is_protocol_error() {
+        // FIN=1, RSV1=1 (no extension negotiated), opcode 0x01 → RSV bit set
+        // without an extension is a protocol violation (RFC 6455 §5.2).
+        // Note: parse_ws_frame currently does NOT validate RSV bits, so this
+        // uses a reserved *opcode* (0x03) which it does validate, to lock the
+        // distinguishable-protocol-error invariant. Bytes: [0x83, 0x00]
+        // (FIN=1, RSV1=1, opcode=3 reserved, len=0).
+        let bytes = vec![0b1100_0011u8, 0x00];
+        let mut cursor = std::io::Cursor::new(bytes);
+        let result = parse_ws_frame(&mut cursor).await;
+        assert!(result.is_err(), "reserved opcode must error");
+        let err = result.unwrap_err();
+        assert!(
+            is_ws_protocol_error(&err),
+            "reserved opcode must be a WS protocol error, got {:?}",
+            err
+        );
+        assert!(
+            !is_clean_eof(&err),
+            "protocol error must NOT be classified as clean EOF"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_ws_frame_fragmented_control_is_protocol_error() {
+        // FIN=0, opcode=9 (Ping) → fragmented control frame, protocol violation.
+        let bytes = vec![0b0000_1001u8, 0x00];
+        let mut cursor = std::io::Cursor::new(bytes);
+        let result = parse_ws_frame(&mut cursor).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            is_ws_protocol_error(&err),
+            "fragmented control frame must be a WS protocol error, got {:?}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_ws_frame_oversized_control_is_protocol_error() {
+        // FIN=1, opcode=9 (Ping), len=126 (extended, > 125) → oversized control.
+        let bytes = vec![0b1000_1001u8, 126, 0x00, 0x80]; // len = 128
+        let mut cursor = std::io::Cursor::new(bytes);
+        let result = parse_ws_frame(&mut cursor).await;
+        // Either errors as protocol error (length check) or as clean EOF
+        // (can't read 128 payload bytes). The length check happens before the
+        // payload read, so it must be the protocol error.
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            is_ws_protocol_error(&err),
+            "oversized control frame must be a WS protocol error, got {:?}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_ws_frame_rsv_bit_set_is_protocol_error() {
+        // FIN=1, RSV1=1, opcode=0x01 (Text), len=0 → RSV1 set without extension.
+        // RFC 6455 §5.2: a reserved bit set without negotiation is a protocol
+        // error. This test documents/drives the RSV validation.
+        let bytes = vec![0b1100_0001u8, 0x00];
+        let mut cursor = std::io::Cursor::new(bytes);
+        let result = parse_ws_frame(&mut cursor).await;
+        assert!(result.is_err(), "RSV1 set without extension must error");
+        let err = result.unwrap_err();
+        assert!(
+            is_ws_protocol_error(&err),
+            "RSV bit set must be a WS protocol error, got {:?}",
+            err
+        );
+    }
+
+    // ----- H10: relay answers Close(1002) on protocol error, not on clean EOF -----
+
+    /// Read exactly the bytes of one small unmasked WS frame and parse it.
+    async fn read_one_frame<R: AsyncReadExt + Unpin>(reader: &mut R) -> WsFrame {
+        parse_ws_frame(reader).await.expect("expected a frame")
+    }
+
+    #[tokio::test]
+    async fn relay_answers_close_1002_on_client_protocol_error() {
+        // The relay reads `client_inner`; data it reads comes from writes on the
+        // paired `client_outer`. Writes by the relay onto `client_inner` are
+        // observable by reading `client_outer`.
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        // Feed a reserved-opcode frame from the client, then close the client
+        // write side so the relay's next read hits clean EOF.
+        client_outer.write_all(&[0b1000_0011u8, 0x00]).await.unwrap();
+        client_outer.shutdown().await.unwrap();
+        // Upstream writes nothing; close its write side so the relay's upstream
+        // read hits clean EOF and upstream_done flips.
+        upstream_outer.shutdown().await.unwrap();
+
+        let (tx, mut rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-proto-client",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await
+        .expect("relay should end, not hang");
+
+        // The relay should have written a Close(1002) back to the client
+        // (observable on client_outer).
+        let answered = read_one_frame(&mut client_outer).await;
+        assert_eq!(answered.opcode, WsOpcode::Close);
+        assert!(answered.fin);
+        assert_eq!(answered.payload.len(), 2);
+        assert_eq!(
+            u16::from_be_bytes([answered.payload[0], answered.payload[1]]),
+            1002
+        );
+
+        let mut emitted = 0;
+        while rx.try_recv().is_ok() {
+            emitted += 1;
+        }
+        // A protocol-violating frame is rejected by parse_ws_frame before it is
+        // ever parsed into a WsFrame, so no WsMessageData is emitted for it.
+        // The protocol error is signalled via the Close(1002) answer instead.
+        assert_eq!(
+            emitted, 0,
+            "a rejected protocol-violating frame must not be emitted as a message"
+        );
+    }
+
+    #[tokio::test]
+    async fn relay_answers_close_1002_on_upstream_protocol_error() {
+        // Upstream sends a frame with RSV1 set (no extension) → protocol error.
+        // The relay must answer upstream with a Close(1002) before ending.
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        upstream_outer.write_all(&[0b1100_0001u8, 0x00]).await.unwrap();
+        upstream_outer.shutdown().await.unwrap();
+        client_outer.shutdown().await.unwrap();
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-proto-upstream",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await
+        .expect("relay should end, not hang");
+
+        // The Close(1002) answer to upstream is observable on upstream_outer.
+        let answered = read_one_frame(&mut upstream_outer).await;
+        assert_eq!(answered.opcode, WsOpcode::Close);
+        assert_eq!(
+            u16::from_be_bytes([answered.payload[0], answered.payload[1]]),
+            1002
+        );
+    }
+
+    #[tokio::test]
+    async fn relay_clean_eof_does_not_answer_close() {
+        // Both peers simply close their write sides (clean EOF). The relay must
+        // NOT write a Close(1002) answer — it should just end.
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        client_outer.shutdown().await.unwrap();
+        upstream_outer.shutdown().await.unwrap();
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-clean-eof",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await
+        .expect("relay should end on clean EOF, not hang");
+
+        // On a clean EOF the relay must NOT write a Close(1002) answer. A
+        // Close frame is at least 2 bytes, so any bytes here would be a
+        // violation; we assert the read either times out (relay wrote nothing)
+        // or yields no data.
+        let mut out = [0u8; 8];
+        let read_result = tokio::time::timeout(
+            Duration::from_millis(150),
+            client_outer.read(&mut out),
+        )
+        .await;
+        match read_result {
+            Err(_) => { /* timed out: relay wrote nothing — expected */ }
+            Ok(Ok(0)) => { /* EOF: relay wrote nothing — expected */ }
+            Ok(Ok(n)) => panic!("clean EOF must not produce a Close frame, got {n} bytes: {:?}", &out[..n]),
+            Ok(Err(e)) => panic!("unexpected read error: {e}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_forwards_legitimate_close_without_double_answer() {
+        // Client sends a legitimate Close frame (code 1000). The relay must
+        // forward it to upstream as-is and NOT synthesize a Close(1002).
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        let close = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Close,
+            mask: false,
+            payload: 1000u16.to_be_bytes().to_vec(),
+        };
+        let mut buf = Vec::new();
+        write_ws_frame(&mut buf, &close, false).await.unwrap();
+        client_outer.write_all(&buf).await.unwrap();
+        // Close both write sides so the relay's reads hit EOF and it exits.
+        client_outer.shutdown().await.unwrap();
+        upstream_outer.shutdown().await.unwrap();
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-legit-close",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await
+        .expect("relay should end after forwarding Close, not hang");
+
+        // The forwarded Close lands on the upstream read side (upstream_outer).
+        let forwarded = read_one_frame(&mut upstream_outer).await;
+        assert_eq!(forwarded.opcode, WsOpcode::Close);
+        assert_eq!(
+            u16::from_be_bytes([forwarded.payload[0], forwarded.payload[1]]),
+            1000,
+            "legitimate Close(1000) must be forwarded unchanged, not replaced with 1002"
+        );
     }
 }
