@@ -5,12 +5,12 @@ use super::rules::{
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    override_upstream_request_timeout_for_test, resolve_target_url, send_direct_request,
-    start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
-    ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
-    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
-    RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
-    ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
+    override_tunnel_idle_timeout_for_test, override_upstream_request_timeout_for_test,
+    resolve_target_url, send_direct_request, start_proxy_server, BreakpointActionKind,
+    BreakpointResolution, MapManager, MapRule, ParsedProxyRequest, ProxyBodyReference, ProxyConfig,
+    ProxyHeaderEntry, ProxyManagers, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
+    ProxyTimingBreakdown, RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer,
+    ThrottleManager, ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
 use http::header::{HeaderMap, HeaderValue};
 use http::{Method, StatusCode};
@@ -2189,5 +2189,96 @@ async fn direct_request_times_out_on_hanging_upstream() {
     assert!(
         inner.is_err(),
         "send_direct_request must return an error on a hanging upstream"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// H4: blind-tunnel relay must be bounded by an idle timeout.
+//
+// `tunnel_blind_relay` holds a semaphore permit (max 1024 concurrent conns).
+// If an upstream accepts the TCP connection but then never speaks (idle), an
+// unbounded `copy_bidirectional` would hold the permit forever, eventually
+// exhausting the pool and rejecting all new connections. The relay must end
+// within the idle-timeout window even when the upstream is silent.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
+    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+
+    // Upstream accepts the proxied TCP connection but then sleeps forever —
+    // i.e. it never sends or receives any application bytes (idle tunnel).
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream = tokio::spawn(async move {
+        let (_stream, _addr) = upstream_listener.accept().await.unwrap();
+        // Accept but never speak. Aborted at end of test.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        // tls: None -> CONNECT goes through the blind relay (no MITM).
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    client
+        .write_all(format!("CONNECT 127.0.0.1:{upstream_port} HTTP/1.1\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+
+    // Read the 200 Connection Established head. The proxy writes this once the
+    // upstream TCP connect succeeds, BEFORE entering copy_bidirectional.
+    let mut head_buf = [0u8; 64];
+    let head_n = timeout(Duration::from_secs(3), client.read(&mut head_buf))
+        .await
+        .expect("timed out waiting for 200 Connection Established")
+        .unwrap();
+    assert!(
+        head_buf[..head_n].windows(6).any(|w| w == b"200 Co"),
+        "expected 200 Connection Established, got: {}",
+        String::from_utf8_lossy(&head_buf[..head_n])
+    );
+
+    // Now the relay is in copy_bidirectional with a silent upstream. The relay
+    // MUST end within the (overridden) idle window — not hang for the upstream's
+    // 30s sleep. We detect "relay ended" by a second read: with both sides idle
+    // the client read would block forever until the proxy closes the tunnel
+    // (idle timeout) and read returns Ok(0)/Err. The outer bound (3s) is much
+    // larger than the 200ms override so a hanging relay fails clearly & fast.
+    let relay_ended = timeout(Duration::from_secs(3), async {
+        let mut buf = [0u8; 64];
+        // Second read: no more data is coming (idle relay). Returns only
+        // when the proxy closes the tunnel after the idle timeout.
+        let _ = client.read(&mut buf).await;
+    })
+    .await;
+
+    upstream.abort();
+    started_proxy.server_handle.shutdown().await;
+
+    assert!(
+        relay_ended.is_ok(),
+        "blind tunnel must end within the idle-timeout window, not hang for the upstream's sleep"
     );
 }

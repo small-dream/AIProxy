@@ -38,6 +38,18 @@ const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(test)]
 static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// CONNECT blind tunnel: TCP connect to upstream must be bounded so a slow/
+// unreachable target cannot hold a connection permit indefinitely. Shorter
+// than the full upstream request timeout — establishing a TCP connection
+// should be fast; anything beyond this is a stuck/unreachable target.
+const CONNECT_TUNNEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+// CONNECT blind tunnel relay idle ceiling. Long enough to not disturb legit
+// long-lived idle tunnels (e.g. SSH-over-CONNECT keepalive gaps), short
+// enough to reclaim the connection permit from a truly dead peer and avoid
+// unbounded permit-pool exhaustion (max 1024 concurrent connections).
+const TUNNEL_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+#[cfg(test)]
+static TEST_TUNNEL_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 // Long enough for real debugging sessions, short enough to avoid leaking a
 // pending entry + upstream connection forever if the frontend disconnects or
 // the breakpoint-hit emitter (fire-and-forget) fails to deliver.
@@ -113,6 +125,27 @@ pub(crate) fn upstream_request_timeout() -> Duration {
     UPSTREAM_REQUEST_TIMEOUT
 }
 
+/// CONNECT blind-tunnel TCP connect timeout. Bounded so a slow/unreachable
+/// upstream cannot hold a connection permit indefinitely.
+pub(crate) fn connect_tunnel_connect_timeout() -> Duration {
+    CONNECT_TUNNEL_CONNECT_TIMEOUT
+}
+
+/// CONNECT blind-tunnel relay idle ceiling. Bounded so an upstream that
+/// accepts the TCP connection but then stays silent (dead peer, half-open)
+/// cannot hold a permit forever and exhaust the connection pool.
+pub(crate) fn tunnel_idle_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_TUNNEL_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    TUNNEL_IDLE_TIMEOUT
+}
+
 #[cfg(test)]
 pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
@@ -125,11 +158,12 @@ pub(crate) struct TestTimeoutGuard;
 #[cfg(test)]
 impl Drop for TestTimeoutGuard {
     fn drop(&mut self) {
-        // Reset both override slots: a single guard may be returned by either
-        // override_*_for_test call, so clear both to avoid leaking state across
-        // tests regardless of which override produced the guard.
+        // Reset all override slots: a single guard may be returned by any
+        // override_*_for_test call, so clear all of them to avoid leaking
+        // state across tests regardless of which override produced the guard.
         TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(0, Ordering::SeqCst);
         TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(0, Ordering::SeqCst);
+        TEST_TUNNEL_IDLE_TIMEOUT_MS.store(0, Ordering::SeqCst);
     }
 }
 
@@ -148,6 +182,12 @@ pub(crate) fn breakpoint_wait_timeout() -> Duration {
 #[cfg(test)]
 pub(crate) fn override_breakpoint_wait_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard
+}
+
+#[cfg(test)]
+pub(crate) fn override_tunnel_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_TUNNEL_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
     TestTimeoutGuard
 }
 

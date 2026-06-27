@@ -30,9 +30,17 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         }
         None => host.to_string(),
     };
-    let mut upstream = match TcpStream::connect((&*connect_host, port)).await {
-        Ok(s) => s,
-        Err(e) => {
+    // Bound the upstream TCP connect so a slow/unreachable target cannot hold
+    // a connection permit indefinitely (H4). On timeout we reply 502 Bad
+    // Gateway, matching the connect-failure path established in M4.
+    let connect_result = timeout(
+        connect_tunnel_connect_timeout(),
+        TcpStream::connect((&*connect_host, port)),
+    )
+    .await;
+    let mut upstream = match connect_result {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
             tracing::warn!(
                 event = "connect_tunnel_upstream_failed",
                 host = %host,
@@ -46,6 +54,23 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
                 .ok();
             return Err(message);
         }
+        Err(_elapsed) => {
+            tracing::warn!(
+                event = "connect_tunnel_upstream_timeout",
+                host = %host,
+                port = port,
+                timeout_secs = connect_tunnel_connect_timeout().as_secs(),
+                "connect_tunnel_upstream_timeout"
+            );
+            let message = format!(
+                "timed out connecting to upstream {host}:{port} after {}s",
+                connect_tunnel_connect_timeout().as_secs()
+            );
+            write_plain_text_response(&mut client_stream, StatusCode::GATEWAY_TIMEOUT, &message)
+                .await
+                .ok();
+            return Err(message);
+        }
     };
 
     // Upstream connected — now the tunnel is real. Tell the client.
@@ -54,30 +79,57 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .map_err(map_io_error)?;
 
-    // Bidirectional relay honoring TCP half-close.
+    // Bidirectional relay honoring TCP half-close, bounded by an idle ceiling.
     //
     // `copy_bidirectional` is the correct primitive here: when one side reaches
     // EOF it shuts down the OTHER side's writer (so a server waiting on EOF
     // proceeds and returns its response), while continuing to flush any in-flight
-    // data on the surviving direction. The loop returns once both directions are
-    // done. This replaces a hand-rolled select loop that (a) aborted the tunnel
-    // on the first EOF (dropping in-flight data) and (b) when patched to wait for
-    // both directions, failed to shut down the peer writer, which could hang a
-    // server still expecting an EOF (H6 + hang regression).
-    let (client_bytes, upstream_bytes) =
-        tokio::io::copy_bidirectional(&mut client_stream, &mut upstream)
-            .await
-            .map_err(map_io_error)?;
+    // data on the surviving direction. It returns once both directions are done.
+    // This replaces a hand-rolled select loop that (a) aborted the tunnel on the
+    // first EOF (dropping in-flight data) and (b) when patched to wait for both
+    // directions, failed to shut down the peer writer, which could hang a server
+    // still expecting an EOF (H6 + hang regression).
+    //
+    // The whole relay is wrapped in `tunnel_idle_timeout()` (H4). This is a
+    // total ceiling rather than a per-byte idle reset: a hand-rolled idle-reset
+    // loop would require re-implementing the half-close semantics that
+    // `copy_bidirectional` already gets right (and that the H6 regression taught
+    // us to avoid). The default (10 min) is long enough for typical CONNECT
+    // sessions; an upstream that accepts the TCP connection but then stays
+    // silent (dead/half-open peer) is closed within the window instead of
+    // holding the connection permit forever (max 1024 concurrent) and rejecting
+    // all new connections. On timeout we log structured warn and return;
+    // dropping both streams (and the permit) on return closes both sides.
+    let idle = tunnel_idle_timeout();
+    let relay_result = timeout(
+        idle,
+        tokio::io::copy_bidirectional(&mut client_stream, &mut upstream),
+    )
+    .await;
 
-    tracing::debug!(
-        event = "tunnel_relay_completed",
-        host = %host,
-        client_to_upstream_bytes = client_bytes,
-        upstream_to_client_bytes = upstream_bytes,
-        "tunnel_relay_completed"
-    );
-
-    Ok(())
+    match relay_result {
+        Err(_elapsed) => {
+            tracing::warn!(
+                event = "tunnel_relay_idle_timeout",
+                host = %host,
+                idle_timeout_secs = idle.as_secs(),
+                "tunnel_relay_idle_timeout"
+            );
+            // Returning drops both streams (closing both sides) and the permit.
+            Ok(())
+        }
+        Ok(Err(e)) => Err(map_io_error(e)),
+        Ok(Ok((client_bytes, upstream_bytes))) => {
+            tracing::debug!(
+                event = "tunnel_relay_completed",
+                host = %host,
+                client_to_upstream_bytes = client_bytes,
+                upstream_to_client_bytes = upstream_bytes,
+                "tunnel_relay_completed"
+            );
+            Ok(())
+        }
+    }
 }
 
 /// Handle WebSocket upgrade for plain HTTP (ws://) connections.
