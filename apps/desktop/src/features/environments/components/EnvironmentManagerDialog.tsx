@@ -29,6 +29,7 @@ import {
   VariableEditorTable,
   type VariableRow,
 } from "@/features/environments/components/VariableEditorTable";
+import { useEnvVarsSaveManager } from "@/features/environments/use-env-vars-save-manager";
 import { useI18n } from "@/i18n";
 
 type TabValue = "environments" | "globals";
@@ -58,7 +59,6 @@ export function EnvironmentManagerDialog({
   const [localEnvVars, setLocalEnvVars] = useState<VariableRow[]>([]);
   const [localGlobalVars, setLocalGlobalVars] = useState<VariableRow[]>([]);
 
-  const envSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const globalSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Depend on query .data directly (stable reference from the query cache, or
@@ -91,36 +91,26 @@ export function EnvironmentManagerDialog({
     }
   }, [globalVarsQuery.data]);
 
-  // Clear any pending debounced-save timers on unmount so a half-second-late
-  // mutate() can't fire after the dialog closed, writing stale edits or
-  // operating on an unmounted closure (M9, "ghost save").
+  // Env-var saves are debounced AND must flush on env switch so the previous
+  // env's pending edit is not silently dropped by the new env's first edit
+  // (H8). The unmount "ghost save" cleanup (M9) is handled inside the hook.
+  const { scheduleSave: scheduleEnvVarsSave } = useEnvVarsSaveManager({
+    selectedEnvId,
+    save: (input) =>
+      setEnvVars.mutate({
+        environmentId: input.environmentId,
+        variables: input.variables,
+      }),
+  });
+
+  // Clear any pending debounced-save timer for global vars on unmount (M9,
+  // "ghost save"). Global vars are not env-scoped, so they do not need the
+  // H8 flush-on-switch behavior.
   useEffect(() => {
     return () => {
-      if (envSaveTimeoutRef.current) clearTimeout(envSaveTimeoutRef.current);
       if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
     };
   }, []);
-
-  const debouncedSaveEnvVars = useCallback(
-    (variables: VariableRow[]) => {
-      if (envSaveTimeoutRef.current) clearTimeout(envSaveTimeoutRef.current);
-      envSaveTimeoutRef.current = setTimeout(() => {
-        if (selectedEnvId) {
-          setEnvVars.mutate({
-            environmentId: selectedEnvId,
-            variables: variables.map((v, i) => ({
-              id: v.id,
-              key: v.key,
-              value: v.value,
-              enabled: v.enabled,
-              sortOrder: i,
-            })),
-          });
-        }
-      }, 500);
-    },
-    [selectedEnvId, setEnvVars],
-  );
 
   const debouncedSaveGlobalVars = useCallback(
     (variables: VariableRow[]) => {
@@ -321,7 +311,7 @@ export function EnvironmentManagerDialog({
                   keyPlaceholder={t("collectionsPage.variableKey")}
                   onChange={(vars) => {
                     setLocalEnvVars(vars);
-                    debouncedSaveEnvVars(vars);
+                    scheduleEnvVarsSave(vars);
                   }}
                   valuePlaceholder={t("collectionsPage.variableValue")}
                   variables={localEnvVars}
