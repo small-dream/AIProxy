@@ -176,8 +176,12 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       if (!init || typeof init !== "object") {
         throw new Error("respond() requires a response object");
       }
+      const status = Number(init.status ?? 200);
+      if (!Number.isInteger(status) || status < 100 || status > 599) {
+        throw new Error("respond status must be an integer in 100..599, got: " + init.status);
+      }
       responseOverride = {
-        status: Number(init.status ?? 200),
+        status: status,
         headers: __aiproxyNormalizeHeaders(init.headers),
         bodyText: typeof init.bodyText === "string" ? init.bodyText : null,
         bodyBase64: typeof init.bodyBase64 === "string" ? init.bodyBase64 : null,
