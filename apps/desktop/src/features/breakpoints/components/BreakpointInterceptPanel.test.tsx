@@ -183,4 +183,24 @@ describe("BreakpointInterceptPanel", () => {
       );
     });
   });
+
+  it("blocks Send Mock and surfaces an error when the mock status code is empty (L9)", async () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mock Response" }));
+
+    const responsePane = screen.getByTestId("breakpoint-response-pane");
+    fireEvent.click(within(responsePane).getByRole("tab", { name: "Status" }));
+    fireEvent.change(within(responsePane).getByLabelText("Status"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Mock" }));
+
+    // Must NOT silently fall back to 200 / call the backend.
+    await Promise.resolve();
+    expect(resolveBreakpoint).not.toHaveBeenCalled();
+
+    // Must surface a visible error so the user knows why nothing was sent.
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
 });

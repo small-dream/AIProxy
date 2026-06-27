@@ -1249,6 +1249,7 @@ export const zhCNMessages: Messages = {
     headerCountOne: "{{count}} 个 Header",
     headers: "Headers",
     invalidJson: "JSON 无效：{{message}}",
+    invalidStatusCode: "状态码必须是数字。",
     jsonMode: "JSON",
     mockMode: "Mock 模式",
     noFormParams: "暂无 Body 参数",

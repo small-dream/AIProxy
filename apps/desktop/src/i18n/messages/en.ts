@@ -1303,6 +1303,7 @@ export const enMessages = {
     headerCountOne: "{{count}} header",
     headers: "Headers",
     invalidJson: "Invalid JSON: {{message}}",
+    invalidStatusCode: "Status code must be a number.",
     jsonMode: "JSON",
     mockMode: "Mock mode",
     noFormParams: "No body parameters",

@@ -21,19 +21,19 @@ export function getProxyStatusPresentation(
   if (status.running) {
     return {
       chipColor: "success",
-      label: messages.runningWithPort.replace("{{port}}", String(status.port)),
+      label: messages.runningWithPort.replaceAll("{{port}}", String(status.port)),
     };
   }
 
   if (status.sslEnabled) {
     return {
       chipColor: "warning",
-      label: messages.readyWithPort.replace("{{port}}", String(status.port)),
+      label: messages.readyWithPort.replaceAll("{{port}}", String(status.port)),
     };
   }
 
   return {
     chipColor: "default",
-    label: messages.idleWithPort.replace("{{port}}", String(status.port)),
+    label: messages.idleWithPort.replaceAll("{{port}}", String(status.port)),
   };
 }

@@ -1182,6 +1182,26 @@ export function BreakpointInterceptPanel() {
       if (!activeHit || resolvingAction) return;
 
       setResolveError(null);
+
+      // Validate the status code inputs before building the resolution. The old
+      // `Number(x) || 200` silently swallowed empty/NaN and submitted a 200 the
+      // user never typed. Now an invalid code blocks submit and surfaces an
+      // error so the user knows why nothing was sent.
+      if (action === "mock") {
+        const parsedMock = Number(mockStatusCode);
+        if (mockStatusCode.trim() === "" || !Number.isFinite(parsedMock)) {
+          setResolveError(t("breakpointPanel.invalidStatusCode"));
+          return;
+        }
+      }
+      if (editedRespStatusCode !== null) {
+        const parsedResp = Number(editedRespStatusCode);
+        if (editedRespStatusCode.trim() === "" || !Number.isFinite(parsedResp)) {
+          setResolveError(t("breakpointPanel.invalidStatusCode"));
+          return;
+        }
+      }
+
       setResolvingAction(action);
 
       const resolution: BreakpointResolution = {
@@ -1190,7 +1210,7 @@ export function BreakpointInterceptPanel() {
         ...(action === "mock"
           ? {
               mock: {
-                statusCode: Number(mockStatusCode) || 200,
+                statusCode: Number(mockStatusCode),
                 headers: mockHeaders,
                 bodyBase64: encodeBase64Utf8(mockBody),
               },
@@ -1202,7 +1222,7 @@ export function BreakpointInterceptPanel() {
           ? { modifiedRequestBodyBase64: encodeBase64Utf8(editedReqBody) }
           : {}),
         ...(editedRespStatusCode !== null
-          ? { modifiedResponseStatusCode: Number(editedRespStatusCode) || 200 }
+          ? { modifiedResponseStatusCode: Number(editedRespStatusCode) }
           : {}),
         ...(editedRespHeaders ? { modifiedResponseHeaders: editedRespHeaders } : {}),
         ...(editedRespBody !== null
@@ -1252,6 +1272,7 @@ export function BreakpointInterceptPanel() {
       editedRespHeaders,
       editedRespBody,
       removePendingHit,
+      t,
     ],
   );
 

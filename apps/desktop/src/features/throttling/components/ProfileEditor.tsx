@@ -12,7 +12,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { ThrottleProfile } from "@aiproxy/shared-types";
 
@@ -140,7 +140,7 @@ export function ProfileEditor(props: {
   );
 }
 
-function ThrottleParameter(props: {
+export function ThrottleParameter(props: {
   icon: ReactNode;
   label: string;
   max: number;
@@ -152,6 +152,35 @@ function ThrottleParameter(props: {
 }) {
   const { icon, label, max, min, onChange, step, unit, value } = props;
   const sliderValue = Math.min(max, Math.max(min, value));
+
+  // The numeric TextField mirrors the committed value as a string so the user
+  // can clear the field without it collapsing to 0 mid-edit (the old
+  // `Number(value) || 0` made an empty input instantly snap to 0). The draft is
+  // only propagated once the typed text resolves to a finite number; an empty
+  // field is held locally and refilled/clamped on blur.
+  const [text, setText] = useState(() => String(value));
+  useEffect(() => {
+    if (value !== Number(text)) {
+      setText(String(value));
+    }
+    // We intentionally only re-sync from the external value; `text` is local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const commitClamped = () => {
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed) || text.trim() === "") {
+      const clamped = min;
+      setText(String(clamped));
+      onChange(clamped);
+      return;
+    }
+    const clamped = Math.min(max, Math.max(min, parsed));
+    if (clamped !== parsed) {
+      setText(String(clamped));
+    }
+    onChange(clamped);
+  };
 
   return (
     <Stack
@@ -191,8 +220,18 @@ function ThrottleParameter(props: {
       <TextField
         size="small"
         type="number"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        value={text}
+        onChange={(event) => {
+          const next = event.target.value;
+          setText(next);
+          const parsed = Number(next);
+          // Only propagate once the input resolves to a finite number; an empty
+          // field is held locally and refilled on blur.
+          if (next.trim() !== "" && Number.isFinite(parsed)) {
+            onChange(parsed);
+          }
+        }}
+        onBlur={commitClamped}
         slotProps={{ htmlInput: { min, step } }}
         fullWidth
       />
