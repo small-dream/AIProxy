@@ -448,35 +448,19 @@ pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -
     std::str::from_utf8(body).is_ok()
 }
 
-/// Decode a raw DEFLATE stream (RFC 1951, no zlib wrapper). Feeds the whole
-/// input and grows the output until the stream terminates or stalls.
+/// Decode a raw DEFLATE stream (RFC 1951, no zlib wrapper).
+///
+/// Uses flate2's streaming `DeflateDecoder` (the `Read` API). This consumes
+/// the input incrementally and is correct for arbitrary payload sizes and
+/// compression ratios. The previous manual `Decompress` loop re-fed the full
+/// input slice on every iteration, which corrupted output once the initial
+/// spare capacity was exceeded (highly-compressible payloads).
 fn raw_deflate_decode(input: &[u8]) -> Option<Vec<u8>> {
-    let mut decompress = Decompress::new(false);
-    let mut out: Vec<u8> = Vec::with_capacity(input.len().saturating_mul(4));
-    let chunk = 8 * 1024;
-    loop {
-        let before_in = decompress.total_in() as usize;
-        let before_out = decompress.total_out() as usize;
-        // decompress_vec appends to `out` using its spare capacity.
-        out.reserve(chunk);
-        let status = decompress
-            .decompress_vec(input, &mut out, flate2::FlushDecompress::None)
-            .ok()?;
-        let consumed_in = decompress.total_in() as usize - before_in;
-        let produced_out = decompress.total_out() as usize - before_out;
-
-        match status {
-            flate2::Status::StreamEnd => return Some(out),
-            // No forward progress: either input exhausted (done) or corrupt.
-            _ if consumed_in == 0 && produced_out == 0 => {
-                return if decompress.total_in() as usize >= input.len() {
-                    Some(out)
-                } else {
-                    None
-                };
-            }
-            _ => {}
-        }
+    let mut decoder = DeflateDecoder::new(Cursor::new(input));
+    let mut output = Vec::new();
+    match decoder.read_to_end(&mut output) {
+        Ok(_) => Some(output),
+        Err(_) => None,
     }
 }
 
@@ -809,6 +793,33 @@ mod tests {
         assert_ne!(encoded.first().copied(), Some(0x78));
         let decoded = decode_body_bytes(&encoded, Some("deflate"));
         assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
+    }
+
+    // L2-2b: raw deflate large payload (>4x compression) round-trips exactly.
+    // The old manual-loop raw_deflate_decode re-fed the full input slice on
+    // every iteration, corrupting output once the initial 4x spare capacity
+    // was exceeded. This fixture compresses well beyond 4x, so the old code
+    // produced ~2.1x the plaintext with duplicated bytes (first divergence
+    // around byte 33k). RED on the old code, GREEN on the DeflateDecoder fix.
+    #[test]
+    fn decode_body_bytes_raw_deflate_large_payload_roundtrips() {
+        // Repetitive plaintext that compresses >>4x — exercises the
+        // multi-iteration path the old manual-loop corrupted.
+        let plain: Vec<u8> = (0..200_000).map(|i| (i % 7) as u8).collect();
+        let encoded = encode_raw_deflate(&plain);
+        assert!(
+            encoded.len() * 4 < plain.len(),
+            "fixture must exceed old spare capacity (encoded={}, plain={})",
+            encoded.len(),
+            plain.len()
+        );
+
+        let decoded =
+            decode_body_bytes(&encoded, Some("deflate")).expect("raw deflate decodes");
+        assert_eq!(
+            decoded, plain,
+            "raw deflate large payload must round-trip exactly"
+        );
     }
 
     // L2-3: mixed-case / whitespace encoding string still routes to deflate arm
