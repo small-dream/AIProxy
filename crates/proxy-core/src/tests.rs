@@ -2403,3 +2403,146 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// H9: WebSocket relay must terminate after Close even without peer closeback
+// ---------------------------------------------------------------------------
+
+/// Poll the global WS registry until the session reaches a terminal state
+/// (Closed, which also covers unregistered entries). Returns true once
+/// terminal, false if the deadline elapses first.
+async fn wait_for_ws_registry_closed(session_id: &str, deadline: Duration) -> bool {
+    let registry = crate::ws::global_ws_registry();
+    let result = timeout(deadline, async {
+        loop {
+            if registry.get_status(session_id) == crate::ws::WsConnectionStatus::Closed {
+                return;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    result.is_ok()
+}
+
+#[tokio::test]
+async fn ws_relay_terminates_after_close_without_peer_closeback() {
+    // Upstream upgrades, sends one Close frame to the client, then NEVER
+    // closebacks: it keeps the TCP socket fully open (no FIN) and sends
+    // nothing further. The client also stays connected and never sends a
+    // Close. Without a close-grace timeout the relay would wait forever on
+    // the client read. With H9 it must terminate within the grace window and
+    // the registry must reach a terminal state.
+    let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        // Read the upgrade request.
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // Answer 101 Switching Protocols.
+        stream
+            .write_all(
+                b"HTTP/1.1 101 Switching Protocols\r\n\
+                  Upgrade: websocket\r\n\
+                  Connection: Upgrade\r\n\
+                  Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\
+                  \r\n",
+            )
+            .await
+            .unwrap();
+        // Send one Close frame (server→client, unmasked, code 1000). The
+        // relay forwards this to the client and marks upstream_done. Then we
+        // HANG: keep the socket open, send nothing, never FIN. This simulates
+        // a non-compliant / half-closed / packet-losing peer.
+        let close_frame = [0x88u8, 0x02, 0x03, 0xE8]; // FIN+Close, len 2, code 1000
+        stream.write_all(&close_frame).await.unwrap();
+        // Hold the connection open until the test aborts us. We must NOT
+        // shutdown()/close() — that would let the relay see clean EOF and
+        // terminate regardless of the grace fix.
+        sleep(Duration::from_secs(10)).await;
+        let _ = stream;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Drive the upgrade through the proxy ourselves so we can KEEP the client
+    // side alive (send_ws_upgrade_via_proxy drops the client stream on return,
+    // which would half-close the client and let the relay exit on clean EOF —
+    // not the scenario under test).
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Read the 101 response from the proxy.
+    let mut response_buf = [0u8; 4096];
+    let _n = timeout(Duration::from_secs(3), client_stream.read(&mut response_buf))
+        .await
+        .expect("timed out reading proxy 101 response")
+        .unwrap();
+
+    // Capture the WS session id from the first completed (status!=0) session.
+    let completed_session = timeout(Duration::from_secs(2), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed WS session");
+    assert_eq!(completed_session.summary.status_code, 101);
+
+    // Keep the client socket alive (do NOT shutdown) and DO NOT send a Close.
+    // The relay must terminate within the grace window (300ms) purely from
+    // the close-grace timeout firing after the upstream Close.
+    let closed = wait_for_ws_registry_closed(
+        &completed_session.id,
+        // Generous outer bound: well beyond the 300ms grace, but far short of
+        // the 30s+ a hung relay would take to trip the frame-read timeout.
+        Duration::from_secs(2),
+    )
+    .await;
+
+    upstream_task.abort();
+    started_proxy.server_handle.shutdown().await;
+
+    assert!(
+        closed,
+        "ws relay must terminate after Close even without peer closeback (within grace window)"
+    );
+}
+

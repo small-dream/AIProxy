@@ -524,6 +524,18 @@ fn close_frame(code: u16) -> WsFrame {
 ///   ends, instead of being silently dropped.
 /// - Read timeouts are NOT treated as protocol errors (the peer may simply be
 ///   slow); the relay just ends.
+///
+/// Close handling (H9):
+/// - When either side sends a Close frame, the relay forwards it, shuts down
+///   the peer's writer (so a compliant peer sees the close and echoes one
+///   back), and arms a close-grace deadline (`ws_close_grace_timeout()`).
+/// - If the peer never echoes a Close (non-compliant server, packet loss,
+///   half-closed connection) the grace deadline fires and the relay force-
+///   terminates, preventing an unbounded `parse_ws_frame` wait and TCP leak.
+/// - The grace deadline is also armed on a stream end (EOF/protocol error/
+///   timeout) so a peer that stays silent after one side ends cannot pin the
+///   relay either. The normal both-sides-close path still exits immediately
+///   when both sides are done.
 pub async fn relay_websocket_frames<C, U>(
     client_stream: &mut C,
     upstream_stream: &mut U,
@@ -539,13 +551,53 @@ pub async fn relay_websocket_frames<C, U>(
     // Once the injection channel is closed it will keep returning `None`, which
     // would busy-spin the select! loop. Track it so we stop polling it.
     let mut inject_closed = false;
+    // H9: once a Close frame has been seen from either side, arm a grace
+    // deadline. A compliant peer echoes a Close back and the loop exits via
+    // the normal both-done path. A non-compliant / half-closed / packet-losing
+    // peer that never closebacks would otherwise leave the relay blocked on
+    // `parse_ws_frame` forever (TCP leak). When the grace elapses we force the
+    // loop to terminate.
+    let close_grace = crate::ws_close_grace_timeout();
+    let mut close_grace_deadline: Option<tokio::time::Instant> = None;
 
     loop {
         if client_done && upstream_done {
             break;
         }
 
+        // Snapshot the grace deadline for this iteration so the select! branch
+        // can poll it (or stay pending if no Close has been seen yet).
+        let grace_wait = async {
+            match close_grace_deadline {
+                Some(deadline) => {
+                    let now = tokio::time::Instant::now();
+                    if now >= deadline {
+                        return;
+                    }
+                    tokio::time::sleep_until(deadline).await;
+                }
+                None => {
+                    // No Close seen yet: never fire.
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+
         tokio::select! {
+            // H9: close-grace expired — force-terminate even if the peer never
+            // closebacks. Log at debug (not warn) because this is the expected
+            // recovery path for non-compliant peers.
+            _ = grace_wait => {
+                tracing::debug!(
+                    event = "ws_relay_close_grace_expired",
+                    session_id = %session_id,
+                    grace_ms = close_grace.as_millis() as u64,
+                    client_done,
+                    upstream_done,
+                    "ws_relay_close_grace_expired"
+                );
+                break;
+            }
             client_result = async {
                 if client_done {
                     std::future::pending::<Option<Result<WsFrame, ProxyError>>>().await;
@@ -562,6 +614,15 @@ pub async fn relay_websocket_frames<C, U>(
                             // Legitimate Close from the client: forward as-is.
                             let _ = forward_raw_frame(upstream_stream, &frame).await;
                             client_done = true;
+                            // H9: shutdown the upstream write side so a compliant
+                            // upstream sees its peer close and echoes a Close
+                            // back. Arm the grace deadline to bound the wait for
+                            // non-compliant upstreams.
+                            let _ = upstream_stream.shutdown().await;
+                            if close_grace_deadline.is_none() {
+                                close_grace_deadline =
+                                    Some(tokio::time::Instant::now() + close_grace);
+                            }
                         } else {
                             // Forward to upstream masked per RFC 6455 §5.1 (proxy acts as client to upstream)
                             if let Err(e) = write_ws_frame(upstream_stream, &frame, true).await {
@@ -584,6 +645,13 @@ pub async fn relay_websocket_frames<C, U>(
                             let _ = write_ws_frame(client_stream, &close_frame(1002), false).await;
                         }
                         client_done = true;
+                        // A stream ending (EOF/protocol error/timeout) is itself a
+                        // terminal signal from this side; arm the grace so a peer
+                        // that never closes cannot pin the relay.
+                        if close_grace_deadline.is_none() {
+                            close_grace_deadline =
+                                Some(tokio::time::Instant::now() + close_grace);
+                        }
                     }
                     None => {}
                 }
@@ -604,6 +672,14 @@ pub async fn relay_websocket_frames<C, U>(
                             // Legitimate Close from the upstream: forward as-is.
                             let _ = forward_raw_frame(client_stream, &frame).await;
                             upstream_done = true;
+                            // H9: shutdown the client write side so a compliant
+                            // client echoes a Close back. Arm the grace deadline
+                            // to bound the wait for non-compliant clients.
+                            let _ = client_stream.shutdown().await;
+                            if close_grace_deadline.is_none() {
+                                close_grace_deadline =
+                                    Some(tokio::time::Instant::now() + close_grace);
+                            }
                         } else {
                             if let Err(e) = forward_raw_frame(client_stream, &frame).await {
                                 tracing::debug!(event = "ws_relay_upstream_to_client_write_failed", error = %e, "ws_relay_upstream_to_client_write_failed");
@@ -626,6 +702,10 @@ pub async fn relay_websocket_frames<C, U>(
                             let _ = write_ws_frame(upstream_stream, &close_frame(1002), true).await;
                         }
                         upstream_done = true;
+                        if close_grace_deadline.is_none() {
+                            close_grace_deadline =
+                                Some(tokio::time::Instant::now() + close_grace);
+                        }
                     }
                     None => {}
                 }
@@ -1058,5 +1138,131 @@ mod tests {
             1000,
             "legitimate Close(1000) must be forwarded unchanged, not replaced with 1002"
         );
+    }
+
+    // ----- H9: on Close, relay shuts down the peer writer + honors grace -----
+
+    #[tokio::test]
+    async fn relay_terminates_via_close_grace_without_peer_closeback() {
+        // Upstream sends a Close and then NEVER closebacks (keeps its read side
+        // open, no FIN, no further frames). The client likewise stays open and
+        // sends nothing. Without the close-grace timeout the relay would block
+        // on the client read forever. The grace deadline must force termination.
+        // Use 300ms to match the integration test's override value so the two
+        // do not fight over the global override slot when run in parallel.
+        let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
+
+        let (client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        // Upstream sends a Close(1000) then sits silent. Do NOT shutdown
+        // upstream_outer — that would produce a clean EOF and the relay would
+        // exit regardless of the grace fix.
+        let close = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Close,
+            mask: false,
+            payload: 1000u16.to_be_bytes().to_vec(),
+        };
+        let mut buf = Vec::new();
+        write_ws_frame(&mut buf, &close, false).await.unwrap();
+        upstream_outer.write_all(&buf).await.unwrap();
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        // Outer bound well beyond the 150ms grace, far short of the 30s frame
+        // read timeout a hung relay would hit.
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-grace",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await;
+
+        // The relay MUST terminate (grace fired). Hold the outer handles open
+        // for the duration so neither side sees a clean EOF from us.
+        let _ = client_outer;
+        let _ = upstream_outer;
+
+        assert!(
+            result.is_ok(),
+            "relay must terminate via close-grace timeout even without peer closeback"
+        );
+    }
+
+    #[tokio::test]
+    async fn relay_shutdowns_peer_writer_on_close() {
+        // When the client sends a Close, the relay must shutdown the upstream
+        // writer (its write side toward upstream) so a compliant upstream sees
+        // its peer close. We observe this on upstream_outer as a clean EOF
+        // (read returns 0) AFTER the forwarded Close frame is read.
+        // No grace override needed here: we observe the writer shutdown (which
+        // happens before any grace elapses) and then abort the relay task, so
+        // the default grace value is irrelevant.
+
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        let close = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Close,
+            mask: false,
+            payload: 1000u16.to_be_bytes().to_vec(),
+        };
+        let mut buf = Vec::new();
+        write_ws_frame(&mut buf, &close, false).await.unwrap();
+        client_outer.write_all(&buf).await.unwrap();
+        // Do NOT shutdown client_outer here — we want to confirm the relay's
+        // OWN shutdown of the upstream writer is observable.
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+
+        // The relay will: forward Close to upstream, shutdown upstream writer,
+        // arm grace. Since neither side ever EOFs naturally (both outer halves
+        // stay open), the relay exits via the grace timeout (5s is too long to
+        // wait in a unit test, so we bound the whole thing and just observe the
+        // forwarded Close + the writer shutdown within a short window).
+        let relay_task = tokio::spawn(async move {
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-peer-shutdown",
+                &tx,
+                &mut inject_rx,
+            )
+            .await;
+        });
+
+        // Read the forwarded Close frame on the upstream side.
+        let forwarded = read_one_frame(&mut upstream_outer).await;
+        assert_eq!(forwarded.opcode, WsOpcode::Close);
+
+        // The relay shut down the upstream writer → the next read on
+        // upstream_outer must yield clean EOF (0 bytes) promptly.
+        let mut probe = [0u8; 4];
+        let read_result = tokio::time::timeout(
+            Duration::from_millis(500),
+            upstream_outer.read(&mut probe),
+        )
+        .await
+        .expect("upstream writer should be shut down promptly");
+        match read_result {
+            Ok(0) => { /* clean EOF from relay's shutdown — expected */ }
+            Ok(n) => panic!(
+                "expected clean EOF after relay shut down upstream writer, got {n} bytes: {:?}",
+                &probe[..n]
+            ),
+            Err(e) => panic!("unexpected read error after relay shutdown: {e}"),
+        }
+
+        relay_task.abort();
+        let _ = client_outer;
     }
 }

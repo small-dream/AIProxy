@@ -56,6 +56,14 @@ static TEST_TUNNEL_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const BREAKPOINT_WAIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[cfg(test)]
 static TEST_BREAKPOINT_WAIT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// WebSocket relay close-grace ceiling. Once a Close frame has been seen from
+// either peer the relay starts a grace timer: long enough for a compliant
+// peer to echo a Close back, short enough that a non-compliant / half-closed
+// / packet-losing peer cannot keep the relay (and the TCP connection) alive
+// forever. See `ws::relay_websocket_frames`.
+const WS_CLOSE_GRACE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+static TEST_WS_CLOSE_GRACE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
@@ -146,6 +154,21 @@ pub(crate) fn tunnel_idle_timeout() -> Duration {
     TUNNEL_IDLE_TIMEOUT
 }
 
+/// WebSocket relay close-grace ceiling. Once a Close frame has been seen the
+/// relay arms this deadline and force-terminates when it elapses, so a peer
+/// that never echoes a Close cannot leak the relay/TCP connection.
+pub(crate) fn ws_close_grace_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_WS_CLOSE_GRACE_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    WS_CLOSE_GRACE_TIMEOUT
+}
+
 #[cfg(test)]
 pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
@@ -164,6 +187,7 @@ impl Drop for TestTimeoutGuard {
         TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(0, Ordering::SeqCst);
         TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(0, Ordering::SeqCst);
         TEST_TUNNEL_IDLE_TIMEOUT_MS.store(0, Ordering::SeqCst);
+        TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(0, Ordering::SeqCst);
     }
 }
 
@@ -188,6 +212,12 @@ pub(crate) fn override_breakpoint_wait_timeout_for_test(timeout: Duration) -> Te
 #[cfg(test)]
 pub(crate) fn override_tunnel_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_TUNNEL_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard
+}
+
+#[cfg(test)]
+pub(crate) fn override_ws_close_grace_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
     TestTimeoutGuard
 }
 
