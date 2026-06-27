@@ -1,6 +1,6 @@
 use super::*;
 use crate::server::PrefixedStream;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 
 // ---------------------------------------------------------------------------
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
@@ -31,14 +31,14 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         None => host.to_string(),
     };
     // Bound the upstream TCP connect so a slow/unreachable target cannot hold
-    // a connection permit indefinitely (H4). On timeout we reply 502 Bad
-    // Gateway, matching the connect-failure path established in M4.
+    // a connection permit indefinitely (H4). On timeout we reply 504 Gateway
+    // Timeout, matching the connect-failure path established in M4.
     let connect_result = timeout(
         connect_tunnel_connect_timeout(),
         TcpStream::connect((&*connect_host, port)),
     )
     .await;
-    let mut upstream = match connect_result {
+    let upstream = match connect_result {
         Ok(Ok(s)) => s,
         Ok(Err(e)) => {
             tracing::warn!(
@@ -79,36 +79,40 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .map_err(map_io_error)?;
 
-    // Bidirectional relay honoring TCP half-close, bounded by an idle ceiling.
+    // Bidirectional relay with IDLE-RESET timeout, honoring TCP half-close.
     //
-    // `copy_bidirectional` is the correct primitive here: when one side reaches
-    // EOF it shuts down the OTHER side's writer (so a server waiting on EOF
-    // proceeds and returns its response), while continuing to flush any in-flight
-    // data on the surviving direction. It returns once both directions are done.
-    // This replaces a hand-rolled select loop that (a) aborted the tunnel on the
-    // first EOF (dropping in-flight data) and (b) when patched to wait for both
-    // directions, failed to shut down the peer writer, which could hang a server
-    // still expecting an EOF (H6 + hang regression).
+    // This is a hand-rolled select loop over `tokio::io::split` reader/writer
+    // halves. It replaces an earlier design that wrapped the whole relay in a
+    // single overall `timeout(idle, copy_bidirectional(...))` (H4). That overall
+    // cap was a product regression for a Charles-like proxy: blind CONNECT
+    // tunnels routinely carry LONG-LIVED connections (SSH-over-CONNECT, database
+    // tunnels, websocket-over-CONNECT) that are legitimately quiet for >10 min
+    // between bursts but must NOT be killed. An overall cap kills active
+    // sessions; only an IDLE-RESET (timer reset whenever bytes flow in EITHER
+    // direction) correctly distinguishes "hung/half-open" from "legitimately
+    // quiet long-lived".
     //
-    // The whole relay is wrapped in `tunnel_idle_timeout()` (H4). This is a
-    // total ceiling rather than a per-byte idle reset: a hand-rolled idle-reset
-    // loop would require re-implementing the half-close semantics that
-    // `copy_bidirectional` already gets right (and that the H6 regression taught
-    // us to avoid). The default (10 min) is long enough for typical CONNECT
-    // sessions; an upstream that accepts the TCP connection but then stays
-    // silent (dead/half-open peer) is closed within the window instead of
-    // holding the connection permit forever (max 1024 concurrent) and rejecting
-    // all new connections. On timeout we log structured warn and return;
-    // dropping both streams (and the permit) on return closes both sides.
+    // Hand-writing the loop (rather than spawning `copy_bidirectional` + a
+    // watchdog) is deliberate: it lets us preserve the TCP half-close semantics
+    // that a prior audit fix (H6) relied on and that `copy_bidirectional`
+    // already implements correctly. The rules:
+    //   - On `Ok(0)` (EOF) from one reader: `shutdown` the OTHER side's writer
+    //     (half-close) so a server waiting on EOF proceeds and returns its
+    //     response, while continuing to flush in-flight data on the surviving
+    //     direction. When both directions are done, break.
+    //   - On error: break (dropping both streams closes both sides).
+    //   - Idle deadline elapsed with NO activity in either direction since the
+    //     last reset: break (hung/half-open peer; reclaim the permit).
+    //
+    // The idle deadline is reset to `now + tunnel_idle_timeout()` whenever ANY
+    // non-zero chunk is relayed in EITHER direction. Default 10 min, so a truly
+    // silent tunnel ends within that window instead of holding the connection
+    // permit forever (max 1024 concurrent) and rejecting all new connections.
     let idle = tunnel_idle_timeout();
-    let relay_result = timeout(
-        idle,
-        tokio::io::copy_bidirectional(&mut client_stream, &mut upstream),
-    )
-    .await;
+    let result = idle_reset_relay(client_stream, upstream, idle).await;
 
-    match relay_result {
-        Err(_elapsed) => {
+    match result {
+        RelayOutcome::IdleTimeout => {
             tracing::warn!(
                 event = "tunnel_relay_idle_timeout",
                 host = %host,
@@ -118,16 +122,136 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
             // Returning drops both streams (closing both sides) and the permit.
             Ok(())
         }
-        Ok(Err(e)) => Err(map_io_error(e)),
-        Ok(Ok((client_bytes, upstream_bytes))) => {
+        RelayOutcome::Error(e) => Err(map_io_error(e)),
+        RelayOutcome::Done {
+            client_to_upstream_bytes,
+            upstream_to_client_bytes,
+        } => {
             tracing::debug!(
                 event = "tunnel_relay_completed",
                 host = %host,
-                client_to_upstream_bytes = client_bytes,
-                upstream_to_client_bytes = upstream_bytes,
+                client_to_upstream_bytes = client_to_upstream_bytes,
+                upstream_to_client_bytes = upstream_to_client_bytes,
                 "tunnel_relay_completed"
             );
             Ok(())
+        }
+    }
+}
+
+/// Result of the idle-reset bidirectional relay.
+enum RelayOutcome {
+    /// Both directions reached EOF (or one EOF'd and the other then EOF'd after
+    /// its in-flight data was flushed). Counts are bytes relayed per direction.
+    Done {
+        client_to_upstream_bytes: u64,
+        upstream_to_client_bytes: u64,
+    },
+    /// No activity in either direction for the full idle window.
+    IdleTimeout,
+    /// An I/O error occurred on either side.
+    Error(io::Error),
+}
+
+/// Idle-reset bidirectional relay over split halves, preserving TCP half-close.
+///
+/// See the comment block in `tunnel_blind_relay` for the full design rationale.
+async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
+    client_stream: S,
+    upstream: TcpStream,
+    idle: Duration,
+) -> RelayOutcome {
+    let (mut client_read, mut client_write) = tokio::io::split(client_stream);
+    let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream);
+
+    let mut client_to_upstream_bytes: u64 = 0;
+    let mut upstream_to_client_bytes: u64 = 0;
+
+    // Track whether each direction's writer has been shut down (half-closed).
+    // A direction is "done" once its SOURCE reader hits EOF; we then shut down
+    // the OTHER side's writer and stop reading that source.
+    let mut client_to_upstream_done = false; // client -> upstream direction finished?
+    let mut upstream_to_client_done = false; // upstream -> client direction finished?
+
+    let mut buf_client = [0u8; READ_BUFFER_BYTES];
+    let mut buf_upstream = [0u8; READ_BUFFER_BYTES];
+
+    let mut idle_deadline = Instant::now() + idle;
+
+    loop {
+        // If both directions are finished, the relay is complete.
+        if client_to_upstream_done && upstream_to_client_done {
+            return RelayOutcome::Done {
+                client_to_upstream_bytes,
+                upstream_to_client_bytes,
+            };
+        }
+
+        let now = Instant::now();
+        if now >= idle_deadline {
+            return RelayOutcome::IdleTimeout;
+        }
+        let remaining = idle_deadline - now;
+
+        tokio::select! {
+            // Idle deadline elapsed with no activity in either direction.
+            _ = tokio::time::sleep(remaining) => {
+                return RelayOutcome::IdleTimeout;
+            }
+
+            // client -> upstream
+            read_bytes = async {
+                if client_to_upstream_done {
+                    // Park forever; this branch must never win when done.
+                    std::future::pending::<io::Result<usize>>().await
+                } else {
+                    client_read.read(&mut buf_client).await
+                }
+            } => {
+                match read_bytes {
+                    Ok(0) => {
+                        // Client EOF: half-close the upstream writer so a server
+                        // waiting on EOF proceeds, and stop reading the client.
+                        let _ = upstream_write.shutdown().await;
+                        client_to_upstream_done = true;
+                    }
+                    Ok(n) => {
+                        if let Err(e) = upstream_write.write_all(&buf_client[..n]).await {
+                            return RelayOutcome::Error(e);
+                        }
+                        client_to_upstream_bytes += n as u64;
+                        idle_deadline = Instant::now() + idle;
+                    }
+                    Err(e) => return RelayOutcome::Error(e),
+                }
+            }
+
+            // upstream -> client
+            read_bytes = async {
+                if upstream_to_client_done {
+                    std::future::pending::<io::Result<usize>>().await
+                } else {
+                    upstream_read.read(&mut buf_upstream).await
+                }
+            } => {
+                match read_bytes {
+                    Ok(0) => {
+                        // Upstream EOF: half-close the client writer so the
+                        // client learns the response is complete, and stop
+                        // reading the upstream.
+                        let _ = client_write.shutdown().await;
+                        upstream_to_client_done = true;
+                    }
+                    Ok(n) => {
+                        if let Err(e) = client_write.write_all(&buf_upstream[..n]).await {
+                            return RelayOutcome::Error(e);
+                        }
+                        upstream_to_client_bytes += n as u64;
+                        idle_deadline = Instant::now() + idle;
+                    }
+                    Err(e) => return RelayOutcome::Error(e),
+                }
+            }
         }
     }
 }

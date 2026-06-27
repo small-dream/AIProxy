@@ -20,7 +20,7 @@ use std::{fs, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    time::timeout,
+    time::{sleep, timeout},
 };
 use url::Url;
 
@@ -2282,3 +2282,124 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
         "blind tunnel must end within the idle-timeout window, not hang for the upstream's sleep"
     );
 }
+
+// ---------------------------------------------------------------------------
+// H4 (idle-reset): an ACTIVE long-lived tunnel must NOT be killed by the idle
+// timeout. This is the regression the Phase 2 Task 6 review flagged: an overall
+// cap (the old `timeout(idle, copy_bidirectional)`) kills legitimately quiet
+// long-lived sessions (SSH-over-CONNECT, database tunnels, websocket-over-
+// CONNECT). Only an IDLE-RESET — timer reset whenever bytes flow in EITHER
+// direction — correctly distinguishes "hung/half-open" from "legitimately
+// quiet long-lived".
+//
+// Here the idle override is 200ms but client + upstream exchange a byte every
+// 100ms for 600ms (three times the idle window). The tunnel must SURVIVE the
+// whole 600ms and only end once activity truly stops. If the relay used an
+// overall cap it would end at ~200ms and the exchanges after that would fail.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
+    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+
+    // Upstream: accepts the proxied connection, then echoes back every byte it
+    // receives at 100ms intervals for ~600ms. This keeps the tunnel alive well
+    // past the 200ms idle window on BOTH directions (client->upstream writes
+    // AND upstream->client echoes each reset the idle timer).
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream = tokio::spawn(async move {
+        let (mut stream, _addr) = upstream_listener.accept().await.unwrap();
+        // Echo loop: read a byte, write it back, repeat every 100ms.
+        // We do ~7 rounds (700ms) so the test clearly outlasts the 200ms idle.
+        for _ in 0..7 {
+            let mut byte = [0u8; 1];
+            match stream.read(&mut byte).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let _ = stream.write_all(&byte).await;
+                }
+            }
+        }
+        // After the exchange loop ends the upstream side closes; the client
+        // side will then observe EOF.
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    client
+        .write_all(format!("CONNECT 127.0.0.1:{upstream_port} HTTP/1.1\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+
+    // Read the 200 Connection Established head.
+    let mut head_buf = [0u8; 64];
+    let head_n = timeout(Duration::from_secs(3), client.read(&mut head_buf))
+        .await
+        .expect("timed out waiting for 200 Connection Established")
+        .unwrap();
+    assert!(
+        head_buf[..head_n].windows(6).any(|w| w == b"200 Co"),
+        "expected 200 Connection Established, got: {}",
+        String::from_utf8_lossy(&head_buf[..head_n])
+    );
+
+    // Exchange a byte every 100ms for ~600ms — well past the 200ms idle window.
+    // Each exchange MUST keep the tunnel alive (idle timer reset on BOTH the
+    // client->upstream write and the upstream->client echo). With an overall
+    // cap the tunnel would die at ~200ms and the 4th-6th exchanges would fail.
+    let mut exchanged = 0usize;
+    for i in 0..6 {
+        sleep(Duration::from_millis(100)).await;
+        // Write a byte to the upstream (through the tunnel).
+        if client.write_all(&[b'A']).await.is_err() {
+            break;
+        }
+        // Read the echoed byte back. Use a generous outer bound: if the tunnel
+        // was killed by an overall cap, this read would return early (EOF/error)
+        // and we'd exchange fewer bytes than expected.
+        let mut echo = [0u8; 1];
+        let res = timeout(Duration::from_secs(2), client.read(&mut echo)).await;
+        match res {
+            Ok(Ok(n)) if n > 0 => exchanged += 1,
+            _ => break,
+        }
+        let _ = i; // suppress unused var
+    }
+
+    upstream.abort();
+    started_proxy.server_handle.shutdown().await;
+
+    // The tunnel must have survived long enough to complete MULTIPLE exchanges
+    // that span well beyond the 200ms idle window. If the relay used an overall
+    // cap it would have ended at ~200ms (1-2 exchanges at most). Require at
+    // least 3 to prove the idle-reset is actually resetting on activity.
+    assert!(
+        exchanged >= 3,
+        "active long-lived tunnel was killed by the idle timeout: only {exchanged} bytes exchanged across the 200ms idle window (need >= 3 to prove idle-reset)"
+    );
+}
+
