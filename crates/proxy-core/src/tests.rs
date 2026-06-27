@@ -1911,6 +1911,152 @@ async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
 }
 
 #[tokio::test]
+async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
+    // Upstream returns 403 with a body LARGER than the head-read leftover
+    // buffer (READ_BUFFER_BYTES = 8 KiB). The proxy must forward the FULL
+    // body to the client, not just the leftover bytes captured while reading
+    // the response head.
+    let body_size: usize = 12 * 1024; // 12 KiB > 8 KiB leftover cap
+    let body_bytes: Vec<u8> = (0..body_size).map(|i| (i % 251) as u8).collect();
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let body_for_upstream = body_bytes.clone();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // Write head and body in separate write_all calls so the head-reader's
+        // first 8 KiB read cannot capture the entire body — mirroring a real
+        // upstream that streams the body after the head.
+        let head = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: {}\r\n\r\n",
+            body_size
+        );
+        stream.write_all(head.as_bytes()).await.unwrap();
+        stream.write_all(&body_for_upstream).await.unwrap();
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Send the WS upgrade request directly (the shared helper only reads a
+    // 4 KiB response buffer, but this test asserts a > 8 KiB body is fully
+    // forwarded, so we read the full response ourselves).
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Read the full proxy response (head + body) in a loop until we have at
+    // least the declared body, then drain any trailing bytes.
+    let mut response_buf: Vec<u8> = Vec::with_capacity(body_size + 256);
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = match timeout(Duration::from_secs(3), client_stream.read(&mut chunk)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => panic!("client read error: {e}"),
+            Err(_) => break, // timeout — upstream done sending
+        };
+        response_buf.extend_from_slice(&chunk[..n]);
+        // Once the head + full body is captured we can stop; the proxy closes
+        // the connection after a non-101 response.
+        if let Some(body_start) = find_header_end(&response_buf) {
+            if response_buf.len() >= body_start + body_size {
+                break;
+            }
+        }
+    }
+    // The body is binary, so operate on the raw bytes — NOT a UTF-8 lossy
+    // string (which would mangle non-UTF-8 bytes and corrupt the comparison).
+    let response_bytes = &response_buf[..];
+
+    // Collect the first completed session (skip pending status=0).
+    let completed_session = timeout(Duration::from_secs(2), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed session");
+
+    // The proxy response should forward the upstream's 403 status.
+    let head_end = find_header_end(response_bytes)
+        .expect("response must contain a complete HTTP head");
+    let response_head = std::str::from_utf8(&response_bytes[..head_end]).unwrap();
+    assert!(
+        response_head.contains("403"),
+        "expected 403 response, got: {response_head}"
+    );
+
+    // Status should be 403, NOT 499 or 502.
+    assert_eq!(completed_session.summary.status_code, 403);
+
+    // The client must receive the FULL body — not just the leftover bytes
+    // captured while reading the response head. Extract the body region and
+    // compare it byte-for-byte against the expected body.
+    let received_body = &response_bytes[head_end..];
+    assert_eq!(
+        received_body.len(),
+        body_size,
+        "expected full {} byte body, got {} bytes (body truncated to leftover)",
+        body_size,
+        received_body.len()
+    );
+    assert_eq!(
+        received_body, &body_bytes[..],
+        "body content mismatch — full body must be forwarded, not just leftover"
+    );
+
+    // WS registry must NOT have this session (only 101 gets registered).
+    let registry = crate::ws::global_ws_registry();
+    assert_eq!(
+        registry.get_status(&completed_session.id),
+        crate::ws::WsConnectionStatus::Closed,
+        "non-101 session should not be in WS registry"
+    );
+
+    // No duplicate completed sessions.
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_non_101_full_body").await;
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
 async fn ws_upgrade_101_success_carries_rewrite_traces() {
     // Mock upstream that returns 101 Switching Protocols.
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();

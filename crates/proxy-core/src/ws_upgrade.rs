@@ -335,7 +335,37 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         // Build the non-101 response FIRST (before sending session).
         // If response construction fails, send a 502 error session instead
         // of leaving the pending session stuck or creating a duplicate.
-        let body_bytes = bytes::Bytes::copy_from_slice(leftover_bytes.as_slice());
+        //
+        // The leftover bytes captured while reading the response head are
+        // only a PREFIX of the body — the head-reader stops as soon as it
+        // sees the \r\n\r\n terminator, so any body bytes beyond what that
+        // single read returned are still on the upstream. Forward the FULL
+        // body: leftover as the prefix, then continue reading from upstream
+        // until Content-Length is satisfied (or EOF if no Content-Length).
+        let content_length = upstream_headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("content-length"))
+            .and_then(|(_, v)| v.parse::<usize>().ok());
+
+        let body_bytes =
+            match read_full_response_body(&mut upstream, leftover_bytes, content_length).await {
+                Ok(b) => b,
+                Err(e) => {
+                    let error = format!("failed to read upstream non-101 body: {e}");
+                    return Ok(send_ws_upstream_error_session(
+                        &request,
+                        ctx,
+                        &error,
+                        started_at,
+                        started_at_instant,
+                        map_traces,
+                        rewrite_traces,
+                        script_traces,
+                        throttle_traces,
+                    )
+                    .await);
+                }
+            };
         let mut builder = hyper::Response::builder()
             .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_GATEWAY))
             .header("Content-Length", body_bytes.len());
@@ -481,6 +511,56 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     });
 
     Ok(ws_response)
+}
+
+/// Read the full response body for a non-101 (refused WS upgrade) upstream
+/// response.
+///
+/// `leftover` is the body prefix captured while reading the response head
+/// (the head-reader stops once it sees the `\r\n\r\n` terminator, so any body
+/// bytes past that first read are still on the upstream). When
+/// `content_length` is known, read exactly `content_length` bytes total
+/// (leftover + remaining upstream bytes). When absent, read until EOF.
+///
+/// Returns the complete body as `Bytes`.
+async fn read_full_response_body(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    leftover: Vec<u8>,
+    content_length: Option<usize>,
+) -> Result<bytes::Bytes, String> {
+    let mut body = leftover;
+
+    // If we already have the full declared body in the leftover, return it.
+    if let Some(total) = content_length {
+        if body.len() >= total {
+            body.truncate(total);
+            return Ok(bytes::Bytes::from(body));
+        }
+    }
+
+    // Continue reading from the upstream until Content-Length is satisfied,
+    // or until EOF if there is no Content-Length.
+    let mut chunk = [0u8; READ_BUFFER_BYTES];
+    loop {
+        let target = match content_length {
+            Some(total) => std::cmp::min(chunk.len(), total.saturating_sub(body.len())),
+            None => chunk.len(),
+        };
+        if target == 0 {
+            break;
+        }
+
+        let n = upstream
+            .read(&mut chunk[..target])
+            .await
+            .map_err(|e| format!("read body: {e}"))?;
+        if n == 0 {
+            break; // EOF
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+
+    Ok(bytes::Bytes::from(body))
 }
 
 /// Parse an HTTP response head string into a status code and header list.
