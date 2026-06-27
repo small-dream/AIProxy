@@ -108,7 +108,23 @@ pub fn run() {
             .read_db_connection()
             .lock()
             .expect("db mutex should not be poisoned");
-        if aiproxy_db::workspaces::is_empty(&conn) {
+        // is_empty now propagates DB errors (M5). On error we conservatively
+        // skip seeding: writing a default row when the emptiness check itself
+        // failed could overwrite or duplicate existing data on a transient
+        // (e.g. busy/locked) DB. Log a structured warn and leave DB untouched.
+        let needs_seed = match aiproxy_db::workspaces::is_empty(&conn) {
+            Ok(empty) => empty,
+            Err(error) => {
+                tracing::warn!(
+                    component = "desktop.app",
+                    event = "workspace_is_empty_check_failed",
+                    error = %error,
+                    "failed to check workspaces; skipping default seed to avoid overwrite"
+                );
+                false
+            }
+        };
+        if needs_seed {
             let default_ws = app_state.read_workspace_manager().list();
             if let Some(ws) = default_ws.first() {
                 let row = aiproxy_db::workspaces::WorkspaceRow {

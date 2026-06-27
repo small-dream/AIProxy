@@ -134,14 +134,15 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbErr
 }
 
 /// Check if the workspaces table is empty (for seeding the default).
-pub fn is_empty(conn: &Connection) -> bool {
-    match load_all_workspaces(conn) {
-        Ok(workspaces) => workspaces.is_empty(),
-        Err(err) => {
-            eprintln!("[warn] failed to load workspaces for is_empty check: {err}");
-            true
-        }
-    }
+///
+/// Returns `Result<bool, DbError>` (M5): DB errors are propagated so callers
+/// can decide whether to seed. Previously this returned `true` on any error,
+/// which misled the desktop app into seeding a default workspace — and
+/// potentially overwriting existing data — when the underlying query failed
+/// transiently (e.g. a locked/busy DB). The caller must NOT seed on `Err`.
+pub fn is_empty(conn: &Connection) -> Result<bool, DbError> {
+    let workspaces = load_all_workspaces(conn)?;
+    Ok(workspaces.is_empty())
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
@@ -170,10 +171,35 @@ mod tests {
         conn
     }
 
+    // Regression for M5: is_empty must propagate DB errors (e.g. missing
+    // workspaces table) instead of masking them as an empty table. The old
+    // implementation returned `true` on Err, which misled the desktop app into
+    // seeding a default workspace and potentially overwriting existing data on
+    // a transient query failure.
+    #[test]
+    fn is_empty_propagates_db_error() {
+        // An in-memory connection WITHOUT the schema migrated: querying the
+        // workspaces table errors. is_empty must propagate Err, not return
+        // true (which would trigger an unwanted default seed).
+        let conn = Connection::open_in_memory().unwrap();
+        let result = is_empty(&conn);
+        assert!(
+            result.is_err(),
+            "is_empty must propagate DB errors, not mask as empty"
+        );
+
+        // Sanity: load_all_workspaces also errors on a missing table, which is
+        // the underlying cause is_empty must surface.
+        assert!(
+            load_all_workspaces(&conn).is_err(),
+            "load_all_workspaces must error when the workspaces table is missing"
+        );
+    }
+
     #[test]
     fn seed_default_and_load() {
         let conn = test_conn();
-        assert!(is_empty(&conn));
+        assert!(is_empty(&conn).expect("is_empty should succeed after migrations"));
 
         let ws = WorkspaceRow {
             id: "default".into(),
