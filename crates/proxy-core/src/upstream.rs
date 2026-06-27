@@ -258,12 +258,14 @@ pub(crate) async fn forward_request(
             })?;
 
         // Spawn the h1 connection driver and retain its JoinHandle. We must
-        // NOT discard the handle: when this request is dropped early (e.g. the
+        // Retain the driver JoinHandle in a guard so we can deterministically
+        // abort it if this request is dropped early (e.g. the
         // upstream_request_timeout wrapper in http_proxy.rs drops the
-        // forward_request future), the driver would otherwise keep running and
-        // hold the socket open until the peer FINs, slowly leaking file
-        // descriptors / tasks under high-frequency timeouts. The guard below
-        // aborts the driver on early drop; we `forget` it on the normal
+        // forward_request future). On the current hyper version the driver
+        // self-terminates when SendRequest is dropped (dispatch channel closes),
+        // so a leak is not reproducible today; the explicit abort is
+        // defense-in-depth so a future hyper change cannot reintroduce a hung
+        // driver holding the socket. The guard is `disarm`ed on the normal
         // completion path so a legitimate response is never interrupted.
         let conn_handle = tokio::spawn(async move {
             let _ = conn.await;
