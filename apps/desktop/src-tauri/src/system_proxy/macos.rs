@@ -243,14 +243,28 @@ fn set_proxy_state(service_name: &str, kind: ProxyKind, enabled: bool) -> Result
 }
 
 fn set_proxy_bypass_domains(service_name: &str, domains: &[impl AsRef<str>]) -> Result<(), String> {
+    let args = build_setproxybypassdomains_args(service_name, domains);
+    run_networksetup_with_owned_args("-setproxybypassdomains", args).map(|_| ())
+}
+
+/// Build the argv tail (excluding the `-setproxybypassdomains` command itself)
+/// for `networksetup -setproxybypassdomains <service> <domain1> [domain2 ...]`.
+///
+/// macOS `networksetup` uses the literal sentinel `Empty` (capital E) as
+/// `<domain1>` to CLEAR the bypass list — passing an empty string `""` does
+/// NOT clear it. This is the documented convention (see `man networksetup` and
+/// Apple/ss64 references) and is also what `networksetup -getproxybypassdomains`
+/// round-trips back as "There aren't any bypass domains set on ...". Restoring
+/// an empty captured list therefore MUST pass `Empty`, otherwise a stale bypass
+/// entry would survive the restore.
+fn build_setproxybypassdomains_args(service_name: &str, domains: &[impl AsRef<str>]) -> Vec<String> {
     let mut args = vec![service_name.to_string()];
     if domains.is_empty() {
         args.push("Empty".to_string());
     } else {
         args.extend(domains.iter().map(|domain| domain.as_ref().to_string()));
     }
-
-    run_networksetup_with_owned_args("-setproxybypassdomains", args).map(|_| ())
+    args
 }
 
 fn set_auto_proxy_discovery_state(service_name: &str, enabled: bool) -> Result<(), String> {
@@ -493,8 +507,9 @@ impl ProxyKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_auto_proxy_discovery_state, parse_auto_proxy_url_snapshot, parse_network_services,
-        parse_proxy_bypass_domains, parse_proxy_snapshot,
+        build_setproxybypassdomains_args, parse_auto_proxy_discovery_state,
+        parse_auto_proxy_url_snapshot, parse_network_services, parse_proxy_bypass_domains,
+        parse_proxy_snapshot,
     };
 
     #[test]
@@ -564,5 +579,30 @@ mod tests {
         let domains = parse_proxy_bypass_domains("localhost\n127.0.0.1\n::1\n");
 
         assert_eq!(domains, vec!["localhost", "127.0.0.1", "::1"]);
+    }
+
+    // `networksetup -setproxybypassdomains <service> Empty` is the documented
+    // macOS convention to CLEAR the bypass list. Restoring a captured empty
+    // list must therefore emit the `Empty` sentinel — NOT an empty string —
+    // otherwise stale bypass entries survive the restore.
+    #[test]
+    fn bypass_domains_args_use_empty_sentinel_for_empty_list() {
+        let args = build_setproxybypassdomains_args("Wi-Fi", &[] as &[&str]);
+        assert_eq!(args, vec!["Wi-Fi".to_string(), "Empty".to_string()]);
+    }
+
+    #[test]
+    fn bypass_domains_args_pass_through_non_empty_list() {
+        let domains = vec!["localhost", "127.0.0.1", "::1"];
+        let args = build_setproxybypassdomains_args("Wi-Fi", &domains);
+        assert_eq!(
+            args,
+            vec![
+                "Wi-Fi".to_string(),
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+                "::1".to_string(),
+            ]
+        );
     }
 }

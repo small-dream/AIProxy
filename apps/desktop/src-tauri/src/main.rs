@@ -274,10 +274,25 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build AIProxy desktop application");
 
-    app.run(|app_handle, event| {
-        if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-            cleanup_before_exit(app_handle);
+    app.run(|app_handle, event| match event {
+        // ExitRequested: the user asked to close the app but the process is not
+        // exiting yet and the window may still be on screen. Keep this arm LIGHT
+        // so the GUI does not freeze. We only persist the window geometry here
+        // (cheap, needs a live window). The expensive cleanup — proxy runtime
+        // shutdown and synchronous `networksetup` restore calls on macOS — runs
+        // in the `Exit` arm below, where the process is truly terminating.
+        RunEvent::ExitRequested { .. } => {
+            persist_window_geometry(app_handle);
         }
+        // Exit: the event loop is terminating. This is the right place for the
+        // heavy synchronous cleanup (proxy restore spawns `networksetup` several
+        // times on macOS; runtime shutdown blocks on async work). The window is
+        // already going away, so a brief blocking finalize here does not freeze
+        // a visible GUI.
+        RunEvent::Exit => {
+            run_heavy_shutdown_cleanup(app_handle);
+        }
+        _ => {}
     });
 }
 
@@ -285,13 +300,21 @@ fn main() {
     run();
 }
 
-fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
-    if SHUTDOWN_CLEANUP_STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
+/// Light, window-dependent work that must run while the main window still
+/// exists (before `Exit`). Called from `RunEvent::ExitRequested`.
+fn persist_window_geometry(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         persist_main_window_state(&window);
+    }
+}
+
+/// Heavy shutdown cleanup: proxy runtime teardown + system proxy restore.
+/// Runs once from `RunEvent::Exit` (process truly exiting). The
+/// `SHUTDOWN_CLEANUP_STARTED` guard makes it idempotent if `Exit` is reached
+/// through multiple paths.
+fn run_heavy_shutdown_cleanup(app_handle: &tauri::AppHandle) {
+    if SHUTDOWN_CLEANUP_STARTED.swap(true, Ordering::SeqCst) {
+        return;
     }
 
     let app_state = app_handle.state::<Arc<AppState>>();
