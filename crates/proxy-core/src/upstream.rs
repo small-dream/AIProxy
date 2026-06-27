@@ -1,6 +1,81 @@
 use super::*;
 use crate::MAX_CAPTURED_BODY_BYTES;
 
+// Test-only instrumentation that tracks how many h1 conn-driver tasks are
+// currently alive. The leak being fixed (H5) is an orphaned *task* (not just a
+// half-open socket): on a timed-out request the spawned driver used to keep
+// running until the peer FINs. Without observing task lifetime directly this
+// is invisible, so we expose a counter for the regression test below.
+#[cfg(test)]
+static H1_ACTIVE_CONN_DRIVERS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+static H1_CONN_DRIVER_NATURAL_COMPLETIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+static H1_CONN_DRIVER_ABORTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) fn h1_active_conn_drivers_for_test() -> usize {
+    H1_ACTIVE_CONN_DRIVERS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn h1_conn_driver_completion_breakdown_for_test() -> (usize, usize) {
+    (
+        H1_CONN_DRIVER_NATURAL_COMPLETIONS.load(std::sync::atomic::Ordering::SeqCst),
+        H1_CONN_DRIVER_ABORTS.load(std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
+/// RAII guard that aborts a spawned h1 connection-driver task on drop, unless
+/// explicitly disarmed on the success path.
+///
+/// The h1 conn driver (`hyper::client::conn::http1::Connection`) is spawned so
+/// it can drive the response body independently of the request future. If the
+/// request future is dropped early — most importantly when the
+/// `upstream_request_timeout` wrapper in `http_proxy.rs` elapses and drops the
+/// `forward_request` future — the driver must be aborted, otherwise it keeps
+/// the underlying TCP socket open (waiting on the peer) and leaks a task plus a
+/// file descriptor on every timed-out request.
+///
+/// `disarm()` must be called exactly once on the normal success path to let the
+/// driver run to completion; any other drop (error return, panic, timeout-drop)
+/// aborts the driver and releases the socket promptly.
+struct ConnDriverAbortOnDrop(Option<tokio::task::JoinHandle<()>>);
+
+impl ConnDriverAbortOnDrop {
+    /// Consume the guard without aborting, returning the handle for the caller
+    /// to optionally keep alive. On the success path we simply drop the handle:
+    /// the task becomes detached and runs to its natural completion.
+    fn disarm(mut self) -> Option<tokio::task::JoinHandle<()>> {
+        self.0.take()
+    }
+}
+
+impl Drop for ConnDriverAbortOnDrop {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            handle.abort();
+            // The aborted task body never runs to completion, so it will not
+            // decrement the active-driver counter itself — do it here to keep
+            // the test counter accurate on the leak path.
+            #[cfg(test)]
+            {
+                H1_ACTIVE_CONN_DRIVERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                H1_CONN_DRIVER_ABORTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            tracing::debug!(
+                event = "upstream_h1_conn_driver_aborted",
+                "aborted leaked h1 conn driver on early request drop"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Upstream request forwarding & response handling
 // ---------------------------------------------------------------------------
@@ -79,6 +154,11 @@ pub(crate) async fn forward_request(
         None => request.host.clone(),
     };
     http_req_builder = http_req_builder.header("host", &host_header);
+
+    // Holds the h1 conn-driver abort guard. The h2 pool branch always returns
+    // early below, so by the time we reach the shared send/read path this is
+    // initialized on the h1 path (and unused on h2).
+    let _conn_driver_guard: ConnDriverAbortOnDrop;
 
     let (mut sender, connection_timing) = if let Some(Some((mut h2_sender, timing))) = pool_result {
         // Pooled h2 path — reuse the cached connection.
@@ -177,9 +257,26 @@ pub(crate) async fn forward_request(
                 ProxyError::UpstreamError(format!("upstream HTTP handshake failed: {error}"))
             })?;
 
-        tokio::spawn(async move {
+        // Spawn the h1 connection driver and retain its JoinHandle. We must
+        // NOT discard the handle: when this request is dropped early (e.g. the
+        // upstream_request_timeout wrapper in http_proxy.rs drops the
+        // forward_request future), the driver would otherwise keep running and
+        // hold the socket open until the peer FINs, slowly leaking file
+        // descriptors / tasks under high-frequency timeouts. The guard below
+        // aborts the driver on early drop; we `forget` it on the normal
+        // completion path so a legitimate response is never interrupted.
+        let conn_handle = tokio::spawn(async move {
             let _ = conn.await;
+            #[cfg(test)]
+            {
+                H1_ACTIVE_CONN_DRIVERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                H1_CONN_DRIVER_NATURAL_COMPLETIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
         });
+        #[cfg(test)]
+        H1_ACTIVE_CONN_DRIVERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        _conn_driver_guard = ConnDriverAbortOnDrop(Some(conn_handle));
 
         (sender, connection_timing)
     };
@@ -222,7 +319,14 @@ pub(crate) async fn forward_request(
     })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-    build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await
+    let result = build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms)
+        .await;
+    // On the normal success path the response body has been fully read; let the
+    // conn driver complete naturally (do not abort it). Any error or an early
+    // drop of this future (e.g. upstream_request_timeout) skips this line, so
+    // the guard fires and aborts the driver, releasing the socket.
+    _conn_driver_guard.disarm();
+    result
 }
 
 /// Build an `UpstreamResponse` from a hyper response, reading the body and

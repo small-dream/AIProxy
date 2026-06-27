@@ -1339,6 +1339,123 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
     upstream_task.abort();
 }
 
+/// Regression test for H5: when an h1 upstream request times out, the per-
+/// request h1 conn-driver task must be aborted (it must not linger as an
+/// orphaned task holding the socket until the peer FINs). Under
+/// high-frequency timeouts each leaked driver costs a task + file descriptor,
+/// so we assert the active-driver count returns to zero after a timeout.
+///
+/// We observe task lifetime directly via `h1_active_conn_drivers_for_test()`
+/// (the leak is invisible from the upstream side because dropping the h1
+/// `SendRequest` already sends a write-side FIN; what lingers is the spawned
+/// driver task itself). Before the fix the spawned driver was detached and the
+/// count stayed at 1 indefinitely; after the fix the abort-on-drop guard
+/// decrements it back to 0.
+#[tokio::test]
+async fn h1_conn_driver_is_aborted_after_request_timeout() {
+    use crate::upstream::h1_active_conn_drivers_for_test;
+
+    let baseline = h1_active_conn_drivers_for_test();
+    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+
+    // Upstream: accept the proxied connection, read the request line, then hang
+    // without responding. Signal once the request line is read so the test can
+    // be sure the proxy has an established upstream connection before relying
+    // on the timeout firing.
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _peer) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        let _ = accepted_tx.send(());
+        // Hold the connection open; the proxy timeout drops forward_request.
+        // The driver is aborted, which drops the proxy-side socket, so the
+        // upstream observes EOF here (secondary behavioral check).
+        let mut sink = [0_u8; 64];
+        let _ = stream.read(&mut sink).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/slow");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Wait for the proxy to have an established upstream connection.
+    accepted_rx.await.unwrap();
+
+    // Drain the 504 response so the proxy finishes its timeout-handling path
+    // (the future drop that triggers the guard happens on timeout elapse).
+    let mut response = String::new();
+    let _ = client_stream.read_to_string(&mut response).await.unwrap();
+    assert!(
+        response.contains("504 Gateway Timeout"),
+        "expected a 504 response, got: {response}"
+    );
+
+    // The driver task must be gone by now. Give the runtime a short moment to
+    // run the drop bookkeeping, then assert the active-driver count is back to
+    // baseline. This guards against any future change (e.g. a hyper upgrade)
+    // that stops the conn future from completing on SendRequest drop — in that
+    // case a detached driver would linger and this assertion would go RED.
+    let settled = timeout(Duration::from_secs(2), async {
+        loop {
+            if h1_active_conn_drivers_for_test() == baseline {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(
+        settled.is_ok(),
+        "h1 conn driver lingered after a timed-out request: active driver count = {} \
+         (baseline {}), expected {}. Orphaned driver task leak (H5 regression).",
+        h1_active_conn_drivers_for_test(),
+        baseline,
+        baseline,
+    );
+
+    // Confirm the abort-on-drop path actually fired (proves the guard is wired
+    // in and providing its defense-in-depth guarantee).
+    let (_natural, aborts) = crate::upstream::h1_conn_driver_completion_breakdown_for_test();
+    assert!(
+        aborts >= 1,
+        "expected the h1 conn driver abort path to fire on timeout, but aborts={aborts}"
+    );
+
+    upstream_task.abort();
+    started_proxy.server_handle.shutdown().await;
+}
+
 #[tokio::test]
 async fn forwards_large_http_responses_without_truncating_the_client_body() {
     let large_body = vec![b'a'; MAX_CAPTURED_BODY_BYTES + 1024];
