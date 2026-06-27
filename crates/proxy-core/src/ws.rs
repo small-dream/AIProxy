@@ -800,13 +800,12 @@ mod tests {
 
     #[tokio::test]
     async fn parse_ws_frame_reserved_opcode_is_protocol_error() {
-        // FIN=1, RSV1=1 (no extension negotiated), opcode 0x01 → RSV bit set
-        // without an extension is a protocol violation (RFC 6455 §5.2).
-        // Note: parse_ws_frame currently does NOT validate RSV bits, so this
-        // uses a reserved *opcode* (0x03) which it does validate, to lock the
-        // distinguishable-protocol-error invariant. Bytes: [0x83, 0x00]
-        // (FIN=1, RSV1=1, opcode=3 reserved, len=0).
-        let bytes = vec![0b1100_0011u8, 0x00];
+        // FIN=1, RSV bits clear, reserved opcode 0x03 → exercises the
+        // opcode-3-7 branch in parse_ws_frame (RFC 6455 §5.2). RSV bits MUST be
+        // clear here so the RSV-bit check returns first; otherwise this test
+        // would exit on the RSV path and never reach the opcode-3-7 branch.
+        // Bytes: [0x83, 0x00] (FIN=1, opcode=3 reserved, len=0).
+        let bytes = vec![0b1000_0011u8, 0x00];
         let mut cursor = std::io::Cursor::new(bytes);
         let result = parse_ws_frame(&mut cursor).await;
         assert!(result.is_err(), "reserved opcode must error");
