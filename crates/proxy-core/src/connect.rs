@@ -216,11 +216,19 @@ async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
                         client_to_upstream_done = true;
                     }
                     Ok(n) => {
+                        // H4 I1: reset the idle deadline based on when the READ
+                        // completed, not when the WRITE finishes. A slow peer
+                        // (full TCP receive window / backpressure) must not be
+                        // able to consume the idle budget during the write for
+                        // data that has already arrived. Capturing this instant
+                        // BEFORE write_all keeps slow-write long-lived tunnels
+                        // alive — the core H4 guarantee.
+                        let read_completed_at = Instant::now();
                         if let Err(e) = upstream_write.write_all(&buf_client[..n]).await {
                             return RelayOutcome::Error(e);
                         }
                         client_to_upstream_bytes += n as u64;
-                        idle_deadline = Instant::now() + idle;
+                        idle_deadline = read_completed_at + idle;
                     }
                     Err(e) => return RelayOutcome::Error(e),
                 }
@@ -243,11 +251,15 @@ async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
                         upstream_to_client_done = true;
                     }
                     Ok(n) => {
+                        // H4 I1: same slow-write protection as the
+                        // client->upstream direction — anchor the deadline on
+                        // the read-completion instant, not post-write.
+                        let read_completed_at = Instant::now();
                         if let Err(e) = client_write.write_all(&buf_upstream[..n]).await {
                             return RelayOutcome::Error(e);
                         }
                         upstream_to_client_bytes += n as u64;
-                        idle_deadline = Instant::now() + idle;
+                        idle_deadline = read_completed_at + idle;
                     }
                     Err(e) => return RelayOutcome::Error(e),
                 }
