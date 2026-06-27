@@ -10,7 +10,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ApiCollection } from "@aiproxy/shared-types";
 
 import {
@@ -38,6 +38,15 @@ export function SaveToCollectionDialog({
   const tree = buildCollectionTree(collectionsQuery.data ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState(sessionName);
+
+  // The dialog stays mounted; the parent toggles `open`. useState initializes
+  // `name` once, so without this sync, opening the dialog for session B after
+  // cancelling session A would leave the input (and the saved name) stuck on
+  // A's value. Re-sync whenever the target session changes or the dialog is
+  // (re)opened, so the field always reflects the current session. (M11)
+  useEffect(() => {
+    setName(sessionName);
+  }, [sessionName, open]);
 
   const allCollections = flattenTree(tree);
 
