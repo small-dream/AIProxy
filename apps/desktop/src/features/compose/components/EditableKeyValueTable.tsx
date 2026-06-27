@@ -3,11 +3,34 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { Box, Button, IconButton, OutlinedInput, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
+import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 
 const EDITOR_GRID_TEMPLATE = "minmax(160px, 0.78fr) minmax(0, 1.72fr) 36px";
+
+// Each editable row carries a LOCAL-only id used purely as the React key.
+// Rows previously used `key={index}`, so deleting a middle row re-indexed the
+// list and React reused DOM nodes by position — the wrong row's input state
+// then bound to the shifted entries (focus jumps, values visually shuffle).
+//
+// The id never leaves this component: onChange still emits a plain
+// HeaderEntry[] (name/value only), so the shared HeaderEntry contract and any
+// downstream Tauri commands / stores are unchanged.
+type EditableRow = HeaderEntry & { id: string };
+
+function sameEntries(a: HeaderEntry[], b: HeaderEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((entry, i) => {
+    const other = b[i];
+    return other !== undefined && entry.name === other.name && entry.value === other.value;
+  });
+}
+
+function toHeaderEntries(rows: EditableRow[]): HeaderEntry[] {
+  return rows.map((row) => ({ name: row.name, value: row.value }));
+}
 
 export function EditableKeyValueTable({
   items,
@@ -22,24 +45,48 @@ export function EditableKeyValueTable({
 }) {
   const { t } = useI18n();
 
+  // Local rows mirror `items` but carry a stable per-row id. The id survives
+  // this component's own edits (add/update/remove) because we mutate `rows`
+  // directly; it is only regenerated when the parent pushes an externally
+  // different `items` (e.g. loading a saved session).
+  const [rows, setRows] = useState<EditableRow[]>(() =>
+    items.map((item) => ({ ...item, id: crypto.randomUUID() })),
+  );
+  const lastEmittedRef = useRef<HeaderEntry[]>(items);
+
+  // Re-sync ids when the parent provides a value we did not just emit (an
+  // external reset), so we never bind a stale id to foreign data.
+  useEffect(() => {
+    if (sameEntries(lastEmittedRef.current, items)) return;
+    lastEmittedRef.current = items;
+    setRows(items.map((item) => ({ ...item, id: crypto.randomUUID() })));
+  }, [items]);
+
+  function emit(next: EditableRow[]) {
+    // Strip the local id at the boundary so callers receive HeaderEntry[].
+    const stripped = toHeaderEntries(next);
+    lastEmittedRef.current = stripped;
+    setRows(next);
+    onChange(stripped);
+  }
+
   function handleUpdate(index: number, field: "name" | "value", newValue: string) {
-    const updated = [...items];
+    const updated = [...rows];
     const current = updated[index];
     if (!current) return;
-    if (field === "name") {
-      updated[index] = { name: newValue, value: current.value };
-    } else {
-      updated[index] = { name: current.name, value: newValue };
-    }
-    onChange(updated);
+    updated[index] =
+      field === "name"
+        ? { ...current, name: newValue }
+        : { ...current, value: newValue };
+    emit(updated);
   }
 
   function handleRemove(index: number) {
-    onChange(items.filter((_, i) => i !== index));
+    emit(rows.filter((_, i) => i !== index));
   }
 
   function handleAdd() {
-    onChange([...items, { name: "", value: "" }]);
+    emit([...rows, { id: crypto.randomUUID(), name: "", value: "" }]);
   }
 
   return (
@@ -86,9 +133,9 @@ export function EditableKeyValueTable({
               </Typography>
             ))}
           </Box>
-          {items.map((item, index) => (
+          {rows.map((row, index) => (
             <Box
-              key={index}
+              key={row.id}
               sx={{
                 alignItems: "center",
                 display: "grid",
@@ -109,7 +156,7 @@ export function EditableKeyValueTable({
                     py: 0.75,
                   },
                 }}
-                value={item.name}
+                value={row.name}
               />
               <OutlinedInput
                 onChange={(event) => handleUpdate(index, "value", event.target.value)}
@@ -123,7 +170,7 @@ export function EditableKeyValueTable({
                     py: 0.75,
                   },
                 }}
-                value={item.value}
+                value={row.value}
               />
               <Tooltip title={t("common.actions.remove")}>
                 <IconButton

@@ -34,7 +34,7 @@ import type {
   RuleMatch,
   SessionSummary,
 } from "@aiproxy/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -1016,36 +1016,6 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
   if (rule.rewriteType === "body") {
     const targetLabel = required(t("rulesPage.rewrite.bodyTarget"));
     const mode = rule.payload.mode ?? "replace";
-    const fields = rule.payload.fields ?? [];
-    const updateField = (index: number, patch: Partial<RewriteBodyFieldEdit>) => {
-      onChange({
-        ...rule,
-        payload: {
-          ...rule.payload,
-          fields: fields.map((field, fieldIndex) =>
-            fieldIndex === index ? { ...field, ...patch } : field,
-          ),
-        },
-      });
-    };
-    const addField = () => {
-      onChange({
-        ...rule,
-        payload: {
-          ...rule.payload,
-          fields: [...fields, { operation: "set", path: "", value: "", valueType: "string" }],
-        },
-      });
-    };
-    const removeField = (index: number) => {
-      onChange({
-        ...rule,
-        payload: {
-          ...rule.payload,
-          fields: fields.filter((_, fieldIndex) => fieldIndex !== index),
-        },
-      });
-    };
 
     return (
       <Stack spacing={1.5}>
@@ -1110,120 +1080,10 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
           />
         ) : (
-          <Stack spacing={1}>
-            {fields.length === 0 ? (
-              <Alert severity="info" variant="outlined" sx={{ py: 0.25 }}>
-                {t("rulesPage.rewrite.bodyFieldsEmpty")}
-              </Alert>
-            ) : (
-              fields.map((field, index) => {
-                const pathLabel = required(t("rulesPage.rewrite.bodyFieldPath"));
-                const operationLabel = required(t("rulesPage.rewrite.operation"));
-                const valueTypeLabel = required(t("rulesPage.rewrite.bodyValueType"));
-                const valueLabel = required(t("rulesPage.rewrite.bodyFieldValue"));
-                return (
-                  <Box
-                    key={index}
-                    sx={{
-                      display: "grid",
-                      gap: 1,
-                      gridTemplateColumns: {
-                        xs: "1fr",
-                        md: "minmax(160px, 1.1fr) 120px 120px minmax(180px, 1fr) auto",
-                      },
-                    }}
-                  >
-                    <TextField
-                      size="small"
-                      label={pathLabel}
-                      placeholder={t("rulesPage.rewrite.bodyFieldPathExample")}
-                      value={field.path}
-                      onChange={(e) => updateField(index, { path: e.target.value })}
-                      sx={{
-                        "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 },
-                      }}
-                    />
-                    <FormControl size="small">
-                      <InputLabel>{operationLabel}</InputLabel>
-                      <Select
-                        label={operationLabel}
-                        value={field.operation}
-                        onChange={(e) =>
-                          updateField(index, {
-                            operation: e.target.value as RewriteBodyFieldEdit["operation"],
-                          })
-                        }
-                      >
-                        <MenuItem value="set">{t("rulesPage.rewrite.operations.set")}</MenuItem>
-                        <MenuItem value="remove">
-                          {t("rulesPage.rewrite.operations.remove")}
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-                    <FormControl size="small" disabled={field.operation === "remove"}>
-                      <InputLabel>{valueTypeLabel}</InputLabel>
-                      <Select
-                        label={valueTypeLabel}
-                        value={field.valueType ?? "string"}
-                        onChange={(e) =>
-                          updateField(index, {
-                            valueType: e.target.value as NonNullable<
-                              RewriteBodyFieldEdit["valueType"]
-                            >,
-                          })
-                        }
-                      >
-                        <MenuItem value="string">
-                          {t("rulesPage.rewrite.bodyValueTypes.string")}
-                        </MenuItem>
-                        <MenuItem value="number">
-                          {t("rulesPage.rewrite.bodyValueTypes.number")}
-                        </MenuItem>
-                        <MenuItem value="boolean">
-                          {t("rulesPage.rewrite.bodyValueTypes.boolean")}
-                        </MenuItem>
-                        <MenuItem value="null">
-                          {t("rulesPage.rewrite.bodyValueTypes.null")}
-                        </MenuItem>
-                        <MenuItem value="json">
-                          {t("rulesPage.rewrite.bodyValueTypes.json")}
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-                    <TextField
-                      disabled={field.operation === "remove" || field.valueType === "null"}
-                      size="small"
-                      label={valueLabel}
-                      value={field.value ?? ""}
-                      onChange={(e) => updateField(index, { value: e.target.value })}
-                      sx={{
-                        "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 },
-                      }}
-                    />
-                    <Button
-                      color="error"
-                      onClick={() => removeField(index)}
-                      size="small"
-                      startIcon={<DeleteRoundedIcon />}
-                      variant="outlined"
-                      sx={{ minWidth: { xs: "100%", md: 44 }, px: { xs: 1.5, md: 1 } }}
-                    >
-                      {t("common.actions.remove")}
-                    </Button>
-                  </Box>
-                );
-              })
-            )}
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AddRoundedIcon />}
-              onClick={addField}
-              sx={{ alignSelf: "flex-start" }}
-            >
-              {t("rulesPage.rewrite.addBodyField")}
-            </Button>
-          </Stack>
+          <BodyFieldsEditor
+            fields={rule.payload.fields ?? []}
+            onChange={(fields) => onChange({ ...rule, payload: { ...rule.payload, fields } })}
+          />
         )}
       </Stack>
     );
@@ -1252,6 +1112,207 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
           onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preserveQuery: v } })}
         />
       </Stack>
+    </Stack>
+  );
+}
+
+// Each body-rewrite field row previously used `key={index}`, so deleting a
+// middle row re-indexed the list and React reused DOM nodes by position — the
+// wrong row's inputs then bound to the shifted fields (focus jumps, values
+// shuffle, "delete the wrong row"). This editor layers a LOCAL-only id on top
+// of the RewriteBodyFieldEdit[] for rendering, and strips it before emitting,
+// so the shared RewriteBodyFieldEdit contract and save_rewrite_rule payload
+// are unchanged.
+type BodyFieldRow = RewriteBodyFieldEdit & { id: string };
+
+function sameBodyFields(a: RewriteBodyFieldEdit[], b: RewriteBodyFieldEdit[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((field, i) => {
+    const other = b[i];
+    return (
+      other !== undefined &&
+      field.operation === other.operation &&
+      field.path === other.path &&
+      field.value === other.value &&
+      field.valueType === other.valueType
+    );
+  });
+}
+
+function toBodyFieldEdits(rows: BodyFieldRow[]): RewriteBodyFieldEdit[] {
+  return rows.map((row) => ({
+    operation: row.operation,
+    path: row.path,
+    ...(row.value === undefined ? {} : { value: row.value }),
+    ...(row.valueType === undefined ? {} : { valueType: row.valueType }),
+  }));
+}
+
+function BodyFieldsEditor({
+  fields,
+  onChange,
+}: {
+  fields: RewriteBodyFieldEdit[];
+  onChange: (fields: RewriteBodyFieldEdit[]) => void;
+}) {
+  const { t } = useI18n();
+  const required = (label: string) => formatRuleFieldLabel(label, "required", t);
+
+  // Local rows mirror `fields` but carry a stable per-row id. The id survives
+  // this editor's own edits; it is regenerated only on an external reset.
+  const [rows, setRows] = useState<BodyFieldRow[]>(() =>
+    fields.map((field) => ({ ...field, id: crypto.randomUUID() })),
+  );
+  const lastEmittedRef = useRef<RewriteBodyFieldEdit[]>(fields);
+
+  useEffect(() => {
+    if (sameBodyFields(lastEmittedRef.current, fields)) return;
+    lastEmittedRef.current = fields;
+    setRows(fields.map((field) => ({ ...field, id: crypto.randomUUID() })));
+  }, [fields]);
+
+  function emit(next: BodyFieldRow[]) {
+    // Strip the local id at the boundary so callers receive RewriteBodyFieldEdit[].
+    const stripped = toBodyFieldEdits(next);
+    lastEmittedRef.current = stripped;
+    setRows(next);
+    onChange(stripped);
+  }
+
+  const pathLabel = required(t("rulesPage.rewrite.bodyFieldPath"));
+  const operationLabel = required(t("rulesPage.rewrite.operation"));
+  const valueTypeLabel = required(t("rulesPage.rewrite.bodyValueType"));
+  const valueLabel = required(t("rulesPage.rewrite.bodyFieldValue"));
+
+  return (
+    <Stack spacing={1}>
+      {rows.length === 0 ? (
+        <Alert severity="info" variant="outlined" sx={{ py: 0.25 }}>
+          {t("rulesPage.rewrite.bodyFieldsEmpty")}
+        </Alert>
+      ) : (
+        rows.map((field, index) => (
+          <Box
+            key={field.id}
+            sx={{
+              display: "grid",
+              gap: 1,
+              gridTemplateColumns: {
+                xs: "1fr",
+                md: "minmax(160px, 1.1fr) 120px 120px minmax(180px, 1fr) auto",
+              },
+            }}
+          >
+            <TextField
+              size="small"
+              label={pathLabel}
+              placeholder={t("rulesPage.rewrite.bodyFieldPathExample")}
+              value={field.path}
+              onChange={(e) =>
+                emit(
+                  rows.map((row, rowIndex) =>
+                    rowIndex === index ? { ...row, path: e.target.value } : row,
+                  ),
+                )
+              }
+              sx={{
+                "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 },
+              }}
+            />
+            <FormControl size="small">
+              <InputLabel>{operationLabel}</InputLabel>
+              <Select
+                label={operationLabel}
+                value={field.operation}
+                onChange={(e) =>
+                  emit(
+                    rows.map((row, rowIndex) =>
+                      rowIndex === index
+                        ? {
+                            ...row,
+                            operation: e.target.value as RewriteBodyFieldEdit["operation"],
+                          }
+                        : row,
+                    ),
+                  )
+                }
+              >
+                <MenuItem value="set">{t("rulesPage.rewrite.operations.set")}</MenuItem>
+                <MenuItem value="remove">{t("rulesPage.rewrite.operations.remove")}</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" disabled={field.operation === "remove"}>
+              <InputLabel>{valueTypeLabel}</InputLabel>
+              <Select
+                label={valueTypeLabel}
+                value={field.valueType ?? "string"}
+                onChange={(e) =>
+                  emit(
+                    rows.map((row, rowIndex) =>
+                      rowIndex === index
+                        ? {
+                            ...row,
+                            valueType: e.target.value as NonNullable<
+                              RewriteBodyFieldEdit["valueType"]
+                            >,
+                          }
+                        : row,
+                    ),
+                  )
+                }
+              >
+                <MenuItem value="string">{t("rulesPage.rewrite.bodyValueTypes.string")}</MenuItem>
+                <MenuItem value="number">{t("rulesPage.rewrite.bodyValueTypes.number")}</MenuItem>
+                <MenuItem value="boolean">
+                  {t("rulesPage.rewrite.bodyValueTypes.boolean")}
+                </MenuItem>
+                <MenuItem value="null">{t("rulesPage.rewrite.bodyValueTypes.null")}</MenuItem>
+                <MenuItem value="json">{t("rulesPage.rewrite.bodyValueTypes.json")}</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              disabled={field.operation === "remove" || field.valueType === "null"}
+              size="small"
+              label={valueLabel}
+              value={field.value ?? ""}
+              onChange={(e) =>
+                emit(
+                  rows.map((row, rowIndex) =>
+                    rowIndex === index ? { ...row, value: e.target.value } : row,
+                  ),
+                )
+              }
+              sx={{
+                "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 },
+              }}
+            />
+            <Button
+              color="error"
+              onClick={() => emit(rows.filter((_, rowIndex) => rowIndex !== index))}
+              size="small"
+              startIcon={<DeleteRoundedIcon />}
+              variant="outlined"
+              sx={{ minWidth: { xs: "100%", md: 44 }, px: { xs: 1.5, md: 1 } }}
+            >
+              {t("common.actions.remove")}
+            </Button>
+          </Box>
+        ))
+      )}
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<AddRoundedIcon />}
+        onClick={() =>
+          emit([
+            ...rows,
+            { id: crypto.randomUUID(), operation: "set", path: "", value: "", valueType: "string" },
+          ])
+        }
+        sx={{ alignSelf: "flex-start" }}
+      >
+        {t("rulesPage.rewrite.addBodyField")}
+      </Button>
     </Stack>
   );
 }
