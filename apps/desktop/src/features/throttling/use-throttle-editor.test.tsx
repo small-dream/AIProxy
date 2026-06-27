@@ -156,4 +156,28 @@ describe("useThrottleEditor draft sync (H1/H2)", () => {
     expect(result.current.ruleDraft?.id).not.toBe(before);
     expect(result.current.ruleDraft?.name).toContain("copy");
   });
+
+  it("handleNewProfile selects the new empty profile draft and is not immediately overwritten", () => {
+    // Start with no server profiles so the auto-select effect can't fight the
+    // new draft; this isolates the handleNewProfile action under test.
+    profilesState.current = [];
+
+    const { result } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => result.current.handleNewProfile());
+
+    // Selection moved to the freshly-minted draft id, and the draft is that
+    // new empty profile — not a previously-selected server profile.
+    expect(result.current.selectedProfileId).toBe(result.current.profileDraft?.id);
+    expect(result.current.profileDraft?.name).toBe("");
+    expect(result.current.profileDraft?.preset).toBe(false);
+    expect(result.current.profileDraft?.enabled).toBe(false);
+
+    // The new empty draft survives — lastSyncedProfileIdRef was set to the new
+    // id (mirroring handleNewRule), so the profile-sync effect early-returns
+    // and does not clobber the in-flight empty draft.
+    expect(result.current.profileDraft?.id).toBe(result.current.selectedProfileId);
+  });
 });

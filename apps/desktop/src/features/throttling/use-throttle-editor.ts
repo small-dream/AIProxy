@@ -268,6 +268,9 @@ export function useThrottleEditor() {
     const draft = createEmptyThrottleProfile();
     setMode("profiles");
     setSelectedProfileId(draft.id);
+    // Pre-mark as synced so the id-based profile-sync effect doesn't overwrite
+    // the fresh empty draft we are about to set. Mirrors handleNewRule (H1/H2).
+    lastSyncedProfileIdRef.current = draft.id;
     setProfileDraft(draft);
     setValidationAttempted(false);
   }
