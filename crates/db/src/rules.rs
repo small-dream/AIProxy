@@ -1197,10 +1197,18 @@ pub fn load_script_run_entries(
 }
 
 pub fn clear_script_runs(conn: &Connection) -> Result<(), DbError> {
-    conn.execute("DELETE FROM script_run_entries", [])
+    // Wrap both DELETEs in one transaction: script_run_entries is the child of
+    // script_runs (FK ON DELETE CASCADE). Without a tx, a second-step failure
+    // would leave orphaned runs whose entries were already committed-deleted.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| DbError::query("begin clear script runs transaction", e))?;
+    tx.execute("DELETE FROM script_run_entries", [])
         .map_err(|e| DbError::query("clear script run entries", e))?;
-    conn.execute("DELETE FROM script_runs", [])
+    tx.execute("DELETE FROM script_runs", [])
         .map_err(|e| DbError::query("clear script runs", e))?;
+    tx.commit()
+        .map_err(|e| DbError::query("commit clear script runs transaction", e))?;
     Ok(())
 }
 
@@ -1751,5 +1759,108 @@ mod tests {
         assert_eq!(loaded_runs[0].outcome, "success");
         assert_eq!(loaded_entries.len(), 1);
         assert_eq!(loaded_entries[0].message.as_deref(), Some("hello"));
+    }
+
+    // Regression for M6: clear_script_runs must wipe BOTH tables and leave no
+    // orphan runs / entries. The two DELETEs are wrapped in one transaction so
+    // a second-step failure cannot leave "runs with no entries".
+    #[test]
+    fn clear_script_runs_removes_runs_and_entries_atomically() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url, response_mime_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                "session-1",
+                "GET",
+                "example.com",
+                "/api",
+                "https",
+                "2026-04-20T00:00:00Z",
+                "2026-04-20T00:00:01Z",
+                1,
+                0,
+                200,
+                "https://example.com/api",
+                "application/json",
+            ],
+        )
+        .unwrap();
+
+        save_script_rule(
+            &conn,
+            &ScriptRuleRow {
+                id: "rule-1".into(),
+                workspace_id: "default".into(),
+                name: "Trace Rule".into(),
+                note: None,
+                enabled: true,
+                priority: 10,
+                match_methods: "[]".into(),
+                match_stage: "either".into(),
+                match_url_pattern: "*".into(),
+                match_type: "contains".into(),
+                language: "javascript".into(),
+                source_type: "inline".into(),
+                source_code: "export function onRequest(ctx) {}".into(),
+                source_path: None,
+                entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
+                compiled_code:
+                    "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}"
+                        .into(),
+                source_map: None,
+                updated_at: "2026-04-20T00:00:00Z".into(),
+            },
+        )
+        .unwrap();
+
+        let runs = vec![ScriptRunRow {
+            id: "run-1".into(),
+            session_id: "session-1".into(),
+            rule_id: "rule-1".into(),
+            workspace_id: "default".into(),
+            stage: "request".into(),
+            outcome: "success".into(),
+            duration_ms: 12,
+            created_at: "2026-04-20T00:00:01Z".into(),
+        }];
+        let entries = vec![ScriptRunEntryRow {
+            id: "entry-1".into(),
+            run_id: "run-1".into(),
+            kind: "log".into(),
+            level: Some("info".into()),
+            key: None,
+            message: Some("hello".into()),
+            payload_json: Some(r#"{"ok":true}"#.into()),
+            seq: 0,
+        }];
+
+        replace_script_runs_for_session(&conn, "session-1", &runs, &entries).unwrap();
+        // sanity: setup actually inserted rows
+        assert_eq!(
+            load_script_runs_for_session(&conn, "session-1").unwrap().len(),
+            1
+        );
+
+        clear_script_runs(&conn).unwrap();
+
+        // Both tables must be empty: no leftover runs, no orphan entries.
+        let runs_left = conn
+            .query_row("SELECT COUNT(*) FROM script_runs", [], |row| row.get::<_, i64>(0))
+            .unwrap();
+        let entries_left = conn
+            .query_row(
+                "SELECT COUNT(*) FROM script_run_entries",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(runs_left, 0, "script_runs should be empty after clear");
+        assert_eq!(
+            entries_left, 0,
+            "script_run_entries should be empty after clear"
+        );
     }
 }
