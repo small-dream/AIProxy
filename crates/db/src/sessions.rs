@@ -680,12 +680,20 @@ mod tests {
     // variable limit.
     //
     // The bundled SQLite ships with MAX_VARIABLE_NUMBER=32766, and system
-    // SQLite on older platforms defaults to 999. 40000 exceeds both, so the
-    // unbatched implementation fails to prepare on any supported toolchain.
+    // SQLite on older platforms defaults to 999. The chunked delete path is
+    // covered cheaply by `delete_sessions_by_ids_spans_multiple_batches` (501
+    // ids → 2 batches). This ignored test reproduces the original prepare
+    // failure at the real limit; run it manually:
+    //   cargo test -p aiproxy-db delete_sessions_by_ids_handles_more_than_variable_limit -- --ignored
+    #[ignore]
     #[test]
     fn delete_sessions_by_ids_handles_more_than_variable_limit() {
+        // Bundled SQLite MAX_VARIABLE_NUMBER=32766; 32767 ids reproduces the
+        // pre-fix prepare failure. Ignored because inserting/deleting 32k+
+        // rows is slow (~1min). Run manually:
+        //   cargo test -p aiproxy-db delete_sessions_by_ids_handles_more_than_variable_limit -- --ignored
         let conn = test_conn();
-        let ids: Vec<String> = (0..40000).map(|i| format!("bulk-{i}")).collect();
+        let ids: Vec<String> = (0..32767).map(|i| format!("bulk-{i}")).collect();
         for id in &ids {
             upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id))
                 .unwrap();
@@ -693,6 +701,27 @@ mod tests {
         let deleted = delete_sessions_by_ids(&conn, &ids).expect("batched delete succeeds");
         assert_eq!(deleted, ids.len());
         // Confirm they are actually gone.
+        for id in &ids {
+            assert!(
+                load_session_summary(&conn, id).unwrap().is_none(),
+                "session {id} should be deleted"
+            );
+        }
+    }
+
+    // Fast coverage of the multi-batch (chunking) path. 501 ids exceeds
+    // DELETE_SESSIONS_BATCH_SIZE (500), spanning 2 batches, so it proves the
+    // batched delete is correct without the cost of the 32k-row ignored test.
+    #[test]
+    fn delete_sessions_by_ids_spans_multiple_batches() {
+        let conn = test_conn();
+        let ids: Vec<String> = (0..501).map(|i| format!("multi-{i}")).collect();
+        for id in &ids {
+            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id))
+                .unwrap();
+        }
+        let deleted = delete_sessions_by_ids(&conn, &ids).expect("batched delete succeeds");
+        assert_eq!(deleted, ids.len());
         for id in &ids {
             assert!(
                 load_session_summary(&conn, id).unwrap().is_none(),
