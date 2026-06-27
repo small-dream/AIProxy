@@ -59,6 +59,11 @@ fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
     headers.remove("content-md5");
     headers.remove("digest");
     headers.remove("etag");
+    // NOTE (L1): content-length is intentionally NOT removed here.
+    // `build_hyper_response_from_upstream` (http_proxy.rs) drops any pre-existing
+    // content-length and lets hyper recompute it from the `Full<Bytes>` body, so
+    // a stale value is harmless on the wire (display-only mismatch, tracked as
+    // L20 / handled in breakpoints.rs:681). No change needed.
 }
 
 fn header_entry_value(headers: &[ProxyHeaderEntry], name: &str) -> Option<String> {

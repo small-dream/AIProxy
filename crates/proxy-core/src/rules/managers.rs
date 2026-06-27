@@ -231,6 +231,25 @@ impl ThrottleManager {
         rules.retain(|r| r.id != rule_id);
     }
 
+    /// Test helper: build a minimal `ThrottleTrace` for the given stage.
+    #[cfg(test)]
+    fn trace_for_stage(&self, stage: &str, delay_ms: u64) -> ThrottleTrace {
+        ThrottleTrace {
+            body_bytes: 0,
+            delay_ms,
+            latency_ms: 0,
+            message: None,
+            outcome: "delayed".to_string(),
+            profile_id: "p".to_string(),
+            profile_name: "P".to_string(),
+            rule_id: Some("r".to_string()),
+            rule_name: Some("R".to_string()),
+            sequence: 0,
+            stage: stage.to_string(),
+            transfer_delay_ms: 0,
+        }
+    }
+
     pub fn set_active_profile(&self, workspace_id: &str, profile_id: Option<&str>) {
         let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
         for profile in profiles.iter_mut() {
@@ -249,8 +268,11 @@ impl ThrottleManager {
 
     pub(crate) fn record_trace(&self, trace: &ThrottleTrace) {
         let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
+        // Every throttle hit (request or response stage) counts as one matched
+        // request so response-stage rules surface in the stats (L3). Delay and
+        // dropped counters remain stage-specific.
+        stats.matched_requests = stats.matched_requests.saturating_add(1);
         if trace.stage == "request" {
-            stats.matched_requests = stats.matched_requests.saturating_add(1);
             stats.request_delay_ms = stats.request_delay_ms.saturating_add(trace.delay_ms);
             if trace.outcome == "dropped" {
                 stats.dropped_requests = stats.dropped_requests.saturating_add(1);
@@ -323,5 +345,60 @@ impl DnsManager {
     pub fn delete_rule(&self, rule_id: &str) {
         let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         rules.retain(|r| r.id != rule_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // L3-1: request-stage hit increments matched_requests and request_delay_ms
+    #[test]
+    fn record_trace_request_stage_counts_matched() {
+        let manager = ThrottleManager::new();
+        let trace = manager.trace_for_stage("request", 50);
+        manager.record_trace(&trace);
+        let stats = manager.runtime_stats();
+        assert_eq!(stats.matched_requests, 1);
+        assert_eq!(stats.request_delay_ms, 50);
+        assert_eq!(stats.response_delay_ms, 0);
+    }
+
+    // L3-2: response-stage hit also increments matched_requests (L3 fix) and
+    // accumulates response_delay_ms.
+    #[test]
+    fn record_trace_response_stage_counts_matched() {
+        let manager = ThrottleManager::new();
+        let trace = manager.trace_for_stage("response", 80);
+        manager.record_trace(&trace);
+        let stats = manager.runtime_stats();
+        assert_eq!(stats.matched_requests, 1);
+        assert_eq!(stats.response_delay_ms, 80);
+        assert_eq!(stats.request_delay_ms, 0);
+    }
+
+    // L3-3: mixed request+response hits count each as a matched request.
+    #[test]
+    fn record_trace_mixed_stages_counts_all_matched() {
+        let manager = ThrottleManager::new();
+        manager.record_trace(&manager.trace_for_stage("request", 10));
+        manager.record_trace(&manager.trace_for_stage("response", 20));
+        manager.record_trace(&manager.trace_for_stage("response", 30));
+        let stats = manager.runtime_stats();
+        assert_eq!(stats.matched_requests, 3);
+        assert_eq!(stats.request_delay_ms, 10);
+        assert_eq!(stats.response_delay_ms, 50);
+    }
+
+    // L3-4: request-stage "dropped" outcome increments dropped_requests.
+    #[test]
+    fn record_trace_request_dropped_counts_dropped() {
+        let manager = ThrottleManager::new();
+        let mut trace = manager.trace_for_stage("request", 0);
+        trace.outcome = "dropped".to_string();
+        manager.record_trace(&trace);
+        let stats = manager.runtime_stats();
+        assert_eq!(stats.matched_requests, 1);
+        assert_eq!(stats.dropped_requests, 1);
     }
 }

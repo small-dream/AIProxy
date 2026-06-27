@@ -448,6 +448,38 @@ pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -
     std::str::from_utf8(body).is_ok()
 }
 
+/// Decode a raw DEFLATE stream (RFC 1951, no zlib wrapper). Feeds the whole
+/// input and grows the output until the stream terminates or stalls.
+fn raw_deflate_decode(input: &[u8]) -> Option<Vec<u8>> {
+    let mut decompress = Decompress::new(false);
+    let mut out: Vec<u8> = Vec::with_capacity(input.len().saturating_mul(4));
+    let chunk = 8 * 1024;
+    loop {
+        let before_in = decompress.total_in() as usize;
+        let before_out = decompress.total_out() as usize;
+        // decompress_vec appends to `out` using its spare capacity.
+        out.reserve(chunk);
+        let status = decompress
+            .decompress_vec(input, &mut out, flate2::FlushDecompress::None)
+            .ok()?;
+        let consumed_in = decompress.total_in() as usize - before_in;
+        let produced_out = decompress.total_out() as usize - before_out;
+
+        match status {
+            flate2::Status::StreamEnd => return Some(out),
+            // No forward progress: either input exhausted (done) or corrupt.
+            _ if consumed_in == 0 && produced_out == 0 => {
+                return if decompress.total_in() as usize >= input.len() {
+                    Some(out)
+                } else {
+                    None
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
 pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> Option<Vec<u8>> {
     let encodings: Vec<String> = content_encoding?
         .split(',')
@@ -469,10 +501,17 @@ pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> 
                 output
             }
             "deflate" => {
-                let mut decoder = ZlibDecoder::new(Cursor::new(decoded));
+                // Some servers send raw deflate (RFC 1951) even though the
+                // "deflate" Content-Encoding is nominally zlib-wrapped
+                // (RFC 1950). Try zlib first, then fall back to raw deflate.
                 let mut output = Vec::new();
-                decoder.read_to_end(&mut output).ok()?;
-                output
+                let mut zlib_decoder = ZlibDecoder::new(Cursor::new(&decoded));
+                if zlib_decoder.read_to_end(&mut output).is_ok() {
+                    output
+                } else {
+                    // Raw deflate (no zlib header) via flate2's Decompress.
+                    raw_deflate_decode(&decoded)?
+                }
             }
             "br" => {
                 let mut decoder = Decompressor::new(Cursor::new(decoded), BROTLI_BUFFER_SIZE);
@@ -728,5 +767,56 @@ mod tests {
             let result = resolve_target_url(&path, &[]);
             prop_assert!(result.is_err());
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // L2: decode_body_bytes — deflate
+    // -----------------------------------------------------------------------
+
+    fn encode_zlib(plain: &[u8]) -> Vec<u8> {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn encode_raw_deflate(plain: &[u8]) -> Vec<u8> {
+        use flate2::write::DeflateEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    // L2-1: zlib-wrapped deflate (standard servers) still decodes
+    #[test]
+    fn decode_body_bytes_deflate_zlib_wrapped() {
+        let plain = b"{\"hello\":\"deflate\"}";
+        let encoded = encode_zlib(plain);
+        let decoded = decode_body_bytes(&encoded, Some("deflate"));
+        assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
+    }
+
+    // L2-2: raw deflate (no zlib header) decodes via fallback (L2)
+    #[test]
+    fn decode_body_bytes_deflate_raw_fallback() {
+        let plain = b"raw-deflate-body-from-some-servers";
+        let encoded = encode_raw_deflate(plain);
+        // Sanity: raw deflate must NOT begin with a zlib header (0x78).
+        assert_ne!(encoded.first().copied(), Some(0x78));
+        let decoded = decode_body_bytes(&encoded, Some("deflate"));
+        assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
+    }
+
+    // L2-3: mixed-case / whitespace encoding string still routes to deflate arm
+    #[test]
+    fn decode_body_bytes_deflate_case_insensitive() {
+        let plain = b"case-insensitive";
+        let encoded = encode_raw_deflate(plain);
+        let decoded = decode_body_bytes(&encoded, Some("  DeFLATE "));
+        assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
     }
 }

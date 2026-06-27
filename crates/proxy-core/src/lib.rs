@@ -2,6 +2,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use brotli::Decompressor;
 use chrono::{DateTime, Utc};
 use flate2::read::{GzDecoder, ZlibDecoder};
+use flate2::Decompress;
 use http::header::{
     CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING,
 };
