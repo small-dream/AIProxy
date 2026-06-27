@@ -84,6 +84,17 @@ impl BodyStore {
     }
 
     fn checked_resolve_body_path(&self, relative_path: &str) -> Result<PathBuf, DbError> {
+        // Reject any backslash so resolution behaves identically on every
+        // platform. On Windows `Path::components` already treats `\` as a
+        // separator (catching `..\` traversal), but on Unix `\` is a normal
+        // filename character, so a value like `sess-1\..\..\etc` would
+        // otherwise be accepted as a single (odd) filename.
+        if relative_path.contains('\\') {
+            return Err(DbError::Validation(format!(
+                "invalid body path: {relative_path}"
+            )));
+        }
+
         let path = Path::new(relative_path);
         if path
             .components()
@@ -208,5 +219,29 @@ mod tests {
         assert!(!store.exists("../../etc/passwd"));
         assert!(store.write_body("../bad", "request", b"x").is_err());
         assert!(store.write_body("..", "request", b"x").is_err());
+    }
+
+    // L7: a `relative_path` containing a backslash must be rejected on every
+    // platform. On Unix `\` is a normal filename char, so `sess-1\..\..\etc`
+    // would otherwise be treated as a single (weird) filename rather than
+    // flagged — diverging from Windows where `Path::components` splits on `\`.
+    #[test]
+    fn rejects_backslash_in_body_path() {
+        let dir = std::env::temp_dir().join("aiproxy_body_test_backslash");
+        let store = BodyStore::new(dir);
+
+        // Pure backslash traversal attempt.
+        assert!(store.read_body("sess-1\\..\\..\\etc").is_err());
+        // A single filename that merely contains a backslash is also rejected
+        // for cross-platform consistency.
+        assert!(store.read_body("sess-1\\request.body").is_err());
+        assert!(!store.exists("sess-1\\request.body"));
+        // `resolve_body_path` must fall back to the invalid sentinel rather
+        // than resolving under the base dir.
+        let resolved = store.resolve_body_path("sess-1\\..\\..\\etc");
+        assert!(
+            !resolved.starts_with(&store.base_dir) || resolved == store.base_dir.join("__invalid_body_path__"),
+            "backslash path should not resolve under base dir, got {resolved:?}"
+        );
     }
 }
