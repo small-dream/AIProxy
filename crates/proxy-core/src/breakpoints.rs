@@ -339,6 +339,16 @@ impl BreakpointManager {
         rx
     }
 
+    /// Remove a pending breakpoint entry without sending a resolution.
+    /// Used by the wait path when the sender is dropped or the wait times out,
+    /// so the pending map does not leak stale entries.
+    pub(crate) fn remove_pending(&self, session_id: &str) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
+    }
+
     /// Resolve a pending breakpoint by sending the user's decision.
     pub fn resolve(
         &self,
@@ -376,6 +386,17 @@ impl BreakpointManager {
             };
             let _ = entry.sender.send(forward_resolution);
         }
+    }
+
+    /// Returns whether a pending entry exists for the given session id.
+    /// Test-only helper used to assert the pending map is cleaned on timeout
+    /// or dropped-sender paths.
+    #[cfg(test)]
+    pub(crate) fn pending_contains(&self, session_id: &str) -> bool {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(session_id)
     }
 
     /// Cancel pending breakpoints that were triggered by specific rule IDs.
@@ -531,19 +552,32 @@ pub(crate) async fn intercept_request_stage(
     );
     emit_breakpoint_event(event_emitter, &hit);
 
-    match receiver.await {
-        Ok(resolution) => {
+    match tokio::time::timeout(crate::breakpoint_wait_timeout(), receiver).await {
+        Ok(Ok(resolution)) => {
             apply_request_resolution(&resolution, request);
             Ok(Some(resolution))
         }
-        Err(_) => {
-            // The oneshot sender was dropped without sending — this should no
-            // longer happen because cancel_all() sends a Forward resolution.
-            // If it does, treat it as a graceful forward (no modifications).
+        Ok(Err(_gone)) => {
+            // The oneshot sender was dropped without sending (e.g. the frontend
+            // disconnected or the breakpoint-hit emitter failed to deliver).
+            // Remove the stale pending entry so the map does not grow unbounded.
+            bp.remove_pending(&session_id);
             tracing::warn!(
                 event = "breakpoint_request_sender_dropped",
                 session_id = %session_id,
                 "breakpoint_request_sender_dropped"
+            );
+            Ok(None)
+        }
+        Err(_elapsed) => {
+            // No resolution arrived within the wait window. Remove the stale
+            // pending entry and forward without modification so the proxy task
+            // does not hang forever holding an upstream connection.
+            bp.remove_pending(&session_id);
+            tracing::warn!(
+                event = "breakpoint_request_wait_timeout",
+                session_id = %session_id,
+                "breakpoint_request_wait_timeout"
             );
             Ok(None)
         }
@@ -588,16 +622,23 @@ pub(crate) async fn intercept_response_stage(
     );
     emit_breakpoint_event(event_emitter, &hit);
 
-    match receiver.await {
-        Ok(resolution) => Ok(Some(resolution)),
-        Err(_) => {
-            // The oneshot sender was dropped without sending — this should no
-            // longer happen because cancel_all() sends a Forward resolution.
-            // If it does, treat it as a graceful forward (no modifications).
+    match tokio::time::timeout(crate::breakpoint_wait_timeout(), receiver).await {
+        Ok(Ok(resolution)) => Ok(Some(resolution)),
+        Ok(Err(_gone)) => {
+            bp.remove_pending(&session_id);
             tracing::warn!(
                 event = "breakpoint_response_sender_dropped",
                 session_id = %session_id,
                 "breakpoint_response_sender_dropped"
+            );
+            Ok(None)
+        }
+        Err(_elapsed) => {
+            bp.remove_pending(&session_id);
+            tracing::warn!(
+                event = "breakpoint_response_wait_timeout",
+                session_id = %session_id,
+                "breakpoint_response_wait_timeout"
             );
             Ok(None)
         }
@@ -701,6 +742,33 @@ mod tests {
             methods: vec![],
             stage: BreakpointStage::Request,
             match_type: None,
+        }
+    }
+
+    /// Helper to build a minimal ParsedProxyRequest for the request stage.
+    fn make_request(session_id: &str) -> ParsedProxyRequest {
+        let parsed_url = Url::parse("http://example.com/test").unwrap();
+        let request_headers = vec![ProxyHeaderEntry {
+            name: "Host".to_string(),
+            value: "example.com".to_string(),
+            is_pseudo: None,
+        }];
+        ParsedProxyRequest {
+            body: Vec::new(),
+            client_address: Some("127.0.0.1:54321".to_string()),
+            headers: build_upstream_headers_from_entries(&request_headers)
+                .unwrap_or_else(|_| HeaderMap::new()),
+            host: "example.com".to_string(),
+            method: Method::GET,
+            path: build_request_path(&parsed_url),
+            protocol: "http".to_string(),
+            query_params: build_query_params(&parsed_url),
+            raw_request: "GET /test HTTP/1.1\r\nHost: example.com\r\n\r\n".to_string(),
+            request_headers,
+            request_id: session_id.to_string(),
+            url: parsed_url,
+            tls_cipher_suite: None,
+            tls_protocol: None,
         }
     }
 
@@ -916,5 +984,73 @@ mod tests {
 
         assert!(!manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/123",));
         assert!(manager.should_break(&BreakpointStage::Request, "GET", "http://example.com/abc",));
+    }
+
+    /// When no resolver ever responds, the request-stage wait must time out
+    /// (not hang forever) and remove the stale pending entry. The wait must
+    /// also return None so the request forwards unmodified.
+    #[tokio::test]
+    async fn request_stage_breakpoint_wait_times_out_and_cleans_pending() {
+        let _guard =
+            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
+        let manager = Arc::new(BreakpointManager::new());
+        manager.set_rules(vec![make_rule("rule-a", true)]);
+
+        let mut request = make_request("sess-timeout");
+        // No emitter and no resolver: the wait must time out within the guard.
+        let result = intercept_request_stage(&Some(manager.clone()), &None, &mut request)
+            .await
+            .expect("intercept should not error on timeout");
+
+        assert!(result.is_none(), "timeout must forward without modification");
+        assert!(
+            !manager.pending_contains("sess-timeout"),
+            "pending entry must be removed after timeout"
+        );
+    }
+
+    /// When the oneshot sender is dropped (simulating a frontend disconnect /
+    /// emitter failure) after the wait starts, the request-stage path must
+    /// detect the dropped sender and clean the pending entry.
+    #[tokio::test]
+    async fn request_stage_breakpoint_sender_drop_cleans_pending() {
+        // Use a long timeout so the dropped-sender path (not the timeout path)
+        // is what resolves this test.
+        let _guard =
+            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_secs(30));
+        let manager = Arc::new(BreakpointManager::new());
+        manager.set_rules(vec![make_rule("rule-a", true)]);
+
+        // Spawn the interceptor; it will register its own pending entry and
+        // wait on the receiver.
+        let manager_clone = manager.clone();
+        let handle = tokio::spawn(async move {
+            let mut request = make_request("sess-drop");
+            intercept_request_stage(&Some(manager_clone), &None, &mut request).await
+        });
+
+        // Give the interceptor a moment to register its pending entry, then
+        // simulate the dropped-sender path (emitter failed / sender dropped)
+        // by removing the pending entry without sending a resolution. Removing
+        // drops the sender held inside the entry, so the receiver returns Err.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            manager.pending_contains("sess-drop"),
+            "pending entry should exist while interceptor is waiting"
+        );
+        manager.remove_pending("sess-drop");
+
+        let result = handle
+            .await
+            .expect("task should finish")
+            .expect("intercept should not error on dropped sender");
+        assert!(
+            result.is_none(),
+            "dropped sender must forward without modification"
+        );
+        assert!(
+            !manager.pending_contains("sess-drop"),
+            "pending entry must be removed after dropped sender"
+        );
     }
 }

@@ -38,6 +38,12 @@ const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(test)]
 static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// Long enough for real debugging sessions, short enough to avoid leaking a
+// pending entry + upstream connection forever if the frontend disconnects or
+// the breakpoint-hit emitter (fire-and-forget) fails to deliver.
+const BREAKPOINT_WAIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+#[cfg(test)]
+static TEST_BREAKPOINT_WAIT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
@@ -119,8 +125,30 @@ pub(crate) struct TestTimeoutGuard;
 #[cfg(test)]
 impl Drop for TestTimeoutGuard {
     fn drop(&mut self) {
+        // Reset both override slots: a single guard may be returned by either
+        // override_*_for_test call, so clear both to avoid leaking state across
+        // tests regardless of which override produced the guard.
         TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(0, Ordering::SeqCst);
+        TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(0, Ordering::SeqCst);
     }
+}
+
+pub(crate) fn breakpoint_wait_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_BREAKPOINT_WAIT_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    BREAKPOINT_WAIT_TIMEOUT
+}
+
+#[cfg(test)]
+pub(crate) fn override_breakpoint_wait_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard
 }
 
 #[cfg(test)]
