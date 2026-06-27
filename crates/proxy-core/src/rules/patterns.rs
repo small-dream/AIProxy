@@ -66,11 +66,13 @@ pub(crate) fn wildcard_matches(normalized: &str, candidate: &str) -> bool {
         return true;
     }
 
-    if let Some(last) = parts.last() {
-        return candidate.ends_with(last);
-    }
-
-    true
+    // No trailing '*': the last part must end exactly at the candidate's end.
+    // After the loop, search_start points just past the last matched part, so
+    // it equals candidate.len() only when that part consumed the candidate to
+    // its end. The previous `candidate.ends_with(last)` check was insufficient
+    // — it let a part match anywhere as long as the candidate ended with it,
+    // so "_" wrongly matched "__" (any string ending in the part).
+    search_start == candidate.len()
 }
 
 pub(crate) fn contains_matches(normalized: &str, candidate: &str) -> bool {
