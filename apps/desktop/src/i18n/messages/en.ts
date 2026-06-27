@@ -510,6 +510,7 @@ export const enMessages = {
       emptyDescription:
         "Create a script rule to customize request and response handling with JavaScript or TypeScript.",
       importFile: "Import File",
+      importFailed: "Failed to import script file: {{message}}",
       importedFrom: "Imported from: {{path}}",
       language: "Language",
       searchPlaceholder: "Search script rules",

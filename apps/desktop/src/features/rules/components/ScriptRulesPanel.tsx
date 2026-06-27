@@ -36,6 +36,7 @@ import {
 } from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
 import { readScriptSourceFile } from "@/services/commands";
+import { useNotificationStore } from "@/services/notification.store";
 import { fontFamilies } from "@/themes/fonts";
 
 const HEADER_TEMPLATE = `export function onRequest(ctx) {
@@ -154,8 +155,11 @@ export function ScriptRulesPanel() {
         sourcePath: imported.path,
         sourceType: "fileImport",
       }));
-    } catch {
-      // Error handled by command layer.
+    } catch (error) {
+      // The command layer logs the failure, but the user also needs a visible
+      // signal — otherwise a bad file pick silently leaves the editor empty.
+      const message = coerceAppError(error).message;
+      useNotificationStore.getState().push(t("rulesPage.script.importFailed", { message }));
     }
   }
 

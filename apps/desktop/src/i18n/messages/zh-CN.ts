@@ -492,6 +492,7 @@ export const zhCNMessages: Messages = {
       createRule: "新建脚本规则",
       emptyDescription: "使用 JavaScript 或 TypeScript 编写脚本规则，自定义请求与响应处理逻辑。",
       importFile: "导入文件",
+      importFailed: "导入脚本文件失败：{{message}}",
       importedFrom: "导入来源：{{path}}",
       language: "语言",
       searchPlaceholder: "搜索脚本规则",
