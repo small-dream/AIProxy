@@ -2022,3 +2022,127 @@ fn build_test_request(url: &str) -> ParsedProxyRequest {
         tls_protocol: None,
     }
 }
+
+// ---------------------------------------------------------------------------
+// CONNECT blind-tunnel regression tests (SSL interception OFF)
+//
+// When `tls_manager` is `None`, a CONNECT request is served by the blind TCP
+// relay (`tunnel_blind_relay`) — no MITM, no decryption. These tests lock in
+// M4: the proxy must connect the upstream FIRST and reply 502 on failure,
+// rather than unconditionally sending a fake 200 before connecting.
+// ---------------------------------------------------------------------------
+
+/// Helper: send a raw CONNECT request through the proxy and return the first
+/// HTTP response head line the client receives (e.g. "HTTP/1.1 502 Bad Gateway").
+async fn send_connect_request_read_status_line(proxy_port: u16, target_port: u16) -> String {
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "CONNECT 127.0.0.1:{target_port} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{target_port}\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Read the proxy's response head.
+    let mut response_buf = [0u8; 4096];
+    let n = timeout(
+        Duration::from_secs(3),
+        client_stream.read(&mut response_buf),
+    )
+    .await
+    .expect("timed out reading proxy response to CONNECT")
+    .unwrap();
+    let text = String::from_utf8_lossy(&response_buf[..n]).to_string();
+    text.lines().next().unwrap_or("").to_string()
+}
+
+#[tokio::test]
+async fn blind_tunnel_returns_502_when_upstream_unreachable() {
+    // A port nobody is listening on (allocate_unused_port opens then closes,
+    // so the port is free but nobody accepts — connect will be refused).
+    let dead_port = allocate_unused_port();
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        // tls: None -> CONNECT goes through the blind relay (no MITM).
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let status_line =
+        send_connect_request_read_status_line(proxy_port, dead_port).await;
+
+    // The proxy must connect the upstream FIRST and reply 502 Bad Gateway on
+    // failure, NOT a fake 200 Connection Established.
+    assert!(
+        status_line.starts_with("HTTP/1.1 502"),
+        "expected 502 on upstream connect failure, got: {status_line}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn blind_tunnel_returns_200_when_upstream_accepts() {
+    // Positive control: with a live upstream, the blind relay must still
+    // send 200 Connection Established before relaying.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        // Accept the proxied connection so TcpStream::connect succeeds.
+        let _ = upstream_listener.accept().await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let status_line =
+        send_connect_request_read_status_line(proxy_port, upstream_port).await;
+
+    assert!(
+        status_line.starts_with("HTTP/1.1 200"),
+        "expected 200 Connection Established for live upstream, got: {status_line}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}

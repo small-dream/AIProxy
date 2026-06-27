@@ -14,12 +14,10 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
 ) -> Result<(), String> {
-    // Send 200 Connection Established
-    client_stream
-        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        .await
-        .map_err(map_io_error)?;
-
+    // Resolve DNS override FIRST (must happen before connecting upstream),
+    // then connect the upstream BEFORE telling the client the tunnel is up.
+    // If the upstream is unreachable we reply 502 Bad Gateway so the client
+    // gets real feedback instead of a fake 200 followed by a dead tunnel (M4).
     let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
         Some(ip) => {
             tracing::info!(
@@ -32,9 +30,29 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
         }
         None => host.to_string(),
     };
-    let mut upstream = TcpStream::connect((&*connect_host, port))
+    let mut upstream = match TcpStream::connect((&*connect_host, port)).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                event = "connect_tunnel_upstream_failed",
+                host = %host,
+                port = port,
+                error = %e,
+                "connect_tunnel_upstream_failed"
+            );
+            let message = format!("failed to connect to upstream {host}:{port}: {e}");
+            write_plain_text_response(&mut client_stream, StatusCode::BAD_GATEWAY, &message)
+                .await
+                .ok();
+            return Err(message);
+        }
+    };
+
+    // Upstream connected — now the tunnel is real. Tell the client.
+    client_stream
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         .await
-        .map_err(|e| format!("failed to connect to upstream {host}:{port}: {e}"))?;
+        .map_err(map_io_error)?;
 
     // Bidirectional relay honoring TCP half-close.
     //
