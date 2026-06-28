@@ -64,6 +64,15 @@ static TEST_BREAKPOINT_WAIT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const WS_CLOSE_GRACE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 static TEST_WS_CLOSE_GRACE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// WebSocket upgrade non-101 body: per-read idle ceiling. A non-101 refusal on
+// an HTTP/1.1 keep-alive connection with no Content-Length would otherwise
+// block on upstream.read() forever — the peer keeps the connection open and
+// never sends EOF. Each read is bounded so the client always receives the
+// (possibly partial) refusal body instead of hanging indefinitely. See
+// `ws_upgrade::read_full_response_body`.
+const WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+static TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
@@ -169,6 +178,21 @@ pub(crate) fn ws_close_grace_timeout() -> Duration {
     WS_CLOSE_GRACE_TIMEOUT
 }
 
+/// WebSocket upgrade non-101 body: per-read idle ceiling. Bounds each read of
+/// a refused upstream response body so a keep-alive peer without a
+/// Content-Length cannot block the proxy forever.
+pub(crate) fn ws_upstream_body_read_idle_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT
+}
+
 #[cfg(test)]
 pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
@@ -227,6 +251,16 @@ pub(crate) fn override_ws_close_grace_timeout_for_test(timeout: Duration) -> Tes
     TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
     TestTimeoutGuard {
         slot: &TEST_WS_CLOSE_GRACE_TIMEOUT_MS,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn override_ws_upstream_body_read_idle_timeout_for_test(
+    timeout: Duration,
+) -> TestTimeoutGuard {
+    TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: &TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS,
     }
 }
 

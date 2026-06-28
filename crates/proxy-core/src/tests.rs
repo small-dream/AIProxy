@@ -6,11 +6,12 @@ use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
     override_tunnel_idle_timeout_for_test, override_upstream_request_timeout_for_test,
-    resolve_target_url, send_direct_request, start_proxy_server, BreakpointActionKind,
-    BreakpointResolution, MapManager, MapRule, ParsedProxyRequest, ProxyBodyReference, ProxyConfig,
-    ProxyHeaderEntry, ProxyManagers, ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary,
-    ProxyTimingBreakdown, RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer,
-    ThrottleManager, ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
+    override_ws_upstream_body_read_idle_timeout_for_test, resolve_target_url, send_direct_request,
+    start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
+    ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
+    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
+    RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
+    ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
 use http::header::{HeaderMap, HeaderValue};
 use http::{Method, StatusCode};
@@ -2014,8 +2015,8 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
     .expect("timed out waiting for completed session");
 
     // The proxy response should forward the upstream's 403 status.
-    let head_end = find_header_end(response_bytes)
-        .expect("response must contain a complete HTTP head");
+    let head_end =
+        find_header_end(response_bytes).expect("response must contain a complete HTTP head");
     let response_head = std::str::from_utf8(&response_bytes[..head_end]).unwrap();
     assert!(
         response_head.contains("403"),
@@ -2037,7 +2038,8 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
         received_body.len()
     );
     assert_eq!(
-        received_body, &body_bytes[..],
+        received_body,
+        &body_bytes[..],
         "body content mismatch — full body must be forwarded, not just leftover"
     );
 
@@ -2051,6 +2053,241 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
 
     // No duplicate completed sessions.
     assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_non_101_full_body").await;
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
+    // Regression: a non-101 refusal on an HTTP/1.1 keep-alive connection with
+    // NO Content-Length must not block forever. The old read-until-EOF loop
+    // waited for EOF that a keep-alive peer never sends, so the client never
+    // received the refusal and the session was never emitted. The proxy now
+    // bounds each body read with an idle timeout and returns the refusal body.
+    // Shrink the idle ceiling so a regression fails fast instead of waiting
+    // the full default 10s.
+    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // No Content-Length, no Connection: close. Crucially, keep the socket
+        // OPEN (keep-alive) so the proxy never sees EOF — this is exactly what
+        // hung the old loop.
+        stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nForbidden")
+            .await
+            .unwrap();
+        // Hold the connection open past the test window.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        drop(stream);
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    // Outer guard: a hung proxy must fail the test instead of hanging CI.
+    let response_buf = timeout(Duration::from_secs(10), async {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match timeout(Duration::from_secs(2), client_stream.read(&mut chunk)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
+                Ok(Err(e)) => panic!("client read error: {e}"),
+                Err(_) => break, // idle — proxy done sending
+            }
+        }
+        buf
+    })
+    .await
+    .expect("proxy hung: client never received the non-101 refusal in time");
+
+    let head_end =
+        find_header_end(&response_buf).expect("response must contain a complete HTTP head");
+    let response_head = std::str::from_utf8(&response_buf[..head_end]).unwrap();
+    assert!(
+        response_head.contains("403"),
+        "expected 403 response, got: {response_head}"
+    );
+    // The refusal body must be forwarded even though EOF never arrived.
+    assert_eq!(
+        &response_buf[head_end..],
+        b"Forbidden",
+        "expected 'Forbidden' body forwarded without EOF"
+    );
+
+    // The session must complete (a hung proxy would leave it pending forever).
+    let completed_session = timeout(Duration::from_secs(3), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed session");
+    assert_eq!(completed_session.summary.status_code, 403);
+
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_no_cl").await;
+
+    started_proxy.server_handle.shutdown().await;
+    // Don't wait for the 30s keep-alive hold to finish.
+    upstream_task.abort();
+}
+
+#[tokio::test]
+async fn ws_upgrade_non_101_chunked_body_decoded() {
+    // Regression: a non-101 refusal using Transfer-Encoding: chunked must be
+    // DECODED before forwarding — the client should receive the plain body,
+    // not the raw chunk framing ("e\r\n" size prefix, "0\r\n\r\n" terminator).
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let expected_body = "Forbidden page"; // 14 bytes = 0xe
+    let expected_body_len = expected_body.len();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        let resp = format!(
+            "HTTP/1.1 403 Forbidden\r\nTransfer-Encoding: chunked\r\n\r\n\
+             e\r\n{expected_body}\r\n\
+             0\r\n\r\n"
+        );
+        stream.write_all(resp.as_bytes()).await.unwrap();
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let response_buf = timeout(Duration::from_secs(10), async {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match timeout(Duration::from_secs(2), client_stream.read(&mut chunk)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
+                Ok(Err(e)) => panic!("client read error: {e}"),
+                Err(_) => break, // idle — proxy done sending
+            }
+            if let Some(body_start) = find_header_end(&buf) {
+                if buf.len() >= body_start + expected_body_len {
+                    break;
+                }
+            }
+        }
+        buf
+    })
+    .await
+    .expect("proxy did not forward the chunked refusal in time");
+
+    let head_end =
+        find_header_end(&response_buf).expect("response must contain a complete HTTP head");
+    let response_head = std::str::from_utf8(&response_buf[..head_end]).unwrap();
+    assert!(
+        response_head.contains("403"),
+        "expected 403 response, got: {response_head}"
+    );
+    // The proxy rewrites framing to Content-Length (strips Transfer-Encoding).
+    assert!(
+        response_head
+            .to_ascii_lowercase()
+            .contains("content-length"),
+        "expected Content-Length in proxied head, got: {response_head}"
+    );
+    assert_eq!(
+        &response_buf[head_end..],
+        expected_body.as_bytes(),
+        "chunked body must be DECODED — raw chunk framing leaked: {:?}",
+        String::from_utf8_lossy(&response_buf[head_end..])
+    );
+
+    let completed_session = timeout(Duration::from_secs(3), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed session");
+    assert_eq!(completed_session.summary.status_code, 403);
+
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_chunked").await;
 
     started_proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();
@@ -2350,8 +2587,7 @@ async fn blind_tunnel_returns_502_when_upstream_unreachable() {
     .await
     .unwrap();
 
-    let status_line =
-        send_connect_request_read_status_line(proxy_port, dead_port).await;
+    let status_line = send_connect_request_read_status_line(proxy_port, dead_port).await;
 
     // The proxy must connect the upstream FIRST and reply 502 Bad Gateway on
     // failure, NOT a fake 200 Connection Established.
@@ -2398,8 +2634,7 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
     .await
     .unwrap();
 
-    let status_line =
-        send_connect_request_read_status_line(proxy_port, upstream_port).await;
+    let status_line = send_connect_request_read_status_line(proxy_port, upstream_port).await;
 
     assert!(
         status_line.starts_with("HTTP/1.1 200"),
@@ -2419,8 +2654,7 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
 
 #[tokio::test]
 async fn direct_request_times_out_on_hanging_upstream() {
-    let _timeout_guard =
-        override_upstream_request_timeout_for_test(Duration::from_millis(200));
+    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(200));
 
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -2771,10 +3005,13 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
 
     // Read the 101 response from the proxy.
     let mut response_buf = [0u8; 4096];
-    let _n = timeout(Duration::from_secs(3), client_stream.read(&mut response_buf))
-        .await
-        .expect("timed out reading proxy 101 response")
-        .unwrap();
+    let _n = timeout(
+        Duration::from_secs(3),
+        client_stream.read(&mut response_buf),
+    )
+    .await
+    .expect("timed out reading proxy 101 response")
+    .unwrap();
 
     // Capture the WS session id from the first completed (status!=0) session.
     let completed_session = timeout(Duration::from_secs(2), async {
@@ -2808,4 +3045,3 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
         "ws relay must terminate after Close even without peer closeback (within grace window)"
     );
 }
-

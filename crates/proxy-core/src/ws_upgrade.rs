@@ -9,6 +9,37 @@ use http_body_util::BodyExt;
 
 type ProxyResponse = hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
 
+/// How the body of a non-101 (refused WS upgrade) upstream response is
+/// delimited, per RFC 7230 §3.3.3.
+enum BodyFraming {
+    /// Explicit Content-Length: read exactly N bytes.
+    ContentLength(usize),
+    /// Transfer-Encoding: chunked — decode frames until the 0-size terminator.
+    Chunked,
+    /// No length hint — read until the peer closes (or the idle timeout fires).
+    ReadUntilClose,
+}
+
+/// Determine the body framing of an upstream response from its headers.
+/// chunked takes precedence over Content-Length (RFC 7230 §3.3.3); absence of
+/// both means read-until-close.
+fn parse_response_body_framing(headers: &[(String, String)]) -> BodyFraming {
+    let is_chunked = headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("transfer-encoding") && value.eq_ignore_ascii_case("chunked")
+    });
+    if is_chunked {
+        return BodyFraming::Chunked;
+    }
+    if let Some(total) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+    {
+        return BodyFraming::ContentLength(total);
+    }
+    BodyFraming::ReadUntilClose
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket upgrade handler
 // ---------------------------------------------------------------------------
@@ -342,30 +373,27 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         // single read returned are still on the upstream. Forward the FULL
         // body: leftover as the prefix, then continue reading from upstream
         // until Content-Length is satisfied (or EOF if no Content-Length).
-        let content_length = upstream_headers
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case("content-length"))
-            .and_then(|(_, v)| v.parse::<usize>().ok());
+        let framing = parse_response_body_framing(&upstream_headers);
 
-        let body_bytes =
-            match read_full_response_body(&mut upstream, leftover_bytes, content_length).await {
-                Ok(b) => b,
-                Err(e) => {
-                    let error = format!("failed to read upstream non-101 body: {e}");
-                    return Ok(send_ws_upstream_error_session(
-                        &request,
-                        ctx,
-                        &error,
-                        started_at,
-                        started_at_instant,
-                        map_traces,
-                        rewrite_traces,
-                        script_traces,
-                        throttle_traces,
-                    )
-                    .await);
-                }
-            };
+        let body_bytes = match read_full_response_body(&mut upstream, leftover_bytes, framing).await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                let error = format!("failed to read upstream non-101 body: {e}");
+                return Ok(send_ws_upstream_error_session(
+                    &request,
+                    ctx,
+                    &error,
+                    started_at,
+                    started_at_instant,
+                    map_traces,
+                    rewrite_traces,
+                    script_traces,
+                    throttle_traces,
+                )
+                .await);
+            }
+        };
         let mut builder = hyper::Response::builder()
             .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_GATEWAY))
             .header("Content-Length", body_bytes.len());
@@ -518,49 +546,200 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 ///
 /// `leftover` is the body prefix captured while reading the response head
 /// (the head-reader stops once it sees the `\r\n\r\n` terminator, so any body
-/// bytes past that first read are still on the upstream). When
-/// `content_length` is known, read exactly `content_length` bytes total
-/// (leftover + remaining upstream bytes). When absent, read until EOF.
+/// bytes past that first read are still on the upstream). The body is
+/// delimited per `framing` (Content-Length / chunked / read-until-close).
 ///
-/// Returns the complete body as `Bytes`.
+/// All three framings are bounded by a per-read idle timeout
+/// (`crate::ws_upstream_body_read_idle_timeout()`) and a byte ceiling
+/// (`MAX_CAPTURED_BODY_BYTES`). The idle timeout is essential for the
+/// read-until-close case on an HTTP/1.1 keep-alive connection: without it a
+/// peer that keeps the connection open (e.g. a 403 error page with no
+/// Content-Length) would block `upstream.read()` forever and the client would
+/// never receive the refusal. On idle timeout or byte ceiling the body
+/// collected so far is returned, preserving the upstream refusal status.
 async fn read_full_response_body(
     upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
     leftover: Vec<u8>,
-    content_length: Option<usize>,
+    framing: BodyFraming,
 ) -> Result<bytes::Bytes, String> {
-    let mut body = leftover;
-
-    // If we already have the full declared body in the leftover, return it.
-    if let Some(total) = content_length {
-        if body.len() >= total {
-            body.truncate(total);
-            return Ok(bytes::Bytes::from(body));
+    match framing {
+        BodyFraming::ContentLength(total) => {
+            read_length_delimited_body(upstream, leftover, total).await
         }
+        BodyFraming::Chunked => read_chunked_body(upstream, leftover).await,
+        BodyFraming::ReadUntilClose => read_until_close_body(upstream, leftover).await,
+    }
+}
+
+/// Read exactly `total` bytes (Content-Length delimited). Each read is bounded
+/// by the idle timeout and `total` is capped at `MAX_CAPTURED_BODY_BYTES` to
+/// avoid unbounded memory on an absurd/malicious Content-Length.
+async fn read_length_delimited_body(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    mut body: Vec<u8>,
+    total: usize,
+) -> Result<bytes::Bytes, String> {
+    let total = total.min(MAX_CAPTURED_BODY_BYTES);
+    if body.len() >= total {
+        body.truncate(total);
+        return Ok(bytes::Bytes::from(body));
     }
 
-    // Continue reading from the upstream until Content-Length is satisfied,
-    // or until EOF if there is no Content-Length.
     let mut chunk = [0u8; READ_BUFFER_BYTES];
-    loop {
-        let target = match content_length {
-            Some(total) => std::cmp::min(chunk.len(), total.saturating_sub(body.len())),
-            None => chunk.len(),
+    while body.len() < total {
+        let target = std::cmp::min(chunk.len(), total - body.len());
+        let n = match timeout(
+            crate::ws_upstream_body_read_idle_timeout(),
+            upstream.read(&mut chunk[..target]),
+        )
+        .await
+        {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(format!("read body: {e}")),
+            Err(_) => break, // idle timeout — return what we have so far
         };
-        if target == 0 {
-            break;
-        }
-
-        let n = upstream
-            .read(&mut chunk[..target])
-            .await
-            .map_err(|e| format!("read body: {e}"))?;
         if n == 0 {
             break; // EOF
         }
         body.extend_from_slice(&chunk[..n]);
     }
+    Ok(bytes::Bytes::from(body))
+}
+
+/// Read until the peer closes the connection (no length hint). Each read is
+/// bounded by the idle timeout, which prevents indefinite blocking on an
+/// HTTP/1.1 keep-alive peer that never sends EOF. The byte ceiling guards
+/// against an unbounded body.
+async fn read_until_close_body(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    mut body: Vec<u8>,
+) -> Result<bytes::Bytes, String> {
+    let mut chunk = [0u8; READ_BUFFER_BYTES];
+    loop {
+        if body.len() >= MAX_CAPTURED_BODY_BYTES {
+            body.truncate(MAX_CAPTURED_BODY_BYTES);
+            break;
+        }
+        let n = match timeout(
+            crate::ws_upstream_body_read_idle_timeout(),
+            upstream.read(&mut chunk),
+        )
+        .await
+        {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(format!("read body: {e}")),
+            Err(_) => break, // idle timeout — treat as end of body
+        };
+        if n == 0 {
+            break; // EOF
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    Ok(bytes::Bytes::from(body))
+}
+
+/// Decode a chunked (Transfer-Encoding: chunked) response body into a flat
+/// buffer with chunk framing stripped. Reads are bounded by the idle timeout
+/// and the total decoded size is capped at `MAX_CAPTURED_BODY_BYTES`.
+/// `leftover` may already contain part of the first chunk.
+async fn read_chunked_body(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    leftover: Vec<u8>,
+) -> Result<bytes::Bytes, String> {
+    let mut buf = leftover;
+    let mut pos = 0usize; // consumed offset within `buf`
+    let mut body = Vec::new();
+
+    loop {
+        // Read the chunk-size line (hex size, optional ";ext", \r\n-terminated).
+        let line_end = loop {
+            if let Some(rel) = find_crlf(&buf[pos..]) {
+                break pos + rel;
+            }
+            if !refill_stream(upstream, &mut buf, &mut pos).await? {
+                return Err("chunked body ended before size line".into());
+            }
+        };
+
+        let size_str = std::str::from_utf8(&buf[pos..line_end])
+            .map_err(|_| "chunk size line is not utf-8".to_string())?;
+        // Ignore chunk extensions (";key=value"); clamp absurd sizes to the
+        // body ceiling and saturate the +2 ("\r\n") to avoid overflow.
+        let size_hex = size_str.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_hex, 16)
+            .map_err(|_| format!("invalid chunk size: {size_hex:?}"))?
+            .min(MAX_CAPTURED_BODY_BYTES);
+        pos = line_end + 2; // consume the size line + \r\n
+
+        if size == 0 {
+            break; // last-chunk terminator
+        }
+
+        // Buffer the full chunk data + trailing \r\n before copying it out.
+        ensure_bytes(upstream, &mut buf, &mut pos, size.saturating_add(2)).await?;
+
+        let remaining = MAX_CAPTURED_BODY_BYTES.saturating_sub(body.len());
+        let to_take = std::cmp::min(size, remaining);
+        body.extend_from_slice(&buf[pos..pos + to_take]);
+        pos += size + 2; // consume data + \r\n
+
+        if body.len() >= MAX_CAPTURED_BODY_BYTES {
+            body.truncate(MAX_CAPTURED_BODY_BYTES);
+            break;
+        }
+    }
 
     Ok(bytes::Bytes::from(body))
+}
+
+/// Drop consumed bytes before `*pos`, then read more from the upstream with an
+/// idle timeout. Returns `false` on EOF (no more data available).
+async fn refill_stream(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    buf: &mut Vec<u8>,
+    pos: &mut usize,
+) -> Result<bool, String> {
+    if *pos > 0 {
+        buf.drain(..*pos);
+        *pos = 0;
+    }
+    let mut tmp = [0u8; READ_BUFFER_BYTES];
+    let n = match timeout(
+        crate::ws_upstream_body_read_idle_timeout(),
+        upstream.read(&mut tmp),
+    )
+    .await
+    {
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => return Err(format!("read chunked body: {e}")),
+        Err(_) => return Err("chunked body read timed out".to_string()),
+    };
+    if n == 0 {
+        return Ok(false); // EOF
+    }
+    buf.extend_from_slice(&tmp[..n]);
+    Ok(true)
+}
+
+/// Ensure `buf[pos..]` contains at least `need` bytes, refilling from the
+/// upstream (with idle timeout) as necessary.
+async fn ensure_bytes(
+    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    buf: &mut Vec<u8>,
+    pos: &mut usize,
+    need: usize,
+) -> Result<(), String> {
+    while buf.len() - *pos < need {
+        if !refill_stream(upstream, buf, pos).await? {
+            return Err("chunked body ended unexpectedly (EOF)".into());
+        }
+    }
+    Ok(())
+}
+
+/// Return the byte index of the first `\r\n` in `slice`, if present.
+fn find_crlf(slice: &[u8]) -> Option<usize> {
+    slice.windows(2).position(|window| window == b"\r\n")
 }
 
 /// Parse an HTTP response head string into a status code and header list.
