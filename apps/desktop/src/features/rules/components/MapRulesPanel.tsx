@@ -42,6 +42,16 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
   const [draft, setDraft] = useState<MapRule>(createEmptyMapRule(mode));
   const [validationAttempted, setValidationAttempted] = useState(false);
+  // L3: priority is committed from a local text draft so clearing the field
+  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
+  // ProfileEditor.
+  const [priorityText, setPriorityText] = useState(String(draft.priority));
+  useEffect(() => {
+    if (draft.priority !== Number(priorityText)) {
+      setPriorityText(String(draft.priority));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.priority]);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -236,8 +246,20 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               size="small"
               type="number"
               label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-              value={draft.priority}
-              onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) || 0 })}
+              value={priorityText}
+              onChange={(e) => {
+                setPriorityText(e.target.value);
+                const parsed = Number(e.target.value);
+                if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
+                  setDraft({ ...draft, priority: parsed });
+                }
+              }}
+              onBlur={() => {
+                const parsed = Number(priorityText);
+                const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
+                setPriorityText(String(next));
+                if (draft.priority !== next) setDraft({ ...draft, priority: next });
+              }}
               sx={{ width: { xs: "100%", md: 136 } }}
             />
             <Button

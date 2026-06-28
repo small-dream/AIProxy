@@ -15,6 +15,8 @@ import {
   Typography,
 } from "@mui/material";
 
+import { useEffect, useState } from "react";
+
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 
 import type { TranslationKey, TranslationParams } from "@/i18n";
@@ -33,6 +35,18 @@ export function RuleEditor(props: {
   saving: boolean;
 }) {
   const { draft, errors, isError = false, profiles, t, onChange, onDuplicate, onDelete, onSave, saving } = props;
+
+  // L3: priority is committed from a local text draft so clearing the field
+  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
+  // ProfileEditor. Declared before the early return so hooks are unconditional.
+  const draftPriority = draft?.priority ?? 0;
+  const [priorityText, setPriorityText] = useState(String(draftPriority));
+  useEffect(() => {
+    if (draftPriority !== Number(priorityText)) {
+      setPriorityText(String(draftPriority));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftPriority]);
 
   if (!draft) {
     return <EmptyHint>{t("throttlingPage.rulesSelectHint")}</EmptyHint>;
@@ -107,8 +121,20 @@ export function RuleEditor(props: {
           size="small"
           label={t("throttlingPage.ruleFields.priority")}
           type="number"
-          value={draft.priority}
-          onChange={(event) => onChange({ priority: Number(event.target.value) || 0 })}
+          value={priorityText}
+          onChange={(event) => {
+            setPriorityText(event.target.value);
+            const parsed = Number(event.target.value);
+            if (Number.isFinite(parsed) && event.target.value.trim() !== "") {
+              onChange({ priority: parsed });
+            }
+          }}
+          onBlur={() => {
+            const parsed = Number(priorityText);
+            const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
+            setPriorityText(String(next));
+            if (draft.priority !== next) onChange({ priority: next });
+          }}
         />
       </Box>
       <Stack

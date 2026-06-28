@@ -10,6 +10,7 @@ import {
   type WsConnectionStatusEvent,
   type WsMessage,
 } from "@aiproxy/shared-types";
+import { logDevWarn } from "../logger/dev-logger";
 
 type Unlisten = () => void;
 
@@ -28,8 +29,10 @@ export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Prom
       if (typeof payload.menuId === "string") {
         callback({ menuId: payload.menuId });
       }
-    } catch {
-      // Ignore malformed events
+    } catch (error) {
+      // L6: surface malformed events to the dev log instead of silently
+      // dropping them, so a backend/backend-shape regression is diagnosable.
+      logDevWarn("events", "menu_event_parse_failed", { error: String(error) });
     }
   });
 }
@@ -43,8 +46,10 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
     try {
       const hit = parseBreakpointHit(event.payload);
       callback(hit);
-    } catch {
-      // Ignore malformed events
+    } catch (error) {
+      // L6: a silently-swallowed breakpoint hit would leave an interception
+      // stuck with no UI feedback and no log; surface it instead.
+      logDevWarn("events", "breakpoint_hit_parse_failed", { error: String(error) });
     }
   });
 }
@@ -59,8 +64,9 @@ export function onSessionUpsert(
   return listen<unknown>("session-upsert", (event) => {
     try {
       callback(parseSessionSummary(event.payload));
-    } catch {
-      // Ignore malformed events
+    } catch (error) {
+      // L6: surface malformed session-upsert events rather than dropping them.
+      logDevWarn("events", "session_upsert_parse_failed", { error: String(error) });
     }
   });
 }

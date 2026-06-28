@@ -455,19 +455,19 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
                 value="text"
                 sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
               >
-                Text
+                {t("websocket.composeOpcodeText")}
               </ToggleButton>
               <ToggleButton
                 value="ping"
                 sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
               >
-                Ping
+                {t("websocket.composeOpcodePing")}
               </ToggleButton>
               <ToggleButton
                 value="pong"
                 sx={{ px: 1.5, py: 0.25, fontSize: 12, textTransform: "none" }}
               >
-                Pong
+                {t("websocket.composeOpcodePong")}
               </ToggleButton>
             </ToggleButtonGroup>
           </Stack>

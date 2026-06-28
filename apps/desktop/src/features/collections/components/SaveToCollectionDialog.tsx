@@ -44,8 +44,12 @@ export function SaveToCollectionDialog({
   // cancelling session A would leave the input (and the saved name) stuck on
   // A's value. Re-sync whenever the target session changes or the dialog is
   // (re)opened, so the field always reflects the current session. (M11)
+  // L7: also reset the collection selection on (re)open, otherwise a selection
+  // made for session A carries over when the dialog is reopened for session B
+  // and the user could unknowingly save into the wrong collection.
   useEffect(() => {
     setName(sessionName);
+    setSelectedId(null);
   }, [sessionName, open]);
 
   const allCollections = flattenTree(tree);

@@ -277,7 +277,13 @@ export async function saveScriptRule(
       return savedRule!;
     } catch (error) {
       reportCommandFailure("save_script_rule", error, input.workspaceId);
-      throw coerceAppError(error);
+
+      // L4: fall back to localStorage on a missing/unregistered command, the
+      // same as every sibling save* rule wrapper. Previously this threw in
+      // dev/web contexts while rewrite/map/dns/throttle rules persisted fine.
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
     }
   }
 

@@ -161,9 +161,18 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
     try {
       let base64Content = body.base64Text;
       if (!base64Content && body.inlineText) {
-        const encoder = new TextEncoder();
-        const bytes = encoder.encode(body.inlineText);
-        base64Content = btoa(String.fromCharCode(...bytes));
+        // L2: build the binary string in a loop instead of
+        // `String.fromCharCode(...bytes)`. Spreading a large Uint8Array as
+        // function args exceeds the engine's argument limit (≈65k) and throws
+        // RangeError, which the surrounding catch turns into a silent
+        // "loadFailed" — failing for exactly the large text bodies that reach
+        // this branch. The loop has no such limit.
+        const bytes = new TextEncoder().encode(body.inlineText);
+        let binary = "";
+        for (const byte of bytes) {
+          binary += String.fromCharCode(byte);
+        }
+        base64Content = btoa(binary);
       }
       if (!base64Content) return;
 
@@ -309,7 +318,7 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
           <Typography variant="caption" sx={{
             color: "warning.main"
           }}>
-            Truncated
+            {t("inspector.response.preview.truncated")}
           </Typography>
         )}
       </Stack>

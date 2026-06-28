@@ -10,6 +10,12 @@ type DevLogEntry = {
   occurredAt: string;
 };
 
+// L10: capacity of the in-memory dev-log ring buffer. The previous
+// implementation rebuilt the whole array (`[...prev, entry].slice(-200)`) on
+// every emit, an O(n) allocation on the main thread scaled by log volume (this
+// runs from nearly every command wrapper and high-frequency event paths).
+const DEV_LOG_RING_CAPACITY = 200;
+
 declare global {
   interface Window {
     __AIPROXY_DEV_LOGS__?: DevLogEntry[];
@@ -45,9 +51,12 @@ function emitDevLog(level: DevLogLevel, component: string, event: string, contex
   console[consoleMethod]("[AIProxyUI]", entry);
 
   if (typeof window !== "undefined") {
-    const previousLogs = window.__AIPROXY_DEV_LOGS__ ?? [];
-    const nextLogs = [...previousLogs, entry].slice(-200);
-
-    window.__AIPROXY_DEV_LOGS__ = nextLogs;
+    // O(1) amortized: push in place and drop the oldest only when over
+    // capacity. Avoids re-allocating/copying the full buffer on every emit.
+    const logs = window.__AIPROXY_DEV_LOGS__ ?? (window.__AIPROXY_DEV_LOGS__ = []);
+    logs.push(entry);
+    if (logs.length > DEV_LOG_RING_CAPACITY) {
+      logs.splice(0, logs.length - DEV_LOG_RING_CAPACITY);
+    }
   }
 }

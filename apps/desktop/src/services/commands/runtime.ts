@@ -51,10 +51,15 @@ export function shouldFallbackToLocalStore(error: unknown): boolean {
   const normalized = coerceAppError(error);
   const message = normalized.message.toLowerCase();
 
+  // L5: this heuristic signals ONLY "the Tauri command is missing / not
+  // registered" (the documented dev/web fallback path). The previous bare
+  // `message.includes("command")` matched ANY message containing the substring
+  // "command" — including genuine backend errors that merely mention the word —
+  // causing `save*` wrappers to swallow the real error and silently fall back
+  // to localStorage, hiding data that never reached the backend DB.
   return (
     message.includes("not found") ||
     message.includes("unknown command") ||
-    message.includes("failed to invoke") ||
-    message.includes("command")
+    message.includes("failed to invoke")
   );
 }
