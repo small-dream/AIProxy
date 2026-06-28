@@ -2,6 +2,13 @@ use rusqlite::{params, Connection};
 
 use crate::DbError;
 
+/// Maximum number of bound variables per statement. SQLite caps this at
+/// `SQLITE_LIMIT_VARIABLE_NUMBER` (default 999, 32766 on newer builds), so
+/// binding an entire run-id list at once makes `prepare` fail once the list
+/// grows past the limit (a busy session can accumulate hundreds of rule runs).
+/// 500 stays well under both ceilings. Mirrors `delete_sessions_by_ids` batching.
+const LOAD_RUN_ENTRIES_BATCH_SIZE: usize = 500;
+
 // ---------------------------------------------------------------------------
 // Rewrite rules
 // ---------------------------------------------------------------------------
@@ -1155,45 +1162,57 @@ pub fn load_script_run_entries(
         return Ok(Vec::new());
     }
 
-    let placeholders: Vec<String> = run_ids
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!("?{}", index + 1))
-        .collect();
-    let sql = format!(
-        "SELECT id, run_id, kind, level, key, message, payload_json, seq
-         FROM script_run_entries
-         WHERE run_id IN ({})
-         ORDER BY seq ASC, id ASC",
-        placeholders.join(",")
-    );
-    let params: Vec<&dyn rusqlite::types::ToSql> = run_ids
-        .iter()
-        .map(|id| id as &dyn rusqlite::types::ToSql)
-        .collect();
+    let sql = "SELECT id, run_id, kind, level, key, message, payload_json, seq
+               FROM script_run_entries
+               WHERE run_id IN ({})
+               ORDER BY seq ASC, id ASC";
 
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| DbError::query("prepare load script run entries", e))?;
+    let mut entries = Vec::new();
+    // Query in batches so the placeholder count stays under SQLite's
+    // `SQLITE_LIMIT_VARIABLE_NUMBER`. Each batch is `ORDER BY seq ASC, id ASC`
+    // internally, but a single run's entries can span batches, so the merged
+    // result is re-sorted below to restore per-run ordering before returning.
+    for chunk in run_ids.chunks(LOAD_RUN_ENTRIES_BATCH_SIZE) {
+        let placeholders: Vec<String> = (0..chunk.len()).map(|i| format!("?{}", i + 1)).collect();
+        let sql = sql.replacen("{}", &placeholders.join(","), 1);
+        let params: Vec<&dyn rusqlite::types::ToSql> = chunk
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
 
-    let rows: Result<Vec<ScriptRunEntryRow>, DbError> = stmt
-        .query_map(params.as_slice(), |row| {
-            Ok(ScriptRunEntryRow {
-                id: row.get(0)?,
-                run_id: row.get(1)?,
-                kind: row.get(2)?,
-                level: row.get(3)?,
-                key: row.get(4)?,
-                message: row.get(5)?,
-                payload_json: row.get(6)?,
-                seq: row.get::<_, i32>(7)? as u32,
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DbError::query("prepare load script run entries", e))?;
+
+        let rows = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok(ScriptRunEntryRow {
+                    id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    level: row.get(3)?,
+                    key: row.get(4)?,
+                    message: row.get(5)?,
+                    payload_json: row.get(6)?,
+                    seq: row.get::<_, i32>(7)? as u32,
+                })
             })
-        })
-        .map_err(|e| DbError::query("query script run entries", e))?
-        .map(|row| row.map_err(|e| DbError::query("decode rule run entry row", e)))
-        .collect();
+            .map_err(|e| DbError::query("query script run entries", e))?;
+        for row in rows {
+            entries.push(row.map_err(|e| DbError::query("decode rule run entry row", e))?);
+        }
+    }
 
-    Ok(rows?)
+    // Restore per-run `seq ASC, id ASC` ordering across the merged batches
+    // (callers group by run_id and display entries in seq order).
+    entries.sort_by(|a, b| {
+        a.run_id
+            .cmp(&b.run_id)
+            .then_with(|| a.seq.cmp(&b.seq))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    Ok(entries)
 }
 
 pub fn clear_script_runs(conn: &Connection) -> Result<(), DbError> {
@@ -1321,45 +1340,57 @@ pub fn load_rewrite_run_entries(
         return Ok(Vec::new());
     }
 
-    let placeholders: Vec<String> = run_ids
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!("?{}", index + 1))
-        .collect();
-    let sql = format!(
-        "SELECT id, run_id, kind, key, before_value, after_value, message, seq
-         FROM rewrite_run_entries
-         WHERE run_id IN ({})
-         ORDER BY seq ASC, id ASC",
-        placeholders.join(",")
-    );
-    let params: Vec<&dyn rusqlite::types::ToSql> = run_ids
-        .iter()
-        .map(|id| id as &dyn rusqlite::types::ToSql)
-        .collect();
+    let sql = "SELECT id, run_id, kind, key, before_value, after_value, message, seq
+               FROM rewrite_run_entries
+               WHERE run_id IN ({})
+               ORDER BY seq ASC, id ASC";
 
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| DbError::query("prepare load rewrite run entries", e))?;
+    let mut entries = Vec::new();
+    // Query in batches so the placeholder count stays under SQLite's
+    // `SQLITE_LIMIT_VARIABLE_NUMBER`; see `load_script_run_entries`. A single
+    // run's entries can span batches, so the merged result is re-sorted below
+    // to restore per-run ordering before returning.
+    for chunk in run_ids.chunks(LOAD_RUN_ENTRIES_BATCH_SIZE) {
+        let placeholders: Vec<String> = (0..chunk.len()).map(|i| format!("?{}", i + 1)).collect();
+        let sql = sql.replacen("{}", &placeholders.join(","), 1);
+        let params: Vec<&dyn rusqlite::types::ToSql> = chunk
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
 
-    let rows: Result<Vec<RewriteRunEntryRow>, DbError> = stmt
-        .query_map(params.as_slice(), |row| {
-            Ok(RewriteRunEntryRow {
-                id: row.get(0)?,
-                run_id: row.get(1)?,
-                kind: row.get(2)?,
-                key: row.get(3)?,
-                before_value: row.get(4)?,
-                after_value: row.get(5)?,
-                message: row.get(6)?,
-                seq: row.get::<_, i32>(7)? as u32,
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| DbError::query("prepare load rewrite run entries", e))?;
+
+        let rows = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok(RewriteRunEntryRow {
+                    id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    key: row.get(3)?,
+                    before_value: row.get(4)?,
+                    after_value: row.get(5)?,
+                    message: row.get(6)?,
+                    seq: row.get::<_, i32>(7)? as u32,
+                })
             })
-        })
-        .map_err(|e| DbError::query("query rewrite run entries", e))?
-        .map(|row| row.map_err(|e| DbError::query("decode rewrite rule row", e)))
-        .collect();
+            .map_err(|e| DbError::query("query rewrite run entries", e))?;
+        for row in rows {
+            entries.push(row.map_err(|e| DbError::query("decode rewrite rule row", e))?);
+        }
+    }
 
-    Ok(rows?)
+    // Restore per-run `seq ASC, id ASC` ordering across the merged batches
+    // (callers group by run_id and display entries in seq order).
+    entries.sort_by(|a, b| {
+        a.run_id
+            .cmp(&b.run_id)
+            .then_with(|| a.seq.cmp(&b.seq))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    Ok(entries)
 }
 
 // ---------------------------------------------------------------------------
@@ -1759,6 +1790,137 @@ mod tests {
         assert_eq!(loaded_runs[0].outcome, "success");
         assert_eq!(loaded_entries.len(), 1);
         assert_eq!(loaded_entries[0].message.as_deref(), Some("hello"));
+    }
+
+    // Regression for H6: `load_script_run_entries` must chunk the `IN (...)`
+    // placeholder list so a busy session with many runs (>500) does not exceed
+    // SQLite's SQLITE_LIMIT_VARIABLE_NUMBER. All entries across batches must be
+    // returned, and entries within a single run must remain in `seq` order even
+    // when that run's entries span a batch boundary.
+    #[test]
+    fn load_script_run_entries_batches_large_run_lists() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url, response_mime_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                "session-batch",
+                "GET",
+                "example.com",
+                "/api",
+                "https",
+                "2026-04-20T00:00:00Z",
+                "2026-04-20T00:00:01Z",
+                1,
+                0,
+                200,
+                "https://example.com/api",
+                "application/json",
+            ],
+        )
+        .unwrap();
+
+        // Seed one script rule so script_runs.rule_id satisfies its FK.
+        save_script_rule(
+            &conn,
+            &ScriptRuleRow {
+                id: "rule-batch".into(),
+                workspace_id: "default".into(),
+                name: "Batch Rule".into(),
+                note: None,
+                enabled: true,
+                priority: 10,
+                match_methods: "[]".into(),
+                match_stage: "either".into(),
+                match_url_pattern: "*".into(),
+                match_type: "contains".into(),
+                language: "javascript".into(),
+                source_type: "inline".into(),
+                source_code: "export function onRequest(ctx) {}".into(),
+                source_path: None,
+                entrypoints: r#"{"onRequest":true,"onResponse":false}"#.into(),
+                compiled_code:
+                    "globalThis.__aiproxyScriptExports.onRequest = function onRequest(ctx) {}"
+                        .into(),
+                source_map: None,
+                updated_at: "2026-04-20T00:00:00Z".into(),
+            },
+        )
+        .unwrap();
+
+        // Cross the 500-row batch boundary so at least two batches are emitted.
+        let total_runs = LOAD_RUN_ENTRIES_BATCH_SIZE + 50;
+        let mut all_run_ids = Vec::with_capacity(total_runs);
+        for i in 0..total_runs {
+            let run_id = format!("batch-run-{i}");
+            conn.execute(
+                "INSERT INTO script_runs
+                    (id, session_id, rule_id, workspace_id, stage, outcome, duration_ms, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    &run_id,
+                    "session-batch",
+                    "rule-batch",
+                    "default",
+                    "request",
+                    "success",
+                    1_i64,
+                    "2026-04-20T00:00:00Z",
+                ],
+            )
+            .unwrap();
+            // Two entries per run with distinct seq values to assert per-run order.
+            conn.execute(
+                "INSERT INTO script_run_entries
+                    (id, run_id, kind, level, key, message, payload_json, seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    format!("entry-{i}-a"),
+                    &run_id,
+                    "log",
+                    "info",
+                    Option::<String>::None,
+                    "first",
+                    Option::<String>::None,
+                    0_i32,
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO script_run_entries
+                    (id, run_id, kind, level, key, message, payload_json, seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    format!("entry-{i}-b"),
+                    &run_id,
+                    "log",
+                    "info",
+                    Option::<String>::None,
+                    "second",
+                    Option::<String>::None,
+                    1_i32,
+                ],
+            )
+            .unwrap();
+            all_run_ids.push(run_id);
+        }
+
+        let loaded = load_script_run_entries(&conn, &all_run_ids).unwrap();
+
+        // Every entry from every run survives batching.
+        assert_eq!(loaded.len(), total_runs * 2);
+
+        // Per-run ordering must be seq ASC even across batch boundaries: pick a
+        // run that straddles the boundary and confirm "first" precedes "second".
+        let boundary_run = format!("batch-run-{}", LOAD_RUN_ENTRIES_BATCH_SIZE - 1);
+        let boundary_entries: Vec<&str> = loaded
+            .iter()
+            .filter(|e| e.run_id == boundary_run)
+            .map(|e| e.message.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(boundary_entries, vec!["first", "second"]);
     }
 
     // Regression for M6: clear_script_runs must wipe BOTH tables and leave no

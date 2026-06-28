@@ -28,7 +28,8 @@ pub(crate) use map::apply_map_rules;
 pub(crate) use patterns::{compile_match_regex, pattern_matches};
 pub(crate) use rewrite::{
     apply_request_rewrite_rules, apply_response_rewrite_rules, method_matches,
-    rebuild_request_runtime_state, rewrite_stage_matches,
+    rebuild_request_runtime_state, rewrite_stage_matches, strip_plain_body_edit_header_entries,
+    strip_plain_body_edit_headers,
 };
 pub(crate) use script::{apply_request_script_rules, apply_response_script_rules};
 pub(crate) use throttle::{apply_request_throttle, apply_response_throttle};

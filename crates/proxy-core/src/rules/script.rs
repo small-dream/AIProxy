@@ -138,6 +138,13 @@ fn apply_script_request_to_runtime(
         })
         .collect();
     request.body = bytes_from_script_body(script_request.body_text, script_request.body_base64)?;
+    // The script received a DECODED body (see `build_body_reference` /
+    // `decode_body_bytes`), and `bytes_from_script_body` returns those decoded
+    // plain bytes (or script-supplied base64). Either way the bytes written
+    // back are no longer the wire-encoded stream, so strip integrity/encoding
+    // headers that would otherwise mis-describe the body. Mirrors the rewrite
+    // path (`apply_body_field_rewrite` / response body rewrite).
+    strip_plain_body_edit_header_entries(&mut request.request_headers);
     rebuild_request_runtime_state(request)
 }
 
@@ -156,6 +163,12 @@ fn apply_script_response_to_runtime(
         script_response.body_text,
         script_response.body_base64,
     )?);
+    // See `apply_script_request_to_runtime`: the body is now plain decoded
+    // bytes, so encoding/integrity headers describing the old wire body must be
+    // stripped — otherwise a gzip response served as plain bytes corrupts the
+    // client. (content-length is intentionally left; `build_hyper_response_*`
+    // recomputes it.)
+    strip_plain_body_edit_headers(&mut response.response_headers);
     Ok(())
 }
 
@@ -172,7 +185,14 @@ fn upstream_response_from_override(
         request_send_ms: 0,
         response_body_size_bytes: response_body.len(),
         response_body,
-        response_headers: header_map_from_script_headers(&override_response.headers),
+        response_headers: {
+            let mut headers = header_map_from_script_headers(&override_response.headers);
+            // A mock body is plain user-supplied bytes; strip any encoding /
+            // integrity headers the script may have echoed so the synthesized
+            // response is self-consistent.
+            strip_plain_body_edit_headers(&mut headers);
+            headers
+        },
         response_read_ms: 0,
         spooled_response_path: None,
         status_code: StatusCode::from_u16(override_response.status).map_err(|error| {
@@ -283,4 +303,157 @@ pub(crate) fn apply_response_script_rules(
     }
 
     traces
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ParsedProxyRequest, UpstreamResponse};
+
+    fn make_script_response(body: &str, headers: &[(&str, &str)]) -> ScriptResponse {
+        ScriptResponse {
+            body_base64: None,
+            body_text: Some(body.to_string()),
+            headers: headers
+                .iter()
+                .map(|(name, value)| ScriptHeader {
+                    name: name.to_string(),
+                    value: value.to_string(),
+                })
+                .collect(),
+            mime_type: None,
+            status: 200,
+        }
+    }
+
+    // H1: editing a (previously compressed) response body via a script must strip
+    // content-encoding / integrity headers — the bytes written back are the
+    // DECODED plain bytes the script saw, not the original wire stream.
+    #[test]
+    fn script_response_edit_strips_content_encoding_headers() {
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            connect_ms: 0,
+            dns_ms: 0,
+            request_send_ms: 0,
+            response_body: b"\x1f\x8bcompressed".to_vec(),
+            response_body_size_bytes: 12,
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            tls_ms: None,
+            waiting_ms: 0,
+        };
+
+        // Script returns the (decoded) plain body and echoes the original
+        // headers, including content-encoding: gzip.
+        let script_response = make_script_response(
+            "{\"ok\":true}",
+            &[
+                ("content-type", "application/json"),
+                ("content-encoding", "gzip"),
+                ("etag", "\"abc\""),
+            ],
+        );
+
+        apply_script_response_to_runtime(&mut response, script_response).unwrap();
+
+        assert!(response.response_headers.get("content-encoding").is_none());
+        assert!(response.response_headers.get("etag").is_none());
+        // content-type is unrelated to encoding and must survive.
+        assert_eq!(
+            response.response_headers.get("content-type").unwrap(),
+            "application/json"
+        );
+        assert_eq!(response.response_body, br#"{"ok":true}"#);
+    }
+
+    // H1 (mock/respond path): a synthesized mock body is plain bytes, so any
+    // echoed encoding/integrity headers must be stripped too.
+    #[test]
+    fn script_response_override_strips_content_encoding_headers() {
+        let override_response = ScriptResponseOverride {
+            body_base64: None,
+            body_text: Some("{\"mocked\":true}".to_string()),
+            headers: vec![
+                ScriptHeader {
+                    name: "content-type".to_string(),
+                    value: "application/json".to_string(),
+                },
+                ScriptHeader {
+                    name: "content-encoding".to_string(),
+                    value: "gzip".to_string(),
+                },
+                ScriptHeader {
+                    name: "content-md5".to_string(),
+                    value: "deadbeef".to_string(),
+                },
+            ],
+            mime_type: None,
+            status: 201,
+        };
+
+        let response = upstream_response_from_override(override_response).unwrap();
+
+        assert!(response.response_headers.get("content-encoding").is_none());
+        assert!(response.response_headers.get("content-md5").is_none());
+        assert_eq!(response.status_code, StatusCode::CREATED);
+    }
+
+    // H1 (request side): editing the request body via a script must strip the
+    // same headers before the request is forwarded upstream.
+    #[test]
+    fn script_request_edit_strips_content_encoding_headers() {
+        let mut request = ParsedProxyRequest {
+            body: b"\x1f\x8bcompressed".to_vec(),
+            client_address: None,
+            headers: HeaderMap::new(),
+            host: "example.com".to_string(),
+            method: Method::POST,
+            path: "/".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            query_params: Vec::new(),
+            raw_request: String::new(),
+            request_headers: vec![ProxyHeaderEntry {
+                name: "content-encoding".to_string(),
+                value: "gzip".to_string(),
+                is_pseudo: None,
+            }],
+            request_id: "req-1".to_string(),
+            url: Url::parse("https://example.com/").unwrap(),
+            tls_cipher_suite: None,
+            tls_protocol: None,
+        };
+
+        let script_request = ScriptRequest {
+            body_base64: None,
+            body_text: Some("{\"ok\":true}".to_string()),
+            headers: vec![
+                ScriptHeader {
+                    name: "content-type".to_string(),
+                    value: "application/json".to_string(),
+                },
+                ScriptHeader {
+                    name: "content-encoding".to_string(),
+                    value: "gzip".to_string(),
+                },
+            ],
+            method: "POST".to_string(),
+            mime_type: None,
+            url: "https://example.com/".to_string(),
+        };
+
+        apply_script_request_to_runtime(&mut request, script_request).unwrap();
+
+        assert!(
+            request
+                .request_headers
+                .iter()
+                .all(|h| !h.name.eq_ignore_ascii_case("content-encoding")),
+            "content-encoding should be stripped, got: {:?}",
+            request.request_headers
+        );
+        assert_eq!(request.body, br#"{"ok":true}"#);
+    }
 }

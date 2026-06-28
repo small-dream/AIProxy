@@ -57,12 +57,20 @@ pub fn create_workspace(
             updated_at: workspace.updated_at.clone(),
         };
         if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
+            // Roll back the in-memory create so we never advertise a workspace
+            // that won't survive a restart, then surface the error to the UI.
+            state.read_workspace_manager().remove(&workspace.id);
             tracing::error!(
                 component = "desktop.commands",
                 event = "create_workspace_db_failed",
+                workspace_id = %workspace.id,
                 error = %error,
                 "create_workspace_db_failed"
             );
+            return Err(app_error(
+                ERR_INTERNAL,
+                format!("create_workspace: {error}"),
+            ));
         }
     }
 
@@ -137,7 +145,13 @@ pub fn update_workspace(
         "update_workspace_requested"
     );
 
-    let workspace = state.read_workspace_manager().update(
+    // Capture the pre-update snapshot so we can roll back the in-memory state
+    // if the DB write fails (otherwise the UI would show the edit but the
+    // workspace would revert to its old value on the next restart).
+    let manager = state.read_workspace_manager();
+    let before = manager.load(&input.workspace_id);
+
+    let workspace = manager.update(
         &input.workspace_id,
         input.name.clone(),
         input.proxy_port,
@@ -160,12 +174,27 @@ pub fn update_workspace(
             input.http2_enabled,
             &workspace.updated_at,
         ) {
+            // Restore the prior in-memory state so memory matches the DB.
+            if let Some(previous) = before.as_ref() {
+                let _ = manager.update(
+                    &previous.id,
+                    Some(previous.name.clone()),
+                    Some(previous.proxy_port),
+                    Some(previous.ssl_enabled),
+                    Some(previous.http2_enabled),
+                );
+            }
             tracing::error!(
                 component = "desktop.commands",
                 event = "update_workspace_db_failed",
+                workspace_id = %input.workspace_id,
                 error = %error,
                 "update_workspace_db_failed"
             );
+            return Err(app_error(
+                ERR_INTERNAL,
+                format!("update_workspace: {error}"),
+            ));
         }
     }
 

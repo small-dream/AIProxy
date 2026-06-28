@@ -70,6 +70,97 @@ type BreakpointRequestTab = "query" | "headers" | "body";
 type BreakpointResponseTab = "status" | "headers" | "body";
 type BodyEditorMode = "form" | "json" | "raw";
 
+// ---------------------------------------------------------------------------
+// Stable-keyed editable rows
+//
+// HeaderEditor / UrlEncodedBodyTable render editable name/value tables whose
+// public contract is `HeaderEntry[]` (name/value only). Rows previously used
+// `key={index}` / `key={name:index}`, so deleting a middle row re-indexed the
+// list and React reused DOM nodes by position — the wrong row's input state
+// bound to the shifted entries (focus jumps, values visually shuffle), and the
+// url-encoded variant also collided/remounted when a name was edited.
+//
+// `useStableKeyedRows` mirrors the parent `items` into local rows that each
+// carry a LOCAL-only id used purely as the React key. The id survives this
+// component's own edits; it is regenerated only when the parent pushes an
+// externally different `items` (e.g. a new intercepted request loaded). The id
+// never leaves the component: `onChange` still emits plain `HeaderEntry[]`.
+// ---------------------------------------------------------------------------
+
+type StableKeyedRow = HeaderEntry & { id: string };
+
+function sameHeaderEntries(a: HeaderEntry[], b: HeaderEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((entry, i) => {
+    const other = b[i];
+    return other !== undefined && entry.name === other.name && entry.value === other.value;
+  });
+}
+
+function toHeaderEntriesFromRows(rows: StableKeyedRow[]): HeaderEntry[] {
+  return rows.map((row) => ({ name: row.name, value: row.value }));
+}
+
+function useStableKeyedRows(items: HeaderEntry[], onChange: (items: HeaderEntry[]) => void) {
+  const [rows, setRows] = useState<StableKeyedRow[]>(() =>
+    items.map((item) => ({ ...item, id: crypto.randomUUID() })),
+  );
+  const lastEmittedRef = useRef<HeaderEntry[]>(items);
+
+  // Keep a stable ref to the latest onChange so the memoized mutators below do
+  // not need to depend on it (avoiding row re-creation on each parent render).
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  // Re-sync ids only when the parent provides a value we did not just emit
+  // (an external reset), so we never bind a stale id to foreign data.
+  useEffect(() => {
+    if (sameHeaderEntries(lastEmittedRef.current, items)) return;
+    lastEmittedRef.current = items;
+    setRows(items.map((item) => ({ ...item, id: crypto.randomUUID() })));
+  }, [items]);
+
+  const update = useCallback(
+    (index: number, field: "name" | "value", value: string) => {
+      setRows((prev) => {
+        const current = prev[index];
+        if (!current) return prev;
+        const next = [...prev];
+        next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
+        const stripped = toHeaderEntriesFromRows(next);
+        lastEmittedRef.current = stripped;
+        onChangeRef.current(stripped);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const remove = useCallback((index: number) => {
+    setRows((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      const stripped = toHeaderEntriesFromRows(next);
+      lastEmittedRef.current = stripped;
+      onChangeRef.current(stripped);
+      return next;
+    });
+  }, []);
+
+  const add = useCallback(() => {
+    setRows((prev) => {
+      const next = [...prev, { id: crypto.randomUUID(), name: "", value: "" }];
+      const stripped = toHeaderEntriesFromRows(next);
+      lastEmittedRef.current = stripped;
+      onChangeRef.current(stripped);
+      return next;
+    });
+  }, []);
+
+  return { rows, update, remove, add };
+}
+
 function formatCount(count: number, one: string, many: string) {
   return count === 1 ? one : many;
 }
@@ -203,10 +294,7 @@ function HeaderEditor({
   title: string;
   valuePlaceholder: string;
 }) {
-  const add = () => onChange([...headers, { name: "", value: "" }]);
-  const remove = (idx: number) => onChange(headers.filter((_, i) => i !== idx));
-  const update = (idx: number, field: "name" | "value", val: string) =>
-    onChange(headers.map((h, i) => (i === idx ? { ...h, [field]: val } : h)));
+  const { rows, update, remove, add } = useStableKeyedRows(headers, onChange);
   const headerId = `${title.replace(/\s+/g, "-").toLowerCase()}-title`;
 
   return (
@@ -244,7 +332,7 @@ function HeaderEditor({
         </Button>
       </Stack>
       <Stack spacing={0.5} sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 0.75 }}>
-        {headers.length === 0 ? (
+        {rows.length === 0 ? (
           <Typography
             sx={{
               color: "text.secondary",
@@ -255,8 +343,8 @@ function HeaderEditor({
             {noHeadersLabel}
           </Typography>
         ) : (
-          headers.map((h, idx) => (
-            <Stack key={idx} direction="row" spacing={0.5}>
+          rows.map((h, idx) => (
+            <Stack key={h.id} direction="row" spacing={0.5}>
               <OutlinedInput
                 size="small"
                 placeholder={namePlaceholder}
@@ -938,11 +1026,7 @@ function UrlEncodedBodyTable({
   onChange: (entries: HeaderEntry[]) => void;
 }) {
   const { t } = useI18n();
-  const update = (index: number, field: "name" | "value", value: string) => {
-    onChange(entries.map((entry, idx) => (idx === index ? { ...entry, [field]: value } : entry)));
-  };
-  const remove = (index: number) => onChange(entries.filter((_, idx) => idx !== index));
-  const add = () => onChange([...entries, { name: "", value: "" }]);
+  const { rows, update, remove, add } = useStableKeyedRows(entries, onChange);
 
   return (
     <Stack spacing={0.75} sx={{ height: "100%", minHeight: 0 }}>
@@ -953,7 +1037,7 @@ function UrlEncodedBodyTable({
           </Button>
         </Box>
       ) : null}
-      {entries.length === 0 ? (
+      {rows.length === 0 ? (
         <Typography
           sx={{
             color: "text.secondary",
@@ -983,9 +1067,9 @@ function UrlEncodedBodyTable({
             </Typography>
             <Box />
           </Box>
-          {entries.map((entry, index) => (
+          {rows.map((entry, index) => (
             <Box
-              key={`${entry.name}:${index}`}
+              key={entry.id}
               sx={{
                 alignItems: "start",
                 display: "grid",

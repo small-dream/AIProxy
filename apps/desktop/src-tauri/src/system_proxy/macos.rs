@@ -276,15 +276,41 @@ fn restore_auto_proxy_url_settings(
     service_name: &str,
     snapshot: &MacosAutoProxyUrlSnapshot,
 ) -> Result<(), String> {
-    if let Some(url) = snapshot.url.as_deref() {
-        run_networksetup("-setautoproxyurl", &[service_name, url])?;
-        if !snapshot.enabled {
-            set_auto_proxy_url_state(service_name, false)?;
-        }
-        return Ok(());
-    }
+    // Pure decision over the captured snapshot, kept separate so the restore
+    // semantics can be unit-tested without spawning `networksetup`.
+    let plan = auto_proxy_url_restore_plan(snapshot);
 
-    set_auto_proxy_url_state(service_name, false)
+    if let Some(url) = plan.set_url {
+        run_networksetup("-setautoproxyurl", &[service_name, &url])?;
+    }
+    // Always resync the enable state with the snapshot. `apply` disabled the
+    // PAC (`set_auto_proxy_url_state(..., false)`), so if the snapshot had the
+    // PAC enabled we MUST re-enable it here — previously the enabled+url branch
+    // left the URL written but disabled, breaking corporate/PAC networks.
+    set_auto_proxy_url_state(service_name, plan.enabled)?;
+    Ok(())
+}
+
+/// Pure view of what `restore_auto_proxy_url_settings` should do for a given
+/// captured PAC snapshot.
+struct AutoProxyUrlRestorePlan {
+    /// The PAC URL to write back, if the snapshot captured one.
+    set_url: Option<String>,
+    /// The enable state to apply after (re)writing the URL.
+    enabled: bool,
+}
+
+fn auto_proxy_url_restore_plan(snapshot: &MacosAutoProxyUrlSnapshot) -> AutoProxyUrlRestorePlan {
+    match &snapshot.url {
+        Some(url) => AutoProxyUrlRestorePlan {
+            set_url: Some(url.clone()),
+            enabled: snapshot.enabled,
+        },
+        None => AutoProxyUrlRestorePlan {
+            set_url: None,
+            enabled: false,
+        },
+    }
 }
 
 fn set_auto_proxy_url_state(service_name: &str, enabled: bool) -> Result<(), String> {
@@ -507,9 +533,9 @@ impl ProxyKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_setproxybypassdomains_args, parse_auto_proxy_discovery_state,
-        parse_auto_proxy_url_snapshot, parse_network_services, parse_proxy_bypass_domains,
-        parse_proxy_snapshot,
+        auto_proxy_url_restore_plan, build_setproxybypassdomains_args,
+        parse_auto_proxy_discovery_state, parse_auto_proxy_url_snapshot, parse_network_services,
+        parse_proxy_bypass_domains, parse_proxy_snapshot, MacosAutoProxyUrlSnapshot,
     };
 
     #[test]
@@ -604,5 +630,41 @@ mod tests {
                 "::1".to_string(),
             ]
         );
+    }
+
+    // H3: a captured PAC that was ENABLED with a URL must be restored as
+    // enabled. Previously the enabled+url branch wrote the URL but left the PAC
+    // disabled, breaking corporate/PAC networks after an enable→disable cycle.
+    #[test]
+    fn auto_proxy_url_restore_re_enables_when_snapshot_was_enabled() {
+        let snapshot = MacosAutoProxyUrlSnapshot {
+            enabled: true,
+            url: Some("http://proxy.example/pac".to_string()),
+        };
+        let plan = auto_proxy_url_restore_plan(&snapshot);
+        assert_eq!(plan.set_url.as_deref(), Some("http://proxy.example/pac"));
+        assert!(plan.enabled, "PAC must be re-enabled on restore");
+    }
+
+    #[test]
+    fn auto_proxy_url_restore_keeps_disabled_when_snapshot_was_disabled() {
+        let snapshot = MacosAutoProxyUrlSnapshot {
+            enabled: false,
+            url: Some("http://proxy.example/pac".to_string()),
+        };
+        let plan = auto_proxy_url_restore_plan(&snapshot);
+        assert_eq!(plan.set_url.as_deref(), Some("http://proxy.example/pac"));
+        assert!(!plan.enabled);
+    }
+
+    #[test]
+    fn auto_proxy_url_restore_disables_when_no_url_captured() {
+        let snapshot = MacosAutoProxyUrlSnapshot {
+            enabled: true,
+            url: None,
+        };
+        let plan = auto_proxy_url_restore_plan(&snapshot);
+        assert!(plan.set_url.is_none());
+        assert!(!plan.enabled);
     }
 }

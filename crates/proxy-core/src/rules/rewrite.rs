@@ -45,7 +45,12 @@ fn remove_header_entry(headers: &mut Vec<ProxyHeaderEntry>, name: &str) {
     headers.retain(|entry| !entry.name.eq_ignore_ascii_case(name));
 }
 
-fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
+/// Strip body-integrity/encoding headers that become invalid once the body is
+/// rewritten as plain bytes (the decoded text exposed to a rule, not the
+/// original wire bytes). Shared by the rewrite and script paths so that a rule
+/// that edits a compressed body never serves plain bytes under the original
+/// `content-encoding` (which would corrupt the response).
+pub(crate) fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
     headers.retain(|entry| {
         !entry.name.eq_ignore_ascii_case("content-encoding")
             && !entry.name.eq_ignore_ascii_case("content-md5")
@@ -54,7 +59,7 @@ fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
     });
 }
 
-fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
+pub(crate) fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
     headers.remove("content-encoding");
     headers.remove("content-md5");
     headers.remove("digest");

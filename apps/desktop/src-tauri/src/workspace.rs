@@ -103,6 +103,17 @@ impl WorkspaceManager {
             .cloned()
     }
 
+    /// Remove a workspace from the in-memory list. Used to roll back an
+    /// in-memory `create` when the DB persistence fails, so the in-memory state
+    /// never advertises a workspace that won't survive a restart.
+    pub fn remove(&self, workspace_id: &str) {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .expect("workspace list mutex should not be poisoned");
+        workspaces.retain(|w| w.id != workspace_id);
+    }
+
     pub fn update(
         &self,
         workspace_id: &str,
