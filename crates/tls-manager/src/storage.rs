@@ -142,9 +142,9 @@ impl CertStorage {
             use std::os::unix::fs::DirBuilderExt;
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true).mode(0o700);
-            builder
-                .create(&self.cert_dir)
-                .map_err(|e| TlsManagerError::StorageError(format!("failed to create cert dir: {e}")))?;
+            builder.create(&self.cert_dir).map_err(|e| {
+                TlsManagerError::StorageError(format!("failed to create cert dir: {e}"))
+            })?;
         }
         #[cfg(not(unix))]
         {
@@ -164,20 +164,49 @@ impl CertStorage {
         std::fs::write(&self.root_key_path, key_pem)
             .map_err(|e| TlsManagerError::StorageError(format!("failed to write root key: {e}")))?;
 
-        // Restrict the private key to the current user (0600 on unix).
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.root_key_path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| {
-                    TlsManagerError::StorageError(format!("failed to restrict root key perms: {e}"))
-                })?;
-        }
+        // Restrict the private key (0600) and cert dir (0700) to the current
+        // user. `ensure_secure_permissions` is unconditional, so it also
+        // tightens a pre-existing cert dir that `DirBuilder::create` leaves
+        // untouched.
+        self.ensure_secure_permissions()?;
 
         tracing::info!(
             event = "root_cert_save_succeeded",
             "root_cert_save_succeeded"
         );
+        Ok(())
+    }
+
+    /// Idempotently tighten permissions on the root key file and cert dir to
+    /// the current security baseline (key 0600, dir 0700 on unix).
+    ///
+    /// Called both after `save_root_cert` (new/refreshed certs) and on load
+    /// (`try_load_tls_manager`) to migrate pre-existing installs whose key was
+    /// written with looser permissions before this baseline existed. Because
+    /// it is unconditional, it also fixes a cert dir that already existed with
+    /// wider perms (`DirBuilder::create` only sets mode on newly-created dirs).
+    ///
+    /// On non-unix platforms this is a no-op: Windows relies on the inherited
+    /// ACL of the per-user app-data dir. A future hardening pass may set an
+    /// explicit owner-only ACL here.
+    pub fn ensure_secure_permissions(&self) -> Result<(), TlsManagerError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&self.root_key_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| {
+                TlsManagerError::StorageError(format!("failed to restrict root key perms: {e}"))
+            })?;
+            std::fs::set_permissions(&self.cert_dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| {
+                    TlsManagerError::StorageError(format!("failed to restrict cert dir perms: {e}"))
+                })?;
+        }
+        #[cfg(not(unix))]
+        {
+            // No-op on non-unix; see method doc.
+            let _ = (&self.root_key_path, &self.cert_dir);
+        }
         Ok(())
     }
 
@@ -324,6 +353,66 @@ mod tests {
             dir_mode & 0o077,
             0,
             "cert dir must not be accessible by group/other (mode={dir_mode:o})"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_loose_cert_dir_tightened_on_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let storage = CertStorage::new_in_temp_dir();
+        // Pre-create the cert dir with loose perms, mirroring an install made
+        // before the 0700 baseline (DirBuilder::create won't tighten it).
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        std::fs::set_permissions(storage.cert_dir(), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let dir_mode = std::fs::metadata(storage.cert_dir())
+            .expect("cert dir exists")
+            .permissions()
+            .mode();
+        assert_eq!(
+            dir_mode & 0o077,
+            0,
+            "pre-existing loose cert dir must be tightened to 0o700 on save (mode={dir_mode:o})"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_root_key_permissions_tightened_on_load() {
+        use std::os::unix::fs::PermissionsExt;
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        // Simulate a legacy install: write the key with loose 0644 perms.
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        std::fs::write(storage.root_cert_path(), root_ca.cert_pem()).unwrap();
+        std::fs::write(storage.root_key_path(), root_ca.key_pem()).unwrap();
+        std::fs::set_permissions(
+            storage.root_key_path(),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        // Sanity: the legacy perms are loose before migration.
+        let before = std::fs::metadata(storage.root_key_path())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(before & 0o077, 0, "precondition: legacy key is loose");
+
+        storage.ensure_secure_permissions().unwrap();
+
+        let after = std::fs::metadata(storage.root_key_path())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            after & 0o077,
+            0,
+            "legacy root key must be tightened to 0o600 on load (mode={after:o})"
         );
     }
 }

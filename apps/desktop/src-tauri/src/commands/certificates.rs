@@ -1812,6 +1812,17 @@ pub(super) fn try_load_tls_manager(http2_enabled: Option<bool>) -> Result<Arc<Tl
         .load_root_key_pem()
         .map_err(|e| app_error(ERR_INTERNAL, format!("read key: {e}")))?;
 
+    // Migrate pre-existing installs: tighten permissions on a legacy key/dir
+    // written before the current 0600/0700 baseline. Log and continue on
+    // failure so an existing, working install can still start the proxy.
+    if let Err(e) = storage.ensure_secure_permissions() {
+        tracing::warn!(
+            event = "tls_permissions_migration_failed",
+            error = %e,
+            "tls_permissions_migration_failed"
+        );
+    }
+
     let root_ca = RootCaPair::load_from_pem(&cert_pem, &key_pem)
         .map_err(|e| app_error(ERR_INTERNAL, format!("load root CA: {e}")))?;
 
