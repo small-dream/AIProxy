@@ -298,6 +298,34 @@ mod tests {
         assert!(Arc::ptr_eq(&original_key, &cloned_key));
     }
 
+    // M8: clearing the host cache must flush ALL clones sharing the underlying
+    // Arc<Mutex<host_cache>>. After a root-CA rotation, an in-flight resolver
+    // holding an old CertStorage clone would otherwise keep serving leaf certs
+    // signed by the OLD root; flushing before installing the new manager forces
+    // re-signing with the new root.
+    #[test]
+    fn clear_host_cache_flushes_all_clones() {
+        let storage = CertStorage::new_in_temp_dir();
+        let cloned = storage.clone();
+        let root_ca = RootCaPair::generate().unwrap();
+
+        // Populate the shared cache via the clone.
+        let _ = cloned
+            .get_or_create_host_certified_key(&root_ca, "example.com")
+            .unwrap();
+        {
+            let cache = storage.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(cache.len(), 1, "cache should hold the populated entry");
+        }
+
+        // Clearing via the original must empty the clone's view too.
+        storage.clear_host_cache();
+        {
+            let cache = cloned.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(cache.is_empty(), "clear_host_cache must flush shared clones");
+        }
+    }
+
     #[test]
     fn lru_cache_evicts_oldest_entries() {
         let storage = CertStorage::new_in_temp_dir();

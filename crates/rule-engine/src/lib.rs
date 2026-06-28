@@ -225,6 +225,44 @@ export async function onRequest(ctx) {
         );
     }
 
+    // M13: a script that calls respond() twice (a common missing-else/return
+    // mistake) must keep the FIRST override and surface a warning entry, instead
+    // of silently overwriting the first with the second.
+    #[test]
+    fn double_respond_keeps_first_and_warns() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export function onRequest(ctx) {
+  ctx.respond({ status: 201, bodyText: "first" });
+  ctx.respond({ status: 418, bodyText: "second" });
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("double-respond compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        let override_response = result
+            .response_override
+            .as_ref()
+            .expect("respond() should set an override");
+        // The FIRST override wins (the intended short-circuit).
+        assert_eq!(override_response.status, 201);
+        assert_eq!(override_response.body_text.as_deref(), Some("first"));
+
+        // A warn entry documents the ignored duplicate respond().
+        let has_warn = result.trace.entries.iter().any(|entry| {
+            entry.level == Some(ScriptLogLevel::Warn)
+                && entry
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("more than once")
+        });
+        assert!(has_warn, "expected a warn entry for the duplicate respond(), got entries: {:?}", result.trace.entries);
+    }
+
     /// An async hook that throws AFTER an await must surface as a runtime
     /// failure (Promise rejection), not be silently swallowed. This complements
     /// `fails_open_on_runtime_errors` (which covers sync throws) for the async
@@ -249,6 +287,89 @@ export async function onRequest(ctx) {
             "async throw-after-await must surface, not silently truncate: {:?}",
             result.trace.entries
         );
+    }
+
+    // Finding #2 regression guard: a log-only / no-op script (one that reads
+    // the body but does NOT mutate it) must report `request: None` / `response:
+    // None`. The Rust side only strips content-encoding / replaces the body
+    // when the script actually changed it; previously the JS bridge always
+    // echoed the cloned request/response back, so even a no-op onResponse on a
+    // gzip response would decode→replace→strip content-encoding and change wire
+    // behavior for every matched script.
+    #[test]
+    fn no_op_script_reports_no_request_or_response_mutation() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export function onRequest(ctx) {
+  // Read the body but do not mutate the request.
+  const text = ctx.request.getText();
+  ctx.log.info("saw body length " + (text ? text.length : 0));
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("no-op script compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        assert!(
+            result.request.is_none(),
+            "a no-op script must not report a request mutation (got {:?})",
+            result.request
+        );
+        assert!(
+            result.response.is_none(),
+            "a no-op script must not report a response mutation (got {:?})",
+            result.response
+        );
+    }
+
+    // Finding #2 positive case: a script that DOES mutate the request (via a
+    // body helper) must still report the mutated request so the Rust side
+    // applies it (and strips content-encoding). Guards against the fix
+    // over-correcting and dropping real edits.
+    #[test]
+    fn mutating_script_reports_request_mutation() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export function onRequest(ctx) {
+  ctx.request.setText(JSON.stringify({ edited: true }), "application/json");
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("mutating script compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        let request = result
+            .request
+            .as_ref()
+            .expect("a mutating script must report the edited request");
+        assert_eq!(request.body_text.as_deref(), Some("{\"edited\":true}"));
+    }
+
+    // Finding #2 positive case (direct field write): a script that mutates via
+    // direct field assignment (ctx.request.url = ...) must also be detected.
+    #[test]
+    fn direct_field_mutation_is_detected() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            r#"
+export function onRequest(ctx) {
+  ctx.request.url = "https://edited.example.com/new-path";
+}
+"#,
+        );
+        let compiled = compile_script_rule(rule).expect("direct-write script compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        let request = result
+            .request
+            .as_ref()
+            .expect("a direct field write must be detected as a mutation");
+        assert_eq!(request.url, "https://edited.example.com/new-path");
     }
 
     #[test]
