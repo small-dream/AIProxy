@@ -111,6 +111,7 @@
 - 全仓 lint：`pnpm lint`
 - 全仓 test：`pnpm test`
 - 全仓 typecheck：`pnpm typecheck`
+- 清理构建缓存（Rust target + Vite 缓存）：`pnpm clean`
 
 常用封装脚本：
 

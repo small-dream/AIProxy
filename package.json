@@ -23,6 +23,7 @@
     "desktop:bundle:linux": "node ./scripts/desktop.mjs bundle --platform linux",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "clean": "node ./scripts/clean.mjs"
   }
 }
