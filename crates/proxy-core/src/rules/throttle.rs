@@ -1,5 +1,16 @@
 use super::*;
 
+/// Maximum transfer-delay sleep the throttle will impose in one call (M10).
+///
+/// Throttle delay is computed as `transfer_delay_ms(body_size, kbps)` and slept
+/// in a single `sleep` before the first response byte is sent. For a large body
+/// at a low rate this can be enormous (e.g. 200MB @ 1Mbps ≈ 27 minutes), during
+/// which the connection/task appears hung. Capping the actual sleep bounds the
+/// stall; the trace still reports the FULL computed delay so users see what the
+/// configured rate WOULD impose, while the connection is not pinned for that
+/// whole duration. 60s matches a typical interactive patience ceiling.
+const MAX_THROTTLE_TRANSFER_DELAY_MS: u64 = 60_000;
+
 fn normalize_packet_loss_ratio(packet_loss_ratio: f32) -> f32 {
     if packet_loss_ratio <= 1.0 {
         // Treat values in [0, 1] as a ratio (e.g. 0.05 = 5% loss).
@@ -59,8 +70,12 @@ pub(crate) async fn apply_request_throttle(
     if latency_ms > 0 {
         sleep(Duration::from_millis(latency_ms)).await;
     }
-    if upload_delay_ms > 0 {
-        sleep(Duration::from_millis(upload_delay_ms)).await;
+    // M10: cap the actual transfer-delay sleep so a large upload at a low rate
+    // cannot pin the connection for minutes/hours. The trace still records the
+    // full computed `upload_delay_ms` (what the configured rate would impose).
+    let capped_upload_delay_ms = upload_delay_ms.min(MAX_THROTTLE_TRANSFER_DELAY_MS);
+    if capped_upload_delay_ms > 0 {
+        sleep(Duration::from_millis(capped_upload_delay_ms)).await;
     }
 
     Ok(build_throttle_trace(
@@ -81,8 +96,12 @@ pub(crate) async fn apply_response_throttle(
     let profile = &selection.profile;
     let download_delay_ms = transfer_delay_ms(body_len, profile.download_kbps);
 
-    if download_delay_ms > 0 {
-        sleep(Duration::from_millis(download_delay_ms)).await;
+    // M10: cap the actual transfer-delay sleep so a large download at a low
+    // rate cannot pin the connection for minutes/hours (e.g. 200MB @ 1Mbps ≈
+    // 27 min). The trace still records the full computed `download_delay_ms`.
+    let capped_download_delay_ms = download_delay_ms.min(MAX_THROTTLE_TRANSFER_DELAY_MS);
+    if capped_download_delay_ms > 0 {
+        sleep(Duration::from_millis(capped_download_delay_ms)).await;
     }
 
     build_throttle_trace(
@@ -119,5 +138,39 @@ fn build_throttle_trace(
         sequence: 0,
         stage: stage.to_string(),
         transfer_delay_ms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_delay_zero_for_empty_or_zero_rate() {
+        assert_eq!(transfer_delay_ms(0, 1024), 0);
+        assert_eq!(transfer_delay_ms(1024, 0), 0);
+    }
+
+    // 1 KiB at 1 KiB/s (kbps=1 → 1024 bits/s) = 8192 bits / 1024 bps = 8s = 8000ms.
+    #[test]
+    fn transfer_delay_computes_expected_ms() {
+        assert_eq!(transfer_delay_ms(1024, 1), 8_000);
+    }
+
+    // M10 regression guard: huge bodies must not overflow u64 / panic. u128
+    // arithmetic keeps this well within range.
+    #[test]
+    fn transfer_delay_handles_huge_body_without_overflow() {
+        let delay = transfer_delay_ms(usize::MAX, 1);
+        assert!(delay > 0);
+    }
+
+    #[test]
+    fn normalize_packet_loss_clamps_and_divides() {
+        assert_eq!(normalize_packet_loss_ratio(0.0), 0.0);
+        assert_eq!(normalize_packet_loss_ratio(0.05), 0.05);
+        assert_eq!(normalize_packet_loss_ratio(5.0), 0.05);
+        assert_eq!(normalize_packet_loss_ratio(150.0), 1.0);
+        assert_eq!(normalize_packet_loss_ratio(-1.0), 0.0);
     }
 }

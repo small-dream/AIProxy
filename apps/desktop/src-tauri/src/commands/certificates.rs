@@ -107,11 +107,11 @@ pub fn get_certificate_status(
 }
 
 #[tauri::command]
-pub fn generate_root_certificate(
+pub async fn generate_root_certificate(
     input: GenerateRootCertificateInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<CertificateStateSnapshot, String> {
-    generate_root_certificate_impl(input, Arc::clone(state.inner()))
+    generate_root_certificate_impl(input, Arc::clone(state.inner())).await
 }
 
 #[tauri::command]
@@ -382,7 +382,7 @@ fn ios_simctl_available() -> bool {
     }
 }
 
-fn generate_root_certificate_impl(
+async fn generate_root_certificate_impl(
     input: GenerateRootCertificateInput,
     state: Arc<AppState>,
 ) -> Result<CertificateStateSnapshot, String> {
@@ -425,7 +425,40 @@ fn generate_root_certificate_impl(
         server_config,
         http2_enabled: h2,
     });
+
+    // M8 + Finding #1: a root-CA rotation must invalidate certs the running
+    // proxy can still serve. Two layers:
+    //  (a) Flush the previous manager's host cert cache (shared via Arc across
+    //      any in-flight CertStorage clones), so cached leaf certs signed by the
+    //      OLD root are not re-served.
+    //  (b) Restart the proxy if it is running. The running proxy captured an
+    //      `Arc<TlsManager>` at start time, whose `ServerConfig` embeds a
+    //      `DynamicCertResolver` holding the OLD `root_ca_sign_data`. Flushing
+    //      the cache alone would make that resolver RE-SIGN with the old root —
+    //      so the server config must be rebuilt from the new manager. A restart
+    //      is the only correct option because rustls `ServerConfig` (and its
+    //      cert resolver) is immutable after construction. Existing TLS
+    //      sessions are interrupted, which is expected: a rotation invalidates
+    //      the trust anchor clients validated against.
+    if let Some(previous) = state.read_tls_manager() {
+        previous.storage.clear_host_cache();
+    }
+
     state.set_tls_manager(tls_manager);
+
+    if state.read_status().running {
+        if let Err(error) =
+            super::proxy::restart_proxy_if_running(Arc::clone(&state)).await
+        {
+            tracing::error!(
+                component = "desktop.commands",
+                event = "restart_proxy_after_root_rotation_failed",
+                error = %error,
+                "restart_proxy_after_root_rotation_failed"
+            );
+            return Err(error);
+        }
+    }
 
     let status = get_certificate_status_impl(state)?;
 

@@ -262,10 +262,51 @@ pub fn compute_insights(
             .collect();
         let host_rows = host_rows?;
 
-        // Compute per-host P95
+        // M6: compute per-host P95 in ONE pass instead of N+1. Previously each
+        // of the (up to 50) hosts triggered its own `SELECT ... ORDER BY
+        // duration_ms` full scan of session_summaries (no index on host or
+        // duration_ms), so the insights dashboard amplified table I/O 50× on
+        // large DBs. Now we fetch all filtered (host, duration_ms) pairs once,
+        // group by host in memory, and apply the same nearest-rank percentile.
+        let mut per_host_durations: std::collections::HashMap<String, Vec<i64>> =
+            std::collections::HashMap::new();
+        {
+            let query = format!(
+                "SELECT LOWER(host) AS host, duration_ms
+                 FROM session_summaries{where_clause}"
+            );
+            let mut stmt = conn
+                .prepare(&query)
+                .map_err(|e| DbError::query("insights per-host durations prepare", e))?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(params()), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                    ))
+                })
+                .map_err(|e| DbError::query("insights per-host durations query", e))?;
+            for row in rows {
+                let (host, duration) =
+                    row.map_err(|e| DbError::query("decode per-host duration row", e))?;
+                per_host_durations.entry(host).or_default().push(duration);
+            }
+        }
+
         let mut result = Vec::with_capacity(host_rows.len());
         for hr in &host_rows {
-            let p95 = compute_host_p95(conn, &hr.host, filter)?;
+            // Aggregation above groups by LOWER(host); match the same way so the
+            // P95 lookup is case-insensitive (consistent with the old
+            // `compute_host_p95` query).
+            let durations = per_host_durations
+                .get(&hr.host.to_lowercase())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            // `percentile` expects a sorted slice; sort the in-memory vector in
+            // place once per host (the original SQL did `ORDER BY duration_ms`).
+            let mut sorted = durations.to_vec();
+            sorted.sort_unstable();
+            let p95 = percentile(&sorted, 95);
             result.push(HostInsight {
                 host: hr.host.clone(),
                 request_count: hr.request_count,
@@ -408,36 +449,6 @@ struct HostInsightRaw {
     error_count: i64,
     avg_duration_ms: f64,
     total_bytes: i64,
-}
-
-/// Compute the P95 duration for a single host.
-fn compute_host_p95(
-    conn: &Connection,
-    host: &str,
-    filter: &InsightsFilter,
-) -> Result<f64, DbError> {
-    let (where_clause, mut where_params) = build_where(filter);
-    let host_param_idx = where_params.len() + 1;
-    let query = format!(
-        "SELECT duration_ms FROM session_summaries{where_clause}{}LOWER(host) = ?{host_param_idx} ORDER BY duration_ms",
-        if where_clause.is_empty() { " WHERE " } else { " AND " }
-    );
-    where_params.push(rusqlite::types::Value::Text(host.to_lowercase()));
-
-    let mut stmt = conn
-        .prepare(&query)
-        .map_err(|e| DbError::query("prepare host p95 query", e))?;
-
-    let durations: Result<Vec<i64>, DbError> = stmt
-        .query_map(rusqlite::params_from_iter(where_params), |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(|e| DbError::query("query host p95", e))?
-        .map(|r| r.map_err(|e| DbError::query("decode host p95 row", e)))
-        .collect();
-    let durations = durations?;
-
-    Ok(percentile(&durations, 95))
 }
 
 /// Nearest-rank percentile. Returns 0.0 for empty slices.

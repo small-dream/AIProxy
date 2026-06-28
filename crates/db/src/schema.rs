@@ -149,6 +149,12 @@ CREATE TABLE IF NOT EXISTS session_details (
     h2_stream_id       INTEGER DEFAULT NULL,
     FOREIGN KEY (session_summary_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
+-- M7: every sibling child table of session_summaries has an index on its FK
+-- (idx_ws_messages_session, idx_script_runs_session, ...). session_details was
+-- the lone omission, so the hot detail-lookup (load_session_detail) and the
+-- cascade-delete path (DELETE ... WHERE session_summary_id IN (...)) both
+-- full-scanned it on large DBs.
+CREATE INDEX IF NOT EXISTS idx_session_details_session ON session_details(session_summary_id);
 
 CREATE TABLE IF NOT EXISTS ws_messages (
     id              TEXT NOT NULL PRIMARY KEY,
@@ -475,5 +481,29 @@ mod tests {
         for table in &expected {
             assert!(tables.iter().any(|t| t == *table), "missing table: {table}");
         }
+    }
+
+    // M7: session_details must carry an index on session_summary_id (its FK to
+    // session_summaries) like every sibling child table. Without it the hot
+    // detail lookup and the cascade-delete path full-scanned the table.
+    #[test]
+    fn session_details_has_index_on_session_summary_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let indexes: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_details'")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+
+        assert!(
+            indexes
+                .iter()
+                .any(|name| name == "idx_session_details_session"),
+            "expected idx_session_details_session, got: {indexes:?}"
+        );
     }
 }

@@ -145,6 +145,17 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
   const response = payload.response ? __aiproxyAttachBodyHelpers(__aiproxyClone(payload.response)) : null;
   const session = __aiproxyClone(payload.session);
 
+  // Capture a pre-hook snapshot of the request/response so we can tell whether
+  // the hook actually mutated them. The body helpers (setText/setHeader/...)
+  // AND direct field writes (ctx.request.url = ...) are both observable via a
+  // JSON-string compare. This is essential for the body-encoding handling on
+  // the Rust side: it must strip content-encoding ONLY when the body was
+  // actually rewritten, otherwise a log-only/no-op script on a gzip response
+  // would decode the body, replace it, and drop content-encoding — changing
+  // wire behavior for every matched script, not just body edits.
+  const requestSnapshot = JSON.stringify(request);
+  const responseSnapshot = response ? JSON.stringify(response) : null;
+
   const ctx = {
     request,
     response,
@@ -176,6 +187,21 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       if (!init || typeof init !== "object") {
         throw new Error("respond() requires a response object");
       }
+      // M13: respond() is the documented short-circuit mock primitive. A second
+      // call (e.g. a missing `else`/`return` between two respond()s) previously
+      // SILENTLY overwrote the first, masking the bug. Record a warning entry
+      // instead so the duplicate is visible, and keep the FIRST override (the
+      // one the author most likely intended as the short-circuit).
+      if (responseOverride) {
+        pushEntry({
+          kind: "log",
+          level: "warn",
+          message: "respond() called more than once; the first response override is kept and this call is ignored",
+          payloadJson: null,
+          key: null,
+        });
+        return;
+      }
       const status = Number(init.status ?? 200);
       if (!Number.isInteger(status) || status < 100 || status > 599) {
         throw new Error("respond status must be an integer in 100..599, got: " + init.status);
@@ -198,8 +224,10 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
     return JSON.stringify({
       skipped: true,
       runtimeError: false,
-      request,
-      response,
+      // No mutation possible (hook not defined); send null so the Rust side
+      // no-ops and preserves the original wire request/response.
+      request: null,
+      response: null,
       responseOverride,
       entries,
     });
@@ -236,11 +264,20 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       return fn(ctx);
     })
     .then(function serializeResult() {
+      // Compare against the pre-hook snapshots. A mutation (via the body
+      // helpers OR direct field writes) flips the corresponding flag, which the
+      // Rust side uses to decide whether to apply the returned request/response
+      // and strip content-encoding. Unchanged request/response are sent back as
+      // null so the Rust side no-ops on them (preserving the original wire
+      // bytes/headers, including content-encoding).
+      const requestChanged = JSON.stringify(ctx.request) !== requestSnapshot;
+      const responseChanged =
+        responseSnapshot !== null && JSON.stringify(ctx.response) !== responseSnapshot;
       return JSON.stringify({
         skipped: false,
         runtimeError: false,
-        request: ctx.request,
-        response: ctx.response,
+        request: requestChanged ? ctx.request : null,
+        response: responseChanged ? ctx.response : null,
         responseOverride: responseOverride,
         entries: entries,
       });
@@ -267,9 +304,12 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       return JSON.stringify({
         skipped: false,
         runtimeError: true,
-        request: ctx.request,
-        response: ctx.response,
-        responseOverride: responseOverride,
+        // On a thrown/rejected hook we do NOT apply any (possibly partial)
+        // mutation: send null so the Rust side preserves the original wire
+        // request/response. The error entry above records what happened.
+        request: null,
+        response: null,
+        responseOverride: null,
         entries: entries,
       });
     });

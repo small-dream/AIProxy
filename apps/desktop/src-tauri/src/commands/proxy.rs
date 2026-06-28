@@ -52,6 +52,37 @@ pub fn get_local_ip() -> Vec<String> {
     get_local_ip_addresses()
 }
 
+/// Restart the proxy server using the currently-applied status (same port,
+/// ssl/http2 settings, same workspace). Used when an underlying component the
+/// running proxy captured at start time must be refreshed — notably the TLS
+/// manager after a root-CA rotation (Finding #1): the running proxy's
+/// `ServerConfig` embeds a `DynamicCertResolver` that holds the OLD
+/// `root_ca_sign_data`, so a bare AppState swap + `clear_host_cache` would let
+/// it re-sign host certs with the old root. Restarting rebuilds the server
+/// config from the freshly-installed `TlsManager`.
+///
+/// No-op (returns Ok) when the proxy is not running. Errors propagate so the
+/// caller can surface a notification; on error the proxy is left stopped.
+pub(crate) async fn restart_proxy_if_running(state: Arc<AppState>) -> Result<(), String> {
+    let status = state.read_status();
+    if !status.running {
+        return Ok(());
+    }
+    let workspace_id = status
+        .active_workspace_id
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+    let input = StartProxyInput {
+        workspace_id,
+        port: Some(status.port),
+        enable_ssl: Some(status.ssl_enabled),
+        enable_http2: Some(status.http2_enabled),
+    };
+    // start_proxy_impl shuts down any prior runtime before starting the new
+    // one, so this is a clean rebuild with the current TlsManager.
+    start_proxy_impl(input, state).await.map(|_| ())
+}
+
 async fn start_proxy_impl(
     input: StartProxyInput,
     state: Arc<AppState>,

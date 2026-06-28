@@ -44,10 +44,20 @@ pub struct CollectionItemRow {
 // ---------------------------------------------------------------------------
 
 pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbError> {
+    // M11: validate-then-write atomically in one transaction, matching
+    // `move_collection`. `api_collections.parent_id` has no FK and acyclicity is
+    // enforced in app code, so running the existence/cycle checks and the write
+    // in a single tx keeps them consistent for any future multi-connection /
+    // pooled-write path (today the single Mutex<Connection> already serializes
+    // this, but the transactional form is correct and defensive).
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| DbError::query("begin upsert collection transaction", e))?;
+
     if let Some(parent_id) = c.parent_id.as_deref() {
-        ensure_collection_exists(conn, parent_id, "target parent")?;
+        ensure_collection_exists(&tx, parent_id, "target parent")?;
     }
-    if would_create_cycle(conn, &c.id, c.parent_id.as_deref())? {
+    if would_create_cycle(&tx, &c.id, c.parent_id.as_deref())? {
         return Err(DbError::Validation(
             "cannot move a folder into its own descendant".to_string(),
         ));
@@ -56,7 +66,7 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbE
     // UPDATE-or-INSERT instead of INSERT OR REPLACE: a REPLACE on api_collections
     // triggers ON DELETE CASCADE on api_collection_items (foreign_keys=ON),
     // silently wiping all items in the collection on every re-save.
-    let affected = conn
+    let affected = tx
         .execute(
             "UPDATE api_collections
                 SET parent_id=?2, name=?3, description=?4, sort_order=?5,
@@ -75,7 +85,7 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbE
         .map_err(|e| DbError::query("update collection", e))?;
 
     if affected == 0 {
-        conn.execute(
+        tx.execute(
             "INSERT INTO api_collections
                 (id, parent_id, name, description, sort_order, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -91,6 +101,9 @@ pub fn upsert_collection(conn: &Connection, c: &CollectionRow) -> Result<(), DbE
         )
         .map_err(|e| DbError::query("insert collection", e))?;
     }
+
+    tx.commit()
+        .map_err(|e| DbError::query("commit upsert collection transaction", e))?;
     Ok(())
 }
 
