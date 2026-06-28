@@ -1,21 +1,4 @@
 use super::*;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-
-pub(crate) struct PrefixedStream<'a, S> {
-    prefix: Cursor<Vec<u8>>,
-    inner: &'a mut S,
-}
-
-impl<'a, S> PrefixedStream<'a, S> {
-    pub(crate) fn new(prefix: Vec<u8>, inner: &'a mut S) -> Self {
-        Self {
-            prefix: Cursor::new(prefix),
-            inner,
-        }
-    }
-}
 
 static DIRECT_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
@@ -42,43 +25,6 @@ fn direct_http_client() -> Result<Client, String> {
         .get()
         .cloned()
         .ok_or_else(|| "failed to initialize HTTP client".to_string())
-}
-
-impl<S: AsyncRead + Unpin> AsyncRead for PrefixedStream<'_, S> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let position = self.prefix.position() as usize;
-        let prefix = self.prefix.get_ref();
-        if position < prefix.len() {
-            let bytes_to_copy = std::cmp::min(buf.remaining(), prefix.len() - position);
-            buf.put_slice(&prefix[position..position + bytes_to_copy]);
-            self.prefix.set_position((position + bytes_to_copy) as u64);
-            return Poll::Ready(Ok(()));
-        }
-
-        Pin::new(&mut *self.inner).poll_read(cx, buf)
-    }
-}
-
-impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<'_, S> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bytes: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut *self.inner).poll_write(cx, bytes)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut *self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut *self.inner).poll_shutdown(cx)
-    }
 }
 
 pub async fn start_proxy_server(

@@ -387,25 +387,16 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
 /// Delete all sessions (summaries cascade to details and ws_messages).
 pub fn clear_all_sessions(conn: &Connection) -> Result<(), DbError> {
+    // L9: delete only the parent table and let the declared FK ON DELETE CASCADE
+    // remove every child row (session_details, ws_messages, *_runs / *_run_entries,
+    // map_runs, throttle_runs). The previous hand-written child→parent DELETE
+    // list duplicated the cascade graph and would silently orphan any NEW child
+    // table added later that forgot to extend this list. `foreign_keys=ON` is set
+    // in connection.rs, so CASCADE is active. Wrapped in a transaction so the
+    // whole clear is atomic.
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| DbError::query("begin clear sessions transaction", e))?;
-    tx.execute("DELETE FROM script_run_entries", [])
-        .map_err(|e| DbError::query("clear script run entries", e))?;
-    tx.execute("DELETE FROM script_runs", [])
-        .map_err(|e| DbError::query("clear script runs", e))?;
-    tx.execute("DELETE FROM rewrite_run_entries", [])
-        .map_err(|e| DbError::query("clear rewrite run entries", e))?;
-    tx.execute("DELETE FROM rewrite_runs", [])
-        .map_err(|e| DbError::query("clear rewrite runs", e))?;
-    tx.execute("DELETE FROM map_runs", [])
-        .map_err(|e| DbError::query("clear map runs", e))?;
-    tx.execute("DELETE FROM throttle_runs", [])
-        .map_err(|e| DbError::query("clear throttle runs", e))?;
-    tx.execute("DELETE FROM session_details", [])
-        .map_err(|e| DbError::query("clear session details", e))?;
-    tx.execute("DELETE FROM ws_messages", [])
-        .map_err(|e| DbError::query("clear ws messages", e))?;
     tx.execute("DELETE FROM session_summaries", [])
         .map_err(|e| DbError::query("clear session summaries", e))?;
     tx.commit()

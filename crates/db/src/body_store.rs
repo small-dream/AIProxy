@@ -51,11 +51,41 @@ impl BodyStore {
     }
 
     /// Remove all body files.
+    ///
+    /// L11: clears the directory CONTENTS but keeps the directory itself in
+    /// place, rather than `remove_dir_all` + `create_dir_all`. The proxy hot
+    /// path writes body files concurrently with this clear (driven from the
+    /// "clear all sessions" UI command and not serialized by the same lock as
+    /// the writes); the old remove-then-recreate left a window in which a
+    /// concurrent `write_body` hit a missing parent dir (NotFound). Keeping the
+    /// dir present eliminates that window.
     pub fn clear_all(&self) -> Result<(), DbError> {
-        if self.base_dir.exists() {
-            fs::remove_dir_all(&self.base_dir).map_err(DbError::Io)?;
+        let entries = match fs::read_dir(&self.base_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Dir does not exist yet — create it so callers can rely on it.
+                fs::create_dir_all(&self.base_dir).map_err(DbError::Io)?;
+                return Ok(());
+            }
+            Err(error) => return Err(DbError::Io(error)),
+        };
+
+        for entry in entries {
+            let entry = entry.map_err(DbError::Io)?;
+            let path = entry.path();
+            let result = if path.is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            };
+            // A concurrent writer may create/remove entries while we iterate;
+            // treat a vanished entry (NotFound) as success.
+            if let Err(error) = result {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    return Err(DbError::Io(error));
+                }
+            }
         }
-        fs::create_dir_all(&self.base_dir).map_err(DbError::Io)?;
         Ok(())
     }
 

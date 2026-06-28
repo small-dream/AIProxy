@@ -633,7 +633,20 @@ pub(crate) struct UpstreamResponse {
 impl UpstreamResponse {
     pub(crate) fn clear_spooled_response(&mut self) {
         if let Some(path) = self.spooled_response_path.take() {
-            let _ = fs::remove_file(path);
+            // L1: this is invoked from the Drop impl, which runs on the Tokio
+            // worker thread that owned the UpstreamResponse. A blocking
+            // `fs::remove_file` (slow temp dir, AV scan, networked profile)
+            // would stall that worker. Offload to the blocking pool so the
+            // worker stays free. If no Tokio runtime is available (e.g. during
+            // process teardown after the runtime is dropped), fall back to an
+            // inline remove rather than leaking the temp file.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn_blocking(move || {
+                    let _ = fs::remove_file(path);
+                });
+            } else {
+                let _ = fs::remove_file(path);
+            }
         }
     }
 

@@ -80,8 +80,12 @@ pub fn apply_system_proxy_settings_with_pre_snapshot(
 pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(), String> {
     let key = open_settings_key()?;
 
-    key.set_value("ProxyEnable", &snapshot.proxy_enable)
-        .map_err(|error| format!("failed to restore Windows proxy enabled flag: {error}"))?;
+    // L12: write the server/override/AutoConfigURL values BEFORE the ProxyEnable
+    // flag. If an earlier write fails partway, ProxyEnable is left at its prior
+    // (disabled-by-AIProxy-apply) value rather than flipped to enabled while
+    // ProxyServer still points at the (now-dead) AIProxy port — which would route
+    // the user's traffic to a dead proxy after the app exits. Mirrors the macOS
+    // restore order (server before enable state).
     write_optional_string(&key, "ProxyServer", snapshot.proxy_server.as_deref())?;
     write_optional_string(&key, "ProxyOverride", snapshot.proxy_override.as_deref())?;
     write_optional_string(&key, "AutoConfigURL", snapshot.auto_config_url.as_deref())?;
@@ -92,6 +96,10 @@ pub fn restore_system_proxy(snapshot: &WindowsSystemProxySnapshot) -> Result<(),
             .map_err(|error| format!("failed to restore Windows proxy auto-detect: {error}"))?,
         None => remove_value_if_present(&key, "AutoDetect")?,
     }
+
+    // Enable flag last: only once the target server values are in place.
+    key.set_value("ProxyEnable", &snapshot.proxy_enable)
+        .map_err(|error| format!("failed to restore Windows proxy enabled flag: {error}"))?;
 
     refresh_system_proxy()?;
 

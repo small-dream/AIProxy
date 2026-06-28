@@ -455,6 +455,9 @@ async fn stage_intercept_request_breakpoint(
                 .as_ref()
                 .filter(|s| throttle_selection_matches_stage(s, "response"))
             {
+                // Mock responses are never spooled/truncated, so the in-memory
+                // body length IS the true wire size — this matches the upstream
+                // path's `response_body_size_bytes` basis (M10 consistency).
                 let trace =
                     apply_response_throttle(selection, mock_response.response_body.len()).await;
                 if let Some(manager) = ctx.throttle_manager.as_ref() {
