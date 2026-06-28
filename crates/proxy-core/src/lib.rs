@@ -172,22 +172,25 @@ pub(crate) fn ws_close_grace_timeout() -> Duration {
 #[cfg(test)]
 pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard
+    TestTimeoutGuard {
+        slot: &TEST_UPSTREAM_REQUEST_TIMEOUT_MS,
+    }
 }
 
+/// RAII guard that resets exactly the test timeout slot it armed on drop.
+/// Each slot is independent, so concurrent tests (cargo test runs threads in
+/// parallel) cannot clobber each other's overrides — finishing one test must
+/// not zero a different slot that another in-flight test still depends on,
+/// which would silently drop it back to the slow default (e.g. 120s).
 #[cfg(test)]
-pub(crate) struct TestTimeoutGuard;
+pub(crate) struct TestTimeoutGuard {
+    slot: &'static AtomicU64,
+}
 
 #[cfg(test)]
 impl Drop for TestTimeoutGuard {
     fn drop(&mut self) {
-        // Reset all override slots: a single guard may be returned by any
-        // override_*_for_test call, so clear all of them to avoid leaking
-        // state across tests regardless of which override produced the guard.
-        TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(0, Ordering::SeqCst);
-        TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(0, Ordering::SeqCst);
-        TEST_TUNNEL_IDLE_TIMEOUT_MS.store(0, Ordering::SeqCst);
-        TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(0, Ordering::SeqCst);
+        self.slot.store(0, Ordering::SeqCst);
     }
 }
 
@@ -206,19 +209,25 @@ pub(crate) fn breakpoint_wait_timeout() -> Duration {
 #[cfg(test)]
 pub(crate) fn override_breakpoint_wait_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard
+    TestTimeoutGuard {
+        slot: &TEST_BREAKPOINT_WAIT_TIMEOUT_MS,
+    }
 }
 
 #[cfg(test)]
 pub(crate) fn override_tunnel_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_TUNNEL_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard
+    TestTimeoutGuard {
+        slot: &TEST_TUNNEL_IDLE_TIMEOUT_MS,
+    }
 }
 
 #[cfg(test)]
 pub(crate) fn override_ws_close_grace_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
     TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard
+    TestTimeoutGuard {
+        slot: &TEST_WS_CLOSE_GRACE_TIMEOUT_MS,
+    }
 }
 
 #[cfg(test)]
