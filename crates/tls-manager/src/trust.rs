@@ -174,25 +174,17 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
         Err(_) => return false,
     };
 
-    let b64: String = cert_pem
-        .lines()
-        .filter(|line| !line.starts_with("-----"))
-        .collect();
-    let der = match base64::engine::general_purpose::STANDARD
-        .decode(b64.replace('\n', "").replace('\r', ""))
-    {
-        Ok(d) => d,
-        Err(_) => return false,
-    };
-
-    let mut hasher = Sha1::new();
-    hasher.update(&der);
-    let fingerprint: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<Vec<_>>()
-        .join(":");
+    // M9: a PEM file may contain MULTIPLE concatenated certificates (e.g. the
+    // Debian/Ubuntu `/etc/ssl/certs/ca-certificates.crt` bundle has hundreds).
+    // Computing one fingerprint over the whole concatenated DER blob never
+    // matches a single certificate, so the trust check permanently mis-reported
+    // "not trusted" on those distros. Split into individual PEM blocks and
+    // fingerprint each; the cert is trusted if any of its fingerprints matches
+    // any certificate in any trust-store directory.
+    let target_fingerprints = pem_sha1_fingerprints(&cert_pem);
+    if target_fingerprints.is_empty() {
+        return false;
+    }
 
     // Source anchor directories: certificates pending `update-ca-certificates` /
     // `update-ca-trust` (Debian/Ubuntu and RHEL/Fedora respectively).
@@ -222,24 +214,14 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
                 }
             }
             if let Ok(other_pem) = std::fs::read_to_string(&path) {
-                let other_b64: String = other_pem
-                    .lines()
-                    .filter(|line| !line.starts_with("-----"))
-                    .collect();
-                if let Ok(other_der) = base64::engine::general_purpose::STANDARD
-                    .decode(other_b64.replace('\n', "").replace('\r', ""))
+                // Other files may also be bundles; compare every cert in the
+                // store file against every target fingerprint.
+                let other_fingerprints = pem_sha1_fingerprints(&other_pem);
+                if other_fingerprints
+                    .iter()
+                    .any(|fp| target_fingerprints.contains(fp))
                 {
-                    let mut other_hasher = Sha1::new();
-                    other_hasher.update(&other_der);
-                    let other_fingerprint: String = other_hasher
-                        .finalize()
-                        .iter()
-                        .map(|byte| format!("{byte:02X}"))
-                        .collect::<Vec<_>>()
-                        .join(":");
-                    if fingerprint == other_fingerprint {
-                        return true;
-                    }
+                    return true;
                 }
             }
         }
@@ -254,6 +236,74 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
     }
 
     false
+}
+
+/// Split a PEM blob into individual `BEGIN/END CERTIFICATE` blocks and return
+/// the SHA-1 fingerprint of each DER-encoded certificate. A PEM file may contain
+/// several concatenated certificates (a CA bundle); fingerprinting each
+/// separately is required to match against single-certificate inputs (M9).
+#[cfg(target_os = "linux")]
+fn pem_sha1_fingerprints(pem: &str) -> Vec<String> {
+    use base64::Engine;
+    use sha1::{Digest, Sha1};
+
+    // Collect base64 lines per block delimited by BEGIN/END CERTIFICATE fences.
+    // This is more robust than stripping all fence lines at once (which would
+    // concatenate every cert's base64 into one blob).
+    let mut fingerprints = Vec::new();
+    let mut in_block = false;
+    let mut b64 = String::new();
+
+    for line in pem.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("-----BEGIN CERTIFICATE-----") {
+            in_block = true;
+            b64.clear();
+        } else if trimmed.starts_with("-----END CERTIFICATE-----") {
+            if in_block {
+                if let Ok(der) = base64::engine::general_purpose::STANDARD
+                    .decode(b64.replace(['\n', '\r'], ""))
+                {
+                    let mut hasher = Sha1::new();
+                    hasher.update(&der);
+                    let fingerprint: String = hasher
+                        .finalize()
+                        .iter()
+                        .map(|byte| format!("{byte:02X}"))
+                        .collect::<Vec<_>>()
+                        .join(":");
+                    fingerprints.push(fingerprint);
+                }
+            }
+            in_block = false;
+            b64.clear();
+        } else if in_block {
+            b64.push_str(trimmed);
+        }
+    }
+
+    // Fallback: if the file had no recognized BEGIN/END fences (some distros
+    // store a bare base64 DER), treat the whole content as one certificate.
+    if fingerprints.is_empty() {
+        let raw_b64: String = pem
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with("-----") && !line.is_empty())
+            .collect();
+        if let Ok(der) = base64::engine::general_purpose::STANDARD.decode(raw_b64) {
+            let mut hasher = Sha1::new();
+            hasher.update(&der);
+            let fingerprint: String = hasher
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(":");
+            fingerprints.push(fingerprint);
+        }
+    }
+
+    fingerprints
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -330,5 +380,38 @@ mod tests {
         assert_eq!(thumbprint.len(), 40);
         assert!(thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_eq!(thumbprint, thumbprint.to_ascii_uppercase());
+    }
+
+    // M9: a multi-certificate PEM bundle (e.g. Debian/Ubuntu
+    // `/etc/ssl/certs/ca-certificates.crt`) must fingerprint EACH cert
+    // separately so a single target cert is matched even when concatenated with
+    // hundreds of others. Previously the whole bundle's base64 was concatenated
+    // and hashed as one blob, which never matched any single certificate.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pem_bundle_fingerprints_each_certificate() {
+        let cert_a = crate::RootCaPair::generate().unwrap();
+        let cert_b = crate::RootCaPair::generate().unwrap();
+
+        // Build a bundle with two unrelated certs, A then B.
+        let bundle = format!(
+            "{}{}",
+            cert_a.cert_pem(),
+            cert_b.cert_pem()
+        );
+        let bundle_fps = pem_sha1_fingerprints(&bundle);
+        assert_eq!(
+            bundle_fps.len(),
+            2,
+            "a 2-cert bundle must yield exactly 2 fingerprints"
+        );
+
+        // Each cert's standalone fingerprint must appear in the bundle's set.
+        let single_a = pem_sha1_fingerprints(&cert_a.cert_pem());
+        let single_b = pem_sha1_fingerprints(&cert_b.cert_pem());
+        assert_eq!(single_a.len(), 1);
+        assert_eq!(single_b.len(), 1);
+        assert!(bundle_fps.contains(&single_a[0]));
+        assert!(bundle_fps.contains(&single_b[0]));
     }
 }

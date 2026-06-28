@@ -108,6 +108,50 @@ pub struct WsFrame {
 }
 
 // ---------------------------------------------------------------------------
+// Message reassembly (M1)
+//
+// A WebSocket message may be split across multiple frames: one start frame
+// (opcode Text/Binary, FIN=0) followed by zero or more Continuation frames
+// (opcode Continuation) and a final frame with FIN=1. Decoding each fragment
+// independently as UTF-8 fails whenever a multibyte code point straddles a
+// fragment boundary, and even on success it surfaces a partial fragment as if
+// it were a complete message. `WsMessageAssembler` accumulates fragments per
+// direction and emits a single `WsMessageData` for the whole message once the
+// FIN frame arrives (control frames are never fragmented and pass through
+// one-frame-per-message as before).
+// ---------------------------------------------------------------------------
+
+/// Cap on how many bytes a reassembled message may accumulate before we stop
+/// buffering. Matches the captured-body ceiling used elsewhere; protects the
+/// relay from a peer that fragments forever.
+const MAX_REASSEMBLED_MESSAGE_BYTES: usize = 20 * 1024 * 1024;
+
+/// State for reassembling a fragmented WebSocket message on one direction.
+/// Control frames (Close/Ping/Pong) are emitted immediately and never touch
+/// this state (they are always FIN=1 per RFC 6455 §5.5).
+struct WsMessageAssembler {
+    /// `Some(opcode)` when a fragmented message is in progress (opcode of the
+    /// START frame); `None` when idle.
+    start_opcode: Option<WsOpcode>,
+    buffer: Vec<u8>,
+}
+
+impl WsMessageAssembler {
+    const fn new() -> Self {
+        Self {
+            start_opcode: None,
+            buffer: Vec::new(),
+        }
+    }
+
+    /// Reset to idle (used on protocol violations / mid-message stream end).
+    fn reset(&mut self) {
+        self.start_opcode = None;
+        self.buffer.clear();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Frame parsing (reading from async stream)
 // ---------------------------------------------------------------------------
 
@@ -348,17 +392,43 @@ impl WsDirection {
 }
 
 /// Build a WsMessageData from a parsed frame.
+///
+/// NOTE: this decodes the frame as a self-contained message. For a fragmented
+/// message (Text/Binary start frame + Continuation frames) the relay uses
+/// [`assemble_ws_message`] instead so that the text is decoded from the full
+/// reassembled payload, not per-fragment (M1). This direct constructor remains
+/// the right choice for control frames and for injected frames (which carry
+/// their own start/FIN semantics).
 pub fn build_ws_message(
     session_id: &str,
     direction: WsDirection,
     frame: &WsFrame,
 ) -> WsMessageData {
-    let payload_text = if frame.opcode == WsOpcode::Text || frame.opcode == WsOpcode::Continuation {
-        String::from_utf8(frame.payload.clone()).ok()
-    } else if frame.opcode == WsOpcode::Close && !frame.payload.is_empty() {
+    build_ws_message_raw(
+        session_id,
+        direction,
+        frame.opcode,
+        &frame.payload,
+        frame.fin,
+    )
+}
+
+/// Build a `WsMessageData` from explicit opcode/payload/fin. Shared by the
+/// per-frame constructor ([`build_ws_message`]) and the reassembled-message
+/// path ([`assemble_ws_message`]).
+fn build_ws_message_raw(
+    session_id: &str,
+    direction: WsDirection,
+    opcode: WsOpcode,
+    payload: &[u8],
+    fin: bool,
+) -> WsMessageData {
+    let payload_text = if opcode == WsOpcode::Text {
+        String::from_utf8(payload.to_vec()).ok()
+    } else if opcode == WsOpcode::Close && !payload.is_empty() {
         // Close frame: first 2 bytes are status code, rest is reason
-        if frame.payload.len() > 2 {
-            String::from_utf8(frame.payload[2..].to_vec()).ok()
+        if payload.len() > 2 {
+            String::from_utf8(payload[2..].to_vec()).ok()
         } else {
             None
         }
@@ -371,10 +441,101 @@ pub fn build_ws_message(
         session_id: session_id.to_string(),
         direction: direction.label().to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
-        opcode: frame.opcode.label().to_string(),
+        opcode: opcode.label().to_string(),
         payload_text,
-        payload_size: frame.payload.len(),
-        fin: frame.fin,
+        payload_size: payload.len(),
+        fin,
+    }
+}
+
+/// Feed one data frame into the assembler and return the reassembled message to
+/// emit, if any.
+///
+/// - A START frame (Text/Binary) with FIN=1 → emit immediately (single-frame
+///   message; the common case).
+/// - A START frame with FIN=0 → begin buffering; emit nothing.
+/// - A Continuation frame with FIN=0 → append; emit nothing.
+/// - A Continuation frame with FIN=1 → append and emit the whole message using
+///   the START frame's opcode (so a fragmented Text message decodes as Text).
+///
+/// Protocol violations (a Continuation with no message in progress, a START
+/// frame while a message is in progress, or exceeding the reassembly cap) reset
+/// the assembler and emit a best-effort single-frame message for the offending
+/// frame so the capture is not silently dropped.
+fn assemble_ws_message(
+    session_id: &str,
+    direction: WsDirection,
+    frame: &WsFrame,
+    assembler: &mut WsMessageAssembler,
+) -> WsMessageData {
+    // Control frames are never fragmented: emit one-frame-per-message and do
+    // not touch the in-progress reassembly (RFC 6455 §5.4 allows control frames
+    // to be interleaved between data fragments).
+    if frame.opcode.is_control() {
+        return build_ws_message(session_id, direction, frame);
+    }
+
+    match frame.opcode {
+        WsOpcode::Text | WsOpcode::Binary => {
+            if assembler.start_opcode.is_some() {
+                // A new START frame arrived mid-message: protocol violation.
+                // Reset and emit this frame standalone.
+                tracing::warn!(
+                    event = "ws_fragment_unexpected_start",
+                    session_id = %session_id,
+                    "ws_fragment_unexpected_start"
+                );
+                assembler.reset();
+                return build_ws_message(session_id, direction, frame);
+            }
+            if frame.fin {
+                // Unfragmented message: emit directly, no buffering needed.
+                return build_ws_message(session_id, direction, frame);
+            }
+            // Fragmented start: begin buffering.
+            assembler.start_opcode = Some(frame.opcode);
+            assembler.buffer.clear();
+            if frame.payload.len() <= MAX_REASSEMBLED_MESSAGE_BYTES {
+                assembler.buffer.extend_from_slice(&frame.payload);
+            }
+            // Emit an intermediate capture so the UI shows the fragment with
+            // FIN=false; the final reassembled message is emitted on FIN.
+            build_ws_message(session_id, direction, frame)
+        }
+        WsOpcode::Continuation => {
+            let Some(start_opcode) = assembler.start_opcode else {
+                // Continuation without a start frame: protocol violation.
+                tracing::warn!(
+                    event = "ws_fragment_continuation_without_start",
+                    session_id = %session_id,
+                    "ws_fragment_continuation_without_start"
+                );
+                return build_ws_message(session_id, direction, frame);
+            };
+            if assembler.buffer.len() + frame.payload.len()
+                <= MAX_REASSEMBLED_MESSAGE_BYTES
+            {
+                assembler.buffer.extend_from_slice(&frame.payload);
+            }
+            if frame.fin {
+                // Final fragment: emit the whole reassembled message under the
+                // START frame's opcode so multi-byte UTF-8 decodes correctly.
+                let message = build_ws_message_raw(
+                    session_id,
+                    direction,
+                    start_opcode,
+                    &assembler.buffer,
+                    true,
+                );
+                assembler.reset();
+                message
+            } else {
+                // Intermediate continuation: emit the fragment with FIN=false.
+                build_ws_message(session_id, direction, frame)
+            }
+        }
+        // Control frames were handled above; this is unreachable.
+        _ => build_ws_message(session_id, direction, frame),
     }
 }
 
@@ -411,9 +572,16 @@ pub enum WsConnectionStatus {
 }
 
 struct WsConnectionEntry {
-    inject_sender: mpsc::UnboundedSender<WsInjectRequest>,
+    inject_sender: mpsc::Sender<WsInjectRequest>,
     status: WsConnectionStatus,
 }
+
+/// Capacity of the per-session WS inject channel (M5). Bounded so a fast or
+/// misbehaving injector cannot drive the relay task's memory without
+/// backpressure. 64 frames is ample headroom for interactive replay; an inject
+/// that would overflow returns a clear error to the caller instead of queuing
+/// indefinitely.
+pub(crate) const WS_INJECT_CHANNEL_CAPACITY: usize = 64;
 
 /// Global registry of active WS connections, keyed by session_id.
 pub struct WsConnectionRegistry {
@@ -433,7 +601,7 @@ impl WsConnectionRegistry {
         }
     }
 
-    pub fn register(&self, session_id: String, sender: mpsc::UnboundedSender<WsInjectRequest>) {
+    pub fn register(&self, session_id: String, sender: mpsc::Sender<WsInjectRequest>) {
         let mut map = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         if map.contains_key(&session_id) {
             tracing::warn!(
@@ -484,10 +652,13 @@ impl WsConnectionRegistry {
                 session_id
             )));
         }
-        entry
-            .inject_sender
-            .send(request)
-            .map_err(|e| ProxyError::Other(format!("Failed to inject frame: {:?}", e)))
+        // M5: `try_send` is non-blocking and returns a clear error when the
+        // bounded inject channel is full, instead of growing it without bound.
+        // A full queue means the relay is draining slower than injects arrive;
+        // surface that to the caller rather than buffering unbounded memory.
+        entry.inject_sender.try_send(request).map_err(|e| {
+            ProxyError::Other(format!("Failed to inject frame: {e}"))
+        })
     }
 }
 
@@ -541,13 +712,18 @@ pub async fn relay_websocket_frames<C, U>(
     upstream_stream: &mut U,
     session_id: &str,
     ws_sender: &mpsc::Sender<WsMessageData>,
-    inject_rx: &mut mpsc::UnboundedReceiver<WsInjectRequest>,
+    inject_rx: &mut mpsc::Receiver<WsInjectRequest>,
 ) where
     C: AsyncReadExt + AsyncWriteExt + Unpin,
     U: AsyncReadExt + AsyncWriteExt + Unpin,
 {
     let mut client_done = false;
     let mut upstream_done = false;
+    // Per-direction message reassembly (M1): accumulate fragmented Text/Binary
+    // messages so the final FIN frame decodes the whole payload as one message
+    // instead of decoding each Continuation fragment in isolation.
+    let mut client_assembler = WsMessageAssembler::new();
+    let mut upstream_assembler = WsMessageAssembler::new();
     // Once the injection channel is closed it will keep returning `None`, which
     // would busy-spin the select! loop. Track it so we stop polling it.
     let mut inject_closed = false;
@@ -607,7 +783,12 @@ pub async fn relay_websocket_frames<C, U>(
             } => {
                 match client_result {
                     Some(Ok(frame)) => {
-                        let msg = build_ws_message(session_id, WsDirection::ClientToServer, &frame);
+                        let msg = assemble_ws_message(
+                            session_id,
+                            WsDirection::ClientToServer,
+                            &frame,
+                            &mut client_assembler,
+                        );
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
@@ -665,7 +846,12 @@ pub async fn relay_websocket_frames<C, U>(
             } => {
                 match upstream_result {
                     Some(Ok(frame)) => {
-                        let msg = build_ws_message(session_id, WsDirection::ServerToClient, &frame);
+                        let msg = assemble_ws_message(
+                            session_id,
+                            WsDirection::ServerToClient,
+                            &frame,
+                            &mut upstream_assembler,
+                        );
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
@@ -784,6 +970,103 @@ mod tests {
         assert_eq!(msg.payload_size, 11);
         assert!(msg.fin);
         assert_eq!(msg.direction, "clientToServer");
+    }
+
+    // M1: a fragmented Text message split across a multi-byte UTF-8 boundary
+    // must be reassembled and decoded as a single message. Per-fragment decoding
+    // would fail (the fragment straddling the code point is invalid UTF-8) and
+    // yield payload_text = None.
+    #[test]
+    fn reassembles_fragmented_text_across_multibyte_boundary() {
+        let mut assembler = WsMessageAssembler::new();
+        // "héllo" — 'é' is U+00E9, encoded as 0xC3 0xA9 (2 bytes).
+        let full = "héllo";
+        let bytes = full.as_bytes();
+        // Split inside the multi-byte sequence: [h, 0xC3] | [0xA9, l, l, o]
+        let frag1 = &bytes[..2]; // "h" + first byte of é — invalid UTF-8 alone
+        let frag2 = &bytes[2..]; // second byte of é + "llo" — invalid UTF-8 alone
+
+        let start = WsFrame {
+            fin: false,
+            opcode: WsOpcode::Text,
+            mask: false,
+            payload: frag1.to_vec(),
+        };
+        let intermediate = assemble_ws_message(
+            "sess-1",
+            WsDirection::ServerToClient,
+            &start,
+            &mut assembler,
+        );
+        // Start fragment (FIN=false): emitted standalone; its bytes are not
+        // valid UTF-8 so payload_text is None — that's expected for a fragment.
+        assert!(!intermediate.fin);
+        assert_eq!(intermediate.payload_text, None);
+
+        let cont = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Continuation,
+            mask: false,
+            payload: frag2.to_vec(),
+        };
+        let final_msg =
+            assemble_ws_message("sess-1", WsDirection::ServerToClient, &cont, &mut assembler);
+
+        // The FIN frame carries the fully reassembled, correctly-decoded message.
+        assert!(final_msg.fin);
+        assert_eq!(final_msg.opcode, "text");
+        assert_eq!(final_msg.payload_text, Some(full.to_string()));
+        assert_eq!(final_msg.payload_size, full.len());
+        // Assembler returned to idle.
+        assert!(assembler.start_opcode.is_none());
+    }
+
+    // M1: a single (unfragmented) Text frame still emits directly with no
+    // buffering — the common case must not regress.
+    #[test]
+    fn unfragmented_text_emits_directly() {
+        let mut assembler = WsMessageAssembler::new();
+        let frame = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Text,
+            mask: false,
+            payload: b"hello".to_vec(),
+        };
+        let msg = assemble_ws_message("sess-1", WsDirection::ClientToServer, &frame, &mut assembler);
+        assert!(msg.fin);
+        assert_eq!(msg.payload_text, Some("hello".to_string()));
+        assert!(assembler.start_opcode.is_none());
+        assert!(assembler.buffer.is_empty());
+    }
+
+    // M1: control frames (Close) are never fragmented and pass through
+    // unchanged even while a data message is mid-reassembly.
+    #[test]
+    fn control_frame_passes_through_during_fragmentation() {
+        let mut assembler = WsMessageAssembler::new();
+        // Start a fragmented Text message.
+        let start = WsFrame {
+            fin: false,
+            opcode: WsOpcode::Text,
+            mask: false,
+            payload: b"part1".to_vec(),
+        };
+        let _ = assemble_ws_message("sess-1", WsDirection::ServerToClient, &start, &mut assembler);
+        assert!(assembler.start_opcode.is_some());
+
+        // A Close frame arrives interleaved — must emit standalone and NOT reset
+        // the in-progress data reassembly.
+        let close = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Close,
+            mask: false,
+            payload: vec![0x03, 0xE8], // 1000
+        };
+        let close_msg =
+            assemble_ws_message("sess-1", WsDirection::ServerToClient, &close, &mut assembler);
+        assert_eq!(close_msg.opcode, "close");
+        // Reassembly state is untouched by the control frame.
+        assert!(assembler.start_opcode.is_some());
     }
 
     #[test]
@@ -975,7 +1258,7 @@ mod tests {
         upstream_outer.shutdown().await.unwrap();
 
         let (tx, mut rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -1026,7 +1309,7 @@ mod tests {
         client_outer.shutdown().await.unwrap();
 
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -1061,7 +1344,7 @@ mod tests {
         upstream_outer.shutdown().await.unwrap();
 
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -1115,7 +1398,7 @@ mod tests {
         upstream_outer.shutdown().await.unwrap();
 
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -1169,7 +1452,7 @@ mod tests {
         upstream_outer.write_all(&buf).await.unwrap();
 
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         // Outer bound well beyond the 150ms grace, far short of the 30s frame
         // read timeout a hung relay would hit.
@@ -1222,7 +1505,7 @@ mod tests {
         // OWN shutdown of the upstream writer is observable.
 
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
-        let mut inject_rx = mpsc::unbounded_channel::<WsInjectRequest>().1;
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
         // The relay will: forward Close to upstream, shutdown upstream writer,
         // arm grace. Since neither side ever EOFs naturally (both outer halves

@@ -278,8 +278,13 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             }
         };
 
-    // Parse status code and headers from the upstream response.
-    let (status_code, upstream_headers) = match parse_upstream_response_head(&response_head) {
+    // Parse status code and headers from the upstream response. M4: use a lossy
+    // decode — HTTP header field values are opaque octets (obs-text / Latin-1
+    // are legal), and a strict UTF-8 requirement turned any non-UTF-8 byte into
+    // a synthetic error that broke otherwise-valid 101 upgrades. Status parsing
+    // and header names are ASCII, so lossy decoding is safe here.
+    let response_head_lossy = String::from_utf8_lossy(&response_head);
+    let (status_code, upstream_headers) = match parse_upstream_response_head(&response_head_lossy) {
         Ok(r) => r,
         Err(e) => {
             return Ok(send_ws_upstream_error_session(
@@ -489,8 +494,9 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     // Response built successfully — NOW register, send session, and spawn relay.
     // This ordering ensures no dangling registry entries or duplicate sessions
     // if response construction fails.
-    let (inject_tx, mut inject_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
+    let (inject_tx, mut inject_rx) = tokio::sync::mpsc::channel::<crate::ws::WsInjectRequest>(
+        crate::ws::WS_INJECT_CHANNEL_CAPACITY,
+    );
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
 

@@ -168,59 +168,162 @@ pub(crate) async fn forward_request(
             tls_ms: None,
             alpn_protocol: Some("h2".to_string()),
         });
-        let http_req = if request.body.is_empty() {
-            http_req_builder
-                .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
-                    http_body_util::Empty::new()
-                        .map_err(|_: std::convert::Infallible| unreachable!())
-                        .boxed(),
-                )
-                .map_err(|e| {
-                    ProxyError::UpstreamError(format!("failed to build upstream request: {e}"))
-                })?
-        } else {
-            http_req_builder
-                .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
-                    http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
-                        .map_err(|_: std::convert::Infallible| unreachable!())
-                        .boxed(),
-                )
-                .map_err(|e| {
-                    ProxyError::UpstreamError(format!("failed to build upstream request body: {e}"))
-                })?
+
+        // Factory that rebuilds the h2 request from scratch each call, so it can
+        // be used for both the initial send and a single retry (M3). The h1
+        // branch below still uses the shared `http_req_builder` since it sends
+        // exactly once.
+        let build_h2_req = || -> Result<http::Request<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, ProxyError> {
+            let mut builder = http::Request::builder()
+                .method(request.method.clone())
+                .uri(&request_target);
+            for (name, value) in &request.headers {
+                if let Ok(v) = value.to_str() {
+                    builder = builder.header(name.as_str(), v);
+                }
+            }
+            let host_header = match request.url.port() {
+                Some(port) => format!("{}:{port}", request.host),
+                None => request.host.clone(),
+            };
+            builder = builder.header("host", &host_header);
+            if request.body.is_empty() {
+                builder
+                    .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
+                        http_body_util::Empty::new()
+                            .map_err(|_: std::convert::Infallible| unreachable!())
+                            .boxed(),
+                    )
+                    .map_err(|e| {
+                        ProxyError::UpstreamError(format!("failed to build upstream request: {e}"))
+                    })
+            } else {
+                builder
+                    .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
+                        http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
+                            .map_err(|_: std::convert::Infallible| unreachable!())
+                            .boxed(),
+                    )
+                    .map_err(|e| {
+                        ProxyError::UpstreamError(format!(
+                            "failed to build upstream request body: {e}"
+                        ))
+                    })
+            }
+        };
+
+        let pool_key = crate::upstream_pool::UpstreamKey {
+            host: request.host.clone(),
+            port: request.url.port().unwrap_or(443),
         };
 
         // send_request + read
         let waiting_started_at = Instant::now();
-        let response = match h2_sender.send_request(http_req).await {
+        let response = match h2_sender.send_request(build_h2_req()?).await {
             Ok(r) => r,
             Err(error) => {
-                // Evict stale connection from pool and report failure.
+                // M3: the pooled connection is likely half-open (the local side
+                // hasn't observed the peer's RST/FIN). Evict it. For safe/
+                // idempotent methods we also retry ONCE on a freshly established
+                // pooled connection so a stale pooled entry doesn't surface as a
+                // spurious 502 for the first request after an idle period. We do
+                // NOT retry non-idempotent methods (POST/PUT/PATCH) because the
+                // upstream may already be processing the original request even
+                // though the stream errored.
                 if let Some(ref p) = pool {
-                    let key = crate::upstream_pool::UpstreamKey {
-                        host: request.host.clone(),
-                        port: request.url.port().unwrap_or(443),
-                    };
-                    p.evict_key(&key).await;
+                    p.evict_key(&pool_key).await;
                 }
-                tracing::error!(
-                    event = "upstream_request_send_failed",
+                let is_idempotent = matches!(
+                    request.method.as_ref(),
+                    "GET" | "HEAD" | "OPTIONS" | "DELETE" | "TRACE"
+                );
+                if !is_idempotent {
+                    tracing::error!(
+                        event = "upstream_request_send_failed",
+                        request_id = %request.request_id,
+                        method = %request.method,
+                        scheme = %request.url.scheme(),
+                        host = %request.host,
+                        url = %request.url,
+                        error = %error,
+                        "upstream_request_send_failed"
+                    );
+                    return Err(ProxyError::UpstreamError(format!(
+                        "failed to send upstream h2 request: {error}"
+                    )));
+                }
+                tracing::warn!(
+                    event = "upstream_request_send_failed_retrying",
                     request_id = %request.request_id,
                     method = %request.method,
-                    scheme = %request.url.scheme(),
                     host = %request.host,
                     url = %request.url,
                     error = %error,
-                    "upstream_request_send_failed"
+                    "upstream_request_send_failed_retrying"
                 );
-                return Err(ProxyError::UpstreamError(format!(
-                    "failed to send upstream h2 request: {error}"
-                )));
+                let retry_sender = match pool
+                    .as_ref()
+                    .map(|p| p.get_or_connect(&pool_key, dns_override_ip))
+                {
+                    Some(fut) => fut.await.map_err(|e| {
+                        ProxyError::UpstreamError(format!(
+                            "failed to reconnect on retry: {e}"
+                        ))
+                    })?,
+                    None => None,
+                };
+                match retry_sender {
+                    Some((mut fresh_sender, _)) => match fresh_sender
+                        .send_request(build_h2_req()?)
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(retry_error) => {
+                            if let Some(ref p) = pool {
+                                p.evict_key(&pool_key).await;
+                            }
+                            return Err(ProxyError::UpstreamError(format!(
+                                "failed to send upstream h2 request after retry: {retry_error}"
+                            )));
+                        }
+                    },
+                    None => {
+                        return Err(ProxyError::UpstreamError(format!(
+                            "failed to send upstream h2 request: {error}"
+                        )));
+                    }
+                }
             }
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-        return build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
+        // Read the response body. M2: a body-read error mid-stream (RST_STREAM,
+        // the pooled connection dying during the body) must also evict the key —
+        // otherwise the next request to this host reuses the now-broken pooled
+        // connection and fails again. (On the h1 path every request gets a fresh
+        // connection, so this only matters for the pooled h2 path.)
+        let result =
+            build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
+        if let Err(error) = &result {
+            if let Some(ref p) = pool {
+                let key = crate::upstream_pool::UpstreamKey {
+                    host: request.host.clone(),
+                    port: request.url.port().unwrap_or(443),
+                };
+                p.evict_key(&key).await;
+            }
+            tracing::error!(
+                event = "upstream_response_read_failed",
+                request_id = %request.request_id,
+                method = %request.method,
+                scheme = %request.url.scheme(),
+                host = %request.host,
+                url = %request.url,
+                error = %error,
+                "upstream_response_read_failed"
+            );
+        }
+        return result;
     } else {
         // h1 path — establish a new connection per request.
         let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);

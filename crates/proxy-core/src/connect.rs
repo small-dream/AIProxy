@@ -1,5 +1,4 @@
 use super::*;
-use crate::server::PrefixedStream;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 
 // ---------------------------------------------------------------------------
@@ -268,237 +267,22 @@ async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
     }
 }
 
-/// Handle WebSocket upgrade for plain HTTP (ws://) connections.
-/// Opens a raw TCP connection to upstream, sends the upgrade request, reads the 101 response,
-/// writes it back to the client, then enters bidirectional frame relay.
-///
-/// Handle WebSocket upgrade for HTTPS (wss://) connections via MITM.
-/// Opens a raw TLS connection to upstream, sends the upgrade request, reads the 101 response,
-/// writes it back to the client, then enters bidirectional frame relay.
-#[allow(dead_code)]
-#[allow(clippy::too_many_arguments)]
-async fn handle_https_websocket_upgrade<S: AsyncReadExt + AsyncWriteExt + Unpin>(
-    client_stream: &mut S,
-    request: &ParsedProxyRequest,
-    session_sender: &mpsc::Sender<ProxySessionDetail>,
-    ws_message_sender: &mpsc::Sender<crate::ws::WsMessageData>,
-    started_at: DateTime<Utc>,
-    started_at_instant: Instant,
-    tls_ms: u128,
-    dns_manager: &Option<Arc<DnsManager>>,
-    workspace_id: &str,
-) -> Result<(), String> {
-    let port = request.url.port().unwrap_or(443);
-    let host_port = format!("{}:{}", request.host, port);
-    let connect_host = match resolve_dns_override(dns_manager, workspace_id, &request.host) {
-        Some(ip) => {
-            tracing::info!(
-                event = "dns_override_wss",
-                host = %request.host,
-                override_ip = %ip,
-                "dns_override_wss"
-            );
-            ip.to_string()
-        }
-        None => request.host.clone(),
-    };
-    let connect_host_port = format!("{}:{}", connect_host, port);
-
-    tracing::debug!(
-        event = "wss_connecting_upstream",
-        request_id = %request.request_id,
-        host_port = %host_port,
-        "wss_connecting_upstream"
-    );
-
-    let ws_tcp = TcpStream::connect(&*connect_host_port).await.map_err(|e| {
-        tracing::error!(
-            event = "wss_upstream_connect_failed",
-            request_id = %request.request_id,
-            host_port = %host_port,
-            error = %e,
-            "wss_upstream_connect_failed"
-        );
-        format!("wss upstream connect: {e}")
-    })?;
-
-    tracing::debug!(
-        event = "wss_tcp_connected",
-        request_id = %request.request_id,
-        "wss_tcp_connected"
-    );
-
-    let client_config = aiproxy_tls_manager::client::build_dangerous_client_config();
-    let tls_connector = tokio_rustls::TlsConnector::from(client_config);
-    let ws_host = request.host.clone();
-    let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(ws_host.clone())
-        .unwrap_or_else(|_| {
-            tokio_rustls::rustls::pki_types::ServerName::IpAddress(
-                std::net::Ipv4Addr::LOCALHOST.into(),
-            )
-        });
-
-    tracing::debug!(
-        event = "wss_starting_tls_handshake",
-        request_id = %request.request_id,
-        ws_host = %ws_host,
-        "wss_starting_tls_handshake"
-    );
-
-    let mut upstream = tls_connector.connect(dns_name, ws_tcp).await.map_err(|e| {
-        tracing::error!(
-            event = "wss_tls_handshake_failed",
-            request_id = %request.request_id,
-            ws_host = %ws_host,
-            error = %e,
-            "wss_tls_handshake_failed"
-        );
-        format!("wss upstream tls handshake: {e}")
-    })?;
-
-    tracing::debug!(
-        event = "wss_tls_connected",
-        request_id = %request.request_id,
-        "wss_tls_connected"
-    );
-
-    let raw_req = build_raw_upgrade_request(request)?;
-    tracing::debug!(
-        event = "wss_sending_upgrade",
-        request_id = %request.request_id,
-        raw_req_len = raw_req.len(),
-        "wss_sending_upgrade"
-    );
-    tracing::debug!(
-        event = "wss_raw_request",
-        request_id = %request.request_id,
-        raw_req = %raw_req,
-        "wss_raw_request"
-    );
-
-    upstream.write_all(raw_req.as_bytes()).await.map_err(|e| {
-        tracing::error!(
-            event = "wss_upgrade_send_failed",
-            request_id = %request.request_id,
-            error = %e,
-            "wss_upgrade_send_failed"
-        );
-        format!("wss upgrade send: {e}")
-    })?;
-
-    // Read the upstream 101 response and relay it to the client
-    let (response_head, response_prefix) = read_http_response_head(&mut upstream)
-        .await
-        .inspect_err(|e| {
-            tracing::error!(
-                event = "wss_read_response_head_failed",
-                request_id = %request.request_id,
-                error = %e,
-                "wss_read_response_head_failed"
-            );
-        })?;
-
-    tracing::debug!(
-        event = "wss_got_response_head",
-        request_id = %request.request_id,
-        response_head = %response_head,
-        "wss_got_response_head"
-    );
-
-    let status_line = response_head.lines().next().unwrap_or("");
-    let status_code: u16 = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(502);
-
-    tracing::info!(
-        event = "wss_upstream_status",
-        request_id = %request.request_id,
-        status_code = status_code,
-        "wss_upstream_status"
-    );
-
-    client_stream
-        .write_all(response_head.as_bytes())
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                event = "wss_write_to_client_failed",
-                request_id = %request.request_id,
-                error = %e,
-                "wss_write_to_client_failed"
-            );
-            format!("wss response write to client: {e}")
-        })?;
-    client_stream
-        .flush()
-        .await
-        .map_err(|e| format!("wss flush: {e}"))?;
-
-    tracing::info!(
-        event = "wss_entering_relay",
-        request_id = %request.request_id,
-        session_id = %request.request_id,
-        "wss_entering_relay"
-    );
-
-    let mut detail = build_session_detail(
-        request,
-        status_code,
-        &HeaderMap::new(),
-        &[],
-        0,
-        started_at,
-        started_at_instant,
-        ProxyTimingBreakdown {
-            connect_ms: None,
-            dns_ms: None,
-            request_send_ms: None,
-            response_read_ms: Some(0),
-            tls_ms: Some(tls_ms),
-            total_ms: Some(started_at_instant.elapsed().as_millis()),
-            waiting_ms: Some(0),
-        },
-        false,
-    );
-    detail.summary.protocol = "wss".to_string();
-    let protocol_metadata = infer_protocol_metadata(&detail.summary.protocol, &detail.summary.url);
-    detail.summary.scheme = protocol_metadata.scheme;
-    detail.summary.http_version = protocol_metadata.http_version;
-    detail.summary.transport_protocol = protocol_metadata.transport_protocol;
-    detail.summary.application_protocol = protocol_metadata.application_protocol;
-    detail.summary.response_mime_type = Some("websocket".to_string());
-    let session_id_for_relay = detail.id.clone();
-    if session_sender.send(detail).await.is_err() {
-        return Ok(());
-    }
-
-    let (inject_tx, mut inject_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::ws::WsInjectRequest>();
-    let registry = crate::ws::global_ws_registry();
-    registry.register(session_id_for_relay.clone(), inject_tx);
-
-    let mut upstream = PrefixedStream::new(response_prefix, &mut upstream);
-    crate::ws::relay_websocket_frames(
-        client_stream,
-        &mut upstream,
-        &session_id_for_relay,
-        ws_message_sender,
-        &mut inject_rx,
-    )
-    .await;
-
-    registry.mark_closed(&session_id_for_relay);
-    registry.unregister(&session_id_for_relay);
-    Ok(())
-}
 
 /// Read a complete HTTP response head (status line + headers) from a stream.
-/// Returns the full text including the trailing \r\n\r\n.
+/// Returns the raw head bytes (including the trailing \r\n\r\n) and any body
+/// bytes that followed in the same read.
+///
+/// M4: the head is returned as raw bytes (not a `String`) because HTTP header
+/// field values are opaque octets — obs-text / percent-encoded / Latin-1 are
+/// legal in the wild (e.g. a `Content-Disposition: filename=` with raw bytes, a
+/// Latin-1 status reason, or a non-ASCII `Sec-WebSocket-Protocol` echo). A strict
+/// `String::from_utf8` here turned any such byte into a hard error that the WS
+/// upgrade path converted into a synthetic 502, even for a perfectly valid 101.
+/// Callers that need text (status parsing, logging) should use
+/// `String::from_utf8_lossy`; the raw bytes are forwarded to the client verbatim.
 pub(crate) async fn read_http_response_head<R: AsyncReadExt + Unpin>(
     reader: &mut R,
-) -> Result<(String, Vec<u8>), String> {
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let mut buf = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = [0u8; READ_BUFFER_BYTES];
 
@@ -522,32 +306,9 @@ pub(crate) async fn read_http_response_head<R: AsyncReadExt + Unpin>(
             let body_start = header_end + 4;
             let head = buf[..body_start].to_vec();
             let prefix = buf[body_start..].to_vec();
-            let head = String::from_utf8(head).map_err(|e| format!("response head utf8: {e}"))?;
             return Ok((head, prefix));
         }
     }
-}
-
-/// Build a raw HTTP upgrade request string for WebSocket relay.
-fn build_raw_upgrade_request(request: &ParsedProxyRequest) -> Result<String, String> {
-    let path = build_request_path(&request.url);
-    let mut raw = format!("{} {} HTTP/1.1\r\n", request.method, path,);
-
-    // Re-inject Host header because build_upstream_headers strips it as hop-by-hop.
-    let host_with_port = match request.url.port() {
-        Some(port) => format!("{}:{}", request.host, port),
-        None => request.host.clone(),
-    };
-    raw.push_str(&format!("Host: {}\r\n", host_with_port));
-
-    for (name, value) in &request.headers {
-        if name.as_str().eq_ignore_ascii_case("host") {
-            continue;
-        }
-        raw.push_str(&format!("{}: {}\r\n", name, value.to_str().unwrap_or("")));
-    }
-    raw.push_str("\r\n");
-    Ok(raw)
 }
 
 /// HTTPS MITM: terminate TLS, capture decrypted traffic, forward upstream.
@@ -715,4 +476,38 @@ fn format_tls_cipher_suite(suite: tokio_rustls::rustls::CipherSuite) -> String {
         .or_else(|| suite_name.strip_prefix("TLS12_"))
         .unwrap_or(&suite_name)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // M4: `read_http_response_head` must accept a head containing non-UTF-8
+    // bytes (legal HTTP obs-text in header values) and return the raw bytes
+    // rather than erroring. Previously a strict String::from_utf8 turned any
+    // such byte into a hard error that broke valid 101 WS upgrades.
+    #[tokio::test]
+    async fn read_response_head_accepts_non_utf8_header_bytes() {
+        // A 101 with a header value containing a raw 0xE9 byte (Latin-1 'é'),
+        // which is invalid UTF-8 on its own.
+        let input: &[u8] = b"HTTP/1.1 101 Switching Protocols\r\n\
+                             Sec-WebSocket-Protocol: chat-\xE9\r\n\
+                             Upgrade: websocket\r\n\
+                             \r\n";
+        let (head, prefix) = read_http_response_head(&mut &input[..]).await.unwrap();
+
+        // Raw bytes are preserved verbatim.
+        assert!(head.starts_with(b"HTTP/1.1 101"));
+        assert!(head.contains(&0xE9), "raw non-UTF-8 byte must be preserved");
+        assert!(head.ends_with(b"\r\n\r\n"));
+        assert!(prefix.is_empty(), "no body bytes in this input");
+    }
+
+    #[tokio::test]
+    async fn read_response_head_returns_leftover_body_bytes() {
+        let input: &[u8] = b"HTTP/1.1 101 Switching Protocols\r\n\r\nextra-body-bytes";
+        let (head, prefix) = read_http_response_head(&mut &input[..]).await.unwrap();
+        assert!(head.ends_with(b"\r\n\r\n"));
+        assert_eq!(prefix, b"extra-body-bytes");
+    }
 }

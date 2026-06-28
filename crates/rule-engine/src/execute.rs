@@ -4,13 +4,96 @@ use rquickjs::{
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
 
 use crate::js_bridge::SCRIPT_HOST_BRIDGE;
 use crate::types::*;
+
+/// Maximum number of script hook executions that may run concurrently.
+///
+/// Each script hook spawns an OS thread that owns a full QuickJS runtime
+/// (16MB heap). Without a cap, N concurrent in-flight requests × M matched
+/// script rules could spawn an unbounded number of threads and exhaust the
+/// process thread/fd limit or memory. This gate bounds the live script threads
+/// regardless of incoming request volume (the proxy's connection semaphore only
+/// limits sockets, not script threads). Callers that cannot acquire a permit in
+/// time fail-open with a RuntimeError trace rather than spawning past the cap.
+const MAX_CONCURRENT_SCRIPT_THREADS: usize = 64;
+
+/// How long to wait for a free script slot before failing the hook open.
+/// Kept at the script timeout so a steady burst can drain without spuriously
+/// rejecting hooks that would have completed in time.
+const SCRIPT_SLOT_ACQUIRE_TIMEOUT: Duration = SCRIPT_EXECUTION_TIMEOUT;
+
+/// A permit-based concurrency gate for script hook execution (see
+/// [`MAX_CONCURRENT_SCRIPT_THREADS`]). Implemented with a Mutex + Condvar so it
+/// can be acquired from the synchronous `execute_hook` path (which runs inside
+/// the async proxy task) without pulling in an async semaphore dependency.
+struct ScriptConcurrencyGate {
+    available: Mutex<usize>,
+    not_empty: Condvar,
+}
+
+impl ScriptConcurrencyGate {
+    const fn new() -> Self {
+        Self {
+            available: Mutex::new(MAX_CONCURRENT_SCRIPT_THREADS),
+            not_empty: Condvar::new(),
+        }
+    }
+
+    /// Block until a permit is available or `deadline`. Returns a guard whose
+    /// `Drop` returns the permit to the pool, or `None` if the deadline elapsed.
+    fn acquire(&self, deadline: Instant) -> Option<ScriptPermitGuard<'_>> {
+        // Mutex poisoned: a prior thread panicked while holding a permit. Recover
+        // by treating the pool as one slot emptier (the panicked thread leaked
+        // its slot) and proceeding rather than deadlocking. Re-locking on poison
+        // is safe because we only ever decrement under the lock we hold.
+        let mut guard = self.available.lock().unwrap_or_else(|e| e.into_inner());
+        while *guard == 0 {
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            let lock_result = self.not_empty.wait_timeout(guard, deadline - now);
+            let (next_guard, wait_result) = match lock_result {
+                Ok(pair) => pair,
+                // Poisoned again during wake: treat as immediately available to
+                // avoid an infinite poison-loop, then decrement below.
+                Err(poison) => {
+                    let (g, _w) = poison.into_inner();
+                    guard = g;
+                    break;
+                }
+            };
+            guard = next_guard;
+            if wait_result.timed_out() && *guard == 0 {
+                return None;
+            }
+        }
+        *guard = guard.saturating_sub(1);
+        Some(ScriptPermitGuard { gate: self })
+    }
+}
+
+struct ScriptPermitGuard<'a> {
+    gate: &'a ScriptConcurrencyGate,
+}
+
+impl Drop for ScriptPermitGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.gate.available.lock() {
+            *guard = guard.saturating_add(1);
+        }
+        self.gate.not_empty.notify_one();
+    }
+}
+
+/// Process-wide gate. `static` is fine: the gate holds no per-request state.
+static SCRIPT_GATE: ScriptConcurrencyGate = ScriptConcurrencyGate::new();
 
 pub fn execute_request_hook(
     rule: &CompiledScriptRule,
@@ -69,11 +152,38 @@ fn execute_hook(
     };
 
     let compiled_code = rule.compiled_code.clone();
+
+    // Acquire a concurrency permit BEFORE spawning. This blocks the calling
+    // (async) task briefly, mirroring the existing `recv_timeout` behavior, but
+    // caps the number of live QuickJS-runtime threads regardless of incoming
+    // request volume. If no slot frees up in time, fail open with a
+    // RuntimeError trace instead of spawning past the cap.
+    let permit = match SCRIPT_GATE.acquire(start + SCRIPT_SLOT_ACQUIRE_TIMEOUT) {
+        Some(permit) => permit,
+        None => {
+            return runtime_failure_trace(
+                rule,
+                stage,
+                ScriptRunOutcome::RuntimeError,
+                format!(
+                    "script concurrency limit ({} concurrent) reached; hook skipped to avoid \
+                     thread exhaustion",
+                    MAX_CONCURRENT_SCRIPT_THREADS
+                ),
+                start.elapsed().as_millis(),
+            );
+        }
+    };
+
     let (sender, receiver) = mpsc::channel();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let thread_cancel_flag = Arc::clone(&cancel_flag);
 
     std::thread::spawn(move || {
+        // The permit is moved into the thread and released on its exit (Drop),
+        // so the slot is freed as soon as this runtime finishes — even on error
+        // or timeout-eviction.
+        let _permit = permit;
         let execution = run_script_in_thread(
             &compiled_code,
             hook_name,
@@ -309,4 +419,65 @@ fn trim_to_byte_limit(value: &str, limit: usize) -> String {
     }
     truncated.push_str("...");
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::thread;
+
+    #[test]
+    fn gate_releases_permit_on_drop() {
+        let gate = ScriptConcurrencyGate::new();
+        // Acquire and immediately drop returns the full capacity.
+        {
+            let _g = gate.acquire(Instant::now() + Duration::from_secs(1));
+            assert!(_g.is_some());
+        }
+        assert_eq!(
+            *gate.available.lock().unwrap(),
+            MAX_CONCURRENT_SCRIPT_THREADS
+        );
+    }
+
+    #[test]
+    fn gate_enforces_capacity_concurrently() {
+        // Use a fresh gate with a tiny capacity so the test does not depend on
+        // the global `MAX_CONCURRENT_SCRIPT_THREADS` and cannot interfere with
+        // the process-wide static.
+        const CAP: usize = 4;
+        let gate = Arc::new(ScriptConcurrencyGate {
+            available: Mutex::new(CAP),
+            not_empty: Condvar::new(),
+        });
+
+        // Hold all permits on worker threads that block until released.
+        let release = Arc::new(Barrier::new(CAP + 1));
+        let mut handles = Vec::new();
+        for _ in 0..CAP {
+            let gate = Arc::clone(&gate);
+            let release = Arc::clone(&release);
+            handles.push(thread::spawn(move || {
+                let _permit = gate.acquire(Instant::now() + Duration::from_secs(5)).unwrap();
+                release.wait();
+            }));
+        }
+        // Give the workers a moment to grab their permits.
+        thread::sleep(Duration::from_millis(100));
+
+        // A CAP+1th acquire must time out while all permits are held.
+        let extra = gate.acquire(Instant::now() + Duration::from_millis(150));
+        assert!(extra.is_none(), "expected acquire to time out at capacity");
+
+        // Release the workers; a new acquire should now succeed.
+        release.wait();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let recovered = gate.acquire(Instant::now() + Duration::from_secs(5));
+        assert!(recovered.is_some());
+        assert_eq!(*gate.available.lock().unwrap(), CAP - 1);
+    }
 }
