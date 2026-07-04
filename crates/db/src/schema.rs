@@ -128,6 +128,11 @@ CREATE TABLE IF NOT EXISTS session_summaries (
 );
 CREATE INDEX IF NOT EXISTS idx_session_summaries_started_at ON session_summaries(started_at);
 CREATE INDEX IF NOT EXISTS idx_session_summaries_host ON session_summaries(host);
+-- M11: composite (host, duration_ms) index backs the host-scoped percentile
+-- scan and the per-host slow-request ranking in `compute_insights`. Both paths
+-- filter by host then order by duration_ms; without this index SQLite full-
+-- scans and in-memory-sorts every host's rows on each insights refresh.
+CREATE INDEX IF NOT EXISTS idx_session_summaries_host_duration ON session_summaries(host, duration_ms);
 
 CREATE TABLE IF NOT EXISTS session_details (
     id                 TEXT NOT NULL PRIMARY KEY,
@@ -523,6 +528,32 @@ mod tests {
                 .iter()
                 .any(|name| name == "idx_session_details_session"),
             "expected idx_session_details_session, got: {indexes:?}"
+        );
+    }
+
+    // M11: session_summaries must carry a composite (host, duration_ms) index so
+    // the host-scoped percentile scan and slow-request ranking in
+    // `compute_insights` avoid a full scan + in-memory sort per refresh.
+    #[test]
+    fn session_summaries_has_host_duration_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let indexes: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_summaries'",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+
+        assert!(
+            indexes
+                .iter()
+                .any(|name| name == "idx_session_summaries_host_duration"),
+            "expected idx_session_summaries_host_duration, got: {indexes:?}"
         );
     }
 }

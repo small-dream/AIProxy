@@ -564,8 +564,10 @@ pub fn save_script_rule(
             source_path: compiled.rule.source_path.clone(),
             entrypoints: serde_json::to_string(&compiled.rule.entrypoints)
                 .unwrap_or_else(|_| "{}".to_string()),
-            compiled_code: compiled.compiled_code.clone(),
-            source_map: compiled.source_map.clone(),
+            // M10: `compiled_code`/`source_map` are `Arc<String>`; deref to
+            // owned String for the DB row.
+            compiled_code: (*compiled.compiled_code).clone(),
+            source_map: compiled.source_map.as_ref().map(|arc| (**arc).clone()),
             updated_at: chrono::Utc::now().to_rfc3339(),
         };
 

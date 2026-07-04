@@ -472,12 +472,34 @@ async fn stage_intercept_request_breakpoint(
                 // Mock responses are never spooled/truncated, so the in-memory
                 // body length IS the true wire size — this matches the upstream
                 // path's `response_body_size_bytes` basis (M10 consistency).
-                let trace =
-                    apply_response_throttle(selection, mock_response.response_body.len()).await;
-                if let Some(manager) = ctx.throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
+                match apply_response_throttle(selection, mock_response.response_body.len()).await {
+                    Ok(trace) => {
+                        if let Some(manager) = ctx.throttle_manager.as_ref() {
+                            manager.record_trace(&trace);
+                        }
+                        throttle_traces.push(trace);
+                    }
+                    // M9: response-stage packet loss drops the response. Send a
+                    // 504 (mirrors the request-stage drop path) and
+                    // short-circuit before forwarding the mock response body.
+                    Err(failure) => {
+                        if let Some(manager) = ctx.throttle_manager.as_ref() {
+                            manager.record_trace(&failure.trace);
+                        }
+                        throttle_traces.push(failure.trace);
+                        let response = build_throttle_failure_response(
+                            request,
+                            ctx,
+                            started_at,
+                            started_at_instant,
+                            &failure.error,
+                            map_traces,
+                            throttle_traces,
+                        )
+                        .await?;
+                        return Ok(BreakpointRequestOutcome::Drop(response));
+                    }
                 }
-                throttle_traces.push(trace);
             }
 
             let detail = build_session_detail(
@@ -932,13 +954,51 @@ async fn stage_process_upstream_response(
         .as_ref()
         .filter(|s| throttle_selection_matches_stage(s, "response"))
     {
-        let trace =
-            apply_response_throttle(selection, upstream_response.response_body_size_bytes).await;
-        if let Some(manager) = ctx.throttle_manager.as_ref() {
-            manager.record_trace(&trace);
+        match apply_response_throttle(selection, upstream_response.response_body_size_bytes).await {
+            Ok(trace) => {
+                if let Some(manager) = ctx.throttle_manager.as_ref() {
+                    manager.record_trace(&trace);
+                }
+                throttle_traces.push(trace);
+                session_detail.throttle_traces = throttle_traces.clone();
+            }
+            // M9: response-stage packet loss drops the response. Discard the
+            // upstream body and return a 504 carrying the accumulated traces.
+            // The spool file (if any) is cleaned up when `upstream_response`
+            // is dropped on return.
+            Err(failure) => {
+                if let Some(manager) = ctx.throttle_manager.as_ref() {
+                    manager.record_trace(&failure.trace);
+                }
+                throttle_traces.push(failure.trace);
+                session_detail.throttle_traces = throttle_traces.clone();
+                session_detail.rewrite_traces = rewrite_traces;
+                session_detail.script_traces = script_traces;
+                session_detail.map_traces = map_traces;
+                if ctx.session_sender.send(session_detail).await.is_err() {
+                    tracing::debug!(
+                        event = "session_send_dropped",
+                        reason = "receiver_disconnected",
+                        "session_send_dropped"
+                    );
+                }
+                tracing::warn!(
+                    event = "response_throttled",
+                    request_id = %request.request_id,
+                    url = %request.url,
+                    error = %failure.error,
+                    "response_throttled"
+                );
+                // Disarm the guard: we already sent the session detail above,
+                // and an armed Drop would emit a second, conflicting
+                // "client-closed" detail for the same request id.
+                cancellation_guard.disarm();
+                return build_plain_text_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "The response was dropped by the active throttle profile.",
+                );
+            }
         }
-        throttle_traces.push(trace);
-        session_detail.throttle_traces = throttle_traces.clone();
     }
 
     session_detail.rewrite_traces = rewrite_traces;
@@ -1365,6 +1425,10 @@ fn build_upstream_headers_from_hyper(
     let is_ws_upgrade = headers
         .get("upgrade")
         .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
+    // H2: RFC 7230 §6.1 — strip headers named in `Connection` plus the standard
+    // hop-by-hop set.
+    let strip =
+        crate::hop_by_hop_strip_set(headers.iter().map(|(n, v)| (n.as_str(), v.as_bytes())));
 
     let mut header_map = HeaderMap::new();
     for (name, value) in headers {
@@ -1373,6 +1437,9 @@ fn build_upstream_headers_from_hyper(
             continue;
         }
         if should_skip_hyper_header(name, is_ws_upgrade) {
+            continue;
+        }
+        if crate::should_strip_hop_by_hop(name.as_str(), &strip, is_ws_upgrade) {
             continue;
         }
         header_map.append(name.clone(), value.clone());
@@ -1486,8 +1553,23 @@ fn build_hyper_response_from_upstream(
 > {
     let mut builder = hyper::Response::builder().status(status_code);
 
+    // H2: strip hop-by-hop headers before forwarding the response downstream
+    // (RFC 7230 §6.1). This covers both the standard hop-by-hop set and any
+    // header the upstream named in its `Connection` header (e.g. a custom
+    // `x-foo` listed in `Connection: keep-alive, x-foo`). A 101 Switching
+    // Protocols response is treated like a WS upgrade: the `Connection` and
+    // `Upgrade` handshake headers are preserved.
+    let is_upgrade_response = status_code == StatusCode::SWITCHING_PROTOCOLS;
+    let strip =
+        crate::hop_by_hop_strip_set(headers.iter().map(|(n, v)| (n.as_str(), v.as_bytes())));
+
     for (name, value) in headers {
-        if name == CONNECTION || name == CONTENT_LENGTH || name == TRANSFER_ENCODING {
+        // Content-Length and Transfer-Encoding are always dropped here; the
+        // framing is re-derived below (M3) or by the body type.
+        if name == CONTENT_LENGTH || name == TRANSFER_ENCODING {
+            continue;
+        }
+        if crate::should_strip_hop_by_hop(name.as_str(), &strip, is_upgrade_response) {
             continue;
         }
         builder = builder.header(name, value);

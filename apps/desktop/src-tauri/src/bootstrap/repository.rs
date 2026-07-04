@@ -76,6 +76,7 @@ impl Repository {
     /// Delete sessions by ID (DB + body files).  Synchronous — prefer the
     /// async variant inside Tauri commands unless you are already on a
     /// blocking thread.
+    #[allow(dead_code)] // synchronous API; the hot path uses delete_sessions_and_bodies_async
     pub fn delete_sessions_by_ids(&self, ids: &[String]) {
         {
             let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -103,8 +104,8 @@ impl Repository {
     }
 
     /// Async variant of `delete_sessions_by_ids` that offloads the DB and
-    /// file-system work to `spawn_blocking`.
-    #[allow(dead_code)] // available for async callers
+    /// file-system work to `spawn_blocking`. Used by `delete_sessions_except`
+    /// (M14) to keep DB + file I/O off the IPC thread.
     pub async fn delete_sessions_and_bodies_async(&self, ids: Vec<String>) {
         let db = Arc::clone(&self.db);
         let body_store = Arc::clone(&self.body_store);

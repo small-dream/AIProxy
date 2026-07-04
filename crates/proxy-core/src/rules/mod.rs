@@ -75,9 +75,12 @@ fn active_rewrite_rules_for_stage(
         return Vec::new();
     };
 
-    let mut compiled = manager
-        .compiled_rules()
-        .into_iter()
+    // M10: `compiled_rules()` returns a shared `Arc<Vec<...>>` snapshot; we
+    // iterate by reference so the only owned data produced here is the final
+    // `Vec<RewriteRule>` (one shallow clone per surviving rule).
+    let snapshot = manager.compiled_rules();
+    let mut compiled: Vec<&managers::CompiledRewriteRule> = snapshot
+        .iter()
         .filter(|cr| cr.rule.enabled)
         .filter(|cr| cr.rule.workspace_id == workspace_id)
         .filter(|cr| rewrite_stage_matches(&cr.rule.r#match.stage, stage))
@@ -100,7 +103,7 @@ fn active_rewrite_rules_for_stage(
         .collect::<Vec<_>>();
 
     compiled.sort_by_key(|cr| std::cmp::Reverse(cr.rule.priority));
-    compiled.into_iter().map(|cr| cr.rule).collect()
+    compiled.into_iter().map(|cr| cr.rule.clone()).collect()
 }
 
 fn active_map_rule_for_request(
@@ -134,9 +137,12 @@ fn active_script_rules_for_stage(
         return Vec::new();
     };
 
-    let mut rules: Vec<CompiledScriptRule> = manager
-        .compiled_rules()
-        .into_iter()
+    // M10: iterate the shared snapshot by reference; clone only the surviving
+    // rules. Cloning a `CompiledScriptRule` is cheap now (Arc bumps for the
+    // large `compiled_code`/`source_map`/`compiled_match`).
+    let snapshot = manager.compiled_rules();
+    let mut rules: Vec<CompiledScriptRule> = snapshot
+        .iter()
         .filter(|rule| rule.rule.enabled)
         .filter(|rule| rule.rule.workspace_id == workspace_id)
         .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
@@ -156,6 +162,7 @@ fn active_script_rules_for_stage(
                 ),
             }
         })
+        .cloned()
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.rule.priority));

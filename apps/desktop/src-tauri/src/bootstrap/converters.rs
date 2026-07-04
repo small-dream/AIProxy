@@ -470,8 +470,8 @@ pub(crate) fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
             source_path: row.source_path,
             entrypoints,
         },
-        compiled_code: row.compiled_code,
-        source_map: row.source_map,
+        compiled_code: std::sync::Arc::new(row.compiled_code),
+        source_map: row.source_map.map(std::sync::Arc::new),
         compiled_match: None,
     }
 }

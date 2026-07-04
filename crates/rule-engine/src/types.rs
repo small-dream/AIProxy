@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub(crate) const MAX_LOG_ENTRY_BYTES: usize = 8 * 1024;
 pub(crate) const MAX_SCRIPT_ENTRIES: usize = 50;
@@ -121,10 +121,15 @@ pub enum ScriptTraceStage {
 #[derive(Debug, Clone)]
 pub struct CompiledScriptRule {
     pub rule: ScriptRule,
-    pub compiled_code: String,
-    pub source_map: Option<String>,
+    // M10: the transpiled module source and its source map can be large (the
+    // code is bounded by MAX_SCRIPT_SOURCE_BYTES ≈ 128 KiB plus the runtime
+    // wrapper). Sharing them behind an `Arc` means the per-request
+    // `compiled_rules()` snapshot and the per-rule `spawn_blocking` clone are
+    // cheap reference-count bumps instead of full String copies.
+    pub compiled_code: Arc<String>,
+    pub source_map: Option<Arc<String>>,
     /// Pre-compiled regex for URL pattern matching (populated when match_type == "regex").
-    pub compiled_match: Option<Regex>,
+    pub compiled_match: Option<Arc<Regex>>,
 }
 
 impl CompiledScriptRule {
@@ -134,7 +139,11 @@ impl CompiledScriptRule {
 }
 
 pub struct ScriptManager {
-    rules: Mutex<Vec<CompiledScriptRule>>,
+    // M10: a single `Arc<Vec<...>>` snapshot rebuilt only when the rule set
+    // changes. `compiled_rules()` returns a cheap `Arc` clone instead of
+    // deep-cloning every `compiled_code` String (up to ~128 KiB each) on every
+    // request.
+    snapshot: Mutex<Arc<Vec<CompiledScriptRule>>>,
 }
 
 impl std::fmt::Debug for ScriptManager {
@@ -154,17 +163,17 @@ impl Default for ScriptManager {
 impl ScriptManager {
     pub fn new() -> Self {
         Self {
-            rules: Mutex::new(Vec::new()),
+            snapshot: Mutex::new(Arc::new(Vec::new())),
         }
     }
 
     pub fn set_rules(&self, rules: Vec<CompiledScriptRule>) {
-        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = rules;
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Arc::new(rules);
     }
 
     pub fn list_rules(&self) -> Vec<ScriptRule> {
-        self.rules
+        self.snapshot
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
@@ -172,23 +181,38 @@ impl ScriptManager {
             .collect()
     }
 
-    pub fn compiled_rules(&self) -> Vec<CompiledScriptRule> {
-        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    /// Returns the current compiled-rule snapshot as a shared `Arc<Vec<...>>`.
+    /// Cheap: a single refcount bump (no per-rule String/regex copy).
+    pub fn compiled_rules(&self) -> Arc<Vec<CompiledScriptRule>> {
+        Arc::clone(&self.snapshot.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     pub fn save_rule(&self, rule: CompiledScriptRule) -> ScriptRule {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = rules.iter_mut().find(|r| r.rule.id == rule.rule.id) {
-            *existing = rule.clone();
-        } else {
-            rules.push(rule.clone());
-        }
-        rule.public_rule()
+        // M10: rebuild the snapshot under the lock so concurrent readers never
+        // observe a half-mutated vec.
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next: Vec<CompiledScriptRule> = (**guard)
+            .iter()
+            .filter(|r| r.rule.id != rule.rule.id)
+            .cloned()
+            .collect();
+        let public = rule.public_rule();
+        next.push(rule);
+        *guard = Arc::new(next);
+        public
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.retain(|r| r.rule.id != rule_id);
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        if !(**guard).iter().any(|r| r.rule.id == rule_id) {
+            return; // nothing to do; avoid an unnecessary snapshot rebuild
+        }
+        let next: Vec<CompiledScriptRule> = (**guard)
+            .iter()
+            .filter(|r| r.rule.id != rule_id)
+            .cloned()
+            .collect();
+        *guard = Arc::new(next);
     }
 }
 

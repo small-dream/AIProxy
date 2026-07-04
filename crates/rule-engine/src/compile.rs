@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::types::*;
 
@@ -12,7 +12,7 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
     let compiled_match = if input.r#match.match_type.as_deref() == Some("regex") {
         let pattern = input.r#match.url_pattern.trim();
         match Regex::new(pattern) {
-            Ok(re) => Some(re),
+            Ok(re) => Some(Arc::new(re)),
             Err(e) => {
                 tracing::warn!(
                     event = "rules.regex_compile_failed",
@@ -32,8 +32,8 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
             entrypoints,
             ..input
         },
-        compiled_code,
-        source_map: transpiled.source_map,
+        compiled_code: Arc::new(compiled_code),
+        source_map: transpiled.source_map.map(Arc::new),
         compiled_match,
     })
 }

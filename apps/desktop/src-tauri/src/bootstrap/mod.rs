@@ -271,16 +271,25 @@ impl AppState {
         }
     }
 
-    pub fn delete_sessions_except(&self, keep_session_id: &str) {
+    // M14: async variant. Cache update + event emission stay inline (fast,
+    // lock-only); the heavy DB delete + body-file removal is offloaded to
+    // `spawn_blocking` via `delete_sessions_and_bodies_async` so the IPC thread
+    // is not blocked on SQLite + file I/O.
+    pub async fn delete_sessions_except(&self, keep_session_id: &str) {
         let ids_to_remove = self.cache.retain_summaries(keep_session_id);
         let ids_set: HashSet<String> = ids_to_remove.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
 
-        self.repository.delete_sessions_by_ids(&ids_to_remove);
-
         if let Some(handle) = self.read_app_handle() {
-            emit_sessions_removed(&handle, ids_to_remove);
+            emit_sessions_removed(&handle, ids_to_remove.clone());
         }
+
+        // Offload DB + body-file deletion to the blocking pool; the cache is
+        // already consistent and the event already emitted, so this can run
+        // concurrently without affecting the caller.
+        self.repository
+            .delete_sessions_and_bodies_async(ids_to_remove)
+            .await;
     }
 
     /// Persist one session (async).  All blocking IO is offloaded to the

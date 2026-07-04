@@ -92,10 +92,36 @@ pub(crate) async fn apply_request_throttle(
 pub(crate) async fn apply_response_throttle(
     selection: &ThrottleRuntimeSelection,
     body_len: usize,
-) -> ThrottleTrace {
+) -> Result<ThrottleTrace, ThrottleFailure> {
     let profile = &selection.profile;
+
+    // M9: apply response-stage packet loss symmetrically with the request
+    // stage. Dropping the response means the client observes the configured
+    // loss on the downstream leg too, not just on requests.
+    if should_drop_for_packet_loss(profile) {
+        let error = format!("response dropped by throttle profile '{}'", profile.name);
+        return Err(ThrottleFailure {
+            error: error.clone(),
+            trace: build_throttle_trace(
+                selection,
+                "response",
+                "dropped",
+                body_len,
+                0,
+                0,
+                Some(error),
+            ),
+        });
+    }
+
+    // M9: apply latency_ms on the response leg (previously only the request
+    // leg slept for latency). This models upstream → client RTT symmetrically.
+    let latency_ms = profile.latency_ms as u64;
     let download_delay_ms = transfer_delay_ms(body_len, profile.download_kbps);
 
+    if latency_ms > 0 {
+        sleep(Duration::from_millis(latency_ms)).await;
+    }
     // M10: cap the actual transfer-delay sleep so a large download at a low
     // rate cannot pin the connection for minutes/hours (e.g. 200MB @ 1Mbps ≈
     // 27 min). The trace still records the full computed `download_delay_ms`.
@@ -104,15 +130,17 @@ pub(crate) async fn apply_response_throttle(
         sleep(Duration::from_millis(capped_download_delay_ms)).await;
     }
 
-    build_throttle_trace(
+    // M9: record the real latency_ms in the trace (was hard-coded to 0), so
+    // `delay_ms = latency_ms + transfer_delay_ms` reflects the true stall.
+    Ok(build_throttle_trace(
         selection,
         "response",
         "applied",
         body_len,
-        0,
+        latency_ms,
         download_delay_ms,
         None,
-    )
+    ))
 }
 
 fn build_throttle_trace(
@@ -172,5 +200,59 @@ mod tests {
         assert_eq!(normalize_packet_loss_ratio(5.0), 0.05);
         assert_eq!(normalize_packet_loss_ratio(150.0), 1.0);
         assert_eq!(normalize_packet_loss_ratio(-1.0), 0.0);
+    }
+
+    // --- M9: response throttle latency + drop symmetry ----------------------
+
+    fn test_profile(latency_ms: u32, packet_loss_ratio: f32) -> ThrottleProfileData {
+        ThrottleProfileData {
+            id: "p1".to_string(),
+            download_kbps: 0,
+            enabled: true,
+            latency_ms,
+            name: "test".to_string(),
+            note: None,
+            packet_loss_ratio,
+            preset: false,
+            upload_kbps: 0,
+            workspace_id: "default".to_string(),
+        }
+    }
+
+    fn test_selection(profile: ThrottleProfileData) -> ThrottleRuntimeSelection {
+        ThrottleRuntimeSelection {
+            profile,
+            rule: None,
+        }
+    }
+
+    // M9-1: response trace records the configured latency_ms (was hard-coded 0),
+    // so `delay_ms` reflects the true stall and downstream clients observe RTT.
+    // Uses a small latency to keep the test fast (the sleep is real).
+    #[tokio::test]
+    async fn response_throttle_records_configured_latency_in_trace() {
+        // latency only (no transfer delay since kbps == 0); packet loss == 0
+        // so the response is never dropped.
+        let selection = test_selection(test_profile(5, 0.0));
+        let trace = apply_response_throttle(&selection, 0)
+            .await
+            .expect("0% loss never drops");
+        assert_eq!(trace.latency_ms, 5, "response latency_ms must be recorded");
+        assert_eq!(trace.delay_ms, 5, "delay_ms includes latency");
+        assert_eq!(trace.outcome, "applied");
+        assert_eq!(trace.stage, "response");
+    }
+
+    // M9-2: 100% packet loss drops the response (returns Err), symmetric with
+    // the request stage. The drop trace carries outcome == "dropped".
+    #[tokio::test]
+    async fn response_throttle_drops_on_full_packet_loss() {
+        let selection = test_selection(test_profile(0, 1.0));
+        let failure = apply_response_throttle(&selection, 1024)
+            .await
+            .expect_err("100% loss must drop the response");
+        assert_eq!(failure.trace.outcome, "dropped");
+        assert_eq!(failure.trace.stage, "response");
+        assert!(failure.error.contains("response dropped"));
     }
 }

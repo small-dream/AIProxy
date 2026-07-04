@@ -149,7 +149,9 @@ fn execute_hook(
         }
     };
 
-    let compiled_code = rule.compiled_code.clone();
+    // M10: `compiled_code` is `Arc<String>` — this clone is a cheap refcount
+    // bump, not a String copy. The Arc is moved into the spawned thread below.
+    let compiled_code = Arc::clone(&rule.compiled_code);
 
     // Acquire a concurrency permit BEFORE spawning. This blocks the calling
     // (async) task briefly, mirroring the existing `recv_timeout` behavior, but

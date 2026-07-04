@@ -92,6 +92,10 @@ pub(crate) fn build_upstream_headers(
     headers: &[httparse::Header<'_>],
 ) -> Result<HeaderMap, String> {
     let is_ws_upgrade = is_websocket_upgrade(headers);
+    // H2: RFC 7230 §6.1 — a sender lists connection-specific headers by name in
+    // the `Connection` header; the proxy MUST strip those plus the standard
+    // hop-by-hop set before forwarding.
+    let strip = hop_by_hop_strip_set(headers.iter().map(|h| (h.name, h.value)));
 
     let mut header_map = HeaderMap::new();
 
@@ -101,6 +105,9 @@ pub(crate) fn build_upstream_headers(
         }
         // For WS upgrades, still skip host/content-length/transfer-encoding
         if is_ws_upgrade && is_hop_by_hop_only(header.name) {
+            continue;
+        }
+        if should_strip_hop_by_hop(header.name, &strip, is_ws_upgrade) {
             continue;
         }
 
@@ -121,6 +128,12 @@ pub(crate) fn build_upstream_headers_from_entries(
     let is_ws_upgrade = headers.iter().any(|h| {
         h.name.eq_ignore_ascii_case("upgrade") && h.value.eq_ignore_ascii_case("websocket")
     });
+    // H2: build the connection-listed strip set (RFC 7230 §6.1) for entries.
+    let strip = hop_by_hop_strip_set(
+        headers
+            .iter()
+            .map(|h| (h.name.as_str(), h.value.as_bytes())),
+    );
 
     let mut header_map = HeaderMap::new();
 
@@ -129,6 +142,9 @@ pub(crate) fn build_upstream_headers_from_entries(
             continue;
         }
         if is_ws_upgrade && is_hop_by_hop_only(&header.name) {
+            continue;
+        }
+        if should_strip_hop_by_hop(&header.name, &strip, is_ws_upgrade) {
             continue;
         }
 
@@ -157,6 +173,106 @@ fn is_hop_by_hop_only(header_name: &str) -> bool {
         || header_name.eq_ignore_ascii_case("proxy-connection")
         || header_name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str())
         || header_name.eq_ignore_ascii_case(TRANSFER_ENCODING.as_str())
+}
+
+/// The standard hop-by-hop + connection-control header set per RFC 7230 §6.1
+/// (Connection options), §6.2 (close/keep-alive), §3.3.1 (TE) and §4.1.2
+/// (Trailer), plus the proxy-only `Proxy-Authenticate`/`Proxy-Authorization`
+/// (RFC 7230 §6.1 / §6.3). A proxy MUST strip these before forwarding.
+pub(crate) fn is_standard_hop_by_hop_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case(CONNECTION.as_str())
+        || name.eq_ignore_ascii_case("proxy-connection")
+        || name.eq_ignore_ascii_case("keep-alive")
+        || name.eq_ignore_ascii_case("te")
+        || name.eq_ignore_ascii_case("trailer")
+        || name.eq_ignore_ascii_case("upgrade")
+        || name.eq_ignore_ascii_case("proxy-authenticate")
+        || name.eq_ignore_ascii_case("proxy-authorization")
+}
+
+/// Parse the comma-separated token list carried by a `Connection` header value
+/// (RFC 7230 §6.1). Tokens are returned lower-cased; the value may also be a
+/// `close`/`keep-alive` directive, which is harmless to include in the strip
+/// set since no header is named `close`.
+fn parse_connection_tokens(value: &[u8]) -> Vec<String> {
+    // A connection option is a token (RFC 7230 §3.2.6); commas separate them.
+    value
+        .split(|&b| b == b',')
+        .filter_map(|chunk| {
+            // Each comma-separated item may carry surrounding whitespace; pick
+            // the first non-empty whitespace-delimited token as the option name.
+            let token = chunk
+                .split(|&b| b.is_ascii_whitespace())
+                .find(|t| !t.is_empty())?;
+            std::str::from_utf8(token)
+                .ok()
+                .map(|s| s.to_ascii_lowercase())
+        })
+        .collect()
+}
+
+/// Build the set of header names that must be stripped because either (a) they
+/// are named in a `Connection`/`Proxy-Connection` header, or (b) they belong to
+/// the standard hop-by-hop set. The caller passes `(name, value)` pairs over
+/// which it can iterate; only connection-control values are parsed for tokens.
+pub(crate) fn hop_by_hop_strip_set<'a, I, N, V>(pairs: I) -> std::collections::HashSet<String>
+where
+    I: IntoIterator<Item = (N, V)>,
+    N: AsRef<str> + 'a,
+    V: AsRef<[u8]> + 'a,
+{
+    let mut set = std::collections::HashSet::new();
+    for (name, value) in pairs {
+        let name = name.as_ref();
+        if name.eq_ignore_ascii_case(CONNECTION.as_str())
+            || name.eq_ignore_ascii_case("proxy-connection")
+        {
+            for token in parse_connection_tokens(value.as_ref()) {
+                set.insert(token);
+            }
+        }
+    }
+    // Always include the standard hop-by-hop set so callers can do a single
+    // membership check per header.
+    for standard in [
+        "connection",
+        "proxy-connection",
+        "keep-alive",
+        "te",
+        "trailer",
+        "upgrade",
+        "proxy-authenticate",
+        "proxy-authorization",
+    ] {
+        set.insert(standard.to_string());
+    }
+    set
+}
+
+/// Decide whether `name` should be stripped as hop-by-hop. For non-WS requests
+/// every standard hop-by-hop header plus anything named in `Connection` is
+/// stripped. For WS upgrades `Connection`/`Upgrade` are the handshake carriers
+/// and must be preserved, so they are excluded here (the standard hop-by-hop
+/// remainder — `Keep-Alive`/`TE`/`Trailer`/`Proxy-*` — is still stripped, along
+/// with any extra token a peer named in `Connection`).
+pub(crate) fn should_strip_hop_by_hop(
+    name: &str,
+    strip: &std::collections::HashSet<String>,
+    is_ws_upgrade: bool,
+) -> bool {
+    if is_ws_upgrade {
+        // Keep the WS handshake headers; strip any other connection-listed
+        // token (e.g. a peer-named `x-foo`) and the non-handshake hop-by-hop
+        // remainder.
+        return !name.eq_ignore_ascii_case(CONNECTION.as_str())
+            && !name.eq_ignore_ascii_case("proxy-connection")
+            && !name.eq_ignore_ascii_case("upgrade")
+            && strip.contains(&name.to_ascii_lowercase());
+    }
+    // Non-WS: `connection`/`proxy-connection` are already removed by
+    // `should_skip_request_header`; here we strip the rest of the standard set
+    // plus anything the peer explicitly listed in `Connection`.
+    is_standard_hop_by_hop_header(name) || strip.contains(&name.to_ascii_lowercase())
 }
 
 /// Check if headers indicate a WebSocket upgrade request.
@@ -765,6 +881,131 @@ mod tests {
             let result = resolve_target_url(&path, &[]);
             prop_assert!(result.is_err());
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // H2: hop-by-hop / Connection-listed header stripping (RFC 7230 §6.1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_connection_tokens_handles_commas_and_whitespace() {
+        let tokens = parse_connection_tokens(b"keep-alive, X-Foo,bar");
+        assert_eq!(tokens, vec!["keep-alive", "x-foo", "bar"]);
+
+        // Extra whitespace and tabs are tolerated; empty items are dropped.
+        let tokens = parse_connection_tokens(b"  close  ,  ,\tUpgrade ");
+        assert_eq!(tokens, vec!["close", "upgrade"]);
+    }
+
+    #[test]
+    fn hop_by_hop_strip_set_collects_connection_listed_and_standard() {
+        let pairs = vec![
+            ("connection", "keep-alive, X-Foo".as_bytes()),
+            ("x-bar", b"ignored"),
+        ];
+        let set = hop_by_hop_strip_set(pairs);
+        // Connection-listed token captured.
+        assert!(set.contains("x-foo"));
+        // Standard set always present.
+        for standard in [
+            "connection",
+            "proxy-connection",
+            "keep-alive",
+            "te",
+            "trailer",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+        ] {
+            assert!(set.contains(standard), "expected {standard} in strip set");
+        }
+    }
+
+    #[test]
+    fn is_standard_hop_by_hop_header_recognises_canonical_set() {
+        for name in &[
+            "connection",
+            "Connection",
+            "PROXY-CONNECTION",
+            "keep-alive",
+            "te",
+            "Trailer",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+        ] {
+            assert!(
+                is_standard_hop_by_hop_header(name),
+                "{name} should be standard hop-by-hop"
+            );
+        }
+        // Random headers are not standard hop-by-hop.
+        assert!(!is_standard_hop_by_hop_header("x-custom"));
+        assert!(!is_standard_hop_by_hop_header("content-type"));
+    }
+
+    #[test]
+    fn build_upstream_headers_strips_connection_listed_token() {
+        // `Connection: keep-alive, x-foo` plus an `x-foo` header: after H2 the
+        // proxy must NOT forward `x-foo` (RFC 7230 §6.1). `x-keep` (not listed)
+        // must survive.
+        let raw = b"GET / HTTP/1.1\r\n\
+                    Host: example.com\r\n\
+                    Connection: keep-alive, x-foo\r\n\
+                    x-foo: bar\r\n\
+                    x-keep: 1\r\n\
+                    \r\n";
+        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut req = httparse::Request::new(&mut headers);
+        req.parse(raw).unwrap();
+        let map = build_upstream_headers(req.headers).unwrap();
+        assert!(
+            map.get("x-foo").is_none(),
+            "x-foo listed in Connection must be stripped"
+        );
+        assert_eq!(map.get("x-keep").unwrap().to_str().unwrap(), "1");
+    }
+
+    #[test]
+    fn build_upstream_headers_strips_standard_hop_by_hop() {
+        let raw = b"GET / HTTP/1.1\r\n\
+                    Host: example.com\r\n\
+                    Keep-Alive: timeout=5\r\n\
+                    Proxy-Authenticate: Basic\r\n\
+                    x-survive: 1\r\n\
+                    \r\n";
+        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut req = httparse::Request::new(&mut headers);
+        req.parse(raw).unwrap();
+        let map = build_upstream_headers(req.headers).unwrap();
+        assert!(map.get("keep-alive").is_none());
+        assert!(map.get("proxy-authenticate").is_none());
+        assert_eq!(map.get("x-survive").unwrap().to_str().unwrap(), "1");
+    }
+
+    #[test]
+    fn build_upstream_headers_preserves_ws_handshake() {
+        // A WS upgrade must keep `Connection: Upgrade` and `Upgrade: websocket`
+        // but still strip a peer-listed custom token.
+        let raw = b"GET / HTTP/1.1\r\n\
+                    Host: example.com\r\n\
+                    Connection: Upgrade, x-foo\r\n\
+                    Upgrade: websocket\r\n\
+                    x-foo: bar\r\n\
+                    Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                    \r\n";
+        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut req = httparse::Request::new(&mut headers);
+        req.parse(raw).unwrap();
+        let map = build_upstream_headers(req.headers).unwrap();
+        // Handshake headers preserved.
+        let conn = map.get("connection").unwrap().to_str().unwrap();
+        assert!(
+            conn.eq_ignore_ascii_case("upgrade, x-foo") || conn.eq_ignore_ascii_case("upgrade")
+        );
+        assert_eq!(map.get("upgrade").unwrap().to_str().unwrap(), "websocket");
+        // Custom listed token still stripped even on the WS path.
+        assert!(map.get("x-foo").is_none());
     }
 
     // -----------------------------------------------------------------------

@@ -339,21 +339,32 @@ pub fn delete_api_collection(
     Ok(())
 }
 
+// M15: async + `run_blocking_command` so the DB read runs on the blocking
+// pool rather than the IPC thread. A collection may hold many items and each
+// row carries a JSON request definition; loading them should not stall the UI
+// command channel.
 #[tauri::command]
-pub fn list_api_collection_items(
+pub async fn list_api_collection_items(
     input: ListApiCollectionItemsInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiCollectionItemOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let rows = aiproxy_db::collections::list_collection_items(&conn, &input.collection_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("list collection items: {error}")))?;
-    Ok(rows
-        .into_iter()
-        .map(collection_item_output_from_row)
-        .collect())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_api_collection_items", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let rows =
+            aiproxy_db::collections::list_collection_items(&conn_guard, &input.collection_id)
+                .map_err(|error| {
+                    app_error(ERR_INTERNAL, format!("list collection items: {error}"))
+                })?;
+        Ok(rows
+            .into_iter()
+            .map(collection_item_output_from_row)
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -561,38 +572,46 @@ pub async fn batch_execute_collection_items(
     input: BatchExecuteInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ProxySessionDetail>, String> {
-    let items: Vec<aiproxy_db::collections::CollectionItemRow> = {
-        let conn = state
-            .read_db_connection()
+    // M15: load the referenced items + the active environment's variables in a
+    // single `spawn_blocking` so neither holds the global DB mutex on the
+    // async task (and the IPC thread it ultimately runs on). The subsequent
+    // request-sending + upsert loop stays async.
+    let state_for_load = Arc::clone(state.inner());
+    let (items, env_vars): (
+        Vec<aiproxy_db::collections::CollectionItemRow>,
+        std::collections::HashMap<String, String>,
+    ) = run_blocking_command("batch_execute_collection_items_load", move || {
+        let conn = state_for_load.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+
         let mut found = Vec::new();
         for id in &input.item_ids {
-            if let Some(item) = aiproxy_db::collections::get_collection_item(&conn, id)
+            if let Some(item) = aiproxy_db::collections::get_collection_item(&conn_guard, id)
                 .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
             {
                 found.push(item);
             }
         }
-        found
-    };
 
-    // Load environment variables if specified
-    let env_vars: std::collections::HashMap<String, String> = match &input.environment_id {
-        Some(env_id) => {
-            let conn = state
-                .read_db_connection()
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-            let vars = aiproxy_db::environments::list_environment_variables(&conn, env_id)
-                .map_err(|e| app_error(ERR_INTERNAL, format!("load environment variables: {e}")))?;
-            vars.into_iter()
-                .filter(|v| v.enabled)
-                .map(|v| (v.key, v.value))
-                .collect()
-        }
-        None => std::collections::HashMap::new(),
-    };
+        let vars = match &input.environment_id {
+            Some(env_id) => {
+                aiproxy_db::environments::list_environment_variables(&conn_guard, env_id)
+                    .map_err(|e| {
+                        app_error(ERR_INTERNAL, format!("load environment variables: {e}"))
+                    })?
+                    .into_iter()
+                    .filter(|v| v.enabled)
+                    .map(|v| (v.key, v.value))
+                    .collect()
+            }
+            None => std::collections::HashMap::new(),
+        };
+
+        Ok((found, vars))
+    })
+    .await?;
 
     let mut results = Vec::new();
     for item in items {

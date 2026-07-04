@@ -275,9 +275,9 @@ pub(crate) use http_io::{
     build_body_reference, build_cookie_entries, build_header_entries_from_httparse_headers,
     build_header_entries_from_map, build_pending_session_detail, build_query_params,
     build_raw_http_head, build_request_path, build_session_detail, build_session_summary,
-    build_upstream_headers, build_upstream_headers_from_entries, find_header_end, map_io_error,
-    resolve_target_url, should_skip_request_header, write_plain_text_response, OwnedPrefixedStream,
-    SessionSummaryInput,
+    build_upstream_headers, build_upstream_headers_from_entries, find_header_end,
+    hop_by_hop_strip_set, map_io_error, resolve_target_url, should_skip_request_header,
+    should_strip_hop_by_hop, write_plain_text_response, OwnedPrefixedStream, SessionSummaryInput,
 };
 pub(crate) use http_proxy::HttpProxyService;
 pub(crate) use rules::{

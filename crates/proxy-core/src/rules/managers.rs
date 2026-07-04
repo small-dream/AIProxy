@@ -1,16 +1,27 @@
 use super::*;
 use regex::Regex;
+use std::sync::Arc;
 
 /// Manages rewrite rules in memory.
 pub struct RewriteManager {
-    rules: Mutex<Vec<CompiledRewriteRule>>,
+    // M10: a single `Arc<Vec<...>>` snapshot is rebuilt only when the rule set
+    // changes (`set_rules`/`save_rule`/`delete_rule`). `compiled_rules()` hands
+    // out a cheap `Arc` clone (refcount bump) instead of deep-cloning every
+    // rule under the lock on each request — the previous code paid a full
+    // `rule.clone()` (including the serde_json payload) + `Regex` clone per
+    // rule per request.
+    snapshot: Mutex<Arc<Vec<CompiledRewriteRule>>>,
 }
 
 /// Internal wrapper that pairs a rewrite rule with a pre-compiled regex
 /// (only populated when `match_type == "regex"`). Not exposed outside the crate.
+#[derive(Clone)]
 pub(crate) struct CompiledRewriteRule {
     pub rule: RewriteRule,
-    pub compiled_match: Option<Regex>,
+    // M10: shared behind an `Arc` so cloning the wrapper (e.g. when the
+    // hot-path filters a copy out of the snapshot) never recompiles or deep-
+    // copies the regex.
+    pub compiled_match: Option<Arc<Regex>>,
 }
 
 impl std::fmt::Debug for RewriteManager {
@@ -30,7 +41,7 @@ impl Default for RewriteManager {
 impl RewriteManager {
     pub fn new() -> Self {
         Self {
-            rules: Mutex::new(Vec::new()),
+            snapshot: Mutex::new(Arc::new(Vec::new())),
         }
     }
 
@@ -41,16 +52,17 @@ impl RewriteManager {
                 compiled_match: compile_match_regex(
                     &rule.r#match.match_type,
                     &rule.r#match.url_pattern,
-                ),
+                )
+                .map(Arc::new),
                 rule,
             })
             .collect();
-        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = compiled;
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Arc::new(compiled);
     }
 
     pub fn list_rules(&self) -> Vec<RewriteRule> {
-        self.rules
+        self.snapshot
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
@@ -63,34 +75,41 @@ impl RewriteManager {
             compiled_match: compile_match_regex(
                 &rule.r#match.match_type,
                 &rule.r#match.url_pattern,
-            ),
+            )
+            .map(Arc::new),
             rule: rule.clone(),
         };
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = rules.iter_mut().find(|r| r.rule.id == compiled.rule.id) {
-            *existing = compiled;
-        } else {
-            rules.push(compiled);
-        }
+        // M10: rebuild the snapshot under the lock so concurrent readers
+        // hand-pulling `compiled_rules()` never observe a half-mutated vec.
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next: Vec<CompiledRewriteRule> = (**guard)
+            .iter()
+            .filter(|r| r.rule.id != compiled.rule.id)
+            .cloned()
+            .collect();
+        next.push(compiled);
+        *guard = Arc::new(next);
         rule
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.retain(|r| r.rule.id != rule_id);
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        if !(**guard).iter().any(|r| r.rule.id == rule_id) {
+            return; // nothing to do; avoid an unnecessary snapshot rebuild
+        }
+        let next: Vec<CompiledRewriteRule> = (**guard)
+            .iter()
+            .filter(|r| r.rule.id != rule_id)
+            .cloned()
+            .collect();
+        *guard = Arc::new(next);
     }
 
-    /// Returns compiled rewrite rules for use in hot-path matching.
-    pub(crate) fn compiled_rules(&self) -> Vec<CompiledRewriteRule> {
-        self.rules
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|cr| CompiledRewriteRule {
-                rule: cr.rule.clone(),
-                compiled_match: cr.compiled_match.clone(),
-            })
-            .collect()
+    /// Returns the current compiled-rule snapshot. Cheap: a single refcount
+    /// bump on the shared `Arc<Vec<...>>`. Callers may iterate the result
+    /// outside the lock.
+    pub(crate) fn compiled_rules(&self) -> Arc<Vec<CompiledRewriteRule>> {
+        Arc::clone(&self.snapshot.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 

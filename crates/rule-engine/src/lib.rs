@@ -717,4 +717,45 @@ export function onRequest() {
         assert!(!re_v2.is_match("http://example.com/123"));
         assert!(re_v2.is_match("http://example.com/abc"));
     }
+
+    // M10: ScriptManager.compiled_rules() returns a shared Arc snapshot; two
+    // reads without an intervening mutation share the same Arc, and the large
+    // compiled_code String is shared (Arc<String>) across reads — no per-call
+    // deep clone of the transpiled module source.
+    #[test]
+    fn compiled_rules_snapshot_is_shared_until_mutation() {
+        use std::sync::Arc;
+
+        let rule = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"export function onRequest(ctx) { }"#,
+        );
+        let compiled = compile_script_rule(rule).unwrap();
+
+        let manager = ScriptManager::new();
+        manager.set_rules(vec![compiled]);
+
+        let snap_a = manager.compiled_rules();
+        let snap_b = manager.compiled_rules();
+        assert!(
+            Arc::ptr_eq(&snap_a, &snap_b),
+            "compiled_rules() should share the snapshot Arc until a mutation"
+        );
+
+        // compiled_code is shared (Arc<String>) across snapshot reads.
+        let code_a = &snap_a[0].compiled_code;
+        let code_b = &snap_b[0].compiled_code;
+        assert!(
+            Arc::ptr_eq(code_a, code_b),
+            "compiled_code should be shared (Arc<String>) across reads"
+        );
+
+        // A mutation rebuilds the snapshot.
+        manager.delete_rule("script-1");
+        let snap_c = manager.compiled_rules();
+        assert!(
+            !Arc::ptr_eq(&snap_a, &snap_c),
+            "snapshot must be rebuilt after a mutation"
+        );
+    }
 }

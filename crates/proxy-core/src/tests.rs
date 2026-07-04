@@ -1410,6 +1410,66 @@ fn non_regex_match_types_do_not_compile_regex() {
     );
 }
 
+// M10: `compiled_rules()` must hand out a shared snapshot rather than deep-
+// cloning every rule under the lock on each call. Two consecutive reads
+// without an intervening mutation return the SAME `Arc` (refcount bump only),
+// and a regex rule's compiled regex is shared (same `Arc<Regex>` pointer).
+#[test]
+fn compiled_rules_snapshot_is_shared_until_mutation() {
+    use std::sync::Arc as StdArc;
+
+    let manager = StdArc::new(RewriteManager::new());
+    manager.save_rule(RewriteRule {
+        id: "regex-rule".to_string(),
+        enabled: true,
+        name: "Regex test".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec![],
+            stage: "request".to_string(),
+            url_pattern: r"example\.com/.*".to_string(),
+            match_type: Some("regex".to_string()),
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
+    });
+
+    let snap_a = manager.compiled_rules();
+    let snap_b = manager.compiled_rules();
+    // Same Arc pointer — no rebuild between identical reads.
+    assert!(
+        StdArc::ptr_eq(&snap_a, &snap_b),
+        "compiled_rules() should share the snapshot Arc until a mutation"
+    );
+
+    // The compiled regex inside the rule is shared too (Arc<Regex>), so the
+    // regex is never recompiled or deep-cloned when the snapshot is read.
+    let re_a = snap_a
+        .iter()
+        .find(|cr| cr.rule.id == "regex-rule")
+        .and_then(|cr| cr.compiled_match.as_ref())
+        .expect("regex rule has a compiled regex");
+    let re_b = snap_b
+        .iter()
+        .find(|cr| cr.rule.id == "regex-rule")
+        .and_then(|cr| cr.compiled_match.as_ref())
+        .expect("regex rule has a compiled regex");
+    assert!(
+        StdArc::ptr_eq(re_a, re_b),
+        "compiled regex should be shared (Arc<Regex>) across snapshot reads"
+    );
+
+    // A mutation rebuilds the snapshot, so the next read yields a new Arc.
+    manager.delete_rule("regex-rule");
+    let snap_c = manager.compiled_rules();
+    assert!(
+        !StdArc::ptr_eq(&snap_a, &snap_c),
+        "snapshot must be rebuilt after a mutation"
+    );
+}
+
 #[test]
 fn rewrite_rule_respects_match_type_wildcard() {
     let manager = Arc::new(RewriteManager::new());

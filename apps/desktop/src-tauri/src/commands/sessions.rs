@@ -136,9 +136,17 @@ pub struct SetFocusedHostsInput {
     pub hosts: Vec<String>,
 }
 
+// M14: made async so the heavy DB + body-file deletion is offloaded to
+// `spawn_blocking` inside `AppState::delete_sessions_except`, instead of
+// running on the IPC thread under the global DB mutex. Returns a `Result`
+// because Tauri requires async commands with reference inputs to do so.
 #[tauri::command]
-pub fn delete_sessions_except(input: DeleteSessionsExceptInput, state: State<'_, Arc<AppState>>) {
-    state.delete_sessions_except(&input.keep_session_id);
+pub async fn delete_sessions_except(
+    input: DeleteSessionsExceptInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    state.delete_sessions_except(&input.keep_session_id).await;
+    Ok(())
 }
 
 #[tauri::command]
