@@ -478,6 +478,28 @@ export const zhCNMessages: Messages = {
         bodyReplace: "{{target}} body -> {{contentType}}。",
         redirect: "重定向 -> {{target}}。",
       },
+      templates: {
+        debugHeader: {
+          label: "调试头",
+          description: "在不改动应用代码的前提下标记命中流量。",
+        },
+        disableCache: {
+          label: "禁用缓存",
+          description: "调试时强制返回最新响应。",
+        },
+        envQuery: {
+          label: "环境参数",
+          description: "追加一个稳定的环境参数。",
+        },
+        stagingRedirect: {
+          label: "重定向到预发",
+          description: "把命中请求转发到预发上游。",
+        },
+        mockJson: {
+          label: "Mock JSON",
+          description: "用固定的 JSON 结构替换响应体。",
+        },
+      },
     },
     mapLocal: {
       createRule: "新建本地映射",

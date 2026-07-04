@@ -59,16 +59,20 @@ import {
   ManagedRulesWorkbench,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
-import { useI18n } from "@/i18n";
+import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
 type RewriteSeed = Pick<SessionSummary, "host" | "method" | "path" | "url">;
 type RulesLocationState = { rewriteSeed?: RewriteSeed } | null;
 
 type RewriteTemplate = {
-  description: string;
+  // `label` / `description` are dot-path i18n keys resolved via t() at render
+  // time so the template dialog is localized. They double as the stable React
+  // key. The seeded rule `name` (inside build()) stays English on purpose: it
+  // becomes an editable, persisted field and must not flip with the UI locale.
+  description: TranslationKey;
   icon: "bug" | "route" | "tune";
-  label: string;
+  label: TranslationKey;
   type: RewriteRuleType;
   build: () => RewriteRule;
 };
@@ -235,9 +239,9 @@ export function RewriteRulesPanel() {
             },
           };
         },
-        description: "Mark matching traffic without touching app code.",
+        description: "rulesPage.rewrite.templates.debugHeader.description",
         icon: "bug",
-        label: "Debug header",
+        label: "rulesPage.rewrite.templates.debugHeader.label",
         type: "header",
       },
       {
@@ -255,9 +259,9 @@ export function RewriteRulesPanel() {
             },
           };
         },
-        description: "Force fresh responses while debugging.",
+        description: "rulesPage.rewrite.templates.disableCache.description",
         icon: "tune",
-        label: "Disable cache",
+        label: "rulesPage.rewrite.templates.disableCache.label",
         type: "header",
       },
       {
@@ -270,9 +274,9 @@ export function RewriteRulesPanel() {
             payload: { operation: "set", paramName: "env", value: "staging" },
           };
         },
-        description: "Append a stable environment parameter.",
+        description: "rulesPage.rewrite.templates.envQuery.description",
         icon: "route",
-        label: "Env query",
+        label: "rulesPage.rewrite.templates.envQuery.label",
         type: "query",
       },
       {
@@ -289,9 +293,9 @@ export function RewriteRulesPanel() {
             },
           };
         },
-        description: "Send matching requests to a staging upstream.",
+        description: "rulesPage.rewrite.templates.stagingRedirect.description",
         icon: "route",
-        label: "Staging redirect",
+        label: "rulesPage.rewrite.templates.stagingRedirect.label",
         type: "redirect",
       },
       {
@@ -310,9 +314,9 @@ export function RewriteRulesPanel() {
             },
           };
         },
-        description: "Replace a response body with a known JSON shape.",
+        description: "rulesPage.rewrite.templates.mockJson.description",
         icon: "tune",
-        label: "Mock JSON",
+        label: "rulesPage.rewrite.templates.mockJson.label",
         type: "body",
       },
     ],
@@ -707,7 +711,7 @@ export function RewriteRulesPanel() {
                     alignItems: "center"
                   }}>
                     <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                      {template.label}
+                      {t(template.label)}
                     </Typography>
                     <Chip
                       size="small"
@@ -718,7 +722,7 @@ export function RewriteRulesPanel() {
                   <Typography variant="caption" sx={{
                     color: "text.secondary"
                   }}>
-                    {template.description}
+                    {t(template.description)}
                   </Typography>
                 </Stack>
               </Button>

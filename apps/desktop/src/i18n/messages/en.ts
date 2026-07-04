@@ -493,6 +493,28 @@ export const enMessages = {
         bodyReplace: "{{target}} body -> {{contentType}}.",
         redirect: "Redirect -> {{target}}.",
       },
+      templates: {
+        debugHeader: {
+          label: "Debug header",
+          description: "Mark matching traffic without touching app code.",
+        },
+        disableCache: {
+          label: "Disable cache",
+          description: "Force fresh responses while debugging.",
+        },
+        envQuery: {
+          label: "Env query",
+          description: "Append a stable environment parameter.",
+        },
+        stagingRedirect: {
+          label: "Staging redirect",
+          description: "Send matching requests to a staging upstream.",
+        },
+        mockJson: {
+          label: "Mock JSON",
+          description: "Replace a response body with a known JSON shape.",
+        },
+      },
     },
     mapLocal: {
       createRule: "New Local Mapping",
