@@ -1997,4 +1997,238 @@ mod tests {
             "M3: CleanupStream must delete the spool file on drop"
         );
     }
+
+    // M9 regression: a mock response that is dropped at the RESPONSE throttle
+    // stage must (a) return a 504 with the response-stage message, not the
+    // request-stage "request was dropped" message, and (b) preserve the
+    // rewrite/script traces that already executed. The earlier implementation
+    // reused the request-stage failure helper, which emitted the wrong message
+    // and dropped the rewrite/script traces.
+    #[tokio::test]
+    async fn m9_mock_response_throttle_drop_returns_504_with_response_message_and_traces() {
+        use crate::rules::ThrottleRuntimeSelection;
+
+        // Long breakpoint wait so the resolution (Mock) is what drives the
+        // stage, not a timeout.
+        let _wait_guard =
+            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_secs(30));
+
+        // Breakpoint manager with one matching rule (matches example.com).
+        let breakpoint_manager = Arc::new(BreakpointManager::new());
+        breakpoint_manager.set_rules(vec![BreakpointRule {
+            id: "bp-1".to_string(),
+            enabled: true,
+            url_pattern: "example.com".to_string(),
+            methods: vec![],
+            stage: BreakpointStage::Request,
+            match_type: None,
+        }]);
+
+        // Throttle manager so `record_trace` is exercised (not strictly required
+        // for the assertions, but mirrors production wiring).
+        let throttle_manager = Arc::new(ThrottleManager::new());
+
+        // Capture the session detail emitted by the mock-drop path.
+        let (session_sender, mut session_receiver) = mpsc::channel(8);
+        let pool = Arc::new(crate::upstream_pool::UpstreamConnectionPool::new());
+        let (ws_sender, _) = mpsc::channel(1);
+        let ctx = ConnectionContext {
+            mode: ConnectionMode::PlainHttp,
+            client_addr: "127.0.0.1:0".parse().unwrap(),
+            session_sender,
+            ws_message_sender: ws_sender,
+            rewrite_manager: None,
+            map_manager: None,
+            script_manager: None,
+            throttle_manager: Some(throttle_manager),
+            breakpoint_manager: Some(breakpoint_manager.clone()),
+            dns_manager: None,
+            workspace_id: "test".to_string(),
+            event_emitter: None,
+            upstream_pool: pool,
+            verify_upstream_tls: false,
+            tls_verify_hosts: Arc::from(Vec::<String>::new()),
+        };
+
+        // Throttle selection with 100% packet loss and a response-stage rule.
+        // `apply_response_throttle` rolls the loss BEFORE sleeping latency, so
+        // the response is dropped on the first call.
+        let throttle_selection = Some(ThrottleRuntimeSelection {
+            profile: ThrottleProfileData {
+                id: "p1".to_string(),
+                download_kbps: 0,
+                enabled: true,
+                latency_ms: 0,
+                name: "lossy".to_string(),
+                note: None,
+                packet_loss_ratio: 1.0,
+                preset: false,
+                upload_kbps: 0,
+                workspace_id: "test".to_string(),
+            },
+            rule: Some(ThrottleRuleData {
+                id: "tr-1".to_string(),
+                enabled: true,
+                methods: vec![],
+                name: "lossy-rule".to_string(),
+                note: None,
+                priority: 1,
+                profile_id: "p1".to_string(),
+                stage: "response".to_string(),
+                url_pattern: "example.com".to_string(),
+                workspace_id: "test".to_string(),
+            }),
+        });
+
+        // Pre-existing rewrite + script traces that the mock-drop path MUST
+        // preserve on the emitted 504 session detail.
+        let rewrite_traces = vec![RewriteTrace {
+            duration_ms: 1,
+            entries: Vec::new(),
+            outcome: "applied".to_string(),
+            rule_id: "rw-1".to_string(),
+            rule_name: "rewrite".to_string(),
+            rewrite_type: "header".to_string(),
+            stage: "response".to_string(),
+        }];
+        let script_traces = vec![ScriptTrace {
+            duration_ms: 1,
+            entries: Vec::new(),
+            outcome: ScriptRunOutcome::Success,
+            rule_id: "sc-1".to_string(),
+            rule_name: "script".to_string(),
+            stage: ScriptTraceStage::Response,
+        }];
+
+        let started_at = chrono::Utc::now();
+        let started_at_instant = Instant::now();
+
+        // Drive the breakpoint mock stage. The interceptor registers a pending
+        // entry keyed on the request id, so resolve it with a Mock action once
+        // the task has had a chance to register. The ctx is moved into the
+        // task (it owns the session_sender half); we keep `breakpoint_manager`
+        // separately (it's an Arc) to resolve the pending entry.
+        let request_clone = make_proxy_request_for_mock_drop_test("sess-m9-mock");
+        let handle = tokio::spawn(async move {
+            stage_intercept_request_breakpoint(
+                &ctx,
+                &request_clone,
+                false,
+                &throttle_selection,
+                Vec::new(),
+                rewrite_traces,
+                script_traces,
+                started_at,
+                started_at_instant,
+            )
+            .await
+        });
+
+        // Give the interceptor a moment to register its pending entry, then
+        // resolve with a Mock action (200 OK mock body).
+        for _ in 0..50 {
+            if breakpoint_manager.pending_contains("sess-m9-mock") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let mock_resolution = BreakpointResolution {
+            session_id: "sess-m9-mock".to_string(),
+            action: BreakpointActionKind::Mock,
+            mock: Some(MockResponse {
+                status_code: 200,
+                headers: Vec::new(),
+                body_base64: None,
+            }),
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_request_body_base64: None,
+            modified_response_body_base64: None,
+            modified_response_headers: None,
+            modified_response_status_code: None,
+        };
+        breakpoint_manager
+            .resolve("sess-m9-mock", mock_resolution)
+            .expect("resolve must succeed");
+
+        let outcome = handle.await.expect("task must not panic").expect("ok");
+        match outcome {
+            BreakpointRequestOutcome::Drop(response) => {
+                // 504, not the mock 200.
+                assert_eq!(
+                    response.status(),
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "mock dropped at response throttle stage must return 504"
+                );
+            }
+            BreakpointRequestOutcome::Mock(_) => panic!("expected Drop, got Mock"),
+            BreakpointRequestOutcome::Forward { .. } => panic!("expected Drop, got Forward"),
+        }
+
+        // The emitted session detail must carry the RESPONSE-stage message and
+        // preserve the rewrite + script traces.
+        let detail = session_receiver
+            .recv()
+            .await
+            .expect("a 504 session detail must be emitted");
+
+        // Body carries the response-stage message (not "request was dropped").
+        let body_text = detail
+            .response_body
+            .as_ref()
+            .and_then(|b| b.inline_text())
+            .unwrap_or_default();
+        assert!(
+            body_text.contains("response was dropped"),
+            "mock-drop 504 body must use the response-stage message; got: {body_text:?}"
+        );
+        assert!(
+            !body_text.contains("request was dropped"),
+            "mock-drop 504 body must NOT use the request-stage message; got: {body_text:?}"
+        );
+
+        // Rewrite + script traces preserved (the request-stage helper dropped them).
+        assert_eq!(
+            detail.summary.status_code,
+            StatusCode::GATEWAY_TIMEOUT.as_u16(),
+            "session detail status must be 504"
+        );
+        assert!(
+            detail.rewrite_traces.iter().any(|t| t.rule_id == "rw-1"),
+            "rewrite trace must be preserved on the mock-drop detail"
+        );
+        assert!(
+            detail.script_traces.iter().any(|t| t.rule_id == "sc-1"),
+            "script trace must be preserved on the mock-drop detail"
+        );
+        assert!(
+            detail
+                .throttle_traces
+                .iter()
+                .any(|t| t.stage == "response" && t.outcome == "dropped"),
+            "a response-stage dropped throttle trace must be present"
+        );
+    }
+
+    /// Minimal `ParsedProxyRequest` for the M9 mock-drop test (matches the
+    /// breakpoint rule's `example.com` pattern).
+    fn make_proxy_request_for_mock_drop_test(session_id: &str) -> ParsedProxyRequest {
+        let parsed_url = Url::parse("http://example.com/test").unwrap();
+        ParsedProxyRequest {
+            body: Vec::new(),
+            client_address: Some("127.0.0.1:54321".to_string()),
+            headers: HeaderMap::new(),
+            host: "example.com".to_string(),
+            method: Method::GET,
+            path: build_request_path(&parsed_url),
+            protocol: "http".to_string(),
+            query_params: build_query_params(&parsed_url),
+            raw_request: "GET /test HTTP/1.1\r\nHost: example.com\r\n\r\n".to_string(),
+            request_headers: Vec::new(),
+            request_id: session_id.to_string(),
+            url: parsed_url,
+            tls_cipher_suite: None,
+            tls_protocol: None,
+        }
+    }
 }
