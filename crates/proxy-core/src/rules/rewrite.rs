@@ -258,184 +258,219 @@ pub(crate) fn apply_request_rewrite_rules(
     for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "request", request) {
         let started_at = Instant::now();
         let mut entries = Vec::new();
-        let mut outcome = "success";
 
-        match rule.rewrite_type.as_str() {
-            "header" => {
-                let payload: RewriteHeaderPayload = parse_rewrite_payload(&rule)?;
+        let outcome = match apply_one_request_rule(&rule, request, is_http2, &mut entries) {
+            Ok(rule_outcome) => rule_outcome,
+            Err(error) => {
+                entries.push(trace_entry(0, "error", None, None, None, Some(error)));
+                "error"
+            }
+        };
 
-                if !payload.target.eq_ignore_ascii_case("request") {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some(payload.header_name),
-                        None,
-                        None,
-                        Some("header target does not apply to request stage".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "request", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                let before = header_entry_value(&request.request_headers, &payload.header_name);
-                if payload.operation.eq_ignore_ascii_case("remove") {
-                    remove_header_entry(&mut request.request_headers, &payload.header_name);
-                } else if let Some(value) = payload.value.as_deref() {
-                    set_header_entry(&mut request.request_headers, &payload.header_name, value);
-                }
-                let after = header_entry_value(&request.request_headers, &payload.header_name);
-                entries.push(trace_entry(
-                    0,
-                    "header",
-                    Some(payload.header_name),
-                    before,
-                    after,
-                    Some(payload.operation),
+        // Structural failure: the request is in an inconsistent state and cannot
+        // be forwarded safely. Abort the whole request rather than continuing
+        // with corrupt runtime state. The error trace is recorded first so the
+        // failure is still visible in the session. This only happens after a
+        // successful mutation; skipped/error rules leave the request untouched.
+        if outcome == "success" {
+            rebuild_request_runtime_state(request).inspect_err(|_error| {
+                traces.push(build_rewrite_trace(
+                    &rule,
+                    "request",
+                    started_at,
+                    "error",
+                    std::mem::take(&mut entries),
                 ));
-            }
-            "query" => {
-                let payload: RewriteQueryPayload = parse_rewrite_payload(&rule)?;
-                let param_name = payload.param_name;
-                let before = query_param_value(&request.url, &param_name);
-                let mut query_pairs: Vec<(String, String)> = request
-                    .url
-                    .query_pairs()
-                    .map(|(name, value)| (name.into_owned(), value.into_owned()))
-                    .collect();
-
-                query_pairs.retain(|(name, _)| !name.eq_ignore_ascii_case(&param_name));
-
-                if !payload.operation.eq_ignore_ascii_case("remove") {
-                    query_pairs.push((param_name.clone(), payload.value.unwrap_or_default()));
-                }
-
-                request.url.set_query(None);
-                if !query_pairs.is_empty() {
-                    let mut pairs = request.url.query_pairs_mut();
-                    for (name, value) in &query_pairs {
-                        pairs.append_pair(name, value);
-                    }
-                }
-                let after = query_param_value(&request.url, &param_name);
-                entries.push(trace_entry(
-                    0,
-                    "query",
-                    Some(param_name),
-                    before,
-                    after,
-                    Some(payload.operation),
-                ));
-            }
-            "body" => {
-                let payload: RewriteBodyPayload = parse_rewrite_payload(&rule)?;
-
-                if !payload.target.eq_ignore_ascii_case("request") {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some("body".to_string()),
-                        None,
-                        None,
-                        Some("body target does not apply to request stage".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "request", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                if is_http2 {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some("body".to_string()),
-                        None,
-                        None,
-                        Some("HTTP/2 body rewrite not supported".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "request", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                let mode = payload.mode.as_deref().unwrap_or("replace");
-                let before = body_preview(&request.body);
-                if mode.eq_ignore_ascii_case("fields") {
-                    let fields = payload.fields.unwrap_or_default();
-                    let (rewritten_body, field_entries) =
-                        apply_body_field_rewrite(&request.body, &fields)?;
-                    request.body = rewritten_body;
-                    entries.extend(field_entries);
-                } else {
-                    request.body = payload.text.unwrap_or_default().into_bytes();
-                    entries.push(trace_entry(
-                        0,
-                        "body",
-                        Some(CONTENT_TYPE.as_str().to_string()),
-                        before,
-                        body_preview(&request.body),
-                        Some(payload.content_type.clone()),
-                    ));
-                }
-                set_header_entry(
-                    &mut request.request_headers,
-                    CONTENT_TYPE.as_str(),
-                    &payload.content_type,
-                );
-                strip_plain_body_edit_header_entries(&mut request.request_headers);
-            }
-            "redirect" => {
-                let payload: RewriteRedirectPayload = parse_rewrite_payload(&rule)?;
-                let before = request.url.to_string();
-                let original_path = request.url.path().to_string();
-                let original_query = request.url.query().map(str::to_string);
-                let mut redirected_url = Url::parse(&payload.target_url).map_err(|error| {
-                    format!(
-                        "rewrite rule '{}' points to an invalid target URL '{}': {error}",
-                        rule.id, payload.target_url
-                    )
-                })?;
-
-                if payload.preserve_path {
-                    redirected_url.set_path(&original_path);
-                }
-                if payload.preserve_query {
-                    redirected_url.set_query(original_query.as_deref());
-                }
-
-                request.url = redirected_url;
-                entries.push(trace_entry(
-                    0,
-                    "redirect",
-                    Some("url".to_string()),
-                    Some(before),
-                    Some(request.url.to_string()),
-                    None,
-                ));
-            }
-            _ => {
-                outcome = "skipped";
-                entries.push(trace_entry(
-                    0,
-                    "skip",
-                    Some(rule.rewrite_type.clone()),
-                    None,
-                    None,
-                    Some("unsupported rewrite type".to_string()),
-                ));
-            }
+            })?;
         }
 
-        rebuild_request_runtime_state(request)?;
         traces.push(build_rewrite_trace(
             &rule, "request", started_at, outcome, entries,
         ));
     }
 
     Ok(traces)
+}
+
+/// Applies a single request-stage rewrite rule.
+///
+/// - `Ok("success")` — the rule ran and applied a mutation.
+/// - `Ok("skipped")` — the rule did not apply (target stage mismatch, HTTP/2
+///   body rewrite unsupported, unknown rewrite type). The reason is recorded as
+///   a skip entry on `entries`; the caller must keep the trace outcome as
+///   `"skipped"` so the inspector distinguishes it from a real mutation.
+/// - `Err(String)` — a per-rule failure (invalid payload, malformed redirect
+///   URL, body shape mismatch, ...). The caller records an error trace and
+///   continues with the remaining rules instead of aborting the request.
+///
+/// Mirrors the per-rule isolation already used by `apply_*_script_rules`.
+fn apply_one_request_rule(
+    rule: &RewriteRule,
+    request: &mut ParsedProxyRequest,
+    is_http2: bool,
+    entries: &mut Vec<RewriteTraceEntry>,
+) -> Result<&'static str, String> {
+    match rule.rewrite_type.as_str() {
+        "header" => {
+            let payload: RewriteHeaderPayload = parse_rewrite_payload(rule)?;
+
+            if !payload.target.eq_ignore_ascii_case("request") {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some(payload.header_name),
+                    None,
+                    None,
+                    Some("header target does not apply to request stage".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            let before = header_entry_value(&request.request_headers, &payload.header_name);
+            if payload.operation.eq_ignore_ascii_case("remove") {
+                remove_header_entry(&mut request.request_headers, &payload.header_name);
+            } else if let Some(value) = payload.value.as_deref() {
+                set_header_entry(&mut request.request_headers, &payload.header_name, value);
+            }
+            let after = header_entry_value(&request.request_headers, &payload.header_name);
+            entries.push(trace_entry(
+                0,
+                "header",
+                Some(payload.header_name),
+                before,
+                after,
+                Some(payload.operation),
+            ));
+        }
+        "query" => {
+            let payload: RewriteQueryPayload = parse_rewrite_payload(rule)?;
+            let param_name = payload.param_name;
+            let before = query_param_value(&request.url, &param_name);
+            let mut query_pairs: Vec<(String, String)> = request
+                .url
+                .query_pairs()
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect();
+
+            query_pairs.retain(|(name, _)| !name.eq_ignore_ascii_case(&param_name));
+
+            if !payload.operation.eq_ignore_ascii_case("remove") {
+                query_pairs.push((param_name.clone(), payload.value.unwrap_or_default()));
+            }
+
+            request.url.set_query(None);
+            if !query_pairs.is_empty() {
+                let mut pairs = request.url.query_pairs_mut();
+                for (name, value) in &query_pairs {
+                    pairs.append_pair(name, value);
+                }
+            }
+            let after = query_param_value(&request.url, &param_name);
+            entries.push(trace_entry(
+                0,
+                "query",
+                Some(param_name),
+                before,
+                after,
+                Some(payload.operation),
+            ));
+        }
+        "body" => {
+            let payload: RewriteBodyPayload = parse_rewrite_payload(rule)?;
+
+            if !payload.target.eq_ignore_ascii_case("request") {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some("body".to_string()),
+                    None,
+                    None,
+                    Some("body target does not apply to request stage".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            if is_http2 {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some("body".to_string()),
+                    None,
+                    None,
+                    Some("HTTP/2 body rewrite not supported".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            let mode = payload.mode.as_deref().unwrap_or("replace");
+            let before = body_preview(&request.body);
+            if mode.eq_ignore_ascii_case("fields") {
+                let fields = payload.fields.unwrap_or_default();
+                let (rewritten_body, field_entries) =
+                    apply_body_field_rewrite(&request.body, &fields)?;
+                request.body = rewritten_body;
+                entries.extend(field_entries);
+            } else {
+                request.body = payload.text.unwrap_or_default().into_bytes();
+                entries.push(trace_entry(
+                    0,
+                    "body",
+                    Some(CONTENT_TYPE.as_str().to_string()),
+                    before,
+                    body_preview(&request.body),
+                    Some(payload.content_type.clone()),
+                ));
+            }
+            set_header_entry(
+                &mut request.request_headers,
+                CONTENT_TYPE.as_str(),
+                &payload.content_type,
+            );
+            strip_plain_body_edit_header_entries(&mut request.request_headers);
+        }
+        "redirect" => {
+            let payload: RewriteRedirectPayload = parse_rewrite_payload(rule)?;
+            let before = request.url.to_string();
+            let original_path = request.url.path().to_string();
+            let original_query = request.url.query().map(str::to_string);
+            let mut redirected_url = Url::parse(&payload.target_url).map_err(|error| {
+                format!(
+                    "rewrite rule '{}' points to an invalid target URL '{}': {error}",
+                    rule.id, payload.target_url
+                )
+            })?;
+
+            if payload.preserve_path {
+                redirected_url.set_path(&original_path);
+            }
+            if payload.preserve_query {
+                redirected_url.set_query(original_query.as_deref());
+            }
+
+            request.url = redirected_url;
+            entries.push(trace_entry(
+                0,
+                "redirect",
+                Some("url".to_string()),
+                Some(before),
+                Some(request.url.to_string()),
+                None,
+            ));
+        }
+        _ => {
+            entries.push(trace_entry(
+                0,
+                "skip",
+                Some(rule.rewrite_type.clone()),
+                None,
+                None,
+                Some("unsupported rewrite type".to_string()),
+            ));
+            return Ok("skipped");
+        }
+    }
+
+    Ok("success")
 }
 
 pub(crate) fn apply_response_rewrite_rules(
@@ -450,123 +485,143 @@ pub(crate) fn apply_response_rewrite_rules(
     for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "response", request) {
         let started_at = Instant::now();
         let mut entries = Vec::new();
-        let mut outcome = "success";
 
-        match rule.rewrite_type.as_str() {
-            "header" => {
-                let payload: RewriteHeaderPayload = parse_rewrite_payload(&rule)?;
-
-                if !payload.target.eq_ignore_ascii_case("response") {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some(payload.header_name),
-                        None,
-                        None,
-                        Some("header target does not apply to response stage".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "response", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                let before = header_map_value(&response.response_headers, &payload.header_name);
-                if let Ok(name) = HeaderName::from_bytes(payload.header_name.as_bytes()) {
-                    response.response_headers.remove(&name);
-
-                    if !payload.operation.eq_ignore_ascii_case("remove") {
-                        if let Some(value) = payload.value.as_deref() {
-                            if let Ok(header_value) = HeaderValue::from_str(value) {
-                                response.response_headers.insert(name, header_value);
-                            }
-                        }
-                    }
-                }
-                let after = header_map_value(&response.response_headers, &payload.header_name);
-                entries.push(trace_entry(
-                    0,
-                    "header",
-                    Some(payload.header_name),
-                    before,
-                    after,
-                    Some(payload.operation),
-                ));
+        let outcome = match apply_one_response_rule(&rule, response, is_http2, &mut entries) {
+            Ok(rule_outcome) => rule_outcome,
+            Err(error) => {
+                entries.push(trace_entry(0, "error", None, None, None, Some(error)));
+                "error"
             }
-            "body" => {
-                let payload: RewriteBodyPayload = parse_rewrite_payload(&rule)?;
+        };
 
-                if !payload.target.eq_ignore_ascii_case("response") {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some("body".to_string()),
-                        None,
-                        None,
-                        Some("body target does not apply to response stage".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "response", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                if is_http2 {
-                    entries.push(trace_entry(
-                        0,
-                        "skip",
-                        Some("body".to_string()),
-                        None,
-                        None,
-                        Some("HTTP/2 body rewrite not supported".to_string()),
-                    ));
-                    traces.push(build_rewrite_trace(
-                        &rule, "response", started_at, "skipped", entries,
-                    ));
-                    continue;
-                }
-
-                let mode = payload.mode.as_deref().unwrap_or("replace");
-                let before = body_preview(&response.response_body);
-                if mode.eq_ignore_ascii_case("fields") {
-                    let fields = payload.fields.unwrap_or_default();
-                    let (rewritten_body, field_entries) =
-                        apply_body_field_rewrite(&response.response_body, &fields)?;
-                    response.replace_response_body(rewritten_body);
-                    entries.extend(field_entries);
-                } else {
-                    response.replace_response_body(payload.text.unwrap_or_default().into_bytes());
-                    entries.push(trace_entry(
-                        0,
-                        "body",
-                        Some(CONTENT_TYPE.as_str().to_string()),
-                        before,
-                        body_preview(&response.response_body),
-                        Some(payload.content_type.clone()),
-                    ));
-                }
-
-                if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
-                    response.response_headers.insert(CONTENT_TYPE, content_type);
-                }
-                strip_plain_body_edit_headers(&mut response.response_headers);
-            }
-            _ => {
-                outcome = "skipped";
-                entries.push(trace_entry(
-                    0,
-                    "skip",
-                    Some(rule.rewrite_type.clone()),
-                    None,
-                    None,
-                    Some("rewrite type does not apply to response stage".to_string()),
-                ));
-            }
-        }
         traces.push(build_rewrite_trace(
             &rule, "response", started_at, outcome, entries,
         ));
     }
 
     Ok(traces)
+}
+
+/// Applies a single response-stage rewrite rule.
+///
+/// - `Ok("success")` — the rule ran and applied a mutation.
+/// - `Ok("skipped")` — the rule did not apply (target stage mismatch, HTTP/2
+///   body rewrite unsupported, unknown rewrite type). The reason is recorded as
+///   a skip entry on `entries`; the caller must keep the trace outcome as
+///   `"skipped"` so the inspector distinguishes it from a real mutation.
+/// - `Err(String)` — a per-rule failure. The caller records an error trace and
+///   continues with the remaining rules instead of aborting the request.
+///
+/// Mirrors the per-rule isolation used by `apply_one_request_rule` and the
+/// script rule appliers.
+fn apply_one_response_rule(
+    rule: &RewriteRule,
+    response: &mut UpstreamResponse,
+    is_http2: bool,
+    entries: &mut Vec<RewriteTraceEntry>,
+) -> Result<&'static str, String> {
+    match rule.rewrite_type.as_str() {
+        "header" => {
+            let payload: RewriteHeaderPayload = parse_rewrite_payload(rule)?;
+
+            if !payload.target.eq_ignore_ascii_case("response") {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some(payload.header_name),
+                    None,
+                    None,
+                    Some("header target does not apply to response stage".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            let before = header_map_value(&response.response_headers, &payload.header_name);
+            if let Ok(name) = HeaderName::from_bytes(payload.header_name.as_bytes()) {
+                response.response_headers.remove(&name);
+
+                if !payload.operation.eq_ignore_ascii_case("remove") {
+                    if let Some(value) = payload.value.as_deref() {
+                        if let Ok(header_value) = HeaderValue::from_str(value) {
+                            response.response_headers.insert(name, header_value);
+                        }
+                    }
+                }
+            }
+            let after = header_map_value(&response.response_headers, &payload.header_name);
+            entries.push(trace_entry(
+                0,
+                "header",
+                Some(payload.header_name),
+                before,
+                after,
+                Some(payload.operation),
+            ));
+        }
+        "body" => {
+            let payload: RewriteBodyPayload = parse_rewrite_payload(rule)?;
+
+            if !payload.target.eq_ignore_ascii_case("response") {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some("body".to_string()),
+                    None,
+                    None,
+                    Some("body target does not apply to response stage".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            if is_http2 {
+                entries.push(trace_entry(
+                    0,
+                    "skip",
+                    Some("body".to_string()),
+                    None,
+                    None,
+                    Some("HTTP/2 body rewrite not supported".to_string()),
+                ));
+                return Ok("skipped");
+            }
+
+            let mode = payload.mode.as_deref().unwrap_or("replace");
+            let before = body_preview(&response.response_body);
+            if mode.eq_ignore_ascii_case("fields") {
+                let fields = payload.fields.unwrap_or_default();
+                let (rewritten_body, field_entries) =
+                    apply_body_field_rewrite(&response.response_body, &fields)?;
+                response.replace_response_body(rewritten_body);
+                entries.extend(field_entries);
+            } else {
+                response.replace_response_body(payload.text.unwrap_or_default().into_bytes());
+                entries.push(trace_entry(
+                    0,
+                    "body",
+                    Some(CONTENT_TYPE.as_str().to_string()),
+                    before,
+                    body_preview(&response.response_body),
+                    Some(payload.content_type.clone()),
+                ));
+            }
+
+            if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
+                response.response_headers.insert(CONTENT_TYPE, content_type);
+            }
+            strip_plain_body_edit_headers(&mut response.response_headers);
+        }
+        _ => {
+            entries.push(trace_entry(
+                0,
+                "skip",
+                Some(rule.rewrite_type.clone()),
+                None,
+                None,
+                Some("rewrite type does not apply to response stage".to_string()),
+            ));
+            return Ok("skipped");
+        }
+    }
+
+    Ok("success")
 }

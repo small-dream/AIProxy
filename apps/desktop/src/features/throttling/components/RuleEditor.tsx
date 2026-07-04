@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 
+import { HTTP_METHODS } from "@/features/rules/rules.helpers";
 import type { TranslationKey, TranslationParams } from "@/i18n";
 import { EditorHeader } from "./EditorHeader";
 
@@ -91,20 +92,27 @@ export function RuleEditor(props: {
           value={draft.urlPattern}
           onChange={(event) => onChange({ urlPattern: event.target.value })}
         />
-        <TextField
-          size="small"
-          label={t("throttlingPage.ruleFields.methods")}
-          placeholder="GET, POST, PUT"
-          value={draft.methods.join(", ")}
-          onChange={(event) =>
-            onChange({
-              methods: event.target.value
-                .split(",")
-                .map((value) => value.trim().toUpperCase())
-                .filter(Boolean),
-            })
-          }
-        />
+        <FormControl size="small">
+          <InputLabel>{t("throttlingPage.ruleFields.methods")}</InputLabel>
+          <Select
+            multiple
+            displayEmpty
+            label={t("throttlingPage.ruleFields.methods")}
+            value={draft.methods}
+            onChange={(event) => onChange({ methods: event.target.value as string[] })}
+            // Empty selection means "all methods" — matches the convention used
+            // by the other rule panels (see BreakpointRulesPanel / RewriteRulesPanel).
+            renderValue={(selected) =>
+              selected.length === 0 ? t("rulesPage.allMethods") : selected.join(", ")
+            }
+          >
+            {HTTP_METHODS.map((method) => (
+              <MenuItem key={method} value={method}>
+                {method}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         <FormControl size="small">
           <InputLabel>{t("throttlingPage.ruleFields.stage")}</InputLabel>
           <Select

@@ -693,6 +693,337 @@ fn applies_request_body_rewrite_to_json_fields() {
     assert_eq!(traces[0].entries[0].kind, "body-field");
 }
 
+// H4 regression: a single failing rewrite rule must be isolated — it records an
+// error trace and the cascade continues with the remaining rules instead of
+// aborting the request.
+#[test]
+fn isolates_a_failing_request_rewrite_rule_and_continues_cascade() {
+    let manager = RewriteManager::new();
+    // Rule 1 (highest priority, runs first): a header rewrite that always works.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-header-ok".to_string(),
+        enabled: true,
+        name: "Header OK".to_string(),
+        note: None,
+        priority: 30,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-first",
+            "operation": "set",
+            "target": "request",
+            "value": "applied"
+        }),
+    });
+    // Rule 2: body fields rewrite against a non-JSON body — must fail isolated.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-body-bad".to_string(),
+        enabled: true,
+        name: "Body bad".to_string(),
+        note: None,
+        priority: 20,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "user.name", "value": "Jane", "valueType": "string" }
+            ],
+            "mode": "fields",
+            "target": "request",
+            "text": ""
+        }),
+    });
+    // Rule 3: another header rewrite — must still run after rule 2 fails.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-header-after".to_string(),
+        enabled: true,
+        name: "Header after".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-third",
+            "operation": "set",
+            "target": "request",
+            "value": "applied"
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.body = b"plain-text-not-json".to_vec();
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    // The whole cascade returns Ok — no rule aborts the request.
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .expect("per-rule failures must not abort the request");
+
+    // All three rules produced a trace.
+    assert_eq!(traces.len(), 3);
+    // Rule 2 failed in isolation with an error outcome.
+    let bad_trace = traces
+        .iter()
+        .find(|trace| trace.rule_id == "rewrite-body-bad")
+        .expect("failed rule still emits a trace");
+    assert_eq!(bad_trace.outcome, "error");
+    // Rule 1 (first) and rule 3 (third) succeeded.
+    assert_eq!(
+        traces
+            .iter()
+            .find(|trace| trace.rule_id == "rewrite-header-ok")
+            .unwrap()
+            .outcome,
+        "success"
+    );
+    assert_eq!(
+        traces
+            .iter()
+            .find(|trace| trace.rule_id == "rewrite-header-after")
+            .unwrap()
+            .outcome,
+        "success"
+    );
+    // The third rule's mutation is observable — the cascade kept going.
+    assert_eq!(
+        header_entry(&request.request_headers, "x-first"),
+        Some("applied")
+    );
+    assert_eq!(
+        header_entry(&request.request_headers, "x-third"),
+        Some("applied")
+    );
+}
+
+// H4 regression (response stage): same isolation for response rewrite rules.
+#[test]
+fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "response-header-ok".to_string(),
+        enabled: true,
+        name: "Header OK".to_string(),
+        note: None,
+        priority: 30,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-first",
+            "operation": "set",
+            "target": "response",
+            "value": "applied"
+        }),
+    });
+    manager.save_rule(RewriteRule {
+        id: "response-body-bad".to_string(),
+        enabled: true,
+        name: "Body bad".to_string(),
+        note: None,
+        priority: 20,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "user.name", "value": "Jane", "valueType": "string" }
+            ],
+            "mode": "fields",
+            "target": "response",
+            "text": ""
+        }),
+    });
+    manager.save_rule(RewriteRule {
+        id: "response-header-after".to_string(),
+        enabled: true,
+        name: "Header after".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-third",
+            "operation": "set",
+            "target": "response",
+            "value": "applied"
+        }),
+    });
+
+    let request = build_test_request("http://example.com/api/users");
+    let mut response = UpstreamResponse {
+        body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
+        response_body: b"plain-text-not-json".to_vec(),
+        response_body_size_bytes: 20,
+        response_headers: HeaderMap::new(),
+        response_read_ms: 0,
+        spooled_response_path: None,
+        status_code: StatusCode::OK,
+        tls_ms: None,
+        waiting_ms: 0,
+    };
+
+    let traces = apply_response_rewrite_rules(
+        &Some(Arc::new(manager)),
+        "default",
+        &request,
+        &mut response,
+        false,
+    )
+    .expect("per-rule failures must not abort the response");
+
+    assert_eq!(traces.len(), 3);
+    assert_eq!(
+        traces
+            .iter()
+            .find(|trace| trace.rule_id == "response-body-bad")
+            .unwrap()
+            .outcome,
+        "error"
+    );
+    assert_eq!(
+        traces
+            .iter()
+            .find(|trace| trace.rule_id == "response-header-after")
+            .unwrap()
+            .outcome,
+        "success"
+    );
+    assert_eq!(
+        response
+            .response_headers
+            .get("x-third")
+            .and_then(|value| value.to_str().ok()),
+        Some("applied")
+    );
+}
+
+// H4 regression companion: a rule that does not apply to the current stage must
+// keep outcome="skipped" (the inspector maps it to an info chip distinct from a
+// real mutation's success chip). A target-mismatch rule must NOT collapse to
+// "success".
+#[test]
+fn rewrite_rule_skipped_for_target_mismatch_keeps_skipped_outcome() {
+    let manager = RewriteManager::new();
+    // A response-targeted body rule applied at the request stage: target
+    // mismatch → the rule is skipped, not applied.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-response-body-at-request".to_string(),
+        enabled: true,
+        name: "Response body at request".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "target": "response",
+            "text": "{\"rewritten\":true}"
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .unwrap();
+
+    assert_eq!(traces.len(), 1);
+    assert_eq!(
+        traces[0].outcome, "skipped",
+        "target-mismatch rule must be skipped, not success"
+    );
+    // The body was NOT rewritten.
+    assert!(request.body.is_empty());
+}
+
+// H4 regression companion: HTTP/2 body rewrite is unsupported → skipped outcome.
+#[test]
+fn rewrite_rule_body_rewrite_over_http2_is_skipped_not_success() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-request-body-h2".to_string(),
+        enabled: true,
+        name: "Request body over h2".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "target": "request",
+            "text": "{\"rewritten\":true}"
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.body = br#"{"original":true}"#.to_vec();
+
+    // is_http2 = true → body rewrite unsupported → skipped.
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, true)
+            .unwrap();
+
+    assert_eq!(traces.len(), 1);
+    assert_eq!(
+        traces[0].outcome, "skipped",
+        "HTTP/2 body rewrite must be skipped, not success"
+    );
+    assert_eq!(request.body, br#"{"original":true}"#);
+}
+
 #[test]
 fn applies_response_body_rewrite_to_json_array_fields() {
     let manager = RewriteManager::new();
@@ -764,6 +1095,97 @@ fn applies_response_body_rewrite_to_json_array_fields() {
         Some("application/json")
     );
     assert_eq!(traces[0].entries.len(), 2);
+}
+
+// H5 regression: setting a nested field whose parent is an existing scalar must
+// fail instead of silently destroying the scalar. Previously `set $.a.b` on
+// `{"a":5}` would replace `5` with `{}` and insert `b`, losing data.
+#[test]
+fn body_field_rewrite_refuses_to_destroy_existing_scalar() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-nested-under-scalar".to_string(),
+        enabled: true,
+        name: "Rewrite nested under scalar".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "a.b", "value": "kept", "valueType": "string" }
+            ],
+            "mode": "fields",
+            "target": "request",
+            "text": ""
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.body = br#"{"a":5}"#.to_vec();
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .expect("scalar parent must fail the rule, not the request");
+
+    // H4 isolation: the rule is recorded as an error, not a request abort.
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "error");
+    // The original body is untouched — the scalar was NOT destroyed.
+    assert_eq!(request.body, br#"{"a":5}"#);
+}
+
+// H5: setting a nested field under an explicit `null` parent auto-creates the
+// object (the only case where auto-creation is safe and intended).
+#[test]
+fn body_field_rewrite_auto_creates_under_null_parent() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-nested-under-null".to_string(),
+        enabled: true,
+        name: "Rewrite nested under null".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "contentType": "application/json",
+            "fields": [
+                { "operation": "set", "path": "a.b", "value": "kept", "valueType": "string" }
+            ],
+            "mode": "fields",
+            "target": "request",
+            "text": ""
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.body = br#"{"a":null}"#.to_vec();
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .unwrap();
+    let rewritten: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+
+    assert_eq!(traces[0].outcome, "success");
+    assert_eq!(rewritten, json!({ "a": { "b": "kept" } }));
 }
 
 #[test]

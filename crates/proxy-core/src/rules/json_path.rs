@@ -141,6 +141,18 @@ pub(crate) fn coerce_body_field_value(
     }
 }
 
+/// Human-readable JSON type name for error messages.
+fn type_label(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 pub(crate) fn set_json_path_value(
     root: &mut serde_json::Value,
     segments: &[JsonPathSegment],
@@ -154,8 +166,21 @@ pub(crate) fn set_json_path_value(
     for segment in parents {
         match segment {
             JsonPathSegment::Key(key) => {
-                if !current.is_object() {
-                    *current = serde_json::Value::Object(serde_json::Map::new());
+                // Only auto-create a container when the slot is `Null` (or
+                // absent). Overwriting an existing non-object scalar would
+                // silently destroy data — refuse instead, mirroring the Index
+                // branch which returns `Err` for a non-array parent.
+                match current {
+                    serde_json::Value::Null => {
+                        *current = serde_json::Value::Object(serde_json::Map::new());
+                    }
+                    serde_json::Value::Object(_) => {}
+                    other => {
+                        return Err(format!(
+                            "body field path expects an object but found {}",
+                            type_label(other)
+                        ));
+                    }
                 }
                 let object = current
                     .as_object_mut()
@@ -177,8 +202,20 @@ pub(crate) fn set_json_path_value(
 
     match last {
         JsonPathSegment::Key(key) => {
-            if !current.is_object() {
-                *current = serde_json::Value::Object(serde_json::Map::new());
+            // Same scalar-protection as the parent branch: refuse to overwrite
+            // an existing non-object value, only auto-create when the slot is
+            // `Null` or (via insert) absent.
+            match current {
+                serde_json::Value::Null => {
+                    *current = serde_json::Value::Object(serde_json::Map::new());
+                }
+                serde_json::Value::Object(_) => {}
+                other => {
+                    return Err(format!(
+                        "body field path expects an object but found {}",
+                        type_label(other)
+                    ));
+                }
             }
             let object = current
                 .as_object_mut()
