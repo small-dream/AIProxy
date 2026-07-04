@@ -263,32 +263,38 @@ pub struct SaveSessionToCollectionInput {
     pub name: Option<String>,
 }
 
+// M15: async + `run_blocking_command` so the DB work runs on the blocking
+// pool rather than the IPC thread under the global DB mutex.
 #[tauri::command]
-pub fn list_api_collections(
+pub async fn list_api_collections(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiCollectionOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let rows = aiproxy_db::collections::list_all_collections(&conn)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| ApiCollectionOutput {
-            id: r.id,
-            parent_id: r.parent_id,
-            name: r.name,
-            description: r.description,
-            sort_order: r.sort_order,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-        })
-        .collect())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_api_collections", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let rows = aiproxy_db::collections::list_all_collections(&conn_guard)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ApiCollectionOutput {
+                id: r.id,
+                parent_id: r.parent_id,
+                name: r.name,
+                description: r.description,
+                sort_order: r.sort_order,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn upsert_api_collection(
+pub async fn upsert_api_collection(
     input: UpsertApiCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionOutput, String> {
@@ -305,38 +311,43 @@ pub fn upsert_api_collection(
         updated_at: now,
     };
 
-    {
-        let conn = state
-            .read_db_connection()
+    let state = Arc::clone(state.inner());
+    run_blocking_command("upsert_api_collection", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        aiproxy_db::collections::upsert_collection(&conn, &row)
+        aiproxy_db::collections::upsert_collection(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection: {e}")))?;
-    }
-
-    Ok(ApiCollectionOutput {
-        id: row.id,
-        parent_id: row.parent_id,
-        name: row.name,
-        description: row.description,
-        sort_order: row.sort_order,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+        Ok(ApiCollectionOutput {
+            id: row.id,
+            parent_id: row.parent_id,
+            name: row.name,
+            description: row.description,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_api_collection(
+pub async fn delete_api_collection(
     input: DeleteApiCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::collections::delete_collection(&conn, &input.id)
-        .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("delete_api_collection", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::collections::delete_collection(&conn_guard, &input.id)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
 // M15: async + `run_blocking_command` so the DB read runs on the blocking
@@ -368,28 +379,31 @@ pub async fn list_api_collection_items(
 }
 
 #[tauri::command]
-pub fn get_api_collection_item(
+pub async fn get_api_collection_item(
     input: GetApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let row = aiproxy_db::collections::get_collection_item(&conn, &input.id)
-        .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
-        .ok_or_else(|| {
-            app_error(
-                ERR_INVALID_INPUT,
-                format!("Collection item {} was not found.", input.id),
-            )
-        })?;
-
-    Ok(collection_item_output_from_row(row))
+    let state = Arc::clone(state.inner());
+    run_blocking_command("get_api_collection_item", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let row = aiproxy_db::collections::get_collection_item(&conn_guard, &input.id)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
+            .ok_or_else(|| {
+                app_error(
+                    ERR_INVALID_INPUT,
+                    format!("Collection item {} was not found.", input.id),
+                )
+            })?;
+        Ok(collection_item_output_from_row(row))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn upsert_api_collection_item(
+pub async fn upsert_api_collection_item(
     input: UpsertApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
@@ -419,76 +433,92 @@ pub fn upsert_api_collection_item(
         updated_at: now,
     };
 
-    {
-        let conn = state
-            .read_db_connection()
+    let state = Arc::clone(state.inner());
+    run_blocking_command("upsert_api_collection_item", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        aiproxy_db::collections::upsert_collection_item(&conn, &row)
+        aiproxy_db::collections::upsert_collection_item(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection item: {e}")))?;
-    }
-
-    Ok(collection_item_output_from_row(row))
+        Ok(collection_item_output_from_row(row))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_api_collection_item(
+pub async fn delete_api_collection_item(
     input: DeleteApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::collections::delete_collection_item(&conn, &input.id)
-        .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection item: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("delete_api_collection_item", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::collections::delete_collection_item(&conn_guard, &input.id)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection item: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn move_api_collection_item(
+pub async fn move_api_collection_item(
     input: MoveApiCollectionItemInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::collections::move_collection_item(
-        &conn,
-        &input.id,
-        &input.target_collection_id,
-        input.sort_order,
-        &now,
-    )
-    .map_err(|e| app_error(ERR_INTERNAL, format!("move collection item: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("move_api_collection_item", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::collections::move_collection_item(
+            &conn_guard,
+            &input.id,
+            &input.target_collection_id,
+            input.sort_order,
+            &now,
+        )
+        .map_err(|e| app_error(ERR_INTERNAL, format!("move collection item: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn move_api_collection(
+pub async fn move_api_collection(
     input: MoveApiCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::collections::move_collection(
-        &conn,
-        &input.id,
-        input.target_parent_id.as_deref(),
-        input.sort_order,
-        &now,
-    )
-    .map_err(|e| app_error(ERR_INTERNAL, format!("move collection: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("move_api_collection", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::collections::move_collection(
+            &conn_guard,
+            &input.id,
+            input.target_parent_id.as_deref(),
+            input.sort_order,
+            &now,
+        )
+        .map_err(|e| app_error(ERR_INTERNAL, format!("move collection: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
+// M15: async because it delegates to the now-async `upsert_api_collection_item`
+// (which offloads its DB write). The session-detail read here is a cache lookup
+// (no DB lock).
 #[tauri::command]
-pub fn save_session_to_collection(
+pub async fn save_session_to_collection(
     input: SaveSessionToCollectionInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
@@ -553,7 +583,7 @@ pub fn save_session_to_collection(
         url_encoded,
     };
 
-    upsert_api_collection_item(upsert_input, state)
+    upsert_api_collection_item(upsert_input, state).await
 }
 
 // ---------------------------------------------------------------------------

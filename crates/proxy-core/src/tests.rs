@@ -1470,6 +1470,48 @@ fn compiled_rules_snapshot_is_shared_until_mutation() {
     );
 }
 
+// M10 follow-up: editing an existing rule must preserve its position in the
+// snapshot (and therefore in `list_rules()`), since UI lists are keyed on
+// manager order. The filter+push rebuild regressed this; in-place replace
+// restores the original semantics.
+#[test]
+fn save_rule_preserves_position_of_existing_rule() {
+    let manager = Arc::new(RewriteManager::new());
+    for i in 0..3 {
+        manager.save_rule(RewriteRule {
+            id: format!("rule-{i}"),
+            enabled: true,
+            name: format!("Rule {i}"),
+            note: None,
+            priority: 10,
+            r#match: RewriteRuleMatch {
+                methods: vec![],
+                stage: "request".to_string(),
+                url_pattern: "example.com".to_string(),
+                match_type: Some("contains".to_string()),
+            },
+            rewrite_type: "header".to_string(),
+            workspace_id: "default".to_string(),
+            payload: json!({"headerName":"x","operation":"set","target":"request","value":"1"}),
+        });
+    }
+    // Edit rule-1 in place.
+    let mut edited = manager
+        .list_rules()
+        .into_iter()
+        .find(|r| r.id == "rule-1")
+        .unwrap();
+    edited.name = "Rule 1 edited".to_string();
+    manager.save_rule(edited);
+
+    let order: Vec<String> = manager.list_rules().into_iter().map(|r| r.id).collect();
+    assert_eq!(
+        order,
+        vec!["rule-0", "rule-1", "rule-2"],
+        "editing a rule must preserve its position; got {order:?}"
+    );
+}
+
 #[test]
 fn rewrite_rule_respects_match_type_wildcard() {
     let manager = Arc::new(RewriteManager::new());

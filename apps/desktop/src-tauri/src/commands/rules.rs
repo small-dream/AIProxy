@@ -1,154 +1,179 @@
 use super::common::*;
 
 #[tauri::command]
-pub fn list_script_session_trace(
+pub async fn list_script_session_trace(
     input: ListScriptSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ScriptSessionTraceOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let runs = aiproxy_db::rules::load_script_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load script runs: {error}")))?;
-    let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
-    let entries = aiproxy_db::rules::load_script_run_entries(&conn, &run_ids)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load script run entries: {error}")))?;
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_script_session_trace", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let runs = aiproxy_db::rules::load_script_runs_for_session(&conn_guard, &input.session_id)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Load script runs: {error}")))?;
+        let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+        let entries =
+            aiproxy_db::rules::load_script_run_entries(&conn_guard, &run_ids).map_err(|error| {
+                app_error(ERR_INTERNAL, format!("Load script run entries: {error}"))
+            })?;
 
-    Ok(runs
-        .into_iter()
-        .map(|run| ScriptSessionTraceOutput {
-            duration_ms: run.duration_ms,
-            entries: entries
-                .iter()
-                .filter(|entry| entry.run_id == run.id)
-                .map(|entry| ScriptRunEntryOutput {
-                    kind: entry.kind.clone(),
-                    level: entry.level.clone(),
-                    key: entry.key.clone(),
-                    message: entry.message.clone(),
-                    payload_json: entry.payload_json.clone(),
-                    sequence: entry.seq,
-                })
-                .collect(),
-            outcome: run.outcome,
-            rule_id: run.rule_id,
-            stage: run.stage,
-        })
-        .collect())
+        Ok(runs
+            .into_iter()
+            .map(|run| ScriptSessionTraceOutput {
+                duration_ms: run.duration_ms,
+                entries: entries
+                    .iter()
+                    .filter(|entry| entry.run_id == run.id)
+                    .map(|entry| ScriptRunEntryOutput {
+                        kind: entry.kind.clone(),
+                        level: entry.level.clone(),
+                        key: entry.key.clone(),
+                        message: entry.message.clone(),
+                        payload_json: entry.payload_json.clone(),
+                        sequence: entry.seq,
+                    })
+                    .collect(),
+                outcome: run.outcome,
+                rule_id: run.rule_id,
+                stage: run.stage,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_rewrite_session_trace(
+pub async fn list_rewrite_session_trace(
     input: ListRewriteSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<RewriteSessionTraceOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite runs: {error}")))?;
-    let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
-    let entries = aiproxy_db::rules::load_rewrite_run_entries(&conn, &run_ids)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite run entries: {error}")))?;
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_rewrite_session_trace", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn_guard, &input.session_id)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite runs: {error}")))?;
+        let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+        let entries = aiproxy_db::rules::load_rewrite_run_entries(&conn_guard, &run_ids).map_err(
+            |error| app_error(ERR_INTERNAL, format!("Load rewrite run entries: {error}")),
+        )?;
 
-    Ok(runs
-        .into_iter()
-        .map(|run| RewriteSessionTraceOutput {
-            duration_ms: run.duration_ms,
-            entries: entries
-                .iter()
-                .filter(|entry| entry.run_id == run.id)
-                .map(|entry| RewriteRunEntryOutput {
-                    after: entry.after_value.clone(),
-                    before: entry.before_value.clone(),
-                    kind: entry.kind.clone(),
-                    key: entry.key.clone(),
-                    message: entry.message.clone(),
-                    sequence: entry.seq,
-                })
-                .collect(),
-            outcome: run.outcome,
-            rule_id: run.rule_id,
-            rule_name: run.rule_name,
-            rewrite_type: run.rewrite_type,
-            stage: run.stage,
-        })
-        .collect())
+        Ok(runs
+            .into_iter()
+            .map(|run| RewriteSessionTraceOutput {
+                duration_ms: run.duration_ms,
+                entries: entries
+                    .iter()
+                    .filter(|entry| entry.run_id == run.id)
+                    .map(|entry| RewriteRunEntryOutput {
+                        after: entry.after_value.clone(),
+                        before: entry.before_value.clone(),
+                        kind: entry.kind.clone(),
+                        key: entry.key.clone(),
+                        message: entry.message.clone(),
+                        sequence: entry.seq,
+                    })
+                    .collect(),
+                outcome: run.outcome,
+                rule_id: run.rule_id,
+                rule_name: run.rule_name,
+                rewrite_type: run.rewrite_type,
+                stage: run.stage,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_map_session_trace(
+pub async fn list_map_session_trace(
     input: ListMapSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<MapSessionTraceOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let runs = aiproxy_db::rules::load_map_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load map runs: {error}")))?;
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_map_session_trace", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let runs = aiproxy_db::rules::load_map_runs_for_session(&conn_guard, &input.session_id)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Load map runs: {error}")))?;
 
-    Ok(runs
-        .into_iter()
-        .map(|run| MapSessionTraceOutput {
-            duration_ms: run.duration_ms,
-            local_path: run.local_path,
-            mapped_url: run.mapped_url,
-            mode: run.mode,
-            original_url: run.original_url,
-            outcome: run.outcome,
-            rule_id: run.rule_id,
-            rule_name: run.rule_name,
-            source_pattern: run.source_pattern,
-            target_value: run.target_value,
-        })
-        .collect())
+        Ok(runs
+            .into_iter()
+            .map(|run| MapSessionTraceOutput {
+                duration_ms: run.duration_ms,
+                local_path: run.local_path,
+                mapped_url: run.mapped_url,
+                mode: run.mode,
+                original_url: run.original_url,
+                outcome: run.outcome,
+                rule_id: run.rule_id,
+                rule_name: run.rule_name,
+                source_pattern: run.source_pattern,
+                target_value: run.target_value,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_throttle_session_trace(
+pub async fn list_throttle_session_trace(
     input: ListThrottleSessionTraceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ThrottleSessionTraceOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let runs = aiproxy_db::rules::load_throttle_runs_for_session(&conn, &input.session_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttle runs: {error}")))?;
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_throttle_session_trace", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let runs =
+            aiproxy_db::rules::load_throttle_runs_for_session(&conn_guard, &input.session_id)
+                .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttle runs: {error}")))?;
 
-    Ok(runs
-        .into_iter()
-        .map(|run| ThrottleSessionTraceOutput {
-            body_bytes: run.body_bytes,
-            delay_ms: run.delay_ms,
-            latency_ms: run.latency_ms,
-            message: run.message,
-            outcome: run.outcome,
-            profile_id: run.profile_id,
-            profile_name: run.profile_name,
-            rule_id: run.rule_id,
-            rule_name: run.rule_name,
-            sequence: run.sequence,
-            stage: run.stage,
-            transfer_delay_ms: run.transfer_delay_ms,
-        })
-        .collect())
+        Ok(runs
+            .into_iter()
+            .map(|run| ThrottleSessionTraceOutput {
+                body_bytes: run.body_bytes,
+                delay_ms: run.delay_ms,
+                latency_ms: run.latency_ms,
+                message: run.message,
+                outcome: run.outcome,
+                profile_id: run.profile_id,
+                profile_name: run.profile_name,
+                rule_id: run.rule_id,
+                rule_name: run.rule_name,
+                sequence: run.sequence,
+                stage: run.stage,
+                transfer_delay_ms: run.transfer_delay_ms,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_throttled_session_ids(
+pub async fn list_throttled_session_ids(
     input: ListThrottledSessionIdsInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<String>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::rules::load_throttled_session_ids(&conn, &input.workspace_id)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttled session IDs: {error}")))
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_throttled_session_ids", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::rules::load_throttled_session_ids(&conn_guard, &input.workspace_id).map_err(
+            |error| app_error(ERR_INTERNAL, format!("Load throttled session IDs: {error}")),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -159,36 +184,46 @@ pub fn list_breakpoint_rules(
 }
 
 #[tauri::command]
-pub fn set_breakpoint_rules(
+pub async fn set_breakpoint_rules(
     rules: Vec<BreakpointRule>,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    // Persist to DB first
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let rows: Vec<aiproxy_db::rules::BreakpointRuleRow> = rules
-            .iter()
-            .map(|r| aiproxy_db::rules::BreakpointRuleRow {
-                id: r.id.clone(),
-                enabled: r.enabled,
-                url_pattern: r.url_pattern.clone(),
-                methods: serde_json::to_string(&r.methods).unwrap_or_default(),
-                stage: match r.stage {
-                    BreakpointStage::Request => "Request".to_string(),
-                    BreakpointStage::Response => "Response".to_string(),
-                },
-                match_type: r
-                    .match_type
-                    .clone()
-                    .unwrap_or_else(|| "contains".to_string()),
-            })
-            .collect();
-        aiproxy_db::rules::replace_breakpoint_rules(&conn, &rows)
-            .map_err(|error| app_error(ERR_INTERNAL, format!("Set breakpoint rules: {error}")))?;
-    }
+    // Pre-compute the DB rows before the closure (manager mutation still needs
+    // the original `rules` Vec outside the closure).
+    let rows: Vec<aiproxy_db::rules::BreakpointRuleRow> = rules
+        .iter()
+        .map(|r| aiproxy_db::rules::BreakpointRuleRow {
+            id: r.id.clone(),
+            enabled: r.enabled,
+            url_pattern: r.url_pattern.clone(),
+            methods: serde_json::to_string(&r.methods).unwrap_or_default(),
+            stage: match r.stage {
+                BreakpointStage::Request => "Request".to_string(),
+                BreakpointStage::Response => "Response".to_string(),
+            },
+            match_type: r
+                .match_type
+                .clone()
+                .unwrap_or_else(|| "contains".to_string()),
+        })
+        .collect();
+
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("set_breakpoint_rules", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            aiproxy_db::rules::replace_breakpoint_rules(&conn_guard, &rows).map_err(|error| {
+                app_error(ERR_INTERNAL, format!("Set breakpoint rules: {error}"))
+            })?;
+            Ok(())
+        }
+    })
+    .await?;
 
     state.read_breakpoint_manager().set_rules(rules);
     Ok(())
@@ -227,37 +262,46 @@ pub fn list_rewrite_rules(
 }
 
 #[tauri::command]
-pub fn save_rewrite_rule(
+pub async fn save_rewrite_rule(
     input: RewriteRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<RewriteRule, String> {
-    // Persist to DB first
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let row = aiproxy_db::rules::RewriteRuleRow {
-            id: input.id.clone(),
-            workspace_id: input.workspace_id.clone(),
-            name: input.name.clone(),
-            note: input.note.clone(),
-            enabled: input.enabled,
-            priority: input.priority,
-            match_methods: serde_json::to_string(&input.r#match.methods).unwrap_or_default(),
-            match_stage: input.r#match.stage.clone(),
-            match_url_pattern: input.r#match.url_pattern.clone(),
-            match_type: input
-                .r#match
-                .match_type
-                .clone()
-                .unwrap_or_else(|| "contains".to_string()),
-            rewrite_type: input.rewrite_type.clone(),
-            payload: input.payload.to_string(),
-        };
-        aiproxy_db::rules::save_rewrite_rule(&conn, &row)
-            .map_err(|error| app_error(ERR_INTERNAL, format!("Save rewrite rule: {error}")))?;
-    }
+    // Build the DB row up front so `input` stays available for the manager
+    // mutation after the closure runs.
+    let row = aiproxy_db::rules::RewriteRuleRow {
+        id: input.id.clone(),
+        workspace_id: input.workspace_id.clone(),
+        name: input.name.clone(),
+        note: input.note.clone(),
+        enabled: input.enabled,
+        priority: input.priority,
+        match_methods: serde_json::to_string(&input.r#match.methods).unwrap_or_default(),
+        match_stage: input.r#match.stage.clone(),
+        match_url_pattern: input.r#match.url_pattern.clone(),
+        match_type: input
+            .r#match
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+        rewrite_type: input.rewrite_type.clone(),
+        payload: input.payload.to_string(),
+    };
+
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("save_rewrite_rule", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            aiproxy_db::rules::save_rewrite_rule(&conn_guard, &row)
+                .map_err(|error| app_error(ERR_INTERNAL, format!("Save rewrite rule: {error}")))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     Ok(state.read_rewrite_manager().save_rule(input))
 }
@@ -418,31 +462,43 @@ pub fn list_map_rules(
 }
 
 #[tauri::command]
-pub fn save_map_rule(input: MapRule, state: State<'_, Arc<AppState>>) -> Result<MapRule, String> {
+pub async fn save_map_rule(
+    input: MapRule,
+    state: State<'_, Arc<AppState>>,
+) -> Result<MapRule, String> {
     validate_map_rule(&input)?;
 
-    // Persist to DB first
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let row = aiproxy_db::rules::MapRuleRow {
-            id: input.id.clone(),
-            workspace_id: input.workspace_id.clone(),
-            mode: input.mode.clone(),
-            name: input.name.clone(),
-            note: input.note.clone(),
-            enabled: input.enabled,
-            preserve_path: input.preserve_path,
-            preserve_query: input.preserve_query,
-            priority: input.priority,
-            source_pattern: input.source_pattern.clone(),
-            target_value: input.target_value.clone(),
-        };
-        aiproxy_db::rules::save_map_rule(&conn, &row)
-            .map_err(|error| app_error(ERR_INTERNAL, format!("Save map rule: {error}")))?;
-    }
+    // Build the DB row up front so `input` stays available for the manager
+    // mutation after the closure runs.
+    let row = aiproxy_db::rules::MapRuleRow {
+        id: input.id.clone(),
+        workspace_id: input.workspace_id.clone(),
+        mode: input.mode.clone(),
+        name: input.name.clone(),
+        note: input.note.clone(),
+        enabled: input.enabled,
+        preserve_path: input.preserve_path,
+        preserve_query: input.preserve_query,
+        priority: input.priority,
+        source_pattern: input.source_pattern.clone(),
+        target_value: input.target_value.clone(),
+    };
+
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("save_map_rule", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            aiproxy_db::rules::save_map_rule(&conn_guard, &row)
+                .map_err(|error| app_error(ERR_INTERNAL, format!("Save map rule: {error}")))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     Ok(state.read_map_manager().save_rule(input))
 }
@@ -524,56 +580,64 @@ pub fn list_script_rules(
 }
 
 #[tauri::command]
-pub fn save_script_rule(
+pub async fn save_script_rule(
     input: ScriptRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ScriptRule, String> {
     let compiled = compile_script_rule(input)?;
 
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let row = aiproxy_db::rules::ScriptRuleRow {
-            id: compiled.rule.id.clone(),
-            workspace_id: compiled.rule.workspace_id.clone(),
-            name: compiled.rule.name.clone(),
-            note: compiled.rule.note.clone(),
-            enabled: compiled.rule.enabled,
-            priority: compiled.rule.priority,
-            match_methods: serde_json::to_string(&compiled.rule.r#match.methods)
-                .unwrap_or_default(),
-            match_stage: compiled.rule.r#match.stage.clone(),
-            match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
-            match_type: compiled
-                .rule
-                .r#match
-                .match_type
-                .clone()
-                .unwrap_or_else(|| "contains".to_string()),
-            language: match compiled.rule.language {
-                ScriptRuleLanguage::JavaScript => "javascript".to_string(),
-                ScriptRuleLanguage::TypeScript => "typescript".to_string(),
-            },
-            source_type: match compiled.rule.source_type {
-                ScriptRuleSourceType::Inline => "inline".to_string(),
-                ScriptRuleSourceType::FileImport => "fileImport".to_string(),
-            },
-            source_code: compiled.rule.source_code.clone(),
-            source_path: compiled.rule.source_path.clone(),
-            entrypoints: serde_json::to_string(&compiled.rule.entrypoints)
-                .unwrap_or_else(|_| "{}".to_string()),
-            // M10: `compiled_code`/`source_map` are `Arc<String>`; deref to
-            // owned String for the DB row.
-            compiled_code: (*compiled.compiled_code).clone(),
-            source_map: compiled.source_map.as_ref().map(|arc| (**arc).clone()),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-        };
+    // Build the DB row up front from `compiled`; the manager mutation still
+    // needs `compiled` outside the closure.
+    let row = aiproxy_db::rules::ScriptRuleRow {
+        id: compiled.rule.id.clone(),
+        workspace_id: compiled.rule.workspace_id.clone(),
+        name: compiled.rule.name.clone(),
+        note: compiled.rule.note.clone(),
+        enabled: compiled.rule.enabled,
+        priority: compiled.rule.priority,
+        match_methods: serde_json::to_string(&compiled.rule.r#match.methods).unwrap_or_default(),
+        match_stage: compiled.rule.r#match.stage.clone(),
+        match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
+        match_type: compiled
+            .rule
+            .r#match
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+        language: match compiled.rule.language {
+            ScriptRuleLanguage::JavaScript => "javascript".to_string(),
+            ScriptRuleLanguage::TypeScript => "typescript".to_string(),
+        },
+        source_type: match compiled.rule.source_type {
+            ScriptRuleSourceType::Inline => "inline".to_string(),
+            ScriptRuleSourceType::FileImport => "fileImport".to_string(),
+        },
+        source_code: compiled.rule.source_code.clone(),
+        source_path: compiled.rule.source_path.clone(),
+        entrypoints: serde_json::to_string(&compiled.rule.entrypoints)
+            .unwrap_or_else(|_| "{}".to_string()),
+        // M10: `compiled_code`/`source_map` are `Arc<String>`; deref to
+        // owned String for the DB row.
+        compiled_code: (*compiled.compiled_code).clone(),
+        source_map: compiled.source_map.as_ref().map(|arc| (**arc).clone()),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
 
-        aiproxy_db::rules::save_script_rule(&conn, &row)
-            .map_err(|error| app_error(ERR_INTERNAL, format!("Save script rule: {error}")))?;
-    }
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("save_script_rule", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            aiproxy_db::rules::save_script_rule(&conn_guard, &row)
+                .map_err(|error| app_error(ERR_INTERNAL, format!("Save script rule: {error}")))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     Ok(state.read_script_manager().save_rule(compiled))
 }
@@ -677,7 +741,10 @@ pub struct DeleteRuleInput {
 }
 
 #[tauri::command]
-pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub async fn delete_rule(
+    input: DeleteRuleInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
     // Validate rule_type early to avoid double-wrapping with app_error
     match input.rule_type.as_str() {
         "rewrite" | "map" | "dns" | "script" => {}
@@ -689,21 +756,31 @@ pub fn delete_rule(input: DeleteRuleInput, state: State<'_, Arc<AppState>>) -> R
         }
     }
 
-    // Persist to DB first
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let db_result = match input.rule_type.as_str() {
-            "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn, &input.rule_id),
-            "map" => aiproxy_db::rules::delete_map_rule(&conn, &input.rule_id),
-            "dns" => aiproxy_db::rules::delete_dns_mapping(&conn, &input.rule_id),
-            "script" => aiproxy_db::rules::delete_script_rule(&conn, &input.rule_id),
-            _ => unreachable!("validated above"),
-        };
-        db_result.map_err(|error| app_error(ERR_INTERNAL, format!("Delete rule: {error}")))?;
-    }
+    // Capture owned copies for the closure; `input` is reused for the
+    // post-DB manager dispatch.
+    let rule_type = input.rule_type.clone();
+    let rule_id = input.rule_id.clone();
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("delete_rule", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let db_result = match rule_type.as_str() {
+                "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn_guard, &rule_id),
+                "map" => aiproxy_db::rules::delete_map_rule(&conn_guard, &rule_id),
+                "dns" => aiproxy_db::rules::delete_dns_mapping(&conn_guard, &rule_id),
+                "script" => aiproxy_db::rules::delete_script_rule(&conn_guard, &rule_id),
+                _ => unreachable!("validated above"),
+            };
+            db_result.map_err(|error| app_error(ERR_INTERNAL, format!("Delete rule: {error}")))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     match input.rule_type.as_str() {
         "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
@@ -737,7 +814,7 @@ pub fn list_dns_mappings(
 }
 
 #[tauri::command]
-pub fn save_dns_mapping(
+pub async fn save_dns_mapping(
     input: DnsMappingRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<DnsMappingRule, String> {
@@ -745,25 +822,34 @@ pub fn save_dns_mapping(
 
     let rule = input;
 
-    // Persist to DB
-    {
-        let conn = state
-            .read_db_connection()
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        let row = aiproxy_db::rules::DnsMappingRow {
-            id: rule.id.clone(),
-            workspace_id: rule.workspace_id.clone(),
-            name: rule.name.clone(),
-            note: rule.note.clone(),
-            enabled: rule.enabled,
-            priority: rule.priority,
-            host_pattern: rule.host_pattern.clone(),
-            target_ip: rule.target_ip.clone(),
-        };
-        aiproxy_db::rules::save_dns_mapping(&conn, &row)
-            .map_err(|error| app_error(ERR_INTERNAL, format!("Save DNS mapping: {error}")))?;
-    }
+    // Build the DB row up front; `rule` is reused for the manager mutation and
+    // the return value outside the closure.
+    let row = aiproxy_db::rules::DnsMappingRow {
+        id: rule.id.clone(),
+        workspace_id: rule.workspace_id.clone(),
+        name: rule.name.clone(),
+        note: rule.note.clone(),
+        enabled: rule.enabled,
+        priority: rule.priority,
+        host_pattern: rule.host_pattern.clone(),
+        target_ip: rule.target_ip.clone(),
+    };
+
+    let state = Arc::clone(state.inner());
+    // Persist to DB on the blocking pool.
+    run_blocking_command("save_dns_mapping", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn = state.read_db_connection();
+            let conn_guard = conn
+                .lock()
+                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            aiproxy_db::rules::save_dns_mapping(&conn_guard, &row)
+                .map_err(|error| app_error(ERR_INTERNAL, format!("Save DNS mapping: {error}")))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     // Update in-memory manager
     state.read_dns_manager().save_rule(rule.clone());

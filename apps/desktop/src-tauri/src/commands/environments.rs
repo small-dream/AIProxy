@@ -59,29 +59,33 @@ pub struct ApiEnvironmentVariableInput {
 }
 
 #[tauri::command]
-pub fn list_api_environments(
+pub async fn list_api_environments(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiEnvironmentOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let rows = aiproxy_db::environments::list_environments(&conn)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("list environments: {error}")))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| ApiEnvironmentOutput {
-            id: r.id,
-            name: r.name,
-            sort_order: r.sort_order,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-        })
-        .collect())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_api_environments", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let rows = aiproxy_db::environments::list_environments(&conn_guard)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("list environments: {error}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ApiEnvironmentOutput {
+                id: r.id,
+                name: r.name,
+                sort_order: r.sort_order,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn upsert_api_environment(
+pub async fn upsert_api_environment(
     input: UpsertApiEnvironmentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiEnvironmentOutput, String> {
@@ -89,73 +93,83 @@ pub fn upsert_api_environment(
     let now = chrono::Utc::now().to_rfc3339();
 
     let row = aiproxy_db::environments::EnvironmentRow {
-        id: id.clone(),
+        id,
         name: input.name,
         sort_order: input.sort_order.unwrap_or(0),
         created_at: now.clone(),
         updated_at: now,
     };
 
-    {
-        let conn = state
-            .read_db_connection()
+    let state = Arc::clone(state.inner());
+    run_blocking_command("upsert_api_environment", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-        aiproxy_db::environments::upsert_environment(&conn, &row)
+        aiproxy_db::environments::upsert_environment(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert environment: {e}")))?;
-    }
-
-    Ok(ApiEnvironmentOutput {
-        id: row.id,
-        name: row.name,
-        sort_order: row.sort_order,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+        Ok(ApiEnvironmentOutput {
+            id: row.id,
+            name: row.name,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_api_environment(
+pub async fn delete_api_environment(
     input: DeleteApiEnvironmentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::environments::delete_environment(&conn, &input.id)
-        .map_err(|e| app_error(ERR_INTERNAL, format!("delete environment: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("delete_api_environment", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::environments::delete_environment(&conn_guard, &input.id)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("delete environment: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_api_environment_variables(
+pub async fn list_api_environment_variables(
     input: ListApiEnvironmentVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiEnvironmentVariableOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let rows = aiproxy_db::environments::list_environment_variables(&conn, &input.environment_id)
-        .map_err(|error| {
-        app_error(ERR_INTERNAL, format!("list environment variables: {error}"))
-    })?;
-    Ok(rows
-        .into_iter()
-        .map(|r| ApiEnvironmentVariableOutput {
-            id: r.id,
-            environment_id: r.environment_id,
-            key: r.key,
-            value: r.value,
-            enabled: r.enabled,
-            sort_order: r.sort_order,
-        })
-        .collect())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_api_environment_variables", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let rows = aiproxy_db::environments::list_environment_variables(
+            &conn_guard,
+            &input.environment_id,
+        )
+        .map_err(|error| app_error(ERR_INTERNAL, format!("list environment variables: {error}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ApiEnvironmentVariableOutput {
+                id: r.id,
+                environment_id: r.environment_id,
+                key: r.key,
+                value: r.value,
+                enabled: r.enabled,
+                sort_order: r.sort_order,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_api_environment_variables(
+pub async fn set_api_environment_variables(
     input: SetApiEnvironmentVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
@@ -173,13 +187,21 @@ pub fn set_api_environment_variables(
         })
         .collect();
 
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::environments::set_environment_variables(&conn, &input.environment_id, &vars)
+    let state = Arc::clone(state.inner());
+    run_blocking_command("set_api_environment_variables", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::environments::set_environment_variables(
+            &conn_guard,
+            &input.environment_id,
+            &vars,
+        )
         .map_err(|e| app_error(ERR_INTERNAL, format!("set environment variables: {e}")))?;
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -213,29 +235,33 @@ pub struct ApiGlobalVariableInput {
 }
 
 #[tauri::command]
-pub fn list_api_global_variables(
+pub async fn list_api_global_variables(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ApiGlobalVariableOutput>, String> {
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    let rows = aiproxy_db::environments::list_global_variables(&conn)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("list global variables: {error}")))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| ApiGlobalVariableOutput {
-            id: r.id,
-            key: r.key,
-            value: r.value,
-            enabled: r.enabled,
-            sort_order: r.sort_order,
-        })
-        .collect())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("list_api_global_variables", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let rows = aiproxy_db::environments::list_global_variables(&conn_guard)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("list global variables: {error}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ApiGlobalVariableOutput {
+                id: r.id,
+                key: r.key,
+                value: r.value,
+                enabled: r.enabled,
+                sort_order: r.sort_order,
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_api_global_variables(
+pub async fn set_api_global_variables(
     input: SetApiGlobalVariablesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
@@ -252,11 +278,15 @@ pub fn set_api_global_variables(
         })
         .collect();
 
-    let conn = state
-        .read_db_connection()
-        .lock()
-        .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
-    aiproxy_db::environments::set_global_variables(&conn, &vars)
-        .map_err(|e| app_error(ERR_INTERNAL, format!("set global variables: {e}")))?;
-    Ok(())
+    let state = Arc::clone(state.inner());
+    run_blocking_command("set_api_global_variables", move || {
+        let conn = state.read_db_connection();
+        let conn_guard = conn
+            .lock()
+            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        aiproxy_db::environments::set_global_variables(&conn_guard, &vars)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("set global variables: {e}")))?;
+        Ok(())
+    })
+    .await
 }

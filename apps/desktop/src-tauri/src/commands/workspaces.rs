@@ -15,7 +15,7 @@ pub struct CreateWorkspaceInput {
 }
 
 #[tauri::command]
-pub fn create_workspace(
+pub async fn create_workspace(
     input: CreateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<WorkspaceData, String> {
@@ -32,43 +32,41 @@ pub fn create_workspace(
         "create_workspace_requested"
     );
 
-    let workspace = state.read_workspace_manager().create(
-        input.name,
-        input.proxy_port,
-        ssl_enabled,
-        http2_enabled,
-    );
+    let manager = state.read_workspace_manager();
+    let workspace = manager.create(input.name, input.proxy_port, ssl_enabled, http2_enabled);
 
-    // Persist to DB
-    {
-        let conn = state
-            .read_db_connection()
+    // Persist to DB on the blocking pool. Only the DB write (and the connection
+    // lock) runs inside the closure; the in-memory `create` above and the
+    // rollback below stay on the async task so we never block the IPC thread on
+    // SQLite I/O.
+    let app_state = Arc::clone(state.inner());
+    let workspace_for_db = workspace.clone();
+    let db_result = run_blocking_command("create_workspace", move || {
+        let conn = app_state.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         let row = aiproxy_db::workspaces::WorkspaceRow {
-            id: workspace.id.clone(),
-            name: workspace.name.clone(),
-            proxy_port: workspace.proxy_port,
-            ssl_enabled: workspace.ssl_enabled,
-            http2_enabled: workspace.http2_enabled,
-            system_proxy_enabled: workspace.system_proxy_enabled,
-            verify_upstream_tls: workspace.verify_upstream_tls,
+            id: workspace_for_db.id.clone(),
+            name: workspace_for_db.name.clone(),
+            proxy_port: workspace_for_db.proxy_port,
+            ssl_enabled: workspace_for_db.ssl_enabled,
+            http2_enabled: workspace_for_db.http2_enabled,
+            system_proxy_enabled: workspace_for_db.system_proxy_enabled,
+            verify_upstream_tls: workspace_for_db.verify_upstream_tls,
             // Serialize the IPC-facing Vec<String> into the JSON-encoded TEXT
             // column the DB row expects.
-            tls_verify_hosts: serde_json::to_string(&workspace.tls_verify_hosts)
+            tls_verify_hosts: serde_json::to_string(&workspace_for_db.tls_verify_hosts)
                 .unwrap_or_else(|_| "[]".to_string()),
-            storage_path: workspace.storage_path.clone(),
-            created_at: workspace.created_at.clone(),
-            updated_at: workspace.updated_at.clone(),
+            storage_path: workspace_for_db.storage_path.clone(),
+            created_at: workspace_for_db.created_at.clone(),
+            updated_at: workspace_for_db.updated_at.clone(),
         };
-        if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn, &row) {
-            // Roll back the in-memory create so we never advertise a workspace
-            // that won't survive a restart, then surface the error to the UI.
-            state.read_workspace_manager().remove(&workspace.id);
+        if let Err(error) = aiproxy_db::workspaces::upsert_workspace(&conn_guard, &row) {
             tracing::error!(
                 component = "desktop.commands",
                 event = "create_workspace_db_failed",
-                workspace_id = %workspace.id,
+                workspace_id = %workspace_for_db.id,
                 error = %error,
                 "create_workspace_db_failed"
             );
@@ -77,16 +75,27 @@ pub fn create_workspace(
                 format!("create_workspace: {error}"),
             ));
         }
+        Ok(())
+    })
+    .await;
+
+    match db_result {
+        Ok(()) => {
+            tracing::info!(
+                component = "desktop.commands",
+                event = "create_workspace_succeeded",
+                workspace_id = %workspace.id,
+                "create_workspace_succeeded"
+            );
+            Ok(workspace)
+        }
+        Err(error) => {
+            // Roll back the in-memory create so we never advertise a workspace
+            // that won't survive a restart, then surface the error to the UI.
+            manager.remove(&workspace.id);
+            Err(error)
+        }
     }
-
-    tracing::info!(
-        component = "desktop.commands",
-        event = "create_workspace_succeeded",
-        workspace_id = %workspace.id,
-        "create_workspace_succeeded"
-    );
-
-    Ok(workspace)
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,7 +156,7 @@ pub struct UpdateWorkspaceInput {
 }
 
 #[tauri::command]
-pub fn update_workspace(
+pub async fn update_workspace(
     input: UpdateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<WorkspaceData, String> {
@@ -174,19 +183,24 @@ pub fn update_workspace(
         input.tls_verify_hosts.clone(),
     )?;
 
-    // Persist to DB. The DB column stores tls_verify_hosts as a JSON-encoded
-    // string; serialize the array form here.
+    // Persist to DB on the blocking pool. The DB column stores tls_verify_hosts
+    // as a JSON-encoded string; serialize the array form here. Only the DB
+    // write (and the connection lock) runs inside the closure; the in-memory
+    // `update` above and the rollback below stay on the async task.
     let tls_verify_hosts_json = input
         .tls_verify_hosts
         .as_ref()
         .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
-    {
-        let conn = state
-            .read_db_connection()
+
+    let app_state = Arc::clone(state.inner());
+    let updated_at = workspace.updated_at.clone();
+    let db_result = run_blocking_command("update_workspace", move || {
+        let conn = app_state.read_db_connection();
+        let conn_guard = conn
             .lock()
             .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
         if let Err(error) = aiproxy_db::workspaces::update_workspace(
-            &conn,
+            &conn_guard,
             &input.workspace_id,
             input.name.as_deref(),
             input.proxy_port,
@@ -194,20 +208,8 @@ pub fn update_workspace(
             input.http2_enabled,
             input.verify_upstream_tls,
             tls_verify_hosts_json.as_deref(),
-            &workspace.updated_at,
+            &updated_at,
         ) {
-            // Restore the prior in-memory state so memory matches the DB.
-            if let Some(previous) = before.as_ref() {
-                let _ = manager.update(
-                    &previous.id,
-                    Some(previous.name.clone()),
-                    Some(previous.proxy_port),
-                    Some(previous.ssl_enabled),
-                    Some(previous.http2_enabled),
-                    Some(previous.verify_upstream_tls),
-                    Some(previous.tls_verify_hosts.clone()),
-                );
-            }
             tracing::error!(
                 component = "desktop.commands",
                 event = "update_workspace_db_failed",
@@ -220,14 +222,34 @@ pub fn update_workspace(
                 format!("update_workspace: {error}"),
             ));
         }
+        Ok(())
+    })
+    .await;
+
+    match db_result {
+        Ok(()) => {
+            tracing::info!(
+                component = "desktop.commands",
+                event = "update_workspace_succeeded",
+                workspace_id = %workspace.id,
+                "update_workspace_succeeded"
+            );
+            Ok(workspace)
+        }
+        Err(error) => {
+            // Restore the prior in-memory state so memory matches the DB.
+            if let Some(previous) = before.as_ref() {
+                let _ = manager.update(
+                    &previous.id,
+                    Some(previous.name.clone()),
+                    Some(previous.proxy_port),
+                    Some(previous.ssl_enabled),
+                    Some(previous.http2_enabled),
+                    Some(previous.verify_upstream_tls),
+                    Some(previous.tls_verify_hosts.clone()),
+                );
+            }
+            Err(error)
+        }
     }
-
-    tracing::info!(
-        component = "desktop.commands",
-        event = "update_workspace_succeeded",
-        workspace_id = %workspace.id,
-        "update_workspace_succeeded"
-    );
-
-    Ok(workspace)
 }

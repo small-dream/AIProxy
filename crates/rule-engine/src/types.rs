@@ -189,15 +189,18 @@ impl ScriptManager {
 
     pub fn save_rule(&self, rule: CompiledScriptRule) -> ScriptRule {
         // M10: rebuild the snapshot under the lock so concurrent readers never
-        // observe a half-mutated vec.
+        // observe a half-mutated vec. Preserve the rule's existing position
+        // (in-place replace) so UI lists keyed on `list_rules()` order do not
+        // visibly reorder on edit.
         let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next: Vec<CompiledScriptRule> = (**guard)
-            .iter()
-            .filter(|r| r.rule.id != rule.rule.id)
-            .cloned()
-            .collect();
         let public = rule.public_rule();
-        next.push(rule);
+        let rule_id = rule.rule.id.clone();
+        let mut next: Vec<CompiledScriptRule> = (**guard).clone();
+        if let Some(existing) = next.iter_mut().find(|r| r.rule.id == rule_id) {
+            *existing = rule;
+        } else {
+            next.push(rule);
+        }
         *guard = Arc::new(next);
         public
     }

@@ -261,11 +261,12 @@ pub(crate) fn should_strip_hop_by_hop(
     is_ws_upgrade: bool,
 ) -> bool {
     if is_ws_upgrade {
-        // Keep the WS handshake headers; strip any other connection-listed
-        // token (e.g. a peer-named `x-foo`) and the non-handshake hop-by-hop
-        // remainder.
+        // Only the WS handshake carriers survive: `Connection` (carries the
+        // `Upgrade` connection-option) and `Upgrade` itself. Everything else
+        // listed in `Connection` and the rest of the standard hop-by-hop set
+        // — including `Proxy-Connection`, `Keep-Alive`, `TE`, `Trailer`,
+        // `Proxy-*` — is stripped, even on the upgrade path.
         return !name.eq_ignore_ascii_case(CONNECTION.as_str())
-            && !name.eq_ignore_ascii_case("proxy-connection")
             && !name.eq_ignore_ascii_case("upgrade")
             && strip.contains(&name.to_ascii_lowercase());
     }
@@ -986,10 +987,12 @@ mod tests {
     #[test]
     fn build_upstream_headers_preserves_ws_handshake() {
         // A WS upgrade must keep `Connection: Upgrade` and `Upgrade: websocket`
-        // but still strip a peer-listed custom token.
+        // but still strip a peer-listed custom token AND `Proxy-Connection`
+        // (only the two handshake carriers survive the upgrade path).
         let raw = b"GET / HTTP/1.1\r\n\
                     Host: example.com\r\n\
                     Connection: Upgrade, x-foo\r\n\
+                    Proxy-Connection: keep-alive\r\n\
                     Upgrade: websocket\r\n\
                     x-foo: bar\r\n\
                     Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
@@ -1006,6 +1009,12 @@ mod tests {
         assert_eq!(map.get("upgrade").unwrap().to_str().unwrap(), "websocket");
         // Custom listed token still stripped even on the WS path.
         assert!(map.get("x-foo").is_none());
+        // Proxy-Connection is NOT a handshake carrier and must be stripped on
+        // the upgrade path too (regression guard for the WS-branch fix).
+        assert!(
+            map.get("proxy-connection").is_none(),
+            "Proxy-Connection must be stripped on the WS upgrade path"
+        );
     }
 
     // -----------------------------------------------------------------------

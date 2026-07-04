@@ -479,24 +479,63 @@ async fn stage_intercept_request_breakpoint(
                         }
                         throttle_traces.push(trace);
                     }
-                    // M9: response-stage packet loss drops the response. Send a
-                    // 504 (mirrors the request-stage drop path) and
-                    // short-circuit before forwarding the mock response body.
+                    // M9: response-stage packet loss drops the response. Build a
+                    // 504 detail that carries the response-stage message AND all
+                    // traces accumulated so far (map + rewrite + script + the
+                    // throttle drop trace), aligned with the upstream response
+                    // drop path below. This intentionally does NOT reuse the
+                    // request-stage `build_throttle_failure_response` helper,
+                    // which would emit a "request was dropped" message and drop
+                    // the already-executed rewrite/script traces.
                     Err(failure) => {
                         if let Some(manager) = ctx.throttle_manager.as_ref() {
                             manager.record_trace(&failure.trace);
                         }
                         throttle_traces.push(failure.trace);
-                        let response = build_throttle_failure_response(
+                        let response_message =
+                            "The response was dropped by the active throttle profile.";
+                        let mut drop_detail = build_session_detail(
                             request,
-                            ctx,
+                            StatusCode::GATEWAY_TIMEOUT.as_u16(),
+                            &HeaderMap::new(),
+                            response_message.as_bytes(),
+                            response_message.len(),
                             started_at,
                             started_at_instant,
-                            &failure.error,
-                            map_traces,
-                            throttle_traces,
-                        )
-                        .await?;
+                            ProxyTimingBreakdown {
+                                connect_ms: None,
+                                dns_ms: None,
+                                request_send_ms: None,
+                                response_read_ms: Some(0),
+                                tls_ms: None,
+                                total_ms: Some(started_at_instant.elapsed().as_millis()),
+                                waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                            },
+                            false,
+                            false, // M2 skip_bodies
+                        );
+                        drop_detail.map_traces = map_traces;
+                        drop_detail.rewrite_traces = rewrite_traces;
+                        drop_detail.script_traces = script_traces;
+                        drop_detail.throttle_traces = throttle_traces;
+                        if ctx.session_sender.send(drop_detail).await.is_err() {
+                            tracing::debug!(
+                                event = "session_send_dropped",
+                                reason = "receiver_disconnected",
+                                "session_send_dropped"
+                            );
+                        }
+                        tracing::warn!(
+                            event = "response_throttled",
+                            request_id = %request.request_id,
+                            url = %request.url,
+                            error = %failure.error,
+                            "response_throttled"
+                        );
+                        let response = build_plain_text_response(
+                            StatusCode::GATEWAY_TIMEOUT,
+                            response_message,
+                        )?;
                         return Ok(BreakpointRequestOutcome::Drop(response));
                     }
                 }

@@ -81,13 +81,15 @@ impl RewriteManager {
         };
         // M10: rebuild the snapshot under the lock so concurrent readers
         // hand-pulling `compiled_rules()` never observe a half-mutated vec.
+        // Preserve the rule's existing position (in-place replace) so UI lists
+        // keyed on `list_rules()` order do not visibly reorder on edit.
         let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next: Vec<CompiledRewriteRule> = (**guard)
-            .iter()
-            .filter(|r| r.rule.id != compiled.rule.id)
-            .cloned()
-            .collect();
-        next.push(compiled);
+        let mut next: Vec<CompiledRewriteRule> = (**guard).clone();
+        if let Some(existing) = next.iter_mut().find(|r| r.rule.id == compiled.rule.id) {
+            *existing = compiled;
+        } else {
+            next.push(compiled);
+        }
         *guard = Arc::new(next);
         rule
     }
@@ -97,6 +99,7 @@ impl RewriteManager {
         if !(**guard).iter().any(|r| r.rule.id == rule_id) {
             return; // nothing to do; avoid an unnecessary snapshot rebuild
         }
+        // M10: rebuild preserving relative order of the surviving rules.
         let next: Vec<CompiledRewriteRule> = (**guard)
             .iter()
             .filter(|r| r.rule.id != rule_id)
