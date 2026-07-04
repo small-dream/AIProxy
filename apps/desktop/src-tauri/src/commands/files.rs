@@ -40,7 +40,9 @@ fn validate_export_basename(name: &str) -> Result<&str, String> {
     if path.components().any(|c| {
         matches!(
             c,
-            std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
         )
     }) {
         return Err("file name must be a plain file name".to_string());
@@ -183,8 +185,14 @@ mod tests {
 
     #[test]
     fn accepts_plain_basename() {
-        assert_eq!(validate_export_basename("export.har").unwrap(), "export.har");
-        assert_eq!(validate_export_basename("session (1).json").unwrap(), "session (1).json");
+        assert_eq!(
+            validate_export_basename("export.har").unwrap(),
+            "export.har"
+        );
+        assert_eq!(
+            validate_export_basename("session (1).json").unwrap(),
+            "session (1).json"
+        );
     }
 
     #[test]

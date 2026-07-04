@@ -151,6 +151,10 @@ fn resolve_menu_locale_path() -> PathBuf {
 /// level but never propagated — the menu is a non-critical surface and a stale
 /// language self-heals on the next switch or restart.
 pub fn apply_locale<R: Runtime>(app: &AppHandle<R>, preference: &str) {
+    // `app` is only used to rebuild the native menu on macOS; on other platforms
+    // mark it intentionally unused so -D warnings stays green per-platform.
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     let locale = resolve_menu_locale(preference, sys_locale::get_locale().as_deref());
 
     if let Err(error) = save_menu_locale(preference) {
@@ -183,6 +187,7 @@ pub fn apply_locale<R: Runtime>(app: &AppHandle<R>, preference: &str) {
 /// submenu (About, Hide, Services, Quit) as the first item.
 /// On Windows/Linux this becomes the window menu bar.
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)] // API symmetry with the macOS variant; not called on other platforms.
 pub fn build_menu<R: Runtime>(_app: &AppHandle<R>) -> Result<(), tauri::Error> {
     Ok(())
 }

@@ -297,21 +297,32 @@ export async function saveScriptRule(
   return nextRule;
 }
 
-export async function readScriptSourceFile(path: string): Promise<ScriptSourceFile> {
+/**
+ * H10 (closed): the backend owns the OS file dialog. The renderer supplies only
+ * a localized dialog title — never a path — and the Rust side drives the picker,
+ * reads the chosen file, and returns its contents. This removes the
+ * arbitrary-file-read primitive entirely: a compromised renderer can trigger the
+ * dialog but cannot inject a path, because the picker result never crosses the
+ * IPC boundary as input. Returns `null` when the user cancels the dialog.
+ */
+export async function pickAndReadScriptFile(title: string): Promise<ScriptSourceFile | null> {
   if (!isTauriRuntime()) {
     throw {
       code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Reading script files requires the Tauri desktop runtime.",
+      message: "Picking script files requires the Tauri desktop runtime.",
     };
   }
 
   try {
-    const payload = await invoke<unknown>("read_script_source_file", {
-      input: { path },
+    const payload = await invoke<unknown>("pick_and_read_script_file", {
+      input: { title },
     });
+    if (payload == null) {
+      return null;
+    }
     return parseScriptSourceFile(payload);
   } catch (error) {
-    reportCommandFailure("read_script_source_file", error, path);
+    reportCommandFailure("pick_and_read_script_file", error, title);
     throw coerceAppError(error);
   }
 }

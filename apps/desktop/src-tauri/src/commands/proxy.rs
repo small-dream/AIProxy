@@ -87,7 +87,12 @@ async fn start_proxy_impl(
     input: StartProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
-    let should_reapply_system_proxy = state.read_status().system_proxy_enabled;
+    // NOTE: do NOT snapshot `system_proxy_enabled` here. start/restart does
+    // substantial async work (shutdown prior runtime, bind, start collectors)
+    // before the system-proxy reapply decision; a concurrent enable/disable can
+    // change the flag during that window. The reapply decision is made at the
+    // very end, while holding `system_proxy_op_lock`, by re-reading the
+    // authoritative current state (see the reapply block near the end).
     let port = input.port.unwrap_or(DEFAULT_PROXY_PORT);
     let enable_ssl = input.enable_ssl.unwrap_or(true);
 
@@ -107,7 +112,6 @@ async fn start_proxy_impl(
         workspace_id = %input.workspace_id,
         port = %port,
         ssl_enabled = %enable_ssl,
-        system_proxy_enabled = %should_reapply_system_proxy,
         "start_proxy_requested"
     );
 
@@ -267,8 +271,33 @@ async fn start_proxy_impl(
         input.workspace_id,
     );
 
-    if should_reapply_system_proxy {
-        apply_system_proxy_settings(&SystemProxySettings::localhost(status.port))?;
+    // System-proxy reapply. Always run this epilogue (not gated by a flag
+    // snapshot taken at the top): a concurrent enable/disable can flip
+    // `system_proxy_enabled` during the async start work above, in either
+    // direction. Holding the op lock and re-reading the authoritative current
+    // state covers every transition:
+    //   - true→true: re-apply to the new `status.port` (e.g. restart on a port
+    //     change, or root-CA rotation rebuild).
+    //   - false→true: a concurrent enable applied the OLD (now-stale) port;
+    //     re-apply to `status.port` so the OS proxy points at the live proxy.
+    //   - true→false: a concurrent disable restored+cleared the snapshot; skip
+    //     re-apply (do not re-enable the OS proxy the user just disabled).
+    let _reapply_guard = state.system_proxy_op_lock().lock().await;
+    let system_proxy_enabled = state.read_status().system_proxy_enabled;
+    if system_proxy_enabled {
+        // H11: apply spawns blocking platform I/O (networksetup/gsettings/
+        // registry); offload so the tokio worker is not parked.
+        let reapply_settings = SystemProxySettings::localhost(status.port);
+        run_blocking_command("start_proxy_reapply_system_proxy", move || {
+            apply_system_proxy_settings(&reapply_settings)
+        })
+        .await?;
+    } else {
+        tracing::debug!(
+            component = "desktop.commands",
+            event = "start_proxy_system_proxy_reapply_skipped_disabled",
+            "system proxy disabled; skipping reapply"
+        );
     }
 
     tracing::info!(
@@ -336,6 +365,11 @@ pub(crate) async fn shutdown_proxy_runtime(state: Arc<AppState>) -> bool {
 }
 
 async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
+    // M17: serialize against concurrent disable/restart so overlapping IPC
+    // calls cannot interleave snapshot capture/restore and desynchronize the
+    // snapshot from the actually-applied state.
+    let _op_guard = state.system_proxy_op_lock().lock().await;
+
     let status = state.read_status();
 
     if !status.running {
@@ -352,19 +386,44 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     }
 
     let settings = SystemProxySettings::localhost(status.port);
+    let workspace_id = status.active_workspace_id.clone();
+    let app_handle = state.read_app_handle();
+    let already_has_snapshot = state.has_system_proxy_snapshot();
 
-    if state.has_system_proxy_snapshot() {
-        apply_system_proxy_settings(&settings)?;
+    if already_has_snapshot {
+        // H11: capture/apply spawn `networksetup`/`gsettings`/registry I/O and
+        // must not block the tokio worker thread.
+        let settings_for_blocking = settings.clone();
+        run_blocking_command("enable_system_proxy_reapply", move || {
+            apply_system_proxy_settings(&settings_for_blocking)
+        })
+        .await?;
     } else {
-        let snapshot = capture_system_proxy_snapshot()?;
-        if let Some(app_handle) = state.read_app_handle() {
-            system_proxy_recovery::persist_pending_snapshot(
-                &app_handle,
-                status.active_workspace_id.clone(),
-                &snapshot,
-            )?;
-        }
-        apply_system_proxy_settings_with_pre_snapshot(&settings, snapshot.clone())?;
+        // H11: snapshot capture + persist + apply are all blocking; run them in
+        // one spawn_blocking task so the ordering (persist-before-apply, see
+        // system_proxy_recovery) is preserved without parking a worker thread.
+        let settings_for_blocking = settings.clone();
+        let app_handle_for_blocking = app_handle.clone();
+        let workspace_id_for_blocking = workspace_id.clone();
+        let snapshot = run_blocking_command(
+            "enable_system_proxy_capture_apply",
+            move || -> Result<crate::system_proxy::SystemProxySnapshot, String> {
+                let snapshot = capture_system_proxy_snapshot()?;
+                if let Some(handle) = &app_handle_for_blocking {
+                    system_proxy_recovery::persist_pending_snapshot(
+                        handle,
+                        workspace_id_for_blocking.clone(),
+                        &snapshot,
+                    )?;
+                }
+                apply_system_proxy_settings_with_pre_snapshot(
+                    &settings_for_blocking,
+                    snapshot.clone(),
+                )?;
+                Ok(snapshot)
+            },
+        )
+        .await?;
         state.store_system_proxy_snapshot(snapshot);
     }
 
@@ -381,8 +440,22 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
 }
 
 async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
+    // M17: serialize against concurrent enable/restart (see enable_system_proxy_impl).
+    let _op_guard = state.system_proxy_op_lock().lock().await;
+
     if let Some(snapshot) = state.take_system_proxy_snapshot() {
-        if let Err(error) = restore_system_proxy(&snapshot) {
+        // H11: restore spawns blocking subprocesses (networksetup/gsettings)
+        // or synchronous registry I/O; offload so the tokio worker is not parked.
+        // Keep a clone so we can put the original snapshot back on restore
+        // failure (the moved copy travels into the spawn_blocking task).
+        let snapshot_for_restore = snapshot.clone();
+        let restore_result = run_blocking_command("disable_system_proxy_restore", move || {
+            restore_system_proxy(&snapshot_for_restore)
+        })
+        .await;
+
+        if let Err(error) = restore_result {
+            // Put the original snapshot back so a later disable/restart can retry.
             state.store_system_proxy_snapshot(snapshot);
 
             tracing::error!(
@@ -397,7 +470,11 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
     }
 
     if let Some(app_handle) = state.read_app_handle() {
-        if let Err(error) = system_proxy_recovery::clear_pending_snapshot(&app_handle) {
+        if let Err(error) = run_blocking_command("disable_system_proxy_clear_recovery", move || {
+            system_proxy_recovery::clear_pending_snapshot(&app_handle)
+        })
+        .await
+        {
             tracing::warn!(
                 component = "desktop.commands",
                 event = "disable_system_proxy_recovery_clear_failed",

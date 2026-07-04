@@ -50,22 +50,54 @@ pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(),
 
 pub fn apply_system_proxy_settings_with_pre_snapshot(
     settings: &SystemProxySettings,
-    _snapshot: WindowsSystemProxySnapshot,
+    snapshot: WindowsSystemProxySnapshot,
 ) -> Result<(), String> {
     let key = open_settings_key()?;
     let endpoint = settings.endpoint();
 
-    key.set_value("ProxyEnable", &1_u32)
-        .map_err(|error| format!("failed to enable Windows system proxy: {error}"))?;
-    key.set_value("ProxyServer", &endpoint)
-        .map_err(|error| format!("failed to write Windows proxy server: {error}"))?;
-    key.set_value("ProxyOverride", &PROXY_OVERRIDE_BYPASS_LOCAL)
-        .map_err(|error| format!("failed to write Windows proxy bypass list: {error}"))?;
-    remove_value_if_present(&key, "AutoConfigURL")?;
-    key.set_value("AutoDetect", &0_u32)
-        .map_err(|error| format!("failed to disable Windows proxy auto-detect: {error}"))?;
+    // H9: write the server/override/AutoConfigURL/AutoDetect values BEFORE the
+    // ProxyEnable flag, mirroring restore_system_proxy's L12 ordering. The
+    // previous order flipped ProxyEnable=1 first; if a later write failed
+    // partway, the system proxy was left enabled pointing at whatever stale
+    // ProxyServer value existed (often empty → traffic blackholes), routing
+    // the user's whole-machine HTTP traffic to a dead proxy. With server-
+    // first ordering, a partial failure leaves ProxyEnable at its prior value
+    // (still disabled-by-AIProxy-apply) instead.
+    //
+    // On any write OR refresh failure we roll back to the captured snapshot
+    // (mirrors macOS apply), so the registry never rests in a half-applied
+    // state. refresh_system_proxy() is inside the rollback scope because if it
+    // fails after ProxyEnable=1, the registry is already modified and the
+    // caller (enable_system_proxy_impl) would return before storing the
+    // in-memory snapshot — leaving the OS proxy enabled with no recorded
+    // snapshot to restore later.
+    let apply_result = (|| -> Result<(), String> {
+        key.set_value("ProxyServer", &endpoint)
+            .map_err(|error| format!("failed to write Windows proxy server: {error}"))?;
+        key.set_value("ProxyOverride", &PROXY_OVERRIDE_BYPASS_LOCAL)
+            .map_err(|error| format!("failed to write Windows proxy bypass list: {error}"))?;
+        remove_value_if_present(&key, "AutoConfigURL")?;
+        key.set_value("AutoDetect", &0_u32)
+            .map_err(|error| format!("failed to disable Windows proxy auto-detect: {error}"))?;
+        // Enable flag last: only once the target server values are in place.
+        key.set_value("ProxyEnable", &1_u32)
+            .map_err(|error| format!("failed to enable Windows system proxy: {error}"))?;
+        // Refresh must be inside the rollback scope: it notifies WinInet of the
+        // new settings, and if it fails the registry is already changed.
+        refresh_system_proxy()?;
+        Ok(())
+    })();
 
-    refresh_system_proxy()?;
+    if let Err(error) = apply_result {
+        // Best-effort rollback to the pre-apply snapshot; if rollback also
+        // fails, surface both errors so the user knows the registry may be in
+        // a transient state and can repair manually.
+        let rollback_error = restore_system_proxy(&snapshot).err();
+        return Err(match rollback_error {
+            Some(rollback) => format!("{error}; rollback also failed: {rollback}"),
+            None => error,
+        });
+    }
 
     tracing::info!(
         component = "desktop.system_proxy.windows",

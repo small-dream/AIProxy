@@ -261,8 +261,8 @@ fn pem_sha1_fingerprints(pem: &str) -> Vec<String> {
             b64.clear();
         } else if trimmed.starts_with("-----END CERTIFICATE-----") {
             if in_block {
-                if let Ok(der) = base64::engine::general_purpose::STANDARD
-                    .decode(b64.replace(['\n', '\r'], ""))
+                if let Ok(der) =
+                    base64::engine::general_purpose::STANDARD.decode(b64.replace(['\n', '\r'], ""))
                 {
                     let mut hasher = Sha1::new();
                     hasher.update(&der);
@@ -394,11 +394,7 @@ mod tests {
         let cert_b = crate::RootCaPair::generate().unwrap();
 
         // Build a bundle with two unrelated certs, A then B.
-        let bundle = format!(
-            "{}{}",
-            cert_a.cert_pem(),
-            cert_b.cert_pem()
-        );
+        let bundle = format!("{}{}", cert_a.cert_pem(), cert_b.cert_pem());
         let bundle_fps = pem_sha1_fingerprints(&bundle);
         assert_eq!(
             bundle_fps.len(),

@@ -257,7 +257,10 @@ fn set_proxy_bypass_domains(service_name: &str, domains: &[impl AsRef<str>]) -> 
 /// round-trips back as "There aren't any bypass domains set on ...". Restoring
 /// an empty captured list therefore MUST pass `Empty`, otherwise a stale bypass
 /// entry would survive the restore.
-fn build_setproxybypassdomains_args(service_name: &str, domains: &[impl AsRef<str>]) -> Vec<String> {
+fn build_setproxybypassdomains_args(
+    service_name: &str,
+    domains: &[impl AsRef<str>],
+) -> Vec<String> {
     let mut args = vec![service_name.to_string()];
     if domains.is_empty() {
         args.push("Empty".to_string());

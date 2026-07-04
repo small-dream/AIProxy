@@ -6,10 +6,10 @@ import { ScriptRulesPanel } from "./ScriptRulesPanel";
 // --- Controllable mock fixtures -------------------------------------------
 // Mirrors the mock strategy in MapRulesPanel.test.tsx: module-level mutable
 // holders drive hook return values so each test can seed its own state.
-const readScriptSourceFileMock = vi.fn();
+const pickAndReadScriptFileMock = vi.fn();
 
 vi.mock("@/services/commands", () => ({
-  readScriptSourceFile: (...args: unknown[]) => readScriptSourceFileMock(...args),
+  pickAndReadScriptFile: (...args: unknown[]) => pickAndReadScriptFileMock(...args),
 }));
 
 vi.mock("@/features/rules/use-rule-center", () => ({
@@ -17,11 +17,6 @@ vi.mock("@/features/rules/use-rule-center", () => ({
   useSaveScriptRule: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteManagedRule: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-
-// The Tauri dialog plugin has no jsdom runtime; stub it. The `open` impl is
-// configured per-test so we can drive both the success and failure paths.
-const dialogOpenMock = vi.fn();
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...args: unknown[]) => dialogOpenMock(...args) }));
 
 // Keep the test free of the i18n provider dependency. The fake `t` returns the
 // key verbatim, but when interpolation params are supplied it appends the
@@ -36,16 +31,15 @@ vi.mock("@/i18n", () => ({
 }));
 
 beforeEach(() => {
-  readScriptSourceFileMock.mockReset();
-  dialogOpenMock.mockReset();
+  pickAndReadScriptFileMock.mockReset();
 });
 
 describe("ScriptRulesPanel — file import error feedback (L10)", () => {
   it("surfaces an error notification when the script import fails instead of failing silently", async () => {
-    // Before the fix the catch block was empty: a failed readScriptSourceFile
-    // gave the user zero feedback, violating CLAUDE.md "no empty catch".
-    dialogOpenMock.mockResolvedValue("/path/to/script.js");
-    readScriptSourceFileMock.mockRejectedValue(new Error("disk read failed"));
+    // Before the fix the catch block was empty: a failed file import gave the
+    // user zero feedback, violating CLAUDE.md "no empty catch".
+    // H10 (closed): import is a single backend-owned command (dialog + read).
+    pickAndReadScriptFileMock.mockRejectedValue(new Error("disk read failed"));
 
     // Spy on the global notification store so the test does not depend on the
     // AppShell Snackbar plumbing; we assert push() is called with context.
@@ -57,7 +51,7 @@ describe("ScriptRulesPanel — file import error feedback (L10)", () => {
     fireEvent.click(screen.getByRole("button", { name: "rulesPage.script.importFile" }));
 
     await waitFor(() => {
-      expect(readScriptSourceFileMock).toHaveBeenCalledTimes(1);
+      expect(pickAndReadScriptFileMock).toHaveBeenCalledTimes(1);
       expect(pushSpy).toHaveBeenCalledTimes(1);
     });
 

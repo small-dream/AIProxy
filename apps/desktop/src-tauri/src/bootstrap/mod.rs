@@ -97,6 +97,11 @@ pub struct AppState {
     cache: SessionCache,
     status: Mutex<BootstrapStatus>,
     system_proxy_snapshot: Mutex<Option<SystemProxySnapshot>>,
+    // M17: serializes enable/disable/restart of the system proxy so overlapping
+    // IPC calls (menu toggle + stop_proxy, double-click, etc.) cannot interleave
+    // and desynchronize the captured snapshot from the actually-applied state.
+    // Held for the whole operation; the platform calls are blocking either way.
+    system_proxy_op_lock: tokio::sync::Mutex<()>,
     tls_manager: Mutex<Option<Arc<TlsManager>>>,
     cert_status_cache: Mutex<Option<CertificateStateSnapshot>>,
     breakpoint_manager: Arc<BreakpointManager>,
@@ -121,6 +126,7 @@ impl AppState {
             cache: SessionCache::new(),
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
+            system_proxy_op_lock: tokio::sync::Mutex::new(()),
             tls_manager: Mutex::new(None),
             cert_status_cache: Mutex::new(None),
             breakpoint_manager: Arc::new(BreakpointManager::new()),
@@ -359,6 +365,11 @@ impl AppState {
 
     pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
         self.repository.db()
+    }
+
+    /// M17: returns the lock that serializes system-proxy enable/disable/restart.
+    pub fn system_proxy_op_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.system_proxy_op_lock
     }
 
     // ── runtime handles ─────────────────────────────────────────────

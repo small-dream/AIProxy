@@ -280,10 +280,7 @@ pub fn compute_insights(
                 .map_err(|e| DbError::query("insights per-host durations prepare", e))?;
             let rows = stmt
                 .query_map(rusqlite::params_from_iter(params()), |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                    ))
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                 })
                 .map_err(|e| DbError::query("insights per-host durations query", e))?;
             for row in rows {

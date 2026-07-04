@@ -814,8 +814,7 @@ mod tests {
             plain.len()
         );
 
-        let decoded =
-            decode_body_bytes(&encoded, Some("deflate")).expect("raw deflate decodes");
+        let decoded = decode_body_bytes(&encoded, Some("deflate")).expect("raw deflate decodes");
         assert_eq!(
             decoded, plain,
             "raw deflate large payload must round-trip exactly"

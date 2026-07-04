@@ -117,7 +117,7 @@ pub fn load_rewrite_rules(
         .map(|r| r.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, DbError> {
@@ -150,7 +150,7 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
         .map(|r| r.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_rewrite_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -260,7 +260,7 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
         .map(|r| r.map_err(|e| DbError::query("decode map rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_map_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -372,7 +372,7 @@ pub fn load_map_runs_for_session(
         .map(|r| r.map_err(|e| DbError::query("decode map rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 // ---------------------------------------------------------------------------
@@ -519,12 +519,28 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
         .map(|r| r.map_err(|e| DbError::query("decode throttle profile row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), DbError> {
-    conn.execute("DELETE FROM throttle_profiles WHERE id = ?1", params![id])
+    // H7: delete referencing throttle_rules first, inside one transaction. The
+    // throttle_rules.profile_id FK is NO ACTION (not CASCADE), and foreign_keys
+    // is ON (connection.rs), so a bare DELETE on throttle_profiles fails with
+    // SQLITE_CONSTRAINT ForeignKey whenever any throttle_rule still references
+    // the profile. Deleting the children first mirrors clear_script_runs
+    // (above) and keeps the two deletes atomic.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| DbError::query("begin delete throttle profile transaction", e))?;
+    tx.execute(
+        "DELETE FROM throttle_rules WHERE profile_id = ?1",
+        params![id],
+    )
+    .map_err(|e| DbError::query("delete throttle rules for profile", e))?;
+    tx.execute("DELETE FROM throttle_profiles WHERE id = ?1", params![id])
         .map_err(|e| DbError::query("delete throttle profile", e))?;
+    tx.commit()
+        .map_err(|e| DbError::query("commit delete throttle profile transaction", e))?;
     Ok(())
 }
 
@@ -596,7 +612,7 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
         .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub struct ThrottleRunRow {
@@ -705,7 +721,7 @@ pub fn load_throttle_runs_for_session(
         .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn load_throttled_session_ids(
@@ -726,7 +742,7 @@ pub fn load_throttled_session_ids(
         .map(|r| r.map_err(|e| DbError::query("decode throttle rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 // ---------------------------------------------------------------------------
@@ -798,7 +814,7 @@ pub fn load_breakpoint_rules(conn: &Connection) -> Result<Vec<BreakpointRuleRow>
         .map(|r| r.map_err(|e| DbError::query("decode breakpoint rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 // ---------------------------------------------------------------------------
@@ -861,7 +877,7 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, Db
         .map(|r| r.map_err(|e| DbError::query("decode dns rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_dns_mapping(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -1048,7 +1064,7 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, Db
         .map(|row| row.map_err(|e| DbError::query("decode script rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_script_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -1151,7 +1167,7 @@ pub fn load_script_runs_for_session(
         .map(|row| row.map_err(|e| DbError::query("decode rule run row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn load_script_run_entries(
@@ -1329,7 +1345,7 @@ pub fn load_rewrite_runs_for_session(
         .map(|row| row.map_err(|e| DbError::query("decode rewrite rule row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn load_rewrite_run_entries(
@@ -1613,6 +1629,51 @@ mod tests {
                 .unwrap()
                 .enabled
         );
+    }
+
+    // Regression for H7: deleting a throttle profile that is referenced by
+    // throttle_rules must succeed (and cascade-clear the rules). The profile_id
+    // FK is NO ACTION, so the previous bare DELETE failed with
+    // SQLITE_CONSTRAINT ForeignKey whenever any rule still referenced the
+    // profile. The fix deletes children first inside one transaction.
+    #[test]
+    fn delete_throttle_profile_clears_referencing_rules() {
+        let conn = test_conn();
+        let profile = ThrottleProfileRow {
+            id: "t1".into(),
+            workspace_id: "default".into(),
+            name: "Slow 3G".into(),
+            note: None,
+            enabled: true,
+            preset: false,
+            latency_ms: 100,
+            upload_kbps: 300,
+            download_kbps: 500,
+            packet_loss_ratio: 0.0,
+        };
+        save_throttle_profile(&conn, &profile).unwrap();
+
+        let rule = ThrottleRuleRow {
+            id: "tr1".into(),
+            workspace_id: "default".into(),
+            name: "throttle example".into(),
+            note: None,
+            enabled: true,
+            priority: 1,
+            profile_id: "t1".into(),
+            url_pattern: "example.com".into(),
+            methods: "[\"GET\"]".into(),
+            stage: "request".into(),
+        };
+        save_throttle_rule(&conn, &rule).unwrap();
+        assert_eq!(load_all_throttle_rules(&conn).unwrap().len(), 1);
+
+        // This used to fail with SQLITE_CONSTRAINT ForeignKey.
+        delete_throttle_profile(&conn, "t1").unwrap();
+
+        // Both the profile and its referencing rule must be gone.
+        assert!(load_all_throttle_profiles(&conn).unwrap().is_empty());
+        assert!(load_all_throttle_rules(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -2002,7 +2063,9 @@ mod tests {
         replace_script_runs_for_session(&conn, "session-1", &runs, &entries).unwrap();
         // sanity: setup actually inserted rows
         assert_eq!(
-            load_script_runs_for_session(&conn, "session-1").unwrap().len(),
+            load_script_runs_for_session(&conn, "session-1")
+                .unwrap()
+                .len(),
             1
         );
 
@@ -2010,14 +2073,14 @@ mod tests {
 
         // Both tables must be empty: no leftover runs, no orphan entries.
         let runs_left = conn
-            .query_row("SELECT COUNT(*) FROM script_runs", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM script_runs", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .unwrap();
         let entries_left = conn
-            .query_row(
-                "SELECT COUNT(*) FROM script_run_entries",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
+            .query_row("SELECT COUNT(*) FROM script_run_entries", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .unwrap();
         assert_eq!(runs_left, 0, "script_runs should be empty after clear");
         assert_eq!(

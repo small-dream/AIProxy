@@ -322,7 +322,10 @@ mod tests {
         storage.clear_host_cache();
         {
             let cache = cloned.host_cache.lock().unwrap_or_else(|e| e.into_inner());
-            assert!(cache.is_empty(), "clear_host_cache must flush shared clones");
+            assert!(
+                cache.is_empty(),
+                "clear_host_cache must flush shared clones"
+            );
         }
     }
 

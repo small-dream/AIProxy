@@ -325,6 +325,13 @@ fn stage_apply_request_rules(
 // ---------------------------------------------------------------------------
 
 /// Outcome of request-stage breakpoint interception.
+//
+// `Forward` carries several trace Vecs plus an edited request, making it much
+// larger than Drop/Mock. Boxing those fields would ripple through every match
+// arm and the pipeline callers, so for now we accept the size difference (the
+// enum is constructed once per request and lives on the stack briefly). Box the
+// `Forward` fields if this ever shows up in allocation profiling.
+#[allow(clippy::large_enum_variant)]
 enum BreakpointRequestOutcome {
     /// The request was dropped by a breakpoint.
     Drop(ProxyResponse),

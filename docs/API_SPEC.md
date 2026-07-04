@@ -2087,7 +2087,7 @@ type GetInsightsOutput = InsightsResult;
 
 - `list_script_rules({ workspaceId }) -> ScriptRule[]`
 - `save_script_rule({ input: ScriptRule }) -> ScriptRule`
-- `read_script_source_file({ path }) -> { fileName, language, path, sourceCode }`
+- `pick_and_read_script_file({ title }) -> { fileName, language, path, sourceCode } | null` — H10（闭合）：脚本文件导入。**后端拥有 OS 文件选择器**——渲染进程只传入本地化的对话框标题（`title`），从不传入路径；Rust 侧驱动 `tauri-plugin-dialog` 弹窗、读取所选文件并返回内容。这彻底消除了「被攻破的渲染进程经 IPC 读任意文件」的原语：渲染进程只能触发弹窗，无法注入路径（选择结果不作为 IPC 输入跨边界）。canonicalize 解析 symlink 防选择后目标被替换。用户取消返回 `null`。
 - `list_script_session_trace({ sessionId }) -> ScriptSessionTrace[]`
 
 约束：

@@ -447,9 +447,7 @@ async fn generate_root_certificate_impl(
     state.set_tls_manager(tls_manager);
 
     if state.read_status().running {
-        if let Err(error) =
-            super::proxy::restart_proxy_if_running(Arc::clone(&state)).await
-        {
+        if let Err(error) = super::proxy::restart_proxy_if_running(Arc::clone(&state)).await {
             tracing::error!(
                 component = "desktop.commands",
                 event = "restart_proxy_after_root_rotation_failed",
@@ -890,6 +888,7 @@ fn install_harmony_certificate_via_hdc_impl(
     })
 }
 
+#[allow(clippy::needless_return)] // cfg-gated early returns per platform are required.
 fn open_certificate_file(cert_path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -1098,6 +1097,7 @@ fn is_hdc_device_state(value: &str) -> bool {
     )
 }
 
+#[allow(clippy::needless_return)] // cfg-gated early returns per platform are required.
 fn read_ios_simulators() -> Result<Vec<IosSimulatorDevice>, String> {
     #[cfg(not(target_os = "macos"))]
     {

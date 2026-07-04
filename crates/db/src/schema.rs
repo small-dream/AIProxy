@@ -492,7 +492,9 @@ mod tests {
         run_migrations(&conn).unwrap();
 
         let indexes: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_details'")
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_details'",
+            )
             .unwrap()
             .query_map([], |row| row.get::<_, String>(0))
             .unwrap()

@@ -43,7 +43,14 @@ pub fn persist_pending_snapshot(
     let json = serde_json::to_string_pretty(&record)
         .map_err(|error| format!("failed to serialize system proxy recovery snapshot: {error}"))?;
 
-    fs::write(&path, json)
+    // L8: write atomically (temp file in the same directory + rename). A plain
+    // fs::write truncates-then-writes; if the process is killed mid-write (or
+    // the disk fills / power drops) the recovery file is left truncated, so the
+    // next launch cannot parse it and the user's system proxy is left pointing
+    // at the dead AIProxy port. Atomic write ensures the file is either the
+    // previous complete snapshot or the new one — never a torn mix. This is the
+    // load-bearing piece of the A8 crash-recovery story (see ADR-004).
+    write_atomic(&path, json.as_bytes())
         .map_err(|error| format!("failed to write system proxy recovery snapshot: {error}"))?;
 
     tracing::info!(
@@ -53,6 +60,34 @@ pub fn persist_pending_snapshot(
         "pending_snapshot_persisted"
     );
 
+    Ok(())
+}
+
+/// Write `contents` to `path` atomically: write to a temp file in the same
+/// directory, then rename over the target. `std::fs::rename` is atomic on POSIX
+/// and uses `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` on Windows, so the
+/// destination is never observed in a half-written state. The temp file is
+/// cleaned up if the rename fails.
+fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    let directory = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+    })?;
+    // Use a unique temp name to avoid collisions between concurrent writers.
+    let temp_path = directory.join(format!(
+        ".{}-{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("recovery"),
+        std::process::id(),
+    ));
+    if let Err(error) = fs::write(&temp_path, contents) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
     Ok(())
 }
 

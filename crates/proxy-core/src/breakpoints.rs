@@ -1002,7 +1002,10 @@ mod tests {
             .await
             .expect("intercept should not error on timeout");
 
-        assert!(result.is_none(), "timeout must forward without modification");
+        assert!(
+            result.is_none(),
+            "timeout must forward without modification"
+        );
         assert!(
             !manager.pending_contains("sess-timeout"),
             "pending entry must be removed after timeout"

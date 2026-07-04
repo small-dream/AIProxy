@@ -121,7 +121,7 @@ pub fn list_all_collections(conn: &Connection) -> Result<Vec<CollectionRow>, DbE
         .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn list_collections_by_parent(
@@ -265,7 +265,7 @@ pub fn list_collection_items(
         .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn get_collection_item(
@@ -305,7 +305,7 @@ pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItem
         .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_collection_item(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -403,9 +403,7 @@ pub fn move_collection(
             |row| row.get(0),
         )
         .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                DbError::not_found("collection", &id.to_string())
-            }
+            rusqlite::Error::QueryReturnedNoRows => DbError::not_found("collection", id),
             other => DbError::query("read collection parent", other),
         })?;
 
@@ -525,7 +523,7 @@ fn list_collection_ids_by_parent(
             .map(|r| r.map_err(|e| DbError::query("decode collection row", e)))
             .collect(),
     };
-    Ok(rows?)
+    rows
 }
 
 fn list_collection_item_ids_by_collection(
@@ -541,7 +539,7 @@ fn list_collection_item_ids_by_collection(
         .map_err(|e| DbError::query("query item ids", e))?
         .map(|r| r.map_err(|e| DbError::query("decode collection item row", e)))
         .collect();
-    Ok(rows?)
+    rows
 }
 
 // ---------------------------------------------------------------------------

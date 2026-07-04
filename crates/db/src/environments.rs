@@ -94,7 +94,7 @@ pub fn list_environments(conn: &Connection) -> Result<Vec<EnvironmentRow>, DbErr
         .map(|r| r.map_err(|e| DbError::query("decode environment row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn delete_environment(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -147,7 +147,7 @@ pub fn list_environment_variables(
         .map(|r| r.map_err(|e| DbError::query("decode environment variable row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 /// Replace all variables for an environment atomically.
@@ -206,7 +206,7 @@ pub fn list_global_variables(conn: &Connection) -> Result<Vec<GlobalVariableRow>
         .map(|r| r.map_err(|e| DbError::query("decode environment variable row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 pub fn set_global_variables(conn: &Connection, vars: &[GlobalVariableRow]) -> Result<(), DbError> {

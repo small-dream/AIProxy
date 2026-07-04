@@ -279,8 +279,10 @@ pub struct ListScriptRulesInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadScriptSourceFileInput {
-    pub path: String,
+pub struct PickScriptFileInput {
+    /// Localized title for the OS file dialog (supplied by the renderer for
+    /// i18n; the renderer never supplies a path — see H10).
+    pub title: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -574,34 +576,56 @@ pub fn save_script_rule(
     Ok(state.read_script_manager().save_rule(compiled))
 }
 
+/// H10 (closed): the backend owns the file dialog. The renderer supplies only a
+/// localized dialog title — never a path — and the OS file picker is driven from
+/// the Rust side via `tauri-plugin-dialog`. This closes the arbitrary-file-read
+/// primitive under the compromised-renderer threat model: a malicious renderer
+/// can trigger the dialog but cannot inject a path, because the picker result
+/// never crosses the IPC boundary as input. Symlinks are resolved by
+/// canonicalizing the picker result before read, so a swapped link target does
+/// not redirect the read after selection. Returns `None` when the user cancels.
 #[tauri::command]
-pub fn read_script_source_file(
-    input: ReadScriptSourceFileInput,
-) -> Result<ScriptSourceFileOutput, String> {
-    let path = Path::new(&input.path);
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .ok_or_else(|| {
-            app_error(
-                ERR_INVALID_INPUT,
-                "Script file must end with .js, .mjs, .ts, or .mts.",
-            )
-        })?;
-    let language = match extension.as_str() {
-        "js" | "mjs" => "javascript",
-        "ts" | "mts" => "typescript",
-        _ => {
-            return Err(app_error(
-                ERR_INVALID_INPUT,
-                "Unsupported script file extension.",
-            ))
-        }
+pub async fn pick_and_read_script_file(
+    app: tauri::AppHandle,
+    input: PickScriptFileInput,
+) -> Result<Option<ScriptSourceFileOutput>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Bridge the callback-based picker into an awaitable future.
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Script", &["js", "mjs", "ts", "mts"])
+        .set_title(input.title)
+        .pick_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|e| app_error(ERR_INTERNAL, format!("dialog channel closed: {e}")))?
+    else {
+        // User cancelled the picker.
+        return Ok(None);
     };
 
-    let bytes = std::fs::read(path)
-        .map_err(|error| app_error(ERR_INTERNAL, format!("Read script file: {error}")))?;
+    // Resolve the FilePath (Path or Url) to a filesystem path. The picker is
+    // single-select, so this is always one path.
+    let path_buf = match picked.into_path() {
+        Ok(p) => p,
+        Err(_) => return Err(err_invalid()),
+    };
+
+    // Canonicalize to resolve any symlink at the picked location, then verify
+    // the extension on the canonical target (a symlink `innocent.js` pointing
+    // at a non-script must still be rejected).
+    let canon = std::fs::canonicalize(&path_buf).map_err(|_| err_invalid())?;
+    let language = script_language_for(&canon).ok_or_else(err_invalid)?;
+
+    // The actual file read happens off the async worker thread.
+    let bytes = run_blocking_command("pick_and_read_script_file_read", move || {
+        std::fs::read(&canon).map_err(|_| err_invalid())
+    })
+    .await?;
     if bytes.len() > MAX_IMPORTED_SCRIPT_BYTES {
         return Err(app_error(
             ERR_INVALID_INPUT,
@@ -612,23 +636,33 @@ pub fn read_script_source_file(
         ));
     }
 
-    let source_code = String::from_utf8(bytes).map_err(|error| {
-        app_error(
-            ERR_INTERNAL,
-            format!("Decode script file as UTF-8: {error}"),
-        )
-    })?;
+    let source_code = String::from_utf8(bytes).map_err(|_| err_invalid())?;
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("script")
+        .to_string();
 
-    Ok(ScriptSourceFileOutput {
-        file_name: path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("script")
-            .to_string(),
+    Ok(Some(ScriptSourceFileOutput {
+        file_name,
         language: language.to_string(),
-        path: input.path,
+        path: path_buf.to_string_lossy().into_owned(),
         source_code,
-    })
+    }))
+}
+
+fn err_invalid() -> String {
+    app_error(ERR_INVALID_INPUT, "Unsupported script file path.")
+}
+
+/// Resolve `path` to a script extension language, or `None` if not a script.
+fn script_language_for(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "js" | "mjs" => Some("javascript"),
+        "ts" | "mts" => Some("typescript"),
+        _ => None,
+    }
 }
 
 // --- Delete rule (shared for rewrite/map) ---
@@ -741,7 +775,10 @@ pub fn save_dns_mapping(
 /// silently never matches, leaving the user with dead config and no feedback.
 fn validate_dns_mapping(input: &DnsMappingRule) -> Result<(), String> {
     if input.name.trim().is_empty() {
-        return Err(app_error(ERR_INVALID_INPUT, "DNS mapping name is required."));
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "DNS mapping name is required.",
+        ));
     }
     if input.host_pattern.trim().is_empty() {
         return Err(app_error(
@@ -809,13 +846,22 @@ mod tests {
             message.contains("not a valid IP address"),
             "message should explain the validation failure, got: {message}"
         );
-        assert!(message.contains("not-an-ip"), "message should include the bad value");
+        assert!(
+            message.contains("not-an-ip"),
+            "message should include the bad value"
+        );
     }
 
     #[test]
     fn validate_dns_mapping_rejects_non_ip_strings_that_look_ipish() {
         // Hostnames, partial segments, and out-of-range octets must all be rejected.
-        for bad in &["localhost", "999.999.999.999", "1.2.3", "192.168.0.0/24", "[::1]"] {
+        for bad in &[
+            "localhost",
+            "999.999.999.999",
+            "1.2.3",
+            "192.168.0.0/24",
+            "[::1]",
+        ] {
             let err =
                 validate_dns_mapping(&sample_dns_mapping(bad)).expect_err("should be rejected");
             let (code, _msg) = err_parts(&err);
@@ -844,5 +890,30 @@ mod tests {
         let (code, _) =
             err_parts(&validate_dns_mapping(&rule).expect_err("empty host pattern rejected"));
         assert_eq!(code, ERR_INVALID_INPUT);
+    }
+
+    // H10 (closed): the dialog-owned command (pick_and_read_script_file) drives
+    // the OS file picker from Rust and is covered end-to-end. The pure
+    // extension classifier it shares with that command is unit-tested here.
+    #[test]
+    fn script_language_for_classifies_script_extensions_case_insensitively() {
+        assert_eq!(script_language_for(Path::new("a.js")), Some("javascript"));
+        assert_eq!(script_language_for(Path::new("a.MJS")), Some("javascript"));
+        assert_eq!(script_language_for(Path::new("a.ts")), Some("typescript"));
+        assert_eq!(
+            script_language_for(Path::new("/x/y/z script.MTS")),
+            Some("typescript")
+        );
+        // Non-script extensions and no extension are rejected.
+        assert_eq!(script_language_for(Path::new("notes.txt")), None);
+        assert_eq!(script_language_for(Path::new("id_rsa")), None);
+        assert_eq!(script_language_for(Path::new(".js")), None);
+    }
+
+    #[test]
+    fn err_invalid_returns_structured_invalid_input_error() {
+        let (code, message) = err_parts(&err_invalid());
+        assert_eq!(code, ERR_INVALID_INPUT);
+        assert_eq!(message, "Unsupported script file path.");
     }
 }

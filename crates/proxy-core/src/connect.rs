@@ -1,5 +1,5 @@
 use super::*;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 // ---------------------------------------------------------------------------
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
@@ -266,7 +266,6 @@ async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
         }
     }
 }
-
 
 /// Read a complete HTTP response head (status line + headers) from a stream.
 /// Returns the raw head bytes (including the trailing \r\n\r\n) and any body

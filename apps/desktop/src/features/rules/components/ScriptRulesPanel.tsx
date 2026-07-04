@@ -13,7 +13,6 @@ import {
   Typography,
 } from "@mui/material";
 import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared-types";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -35,7 +34,7 @@ import {
   useScriptRules,
 } from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
-import { readScriptSourceFile } from "@/services/commands";
+import { pickAndReadScriptFile } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -144,19 +143,14 @@ export function ScriptRulesPanel() {
   }
 
   async function handleImportFile() {
-    const selected = await open({
-      directory: false,
-      filters: [{ name: "Script", extensions: ["js", "mjs", "ts", "mts"] }],
-      multiple: false,
-      title: t("rulesPage.script.importFile"),
-    });
-
-    if (!selected || Array.isArray(selected)) {
-      return;
-    }
-
     try {
-      const imported = await readScriptSourceFile(selected);
+      // H10 (closed): the backend owns the OS file dialog. The renderer supplies
+      // only a localized title; the Rust side drives the picker, reads the
+      // chosen file, and returns its contents (null = user cancelled).
+      const imported = await pickAndReadScriptFile(t("rulesPage.script.importFile"));
+      if (!imported) {
+        return;
+      }
       setDraft((current) => ({
         ...current,
         language: imported.language,

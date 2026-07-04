@@ -16,6 +16,11 @@ pub struct PortOccupant {
 /// Example row:
 ///   COMMAND   PID  USER   FD   TYPE  DEVICE  SIZE/OFF  NODE NAME
 ///   node     48213 jake  23u  IPv4  0x..   0t0        TCP  *:8888 (LISTEN)
+/// Parses `lsof -nP -iTCP:{port} -sTCP:LISTEN` stdout into the first occupant.
+///
+/// Currently unused (the Unix port-manager path uses `netstat`/`ss`), but kept
+/// as the documented lsof parsing path for future Linux variants.
+#[allow(dead_code)]
 fn parse_lsof_occupant(stdout: &str) -> Option<PortOccupant> {
     for line in stdout.lines() {
         let mut parts = line.split_whitespace();

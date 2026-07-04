@@ -222,7 +222,7 @@ pub fn load_recent_summaries(
         .map(|r| r.map_err(|e| DbError::query("decode session summary row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 /// Load a single session summary by ID.
@@ -313,9 +313,7 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
 
     let mut total_deleted = 0usize;
     for chunk in ids.chunks(DELETE_SESSIONS_BATCH_SIZE) {
-        let placeholders: Vec<String> = (0..chunk.len())
-            .map(|i| format!("?{}", i + 1))
-            .collect();
+        let placeholders: Vec<String> = (0..chunk.len()).map(|i| format!("?{}", i + 1)).collect();
         let params: Vec<&dyn rusqlite::types::ToSql> = chunk
             .iter()
             .map(|id| id as &dyn rusqlite::types::ToSql)
@@ -329,8 +327,10 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         tx.execute(&delete_script_entries_sql, params.as_slice())
             .map_err(|e| DbError::query("delete script run entries for sessions", e))?;
 
-        let delete_script_runs_sql =
-            format!("DELETE FROM script_runs WHERE session_id IN ({})", placeholder_list);
+        let delete_script_runs_sql = format!(
+            "DELETE FROM script_runs WHERE session_id IN ({})",
+            placeholder_list
+        );
         tx.execute(&delete_script_runs_sql, params.as_slice())
             .map_err(|e| DbError::query("delete script runs for sessions", e))?;
 
@@ -348,8 +348,10 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         tx.execute(&delete_rewrite_runs_sql, params.as_slice())
             .map_err(|e| DbError::query("delete rewrite runs for sessions", e))?;
 
-        let delete_map_runs_sql =
-            format!("DELETE FROM map_runs WHERE session_id IN ({})", placeholder_list);
+        let delete_map_runs_sql = format!(
+            "DELETE FROM map_runs WHERE session_id IN ({})",
+            placeholder_list
+        );
         tx.execute(&delete_map_runs_sql, params.as_slice())
             .map_err(|e| DbError::query("delete map runs for sessions", e))?;
 
@@ -360,8 +362,10 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         tx.execute(&delete_throttle_runs_sql, params.as_slice())
             .map_err(|e| DbError::query("delete throttle runs for sessions", e))?;
 
-        let delete_ws_messages_sql =
-            format!("DELETE FROM ws_messages WHERE session_id IN ({})", placeholder_list);
+        let delete_ws_messages_sql = format!(
+            "DELETE FROM ws_messages WHERE session_id IN ({})",
+            placeholder_list
+        );
         tx.execute(&delete_ws_messages_sql, params.as_slice())
             .map_err(|e| DbError::query("delete ws messages for sessions", e))?;
 
@@ -372,7 +376,10 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
         tx.execute(&delete_session_details_sql, params.as_slice())
             .map_err(|e| DbError::query("delete session details", e))?;
 
-        let sql = format!("DELETE FROM session_summaries WHERE id IN ({})", placeholder_list);
+        let sql = format!(
+            "DELETE FROM session_summaries WHERE id IN ({})",
+            placeholder_list
+        );
         let count = tx
             .execute(&sql, params.as_slice())
             .map_err(|e| DbError::query("delete sessions", e))?;
@@ -466,7 +473,7 @@ pub fn load_ws_messages(
         .map(|r| r.map_err(|e| DbError::query("decode session detail row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 /// Count WebSocket messages for a session.
@@ -516,7 +523,7 @@ pub fn search_ws_messages(
         .map(|r| r.map_err(|e| DbError::query("decode session detail row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> {
@@ -686,8 +693,7 @@ mod tests {
         let conn = test_conn();
         let ids: Vec<String> = (0..32767).map(|i| format!("bulk-{i}")).collect();
         for id in &ids {
-            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id))
-                .unwrap();
+            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id)).unwrap();
         }
         let deleted = delete_sessions_by_ids(&conn, &ids).expect("batched delete succeeds");
         assert_eq!(deleted, ids.len());
@@ -708,8 +714,7 @@ mod tests {
         let conn = test_conn();
         let ids: Vec<String> = (0..501).map(|i| format!("multi-{i}")).collect();
         for id in &ids {
-            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id))
-                .unwrap();
+            upsert_session(&conn, &test_summary(id, "example.com"), &test_detail(id)).unwrap();
         }
         let deleted = delete_sessions_by_ids(&conn, &ids).expect("batched delete succeeds");
         assert_eq!(deleted, ids.len());

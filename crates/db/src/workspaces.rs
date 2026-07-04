@@ -130,7 +130,7 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbErr
         .map(|r| r.map_err(|e| DbError::query("decode workspace row", e)))
         .collect();
 
-    Ok(rows?)
+    rows
 }
 
 /// Check if the workspaces table is empty (for seeding the default).

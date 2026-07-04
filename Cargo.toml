@@ -18,5 +18,13 @@ version = "0.1.0"
 lto = true
 codegen-units = 1
 strip = "symbols"
-panic = "abort"
+# A8 (ADR-004): do NOT set `panic = "abort"`. With unwinding (the default), a
+# panic in any thread unwinds the stack, letting Drop guards and the
+# `RunEvent::Exit` shutdown path run `restore_system_proxy` — the user's system
+# proxy is restored even if the app panics while the proxy is enabled. Under
+# `panic = "abort"` the process terminates immediately on any panic, skipping
+# that restore and leaving the OS system proxy pointing at the dead AIProxy
+# port. The binary-size win from abort is negligible for a desktop app (symbols
+# are already stripped above) and not worth losing crash-time proxy restore.
+# See docs/DECISIONS/ADR-004-panic-strategy.md.
 

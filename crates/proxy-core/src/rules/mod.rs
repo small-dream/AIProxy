@@ -99,7 +99,7 @@ fn active_rewrite_rules_for_stage(
         })
         .collect::<Vec<_>>();
 
-    compiled.sort_by(|left, right| right.rule.priority.cmp(&left.rule.priority));
+    compiled.sort_by_key(|cr| std::cmp::Reverse(cr.rule.priority));
     compiled.into_iter().map(|cr| cr.rule).collect()
 }
 
@@ -120,7 +120,7 @@ fn active_map_rule_for_request(
         .filter(|rule| pattern_matches(&rule.source_pattern, request.url.as_str(), None))
         .collect();
 
-    rules.sort_by(|left, right| right.priority.cmp(&left.priority));
+    rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
     rules.into_iter().next()
 }
 
@@ -158,7 +158,7 @@ fn active_script_rules_for_stage(
         })
         .collect();
 
-    rules.sort_by(|left, right| right.rule.priority.cmp(&left.rule.priority));
+    rules.sort_by_key(|r| std::cmp::Reverse(r.rule.priority));
     rules
 }
 
@@ -218,7 +218,7 @@ fn active_throttle_selection_for_request(
         })
         .collect();
 
-    rules.sort_by(|left, right| right.priority.cmp(&left.priority));
+    rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
 
     for rule in rules {
         if let Some(profile) = profiles

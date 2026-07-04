@@ -512,9 +512,7 @@ fn assemble_ws_message(
                 );
                 return build_ws_message(session_id, direction, frame);
             };
-            if assembler.buffer.len() + frame.payload.len()
-                <= MAX_REASSEMBLED_MESSAGE_BYTES
-            {
+            if assembler.buffer.len() + frame.payload.len() <= MAX_REASSEMBLED_MESSAGE_BYTES {
                 assembler.buffer.extend_from_slice(&frame.payload);
             }
             if frame.fin {
@@ -540,13 +538,17 @@ fn assemble_ws_message(
 }
 
 /// Reconstruct raw frame bytes from a WsFrame for forwarding.
-/// This writes the frame in its original form (unmasked) for relay.
+///
+/// `mask_output` follows RFC 6455 §5.3: the proxy acts as the *server* to the
+/// client (never masks server→client frames) and as the *client* to the
+/// upstream (must mask every client→server frame). Callers forwarding toward
+/// the upstream pass `true`; callers forwarding toward the client pass `false`.
 pub async fn forward_raw_frame<W: AsyncWriteExt + Unpin>(
     writer: &mut W,
     frame: &WsFrame,
+    mask_output: bool,
 ) -> Result<(), ProxyError> {
-    // Server-to-client frames are never masked
-    write_ws_frame(writer, frame, false).await
+    write_ws_frame(writer, frame, mask_output).await
 }
 
 // ---------------------------------------------------------------------------
@@ -656,9 +658,10 @@ impl WsConnectionRegistry {
         // bounded inject channel is full, instead of growing it without bound.
         // A full queue means the relay is draining slower than injects arrive;
         // surface that to the caller rather than buffering unbounded memory.
-        entry.inject_sender.try_send(request).map_err(|e| {
-            ProxyError::Other(format!("Failed to inject frame: {e}"))
-        })
+        entry
+            .inject_sender
+            .try_send(request)
+            .map_err(|e| ProxyError::Other(format!("Failed to inject frame: {e}")))
     }
 }
 
@@ -792,8 +795,15 @@ pub async fn relay_websocket_frames<C, U>(
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
-                            // Legitimate Close from the client: forward as-is.
-                            let _ = forward_raw_frame(upstream_stream, &frame).await;
+                            // Legitimate Close from the client: forward masked
+                            // per RFC 6455 §5.3 (proxy acts as client to
+                            // upstream, so every client→server frame — including
+                            // Close — must be masked). H1: the previous call used
+                            // forward_raw_frame which hard-coded mask_output=false,
+                            // making Close the only unmasked client→upstream frame
+                            // and causing strict upstreams to fail the handshake
+                            // with Close(1002).
+                            let _ = forward_raw_frame(upstream_stream, &frame, true).await;
                             client_done = true;
                             // H9: shutdown the upstream write side so a compliant
                             // upstream sees its peer close and echoes a Close
@@ -855,8 +865,10 @@ pub async fn relay_websocket_frames<C, U>(
                         let _ = ws_sender.send(msg).await;
 
                         if frame.opcode == WsOpcode::Close {
-                            // Legitimate Close from the upstream: forward as-is.
-                            let _ = forward_raw_frame(client_stream, &frame).await;
+                            // Legitimate Close from the upstream: forward to the
+                            // client unmasked (server→client frames are never
+                            // masked per RFC 6455 §5.3).
+                            let _ = forward_raw_frame(client_stream, &frame, false).await;
                             upstream_done = true;
                             // H9: shutdown the client write side so a compliant
                             // client echoes a Close back. Arm the grace deadline
@@ -867,7 +879,7 @@ pub async fn relay_websocket_frames<C, U>(
                                     Some(tokio::time::Instant::now() + close_grace);
                             }
                         } else {
-                            if let Err(e) = forward_raw_frame(client_stream, &frame).await {
+                            if let Err(e) = forward_raw_frame(client_stream, &frame, false).await {
                                 tracing::debug!(event = "ws_relay_upstream_to_client_write_failed", error = %e, "ws_relay_upstream_to_client_write_failed");
                                 break;
                             }
@@ -1032,7 +1044,12 @@ mod tests {
             mask: false,
             payload: b"hello".to_vec(),
         };
-        let msg = assemble_ws_message("sess-1", WsDirection::ClientToServer, &frame, &mut assembler);
+        let msg = assemble_ws_message(
+            "sess-1",
+            WsDirection::ClientToServer,
+            &frame,
+            &mut assembler,
+        );
         assert!(msg.fin);
         assert_eq!(msg.payload_text, Some("hello".to_string()));
         assert!(assembler.start_opcode.is_none());
@@ -1051,7 +1068,12 @@ mod tests {
             mask: false,
             payload: b"part1".to_vec(),
         };
-        let _ = assemble_ws_message("sess-1", WsDirection::ServerToClient, &start, &mut assembler);
+        let _ = assemble_ws_message(
+            "sess-1",
+            WsDirection::ServerToClient,
+            &start,
+            &mut assembler,
+        );
         assert!(assembler.start_opcode.is_some());
 
         // A Close frame arrives interleaved — must emit standalone and NOT reset
@@ -1062,8 +1084,12 @@ mod tests {
             mask: false,
             payload: vec![0x03, 0xE8], // 1000
         };
-        let close_msg =
-            assemble_ws_message("sess-1", WsDirection::ServerToClient, &close, &mut assembler);
+        let close_msg = assemble_ws_message(
+            "sess-1",
+            WsDirection::ServerToClient,
+            &close,
+            &mut assembler,
+        );
         assert_eq!(close_msg.opcode, "close");
         // Reassembly state is untouched by the control frame.
         assert!(assembler.start_opcode.is_some());
@@ -1101,6 +1127,49 @@ mod tests {
         assert!(parsed.fin);
         assert_eq!(parsed.opcode, WsOpcode::Text);
         assert_eq!(parsed.payload, b"hello");
+    }
+
+    // Regression for H1: a Close frame forwarded toward the upstream (the proxy
+    // acts as the WS *client* to the upstream) must carry the mask bit per RFC
+    // 6455 §5.3. The second byte's high bit (0x80) is the mask indicator. The
+    // previous implementation routed Close through forward_raw_frame which hard-
+    // coded mask_output=false, leaving Close the only unmasked client→upstream
+    // frame and breaking the close handshake on strict upstreams.
+    #[tokio::test]
+    async fn forward_raw_frame_masks_toward_upstream() {
+        let close = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Close,
+            mask: false, // parse_ws_frame unsets this; write_ws_frame decides via mask_output
+            payload: vec![0x03, 0xe8, b'b', b'y', b'e'], // 1000 + "bye"
+        };
+
+        // Forward toward upstream → must be masked.
+        let mut upstream_buf = Vec::new();
+        forward_raw_frame(&mut upstream_buf, &close, true)
+            .await
+            .unwrap();
+        assert!(
+            upstream_buf[1] & 0x80 != 0,
+            "client→upstream Close must set the mask bit (got byte {:#04x})",
+            upstream_buf[1]
+        );
+        // Round-trip: re-parsing yields the original Close payload (parse un-masks).
+        let mut cursor = std::io::Cursor::new(upstream_buf);
+        let reparsed = parse_ws_frame(&mut cursor).await.unwrap();
+        assert_eq!(reparsed.opcode, WsOpcode::Close);
+        assert_eq!(reparsed.payload, close.payload);
+
+        // Forward toward client → must NOT be masked (server→client).
+        let mut client_buf = Vec::new();
+        forward_raw_frame(&mut client_buf, &close, false)
+            .await
+            .unwrap();
+        assert!(
+            client_buf[1] & 0x80 == 0,
+            "server→client Close must NOT set the mask bit (got byte {:#04x})",
+            client_buf[1]
+        );
     }
 
     #[tokio::test]
@@ -1251,7 +1320,10 @@ mod tests {
 
         // Feed a reserved-opcode frame from the client, then close the client
         // write side so the relay's next read hits clean EOF.
-        client_outer.write_all(&[0b1000_0011u8, 0x00]).await.unwrap();
+        client_outer
+            .write_all(&[0b1000_0011u8, 0x00])
+            .await
+            .unwrap();
         client_outer.shutdown().await.unwrap();
         // Upstream writes nothing; close its write side so the relay's upstream
         // read hits clean EOF and upstream_done flips.
@@ -1304,7 +1376,10 @@ mod tests {
         let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
         let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
 
-        upstream_outer.write_all(&[0b1100_0001u8, 0x00]).await.unwrap();
+        upstream_outer
+            .write_all(&[0b1100_0001u8, 0x00])
+            .await
+            .unwrap();
         upstream_outer.shutdown().await.unwrap();
         client_outer.shutdown().await.unwrap();
 
@@ -1364,15 +1439,15 @@ mod tests {
         // violation; we assert the read either times out (relay wrote nothing)
         // or yields no data.
         let mut out = [0u8; 8];
-        let read_result = tokio::time::timeout(
-            Duration::from_millis(150),
-            client_outer.read(&mut out),
-        )
-        .await;
+        let read_result =
+            tokio::time::timeout(Duration::from_millis(150), client_outer.read(&mut out)).await;
         match read_result {
             Err(_) => { /* timed out: relay wrote nothing — expected */ }
             Ok(Ok(0)) => { /* EOF: relay wrote nothing — expected */ }
-            Ok(Ok(n)) => panic!("clean EOF must not produce a Close frame, got {n} bytes: {:?}", &out[..n]),
+            Ok(Ok(n)) => panic!(
+                "clean EOF must not produce a Close frame, got {n} bytes: {:?}",
+                &out[..n]
+            ),
             Ok(Err(e)) => panic!("unexpected read error: {e}"),
         }
     }
@@ -1530,12 +1605,10 @@ mod tests {
         // The relay shut down the upstream writer → the next read on
         // upstream_outer must yield clean EOF (0 bytes) promptly.
         let mut probe = [0u8; 4];
-        let read_result = tokio::time::timeout(
-            Duration::from_millis(500),
-            upstream_outer.read(&mut probe),
-        )
-        .await
-        .expect("upstream writer should be shut down promptly");
+        let read_result =
+            tokio::time::timeout(Duration::from_millis(500), upstream_outer.read(&mut probe))
+                .await
+                .expect("upstream writer should be shut down promptly");
         match read_result {
             Ok(0) => { /* clean EOF from relay's shutdown — expected */ }
             Ok(n) => panic!(

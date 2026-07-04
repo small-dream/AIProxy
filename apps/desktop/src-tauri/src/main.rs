@@ -3,9 +3,6 @@
 // remain visible during development.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[macro_use]
-extern crate rust_i18n;
-
 // Load compiled-in menu translations from src-tauri/locales/*.yml; English fallback.
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -198,7 +195,7 @@ pub fn run() {
             commands::save_map_rule,
             commands::list_script_rules,
             commands::save_script_rule,
-            commands::read_script_source_file,
+            commands::pick_and_read_script_file,
             commands::delete_rule,
             commands::list_dns_mappings,
             commands::save_dns_mapping,

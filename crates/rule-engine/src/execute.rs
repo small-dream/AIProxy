@@ -1,6 +1,4 @@
-use rquickjs::{
-    promise::MaybePromise, Context, Function, Runtime,
-};
+use rquickjs::{promise::MaybePromise, Context, Function, Runtime};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -460,7 +458,9 @@ mod tests {
             let gate = Arc::clone(&gate);
             let release = Arc::clone(&release);
             handles.push(thread::spawn(move || {
-                let _permit = gate.acquire(Instant::now() + Duration::from_secs(5)).unwrap();
+                let _permit = gate
+                    .acquire(Instant::now() + Duration::from_secs(5))
+                    .unwrap();
                 release.wait();
             }));
         }

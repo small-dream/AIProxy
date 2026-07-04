@@ -37,7 +37,7 @@ impl BodyStore {
     /// Read a body file given its relative path.
     pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, DbError> {
         let full_path = self.checked_resolve_body_path(relative_path)?;
-        Ok(fs::read(&full_path).map_err(DbError::Io)?)
+        fs::read(&full_path).map_err(DbError::Io)
     }
 
     /// Remove all body files for a session.
@@ -270,7 +270,8 @@ mod tests {
         // than resolving under the base dir.
         let resolved = store.resolve_body_path("sess-1\\..\\..\\etc");
         assert!(
-            !resolved.starts_with(&store.base_dir) || resolved == store.base_dir.join("__invalid_body_path__"),
+            !resolved.starts_with(&store.base_dir)
+                || resolved == store.base_dir.join("__invalid_body_path__"),
             "backslash path should not resolve under base dir, got {resolved:?}"
         );
     }

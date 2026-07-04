@@ -36,7 +36,7 @@ Get-NetIPAddress -AddressFamily IPv4 |
         .filter(|(_, ip)| is_usable_ipv4(*ip))
         .map(|(name, ip)| (score_interface_ipv4(&name, ip), ip))
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
 
     let mut seen = std::collections::HashSet::new();
     scored

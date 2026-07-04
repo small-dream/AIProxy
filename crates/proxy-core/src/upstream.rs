@@ -266,27 +266,24 @@ pub(crate) async fn forward_request(
                     .map(|p| p.get_or_connect(&pool_key, dns_override_ip))
                 {
                     Some(fut) => fut.await.map_err(|e| {
-                        ProxyError::UpstreamError(format!(
-                            "failed to reconnect on retry: {e}"
-                        ))
+                        ProxyError::UpstreamError(format!("failed to reconnect on retry: {e}"))
                     })?,
                     None => None,
                 };
                 match retry_sender {
-                    Some((mut fresh_sender, _)) => match fresh_sender
-                        .send_request(build_h2_req()?)
-                        .await
-                    {
-                        Ok(r) => r,
-                        Err(retry_error) => {
-                            if let Some(ref p) = pool {
-                                p.evict_key(&pool_key).await;
+                    Some((mut fresh_sender, _)) => {
+                        match fresh_sender.send_request(build_h2_req()?).await {
+                            Ok(r) => r,
+                            Err(retry_error) => {
+                                if let Some(ref p) = pool {
+                                    p.evict_key(&pool_key).await;
+                                }
+                                return Err(ProxyError::UpstreamError(format!(
+                                    "failed to send upstream h2 request after retry: {retry_error}"
+                                )));
                             }
-                            return Err(ProxyError::UpstreamError(format!(
-                                "failed to send upstream h2 request after retry: {retry_error}"
-                            )));
                         }
-                    },
+                    }
                     None => {
                         return Err(ProxyError::UpstreamError(format!(
                             "failed to send upstream h2 request: {error}"
@@ -424,8 +421,8 @@ pub(crate) async fn forward_request(
     })?;
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
-    let result = build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms)
-        .await;
+    let result =
+        build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await;
     // On the normal success path the response body has been fully read; let the
     // conn driver complete naturally (do not abort it). Any error or an early
     // drop of this future (e.g. upstream_request_timeout) skips this line, so
