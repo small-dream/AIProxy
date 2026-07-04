@@ -49,6 +49,7 @@ import {
   getRewriteValidationErrors,
   HTTP_METHODS,
   wildcardMatch,
+  type TranslationFn,
 } from "@/features/rules/rules.helpers";
 import {
   FieldGroup,
@@ -109,73 +110,88 @@ function stageApplies(ruleStage: RuleMatch["stage"], currentStage: RuleMatch["st
   return ruleStage === "either" || ruleStage === currentStage;
 }
 
-function testRuleMatch(rule: RewriteRule, input: RuleTestInput) {
-  if (!rule.enabled) return { ok: false, reason: "Rule is disabled." };
+function testRuleMatch(rule: RewriteRule, input: RuleTestInput, t: TranslationFn) {
+  if (!rule.enabled) return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.disabled") };
   if (!stageApplies(rule.match.stage, input.stage))
-    return { ok: false, reason: "Stage does not match." };
+    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.stageMismatch") };
   if (
     rule.match.methods.length > 0 &&
     !rule.match.methods.some((method) => method.toUpperCase() === input.method.toUpperCase())
   ) {
-    return { ok: false, reason: "HTTP method does not match." };
+    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.methodMismatch") };
   }
   if (!wildcardMatch(rule.match.urlPattern, input.url, rule.match.matchType))
-    return { ok: false, reason: "URL pattern does not match." };
-  return { ok: true, reason: "This sample request matches the rule." };
+    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.urlMismatch") };
+  return { ok: true, reason: t("rulesPage.rewrite.tester.reasons.matched") };
 }
 
-function getInvalidRewriteCombination(rule: RewriteRule) {
+function getInvalidRewriteCombination(rule: RewriteRule, t: TranslationFn) {
   if (
     rule.match.stage === "response" &&
     (rule.rewriteType === "query" || rule.rewriteType === "redirect")
   ) {
-    return "Query and Redirect rewrites run before the request is sent. Switch the stage to Request or Request or Response.";
+    return t("rulesPage.rewrite.invalidCombination.queryRedirectOnResponse");
   }
   if (
     rule.rewriteType === "header" &&
     rule.match.stage === "request" &&
     rule.payload.target === "response"
   ) {
-    return "This rule matches the request stage, but the Header target is Response.";
+    return t("rulesPage.rewrite.invalidCombination.headerTargetMismatchRequest");
   }
   if (
     rule.rewriteType === "header" &&
     rule.match.stage === "response" &&
     rule.payload.target === "request"
   ) {
-    return "This rule matches the response stage, but the Header target is Request.";
+    return t("rulesPage.rewrite.invalidCombination.headerTargetMismatchResponse");
   }
   if (
     rule.rewriteType === "body" &&
     rule.match.stage === "request" &&
     rule.payload.target === "response"
   ) {
-    return "This rule matches the request stage, but the Body target is Response.";
+    return t("rulesPage.rewrite.invalidCombination.bodyTargetMismatchRequest");
   }
   if (
     rule.rewriteType === "body" &&
     rule.match.stage === "response" &&
     rule.payload.target === "request"
   ) {
-    return "This rule matches the response stage, but the Body target is Request.";
+    return t("rulesPage.rewrite.invalidCombination.bodyTargetMismatchResponse");
   }
   return undefined;
 }
 
-function describeRewriteAction(rule: RewriteRule) {
+function describeRewriteAction(rule: RewriteRule, t: TranslationFn) {
   if (rule.rewriteType === "header") {
-    return `${rule.payload.target} header ${rule.payload.operation}: ${rule.payload.headerName || "(name)"}`;
+    return t("rulesPage.rewrite.action.header", {
+      target: rule.payload.target,
+      operation: rule.payload.operation,
+      name: rule.payload.headerName || "(name)",
+    });
   }
   if (rule.rewriteType === "query") {
-    return `query ${rule.payload.operation}: ${rule.payload.paramName || "(param)"}`;
+    return t("rulesPage.rewrite.action.query", {
+      operation: rule.payload.operation,
+      name: rule.payload.paramName || "(param)",
+    });
   }
   if (rule.rewriteType === "body") {
     if ((rule.payload.mode ?? "replace") === "fields") {
-      return `${rule.payload.target} body fields: ${rule.payload.fields?.length ?? 0}`;
+      return t("rulesPage.rewrite.action.bodyFields", {
+        target: rule.payload.target,
+        count: rule.payload.fields?.length ?? 0,
+      });
     }
-    return `${rule.payload.target} body -> ${rule.payload.contentType}`;
+    return t("rulesPage.rewrite.action.bodyReplace", {
+      target: rule.payload.target,
+      contentType: rule.payload.contentType,
+    });
   }
-  return `redirect -> ${rule.payload.targetUrl || "(target URL)"}`;
+  return t("rulesPage.rewrite.action.redirect", {
+    target: rule.payload.targetUrl || "(target URL)",
+  });
 }
 
 function TemplateIcon({ icon }: { icon: RewriteTemplate["icon"] }) {
@@ -400,12 +416,12 @@ export function RewriteRulesPanel() {
     );
   }
 
-  const invalidCombination = getInvalidRewriteCombination(draft);
+  const invalidCombination = getInvalidRewriteCombination(draft, t);
   const errors = [
     ...getRewriteValidationErrors(draft, t),
     ...(invalidCombination ? [invalidCombination] : []),
   ];
-  const testResult = testRuleMatch(draft, testInput);
+  const testResult = testRuleMatch(draft, testInput, t);
   const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
   return (
@@ -452,7 +468,7 @@ export function RewriteRulesPanel() {
               active: rule.id === selectedRuleId,
               enabled: rule.enabled,
               name: rule.name || t("rulesPage.untitledRule"),
-              subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule)}`,
+              subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
             }))}
@@ -493,7 +509,7 @@ export function RewriteRulesPanel() {
                 minWidth: 0
               }}>
                 <RuleSection>
-                  <FieldGroup title="When">
+                  <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
                     <TextField
                       size="small"
                       label={formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t)}
@@ -618,7 +634,7 @@ export function RewriteRulesPanel() {
                 </RuleSection>
 
                 <RuleSection>
-                  <FieldGroup title="Then">
+                  <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
                     <ToggleButtonGroup
                       exclusive
                       fullWidth
@@ -857,19 +873,19 @@ function RewriteRuleTester({
   testResult: { ok: boolean; reason: string };
 }) {
   const { t } = useI18n();
-  const sampleUrlLabel = formatRuleFieldLabel("Sample URL", "optional", t);
-  const methodLabel = formatRuleFieldLabel("Method", "optional", t);
-  const stageLabel = formatRuleFieldLabel("Stage", "optional", t);
+  const sampleUrlLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.sampleUrl"), "optional", t);
+  const methodLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.method"), "optional", t);
+  const stageLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.stage"), "optional", t);
 
   return (
     <RuleSection>
-      <FieldGroup title="Test">
+      <FieldGroup title={t("rulesPage.rewrite.tester.sectionTitle")}>
         <Stack direction="row" spacing={0.75} sx={{
           alignItems: "center"
         }}>
           <FactCheckRoundedIcon color={testResult.ok ? "success" : "disabled"} fontSize="small" />
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
-            Rule tester
+            {t("rulesPage.rewrite.tester.title")}
           </Typography>
         </Stack>
         <TextField
@@ -902,8 +918,8 @@ function RewriteRuleTester({
                 onChange({ ...testInput, stage: e.target.value as RuleMatch["stage"] })
               }
             >
-              <MenuItem value="request">Request</MenuItem>
-              <MenuItem value="response">Response</MenuItem>
+              <MenuItem value="request">{t("rulesPage.rewrite.tester.stageRequest")}</MenuItem>
+              <MenuItem value="response">{t("rulesPage.rewrite.tester.stageResponse")}</MenuItem>
             </Select>
           </FormControl>
         </Stack>
@@ -914,8 +930,10 @@ function RewriteRuleTester({
           color: "text.secondary"
         }}>
           {testResult.ok
-            ? describeRewriteAction(draft)
-            : `Waiting for ${draft.match.urlPattern || "(url pattern)"}`}
+            ? describeRewriteAction(draft, t)
+            : t("rulesPage.rewrite.tester.waiting", {
+                pattern: draft.match.urlPattern || "(url pattern)",
+              })}
         </Typography>
       </FieldGroup>
     </RuleSection>

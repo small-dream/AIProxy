@@ -91,7 +91,11 @@ export function EditableKeyValueTable({
 
   return (
     <Box sx={{ minWidth: 0 }}>
-      {items.length === 0 ? (
+      {/* H15/M26: judge the empty state from `rows` (the rendered source), not
+          `items`. The sync effect that rebuilds `rows` from `items` runs AFTER
+          render, so for one frame `items` and `rows` can disagree — checking
+          `items` could show the empty hint and the rows at once (or neither). */}
+      {rows.length === 0 ? (
         <Typography
           variant="body2"
           sx={{

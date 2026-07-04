@@ -254,7 +254,7 @@ export function SessionContextMenu({
         <ListItemIcon sx={iconSx}>
           <SpeedRoundedIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText {...contextMenuItemTextProps}>Create Throttling Rule</ListItemText>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.createThrottleRule")}</ListItemText>
       </MenuItem>
 
       <MenuItem

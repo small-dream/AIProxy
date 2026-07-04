@@ -455,6 +455,44 @@ export const enMessages = {
         query: "Query",
         redirect: "Redirect",
       },
+      invalidCombination: {
+        queryRedirectOnResponse:
+          "Query and Redirect rewrites run before the request is sent. Switch the stage to Request or Response.",
+        headerTargetMismatchRequest:
+          "This rule matches the request stage, but the Header target is Response.",
+        headerTargetMismatchResponse:
+          "This rule matches the response stage, but the Header target is Request.",
+        bodyTargetMismatchRequest:
+          "This rule matches the request stage, but the Body target is Response.",
+        bodyTargetMismatchResponse:
+          "This rule matches the response stage, but the Body target is Request.",
+      },
+      tester: {
+        sectionTitle: "Test",
+        title: "Rule tester",
+        sampleUrl: "Sample URL",
+        method: "Method",
+        stage: "Stage",
+        stageRequest: "Request",
+        stageResponse: "Response",
+        waiting: "Waiting for {{pattern}}",
+        reasons: {
+          disabled: "Rule is disabled.",
+          stageMismatch: "Stage does not match.",
+          methodMismatch: "HTTP method does not match.",
+          urlMismatch: "URL pattern does not match.",
+          matched: "This sample request matches the rule.",
+        },
+      },
+      whenSection: "When",
+      thenSection: "Then",
+      action: {
+        header: "{{target}} header {{operation}}: {{name}}.",
+        query: "Query {{operation}}: {{name}}.",
+        bodyFields: "{{target}} body fields: {{count}}.",
+        bodyReplace: "{{target}} body -> {{contentType}}.",
+        redirect: "Redirect -> {{target}}.",
+      },
     },
     mapLocal: {
       createRule: "New Local Mapping",
@@ -1346,6 +1384,7 @@ export const enMessages = {
     copyResponse: "Copy Response",
     copyUrl: "Copy URL",
     createRewrite: "Create Rewrite Rule",
+    createThrottleRule: "Create Throttling Rule",
     compareWith: "Compare with Base",
     exportHost: "Export Host",
     exportSession: "Export Request",

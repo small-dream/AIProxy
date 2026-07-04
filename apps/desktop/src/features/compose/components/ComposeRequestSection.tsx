@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
+import { useEffect, useRef, useState } from "react";
 
 import type { BodyType, RawLanguage } from "@/features/compose/types";
 import { RAW_LANGUAGES } from "@/features/compose/compose-editor.store";
@@ -289,7 +290,36 @@ export function ComposeRequestSection({
   );
 }
 
-function QueryParamsEditor({
+// Parse only the query string of a URL into name/value entries. Returns null
+// when the URL is not yet parseable (so the caller can keep the previous state
+// instead of clearing the editor mid-typing).
+function parseQueryParams(url: string): HeaderEntry[] | null {
+  try {
+    const parsed = new URL(url);
+    return Array.from(parsed.searchParams.entries()).map(([name, value]) => ({ name, value }));
+  } catch {
+    return null;
+  }
+}
+
+// Rebuild a URL string with the query replaced by the given params. Returns null
+// when the base URL is not parseable.
+function buildUrlWithParams(url: string, params: HeaderEntry[]): string | null {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    for (const entry of params) {
+      if (entry.name.trim()) {
+        parsed.searchParams.append(entry.name, entry.value);
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function QueryParamsEditor({
   namePlaceholder,
   onUrlChange,
   url,
@@ -300,30 +330,49 @@ function QueryParamsEditor({
   url: string;
   valuePlaceholder: string;
 }) {
-  let params: HeaderEntry[] = [];
+  // H12: previously this editor re-derived `params` from `new URL(url)` on EVERY
+  // render and pushed every keystroke back into the URL store. The URL round
+  // trip (encoding is non-idempotent: spaces, `+`, special chars) made the
+  // downstream table's `sameEntries` sync effect see a foreign value on each
+  // key, regenerate row ids, and remount the focused input — so typing a param
+  // value was effectively impossible.
+  //
+  // Now the editor owns a LOCAL params draft that is the single source for the
+  // rendered rows. It only re-parses the URL when the change did NOT originate
+  // here (e.g. the user edits the URL bar, or a saved request is loaded). Local
+  // edits update the draft and write back to the URL, but the draft is NOT
+  // re-parsed from the URL we just emitted.
+  const [params, setParams] = useState<HeaderEntry[]>(() => parseQueryParams(url) ?? []);
+  // Track the last URL we produced ourselves so we can distinguish our own
+  // writes from external URL changes and avoid the round trip.
+  const lastEmittedUrlRef = useRef<string>(url);
 
-  try {
-    const parsed = new URL(url);
-    params = Array.from(parsed.searchParams.entries()).map(([name, value]) => ({ name, value }));
-  } catch {
-    // URL not valid yet, show empty
-  }
+  // Re-sync the draft from the URL only on EXTERNAL changes. After we emit a
+  // new URL via onChange we record it here, so the next render's `url` matches
+  // and we skip the re-parse (preserving row identity / focus).
+  useEffect(() => {
+    if (url === lastEmittedUrlRef.current) return;
+    const parsed = parseQueryParams(url);
+    if (parsed) {
+      setParams(parsed);
+    }
+    lastEmittedUrlRef.current = url;
+  }, [url]);
 
   function handleParamsChange(newParams: HeaderEntry[]) {
-    try {
-      const parsed = new URL(url);
-      parsed.search = "";
-      for (const entry of newParams) {
-        if (entry.name.trim()) {
-          parsed.searchParams.append(entry.name, entry.value);
-        }
-      }
-      onUrlChange(parsed.toString());
-    } catch {
-      // Can't update query if URL is invalid
+    setParams(newParams);
+    const nextUrl = buildUrlWithParams(url, newParams);
+    if (nextUrl !== null) {
+      lastEmittedUrlRef.current = nextUrl;
+      onUrlChange(nextUrl);
     }
   }
 
+  // The downstream `EditableKeyValueTable` already mirrors its `items` into
+  // stable-keyed rows. The loss-of-focus bug came from us feeding it a freshly
+  // URL-derived array on every keystroke; now `params` keeps a stable identity
+  // across our own edits, so the table's sync effect sees no foreign value and
+  // the focused input survives.
   return (
     <EditableKeyValueTable
       items={params}

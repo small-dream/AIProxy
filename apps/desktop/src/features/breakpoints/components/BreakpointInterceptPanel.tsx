@@ -42,6 +42,8 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { useStableKeyedRows } from "@/hooks/use-stable-keyed-rows";
+
 import { useI18n } from "@/i18n";
 import { resolveBreakpoint } from "@/services/commands";
 import { getSyntaxColors } from "@/themes/app-theme";
@@ -70,96 +72,10 @@ type BreakpointRequestTab = "query" | "headers" | "body";
 type BreakpointResponseTab = "status" | "headers" | "body";
 type BodyEditorMode = "form" | "json" | "raw";
 
-// ---------------------------------------------------------------------------
-// Stable-keyed editable rows
-//
 // HeaderEditor / UrlEncodedBodyTable render editable name/value tables whose
-// public contract is `HeaderEntry[]` (name/value only). Rows previously used
-// `key={index}` / `key={name:index}`, so deleting a middle row re-indexed the
-// list and React reused DOM nodes by position — the wrong row's input state
-// bound to the shifted entries (focus jumps, values visually shuffle), and the
-// url-encoded variant also collided/remounted when a name was edited.
-//
-// `useStableKeyedRows` mirrors the parent `items` into local rows that each
-// carry a LOCAL-only id used purely as the React key. The id survives this
-// component's own edits; it is regenerated only when the parent pushes an
-// externally different `items` (e.g. a new intercepted request loaded). The id
-// never leaves the component: `onChange` still emits plain `HeaderEntry[]`.
-// ---------------------------------------------------------------------------
-
-type StableKeyedRow = HeaderEntry & { id: string };
-
-function sameHeaderEntries(a: HeaderEntry[], b: HeaderEntry[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((entry, i) => {
-    const other = b[i];
-    return other !== undefined && entry.name === other.name && entry.value === other.value;
-  });
-}
-
-function toHeaderEntriesFromRows(rows: StableKeyedRow[]): HeaderEntry[] {
-  return rows.map((row) => ({ name: row.name, value: row.value }));
-}
-
-function useStableKeyedRows(items: HeaderEntry[], onChange: (items: HeaderEntry[]) => void) {
-  const [rows, setRows] = useState<StableKeyedRow[]>(() =>
-    items.map((item) => ({ ...item, id: crypto.randomUUID() })),
-  );
-  const lastEmittedRef = useRef<HeaderEntry[]>(items);
-
-  // Keep a stable ref to the latest onChange so the memoized mutators below do
-  // not need to depend on it (avoiding row re-creation on each parent render).
-  const onChangeRef = useRef(onChange);
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
-
-  // Re-sync ids only when the parent provides a value we did not just emit
-  // (an external reset), so we never bind a stale id to foreign data.
-  useEffect(() => {
-    if (sameHeaderEntries(lastEmittedRef.current, items)) return;
-    lastEmittedRef.current = items;
-    setRows(items.map((item) => ({ ...item, id: crypto.randomUUID() })));
-  }, [items]);
-
-  const update = useCallback(
-    (index: number, field: "name" | "value", value: string) => {
-      setRows((prev) => {
-        const current = prev[index];
-        if (!current) return prev;
-        const next = [...prev];
-        next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
-        const stripped = toHeaderEntriesFromRows(next);
-        lastEmittedRef.current = stripped;
-        onChangeRef.current(stripped);
-        return next;
-      });
-    },
-    [],
-  );
-
-  const remove = useCallback((index: number) => {
-    setRows((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      const stripped = toHeaderEntriesFromRows(next);
-      lastEmittedRef.current = stripped;
-      onChangeRef.current(stripped);
-      return next;
-    });
-  }, []);
-
-  const add = useCallback(() => {
-    setRows((prev) => {
-      const next = [...prev, { id: crypto.randomUUID(), name: "", value: "" }];
-      const stripped = toHeaderEntriesFromRows(next);
-      lastEmittedRef.current = stripped;
-      onChangeRef.current(stripped);
-      return next;
-    });
-  }, []);
-
-  return { rows, update, remove, add };
-}
+// public contract is `HeaderEntry[]` (name/value only). The stable-keyed rows
+// are provided by the shared `useStableKeyedRows` hook so input focus survives
+// local edits (the id is component-local and never leaves via onChange).
 
 function formatCount(count: number, one: string, many: string) {
   return count === 1 ? one : many;
