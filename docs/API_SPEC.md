@@ -107,6 +107,13 @@ type Workspace = {
   createdAt: string;
   updatedAt: string;
   http2Enabled?: boolean;  // default true
+  // H3: upstream TLS certificate verification. Optional for backward
+  // compatibility — defaults to false (NoOp verifier, the historical
+  // debug-proxy behavior).
+  verifyUpstreamTls?: boolean;
+  // H3: hostnames always TLS-verified even when verifyUpstreamTls is false.
+  // Optional; defaults to []. The DB column stores a JSON-encoded array.
+  tlsVerifyHosts?: string[];
 };
 ```
 
@@ -751,6 +758,15 @@ type UpdateWorkspaceInput = {
   name?: string;
   proxyPort?: number;
   sslEnabled?: boolean;
+  http2Enabled?: boolean;
+  // H3: enable/disable upstream TLS certificate verification for new
+  // HTTPS/WSS connections in this workspace. Omit to leave unchanged.
+  verifyUpstreamTls?: boolean;
+  // H3: hostnames always TLS-verified even when verifyUpstreamTls is false
+  // (a per-host allowlist). Array form (matches Workspace.tlsVerifyHosts);
+  // the backend serializes it to the JSON-encoded DB column. Omit to leave
+  // unchanged.
+  tlsVerifyHosts?: string[];
 };
 ```
 
@@ -759,6 +775,8 @@ type UpdateWorkspaceInput = {
 ```ts
 type UpdateWorkspaceOutput = Workspace;
 ```
+
+> **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
 
 ## 6.3 Session Commands
 

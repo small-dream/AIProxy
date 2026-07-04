@@ -75,6 +75,13 @@
 - **证据**：`TimingConnector::new` 与 WS 升级路径均使用 `build_dangerous_tls_connector_with_alpn` / `build_dangerous_client_config`，其 `NoOpVerifier` 对所有证书无条件返回 `ServerCertVerified::assertion()`。没有任何开关、按主机白名单或工作区设置可重新启用校验。
 - **影响**：网络上任何位于代理与源站之间的攻击者都可冒充源站，被拦截流量被静默解密。每个 HTTPS/WSS 请求都受影响。对调试工具而言可接受为默认，但「不可关闭 + 不可见」是真实安全弱点。
 - **修复方向**：默认保留 NoOp，但增加显式「按主机校验上游证书」开关（仿 DNS 覆盖白名单模型），并在 UI 标注为显式信任决策。
+- **状态：已修复 @ 批次 3a（2026-07-04）** — 全链路实现：`tls-manager` 新增 `build_verifying_*` 构建器（系统根证书 via `rustls-native-certs`）；`TimingConnector`/`ws_upgrade` 按 workspace `verify_upstream_tls` 开关选 connector；config 管道经 `ProxyRuntimeConfig` → `ConnectionContext` → connector；DB schema migration（`verify_upstream_tls` + `tls_verify_hosts` JSON 列）+ `WorkspaceRow` + IPC `update_workspace`/`create_workspace`；前端 Settings 开关 + host 白名单 textarea + 中英文案。集成测试：自签上游 HTTPS 在 verify=false 通过、verify=true 被拒（`timing_connector::tests::h3_*`）。
+  - **复审加固（3 项 follow-up）**：
+    - **(High) tlsVerifyHosts shape 修正**：后端 `WorkspaceData.tls_verify_hosts` 由 JSON-字符串改为 `Vec<String>`（IPC 边界即数组），`workspace_row_to_data` 反序列化 JSON 列、`update_workspace`/`main.rs`/`create` 序列化回 JSON 字符串列；`UpdateWorkspaceInput.tls_verify_hosts` 改 `Option<Vec<String>>`，前端 `updateWorkspace`/`useUpdateWorkspace`/Settings 改发数组。消除了「后端发字符串、前端 `.join()` 崩溃」的 `TypeError`。
+    - **(High) 白名单真正生效**：`ProxyRuntimeConfig`/`ConnectionContext` 增加 `tls_verify_hosts: Arc<[String]>`，`TimingConnector` 同时持有 dangerous 与 verifying 两个 connector，按连接在 `Service::call` 内据 `verify_upstream_tls || allowlist.contains(host)`（大小写不敏感、去空白）选 connector；WSS 路径 `ws_upgrade` 同样判定；`forward_request`/pool/get_or_connect/do_connect 全链路透传 hosts。测试：`h3_allowlist_forces_verify_even_when_global_flag_is_off`（白名单 host 即使总开关关闭也被校验、自签被拒）+ `h3_non_allowlisted_host_stays_unverified_when_global_flag_is_off` + `h3_host_in_allowlist_matches_case_insensitively`。
+    - **(Medium) inflight 表有界**：见 H8 加固。
+    - **(Medium) verifying connector 改为懒构建**：`TimingConnector` 不再在 `new()` 同时构建 dangerous + verifying 两个 connector（verifying 会 clone OS 根证书 + 组装 `ClientConfig`）。改为 dangerous 预构建（便宜、OnceLock 缓存）、verifying 用 `Arc<OnceLock<TlsConnector>>` 懒构建——仅在 `Service::call` 内确认为 HTTPS 且 `should_verify(host)` 为真时才首次构建并缓存于该 connector。消除 h1 路径每请求建 connector 时把根证书工作压到网络热路径（即使 verify 关或纯 HTTP 也曾付出该代价）。
+    - **(Low) 非 Tauri mock 回填 `tlsVerifyHosts`**：`updateWorkspace` 的浏览器/dev fallback 返回值补 `tlsVerifyHosts: input.tlsVerifyHosts ?? []`，使 mock 与持久化 workspace shape 一致。
 
 ### H4 ✅ 单条 rewrite 规则解析/应用失败会中止整个请求（缺每规则隔离） `[来源:R1]`
 - **位置**：`crates/proxy-core/src/rules/rewrite.rs:265/299/332/368-369/432/533-534` → `http_proxy.rs:302` `?`
@@ -96,6 +103,7 @@
 - **证据**：`execute_hook` 全同步：`SCRIPT_GATE.acquire` 做阻塞 `Mutex+Condvar::wait_timeout`（`:50-79`），随后 `std::thread::spawn` + `receiver.recv_timeout`。该同步链在 async `handle_http_request` 任务内直接调用。`tauri::async_runtime` 为多线程 tokio 运行时。
 - **影响**：脚本运行期间（最长 ~500ms 获取 + 500ms 执行），调用方 worker 线程被阻塞，无法 poll 其他任务。突发脚本命中请求可使整个运行时的 worker 全部停在 Condvar/mpsc 上，造成进程级队头阻塞。
 - **修复方向**：用 `tokio::task::spawn_blocking` 包裹脚本执行，或将 gate 改为 `tokio::sync::Semaphore`、结果通道改为 `oneshot` 异步 await。
+- **状态：已修复 @ 批次 3a（2026-07-04）** — `apply_request_script_rules`/`apply_response_script_rules` 改为 async，每条规则的 `execute_*_hook` 调用 move owned `rule`+`payload` 进 `tokio::task::spawn_blocking`；`stage_apply_request_rules` 改 async、调用点 `.await`；spawn join 失败 fail-open 为 RuntimeError trace（`runtime_join_failure_trace`）。SCRIPT_GATE 全局并发上限语义不变。现有 163 proxy-core 测试全绿。
 
 ### H7 ✅ `delete_throttle_profile` 删除被引用 profile 触发 FK 约束错误（FK 为 NO ACTION） `[来源:D1]`
 - **位置**：`crates/db/src/schema.rs:76`、`crates/db/src/rules.rs:525-529`
@@ -110,6 +118,9 @@
 - **证据**：每次入站 TLS 握手，`DynamicCertResolver::resolve`（同步，在 rustls I/O 线程调用）锁 `host_cache`，未命中则执行 `sign_host_certificate_from_data`（完整 `KeyPair::generate` + `signed_by`）——**释放锁后**签发，再二次加锁插入。冷主机名 N 个并发握手 → N 次未命中、N 次签发（浪费 CPU）后竞争插入。CA 旋转时（`certificates.rs:444` `clear_host_cache()`）到实际重启之间，旧 resolver 仍绑定在监听器上，会从空缓存全量重签。
 - **影响**：突发流量下按主机签发风暴；CA 旋转期 CPU/延迟抖动；同步阻塞式 crypto 在握手路径上无 `spawn_blocking`。
 - **修复方向**：跨签发持锁（或用每主机 `OnceCell`/双重检查锁）去重；考虑 `spawn_blocking` 签发以避免阻塞握手。
+- **状态：已修复 @ 批次 3a（2026-07-04）** — `CertStorage` 新增 `inflight: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>` per-host 单飞槽；`resolve` 取槽后只持 per-host 槽锁做 crypto（不持表锁/不持 host_cache 锁，避免死锁），double-check cache 后只签一次；`clear_host_cache` 同步清空 inflight 表（CA 旋转一致）。测试：`storage::tests::inflight_slot_is_shared_per_host` + `clear_host_cache_flushes_inflight_table`。
+  - **复审加固 (Medium) inflight 表有界**：`resolve` 在 cache 插入新签证书后调 `prune_inflight_if_needed`；inflight 表超过 `MAX_INFLIGHT_SLOTS`(1024) 时移除「host 已在 cache 中」的冗余槽（这些槽对未来 resolver 无用，因为走 cache 快路径），但**保留**冷 host（未缓存）的槽以免 orphan 进行中的 waiter。消除「唯一冷 SNI 主机名流」让 inflight 表随进程生命期无界增长（而真正的证书缓存在有界 LRU 内）。测试：`prune_inflight_drops_cached_hosts_keeps_cold_hosts`。
+  - **复审加固 (High) 锁顺序统一**：`clear_host_cache`（CA 旋转）原为 host_cache→inflight，而 `prune_inflight_to_threshold`（resolver post-sign）为 inflight→host_cache——顺序倒置，CA 旋转与 resolver prune 并发可死锁 TLS 证书路径。改为统一 **inflight → host_cache** 顺序：`clear_host_cache` 先清空 inflight（释放 guard）再清 host_cache；`prune_inflight_to_threshold` 持 inflight 锁时短取 host_cache 锁读已缓存主机集。回归测试 `clear_host_cache_and_prune_do_not_deadlock`（两线程各跑 200 次并发 clear/prune，超时即视为死锁失败）。
 
 ### H9 ✅ Windows 系统代理 `apply` 先写 `ProxyEnable=1` 再写 `ProxyServer`，且无回滚 `[来源:T1]`
 - **位置**：`apps/desktop/src-tauri/src/system_proxy/windows.rs:51-78`（对比 `restore:80-114`）
@@ -174,12 +185,14 @@
 - **证据**：未解除（取消）路径上 `Drop` 调 `build_session_detail`，其调 `build_body_reference(&self.request.body,…)` → `decode_body_bytes`，同步 `flate2`/brotli 解压最多 `MAX_CAPTURED_BODY_BYTES`（20 MiB），内联在执行 drop 的线程上。与代码库其余处刻意避免的「async 内阻塞」反模式相悖（如 `clear_spooled_response` 用 `spawn_blocking` 删文件）。
 - **影响**：客户端中途断开且带大压缩请求体时，worker 线程同步执行数十 MiB inflate/brotli，拖累同 worker 其他任务。
 - **修复方向**：取消路径跳过 body 解码（设为 `None`），或将 `build_session_detail` 卸载到 `spawn_blocking`。
+- **状态：已修复 @ 批次 3a（2026-07-04）** — `build_session_detail` 加 `skip_bodies: bool` 形参（true 时 request_body/response_body = None，不解码）；`PendingRequestCancellationGuard::drop` 调用点传 `true`，其余 8 处传 `false`（保持原行为）。取消 trace 无需 body，避免 worker 线程同步解压 20MiB 压缩请求体。
 
 ### M3 ✅ 已 spool 的上游响应被整读入内存（且克隆）后再发送——内存放大 `[来源:N6]`
 - **位置**：`crates/proxy-core/src/http_proxy.rs:943-955`（`stage_process_upstream_response`）
 - **证据**：当 `upstream_response.spooled_response_path` 存在时，`tokio::fs::read(spool_path).await` 整读 spool 文件入 `Vec<u8>`，随后 `build_hyper_response_from_upstream` 做 `bytes::Bytes::from(body.to_vec())`（二次拷贝）。spool 本因 body 超过 20 MiB 上限才落盘，可达数百 MiB。
 - **影响**：大响应下峰值常驻内存约为 body 的 2×，spooling 目的失效；非流式，客户端在整文件重读完成前收不到任何字节。
 - **修复方向**：经 `http_body_util::ReaderStream`（或 `tokio_util::io::ReaderStream`）包成 `BoxBody` 流式回写，body EOF/drop 时删文件。
+- **状态：已修复 @ 批次 3a（2026-07-04）** — 新增 `tokio-util`(io) + `http-body` + `futures-util` 依赖；`build_hyper_response_from_upstream` 签名 `body: &[u8]` → `BoxBody<Bytes,String>` + 可选 `streamed_content_length`（spool 路径用文件大小作为 Content-Length，避免 hyper 回退 chunked 编码被裸 TCP 客户端误读）；spool 路径经 `tokio_util::io::ReaderStream` → `CleanupStream`（Drop 时 spawn_blocking 删文件）→ `StreamBody`。`take()` spool 路径避免 UpstreamResponse Drop 误删。测试：`m3_cleanup_stream_forwards_bytes_and_deletes_spool_file` + 现有大响应转发测试。
 
 ### M4 ✅ `parse_upstream_response_head` 误解析 obs-fold 续行并静默丢弃畸形头行 `[来源:N7]`
 - **位置**：`crates/proxy-core/src/ws_upgrade.rs:753-777`
@@ -554,6 +567,13 @@
 
 ### 修复进度
 
+- **批次 3a（运行时/网络热路径）已完成 @ 2026-07-04**，修复 5 项（H3/H6/H8/M2/M3）：
+  - **H3** ✅ 上游 TLS 证书校验 opt-out 开关（全链路）：`tls-manager` 新增 `build_verifying_client_config_with_alpn`（系统根 via `rustls-native-certs`，`OnceLock` 缓存）+ `build_tls_connector_with_alpn_and_verify`；`TimingConnector::new(dns_override_ip, verify_upstream_tls)` + 两调用点（`upstream.rs`/`upstream_pool.rs`）；WSS 路径 `ws_upgrade.rs` 同步生效；config 经 `ProxyRuntimeConfig.verify_upstream_tls` → `ConnectionContext` → connector；DB migration（`verify_upstream_tls` INT DEFAULT 0 + `tls_verify_hosts` TEXT DEFAULT '[]'）+ `WorkspaceRow` + IPC + 前端 Settings 开关/白名单/中英文案。集成测试：`timing_connector::tests::h3_verify_off_accepts_self_signed_upstream` / `h3_verify_on_rejects_self_signed_upstream`（自签 mock 上游）。
+  - **H6** ✅ 脚本执行 `spawn_blocking`：`apply_request/response_script_rules` 改 async，每条规则 owned `rule`+`payload` move 进 `tokio::task::spawn_blocking`；`stage_apply_request_rules` 改 async + 调用点 `.await`；join 失败 fail-open `runtime_join_failure_trace`；SCRIPT_GATE 全局并发上限语义不变。
+  - **H8** ✅ 入站 MITM 动态证书签发去重：`CertStorage.inflight` per-host 单飞槽；`resolve` 持 per-host 槽锁做 crypto（不持表锁/host_cache 锁，防死锁），double-check cache 后只签一次；`clear_host_cache` 同步清空 inflight。测试：`inflight_slot_is_shared_per_host` + `clear_host_cache_flushes_inflight_table`。
+  - **M2** ✅ `Drop` 同步解压：`build_session_detail` 加 `skip_bodies: bool`（true→request_body/response_body=None 不解码）；`PendingRequestCancellationGuard::drop` 传 `true`，其余 8 处 `false`。
+  - **M3** ✅ spool 整读改流式：新增 `tokio-util`(io)+`http-body`+`futures-util`；`build_hyper_response_from_upstream` 签名 `body: &[u8]` → `BoxBody<Bytes,String>` + 可选 `streamed_content_length`（spool 用文件大小作 Content-Length，防 hyper chunked 编码被裸 TCP 客户端误读）；spool 经 `ReaderStream`→`CleanupStream`（Drop spawn_blocking 删文件）→`StreamBody`；`take()` spool 路径防 UpstreamResponse Drop 误删。测试：`m3_cleanup_stream_forwards_bytes_and_deletes_spool_file` + 大响应转发测试。
+  - 门禁：`cargo fmt --check` ✅、`cargo clippy --workspace -- -D warnings`（lib 目标）0 error ✅（5 处 `--all-targets` test lint 为预先存在，非本次引入）、`cargo test --workspace` 全绿 ✅（db 82+57、proxy-core 164、tls-manager 31、rule-engine 25）、`pnpm typecheck` ✅、`pnpm test`（前端 393 测试）✅、`pnpm lint` ✅。
 - **批次 0（用户机器安全优先）已完成 @ 2026-07-04**，修复 7 项 + 1 架构项（A8）+ L8，并经复审加固：
   - **H7** ✅ `delete_throttle_profile` 事务内先删子表（`crates/db/src/rules.rs`）+ 单测 `delete_throttle_profile_clears_referencing_rules`。
   - **H1** ✅ WS client→upstream Close 帧加掩码（`crates/proxy-core/src/ws.rs`，`forward_raw_frame` 加 `mask_output` 参数）+ 单测 `forward_raw_frame_masks_toward_upstream`。

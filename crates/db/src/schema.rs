@@ -397,6 +397,23 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "http2_enabled",
         "INTEGER NOT NULL DEFAULT 1",
     )?;
+    // H3: per-workspace upstream TLS certificate verification opt-out.
+    // `verify_upstream_tls` defaults to 0 (off → keep the NoOp verifier the
+    // debug proxy has always used, for compatibility). `tls_verify_hosts`
+    // stores a JSON array of hostnames that are always verified even when the
+    // global switch is off (an allowlist of "trust but verify" hosts).
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "verify_upstream_tls",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "tls_verify_hosts",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
 
     Ok(())
 }

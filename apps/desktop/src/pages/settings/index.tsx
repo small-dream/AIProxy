@@ -57,7 +57,28 @@ function createProxyDraft(workspace?: Workspace | null) {
     proxyPort: workspace?.proxyPort ?? DEFAULT_PROXY_PORT,
     sslEnabled: workspace?.sslEnabled ?? true,
     http2Enabled: workspace?.http2Enabled ?? true,
+    // H3: upstream TLS verification. Default off (NoOp verifier) for backward
+    // compatibility. tlsVerifyHosts is edited as a newline-delimited string in
+    // the textarea; we serialize/deserialize against the workspace's array.
+    verifyUpstreamTls: workspace?.verifyUpstreamTls ?? false,
+    tlsVerifyHostsText: (workspace?.tlsVerifyHosts ?? []).join("\n"),
   };
+}
+
+/**
+ * Parse the newline-delimited TLS verify hosts textarea into a clean,
+ * de-duplicated array of trimmed non-empty hostnames. H3.
+ */
+function parseTlsVerifyHosts(text: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of text.split("\n")) {
+    const host = raw.trim();
+    if (host.length === 0 || seen.has(host)) continue;
+    seen.add(host);
+    result.push(host);
+  }
+  return result;
 }
 
 const compactAlertSx = {
@@ -120,11 +141,19 @@ function ProxySettingsSection() {
 
     setFeedback(null);
 
+    const tlsVerifyHosts = parseTlsVerifyHosts(draft.tlsVerifyHostsText);
+
     try {
+      // H3: persist the verify flag + host allowlist. The backend serializes
+      // the array to its JSON-encoded DB column; we send the array form so it
+      // matches the Workspace.tlsVerifyHosts contract. Restarting the proxy
+      // (below) applies the new verify mode to fresh connections.
       await updateWorkspaceMutation.mutateAsync({
         proxyPort: draft.proxyPort,
         sslEnabled: draft.sslEnabled,
         http2Enabled: draft.http2Enabled,
+        verifyUpstreamTls: draft.verifyUpstreamTls,
+        tlsVerifyHosts,
         workspaceId: currentWorkspace.id,
       });
 
@@ -158,7 +187,10 @@ function ProxySettingsSection() {
   const hasChanges = currentWorkspace
     ? currentWorkspace.proxyPort !== draft.proxyPort ||
       currentWorkspace.sslEnabled !== draft.sslEnabled ||
-      currentWorkspace.http2Enabled !== draft.http2Enabled
+      currentWorkspace.http2Enabled !== draft.http2Enabled ||
+      (currentWorkspace.verifyUpstreamTls ?? false) !== draft.verifyUpstreamTls ||
+      parseTlsVerifyHosts(draft.tlsVerifyHostsText).join("\n") !==
+        (currentWorkspace.tlsVerifyHosts ?? []).join("\n")
     : false;
 
   return (
@@ -260,6 +292,65 @@ function ProxySettingsSection() {
             {isBusy ? t("proxyPresets.saving") : t("proxyPresets.save")}
           </Button>
         </Stack>
+
+        {/* H3: upstream TLS certificate verification opt-out. Off by default
+            (the debug proxy accepts any upstream cert). Turning it on makes
+            new HTTPS/WSS connections verify against the OS root store. */}
+        <Stack
+          direction={{ md: "row", xs: "column" }}
+          spacing={1.5}
+          sx={{
+            alignItems: { md: "flex-start", xs: "stretch" },
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={draft.verifyUpstreamTls}
+                onChange={(event) => {
+                  setDraft({ ...draft, verifyUpstreamTls: event.target.checked });
+                  setFeedback(null);
+                }}
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body2">
+                  {t("proxyPresets.verifyUpstreamTls")}
+                </Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {t("proxyPresets.verifyUpstreamTlsDescription")}
+                </Typography>
+              </Box>
+            }
+            sx={{ ml: 0 }}
+          />
+          <TextField
+            size="small"
+            multiline
+            minRows={2}
+            maxRows={4}
+            label={t("proxyPresets.tlsVerifyHosts")}
+            placeholder={t("proxyPresets.tlsVerifyHostsPlaceholder")}
+            value={draft.tlsVerifyHostsText}
+            onChange={(event) => {
+              setDraft({ ...draft, tlsVerifyHostsText: event.target.value });
+              setFeedback(null);
+            }}
+            sx={{ ...compactFieldSx, flex: 1, minWidth: { md: 280, xs: "100%" } }}
+          />
+        </Stack>
+
+        {draft.verifyUpstreamTls ? (
+          <Alert severity="success" variant="outlined" icon={<CheckCircleRoundedIcon />} sx={compactAlertSx}>
+            {t("proxyPresets.verifyUpstreamTlsEnabledHint")}
+          </Alert>
+        ) : (
+          <Alert severity="warning" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
+            {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
+          </Alert>
+        )}
 
         <Alert
           severity="info"

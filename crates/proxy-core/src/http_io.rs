@@ -184,6 +184,12 @@ pub(crate) fn build_session_detail(
     started_at_instant: Instant,
     timing: ProxyTimingBreakdown,
     response_body_truncated: bool,
+    // M2: when true, skip building (and thus decoding) the request/response
+    // bodies — `request_body` and `response_body` are set to `None`. Used by
+    // the client-cancellation Drop path, where the detail is only a "client
+    // disconnected" trace and decoding a large compressed request body
+    // synchronously on the dropping worker would stall the runtime.
+    skip_bodies: bool,
 ) -> ProxySessionDetail {
     let id = request.request_id.clone();
     let response_header_entries = build_header_entries_from_map(response_headers);
@@ -221,21 +227,29 @@ pub(crate) fn build_session_detail(
             ),
             &response_header_entries,
         )),
-        request_body: build_body_reference(
-            &request.body,
-            request.headers.get(CONTENT_TYPE),
-            request.headers.get(CONTENT_ENCODING),
-            request.body.len(),
-            false,
-        ),
+        request_body: if skip_bodies {
+            None
+        } else {
+            build_body_reference(
+                &request.body,
+                request.headers.get(CONTENT_TYPE),
+                request.headers.get(CONTENT_ENCODING),
+                request.body.len(),
+                false,
+            )
+        },
         request_headers: request.request_headers.clone(),
-        response_body: build_body_reference(
-            response_body,
-            response_headers.get(CONTENT_TYPE),
-            response_headers.get(CONTENT_ENCODING),
-            response_body_size_bytes,
-            response_body_truncated,
-        ),
+        response_body: if skip_bodies {
+            None
+        } else {
+            build_body_reference(
+                response_body,
+                response_headers.get(CONTENT_TYPE),
+                response_headers.get(CONTENT_ENCODING),
+                response_body_size_bytes,
+                response_body_truncated,
+            )
+        },
         response_headers: response_header_entries,
         map_traces: Vec::new(),
         rewrite_traces: Vec::new(),

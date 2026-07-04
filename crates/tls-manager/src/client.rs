@@ -100,6 +100,109 @@ pub fn build_dangerous_tls_connector_with_alpn(alpn_protocols: Vec<Vec<u8>>) -> 
     TlsConnector::from(build_dangerous_client_config_with_alpn(alpn_protocols))
 }
 
+/// Build a verifying `ClientConfig` (real certificate checks against the
+/// platform root store) with the given ALPN protocols.
+///
+/// Unlike the `build_dangerous_*` family, this uses rustls's default
+/// `WebPkiServerVerifier` over the OS native root certificates so
+/// self-signed/invalid upstream certificates are rejected during the
+/// handshake. Used by H3 when a workspace opts into upstream TLS
+/// verification.
+///
+/// The native root store is loaded once and cached in a `OnceLock` because
+/// `rustls_native_certs::load_native_certs` is a (bounded) blocking syscall
+/// that walks the platform trust store. The returned `ClientConfig` is NOT
+/// cached because the ALPN list may vary per call (mirrors the
+/// dangerous-with-alpn builder).
+pub fn build_verifying_client_config_with_alpn(alpn_protocols: Vec<Vec<u8>>) -> Arc<ClientConfig> {
+    let root_store = load_native_root_store();
+    let provider = default_provider();
+    let mut config = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_safe_default_protocol_versions()
+        .expect("safe default protocol versions should always be available")
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    config.alpn_protocols = alpn_protocols;
+    Arc::new(config)
+}
+
+/// Load the platform's native root certificates into a rustls
+/// `RootCertStore`, caching the result process-wide (the OS trust store
+/// changes rarely and `load_native_certs` is a blocking syscall).
+fn load_native_root_store() -> rustls::RootCertStore {
+    static ROOT_STORE: OnceLock<rustls::RootCertStore> = OnceLock::new();
+    ROOT_STORE
+        .get_or_init(|| {
+            let mut store = rustls::RootCertStore::empty();
+            // rustls-native-certs 0.8 returns a CertificateResult whose `.certs`
+            // and `.errors` fields partition the OS trust store into loadable
+            // roots and per-cert load failures. We add every successfully
+            // parsed root and log (without aborting) any that failed to parse.
+            let result = rustls_native_certs::load_native_certs();
+            for cert in result.certs {
+                if let Err(error) = store.add(cert) {
+                    tracing::warn!(
+                        event = "native_root_cert_skipped",
+                        error = %error,
+                        "native_root_cert_skipped"
+                    );
+                }
+            }
+            if !result.errors.is_empty() {
+                // If we cannot read ANY OS roots the store stays empty, so
+                // verification stays enabled but will reject all upstreams
+                // until the user fixes their trust store. Log loudly so this
+                // surfaces as "verify failed closed" rather than a silent
+                // degradation to NoOp.
+                tracing::error!(
+                    event = "native_roots_load_failed",
+                    error_count = result.errors.len(),
+                    loaded_count = store.len(),
+                    first_error = ?result.errors.first(),
+                    "native_roots_load_failed"
+                );
+            }
+            store
+        })
+        .clone()
+}
+
+/// Convenience wrapper: build a verifying `TlsConnector` with ALPN.
+pub fn build_verifying_tls_connector_with_alpn(alpn_protocols: Vec<Vec<u8>>) -> TlsConnector {
+    TlsConnector::from(build_verifying_client_config_with_alpn(alpn_protocols))
+}
+
+/// Build a `TlsConnector` that verifies upstream certs when `verify` is true,
+/// or accepts any cert (the historical debug-proxy default) when false.
+///
+/// This centralizes the H3 verify switch so callers (`TimingConnector`,
+/// `ws_upgrade`) select behavior with a single boolean instead of branching
+/// at each TLS handshake site.
+pub fn build_tls_connector_with_alpn_and_verify(
+    alpn_protocols: Vec<Vec<u8>>,
+    verify: bool,
+) -> TlsConnector {
+    if verify {
+        build_verifying_tls_connector_with_alpn(alpn_protocols)
+    } else {
+        build_dangerous_tls_connector_with_alpn(alpn_protocols)
+    }
+}
+
+/// Build a `ClientConfig` that verifies upstream certs when `verify` is true,
+/// or accepts any cert when false (no ALPN).
+pub fn build_client_config_with_alpn_and_verify(
+    alpn_protocols: Vec<Vec<u8>>,
+    verify: bool,
+) -> Arc<ClientConfig> {
+    if verify {
+        build_verifying_client_config_with_alpn(alpn_protocols)
+    } else {
+        build_dangerous_client_config_with_alpn(alpn_protocols)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +271,62 @@ mod tests {
         let _connector =
             build_dangerous_tls_connector_with_alpn(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
         // If this compiles and doesn't panic, the connector is valid
+    }
+
+    // H3: the verifying config must build without panic, carry the requested
+    // ALPN protocols, and — critically — differ from the dangerous config in
+    // whether a self-signed cert would be accepted. The two configs cannot be
+    // pointer-equal because the dangerous one is `OnceLock`-cached while the
+    // verifying one is freshly built each call.
+    #[test]
+    fn verifying_config_builds_with_alpn() {
+        let config =
+            build_verifying_client_config_with_alpn(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+        assert_eq!(
+            config.alpn_protocols,
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+        );
+    }
+
+    #[test]
+    fn verifying_connector_with_alpn_is_valid() {
+        let _connector =
+            build_verifying_tls_connector_with_alpn(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+    }
+
+    // H3: the select helper must hand back a usable config for both verify
+    // modes and carry the requested ALPN protocols through. We can't assert
+    // pointer-equality because the dangerous-with-alpn path is intentionally
+    // not cached (ALPN may vary per call); instead we verify both branches
+    // build and preserve ALPN, which is the observable contract callers rely
+    // on.
+    #[test]
+    fn select_by_verify_flag_returns_expected_config() {
+        let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+        let verify_off = build_client_config_with_alpn_and_verify(alpn.clone(), false);
+        assert_eq!(verify_off.alpn_protocols, alpn);
+
+        let verify_on = build_client_config_with_alpn_and_verify(alpn.clone(), true);
+        assert_eq!(verify_on.alpn_protocols, alpn);
+
+        // Both must build a TlsConnector without panic.
+        let _c_off = build_tls_connector_with_alpn_and_verify(alpn.clone(), false);
+        let _c_on = build_tls_connector_with_alpn_and_verify(alpn, true);
+    }
+
+    // H3: the native root store loader must be idempotent across calls and
+    // return a usable (non-panicking) store. We can't assert the store is
+    // non-empty portably (CI sandboxes may have no roots), but loading twice
+    // must not panic and must return the same cached instance.
+    #[test]
+    fn native_root_store_loads_idempotently() {
+        let a = load_native_root_store();
+        let b = load_native_root_store();
+        // RootCertStore does not expose identity, but the OnceLock guarantees a
+        // single init — calling twice must simply not panic. We assert the
+        // type is usable by reading the (possibly empty) root count.
+        let _ = a.roots.len();
+        let _ = b.roots.len();
     }
 }

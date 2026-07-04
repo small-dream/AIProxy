@@ -9,6 +9,15 @@ pub struct ProxyRuntimeConfig {
     pub port: u16,
     pub ssl_enabled: bool,
     pub http2_enabled: Option<bool>,
+    /// H3: when true the proxy verifies upstream TLS certificates against the
+    /// OS root store on new upstream connections. Defaults to false (NoOp
+    /// verifier) to preserve the historical debug-proxy behavior.
+    pub verify_upstream_tls: bool,
+    /// H3: hostnames that are always TLS-verified even when
+    /// `verify_upstream_tls` is false (an allowlist of "verify these hosts
+    /// regardless"). The effective verify decision per connection is
+    /// `verify_upstream_tls || tls_verify_hosts.contains(host)`.
+    pub tls_verify_hosts: std::sync::Arc<[String]>,
 }
 
 impl ProxyRuntimeConfig {

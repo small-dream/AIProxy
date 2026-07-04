@@ -1428,6 +1428,8 @@ mod tests {
             ssl_enabled: false,
             http2_enabled: true,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

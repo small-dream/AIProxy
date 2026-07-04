@@ -52,6 +52,11 @@ pub fn create_workspace(
             ssl_enabled: workspace.ssl_enabled,
             http2_enabled: workspace.http2_enabled,
             system_proxy_enabled: workspace.system_proxy_enabled,
+            verify_upstream_tls: workspace.verify_upstream_tls,
+            // Serialize the IPC-facing Vec<String> into the JSON-encoded TEXT
+            // column the DB row expects.
+            tls_verify_hosts: serde_json::to_string(&workspace.tls_verify_hosts)
+                .unwrap_or_else(|_| "[]".to_string()),
             storage_path: workspace.storage_path.clone(),
             created_at: workspace.created_at.clone(),
             updated_at: workspace.updated_at.clone(),
@@ -131,6 +136,14 @@ pub struct UpdateWorkspaceInput {
     pub proxy_port: Option<u16>,
     pub ssl_enabled: Option<bool>,
     pub http2_enabled: Option<bool>,
+    /// H3: enable/disable upstream TLS certificate verification for new
+    /// connections in this workspace. None ⇒ leave unchanged.
+    pub verify_upstream_tls: Option<bool>,
+    /// H3: hostnames always TLS-verified even when verify_upstream_tls is
+    /// false. None ⇒ leave unchanged. This is the array form (matches the
+    /// `Workspace.tlsVerifyHosts` frontend contract); the command serializes
+    /// it to the JSON-encoded TEXT column.
+    pub tls_verify_hosts: Option<Vec<String>>,
 }
 
 #[tauri::command]
@@ -157,9 +170,16 @@ pub fn update_workspace(
         input.proxy_port,
         input.ssl_enabled,
         input.http2_enabled,
+        input.verify_upstream_tls,
+        input.tls_verify_hosts.clone(),
     )?;
 
-    // Persist to DB
+    // Persist to DB. The DB column stores tls_verify_hosts as a JSON-encoded
+    // string; serialize the array form here.
+    let tls_verify_hosts_json = input
+        .tls_verify_hosts
+        .as_ref()
+        .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
     {
         let conn = state
             .read_db_connection()
@@ -172,6 +192,8 @@ pub fn update_workspace(
             input.proxy_port,
             input.ssl_enabled,
             input.http2_enabled,
+            input.verify_upstream_tls,
+            tls_verify_hosts_json.as_deref(),
             &workspace.updated_at,
         ) {
             // Restore the prior in-memory state so memory matches the DB.
@@ -182,6 +204,8 @@ pub fn update_workspace(
                     Some(previous.proxy_port),
                     Some(previous.ssl_enabled),
                     Some(previous.http2_enabled),
+                    Some(previous.verify_upstream_tls),
+                    Some(previous.tls_verify_hosts.clone()),
                 );
             }
             tracing::error!(

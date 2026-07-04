@@ -16,6 +16,8 @@ const MOCK_WORKSPACE: Omit<Workspace, "id" | "name" | "createdAt" | "updatedAt">
   sslEnabled: true,
   http2Enabled: true,
   systemProxyEnabled: false,
+  verifyUpstreamTls: false,
+  tlsVerifyHosts: [],
   storagePath: "",
 };
 
@@ -120,6 +122,14 @@ export async function updateWorkspace(input: {
   proxyPort?: number;
   sslEnabled?: boolean;
   http2Enabled?: boolean;
+  /** H3: enable/disable upstream TLS verification. Omit to leave unchanged. */
+  verifyUpstreamTls?: boolean;
+  /**
+   * H3: hostnames always TLS-verified even when verifyUpstreamTls is false.
+   * Array form (matches the Workspace.tlsVerifyHosts contract); the backend
+   * serializes it to the JSON-encoded DB column. Omit to leave unchanged.
+   */
+  tlsVerifyHosts?: string[];
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "update_workspace_bypassed_non_tauri_runtime", input);
@@ -129,6 +139,10 @@ export async function updateWorkspace(input: {
       proxyPort: input.proxyPort ?? 8888,
       sslEnabled: input.sslEnabled ?? true,
       http2Enabled: input.http2Enabled ?? true,
+      verifyUpstreamTls: input.verifyUpstreamTls ?? false,
+      // H3: reflect the saved allowlist in the browser/dev fallback so the
+      // mock stays consistent with the persisted workspace shape.
+      tlsVerifyHosts: input.tlsVerifyHosts ?? [],
     });
   }
 

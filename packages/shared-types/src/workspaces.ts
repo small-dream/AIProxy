@@ -7,6 +7,19 @@ export type Workspace = {
   sslEnabled: boolean;
   systemProxyEnabled: boolean;
   http2Enabled?: boolean;
+  /**
+   * H3: when true the proxy verifies upstream TLS certificates against the OS
+   * root store on new HTTPS/WSS connections. Optional for backward
+   * compatibility with older persisted state (defaults to false = NoOp
+   * verifier, the historical debug-proxy behavior).
+   */
+  verifyUpstreamTls?: boolean;
+  /**
+   * H3: hostnames always TLS-verified even when `verifyUpstreamTls` is false
+   * (an allowlist of "verify these hosts regardless"). Optional for backward
+   * compatibility (defaults to an empty array).
+   */
+  tlsVerifyHosts?: string[];
   storagePath: string;
   createdAt: string;
   updatedAt: string;

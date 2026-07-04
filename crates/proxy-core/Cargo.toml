@@ -16,7 +16,13 @@ bytes = "1"
 brotli = "8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 flate2 = "1"
+# M3: Stream trait + TryStreamExt::map_ok to adapt tokio_util's ReaderStream
+# (Stream<Result<Bytes, io::Error>>) into the Stream<Result<Frame<Bytes>, E>>
+# that http_body_util::StreamBody expects, for streaming spooled bodies.
+futures-util = "0.3"
 http = "1"
+# M3: http_body::Frame wraps each streamed Bytes chunk for http_body_util::StreamBody.
+http-body = "1"
 h2 = "0.4"
 http-body-util = "0.1"
 httparse = "1"
@@ -30,6 +36,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+# M3: `tokio_util::io::ReaderStream` turns a spooled response file into an
+# async `Stream<Bytes>` we can feed into http_body_util::StreamBody, so large
+# spooled responses are streamed back to the client instead of read fully into
+# memory. Only the `io` feature is needed.
+tokio-util = { version = "0.7", features = ["io"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 tower-service = "0.3"
 url = "2"

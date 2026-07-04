@@ -248,6 +248,15 @@ export const zhCNMessages: Messages = {
     runningHint: "保存后会立即重启正在运行的代理。",
     stoppedHint: "保存后的设置会在下次启动代理时生效。",
     title: "代理设置",
+    verifyUpstreamTls: "校验上游 TLS",
+    verifyUpstreamTlsDescription:
+      "在新的 HTTPS/WSS 连接上依据系统根证书校验上游服务器证书。",
+    tlsVerifyHosts: "TLS 校验主机白名单",
+    tlsVerifyHostsPlaceholder: "每行一个主机名（例如 example.com）",
+    verifyUpstreamTlsEnabledHint:
+      "上游 TLS 校验已开启：新的连接会拒绝无效或自签名的上游证书。",
+    verifyUpstreamTlsDisabledHint:
+      "上游 TLS 校验已关闭（不安全）：代理会接受任意上游证书。如需更安全地拦截可信上游，请开启此项。",
   },
   composePage: {
     bodyPlaceholder: "请求 Body（JSON、纯文本等）",

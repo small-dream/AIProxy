@@ -54,6 +54,8 @@ impl UpstreamConnectionPool {
         &self,
         key: &UpstreamKey,
         dns_override_ip: Option<IpAddr>,
+        verify_upstream_tls: bool,
+        tls_verify_hosts: Arc<[String]>,
     ) -> Result<
         Option<(
             hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
@@ -126,11 +128,19 @@ impl UpstreamConnectionPool {
                 self.pending.write().await.remove(key);
                 // Retry from scratch: re-enter the logic by recursing once.
                 // (Tail-call via boxing to avoid unbounded stack growth.)
-                return Box::pin(self.get_or_connect(key, dns_override_ip)).await;
+                return Box::pin(self.get_or_connect(
+                    key,
+                    dns_override_ip,
+                    verify_upstream_tls,
+                    tls_verify_hosts,
+                ))
+                .await;
             }
             PendingAction::Connect(tx) => {
                 // We are the connector. Perform the connection outside any lock.
-                let connect_result = self.do_connect(key, dns_override_ip).await;
+                let connect_result = self
+                    .do_connect(key, dns_override_ip, verify_upstream_tls, tls_verify_hosts)
+                    .await;
 
                 match connect_result {
                     Ok(Some((sender, connection_timing))) => {
@@ -166,6 +176,8 @@ impl UpstreamConnectionPool {
         &self,
         key: &UpstreamKey,
         dns_override_ip: Option<IpAddr>,
+        verify_upstream_tls: bool,
+        tls_verify_hosts: Arc<[String]>,
     ) -> Result<
         Option<(
             hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
@@ -173,7 +185,11 @@ impl UpstreamConnectionPool {
         )>,
         String,
     > {
-        let mut connector = crate::timing_connector::TimingConnector::new(dns_override_ip);
+        let mut connector = crate::timing_connector::TimingConnector::new(
+            dns_override_ip,
+            verify_upstream_tls,
+            tls_verify_hosts,
+        );
         let uri: http::Uri = format!("https://{}:{}", key.host, key.port)
             .parse()
             .map_err(|e| format!("invalid upstream URI for pool: {e}"))?;

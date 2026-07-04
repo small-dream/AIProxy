@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -6,6 +7,14 @@ use lru::LruCache;
 
 use crate::generator::{self, RootCaPair};
 use crate::TlsManagerError;
+
+/// H8: upper bound on the inflight single-flight slot table. A stream of
+/// unique cold SNI hostnames would otherwise grow this map for the process
+/// lifetime (the actual leaf certs live in the bounded `host_cache` LRU, but
+/// the inflight slots were never removed). We prune entries whose host is
+/// already cached — those are redundant because future resolvers hit the
+/// cache fast path — once the table crosses this threshold.
+const MAX_INFLIGHT_SLOTS: usize = 1024;
 
 const CERT_DIR_NAME: &str = "aiproxy";
 const CERT_SUBDIR: &str = "certs";
@@ -21,6 +30,14 @@ pub struct CertStorage {
     root_key_path: PathBuf,
     /// In-memory cache: hostname → CertifiedKey (for dynamic host certs)
     pub(crate) host_cache: Arc<Mutex<LruCache<String, Arc<rustls::sign::CertifiedKey>>>>,
+    /// H8: per-host "single-flight" slots that dedupe concurrent leaf signing.
+    /// When N concurrent TLS handshakes arrive for the same cold hostname, the
+    /// first signer holds the per-host mutex and signs; the rest block on it
+    /// and then pick up the freshly-cached cert from `host_cache`. The outer
+    /// HashMap mutex is held only long enough to clone/insert the per-host
+    /// `Arc<Mutex<()>>` — never across the signing crypto — so unrelated hosts
+    /// and the `host_cache` are not serialized behind a signing handshake.
+    pub(crate) inflight: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl std::clone::Clone for CertStorage {
@@ -31,6 +48,7 @@ impl std::clone::Clone for CertStorage {
             root_cert_path: self.root_cert_path.clone(),
             root_key_path: self.root_key_path.clone(),
             host_cache: Arc::clone(&self.host_cache),
+            inflight: Arc::clone(&self.inflight),
         }
     }
 }
@@ -47,6 +65,7 @@ impl CertStorage {
             root_key_path: cert_dir.join(ROOT_KEY_FILE),
             cert_dir,
             host_cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(512).unwrap()))),
+            inflight: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -69,6 +88,7 @@ impl CertStorage {
             root_key_path: temp_dir.join(ROOT_KEY_FILE),
             cert_dir: temp_dir,
             host_cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(512).unwrap()))),
+            inflight: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -246,8 +266,47 @@ impl CertStorage {
 
     /// Clear the in-memory host certificate cache.
     pub fn clear_host_cache(&self) {
+        // Lock order: inflight BEFORE host_cache. This MUST match
+        // prune_inflight_to_threshold's order (inflight → host_cache) — an
+        // inverted order here would deadlock if a CA rotation races a resolver
+        // prune. We clear the inflight table first, then the cache, releasing
+        // the inflight guard before taking the cache lock.
+        {
+            let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            inflight.clear();
+        }
         let mut cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.clear();
+    }
+
+    /// H8: cap the inflight single-flight table. Once it exceeds
+    /// [`MAX_INFLIGHT_SLOTS`], drop entries whose host is already present in
+    /// the cert cache — those slots are redundant (future resolvers hit the
+    /// cache fast path). We never remove a slot for a host that is NOT yet
+    /// cached, so any in-progress waiter keeps its slot. Called by the
+    /// resolver after it inserts the freshly-signed cert, which is the natural
+    /// point at which slots become redundant.
+    pub(crate) fn prune_inflight_if_needed(&self) {
+        self.prune_inflight_to_threshold(MAX_INFLIGHT_SLOTS);
+    }
+
+    /// H8: shared prune implementation taking an explicit threshold so the
+    /// bound is testable without inserting MAX_INFLIGHT_SLOTS entries. Removes
+    /// only slots whose host is already cached; keeps slots for cold hosts so
+    /// in-progress waiters are not orphaned.
+    pub(crate) fn prune_inflight_to_threshold(&self, threshold: usize) {
+        let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        if inflight.len() <= threshold {
+            return;
+        }
+        // Determine which hosts are already cached without disturbing LRU
+        // ordering (peek does not refresh). Hold the cache lock only for this
+        // read; the prune below happens under the inflight lock we already hold.
+        let cached_hosts: std::collections::HashSet<String> = {
+            let cache = self.host_cache.lock().unwrap_or_else(|e| e.into_inner());
+            cache.iter().map(|(k, _)| k.clone()).collect()
+        };
+        inflight.retain(|host, _| !cached_hosts.contains(host));
     }
 }
 
@@ -327,6 +386,176 @@ mod tests {
                 "clear_host_cache must flush shared clones"
             );
         }
+    }
+
+    // H8: the per-host single-flight mechanism must (a) hand back the SAME
+    // slot Arc for the same hostname across concurrent callers (so they
+    // serialize on one sign instead of racing), (b) hand back DIFFERENT slots
+    // for different hostnames (so unrelated hosts don't serialize), and
+    // (c) be flushed by clear_host_cache so a CA rotation forces fresh signs.
+    #[test]
+    fn inflight_slot_is_shared_per_host() {
+        let storage = CertStorage::new_in_temp_dir();
+
+        // Same host requested twice (concurrently, simulating two handshakes):
+        // must return the same slot Arc.
+        let slot_a = {
+            let mut inflight = storage.inflight.lock().unwrap();
+            Arc::clone(
+                inflight
+                    .entry("a.example.com".to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let slot_a2 = {
+            let mut inflight = storage.inflight.lock().unwrap();
+            Arc::clone(
+                inflight
+                    .entry("a.example.com".to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        assert!(
+            Arc::ptr_eq(&slot_a, &slot_a2),
+            "same-host requests must share one single-flight slot"
+        );
+
+        // A different host must get a distinct slot.
+        let slot_b = {
+            let mut inflight = storage.inflight.lock().unwrap();
+            Arc::clone(
+                inflight
+                    .entry("b.example.com".to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        assert!(
+            !Arc::ptr_eq(&slot_a, &slot_b),
+            "different hosts must NOT share a single-flight slot"
+        );
+    }
+
+    // H8: clear_host_cache must also flush the inflight table, so a CA rotation
+    // doesn't let a pending single-flight waiter reuse a slot started against
+    // the old CA.
+    #[test]
+    fn clear_host_cache_flushes_inflight_table() {
+        let storage = CertStorage::new_in_temp_dir();
+        {
+            let mut inflight = storage.inflight.lock().unwrap();
+            inflight.insert("a.example.com".to_string(), Arc::new(Mutex::new(())));
+            inflight.insert("b.example.com".to_string(), Arc::new(Mutex::new(())));
+        }
+        assert_eq!(
+            storage.inflight.lock().unwrap().len(),
+            2,
+            "precondition: two inflight slots"
+        );
+
+        storage.clear_host_cache();
+
+        assert!(
+            storage.inflight.lock().unwrap().is_empty(),
+            "clear_host_cache must flush the inflight single-flight table"
+        );
+    }
+
+    // H8: prune_inflight_to_threshold must (a) drop slots whose host is already
+    // cached (redundant — future resolvers hit the cache), (b) KEEP slots for
+    // hosts NOT yet cached (so an in-progress waiter keeps its slot), and
+    // (c) be a no-op when under the threshold. This is the bound that prevents
+    // a stream of unique cold SNI hostnames from growing the inflight table
+    // unboundedly for the process lifetime.
+    #[test]
+    fn prune_inflight_drops_cached_hosts_keeps_cold_hosts() {
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+
+        // Cache two hosts (so they'd be redundant inflight slots).
+        let _ = storage
+            .get_or_create_host_certified_key(&root_ca, "cached-a.example.com")
+            .unwrap();
+        let _ = storage
+            .get_or_create_host_certified_key(&root_ca, "cached-b.example.com")
+            .unwrap();
+
+        // Seed the inflight table with 3 slots: 2 cached hosts + 1 cold host.
+        {
+            let mut inflight = storage.inflight.lock().unwrap();
+            inflight.insert("cached-a.example.com".into(), Arc::new(Mutex::new(())));
+            inflight.insert("cached-b.example.com".into(), Arc::new(Mutex::new(())));
+            inflight.insert("cold.example.com".into(), Arc::new(Mutex::new(())));
+        }
+
+        // Threshold 1: only triggers because len(3) > 1. Must drop the two
+        // cached hosts but keep the cold one.
+        storage.prune_inflight_to_threshold(1);
+        {
+            let inflight = storage.inflight.lock().unwrap();
+            assert_eq!(
+                inflight.len(),
+                1,
+                "prune must drop cached-host slots, keep cold-host slots"
+            );
+            assert!(
+                inflight.contains_key("cold.example.com"),
+                "cold-host slot must survive prune so its waiter keeps it"
+            );
+            assert!(
+                !inflight.contains_key("cached-a.example.com")
+                    && !inflight.contains_key("cached-b.example.com"),
+                "cached-host slots must be pruned (redundant vs the cache fast path)"
+            );
+        }
+
+        // Below the threshold: no-op (does not raise an error or panic).
+        storage.prune_inflight_to_threshold(10);
+        assert_eq!(
+            storage.inflight.lock().unwrap().len(),
+            1,
+            "prune below threshold must be a no-op"
+        );
+    }
+
+    // Regression: clear_host_cache (CA rotation) and prune_inflight_to_threshold
+    // (resolver post-sign) acquire host_cache + inflight in the SAME order
+    // (inflight → host_cache). An inverted order would deadlock under
+    // contention. This test hammers both paths concurrently under a deadline;
+    // if it deadlocks the test times out rather than completing.
+    #[test]
+    fn clear_host_cache_and_prune_do_not_deadlock() {
+        use std::sync::Arc;
+        use std::thread;
+        let storage = Arc::new(CertStorage::new_in_temp_dir());
+        let root_ca = RootCaPair::generate().unwrap();
+        // Pre-populate so prune has something to consider.
+        for i in 0..8 {
+            let host = format!("host{i}.example.com");
+            let _ = storage.get_or_create_host_certified_key(&root_ca, &host);
+            storage
+                .inflight
+                .lock()
+                .unwrap()
+                .insert(host, Arc::new(Mutex::new(())));
+        }
+
+        let s1 = Arc::clone(&storage);
+        let s2 = Arc::clone(&storage);
+        let h1 = thread::spawn(move || {
+            for _ in 0..200 {
+                s1.clear_host_cache();
+            }
+        });
+        let h2 = thread::spawn(move || {
+            for _ in 0..200 {
+                // threshold 0 forces the prune branch every call.
+                s2.prune_inflight_to_threshold(0);
+            }
+        });
+        // join would block forever on a real deadlock; the test harness
+        // timeout surfaces that as a failure.
+        h1.join().expect("clear thread must not deadlock");
+        h2.join().expect("prune thread must not deadlock");
     }
 
     #[test]

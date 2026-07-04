@@ -11,6 +11,14 @@ pub struct WorkspaceData {
     pub ssl_enabled: bool,
     pub http2_enabled: bool,
     pub system_proxy_enabled: bool,
+    /// H3: verify upstream TLS certificates against the system root store on
+    /// new connections. Defaults to false (NoOp verifier) for compatibility.
+    pub verify_upstream_tls: bool,
+    /// H3: hostnames always TLS-verified even when `verify_upstream_tls` is
+    /// false. This is the IPC-facing array form (serde-serializes as a JSON
+    /// array over the wire); the DB column stores it as a JSON-encoded string,
+    /// and the converter (de)serializes between the two.
+    pub tls_verify_hosts: Vec<String>,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -33,6 +41,8 @@ impl WorkspaceManager {
             ssl_enabled: true,
             http2_enabled: true,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: Vec::new(),
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -81,6 +91,8 @@ impl WorkspaceManager {
             ssl_enabled,
             http2_enabled,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: Vec::new(),
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -114,6 +126,7 @@ impl WorkspaceManager {
         workspaces.retain(|w| w.id != workspace_id);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &self,
         workspace_id: &str,
@@ -121,6 +134,8 @@ impl WorkspaceManager {
         proxy_port: Option<u16>,
         ssl_enabled: Option<bool>,
         http2_enabled: Option<bool>,
+        verify_upstream_tls: Option<bool>,
+        tls_verify_hosts: Option<Vec<String>>,
     ) -> Result<WorkspaceData, String> {
         let mut workspaces = self
             .workspaces
@@ -143,6 +158,12 @@ impl WorkspaceManager {
         }
         if let Some(h2) = http2_enabled {
             workspace.http2_enabled = h2;
+        }
+        if let Some(verify) = verify_upstream_tls {
+            workspace.verify_upstream_tls = verify;
+        }
+        if let Some(hosts) = tls_verify_hosts {
+            workspace.tls_verify_hosts = hosts;
         }
 
         workspace.updated_at = chrono::Utc::now().to_rfc3339();

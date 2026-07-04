@@ -333,6 +333,11 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     workspace_id: String,
     event_emitter: Option<BreakpointEventEmitter>,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
+    // H3: whether new upstream HTTPS/WSS connections verify server certs.
+    verify_upstream_tls: bool,
+    // H3: per-host allowlist that forces verification even when the global
+    // flag is off.
+    tls_verify_hosts: Arc<[String]>,
 ) -> Result<(), ProxyError> {
     // Send 200 Connection Established
     stream
@@ -414,6 +419,8 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         workspace_id,
         event_emitter,
         upstream_pool,
+        verify_upstream_tls,
+        tls_verify_hosts,
     });
     let service = HttpProxyService { ctx };
 

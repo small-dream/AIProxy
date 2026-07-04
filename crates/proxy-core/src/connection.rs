@@ -59,4 +59,13 @@ pub(crate) struct ConnectionContext {
     pub workspace_id: String,
     pub event_emitter: Option<BreakpointEventEmitter>,
     pub upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
+    /// H3: when true, new upstream HTTPS/WSS connections verify the server
+    /// certificate against the OS root store. Fixed for the connection's
+    /// lifetime; toggling the workspace setting affects subsequent connections.
+    pub verify_upstream_tls: bool,
+    /// H3: per-host allowlist that forces TLS verification for these hosts
+    /// even when `verify_upstream_tls` is false. Shared (Arc) so connections
+    /// don't clone the list. The connector checks `contains(host)` per
+    /// connection and ORs it with `verify_upstream_tls`.
+    pub tls_verify_hosts: Arc<[String]>,
 }

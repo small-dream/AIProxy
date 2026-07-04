@@ -87,6 +87,11 @@ pub(crate) async fn forward_request(
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
     pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
+    // H3: verify upstream TLS certs on new connections for this request.
+    verify_upstream_tls: bool,
+    // H3: per-host allowlist that forces verification even when
+    // verify_upstream_tls is false.
+    tls_verify_hosts: Arc<[String]>,
 ) -> Result<UpstreamResponse, ProxyError> {
     use http_body_util::BodyExt;
 
@@ -118,7 +123,15 @@ pub(crate) async fn forward_request(
                 host: request.host.clone(),
                 port: request.url.port().unwrap_or(443),
             };
-            Some(p.get_or_connect(&key, dns_override_ip).await?)
+            Some(
+                p.get_or_connect(
+                    &key,
+                    dns_override_ip,
+                    verify_upstream_tls,
+                    Arc::clone(&tls_verify_hosts),
+                )
+                .await?,
+            )
         } else {
             None
         }
@@ -261,10 +274,14 @@ pub(crate) async fn forward_request(
                     error = %error,
                     "upstream_request_send_failed_retrying"
                 );
-                let retry_sender = match pool
-                    .as_ref()
-                    .map(|p| p.get_or_connect(&pool_key, dns_override_ip))
-                {
+                let retry_sender = match pool.as_ref().map(|p| {
+                    p.get_or_connect(
+                        &pool_key,
+                        dns_override_ip,
+                        verify_upstream_tls,
+                        Arc::clone(&tls_verify_hosts),
+                    )
+                }) {
                     Some(fut) => fut.await.map_err(|e| {
                         ProxyError::UpstreamError(format!("failed to reconnect on retry: {e}"))
                     })?,
@@ -323,7 +340,11 @@ pub(crate) async fn forward_request(
         return result;
     } else {
         // h1 path — establish a new connection per request.
-        let mut connector = crate::timing_connector::create_timing_connector(dns_override_ip);
+        let mut connector = crate::timing_connector::create_timing_connector(
+            dns_override_ip,
+            verify_upstream_tls,
+            Arc::clone(&tls_verify_hosts),
+        );
         let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
             ProxyError::UpstreamError(format!(
                 "failed to parse upstream URL '{}' as URI: {e}",

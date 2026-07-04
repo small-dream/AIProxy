@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rustls::server::ResolvesServerCert;
 use rustls::sign::CertifiedKey;
@@ -32,7 +32,8 @@ impl ResolvesServerCert for DynamicCertResolver {
     fn resolve(&self, client_hello: rustls::server::ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
         let hostname = client_hello.server_name()?;
 
-        // Check the in-memory cache first
+        // Fast path: check the in-memory cache first. No per-host slot is
+        // needed once a cert is cached.
         {
             let mut cache = self
                 .storage
@@ -44,7 +45,46 @@ impl ResolvesServerCert for DynamicCertResolver {
             }
         }
 
-        // Generate a new host certificate
+        // H8: cold-host single-flight. Get (or insert) a per-host mutex under
+        // the short-lived inflight-table lock, then drop that table lock
+        // immediately. We then acquire the per-host mutex: only the first
+        // concurrent resolver for this host proceeds to sign; the rest block
+        // until it finishes. This dedupes the signing-storm where N concurrent
+        // handshakes for a cold hostname each independently sign (expensive
+        // ECDSA keypair generation + CA sign) before racing to insert.
+        //
+        // Critically, the signing crypto runs while holding ONLY the per-host
+        // slot mutex — never the inflight-table mutex nor the host_cache mutex
+        // — so unrelated hosts and cache reads stay uncontended and we cannot
+        // deadlock against a `clear_host_cache` that holds the table lock.
+        let slot = {
+            let mut inflight = self
+                .storage
+                .inflight
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            Arc::clone(
+                inflight
+                    .entry(hostname.to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let _guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Double-check the cache after acquiring the slot: another resolver may
+        // have just finished signing while we waited.
+        {
+            let mut cache = self
+                .storage
+                .host_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(cached) = cache.get(hostname) {
+                return Some(Arc::clone(cached));
+            }
+        }
+
+        // Generate a new host certificate (only the slot-holder reaches here).
         let (cert_der, key_der) = match crate::generator::sign_host_certificate_from_data(
             &self.root_ca_sign_data,
             hostname,
@@ -82,7 +122,8 @@ impl ResolvesServerCert for DynamicCertResolver {
 
         let certified_key = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));
 
-        // Cache it
+        // Cache it so subsequent resolvers (including the ones that waited on
+        // the slot) hit the fast path.
         {
             let mut cache = self
                 .storage
@@ -91,6 +132,13 @@ impl ResolvesServerCert for DynamicCertResolver {
                 .unwrap_or_else(|e| e.into_inner());
             cache.put(hostname.to_string(), Arc::clone(&certified_key));
         }
+
+        // H8: now that this host is cached, its inflight slot (and any other
+        // cached hosts' slots) are redundant — prune them so a stream of unique
+        // cold hostnames cannot grow the inflight table unboundedly across the
+        // process lifetime. Slots for hosts NOT yet cached are retained so any
+        // in-progress waiter keeps its slot.
+        self.storage.prune_inflight_if_needed();
 
         Some(certified_key)
     }

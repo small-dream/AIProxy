@@ -19,6 +19,12 @@ use crate::workspace::WorkspaceData;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
+    // The DB column stores tls_verify_hosts as a JSON-encoded string (so it
+    // round-trips a list through a TEXT column). The IPC-facing WorkspaceData
+    // exposes a Vec<String>, so deserialize here. A malformed/empty column
+    // degrades to an empty list rather than poisoning the workspace.
+    let tls_verify_hosts: Vec<String> =
+        serde_json::from_str(&row.tls_verify_hosts).unwrap_or_default();
     WorkspaceData {
         id: row.id,
         name: row.name,
@@ -26,6 +32,8 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
         ssl_enabled: row.ssl_enabled,
         http2_enabled: row.http2_enabled,
         system_proxy_enabled: row.system_proxy_enabled,
+        verify_upstream_tls: row.verify_upstream_tls,
+        tls_verify_hosts,
         storage_path: row.storage_path,
         created_at: row.created_at,
         updated_at: row.updated_at,

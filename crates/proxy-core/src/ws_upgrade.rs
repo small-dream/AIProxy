@@ -82,6 +82,7 @@ async fn send_ws_upstream_error_session(
             waiting_ms: Some(elapsed_ms),
         },
         false,
+        false, // M2 skip_bodies
     );
     detail.map_traces = map_traces;
     detail.rewrite_traces = rewrite_traces;
@@ -187,7 +188,17 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 
     let mut upstream = match ctx.mode {
         ConnectionMode::MitmHttps { .. } => {
-            let client_config = aiproxy_tls_manager::client::build_dangerous_client_config();
+            // H3: select the verifying vs dangerous client config based on the
+            // effective verify decision for THIS host: verify when the global
+            // switch is on OR the host is on the per-host allowlist. WSS has no
+            // ALPN requirements, so pass an empty protocol list.
+            let verify = ctx.verify_upstream_tls
+                || crate::timing_connector::host_in_allowlist(&ctx.tls_verify_hosts, &request.host);
+            let client_config =
+                aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(
+                    vec![],
+                    verify,
+                );
             let tls_connector = tokio_rustls::TlsConnector::from(client_config);
             let dns_name =
                 tokio_rustls::rustls::pki_types::ServerName::try_from(request.host.clone())
@@ -338,6 +349,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             waiting_ms: Some(0),
         },
         false,
+        false, // M2 skip_bodies
     );
     detail.map_traces = map_traces.clone();
     detail.rewrite_traces = rewrite_traces.clone();

@@ -13,6 +13,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "6"
 rcgen = { version = "0.13", features = ["x509-parser"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# Used by H3 to load the OS native root certificates so upstream TLS
+# verification behaves like a normal client (verifies against the platform
+# trust store instead of an empty one that would reject every cert).
+# Default features enable loading the platform's native roots.
+rustls-native-certs = "0.8"
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 serde = { version = "1", features = ["derive"] }
 aiproxy-sys-util = { path = "../sys-util" }

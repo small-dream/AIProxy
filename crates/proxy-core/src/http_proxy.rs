@@ -151,6 +151,7 @@ async fn build_upstream_error_response_and_session(
             waiting_ms: Some(started_at_instant.elapsed().as_millis()),
         },
         false,
+        false, // M2 skip_bodies
     );
     if ctx.session_sender.send(detail).await.is_err() {
         tracing::debug!(
@@ -204,6 +205,7 @@ fn build_upstream_session_detail(
             waiting_ms: Some(upstream_response.waiting_ms),
         },
         upstream_response.body_truncated,
+        false, // M2 skip_bodies
     );
     detail.map_traces = map_traces;
     detail.rewrite_traces = rewrite_traces;
@@ -281,7 +283,7 @@ struct RequestRulesResult {
 }
 
 /// Apply runtime rewrite/map/throttle rules, then script rules if no local response yet.
-fn stage_apply_request_rules(
+async fn stage_apply_request_rules(
     ctx: &ConnectionContext,
     request: &mut ParsedProxyRequest,
     is_h2: bool,
@@ -305,8 +307,10 @@ fn stage_apply_request_rules(
     let mut script_traces = Vec::new();
 
     if local_response.is_none() {
+        // H6: script execution is now offloaded to spawn_blocking, so this
+        // stage is async and must be awaited by its caller.
         let script_outcome =
-            apply_request_script_rules(&ctx.script_manager, &ctx.workspace_id, request);
+            apply_request_script_rules(&ctx.script_manager, &ctx.workspace_id, request).await;
         local_response = script_outcome.local_response;
         script_traces.extend(script_outcome.traces);
     }
@@ -450,12 +454,15 @@ async fn stage_intercept_request_breakpoint(
                 )
                 .map_err(crate::ProxyError::RuleError)?,
             );
-            script_traces.extend(apply_response_script_rules(
-                &ctx.script_manager,
-                &ctx.workspace_id,
-                request,
-                &mut mock_response,
-            ));
+            script_traces.extend(
+                apply_response_script_rules(
+                    &ctx.script_manager,
+                    &ctx.workspace_id,
+                    request,
+                    &mut mock_response,
+                )
+                .await,
+            );
 
             // Apply response throttle if configured for response stage.
             if let Some(selection) = throttle_selection
@@ -491,6 +498,7 @@ async fn stage_intercept_request_breakpoint(
                     waiting_ms: Some(0),
                 },
                 mock_response.body_truncated,
+                false, // M2 skip_bodies
             );
             send_session(
                 &ctx.session_sender,
@@ -505,7 +513,13 @@ async fn stage_intercept_request_breakpoint(
             let response = build_hyper_response_from_upstream(
                 mock_response.status_code,
                 &mock_response.response_headers,
-                &mock_response.response_body,
+                // M3: mock breakpoint bodies are in-memory and never spooled,
+                // so wrap them in a Full<Bytes> BoxBody. No explicit
+                // Content-Length needed — hyper derives it from Full.
+                http_body_util::Full::new(bytes::Bytes::from(mock_response.response_body.clone()))
+                    .map_err(|e: std::convert::Infallible| e.to_string())
+                    .boxed(),
+                None,
             )?;
             Ok(BreakpointRequestOutcome::Mock(response))
         }
@@ -649,6 +663,8 @@ async fn stage_forward_upstream(
                     &ctx.dns_manager,
                     &ctx.workspace_id,
                     Some(ctx.upstream_pool.clone()),
+                    ctx.verify_upstream_tls,
+                    Arc::clone(&ctx.tls_verify_hosts),
                 ),
             )
             .await
@@ -684,6 +700,7 @@ async fn stage_forward_upstream(
                             waiting_ms: Some(started_at_instant.elapsed().as_millis()),
                         },
                         false,
+                        false, // M2 skip_bodies
                     );
                     let _ = ctx.session_sender.send(detail).await;
                     cancellation_guard.disarm();
@@ -767,6 +784,7 @@ async fn stage_process_upstream_response(
                         waiting_ms: Some(upstream_response.waiting_ms),
                     },
                     false,
+                    false, // M2 skip_bodies
                 );
                 let _ = ctx.session_sender.send(detail).await;
                 tracing::error!(
@@ -782,12 +800,15 @@ async fn stage_process_upstream_response(
             }
         };
         rewrite_traces.extend(response_rewrite_traces);
-        script_traces.extend(apply_response_script_rules(
-            &ctx.script_manager,
-            &ctx.workspace_id,
-            request,
-            &mut upstream_response,
-        ));
+        script_traces.extend(
+            apply_response_script_rules(
+                &ctx.script_manager,
+                &ctx.workspace_id,
+                request,
+                &mut upstream_response,
+            )
+            .await,
+        );
     }
 
     let mut session_detail = build_upstream_session_detail(
@@ -945,20 +966,64 @@ async fn stage_process_upstream_response(
         "request_forwarded"
     );
 
-    // If the upstream response is spooled to disk, read it back into memory
-    // for the hyper response body.
-    let response_body = if let Some(ref spool_path) = upstream_response.spooled_response_path {
-        tokio::fs::read(spool_path)
+    // M3: stream a spooled response body back to the client instead of reading
+    // the whole file into memory. We take() the spool path out of the
+    // UpstreamResponse so its Drop impl does NOT delete the file before the
+    // body is fully read — the CleanupStream wrapper owns the file and removes
+    // it when the body stream ends (EOF, client disconnect, or hyper dropping
+    // the response body).
+    let spool_path = upstream_response.spooled_response_path.take();
+    let (response_body, streamed_content_length) = if let Some(spool_path) = spool_path {
+        // The spool file holds the full, untruncated upstream body. Use its
+        // on-disk size as the authoritative Content-Length so hyper emits a
+        // fixed-length response (a StreamBody has no inherent length, and
+        // without this hint hyper would use chunked transfer-encoding,
+        // which a raw-TCP client reading to EOF would mis-read).
+        let content_length = match std::fs::metadata(&spool_path) {
+            Ok(meta) => Some(meta.len()),
+            Err(error) => {
+                tracing::warn!(
+                    event = "spool_file_metadata_failed",
+                    error = %error,
+                    "spool_file_metadata_failed"
+                );
+                None
+            }
+        };
+        let file = tokio::fs::File::open(&spool_path)
             .await
-            .map_err(crate::ProxyError::IoError)?
+            .map_err(crate::ProxyError::IoError)?;
+        let reader_stream = tokio_util::io::ReaderStream::new(file);
+        let cleaned = CleanupStream::new(reader_stream, spool_path);
+        // StreamBody frames a Stream<Result<Frame<Bytes>, E>> as a Body.
+        // ReaderStream yields Result<Bytes, io::Error>; wrap each Bytes in
+        // Frame::data and translate the io::Error into the String error
+        // type the rest of the proxy uses for BoxBody<Bytes, String>.
+        use futures_util::TryStreamExt;
+        let framed = cleaned
+            .map_ok(http_body::Frame::data)
+            .map_err(|e| e.to_string());
+        (
+            http_body_util::StreamBody::new(framed).boxed(),
+            content_length,
+        )
     } else {
-        upstream_response.response_body.clone()
+        // In-memory body (small responses / responses under the spool
+        // threshold). Clone into Bytes; no file to clean up. hyper derives
+        // the Content-Length from the finite Full<Bytes> body.
+        (
+            http_body_util::Full::new(bytes::Bytes::from(upstream_response.response_body.clone()))
+                .map_err(|e: std::convert::Infallible| e.to_string())
+                .boxed(),
+            None,
+        )
     };
 
     build_hyper_response_from_upstream(
         upstream_response.status_code,
         &upstream_response.response_headers,
-        &response_body,
+        response_body,
+        streamed_content_length,
     )
 }
 
@@ -988,7 +1053,7 @@ pub(crate) async fn handle_http_request(
         rewrite_traces,
         script_traces,
         throttle_selection,
-    } = stage_apply_request_rules(ctx, &mut request, is_h2)?;
+    } = stage_apply_request_rules(ctx, &mut request, is_h2).await?;
 
     // --- Stage 3: Request-stage breakpoint ---
     let (map_traces, rewrite_traces, script_traces, mut throttle_traces) =
@@ -1335,11 +1400,86 @@ fn should_skip_hyper_header(name: &hyper::http::header::HeaderName, is_ws_upgrad
 // Hyper response building helpers
 // ---------------------------------------------------------------------------
 
-/// Build a `hyper::Response` from an upstream status code, headers and body.
+/// M3: a stream wrapper that owns a spool file and deletes it when dropped.
+///
+/// `tokio_util::io::ReaderStream` produces a `Stream<Result<Bytes, io::Error>>`
+/// from a `tokio::fs::File`. This wrapper transparently forwards the stream
+/// and, on drop — which happens when the body reaches EOF, the client
+/// disconnects, or hyper drops the response body — removes the spool file via
+/// `spawn_blocking` (mirroring `UpstreamResponse::clear_spooled_response` so
+/// the worker thread is not blocked on a slow temp dir / AV scan). This is the
+/// only owner of the spool path once it is `take()`n from `UpstreamResponse`,
+/// so the file is never deleted before the body is fully streamed.
+struct CleanupStream<S> {
+    inner: S,
+    spool_path: Option<std::path::PathBuf>,
+}
+
+impl<S> CleanupStream<S> {
+    fn new(inner: S, spool_path: std::path::PathBuf) -> Self {
+        Self {
+            inner,
+            spool_path: Some(spool_path),
+        }
+    }
+}
+
+impl<S, B, E> futures_util::Stream for CleanupStream<S>
+where
+    S: futures_util::Stream<Item = Result<B, E>> + Unpin,
+{
+    type Item = Result<B, E>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        // CleanupStream only forwards the inner stream; the spool_path lives
+        // solely in Drop. We require S: Unpin so a simple &mut projection is
+        // sound without pin-projecting. ReaderStream (our only use) is Unpin.
+        let this = self.get_mut();
+        Pin::new(&mut this.inner).poll_next(cx)
+    }
+}
+
+impl<S> Drop for CleanupStream<S> {
+    fn drop(&mut self) {
+        if let Some(path) = self.spool_path.take() {
+            // Offload the remove_file so the dropping thread (a Tokio worker
+            // finishing the body pump) is not blocked. Fall back to an inline
+            // remove if there is no runtime (e.g. process teardown), matching
+            // UpstreamResponse::clear_spooled_response.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn_blocking(move || {
+                    let _ = std::fs::remove_file(path);
+                });
+            } else {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// Build a `hyper::Response` from an upstream status code, headers and a
+/// pre-built body.
+///
+/// M3: the body is now passed as an already-constructed `BoxBody` so callers
+/// can choose between an in-memory `Full<Bytes>` (small bodies) and a streamed
+/// `StreamBody` backed by a spool file (large bodies), instead of this helper
+/// always buffering the body into a `Vec<u8>`.
+///
+/// When `streamed_content_length` is `Some(n)` (the spooled-body case, where we
+/// know the exact byte count from the spool file size), a `Content-Length:
+/// n` header is emitted. This matters for the streamed path: a `StreamBody`
+/// has no inherent length, so without an explicit Content-Length hyper falls
+/// back to chunked transfer-encoding, which a raw-TCP client reading to EOF
+/// would mis-read. The in-memory `Full<Bytes>` path needs no hint (hyper
+/// derives the length from the finite body).
 fn build_hyper_response_from_upstream(
     status_code: StatusCode,
     headers: &HeaderMap,
-    body: &[u8],
+    body: http_body_util::combinators::BoxBody<bytes::Bytes, String>,
+    streamed_content_length: Option<u64>,
 ) -> Result<
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
     crate::ProxyError,
@@ -1353,9 +1493,11 @@ fn build_hyper_response_from_upstream(
         builder = builder.header(name, value);
     }
 
-    let body = http_body_util::Full::new(bytes::Bytes::from(body.to_vec()))
-        .map_err(|e: std::convert::Infallible| e.to_string())
-        .boxed();
+    // M3: restore a Content-Length for streamed bodies so hyper uses a
+    // fixed-length response instead of chunked encoding.
+    if let Some(len) = streamed_content_length {
+        builder = builder.header(CONTENT_LENGTH, len);
+    }
 
     builder
         .body(body)
@@ -1450,6 +1592,7 @@ async fn build_throttle_failure_response(
             waiting_ms: Some(started_at_instant.elapsed().as_millis()),
         },
         false,
+        false, // M2 skip_bodies
     );
     detail.map_traces = map_traces;
     detail.throttle_traces = throttle_traces;
@@ -1568,6 +1711,7 @@ impl Drop for PendingRequestCancellationGuard {
                 waiting_ms: Some(elapsed_ms),
             },
             false,
+            true, // M2 skip_bodies
         );
         detail.map_traces = self.map_traces.clone();
         detail.timing_source = Some("proxy".to_string());
@@ -1625,6 +1769,8 @@ mod tests {
             workspace_id: "test".to_string(),
             event_emitter: None,
             upstream_pool: pool,
+            verify_upstream_tls: false,
+            tls_verify_hosts: Arc::from(Vec::<String>::new()),
         }
     }
 
@@ -1675,5 +1821,59 @@ mod tests {
         use crate::http_io::resolve_target_url;
         let result = resolve_target_url("wss://echo.example.com/chat", &[]).unwrap();
         assert_eq!(result, "wss://echo.example.com/chat");
+    }
+
+    // M3: CleanupStream must forward all bytes from the inner stream AND delete
+    // the spool file when dropped. We drive the stream to completion inside a
+    // tokio runtime (Drop spawns the file removal on the blocking pool), then
+    // assert the file is gone and the bytes match the input.
+    #[tokio::test]
+    async fn m3_cleanup_stream_forwards_bytes_and_deletes_spool_file() {
+        use futures_util::StreamExt;
+        use std::io::Write;
+
+        // Write a small "spool" file with known content.
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!(
+            "aiproxy-m3-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let content = b"hello spooled world";
+        {
+            let mut f = std::fs::File::create(&tmp).unwrap();
+            f.write_all(content).unwrap();
+        }
+        assert!(tmp.exists(), "precondition: spool file exists");
+
+        let path = tmp.clone();
+        // Build a stream of Result<Bytes, io::Error> (ReaderStream shape) by
+        // mapping a simple vec stream; CleanupStream is generic over the inner
+        // stream.
+        let inner = futures_util::stream::iter(vec![Ok::<bytes::Bytes, std::io::Error>(
+            bytes::Bytes::from_static(content),
+        )]);
+        let mut cleaned = CleanupStream::new(inner, path);
+
+        let mut collected = Vec::new();
+        while let Some(item) = cleaned.next().await {
+            collected.extend_from_slice(&item.unwrap());
+        }
+        // Drop happens implicitly when `cleaned` goes out of scope at the end;
+        // the spawn_blocking removal runs asynchronously, so give it a moment.
+        drop(cleaned);
+        // The Drop spawns the removal on the blocking pool; poll briefly.
+        for _ in 0..50 {
+            if !tmp.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        assert_eq!(collected, content);
+        assert!(
+            !tmp.exists(),
+            "M3: CleanupStream must delete the spool file on drop"
+        );
     }
 }

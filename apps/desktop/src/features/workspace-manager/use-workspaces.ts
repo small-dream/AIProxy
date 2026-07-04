@@ -51,6 +51,10 @@ export function useUpdateWorkspace() {
       proxyPort?: number;
       sslEnabled?: boolean;
       http2Enabled?: boolean;
+      /** H3: enable/disable upstream TLS verification. */
+      verifyUpstreamTls?: boolean;
+      /** H3: hostnames always TLS-verified (array form). */
+      tlsVerifyHosts?: string[];
     }) => updateWorkspace(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });

@@ -228,6 +228,11 @@ async fn handle_connection(
     } = managers;
     let workspace_id = config.workspace_id;
     let event_emitter = config.event_emitter;
+    // H3: upstream TLS verification mode + per-host allowlist for this proxy
+    // instance. The connector ORs the global flag with allowlist membership
+    // per connection.
+    let verify_upstream_tls = config.runtime.verify_upstream_tls;
+    let tls_verify_hosts = Arc::clone(&config.runtime.tls_verify_hosts);
 
     // Header-only probe — reads until \r\n\r\n, returns (request, consumed, leftover).
     // consumed = full header bytes up to and including \r\n\r\n.
@@ -360,6 +365,8 @@ async fn handle_connection(
                     active_workspace_id,
                     event_emitter,
                     upstream_pool,
+                    verify_upstream_tls,
+                    Arc::clone(&tls_verify_hosts),
                 )
                 .await;
             }
@@ -382,6 +389,8 @@ async fn handle_connection(
         workspace_id: active_workspace_id,
         event_emitter,
         upstream_pool,
+        verify_upstream_tls,
+        tls_verify_hosts,
     });
 
     let service = HttpProxyService { ctx };

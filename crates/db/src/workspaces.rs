@@ -17,6 +17,14 @@ pub struct WorkspaceRow {
     pub ssl_enabled: bool,
     pub http2_enabled: bool,
     pub system_proxy_enabled: bool,
+    /// H3: when true the proxy verifies upstream TLS certificates against the
+    /// system root store on new connections. Defaults to false (NoOp verifier)
+    /// to preserve the historical debug-proxy behavior.
+    pub verify_upstream_tls: bool,
+    /// H3: JSON-encoded array of hostnames that are always TLS-verified even
+    /// when `verify_upstream_tls` is false (a "verify these hosts regardless"
+    /// allowlist). Stored as a JSON string to mirror other list columns.
+    pub tls_verify_hosts: String,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -34,7 +42,8 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
         .execute(
             "UPDATE workspaces
                 SET name=?2, proxy_port=?3, ssl_enabled=?4, http2_enabled=?5,
-                    system_proxy_enabled=?6, storage_path=?7, created_at=?8, updated_at=?9
+                    system_proxy_enabled=?6, verify_upstream_tls=?7, tls_verify_hosts=?8,
+                    storage_path=?9, created_at=?10, updated_at=?11
              WHERE id=?1",
             params![
                 ws.id,
@@ -43,6 +52,8 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.ssl_enabled as i32,
                 ws.http2_enabled as i32,
                 ws.system_proxy_enabled as i32,
+                ws.verify_upstream_tls as i32,
+                ws.tls_verify_hosts,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -53,8 +64,9 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
     if affected == 0 {
         conn.execute(
             "INSERT INTO workspaces
-                (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
+                 verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 ws.id,
                 ws.name,
@@ -62,6 +74,8 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.ssl_enabled as i32,
                 ws.http2_enabled as i32,
                 ws.system_proxy_enabled as i32,
+                ws.verify_upstream_tls as i32,
+                ws.tls_verify_hosts,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -73,6 +87,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
 }
 
 /// Update mutable fields of a workspace.
+#[allow(clippy::too_many_arguments)]
 pub fn update_workspace(
     conn: &Connection,
     id: &str,
@@ -80,6 +95,8 @@ pub fn update_workspace(
     proxy_port: Option<u16>,
     ssl_enabled: Option<bool>,
     http2_enabled: Option<bool>,
+    verify_upstream_tls: Option<bool>,
+    tls_verify_hosts: Option<&str>,
     updated_at: &str,
 ) -> Result<(), DbError> {
     let existing = load_workspace(conn, id)?.ok_or_else(|| DbError::not_found("workspace", id))?;
@@ -88,10 +105,22 @@ pub fn update_workspace(
     let proxy_port = proxy_port.unwrap_or(existing.proxy_port);
     let ssl_enabled = ssl_enabled.unwrap_or(existing.ssl_enabled);
     let http2_enabled = http2_enabled.unwrap_or(existing.http2_enabled);
+    let verify_upstream_tls = verify_upstream_tls.unwrap_or(existing.verify_upstream_tls);
+    let tls_verify_hosts = tls_verify_hosts.unwrap_or(&existing.tls_verify_hosts);
 
     conn.execute(
-        "UPDATE workspaces SET name=?1, proxy_port=?2, ssl_enabled=?3, http2_enabled=?4, updated_at=?5 WHERE id=?6",
-        params![name, proxy_port, ssl_enabled as i32, http2_enabled as i32, updated_at, id],
+        "UPDATE workspaces SET name=?1, proxy_port=?2, ssl_enabled=?3, http2_enabled=?4,
+            verify_upstream_tls=?5, tls_verify_hosts=?6, updated_at=?7 WHERE id=?8",
+        params![
+            name,
+            proxy_port,
+            ssl_enabled as i32,
+            http2_enabled as i32,
+            verify_upstream_tls as i32,
+            tls_verify_hosts,
+            updated_at,
+            id,
+        ],
     )
     .map_err(|e| DbError::query("update workspace", e))?;
     Ok(())
@@ -100,7 +129,8 @@ pub fn update_workspace(
 /// Load a single workspace by ID.
 pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
-        "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at
+        "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
+                verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at
          FROM workspaces WHERE id=?1",
         params![id],
         row_to_workspace,
@@ -119,7 +149,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow
 pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbError> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled, storage_path, created_at, updated_at
+            "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
+                    verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at
              FROM workspaces ORDER BY created_at",
         )
         .map_err(|e| DbError::query("prepare load workspaces", e))?;
@@ -155,6 +186,8 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         ssl_enabled: row.get::<_, i32>("ssl_enabled")? != 0,
         http2_enabled: row.get::<_, i32>("http2_enabled")? != 0,
         system_proxy_enabled: row.get::<_, i32>("system_proxy_enabled")? != 0,
+        verify_upstream_tls: row.get::<_, i32>("verify_upstream_tls")? != 0,
+        tls_verify_hosts: row.get("tls_verify_hosts")?,
         storage_path: row.get("storage_path")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -208,6 +241,8 @@ mod tests {
             ssl_enabled: true,
             http2_enabled: true,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -231,6 +266,8 @@ mod tests {
             ssl_enabled: true,
             http2_enabled: true,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -244,6 +281,8 @@ mod tests {
             Some(9999),
             Some(true),
             Some(false),
+            Some(true),
+            Some(r#"["example.com"]"#),
             "2026-01-02T00:00:00Z",
         )
         .unwrap();
@@ -253,6 +292,14 @@ mod tests {
         assert_eq!(loaded.proxy_port, 9999);
         assert!(loaded.ssl_enabled);
         assert!(!loaded.http2_enabled);
+        assert!(
+            loaded.verify_upstream_tls,
+            "verify_upstream_tls should round-trip"
+        );
+        assert_eq!(
+            loaded.tls_verify_hosts, r#"["example.com"]"#,
+            "tls_verify_hosts should round-trip"
+        );
     }
 
     #[test]
@@ -273,6 +320,29 @@ mod tests {
         );
     }
 
+    // H3: the upstream TLS verification columns must default to off / empty
+    // allowlist so existing installs keep the historical NoOp-verifier behavior.
+    #[test]
+    fn verify_upstream_tls_defaults_to_off() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, proxy_port, ssl_enabled, system_proxy_enabled, storage_path, created_at, updated_at)
+             VALUES ('ws-v', 'Default', 8888, 1, 0, '', '2026-01-01', '2026-01-01')",
+            [],
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&conn, "ws-v").unwrap().unwrap();
+        assert!(
+            !loaded.verify_upstream_tls,
+            "verify_upstream_tls should default to false (0) for compatibility"
+        );
+        assert_eq!(
+            loaded.tls_verify_hosts, "[]",
+            "tls_verify_hosts should default to an empty JSON array"
+        );
+    }
+
     #[test]
     fn update_preserves_http2_when_not_provided() {
         let conn = test_conn();
@@ -283,6 +353,8 @@ mod tests {
             ssl_enabled: true,
             http2_enabled: false,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -294,6 +366,8 @@ mod tests {
             &conn,
             "ws-p",
             Some("Updated"),
+            None,
+            None,
             None,
             None,
             None,
@@ -323,6 +397,8 @@ mod tests {
             ssl_enabled: true,
             http2_enabled: true,
             system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

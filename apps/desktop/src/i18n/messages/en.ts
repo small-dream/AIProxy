@@ -252,6 +252,15 @@ export const enMessages = {
     runningHint: "Saving restarts the running proxy immediately.",
     stoppedHint: "Saved settings will be used the next time the proxy starts.",
     title: "Proxy Settings",
+    verifyUpstreamTls: "Verify Upstream TLS",
+    verifyUpstreamTlsDescription:
+      "Verify upstream server certificates against the OS root store on new HTTPS/WSS connections.",
+    tlsVerifyHosts: "TLS Verify Hosts",
+    tlsVerifyHostsPlaceholder: "One host per line (e.g. example.com)",
+    verifyUpstreamTlsEnabledHint:
+      "Upstream TLS verification is ON: invalid or self-signed upstream certificates will be rejected on new connections.",
+    verifyUpstreamTlsDisabledHint:
+      "Upstream TLS verification is OFF (insecure): the proxy accepts any upstream certificate. Turn this on for safer interception of trusted upstreams.",
   },
   composePage: {
     bodyPlaceholder: "Request body (JSON, plain text, etc.)",

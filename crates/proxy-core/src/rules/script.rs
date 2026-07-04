@@ -220,7 +220,51 @@ fn invalid_trace(mut trace: ScriptTrace, message: String) -> ScriptTrace {
     trace
 }
 
-pub(crate) fn apply_request_script_rules(
+/// H6: build a fail-open runtime-error trace when `spawn_blocking`'s join
+/// fails (the task was cancelled/dropped, e.g. runtime shutdown). This is a
+/// best-effort fallback: the closure itself never panics on the happy or
+/// error paths (it always returns a `RuntimeError` trace), so a join failure
+/// almost always means the runtime is tearing down. We still surface a trace
+/// so the request is not aborted and the user sees why the hook was skipped.
+fn runtime_join_failure_trace(
+    stage: ScriptTraceStage,
+    rule_id: String,
+    rule_name: String,
+    join_error: tokio::task::JoinError,
+) -> aiproxy_rule_engine::ScriptHookResult {
+    // Cap the message at a sane byte length (the rule-engine trims log
+    // entries to MAX_LOG_ENTRY_BYTES; mirror that bound locally without a
+    // cross-crate dependency on the constant).
+    const MAX_MSG_BYTES: usize = 4 * 1024;
+    let message = format!("script hook dropped by runtime: {join_error}");
+    let message = if message.len() > MAX_MSG_BYTES {
+        message[..MAX_MSG_BYTES].to_string()
+    } else {
+        message
+    };
+    aiproxy_rule_engine::ScriptHookResult {
+        request: None,
+        response: None,
+        response_override: None,
+        trace: ScriptTrace {
+            duration_ms: 0,
+            entries: vec![ScriptRunEntry {
+                kind: ScriptRunEntryKind::Error,
+                key: None,
+                level: Some(ScriptLogLevel::Error),
+                message: Some(message),
+                payload_json: None,
+                sequence: 0,
+            }],
+            outcome: ScriptRunOutcome::RuntimeError,
+            rule_id,
+            rule_name,
+            stage,
+        },
+    }
+}
+
+pub(crate) async fn apply_request_script_rules(
     script_manager: &Option<Arc<ScriptManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
@@ -229,16 +273,38 @@ pub(crate) fn apply_request_script_rules(
     let mut traces = Vec::new();
 
     for rule in active_script_rules_for_stage(script_manager, workspace_id, "request", request) {
+        // H6: build the payload (owned, borrowing `request`) BEFORE spawning so
+        // the blocking closure only holds owned, `'static + Send` data. The
+        // payload mirrors request/response into owned Strings/Vecs.
         let (session, script_request) =
             build_script_request(workspace_id, ScriptTraceStage::Request, request);
-        let result = execute_request_hook(
-            &rule,
-            ScriptHookPayload {
-                request: script_request,
-                response: None,
-                session,
-            },
-        );
+        let payload = ScriptHookPayload {
+            request: script_request,
+            response: None,
+            session,
+        };
+        // Capture the rule identity up front so we can build a fail-open trace
+        // if spawn_blocking is cancelled (rule is moved into the closure below).
+        let rule_id = rule.rule.id.clone();
+        let rule_name = rule.rule.name.clone();
+        // Offload the synchronous QuickJS execution (SCRIPT_GATE Condvar wait +
+        // std::thread::spawn + recv_timeout) to the blocking pool so the Tokio
+        // worker stays free to poll other tasks. rule + payload are both owned
+        // and 'static + Send (verified: CompiledScriptRule, ScriptHookPayload
+        // derive Clone with no borrows).
+        let result = tokio::task::spawn_blocking(move || execute_request_hook(&rule, payload))
+            .await
+            .unwrap_or_else(|join_error| {
+                // spawn_blocking join failures are rare (the runtime shutting
+                // down and dropping the task); fail open with a runtime-error
+                // trace so the request is not aborted.
+                runtime_join_failure_trace(
+                    ScriptTraceStage::Request,
+                    rule_id,
+                    rule_name,
+                    join_error,
+                )
+            });
 
         let mut trace = result.trace;
 
@@ -271,7 +337,7 @@ pub(crate) fn apply_request_script_rules(
     }
 }
 
-pub(crate) fn apply_response_script_rules(
+pub(crate) async fn apply_response_script_rules(
     script_manager: &Option<Arc<ScriptManager>>,
     workspace_id: &str,
     request: &ParsedProxyRequest,
@@ -280,16 +346,28 @@ pub(crate) fn apply_response_script_rules(
     let mut traces = Vec::new();
 
     for rule in active_script_rules_for_stage(script_manager, workspace_id, "response", request) {
+        // H6: build the payload (owned, borrowing request/response) before
+        // spawning, then offload the synchronous QuickJS run to the blocking
+        // pool. See apply_request_script_rules for the rationale.
         let (session, script_request) =
             build_script_request(workspace_id, ScriptTraceStage::Response, request);
-        let result = execute_response_hook(
-            &rule,
-            ScriptHookPayload {
-                request: script_request,
-                response: Some(build_script_response(response)),
-                session,
-            },
-        );
+        let payload = ScriptHookPayload {
+            request: script_request,
+            response: Some(build_script_response(response)),
+            session,
+        };
+        let rule_id = rule.rule.id.clone();
+        let rule_name = rule.rule.name.clone();
+        let result = tokio::task::spawn_blocking(move || execute_response_hook(&rule, payload))
+            .await
+            .unwrap_or_else(|join_error| {
+                runtime_join_failure_trace(
+                    ScriptTraceStage::Response,
+                    rule_id,
+                    rule_name,
+                    join_error,
+                )
+            });
 
         let mut trace = result.trace;
 
