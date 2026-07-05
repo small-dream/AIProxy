@@ -62,6 +62,16 @@ struct GnomeProxySnapshot {
     https_host: Option<String>,
     https_port: Option<u32>,
     ignore_hosts: Vec<String>,
+    // M13: capture the rest of the GNOME proxy schema so restore is faithful.
+    // `apply` does NOT touch these keys (it only sets http/https/mode/ignore-
+    // hosts), so the user's pre-existing socks/ftp/use-same-proxy settings are
+    // preserved while the proxy is enabled; restore writes them back from the
+    // snapshot to undo any drift caused by other tools during the session.
+    ftp_host: Option<String>,
+    ftp_port: Option<u32>,
+    socks_host: Option<String>,
+    socks_port: Option<u32>,
+    use_same_proxy: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -145,6 +155,12 @@ fn capture_gnome_snapshot() -> Result<GnomeProxySnapshot, String> {
         https_host: gsettings_get_optional("https", "host"),
         https_port: gsettings_get_optional_u32("https", "port"),
         ignore_hosts: gsettings_get_list("ignore-hosts"),
+        // M13: capture the rest of the schema (ftp, socks, use-same-proxy).
+        ftp_host: gsettings_get_optional("ftp", "host"),
+        ftp_port: gsettings_get_optional_u32("ftp", "port"),
+        socks_host: gsettings_get_optional("socks", "host"),
+        socks_port: gsettings_get_optional_u32("socks", "port"),
+        use_same_proxy: gsettings_get_optional_bool("use-same-proxy"),
     })
 }
 
@@ -205,6 +221,38 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
         errors.push(format!("restore ignore-hosts: {e}"));
     }
 
+    // M13: restore the rest of the GNOME proxy schema (ftp, socks,
+    // use-same-proxy). `apply` did not touch these, so restoring them mostly
+    // no-ops unless another tool changed them while the proxy was enabled.
+    // Restoring keeps the snapshot faithful: a captured `mode='manual'` with
+    // pre-existing socks/ftp entries reactivates those entries on restore.
+    if let Some(ref host) = snapshot.ftp_host {
+        if let Err(e) = gsettings_set("ftp", "host", host) {
+            errors.push(format!("restore ftp host: {e}"));
+        }
+    }
+    if let Some(port) = snapshot.ftp_port {
+        if let Err(e) = gsettings_set("ftp", "port", &port.to_string()) {
+            errors.push(format!("restore ftp port: {e}"));
+        }
+    }
+    if let Some(ref host) = snapshot.socks_host {
+        if let Err(e) = gsettings_set("socks", "host", host) {
+            errors.push(format!("restore socks host: {e}"));
+        }
+    }
+    if let Some(port) = snapshot.socks_port {
+        if let Err(e) = gsettings_set("socks", "port", &port.to_string()) {
+            errors.push(format!("restore socks port: {e}"));
+        }
+    }
+    if let Some(value) = snapshot.use_same_proxy {
+        if let Err(e) = gsettings_set_value("use-same-proxy", if value { "true" } else { "false" })
+        {
+            errors.push(format!("restore use-same-proxy: {e}"));
+        }
+    }
+
     if !errors.is_empty() {
         return Err(format!(
             "failed to restore GNOME proxy: {}",
@@ -253,6 +301,25 @@ fn gsettings_get_optional(child_schema: &str, key: &str) -> Option<String> {
 fn gsettings_get_optional_u32(child_schema: &str, key: &str) -> Option<u32> {
     let val = gsettings_get(child_schema, key);
     val.parse::<u32>().ok().filter(|&p| p != 0)
+}
+
+/// M13: read a top-level boolean key (e.g. `use-same-proxy`) directly from the
+/// root GNOME proxy schema `org.gnome.system.proxy`. gsettings prints booleans
+/// as `true`/`false`. Returns None if the key is empty/missing or holds a
+/// non-boolean value.
+fn gsettings_get_optional_bool(key: &str) -> Option<bool> {
+    let output = Command::new("gsettings")
+        .args(["get", GSETTINGS_PROXY_SCHEMA, key])
+        .output();
+    let val = match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => return None,
+    };
+    match val.as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 fn gsettings_get_list(key: &str) -> Vec<String> {
@@ -540,5 +607,36 @@ mod tests {
         env::set_var("XDG_CURRENT_DESKTOP", "sway");
         env::set_var("DESKTOP_SESSION", "sway");
         assert!(detect_desktop_environment().is_err());
+    }
+
+    // M13: the GNOME snapshot must capture (and serde-round-trip) the full
+    // proxy schema — ftp/socks host+port and use-same-proxy — so restore is
+    // faithful. `apply` does not touch these keys, but capturing + restoring
+    // them keeps the snapshot complete (a `mode='manual'` with pre-existing
+    // socks/ftp entries reactivates those entries on restore).
+    #[test]
+    fn gnome_snapshot_round_trips_full_schema() {
+        let snapshot = GnomeProxySnapshot {
+            mode: "'manual'".to_string(),
+            http_host: Some("127.0.0.1".to_string()),
+            http_port: Some(8888),
+            https_host: Some("127.0.0.1".to_string()),
+            https_port: Some(8888),
+            ignore_hosts: vec!["localhost".to_string(), "127.0.0.1".to_string()],
+            ftp_host: Some("socks.example".to_string()),
+            ftp_port: Some(1080),
+            socks_host: Some("socks.example".to_string()),
+            socks_port: Some(1080),
+            use_same_proxy: Some(true),
+        };
+        let json = serde_json::to_string(&snapshot).expect("snapshot serializes");
+        let restored: GnomeProxySnapshot =
+            serde_json::from_str(&json).expect("snapshot deserializes");
+
+        assert_eq!(restored.ftp_host.as_deref(), Some("socks.example"));
+        assert_eq!(restored.ftp_port, Some(1080));
+        assert_eq!(restored.socks_host.as_deref(), Some("socks.example"));
+        assert_eq!(restored.socks_port, Some(1080));
+        assert_eq!(restored.use_same_proxy, Some(true));
     }
 }

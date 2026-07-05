@@ -128,9 +128,24 @@ export function useThrottleEditor() {
   // changes (H1).
   const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
   const lastSyncedProfileIdRef = useRef<string | undefined>(undefined);
+  // M23: the profile id that the current temporary-enable window targets.
+  // The timeout callback only deactivates the profile if it is STILL the one
+  // the user temporarily enabled — if the user manually switched to a
+  // different profile in the meantime, the timer must NOT silently disable
+  // that newly-chosen profile.
+  const temporaryProfileIdRef = useRef<string | undefined>(undefined);
+  // M23: mirror the current active profile id into a ref so the
+  // temporary-enable timeout callback (which must NOT be re-created on every
+  // activeProfile change, or it would reset its own deadline) can read the
+  // latest active profile id at fire time without a stale closure.
+  const activeProfileIdRef = useRef<string | undefined>(undefined);
 
   // Computed
   const activeProfile = useMemo(() => profiles.find((profile) => profile.enabled), [profiles]);
+  // M23: keep activeProfileIdRef in sync with the latest active profile id.
+  useEffect(() => {
+    activeProfileIdRef.current = activeProfile?.id;
+  }, [activeProfile]);
   const presetProfiles = useMemo(() => profiles.filter((profile) => profile.preset), [profiles]);
   const customProfiles = useMemo(() => profiles.filter((profile) => !profile.preset), [profiles]);
   const selectedProfile = useMemo(
@@ -212,8 +227,20 @@ export function useThrottleEditor() {
 
   useEffect(() => {
     if (!temporaryUntil) return undefined;
+    const temporaryProfileId = temporaryProfileIdRef.current;
     const timeout = window.setTimeout(
       () => {
+        // M23: only deactivate if the currently-active profile is STILL the
+        // one the user temporarily enabled. If the user manually activated a
+        // different profile in the meantime (setActiveMutation.mutate(other)),
+        // the timer must not silently disable their new choice.
+        if (
+          temporaryProfileId !== undefined &&
+          activeProfileIdRef.current !== temporaryProfileId
+        ) {
+          setTemporaryUntil(null);
+          return;
+        }
         setActiveMutation.mutate(undefined);
         setTemporaryUntil(null);
       },
@@ -296,6 +323,10 @@ export function useThrottleEditor() {
     if (isProfilesError) return;
     const target = selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
     if (!target) return;
+    // M23: record which profile this temporary-enable targets so the timeout
+    // callback can verify the active profile is still this one before
+    // disabling.
+    temporaryProfileIdRef.current = target;
     setTemporaryUntil(Date.now() + TEMP_ENABLE_MS);
     setActiveMutation.mutate(target);
   }

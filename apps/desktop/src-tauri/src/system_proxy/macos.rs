@@ -78,21 +78,11 @@ pub fn apply_system_proxy_settings_with_pre_snapshot(
             );
             Ok(())
         }
-        Err(error) => {
-            if let Err(restore_error) = restore_system_proxy(&snapshot) {
-                tracing::error!(
-                    component = "desktop.system_proxy.macos",
-                    event = "apply_rollback_failed",
-                    error = %restore_error,
-                    "apply_rollback_failed"
-                );
-                return Err(format!(
-                    "{error}; rollback after failed apply also failed: {restore_error}"
-                ));
-            }
-
-            Err(error)
-        }
+        // M27: the inner apply already rolled back every service on failure
+        // (so a multi-service apply is atomic), so we only surface the
+        // aggregated error here. The error message includes any rollback
+        // failures that occurred during the inner apply.
+        Err(error) => Err(error),
     }
 }
 
@@ -133,16 +123,74 @@ fn apply_system_proxy_settings_with_snapshot(
     settings: &SystemProxySettings,
     snapshot: &MacosSystemProxySnapshot,
 ) -> Result<(), String> {
+    // M27: previously the first `?` on any service aborted the whole apply,
+    // leaving the remaining services unmodified AND the failed service in a
+    // half-applied state (PAC disabled, web proxy server set but not enabled,
+    // etc.). Now we attempt every service, collecting per-service errors. If
+    // any service failed we roll back ALL services to the snapshot (best
+    // effort) and return an aggregated error, so the apply is atomic across
+    // services: either every service is set, or every service is restored.
+    let mut failures: Vec<String> = Vec::new();
+
     for service in &snapshot.services {
-        set_proxy_bypass_domains(&service.service_name, &PROXY_BYPASS_DOMAINS)?;
-        set_auto_proxy_discovery_state(&service.service_name, false)?;
-        set_auto_proxy_url_state(&service.service_name, false)?;
-        set_proxy_server(&service.service_name, ProxyKind::Web, settings)?;
-        set_proxy_state(&service.service_name, ProxyKind::Web, true)?;
-        set_proxy_server(&service.service_name, ProxyKind::SecureWeb, settings)?;
-        set_proxy_state(&service.service_name, ProxyKind::SecureWeb, true)?;
+        if let Err(error) = apply_service_proxy_with_snapshot(&service.service_name, settings) {
+            tracing::error!(
+                component = "desktop.system_proxy.macos",
+                event = "service_apply_failed",
+                service_name = %service.service_name,
+                error = %error,
+                "service_apply_failed"
+            );
+            failures.push(format!("{}: {error}", service.service_name));
+        }
     }
 
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    // At least one service failed — roll back every service so we do not leave
+    // the system in a half-applied (multi-service) state. The rollback itself
+    // is best-effort; a rollback failure is logged and appended to the error
+    // message so the operator has the full picture.
+    for service in &snapshot.services {
+        if let Err(restore_error) = restore_service_proxy_settings(service) {
+            tracing::error!(
+                component = "desktop.system_proxy.macos",
+                event = "apply_rollback_service_failed",
+                service_name = %service.service_name,
+                error = %restore_error,
+                "apply_rollback_service_failed"
+            );
+            failures.push(format!(
+                "rollback {}: {restore_error}",
+                service.service_name
+            ));
+        }
+    }
+
+    Err(format!(
+        "failed to apply macOS proxy settings to one or more services: {}",
+        failures.join(", ")
+    ))
+}
+
+/// M27: apply the proxy settings to a single network service. Extracted from
+/// `apply_system_proxy_settings_with_snapshot` so a per-service failure can be
+/// collected without aborting the remaining services. Each service is set up
+/// "server-first then enable" so the proxy is never briefly enabled pointing
+/// at a stale server.
+fn apply_service_proxy_with_snapshot(
+    service_name: &str,
+    settings: &SystemProxySettings,
+) -> Result<(), String> {
+    set_proxy_bypass_domains(service_name, &PROXY_BYPASS_DOMAINS)?;
+    set_auto_proxy_discovery_state(service_name, false)?;
+    set_auto_proxy_url_state(service_name, false)?;
+    set_proxy_server(service_name, ProxyKind::Web, settings)?;
+    set_proxy_state(service_name, ProxyKind::Web, true)?;
+    set_proxy_server(service_name, ProxyKind::SecureWeb, settings)?;
+    set_proxy_state(service_name, ProxyKind::SecureWeb, true)?;
     Ok(())
 }
 

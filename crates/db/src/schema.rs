@@ -420,6 +420,23 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
 
+    // M30: enforce the "at most one enabled throttle profile per workspace"
+    // invariant at the storage layer with a partial UNIQUE index. First
+    // collapse any pre-existing duplicates in older databases (keep the
+    // smallest-id row enabled per workspace, disable the rest) so the index
+    // build does not fail with a UNIQUE violation; then create the index
+    // idempotently. The application paths
+    // (save_throttle_profile, set_active_throttle_profile) deactivate other
+    // profiles first — this index is the last line of defence against an app
+    // bug or two racing commands leaving two enabled profiles in one workspace.
+    collapse_duplicate_enabled_throttle_profiles(conn)?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_throttle_profiles_enabled_per_workspace \
+         ON throttle_profiles(workspace_id) WHERE enabled = 1",
+        [],
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("create throttle unique index: {e}")))?;
+
     Ok(())
 }
 
@@ -453,6 +470,25 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, D
         .filter_map(Result::ok)
         .collect();
     Ok(names.iter().any(|name| name.eq_ignore_ascii_case(column)))
+}
+
+/// M30: collapse any pre-existing duplicates where more than one
+/// `throttle_profiles` row in the same workspace has `enabled = 1`. For each
+/// affected workspace, keep the row with the smallest `id` enabled and disable
+/// the rest. This makes older databases safe to add the partial UNIQUE index
+/// `idx_throttle_profiles_enabled_per_workspace`. Idempotent: a no-op once only
+/// one enabled profile per workspace remains.
+fn collapse_duplicate_enabled_throttle_profiles(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "UPDATE throttle_profiles SET enabled = 0 \
+         WHERE enabled = 1 AND id NOT IN ( \
+             SELECT MIN(id) FROM throttle_profiles \
+             WHERE enabled = 1 \
+             GROUP BY workspace_id \
+         )",
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("collapse throttle profile duplicates: {e}")))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -555,5 +591,152 @@ mod tests {
                 .any(|name| name == "idx_session_summaries_host_duration"),
             "expected idx_session_summaries_host_duration, got: {indexes:?}"
         );
+    }
+
+    // M30: a partial UNIQUE index on throttle_profiles(workspace_id) WHERE
+    // enabled=1 must exist after migration, and a second enabled profile in the
+    // same workspace must be rejected at the storage layer.
+    #[test]
+    fn m30_enabled_throttle_profile_unique_per_workspace_index_exists() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let indexes: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='throttle_profiles'",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            indexes
+                .iter()
+                .any(|name| name == "idx_throttle_profiles_enabled_per_workspace"),
+            "expected M30 partial unique index, got: {indexes:?}"
+        );
+    }
+
+    #[test]
+    fn m30_two_enabled_profiles_same_workspace_rejected_by_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        // throttle_profiles.workspace_id is a FK to workspaces(id); insert the
+        // parent workspaces so the FK is satisfied.
+        conn.execute(
+            "INSERT INTO workspaces (id, name, proxy_port, ssl_enabled, system_proxy_enabled, \
+             storage_path, created_at, updated_at) \
+             VALUES ('ws1', 'WS1', 8888, 0, 0, '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // Insert the first enabled profile directly (bypassing the app-layer
+        // deactivation in save_throttle_profile, to exercise the index).
+        conn.execute(
+            "INSERT INTO throttle_profiles (id, workspace_id, name, note, enabled, preset, \
+             latency_ms, upload_kbps, download_kbps, packet_loss_ratio) \
+             VALUES ('t1', 'ws1', 'Slow', NULL, 1, 0, 100, 300, 500, 0.0)",
+            [],
+        )
+        .unwrap();
+        // A second enabled profile in the same workspace must violate the index.
+        let err = conn
+            .execute(
+                "INSERT INTO throttle_profiles (id, workspace_id, name, note, enabled, preset, \
+                 latency_ms, upload_kbps, download_kbps, packet_loss_ratio) \
+                 VALUES ('t2', 'ws1', 'Fast', NULL, 1, 0, 10, 3000, 5000, 0.0)",
+                [],
+            )
+            .expect_err("second enabled profile must be rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.to_lowercase().contains("unique"),
+            "expected a UNIQUE constraint failure, got: {msg}"
+        );
+
+        // A second profile in a DIFFERENT workspace, and a disabled profile in
+        // the same workspace, must both still be allowed.
+        conn.execute(
+            "INSERT INTO workspaces (id, name, proxy_port, ssl_enabled, system_proxy_enabled, \
+             storage_path, created_at, updated_at) \
+             VALUES ('ws2', 'WS2', 8889, 0, 0, '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO throttle_profiles (id, workspace_id, name, note, enabled, preset, \
+             latency_ms, upload_kbps, download_kbps, packet_loss_ratio) \
+             VALUES ('t3', 'ws2', 'Other', NULL, 1, 0, 100, 300, 500, 0.0)",
+            [],
+        )
+        .expect("enabled profile in a different workspace is allowed");
+        conn.execute(
+            "INSERT INTO throttle_profiles (id, workspace_id, name, note, enabled, preset, \
+             latency_ms, upload_kbps, download_kbps, packet_loss_ratio) \
+             VALUES ('t4', 'ws1', 'Disabled', NULL, 0, 0, 100, 300, 500, 0.0)",
+            [],
+        )
+        .expect("disabled profile in the same workspace is allowed");
+    }
+
+    // M30: an older database with two enabled profiles in one workspace must
+    // have the duplicates collapsed (smallest-id kept enabled) so the unique
+    // index can be (re)created without a constraint failure.
+    #[test]
+    fn m30_collapse_duplicate_enabled_throttle_profiles() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Run CREATE_TABLES to make the table exist, then insert duplicates
+        // BEFORE the M30 index/cleanup migration would normally run, to
+        // simulate an upgrade from an older schema.
+        conn.execute_batch(CREATE_TABLES).unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, proxy_port, ssl_enabled, system_proxy_enabled, \
+             storage_path, created_at, updated_at) \
+             VALUES ('ws1', 'WS1', 8888, 0, 0, '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), \
+                    ('ws2', 'WS2', 8889, 0, 0, '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO throttle_profiles (id, workspace_id, name, note, enabled, preset, \
+             latency_ms, upload_kbps, download_kbps, packet_loss_ratio) \
+             VALUES ('a', 'ws1', 'A', NULL, 1, 0, 0, 0, 0, 0.0), \
+                    ('b', 'ws1', 'B', NULL, 1, 0, 0, 0, 0, 0.0), \
+                    ('c', 'ws1', 'C', NULL, 0, 0, 0, 0, 0, 0.0), \
+                    ('d', 'ws2', 'D', NULL, 1, 0, 0, 0, 0, 0.0)",
+            [],
+        )
+        .unwrap();
+
+        // Run the collapse + index creation (the steps run_migrations performs
+        // after CREATE_TABLES).
+        collapse_duplicate_enabled_throttle_profiles(&conn).unwrap();
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_throttle_profiles_enabled_per_workspace \
+             ON throttle_profiles(workspace_id) WHERE enabled = 1",
+            [],
+        )
+        .expect("index creation must succeed after collapse");
+
+        // ws1: 'a' (smallest id among enabled) kept enabled, 'b' disabled.
+        let enabled_ws1: Vec<String> = conn
+            .prepare("SELECT id FROM throttle_profiles WHERE workspace_id='ws1' AND enabled=1")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(enabled_ws1, vec!["a".to_string()]);
+        // ws2: 'd' untouched.
+        let enabled_ws2: Vec<String> = conn
+            .prepare("SELECT id FROM throttle_profiles WHERE workspace_id='ws2' AND enabled=1")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(enabled_ws2, vec!["d".to_string()]);
     }
 }

@@ -13,7 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   FieldGroup,
@@ -78,6 +78,12 @@ export function ScriptRulesPanel() {
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
   const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
+  // M22/M25: track the last id we synced a draft FROM, so a TanStack Query
+  // refetch (new `rules[]`/`filteredRules[]` array identity) does NOT re-run
+  // the draft-sync and clobber an in-flight edit or an in-flight import. The
+  // sync effect now fires only when the selected id actually changes. Mirrors
+  // the `lastSyncedRuleIdRef` guard in `use-throttle-editor.ts`.
+  const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
   // L3: priority is committed from a local text draft so clearing the field
   // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
   // ProfileEditor.
@@ -100,23 +106,34 @@ export function ScriptRulesPanel() {
   }, [rules, searchValue]);
 
   useEffect(() => {
-    if (
+    // M22/M25: only auto-select when the selection is actually empty or stale,
+    // and only sync the draft when the selected id actually changes — NOT on
+    // every rules[] refetch (new filteredRules/rules array identity). This
+    // protects in-flight edits and imports from being clobbered.
+    const selectionValid =
       selectedRuleId &&
-      (rules.some((rule) => rule.id === selectedRuleId) || draft.id === selectedRuleId)
-    )
+      (rules.some((rule) => rule.id === selectedRuleId) || draft.id === selectedRuleId);
+    if (selectionValid) {
+      lastSyncedRuleIdRef.current = selectedRuleId;
       return;
+    }
     const next = filteredRules[0];
     if (next) {
+      if (lastSyncedRuleIdRef.current === next.id) return;
+      lastSyncedRuleIdRef.current = next.id;
       setSelectedRuleId(next.id);
       setDraft(next);
       setValidationAttempted(false);
       return;
     }
+    if (lastSyncedRuleIdRef.current === undefined) return;
+    lastSyncedRuleIdRef.current = undefined;
     setSelectedRuleId(undefined);
     setValidationAttempted(false);
   }, [draft.id, filteredRules, rules, selectedRuleId]);
 
   function selectRule(rule: ScriptRule) {
+    lastSyncedRuleIdRef.current = rule.id;
     setSelectedRuleId(rule.id);
     setDraft(rule);
     setValidationAttempted(false);
@@ -137,6 +154,7 @@ export function ScriptRulesPanel() {
       next.entrypoints = { onRequest: false, onResponse: true };
       next.match.stage = "response";
     }
+    lastSyncedRuleIdRef.current = next.id;
     setSelectedRuleId(next.id);
     setDraft(next);
     setValidationAttempted(false);
@@ -151,6 +169,10 @@ export function ScriptRulesPanel() {
       if (!imported) {
         return;
       }
+      // M25: pre-mark the current selection as synced so a refetch landing
+      // between the two awaits does not trigger the selection effect to
+      // overwrite the imported source with the server value.
+      lastSyncedRuleIdRef.current = selectedRuleId ?? draft.id;
       setDraft((current) => ({
         ...current,
         language: imported.language,
@@ -173,6 +195,7 @@ export function ScriptRulesPanel() {
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
+        lastSyncedRuleIdRef.current = saved.id;
         setSelectedRuleId(saved.id);
         setDraft(saved);
         setValidationAttempted(false);
@@ -183,6 +206,7 @@ export function ScriptRulesPanel() {
   function handleDelete() {
     if (isRulesError) return;
     if (!selectedRuleId || !rules.some((rule) => rule.id === selectedRuleId)) {
+      lastSyncedRuleIdRef.current = undefined;
       setSelectedRuleId(undefined);
       setDraft(createEmptyScriptRule());
       setValidationAttempted(false);
@@ -192,6 +216,7 @@ export function ScriptRulesPanel() {
       { ruleId: selectedRuleId, ruleType: "script" },
       {
         onSuccess: () => {
+          lastSyncedRuleIdRef.current = undefined;
           setSelectedRuleId(undefined);
           setDraft(createEmptyScriptRule());
           setValidationAttempted(false);

@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
@@ -58,8 +59,31 @@ export function EnvironmentManagerDialog({
 
   const [localEnvVars, setLocalEnvVars] = useState<VariableRow[]>([]);
   const [localGlobalVars, setLocalGlobalVars] = useState<VariableRow[]>([]);
+  // M28: in-app confirmation state for environment deletion. Replaces the
+  // native `window.confirm`, which rendered a browser-style dialog with
+  // buttons that ignored the app's i18n locale and MUI styling.
+  const [confirmDeleteEnv, setConfirmDeleteEnv] = useState<
+    { id: string; name: string } | null
+  >(null);
 
   const globalSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // M24: keep a ref to the latest local global vars so the unmount cleanup can
+  // flush a pending debounced save with the most recent edits (not a stale
+  // closure value captured when the timeout was scheduled).
+  const localGlobalVarsRef = useRef<VariableRow[]>(localGlobalVars);
+  useEffect(() => {
+    localGlobalVarsRef.current = localGlobalVars;
+  }, [localGlobalVars]);
+  // M24: hold the latest `setGlobalVars.mutate` in a ref. The whole mutation
+  // result object (`setGlobalVars`) is NOT a stable reference — React Query
+  // returns a fresh object every render (carrying isPending etc.) — so a
+  // `useCallback`/`useEffect` depending on it would re-run on every render.
+  // `mutate` itself is stable, so we capture it once per render into the ref
+  // and let the unmount cleanup depend only on a stable `flushRef`-thunk.
+  const mutateGlobalVarsRef = useRef(setGlobalVars.mutate);
+  useEffect(() => {
+    mutateGlobalVarsRef.current = setGlobalVars.mutate;
+  });
 
   // Depend on query .data directly (stable reference from the query cache, or
   // undefined when disabled/failed) — avoids a new `[]` identity on every render.
@@ -103,20 +127,49 @@ export function EnvironmentManagerDialog({
       }),
   });
 
-  // Clear any pending debounced-save timer for global vars on unmount (M9,
-  // "ghost save"). Global vars are not env-scoped, so they do not need the
-  // H8 flush-on-switch behavior.
+  // Flush the pending global-vars debounced save immediately. M24: closing the
+  // dialog within the 500ms debounce window previously just cleared the timer,
+  // silently dropping the in-flight edit. Now we run the save with the latest
+  // local value before clearing.
+  //
+  // This callback has NO dependencies (it reads everything via refs), so its
+  // identity is stable for the lifetime of the component — the unmount cleanup
+  // below registers once instead of re-running on every render (which the
+  // previous `[..., setGlobalVars]` deps caused, since the whole mutation
+  // result object changes identity each render).
+  const flushGlobalVars = useCallback(() => {
+    if (!globalSaveTimeoutRef.current) return;
+    clearTimeout(globalSaveTimeoutRef.current);
+    globalSaveTimeoutRef.current = null;
+    const variables = localGlobalVarsRef.current;
+    mutateGlobalVarsRef.current(
+      variables.map((v, i) => ({
+        id: v.id,
+        key: v.key,
+        value: v.value,
+        enabled: v.enabled,
+        sortOrder: i,
+      })),
+    );
+  }, []);
+
+  // M24: on unmount, flush any pending global-vars debounced save instead of
+  // just clearing the timer. Global vars are not env-scoped so they do not
+  // need the H8 flush-on-switch behavior, but they DO need to be persisted
+  // when the dialog closes mid-debounce. The empty dep array registers the
+  // cleanup exactly once (on unmount), not on every render.
   useEffect(() => {
     return () => {
-      if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
+      flushGlobalVars();
     };
-  }, []);
+  }, [flushGlobalVars]);
 
   const debouncedSaveGlobalVars = useCallback(
     (variables: VariableRow[]) => {
       if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
       globalSaveTimeoutRef.current = setTimeout(() => {
-        setGlobalVars.mutate(
+        globalSaveTimeoutRef.current = null;
+        mutateGlobalVarsRef.current(
           variables.map((v, i) => ({
             id: v.id,
             key: v.key,
@@ -127,7 +180,7 @@ export function EnvironmentManagerDialog({
         );
       }, 500);
     },
-    [setGlobalVars],
+    [],
   );
 
   function handleCreateEnvironment() {
@@ -145,17 +198,26 @@ export function EnvironmentManagerDialog({
     );
   }
 
+  // M28: open an in-app confirmation dialog instead of the native
+  // `window.confirm`, which rendered a browser-style dialog that ignored the
+  // app's i18n locale and MUI styling. The actual deletion runs in
+  // `confirmDeleteEnvironment` once the user confirms.
   function handleDeleteEnvironment(envId: string, envName: string) {
-    if (window.confirm(t("collectionsPage.deleteEnvironmentConfirm", { name: envName }))) {
-      deleteEnv.mutate(envId, {
-        onSuccess: () => {
-          if (selectedEnvId === envId) {
-            setSelectedEnvId(null);
-            setLocalEnvVars([]);
-          }
-        },
-      });
-    }
+    setConfirmDeleteEnv({ id: envId, name: envName });
+  }
+
+  function confirmDeleteEnvironment() {
+    const target = confirmDeleteEnv;
+    setConfirmDeleteEnv(null);
+    if (!target) return;
+    deleteEnv.mutate(target.id, {
+      onSuccess: () => {
+        if (selectedEnvId === target.id) {
+          setSelectedEnvId(null);
+          setLocalEnvVars([]);
+        }
+      },
+    });
   }
 
 
@@ -366,6 +428,39 @@ export function EnvironmentManagerDialog({
           </Box>
         )}
       </DialogContent>
+
+      {/* M28: in-app confirmation dialog for environment deletion. Replaces the
+           native window.confirm which ignored the app's i18n locale and MUI
+           styling. Mirrors the AppShellDialogs confirm pattern. */}
+      <Dialog
+        fullWidth
+        maxWidth="xs"
+        onClose={() => setConfirmDeleteEnv(null)}
+        open={confirmDeleteEnv !== null}
+      >
+        <DialogTitle>{t("collectionsPage.deleteEnvironmentTitle")}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {confirmDeleteEnv
+              ? t("collectionsPage.deleteEnvironmentConfirm", {
+                  name: confirmDeleteEnv.name,
+                })
+              : ""}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmDeleteEnv(null)}>
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            color="error"
+            onClick={confirmDeleteEnvironment}
+            variant="contained"
+          >
+            {t("common.actions.delete")}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }

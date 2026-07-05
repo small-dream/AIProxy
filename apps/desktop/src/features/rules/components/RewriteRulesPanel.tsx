@@ -221,6 +221,10 @@ export function RewriteRulesPanel() {
   });
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [validationAttempted, setValidationAttempted] = useState(false);
+  // M22: track the last id we synced a draft FROM, so a TanStack Query refetch
+  // (new rules[]/filteredRules[] array identity) does NOT re-run the draft-
+  // sync and clobber an in-flight edit. Mirrors `use-throttle-editor.ts`.
+  const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
 
   const templates = useMemo<RewriteTemplate[]>(
     () => [
@@ -338,6 +342,9 @@ export function RewriteRulesPanel() {
     if (!state?.rewriteSeed) return;
 
     const seededRule = createSeededRule(state.rewriteSeed);
+    // M22: pre-mark as synced so the selection effect does not overwrite the
+    // seeded draft on the next rules[] refetch.
+    lastSyncedRuleIdRef.current = seededRule.id;
     setSelectedRuleId(seededRule.id);
     setDraft(seededRule);
     setValidationAttempted(false);
@@ -350,24 +357,32 @@ export function RewriteRulesPanel() {
   }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
-    if (
+    // M22: only sync the draft when the selection actually changes — NOT on
+    // every rules[] refetch. Protects in-flight edits from being clobbered.
+    const selectionValid =
       selectedRuleId &&
-      (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId)
-    )
+      (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId);
+    if (selectionValid) {
+      lastSyncedRuleIdRef.current = selectedRuleId;
       return;
+    }
     const next = filteredRules[0];
     if (next) {
+      if (lastSyncedRuleIdRef.current === next.id) return;
+      lastSyncedRuleIdRef.current = next.id;
       setSelectedRuleId(next.id);
       setDraft(next);
       setValidationAttempted(false);
       return;
     }
-    if (!selectedRuleId) return;
+    if (lastSyncedRuleIdRef.current === undefined) return;
+    lastSyncedRuleIdRef.current = undefined;
     setSelectedRuleId(undefined);
     setValidationAttempted(false);
   }, [draft.id, filteredRules, rules, selectedRuleId]);
 
   function selectRule(rule: RewriteRule) {
+    lastSyncedRuleIdRef.current = rule.id;
     setSelectedRuleId(rule.id);
     setDraft(rule);
     setValidationAttempted(false);
@@ -376,6 +391,7 @@ export function RewriteRulesPanel() {
   function handleCreateRule(rewriteType: RewriteRuleType) {
     const d = createEmptyRewriteRule(rewriteType);
     d.name = `${getRewriteTypeLabel(rewriteType, t)} rewrite`;
+    lastSyncedRuleIdRef.current = d.id;
     setSelectedRuleId(d.id);
     setDraft(d);
     setValidationAttempted(false);
@@ -383,6 +399,7 @@ export function RewriteRulesPanel() {
 
   function applyTemplate(template: RewriteTemplate) {
     const next = template.build();
+    lastSyncedRuleIdRef.current = next.id;
     setSelectedRuleId(next.id);
     setDraft(next);
     setTemplateDialogOpen(false);
@@ -395,6 +412,7 @@ export function RewriteRulesPanel() {
     if (errors.length > 0) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
+        lastSyncedRuleIdRef.current = saved.id;
         setSelectedRuleId(saved.id);
         setDraft(saved);
         setValidationAttempted(false);
@@ -405,6 +423,7 @@ export function RewriteRulesPanel() {
   function handleDelete() {
     if (isRulesError) return;
     if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
+      lastSyncedRuleIdRef.current = undefined;
       setDraft(createEmptyRewriteRule());
       setSelectedRuleId(undefined);
       return;
@@ -413,6 +432,7 @@ export function RewriteRulesPanel() {
       { ruleId: selectedRuleId, ruleType: "rewrite" },
       {
         onSuccess: () => {
+          lastSyncedRuleIdRef.current = undefined;
           setSelectedRuleId(undefined);
           setDraft(createEmptyRewriteRule());
         },

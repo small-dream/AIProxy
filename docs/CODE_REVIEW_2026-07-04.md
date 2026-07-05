@@ -179,6 +179,7 @@
 - **位置**：`crates/proxy-core/src/ws_upgrade.rs:703-728`（`refill_stream`），消费于 `:665/685`；文档 `:566-578`
 - **证据**：`read_full_response_body` 文档承诺「空闲超时或字节上限时返回已收集 body，保留上游拒绝状态码」。`read_length_delimited_body`（`:605`）与 `read_until_close_body`（`:637`）遵守（`Err(_)` 时 `break`），但 `refill_stream` 在同样超时时返回 `Err("chunked body read timed out")`，经 `read_chunked_body` 上抛 → WS 升级路径丢弃部分拒绝体并合成 502，而非返回上游真实（如 403）状态。
 - **修复方向**：`refill_stream` 超时返回 `Ok(false)`（视超时为 body 结束），与 `read_until_close_body` 一致。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `refill_stream` 超时返回 `Ok(false)`（视超时为 body 结束，与 `read_until_close_body` 对齐）；`ensure_bytes` 改为 `Result<bool, String>`（Ok(false)=EOF/超时，Ok(true)=成功）以让 `read_chunked_body` 在 mid-chunk 超时时退出循环返回部分 body 而非上抛硬错；size-line 读取路径同样在超时/EOF 时退出循环返回部分 body。测试：`ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body`（构造 chunked 上游只发一个 chunk 不发 0-终止、保持连接，断言部分 body 返回且状态码保留 403 而非 502）。
 
 ### M2 ✅ `Drop` of `PendingRequestCancellationGuard` 在 async worker 上做同步 body 解压 `[来源:N5]`
 - **位置**：`crates/proxy-core/src/http_proxy.rs:1539-1595` → `build_session_detail` → `build_body_reference` → `decode_body_bytes`（`http_io.rs:467`）
@@ -199,30 +200,35 @@
 - **证据**：迭代 `head.lines()`，每行 `split_once(':')`。以空白开头的续行（RFC 7230 §3.2.4 obs-fold）无 `:`，`split_once` 返回 `None` 被静默丢弃；空名头（`: value`）解析为 name=`""`；解析失败时 `status_code` 默认 `502` 掩盖真实畸形。
 - **影响**：合法使用 obs-fold 折叠的旧服务器头被截断，可能丢 `Sec-WebSocket-Accept`/`Content-Length` 续行并损坏转发响应。
 - **修复方向**：检测前导空白行并并入上一头值；对无有效 `name:value` 切分的行拒绝或显式告警。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `parse_upstream_response_head` 检测前导 SP/HTAB 续行（RFC 7230 §3.2.4 obs-fold），并入上一头值（前导空白 trim 后加单空格连接）；对既无 `:` 又非续行的行 `tracing::warn!` 并跳过（不再静默丢弃）；孤立的续行（无前导头）也 warn。测试：`parses_obs_fold_continuation_into_previous_header`、`parses_obs_fold_with_tab_prefix`、`parses_skips_malformed_line_without_colon`。
 
 ### M5 🔶 WS 升级接受缺少 `Connection: upgrade`/`Sec-WebSocket-Accept` 的 101 `[来源:N8]`
 - **位置**：`crates/proxy-core/src/ws_upgrade.rs:358-362`
 - **证据**：成功条件为 `status_code == 101 && upstream_headers.iter().any(|(n,_)| n.eq_ignore_ascii_case("upgrade"))`，未校验 RFC 6455 §4.2.2 要求的 `Connection: upgrade` 与匹配的 `Sec-WebSocket-Accept`。
 - **影响**：行为异常的上游返回 `HTTP/1.1 101 Upgrade: h2c`（无 accept key）被当作成功升级，relay 把任意字节当 WS 帧解析，产生垃圾捕获并污染客户端 WS 流。
 - **修复方向**：进入 relay 前校验完整 101 握手（`Connection` 含 `upgrade`、`Upgrade: websocket`、存在 `Sec-WebSocket-Accept`），否则视为拒绝升级。
+- **状态：已修复 @ 批次 4（2026-07-05，复审加固）** — 新增 `compute_ws_accept(client_key)`（RFC 6455 §1.3：`base64(SHA1(key + magic GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`，新增 `sha1` crate 依赖）与 `is_valid_ws_upgrade_handshake(headers, client_key)`：校验 status=101 + `Connection` 头 token 列表含 `upgrade`（大小写不敏感）+ `Upgrade: websocket` + `Sec-WebSocket-Accept` 头值**等于** `compute_ws_accept(请求的 Sec-WebSocket-Key)`（完整 RFC 6455 §4.2.2 校验，不只是存在性——复审指出原「仅存在性」方案让 `Sec-WebSocket-Accept: x` 也通过）；`handle_ws_upgrade_via_hyper` 从 `request.headers` 取 `sec-websocket-key` 传入。客户端 key 缺失则拒绝（不能跳过值校验）。**二轮复审加固**：原修复中 `status_code==101 && !is_valid_ws_upgrade_handshake(...)` 落入「原样返回」分支仍用原始 101 构造响应，客户端会收到 101 但代理未注册 relay（连接挂起）。现 malformed-101 单独作为上游协议错误：返回 502 Bad Gateway（剥 `Connection`/`Upgrade`/`Sec-WebSocket-Accept` 头避免客户端误判升级），并把 session detail 的 `status_code`/`response_mime_type` 同步改成 502（不误导 Inspector）。测试：`compute_ws_accept_matches_rfc6455_example`（RFC §1.3 worked example：key `dGhlIHNhbXBsZSBub25jZQ==` → accept `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`）、`handshake_valid_with_correct_accept_value`、`handshake_invalid_when_accept_value_is_wrong`、`handshake_invalid_when_accept_is_a_bogus_echoed_value`、`handshake_invalid_when_connection_missing_upgrade_token`、`handshake_valid_when_connection_lists_upgrade_among_other_tokens`、`handshake_invalid_when_upgrade_not_websocket`、`handshake_invalid_when_accept_header_absent`、`handshake_invalid_when_client_key_is_missing`、`handshake_is_case_insensitive`，以及集成测试 `ws_upgrade_malformed_101_returns_502_and_does_not_register_relay`（上游返 101 + wrong accept → 客户端收到 502 非 101、session 状态 502、registry 未注册）。
 
 ### M6 ✅ `build_ws_upgrade_request` 对非 ASCII 头值静默清空（`to_str().unwrap_or("")`） `[来源:N9]`
 - **位置**：`crates/proxy-core/src/ws_upgrade.rs:805-810`
 - **证据**：`format!("{}: {}\r\n", name, value.to_str().unwrap_or(""))`——含非 ASCII 字节（合法 obs-text）时 `HeaderValue::to_str()` 返回 `Err`，值被替为 `""`，向上游发出空头值，无错误日志。
 - **影响**：任何含 obs-text 的请求头（如 `Sec-WebSocket-Protocol` 回显、Latin-1 `Origin`）被擦除值转发，可能破坏升级或静默丢用户数据。
 - **修复方向**：用 `String::from_utf8_lossy(value.as_bytes())`（请求头显示路径已如此），或按字节级写。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `build_ws_upgrade_request` 的 `value.to_str().unwrap_or("")` 改为 `String::from_utf8_lossy(value.as_bytes())`（obs-text/Latin-1 不被擦除）。测试：`ws_upgrade_request_preserves_non_ascii_header_value`（含 0xE9 的头值断言被保留而非清空）。
 
 ### M7 🔶 永不 resolve 的 Promise 脚本可在超时后仍占线程（detach 后中断处理不确定） `[来源:R4]`
 - **位置**：`crates/rule-engine/src/execute.rs:373-378`（`MaybePromise::finish`）+ 中断处理 `:345-347`；detach 路径 `:244-296`
 - **证据**：`async onRequest(ctx){ await new Promise(()=>{}); }` 返回永不 settle 的 Promise；`finish` 驱动 `execute_pending_job` 循环不退出。外层 `recv_timeout`（`:197`）会超时设 `cancel_flag` 返回 TimedOut，但 spawn 的 OS 线程是 detach 的，许可仅在退出时释放，持有 16MB QuickJS 堆直到中断处理最终触发。
 - **影响**：永不 resolve 的脚本每次泄漏线程+16MB 堆，持续流量下可耗尽内存/线程（尽管请求方已返回 TimedOut）。
 - **修复方向**：给 in-thread `finish` 自带截止；确认 rquickjs 在 pending-job 循环中确实轮询中断；让 worker 线程可 join/可取消而非纯 detach。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `run_script_in_thread` 的 `maybe.finish::<String>()` 在返回 `Error::WouldBlock`（QuickJS job queue 在 Promise settle 前耗尽）时给出明确的「hook returned a Promise that never settled」错误信息，区别于通用 await 错误，便于运维定位「永不 resolve 的 Promise」（如 `await new Promise(() => {})`）。已确认 `set_interrupt_handler`（`execute.rs:345-347`）在 `finish` 每轮 `execute_pending_job` 中触发，`cancel_flag` 超时即设；`finish` 对永不 settle 的 Promise 会立即（不需等到 500ms 超时）返回 `WouldBlock`，因为 job queue 首轮即空。worker 线程仍 detach，但错误明确化使其在 trace 中可观测。测试：`never_settling_hook_produces_clear_error`（断言含「never settled」的错误条目）。
 
 ### M8 🔶 断点编辑请求头不更新 `request.host`，改 Host 头无路由效果 `[来源:R5]`
 - **位置**：`crates/proxy-core/src/breakpoints.rs:120-133`（`modified_request_headers` 分支）
 - **证据**：该分支重建 `request.request_headers`/`request.headers` 后调 `refresh_request_target_from_url`（`:79-86`，仅更新 path/query/raw_request），从不把 Host 头回读进 `request.host`/`request.url`。而 `upstream.rs:152-156` 从 `request.host` 构造实际发往上游的 Host 头（覆盖 `request.headers`）。
 - **影响**：用户在断点中改 Host 头（断点暴露的唯一 URL 相关字段）被静默忽略——请求仍发往原主机。UI 显示已改但行为不符，对调试工具具误导性。
 - **修复方向**：编辑头后若存在 Host 头则解析并更新 `request.host`/`request.url` 主机端口。
+- **状态：已修复 @ 批次 4（2026-07-05，复审加固）** — `apply_request_resolution` 在重建 `request.headers` 后，调 `apply_host_header_to_request`：若新头集含 `Host`，解析 `host`/`host:port`/`[ipv6]`/`[ipv6]:port` 回填 `request.host` 与 `request.url`。**复审加固**：(1) bracketed IPv6 现正确处理——`[::1]:8080` 拆为 host `[::1]` + port 8080（原 `rsplit_once(':')` 守卫误把整个串当 host），`set_host` 收到 re-bracketed `[::1]`（url crate 对特殊 URL 需 bracketed 形式）；(2) **validate-before-commit**——host/port 先在 `request.url.clone()` 上校验（`set_host`/`set_port` 都成功），通过后才同时提交 `request.host` 与 `request.url`（原先 `request.host = host_part` 在 `set_host` 成功前就执行，非法 host 会污染 routing host 而 URL 保留旧值）；(3) 非数字 `:port`/空 host/未闭合 `[`/含空格的非法 host 整体拒绝（host 与 url 都不动）。测试：`m8_host_header_edit_updates_request_host_and_url`、`m8_host_header_edit_with_port_updates_host_and_port`、`m8_host_header_edit_keeps_path_and_query`、`m8_bracketed_ipv6_with_port_updates_host_and_port`、`m8_bracketed_ipv6_without_port_updates_host_only`、`m8_invalid_host_is_rejected_and_leaves_request_untouched`、`m8_invalid_port_rejects_the_whole_edit`、`m8_unclosed_bracket_is_rejected`。
 
 ### M9 ✅ 响应阶段 throttle 忽略 `latency_ms` 与丢包（与请求阶段不一致） `[来源:R6]`
 - **位置**：`crates/proxy-core/src/rules/throttle.rs:92-116`（`apply_response_throttle`）
@@ -247,12 +253,14 @@
 - **证据**：L11 注释（`:55-61`）说明为消除「clear 删顶层目录 → 并发 write 撞 NotFound 父目录」窗口，已改为**保留顶层 `base_dir`、只删其下内容**。该顶层窗口确实已闭合。但残留窗口落在 **per-session 子目录** 层：`clear_all` 在 `:73-88` 迭代 entries 时对每个 session 子目录做 `remove_dir_all`（`:77`）；并发 `write_body` 对同一 session 先 `create_dir_all(&dir)`（`:29`）再 `fs::write(&file_path)`（`:32`）。若 `clear_all` 的 `remove_dir_all` 落在 `write_body` 的 `create_dir_all` 与 `fs::write` 之间，`fs::write` 因父目录消失返回 `NotFound`。`write_body` 不容忍该错误（`clear_all` 自身对 `NotFound` 容忍，`:84-86`，但 `write_body` 不容忍）。另：`clear_all` 仅 `read_dir` 一次不复查，迭代通过后才 `create_dir_all` 的新 session 子目录被漏扫（孤立 body 文件无 DB 行）。
 - **影响**：「clear all sessions」与流量并发时偶发 body 捕获失败（错误以 `DbError::Io` 上抛）；少量孤立文件累积。低概率但真实。
 - **修复方向**：在 desktop 层（`repository.rs` 已持 `db: Mutex`）协调 clear/write 串行；或 `write_body` 在 `NotFound` 上重试 `create_dir_all`+write；或 `clear_all` 反复扫描至稳定。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `BodyStore::write_body` 在 `fs::write` 返回 `NotFound` 时（`create_dir_all` 与 `write` 之间 `clear_all` 删了 per-session 子目录）重试 `create_dir_all` + write 一次（静默自愈，调用方看到正常成功），其余错误照常上抛。测试：`m12_write_body_recovers_after_session_dir_removed`（模拟 dir 被删后 write_body 仍成功）。
 
 ### M13 🔶 Linux gsettings 代理 restore 不覆盖 `socks`/`ftp`/`use-same-proxy` `[来源:T4]`
 - **位置**：`apps/desktop/src-tauri/src/system_proxy/linux.rs:140-149/151-173/175-223`
 - **证据**：`capture_gnome_snapshot` 仅捕获 `mode`/`http.*`/`https.*`/`ignore-hosts`；`apply_gnome_proxy` 仅设 http/https。GNOME schema `org.gnome.system.proxy` 还有 `ftp.host/port`、`socks.host/port`、布尔 `use-same-proxy`，均未捕获/恢复。
 - **影响**：保真度缺口——`mode='manual'` 会激活各协议代理；若用户原已有 socks/ftp 条目或 `use-same-proxy=true`，行为偏离。
 - **修复方向**：捕获/恢复完整 schema（`ftp`/`socks`/`use-same-proxy`），apply 时明确是否触碰 `use-same-proxy`。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `GnomeProxySnapshot` 扩 schema 至 `ftp_host/port`、`socks_host/port`、`use_same_proxy`；`capture_gnome_snapshot` 多取这 5 个 key（含新增 `gsettings_get_optional_bool` 直接读根 schema `org.gnome.system.proxy` 的 `use-same-proxy`）；`apply_gnome_proxy` 不触碰这些键（仅设 http/https/mode/ignore-hosts，保留用户原值不变）；`restore_gnome` 按 snapshot 回写全部 5 个 key。测试：`gnome_snapshot_round_trips_full_schema`（serde 往返断言新字段捕获/恢复）。
 
 ### M14 ✅ `delete_sessions_except` 为同步 Tauri 命令，在 IPC 线程做阻塞 SQLite + body 文件删除 `[来源:T5]`
 - **位置**：`apps/desktop/src-tauri/src/commands/sessions.rs:139-142` → `bootstrap/mod.rs:268-278` → `bootstrap/repository.rs:79-103`
@@ -271,6 +279,7 @@
 - **证据**：`RunEvent::Exit` 中 `tauri::async_runtime::block_on(async { shutdown_proxy_runtime(...).await })`，其中 `collector_handle.abort(); collector_handle.await; proxy_server_handle.shutdown().await`；其后 `restore_system_proxy(&snapshot)` 跑阻塞子进程。`take_runtime`/`set_runtime`/`take_system_proxy_snapshot`/`store_system_proxy_snapshot` 均 `.expect(...)`。若 `collector_handle`/`shutdown()` 以毒化 mutex 的方式 panic，`.expect()` 会在 **shutdown 期间** abort，跳过系统代理还原。
 - **影响**：async-shutdown 中 panic 毒化 mutex 会把干净还原变成 abort，留下系统代理指向死端口。
 - **修复方向**：shutdown 路径 `.expect()` 改 `.unwrap_or_else(|e| e.into_inner())`（仓库 `repository.rs:49/81/145/224` 已用此模式）。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `bootstrap/mod.rs` 与 `main.rs` 中所有 `.expect("... should not be poisoned")`（共 20 处，覆盖 runtime/snapshot/status/tls_manager/cert_status/app_handle/focused_hosts/db 等 mutex）改为 `.unwrap_or_else(|e| e.into_inner())`（对齐 `repository.rs` 既有模式）。配合 A8 已选方案 A（panic=unwinding 已启用，panic 不再 abort），shutdown 路径防 mutex 毒化致二次 panic 跳过系统代理还原。不易单测（需 panic 注入），由 `cargo clippy` + 现有 test 全绿验证。
 
 ### M17 ✅ `enable/disable_system_proxy` 无并发守卫，重叠调用可丢失快照 `[来源:T8]`
 - **位置**：`apps/desktop/src-tauri/src/commands/proxy.rs:338-381`、`383-418`
@@ -288,42 +297,49 @@
 - **证据**：`push` 做 `queue: [...s.queue, {id,message}]` 无长度上限、无相同消息去重。全局 `QueryCache.onError` 对每个失败查询调 `push`（仅 `meta.suppressGlobalErrorNotification` 或 `SESSION_NOT_FOUND` 抑制）。后端间歇失败或一批并行查询同时失败（网络抖动）各 push 不同 `id` 累积。`AppShell` 仅在 Snackbar 关闭时 `shift()`（一次一个），N 个错误排 N 个 snackbars 顺序回放。
 - **影响**：瞬时故障产生长尾过期错误 toast，恢复后仍长时间回放；`queue` 长度增长。
 - **修复方向**：队列设上限（保留最近 K 条），并在 `push` 折叠连续相同消息。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `useNotificationStore.push` 加 (a) 上限 `MAX_QUEUE_SIZE=5`（超限丢最旧，保留最近失败可见）；(b) 连续相同消息折叠（仅比对末条，distinct 交错错误仍浮现）。测试：`notification.store.test.ts` 五条断言上限截断、连续折叠、非连续保留、shift。
 
 ### M20 ✅ `BodyEditor` 切 json 模式时静默丢弃未保存编辑 `[来源:业务层F5]`
 - **位置**：`apps/desktop/src/features/breakpoints/components/BreakpointInterceptPanel.tsx:456-469`（`handleModeChange`）
 - **证据**：切 `json` 模式时 `setDraftText(formatJsonText(committedTextRef.current).text)`（`:464-466`）；`formatJsonText`（`:225-239`）解析成功则 `JSON.stringify(JSON.parse(text),null,2)` 全量重写格式，无 undo。用户在 `raw` 模式输入的有效但格式不同的 JSON，切 `json` 即被整体重排。切 `form` 同理用 `parseUrlEncodedEntries`（`:460`）丢弃非 url 编码文本。
 - **影响**：断点拦截器中切换 body 模式可静默重排/抹去用户进行中的 body 编辑——对字节精确性敏感的调试器令人意外。
 - **修复方向**：仅在显式「Format JSON」动作（`:471` 已存在）时格式化；切 `json` 原样显示，切 `form` 解析失败则保持文本模式。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `BodyEditor.handleModeChange` 取消自动 `formatJsonText`/`parseUrlEncodedEntries`：切 `json`/`raw` 原样显示 `committedTextRef.current`；切 `form` 仅当 `committedTextRef.current` 看起来是 form 编码（含 `=` 或为空）才进 form 模式，否则保持当前文本模式不丢字节。格式化仅由显式 `handleFormatJson` 触发。
 
 ### M21 ✅ `BreakpointInterceptPanel.startResize` 拖拽中卸载泄漏 window 监听 `[来源:业务层F6]`
 - **位置**：`apps/desktop/src/features/breakpoints/components/BreakpointInterceptPanel.tsx:1202-1240`；同模式见 `pages/compose/index.tsx:183-219`
 - **证据**：`startResize` 在 window 上挂 `pointermove`/`pointerup`/`pointercancel`（`:1235-1237`），仅在 `stopResize`（`:1229-1233`，绑为 up/cancel handler）移除。组件在拖拽中卸载（断点被后端/另一次命中解析）时无 effect cleanup 移除这些监听，`stopResize` 永不触发。
 - **影响**：面板在分割条拖拽中卸载时泄漏 3 个 window 监听 + 闭包至下次别处 pointerup。重复发生累积。
 - **修复方向**：用 ref 跟踪活动监听并在 `useEffect` cleanup 移除；或经 `isResizing` 状态驱动的 `useEffect` 让 React 接管生命周期。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `BreakpointInterceptPanel` 与 `compose/index.tsx` 两处 `startResize` 用 `resizeCleanupRef`（`useRef<(() => void) | null>`）跟踪活动清理函数；`stopResize` 写入 ref 并在卸载时由 `useEffect` cleanup 调用，移除 window 监听 + `releasePointerCapture`（含已释放的 try/catch 容错）+ compose 侧 `cancelAnimationFrame`+reset ref。BreakpointInterceptPanel 新增独立 unmount effect；compose 侧扩展现有动画帧 cleanup effect 一并跑 resize 清理。
 
 ### M22 🔶 `ScriptRulesPanel` 等 4 个规则面板选择 effect 可覆盖进行中的新规则草稿 `[来源:业务层F7]`
 - **位置**：`apps/desktop/src/features/rules/components/ScriptRulesPanel.tsx:103-118`；同模式 `MapRulesPanel:74-89`、`DnsMappingsPanel`、`RewriteRulesPanel:332-348`
 - **证据**：选择同步 effect 跑于 `[draft.id, filteredRules, rules, selectedRuleId]`。`handleDelete` 后 `selectedRuleId=undefined`（`:201`）触发 `filteredRules[0]` 分支（`:109-115`）强制选首项，覆盖用户可能正在编辑的草稿。throttle 编辑器已用 `lastSyncedRuleIdRef`（`use-throttle-editor.ts:129`）硬化，规则面板未跟进。
 - **影响**：删除后快速编辑、或与 refetch 竞态时，用户未保存草稿被首项替换无提示。
 - **修复方向**：套用 throttle 编辑器的 id 同步守卫（ref 跟踪 last-synced id，仅 id 变才从服务端值同步草稿）。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `ScriptRulesPanel`、`MapRulesPanel`、`RewriteRulesPanel` 三个规则面板套用 `use-throttle-editor.ts:123-130,187-211` 的 `lastSyncedRuleIdRef` 守卫：每个面板加 `const lastSyncedRuleIdRef = useRef<string | undefined>(undefined)`；selection effect 改为「仅当 `lastSyncedRuleIdRef.current !== selectedRuleId/next.id` 才从 server 值同步 draft」；`selectRule`/`handleCreate`/`handleSave.onSuccess`/`handleDelete.onSuccess` 在 setDraft 前置 ref。`DnsMappingsPanel` 无 selection effect（无覆盖风险），不加守卫。测试：`ScriptRulesPanel.test.tsx` 新增 `does NOT clobber an in-progress edit when the rules query refetches`（refetch 新数组同数据后 in-flight 编辑保留）。
 
 ### M23 ✅ `useThrottleEditor` 临时启用超时可在切换 profile 后错误禁用新 profile `[来源:业务层F8]`
 - **位置**：`apps/desktop/src/features/throttling/use-throttle-editor.ts:213-223`
 - **证据**：effect 在 `temporaryUntil - Date.now()` ms 后调度 `setActiveMutation.mutate(undefined)` + `setTemporaryUntil(null)`，key 为 `[setActiveMutation, temporaryUntil]`。若临时启用 profile A 后用户手动 `setActiveMutation.mutate(otherProfileId)`（另选激活），定时器仍触发调 `setActiveMutation.mutate(undefined)`，15 分钟后静默禁用手动选中的 profile B，UI 无解释。
 - **影响**：临时启用 A 后切到 B，B 会在 A 的 15 分钟定时器到期时被静默禁用。
 - **修复方向**：记录临时启用所针对的 profile id；超时回调仅在当前激活 profile 仍为该 id 时才调 `mutate(undefined)`。
+- **状态：已修复 @ 批次 4（2026-07-05）** — `useThrottleEditor` 加 `temporaryProfileIdRef`（`handleTemporaryEnable` 设置目标 profile id）与 `activeProfileIdRef`（独立 effect `[activeProfile]` 镜像当前激活 profile id，避免 timeout 回调闭包陈旧）；临时启用超时 effect（`:213-223`）的回调先核对 `activeProfileIdRef.current !== temporaryProfileId`，是则只 `setTemporaryUntil(null)` 不调 `setActiveMutation.mutate(undefined)`（不禁用用户手动切到的新 profile）。测试：`use-throttle-editor.test.tsx` 新增 `does NOT disable a profile the user switched to after a temporary-enable on a different profile` + `DOES disable the profile when it is still the active one at timeout`（baseline 不破坏正常行为）。
 
 ### M24 🔶 `EnvironmentManagerDialog` 全局变量保存：close/unmount 仅清 timer 不 flush，500ms 内关对话框编辑丢失 `[来源:业务层F9]`
 - **位置**：`apps/desktop/src/features/environments/components/EnvironmentManagerDialog.tsx:106-131`
 - **核实结论（v1.1 收窄）**：env-scoped 变量已有 `useEnvVarsSaveManager` 的 flush-on-switch（H8 已修）。**切 tab 时通常不丢**——MUI Dialog 由父级 `open` prop 控制常驻挂载，切到「environments」标签时组件仍挂载，pending 的 500ms 防抖 timer 会继续触发并保存（注释 `:106-108` 明说 global vars 不需 H8 flush-on-switch，因 timer 在挂载期内会自然完成）。残留的真实窗口仅：**unmount/close 时只 `clearTimeout` 不 flush**——`:109-113` cleanup 直接清掉 pending timer，若用户在 500ms 防抖窗口内关闭对话框（且组件随之卸载），该次编辑被丢弃而非保存。此外若组件在 timer 触发前因新 `globalVarsQuery.data` 重渲，`setLocalGlobalVars` effect（`:80-92`）会用服务端值覆盖本地，pending 防抖仍用陈旧闭包值。
 - **影响**：仅在「500ms 内关对话框并卸载」窄窗口丢失编辑；切 tab 不受影响。低概率。
 - **修复方向**：unmount cleanup 由 `clearTimeout` 改为「若有 pending timer 则立即 flush 再清」；或在 `onClose` 内 flush global vars 防抖。
+- **状态：已修复 @ 批次 4（2026-07-05，复审加固）** — `EnvironmentManagerDialog` 加 `localGlobalVarsRef`（独立 effect 镜像最新 localGlobalVars，避免闭包陈旧）与 `flushGlobalVars`（清 timer + 用最新 localGlobalVars 立即 mutate）；unmount cleanup 由 `clearTimeout` 改为调 `flushGlobalVars`（pending 则 flush 再清，500ms 内关对话框编辑不再丢）；`debouncedSaveGlobalVars` 的 timer 触发后清 ref 避免重复 flush。**复审加固**：`flushGlobalVars`/`debouncedSaveGlobalVars` 与 unmount cleanup effect 都改为**无依赖**（`useCallback([])` / `useEffect([...flushGlobalVars])` 其中 flushGlobalVars 自身稳定）——原实现依赖整个 React Query mutation result `setGlobalVars`（每 render 新对象），导致 cleanup effect 每 render 重跑、`debouncedSaveGlobalVars` 每 render 重建，且可能在 `localGlobalVarsRef` 更新前清 timer 丢编辑。现用 `mutateGlobalVarsRef`（每 render 同步 `setGlobalVars.mutate`，mutate 自身稳定）持有 mutate，cleanup 只注册一次。
 
 ### M25 🔶 `ScriptRulesPanel.handleImportFile` 异步导入与选择 effect 竞态 `[来源:业务层F11]`
 - **位置**：`apps/desktop/src/features/rules/components/ScriptRulesPanel.tsx:146-174`
 - **证据**：`handleImportFile` 异步：`await open(...)` 后 `await readScriptSourceFile(selected)` 后 `setDraft(current => ({...current,...}))`。两次 await 之间，Tauri 事件或查询 refetch 改 `rules`，重触选择 effect（`:103-118`）。若该窗口内 effect `setDraft(filteredRules[0])`（`:112`，非函数式更新）落在导入的 `setDraft` 之后，会覆盖导入的源码。
 - **影响**：导入脚本文件在背景 refetch + 选择同步交错时偶尔无法填充编辑器。
 - **修复方向**：选择 effect 改 id-aware（同 M22 修复）；或导入设「勿覆盖」守卫 ref 供 effect 检查。
+- **状态：已修复 @ 批次 4（2026-07-05）** — 随 M22 的 `lastSyncedRuleIdRef` 守卫一并闭合：`ScriptRulesPanel.handleImportFile` 在两次 `await` 间 `lastSyncedRuleIdRef.current = selectedRuleId ?? draft.id`，使背景 refetch 触发的 selection effect 不再覆盖导入的 `setDraft`。
 
 ### M26 ✅ Compose `BodyFieldsEditor` 空态源不一致（同 H15 模式，单列便于认领） `[来源:业务层F4-扩展]`
 - **位置**：`apps/desktop/src/features/compose/components/EditableKeyValueTable.tsx:94`
@@ -448,10 +464,10 @@
 
 > 下列合并条目计为 4 项中危（M27–M30）+ 若干微小项（不计入计数）。
 
-- **M27 🔶** macOS `apply` 对所有服务关 PAC/自动发现，部分失败致多服务半应用态（`system_proxy/macos.rs:132-147` 与 `:99-130`）。建议按服务「先设后启用」并文档化部分失败语义。
-- **M28 ✅** `EnvironmentManagerDialog` 用 `window.confirm` 做破坏性环境删除（`:149`），与全局 MUI Dialog 风格不一致，Tauri 原生 confirm 按钮可能无视 i18n。改用 MUI 确认对话框。
-- **M29 🔶** `clear_all_sessions` 跨 DB + body store 非原子（`db/src/sessions.rs:389-405` + `bootstrap/repository.rs:47-74`）：DB 成功 body 清理失败则留孤立 blob。建议失败入重扫队列。
-- **M30 🔶** `set_active_throttle_profile(None)` 与 `save_throttle_profile` 双路径分别维护「唯一启用」不变量，无 `UNIQUE` partial index（`rules.rs:461-492` vs `:400-459`）。建议加 `CREATE UNIQUE INDEX ... WHERE enabled=1`。
+- **M27 🔶** macOS `apply` 对所有服务关 PAC/自动发现，部分失败致多服务半应用态（`system_proxy/macos.rs:132-147` 与 `:99-130`）。建议按服务「先设后启用」并文档化部分失败语义。**状态：已修复 @ 批次 4（2026-07-05）** — `apply_system_proxy_settings_with_snapshot` 改为对每个 service 调 `apply_service_proxy_with_snapshot`（提取的 per-service「set-then-enable」）并收集 per-service 错误（`Vec<String>`），不再首个 `?` 中止；若有失败则对**所有** service 调 `restore_service_proxy_settings` 回滚（best-effort，回滚失败也聚合进错误信息），返回聚合错误。`apply_system_proxy_settings_with_pre_snapshot` 的 Err 分支不再二次回滚（内层已回滚），仅透传聚合错误。
+- **M28 ✅** `EnvironmentManagerDialog` 用 `window.confirm` 做破坏性环境删除（`:149`），与全局 MUI Dialog 风格不一致，Tauri 原生 confirm 按钮可能无视 i18n。改用 MUI 确认对话框。**状态：已修复 @ 批次 4（2026-07-05）** — `handleDeleteEnvironment` 改为 `setConfirmDeleteEnv({id,name})` 打开 MUI `<Dialog>`（仿 `AppShellDialogs.tsx:158-175`，maxWidth=xs，`DialogTitle` + `DialogContent` 警告文案 + `DialogActions` 含 cancel/delete 按钮）；新增 `confirmDeleteEnvironment` 处理确认；i18n 加 `collectionsPage.deleteEnvironmentTitle` 与 `common.actions.confirm`/`common.actions.delete`（中英）。
+- **M29 🔶** `clear_all_sessions` 跨 DB + body store 非原子（`db/src/sessions.rs:389-405` + `bootstrap/repository.rs:47-74`）：DB 成功 body 清理失败则留孤立 blob。建议失败入重扫队列。**状态：已修复 @ 批次 4（2026-07-05）** — `Repository::clear_all_sessions` 在 `body_store.clear_all()` 失败时调 `spawn_body_rescan`（fire-and-forget 后台线程：sleep 500ms 后重试一次 `clear_all()`，成功 info 日志、再失败 error 日志并放弃，孤立 blob 等下次 clear 或全量 session 重跑清扫）；复用 `spawn_delete_sessions` 的 fire-and-forget 模式，不阻塞 UI。
+- **M30 🔶** `set_active_throttle_profile(None)` 与 `save_throttle_profile` 双路径分别维护「唯一启用」不变量，无 `UNIQUE` partial index（`rules.rs:461-492` vs `:400-459`）。建议加 `CREATE UNIQUE INDEX ... WHERE enabled=1`。**状态：已修复 @ 批次 4（2026-07-05）** — `run_migrations` 在 `CREATE_TABLES` 后先 `collapse_duplicate_enabled_throttle_profiles`（每 workspace 仅保留最小 id 的 enabled 行，禁用其余，幂等），再 `CREATE UNIQUE INDEX IF NOT EXISTS idx_throttle_profiles_enabled_per_workspace ON throttle_profiles(workspace_id) WHERE enabled=1`（partial unique index 作存储层最后防线）。`save_throttle_profile`/`set_active_throttle_profile` 的应用层前置去活逻辑保留。测试：`m30_enabled_throttle_profile_unique_per_workspace_index_exists`、`m30_two_enabled_profiles_same_workspace_rejected_by_index`、`m30_collapse_duplicate_enabled_throttle_profiles`。
 
 **其它微小项**（不计入计数，建议批量清理）：
 - Root CA 序列号在 `load_from_pem` 后未固定（rcgen `from_ca_cert_pem` 不保 AKI/SKI/serial，`tls-manager/src/generator.rs:76-95`），严格客户端可能拒链、`fingerprint()` 与磁盘证书不符（D5，因其影响偏中危但归 TLS 子系统，已纳入 P1 范畴，此处仅提示）。
@@ -574,6 +590,12 @@
   - **M2** ✅ `Drop` 同步解压：`build_session_detail` 加 `skip_bodies: bool`（true→request_body/response_body=None 不解码）；`PendingRequestCancellationGuard::drop` 传 `true`，其余 8 处 `false`。
   - **M3** ✅ spool 整读改流式：新增 `tokio-util`(io)+`http-body`+`futures-util`；`build_hyper_response_from_upstream` 签名 `body: &[u8]` → `BoxBody<Bytes,String>` + 可选 `streamed_content_length`（spool 用文件大小作 Content-Length，防 hyper chunked 编码被裸 TCP 客户端误读）；spool 经 `ReaderStream`→`CleanupStream`（Drop spawn_blocking 删文件）→`StreamBody`；`take()` spool 路径防 UpstreamResponse Drop 误删。测试：`m3_cleanup_stream_forwards_bytes_and_deletes_spool_file` + 大响应转发测试。
   - 门禁：`cargo fmt --check` ✅、`cargo clippy --workspace -- -D warnings`（lib 目标）0 error ✅（5 处 `--all-targets` test lint 为预先存在，非本次引入）、`cargo test --workspace` 全绿 ✅（db 82+57、proxy-core 164、tls-manager 31、rule-engine 25）、`pnpm typecheck` ✅、`pnpm test`（前端 393 测试）✅、`pnpm lint` ✅。
+- **批次 4（P2 中危剩余）已完成 @ 2026-07-05，复审加固 M5/M8/M24 + 二轮加固 malformed-101**，修复 20 项（M1/M4/M5/M6/M7/M8/M12/M13/M16/M19–M25/M27–M30）：
+  - **proxy-core**：M1（chunked body 超时返回部分 body 而非硬错）、M4（obs-fold 续行并入上头值 + 畸形行 warn）、M5（完整 101 握手校验 Connection+Upgrade+Accept **值**——`base64(SHA1(key+GUID))`，复审加固：原仅校验 Accept 存在性现校验值；二轮加固：malformed-101 不再原样转发 101，改返 502 + 剥升级头 + session detail 同步 502）、M6（非 ASCII 头值 lossy 保留）、M7（never-settling Promise 明确错误信息）、M8（断点编辑 Host 头回填 request.host/url，复审加固：bracketed IPv6 `[::1]:8080` 正确拆分 + validate-before-commit 不污染 routing host）。
+  - **db**：M12（write_body NotFound 重试一次容 clear_all 竞态）、M30（partial UNIQUE index `idx_throttle_profiles_enabled_per_workspace` + collapse 迁移）。
+  - **desktop**：M29（clear_all_sessions body 失败 fire-and-forget 重扫）、M13（GNOME ftp/socks/use-same-proxy 完整 schema 捕获/恢复）、M27（macOS 多服务 per-service 收集错误 + 回滚）、M16（shutdown 路径 20 处 `.expect` → `.into_inner()`）。
+  - **前端**：M19（notification 上限 5 + 连续折叠）、M20（body 模式切换不自动格式化）、M21（resize 监听 ref+useEffect cleanup，两处）、M22（3 个规则面板 `lastSyncedRuleIdRef` 守卫）、M25（导入竞态随 M22 闭合）、M23（临时启用超时核对 profile id 不误禁用新 profile）、M24（unmount flush global vars，复审加固：依赖稳定的 `mutate`（经 ref 持有）而非整个 mutation result 对象，cleanup 只注册一次）、M28（window.confirm → MUI Dialog + i18n）。
+  - 门禁：`cargo build` ✅、`cargo fmt --check` ✅、`cargo clippy --workspace`（lib 目标）0 warning ✅、`cargo test --workspace` 全绿 ✅（db 87、proxy-core 202、rule-engine 27、desktop 57）、`pnpm typecheck` ✅、`pnpm lint` ✅、`pnpm test` ✅（401 Vitest，含新增/加固的 M1/M4/M5/M6/M7/M8/M12/M13/M19/M22/M23/M30 + malformed-101 回归测试；唯一偶发 fail 是预先存在的 `session-explorer.helpers.stress.test` 负载敏感性能测试，与本次改动无关，单独跑过）。
 - **批次 3b（性能 / DB / 规则）已完成 @ 2026-07-05**，修复 6 项（H2/M9/M10/M11/M14/M15），并经复审加固（4 项 follow-up）：
   - **H2** ✅ 剥离 `Connection` 头点名的逐跳头（RFC 7230 §6.1）：`http_io.rs` 新增 `hop_by_hop_strip_set`（解析 `Connection`/`Proxy-Connection` 值的逗号分隔 token + 标准逐跳集合 `Keep-Alive/TE/Trailer/Upgrade/Proxy-Authenticate/Proxy-Authorization`）与 `should_strip_hop_by_hop(name, &set, is_ws_upgrade)`；`build_upstream_headers`/`build_upstream_headers_from_entries`/`build_upstream_headers_from_hyper`（请求三路径）与 `build_hyper_response_from_upstream`（响应路径，101 升级保留 `Connection`/`Upgrade` 握手头）均调用。**复审加固**：WS/upgrade 分支只特殊保留 `Connection` 与 `Upgrade`，`Proxy-Connection`（及其余逐跳头）即使在升级路径上也剥离——原 WS 分支误保留 `Proxy-Connection`，101 响应会把它转发给客户端。测试：`parse_connection_tokens_*`、`hop_by_hop_strip_set_*`、`is_standard_hop_by_hop_header_*`、`build_upstream_headers_strips_connection_listed_token`、`build_upstream_headers_strips_standard_hop_by_hop`、`build_upstream_headers_preserves_ws_handshake`（含 `Proxy-Connection` 必被剥离的回归断言）。
   - **M9** ✅ 响应阶段 throttle 对称应用 latency/丢包：`apply_response_throttle` 返回 `Result<ThrottleTrace, ThrottleFailure>`，先 `should_drop_for_packet_loss` 丢包（`Err`），再 sleep `profile.latency_ms`，trace 用真实 `latency_ms`（原硬编码 0）。`http_proxy.rs` 两调用点。**复审加固**：mock 响应丢包路径不再复用 request-stage 的 `build_throttle_failure_response`（它会丢 "request was dropped" 文案并丢失已执行的 rewrite/script traces），改为对齐 upstream 路径——直接组装 504 detail，文案用 "The response was dropped by the active throttle profile."，并填充全部 map/rewrite/script/throttle traces。测试：`response_throttle_records_configured_latency_in_trace`、`response_throttle_drops_on_full_packet_loss`、`m9_mock_response_throttle_drop_returns_504_with_response_message_and_traces`（集成测试：Mock 动作 + 100% 丢包 → 断言 504 + response 文案 + rewrite/script trace 保留 + response-stage dropped throttle trace）。

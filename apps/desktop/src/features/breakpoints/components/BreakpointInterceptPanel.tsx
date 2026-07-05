@@ -370,18 +370,30 @@ function BodyEditor({
   );
 
   const handleModeChange = useCallback((nextMode: BodyEditorMode) => {
-    setMode(nextMode);
-
+    // M20: switching modes must NOT silently reformat or drop the user's
+    // in-progress text. Previously switching to `json` ran the body through
+    // `formatJsonText` (a full re-stringify with no undo), and switching to
+    // `form` ran `parseUrlEncodedEntries` — both clobbered byte-exact edits a
+    // debugger cares about. Now switching to `json`/`raw` shows the committed
+    // text as-is; only the explicit "Format JSON" button reformats. Switching
+    // to `form` only happens when the current text actually looks
+    // form-encoded (contains `=` or is empty); otherwise we stay in the
+    // current text mode so the user's content is preserved verbatim.
     if (nextMode === "form") {
-      setFormEntries(parseUrlEncodedEntries(committedTextRef.current));
+      const current = committedTextRef.current;
+      const looksFormEncoded = current.trim() === "" || current.includes("=");
+      if (!looksFormEncoded) {
+        // Stay in the current mode — do not enter form mode where the text
+        // would be silently re-encoded and lose information.
+        return;
+      }
+      setFormEntries(parseUrlEncodedEntries(current));
+      setMode("form");
       return;
     }
 
-    setDraftText(
-      nextMode === "json"
-        ? formatJsonText(committedTextRef.current).text
-        : committedTextRef.current,
-    );
+    setMode(nextMode);
+    setDraftText(committedTextRef.current);
   }, []);
 
   const handleFormatJson = useCallback(() => {
@@ -1088,6 +1100,11 @@ export function BreakpointInterceptPanel() {
   const [responseTab, setResponseTab] = useState<BreakpointResponseTab>("status");
   const [requestCollapsed, setRequestCollapsed] = useState(false);
   const [splitRatio, setSplitRatio] = useState(DEFAULT_REQUEST_SPLIT_RATIO);
+  // M21: tracks the active resize cleanup fn so a mid-drag unmount (e.g. the
+  // breakpoint resolves or another hit replaces this panel) can remove the
+  // window pointer listeners instead of leaking them until some unrelated
+  // pointerup elsewhere finally fires.
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [mockMode, setMockMode] = useState(false);
   const [mockStatusCode, setMockStatusCode] = useState("200");
   const [mockHeaders, setMockHeaders] = useState<HeaderEntry[]>([
@@ -1124,7 +1141,8 @@ export function BreakpointInterceptPanel() {
       }
 
       event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
+      const pointerId = event.pointerId;
+      event.currentTarget.setPointerCapture(pointerId);
 
       const updateRatio = (clientY: number) => {
         const bounds = container.getBoundingClientRect();
@@ -1142,11 +1160,26 @@ export function BreakpointInterceptPanel() {
         updateRatio(moveEvent.clientY);
       };
 
+      // M21: store the cleanup on the ref so the unmount effect can run it if
+      // the panel is torn down mid-drag. Release the pointer capture so the
+      // element does not keep capturing pointer events after the drag ends.
+      const target = event.currentTarget;
       const stopResize = () => {
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", stopResize);
         window.removeEventListener("pointercancel", stopResize);
+        try {
+          target.releasePointerCapture(pointerId);
+        } catch {
+          // releasePointerCapture throws if the capture was already released
+          // (e.g. the browser implicitly released on pointerup). Swallow — the
+          // capture is gone either way.
+        }
+        if (resizeCleanupRef.current === stopResize) {
+          resizeCleanupRef.current = null;
+        }
       };
+      resizeCleanupRef.current = stopResize;
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopResize);
@@ -1154,6 +1187,18 @@ export function BreakpointInterceptPanel() {
     },
     [requestCollapsed],
   );
+
+  // M21: if the panel unmounts while a resize drag is in flight (breakpoint
+  // resolved, replaced by another hit, navigation away), the window pointer
+  // listeners would leak until an unrelated pointerup fired. Run the active
+  // cleanup on unmount.
+  useEffect(() => {
+    return () => {
+      const cleanup = resizeCleanupRef.current;
+      if (cleanup) cleanup();
+      resizeCleanupRef.current = null;
+    };
+  }, []);
 
   const navigateHit = useCallback(
     (delta: number) => {

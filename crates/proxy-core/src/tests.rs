@@ -2840,6 +2840,228 @@ async fn ws_upgrade_non_101_chunked_body_decoded() {
 }
 
 #[tokio::test]
+async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
+    // M1 regression: a non-101 refusal framed as Transfer-Encoding: chunked
+    // where the upstream STOPS sending before the terminating 0-length chunk
+    // (and holds the keep-alive socket open so EOF never arrives) must return
+    // the partial body collected so far — preserving the upstream status (403)
+    // — instead of surfacing the idle timeout as a hard error that drops the
+    // refusal body and synthesizes a 502. Mirrors the read-until-close path
+    // (`ws_upgrade_non_101_no_content_length_does_not_hang`).
+    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // Send ONE chunk ("Part") but never the terminating 0\r\n\r\n, then keep
+        // the socket open — the proxy's chunked reader must time out and return
+        // the partial body it has collected.
+        stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nPart\r\n")
+            .await
+            .unwrap();
+        // Hold the connection open so EOF never arrives; the idle timeout is
+        // what ends the body.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        drop(stream);
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("ws://127.0.0.1:{upstream_port}/chat");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         \r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let response_buf = timeout(Duration::from_secs(10), async {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match timeout(Duration::from_secs(2), client_stream.read(&mut chunk)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
+                Ok(Err(e)) => panic!("client read error: {e}"),
+                Err(_) => break, // idle — proxy done sending
+            }
+            if let Some(body_start) = find_header_end(&buf) {
+                if buf.len() >= body_start + "Part".len() {
+                    break;
+                }
+            }
+        }
+        buf
+    })
+    .await
+    .expect("proxy did not forward the partial chunked refusal in time");
+
+    let head_end =
+        find_header_end(&response_buf).expect("response must contain a complete HTTP head");
+    let response_head = std::str::from_utf8(&response_buf[..head_end]).unwrap();
+    assert!(
+        response_head.contains("403"),
+        "expected 403 status preserved (not 502), got: {response_head}"
+    );
+    // The partial chunk data must be forwarded decoded, not the raw framing.
+    assert_eq!(
+        &response_buf[head_end..],
+        b"Part",
+        "expected partial body 'Part' forwarded, got: {:?}",
+        String::from_utf8_lossy(&response_buf[head_end..])
+    );
+
+    let completed_session = timeout(Duration::from_secs(3), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for completed session");
+    assert_eq!(
+        completed_session.summary.status_code, 403,
+        "session status must be the upstream 403, not a synthesized 502"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
+#[tokio::test]
+async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
+    // M5 follow-up: when the upstream returns 101 Switching Protocols with an
+    // INVALID WebSocket handshake (here: a Sec-WebSocket-Accept value that
+    // does not match SHA1(client Sec-WebSocket-Key + magic GUID)), the proxy
+    // must NOT forward the 101 to the client. A forwarded 101 would make the
+    // client believe the upgrade succeeded and start framing WS, while the
+    // proxy never registered a relay — the connection would hang waiting for
+    // frames that never arrive. The proxy must instead respond 502 Bad
+    // Gateway and must NOT register the session in the WS relay registry.
+    //
+    // The client sends Sec-WebSocket-Key "dGhlIHNhbXBsZSBub25jZQ==" (the RFC
+    // 6455 §1.3 example key); the upstream echoes a WRONG accept value
+    // ("bogus-accept-value=") instead of the correct
+    // "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=".
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(
+                b"HTTP/1.1 101 Switching Protocols\r\n\
+                  Upgrade: websocket\r\n\
+                  Connection: Upgrade\r\n\
+                  Sec-WebSocket-Accept: bogus-accept-value=\r\n\
+                  \r\n",
+            )
+            .await
+            .unwrap();
+        // Hold the socket briefly; the proxy reads the head then (since the
+        // handshake is malformed) treats it as a refused upgrade and returns
+        // 502 without entering the relay.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+
+    // The proxy response must be 502 Bad Gateway, NOT the upstream's 101.
+    assert!(
+        response_text.contains("502"),
+        "expected 502 (not forwarded 101) for malformed 101 handshake, got: {response_text}"
+    );
+    assert!(
+        !response_text.contains("101"),
+        "the malformed 101 must NOT be forwarded to the client, got: {response_text}"
+    );
+
+    // The captured session detail must also reflect the synthesized 502, not a
+    // misleading 101.
+    assert_eq!(
+        completed_session.summary.status_code, 502,
+        "session status must be the synthesized 502, not the upstream's 101"
+    );
+
+    // WS registry must NOT have this session (only a VALID 101 gets registered;
+    // a malformed 101 must never enter the relay).
+    let registry = crate::ws::global_ws_registry();
+    assert_eq!(
+        registry.get_status(&completed_session.id),
+        crate::ws::WsConnectionStatus::Closed,
+        "malformed-101 session must not be in WS registry"
+    );
+
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_malformed_101").await;
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
+#[tokio::test]
 async fn ws_upgrade_101_success_carries_rewrite_traces() {
     // Mock upstream that returns 101 Switching Protocols.
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();

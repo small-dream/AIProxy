@@ -85,6 +85,119 @@ fn refresh_request_target_from_url(request: &mut ParsedProxyRequest) {
     );
 }
 
+/// M8: when a user edits the `Host` header in a breakpoint, propagate the new
+/// host (and optional `:port`) back into `request.host` and `request.url` so
+/// the change actually takes effect. The upstream connect path
+/// (`upstream.rs:152-156`) builds the on-the-wire Host header from
+/// `request.host`, and DNS/routing use `request.host` too — without this
+/// write-back the edited Host header is silently ignored for routing. The Host
+/// header value is `host`, `host:port`, `[ipv6]`, or `[ipv6]:port`; an invalid
+/// value is ignored (the request keeps its original host) rather than failing
+/// the edit, mirroring the forgiving posture of the rest of the breakpoint
+/// pipeline.
+///
+/// The host and port are validated as a unit (parsed via `Url::set_host` +
+/// `set_port`) BEFORE either `request.host` or `request.url` is mutated, so a
+/// rejected value cannot leave `request.host` updated while `request.url`
+/// keeps the old host (which would desynchronize routing from the URL).
+fn apply_host_header_to_request(request: &mut ParsedProxyRequest, headers: &HeaderMap) {
+    let Some(host_value) = headers.get("host") else {
+        return;
+    };
+    let host_str = match host_value.to_str() {
+        Ok(s) => s,
+        Err(_) => return, // non-ASCII obs-text — leave host untouched
+    };
+    let host_str = host_str.trim();
+    if host_str.is_empty() {
+        return;
+    }
+
+    // Split the optional `:port` suffix robustly, including the bracketed IPv6
+    // forms `[::1]` and `[::1]:8080`. A leading `[` means the host is a
+    // bracketed IPv6 literal; the optional port (if any) follows the closing
+    // `]`. Otherwise split on the last `:` only when the right side parses as
+    // a u16 port; a non-numeric `:suffix` on a non-bracketed host is rejected
+    // (a hostname cannot validly contain `:` outside an IPv6 literal).
+    let (host_part, port_part, unbracketed_host): (String, Option<u16>, Option<String>) =
+        if let Some(rest) = host_str.strip_prefix('[') {
+            // Bracketed IPv6 form. Find the closing `]`; everything after `]:` is
+            // the port. `host_part` keeps the brackets (so `request.host` round-
+            // trips the literal the user typed) but `set_host` is given the
+            // unbracketed form, which is what `Url::set_host` expects.
+            match rest.find(']') {
+                Some(close_idx) => {
+                    // close_idx is the index of `]` within `rest` (which excludes
+                    // the leading `[`). In `host_str` that `]` is at close_idx + 1.
+                    let ipv6_with_brackets = &host_str[..=close_idx + 1]; // includes []
+                    let inner = &rest[..close_idx]; // without []
+                    let after = &rest[close_idx + 1..];
+                    let port = after.strip_prefix(':').and_then(|p| p.parse::<u16>().ok());
+                    if !after.is_empty() && port.is_none() {
+                        return; // garbage after `]` that is not `:port` — reject
+                    }
+                    (
+                        ipv6_with_brackets.to_string(),
+                        port,
+                        Some(inner.to_string()),
+                    )
+                }
+                None => return, // unclosed `[` — reject
+            }
+        } else {
+            // Plain host or `host:port`. Split on the last `:` only when the right
+            // side is a valid u16 port. A non-numeric `:suffix` on a non-bracketed
+            // host means the value is malformed — reject rather than treat the
+            // whole thing (including the colon) as a hostname.
+            match host_str.rsplit_once(':') {
+                Some((h, p)) => match p.parse::<u16>() {
+                    Ok(port) => (h.trim().to_string(), Some(port), None),
+                    Err(_) => return,
+                },
+                None => (host_str.to_string(), None, None),
+            }
+        };
+
+    if host_part.is_empty() {
+        return;
+    }
+
+    // `Url::set_host` accepts either an unbracketed hostname or, for IPv6
+    // literals, the bracketed `[...]` form. We always have the bracketed form
+    // in `host_part` for IPv6, so prefer that; fall back to `host_part`
+    // (already correct for plain hosts) otherwise.
+    let host_for_url = unbracketed_host
+        .as_ref()
+        .map(|inner| format!("[{inner}]"))
+        .unwrap_or_else(|| host_part.clone());
+
+    // Validate by applying to a CLONE of the URL first. If `set_host`/`set_port`
+    // reject the value, leave both `request.host` and `request.url` untouched.
+    let mut candidate = request.url.clone();
+    if candidate.set_host(Some(&host_for_url)).is_err() {
+        return;
+    }
+    match port_part {
+        Some(port) => {
+            if candidate.set_port(Some(port)).is_err() {
+                return;
+            }
+        }
+        None => {
+            // No explicit port in the header — clear any port so the URL uses
+            // the default port for its scheme.
+            let _ = candidate.set_port(None);
+        }
+    }
+
+    // Validation passed — commit both fields atomically. `request.host` keeps
+    // the form the user typed (with brackets for IPv6, matching how it appears
+    // on the wire and in the session detail); `request.url` carries the parsed
+    // host/port.
+    request.host = host_part;
+    request.url = candidate;
+}
+
 fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
     // Breakpoint body editors operate on decoded/plain bytes. If the original
     // exchange was compressed or had body validators, those headers no longer
@@ -128,6 +241,11 @@ pub(crate) fn apply_request_resolution(
                 new_headers.insert(name, value);
             }
         }
+        // M8: if the user edited the Host header, write it back to
+        // `request.host` / `request.url` BEFORE refreshing the request target,
+        // so the change actually drives upstream routing and the rebuilt
+        // raw_request reflects the new host.
+        apply_host_header_to_request(request, &new_headers);
         request.headers = new_headers;
         refresh_request_target_from_url(request);
     }
@@ -1054,6 +1172,178 @@ mod tests {
         assert!(
             !manager.pending_contains("sess-drop"),
             "pending entry must be removed after dropped sender"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // M8: editing the Host header in a breakpoint must update request.host/url
+    // -----------------------------------------------------------------------
+
+    fn make_resolution_with_host(host: Option<&str>) -> BreakpointResolution {
+        let modified_request_headers = host.map(|h| {
+            vec![ProxyHeaderEntry {
+                name: "Host".to_string(),
+                value: h.to_string(),
+                is_pseudo: None,
+            }]
+        });
+        BreakpointResolution {
+            session_id: "sess-m8".to_string(),
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_headers,
+            modified_request_query_params: None,
+            modified_request_body_base64: None,
+            modified_response_status_code: None,
+            modified_response_headers: None,
+            modified_response_body_base64: None,
+        }
+    }
+
+    #[test]
+    fn m8_host_header_edit_updates_request_host_and_url() {
+        let mut request = make_request("sess-m8-host");
+        let original_url = request.url.clone();
+        assert_eq!(request.host, "example.com");
+
+        let resolution = make_resolution_with_host(Some("api.retargeted.test"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(
+            request.host, "api.retargeted.test",
+            "request.host must reflect the edited Host header"
+        );
+        assert_eq!(
+            request.url.host_str(),
+            Some("api.retargeted.test"),
+            "request.url host must reflect the edited Host header"
+        );
+        assert!(
+            request.url.port().is_none(),
+            "no port in header → URL port cleared"
+        );
+        assert_ne!(
+            request.url, original_url,
+            "URL must change when host changes"
+        );
+    }
+
+    #[test]
+    fn m8_host_header_edit_with_port_updates_host_and_port() {
+        let mut request = make_request("sess-m8-port");
+        let resolution = make_resolution_with_host(Some("api.retargeted.test:9090"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(request.host, "api.retargeted.test");
+        assert_eq!(
+            request.url.port(),
+            Some(9090),
+            "port from Host header must propagate to request.url"
+        );
+    }
+
+    #[test]
+    fn m8_host_header_edit_keeps_path_and_query() {
+        let mut request = make_request("sess-m8-path");
+        let original_path = request.url.path().to_string();
+        let resolution = make_resolution_with_host(Some("api.retargeted.test"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(
+            request.url.path(),
+            original_path,
+            "path must be preserved when only the host changes"
+        );
+    }
+
+    #[test]
+    fn m8_bracketed_ipv6_with_port_updates_host_and_port() {
+        // `[::1]:8080` must split into host `[::1]` and port `8080`, not be
+        // treated as the whole string being the host.
+        let mut request = make_request("sess-m8-ipv6-port");
+        let resolution = make_resolution_with_host(Some("[::1]:8080"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(
+            request.host, "[::1]",
+            "bracketed IPv6 host must be extracted without the port"
+        );
+        assert_eq!(
+            request.url.host_str(),
+            Some("[::1]"),
+            "URL host must be the bracketed IPv6 literal"
+        );
+        assert_eq!(
+            request.url.port(),
+            Some(8080),
+            "port from `[::1]:8080` must propagate to request.url"
+        );
+    }
+
+    #[test]
+    fn m8_bracketed_ipv6_without_port_updates_host_only() {
+        let mut request = make_request("sess-m8-ipv6-noport");
+        let resolution = make_resolution_with_host(Some("[::1]"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(request.host, "[::1]");
+        assert_eq!(request.url.host_str(), Some("[::1]"));
+    }
+
+    #[test]
+    fn m8_invalid_host_is_rejected_and_leaves_request_untouched() {
+        // An unparseable host (e.g. contains spaces / illegal chars) must NOT
+        // mutate request.host while leaving request.url stale. Both stay at
+        // their original values.
+        let mut request = make_request("sess-m8-invalid");
+        let original_host = request.host.clone();
+        let original_url = request.url.clone();
+
+        let resolution = make_resolution_with_host(Some("not a valid host"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(
+            request.host, original_host,
+            "invalid host must not pollute request.host"
+        );
+        assert_eq!(
+            request.url, original_url,
+            "invalid host must not mutate request.url"
+        );
+    }
+
+    #[test]
+    fn m8_invalid_port_rejects_the_whole_edit() {
+        // `host:notaport` — the `:notaport` is not a valid port, so the
+        // splitter leaves the whole `host:notaport` as the host candidate, which
+        // Url::set_host then rejects (a host cannot contain `:` for non-IPv6).
+        // The whole edit is rejected: neither host nor port changes.
+        let mut request = make_request("sess-m8-badport");
+        let original_host = request.host.clone();
+        let original_url = request.url.clone();
+
+        let resolution = make_resolution_with_host(Some("api.retargeted.test:notaport"));
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(
+            request.host, original_host,
+            "invalid port must not pollute request.host"
+        );
+        assert_eq!(
+            request.url, original_url,
+            "invalid port must not mutate request.url"
+        );
+    }
+
+    #[test]
+    fn m8_unclosed_bracket_is_rejected() {
+        let mut request = make_request("sess-m8-unclosed");
+        let original_host = request.host.clone();
+        let resolution = make_resolution_with_host(Some("[::1"));
+        apply_request_resolution(&resolution, &mut request);
+        assert_eq!(
+            request.host, original_host,
+            "unclosed bracket must be rejected"
         );
     }
 }

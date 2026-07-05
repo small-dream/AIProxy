@@ -44,6 +44,13 @@ impl Repository {
     // ------------------------------------------------------------------
 
     /// Clear all session data from SQLite and BodyStore.
+    ///
+    /// M29: the DB clear and the body-store clear are not atomic — if the
+    /// body clear fails (e.g. a transient FS error) the DB rows are gone but
+    /// orphaned blob files remain on disk. Rather than blocking the UI, spawn
+    /// a background rescan that retries `clear_all` once; if it still fails the
+    /// orphan blobs persist but are harmless (no DB rows reference them and a
+    /// later clear/full session re-run will sweep them again).
     pub fn clear_all_sessions(&self) {
         {
             let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -64,6 +71,10 @@ impl Repository {
                 error = %error,
                 "clear_session_storage_bodies_failed"
             );
+            // M29: fire-and-forget rescan so a transient FS error does not
+            // leave orphan blobs indefinitely. The cloned Arcs keep the store
+            // alive for the background task.
+            self.spawn_body_rescan();
         }
 
         tracing::info!(
@@ -71,6 +82,33 @@ impl Repository {
             event = "session_storage_cleared",
             "session_storage_cleared"
         );
+    }
+
+    /// M29: spawn a background task that retries `body_store.clear_all()` once
+    /// after a short delay. Used when the synchronous clear failed, to avoid
+    /// leaving orphan blob files behind without blocking the UI/clear command.
+    /// Idempotent and best-effort — a second failure is logged and abandoned.
+    fn spawn_body_rescan(&self) {
+        let body_store = Arc::clone(&self.body_store);
+        std::thread::spawn(move || {
+            // Brief back-off so a transient FS condition (e.g. an in-flight
+            // writer finishing a create_dir_all) can clear before the retry.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Err(error) = body_store.clear_all() {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "body_rescan_clear_failed",
+                    error = %error,
+                    "body rescan retry failed; orphan blobs may persist until next clear"
+                );
+            } else {
+                tracing::info!(
+                    component = "desktop.persistence",
+                    event = "body_rescan_clear_succeeded",
+                    "body rescan retry cleared orphan blobs after initial failure"
+                );
+            }
+        });
     }
 
     /// Delete sessions by ID (DB + body files).  Synchronous — prefer the

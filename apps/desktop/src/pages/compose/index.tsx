@@ -93,6 +93,10 @@ export function ComposePage() {
   const [splitRatio, setSplitRatio] = useState(COMPOSE_SPLIT_DEFAULT);
   const dragFrameRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  // M21: tracks the active resize cleanup fn so a mid-drag unmount can remove
+  // the window pointer listeners (and cancel the pending animation frame)
+  // instead of leaking them until some unrelated pointerup elsewhere fires.
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   // Load split ratio from localStorage
   useEffect(() => {
@@ -108,12 +112,16 @@ export function ComposePage() {
     writeStorageValue(COMPOSE_SPLIT_STORAGE_KEY, String(splitRatio));
   }, [splitRatio]);
 
-  // Cleanup animation frame
+  // Cleanup animation frame and any in-flight resize listeners (M21).
   useEffect(() => {
     return () => {
       if (dragFrameRef.current) {
         window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
       }
+      const resizeCleanup = resizeCleanupRef.current;
+      if (resizeCleanup) resizeCleanup();
+      resizeCleanupRef.current = null;
     };
   }, []);
 
@@ -207,11 +215,29 @@ export function ComposePage() {
       updateRatio(moveEvent.clientY);
     };
 
+    const target = event.currentTarget;
+    // M21: store the cleanup on the ref so the unmount effect can run it if
+    // the page is torn down mid-drag, cancel the pending animation frame, and
+    // release the pointer capture so it does not outlive the drag.
     const stopResize = () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopResize);
       window.removeEventListener("pointercancel", stopResize);
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch {
+        // releasePointerCapture throws if the capture was already released;
+        // the capture is gone either way.
+      }
+      if (resizeCleanupRef.current === stopResize) {
+        resizeCleanupRef.current = null;
+      }
     };
+    resizeCleanupRef.current = stopResize;
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", stopResize);

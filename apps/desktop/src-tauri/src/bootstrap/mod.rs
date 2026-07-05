@@ -161,7 +161,7 @@ impl AppState {
             .repository
             .db()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
 
         if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
             if !rows.is_empty() {
@@ -204,7 +204,7 @@ impl AppState {
     pub fn read_status(&self) -> BootstrapStatus {
         self.status
             .lock()
-            .expect("bootstrap status mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
@@ -384,17 +384,14 @@ impl AppState {
     // ── runtime handles ─────────────────────────────────────────────
 
     pub fn set_runtime(&self, runtime_handles: RuntimeHandles) {
-        let mut runtime = self
-            .runtime
-            .lock()
-            .expect("runtime mutex should not be poisoned");
+        let mut runtime = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
         *runtime = Some(runtime_handles);
     }
 
     pub fn take_runtime(&self) -> Option<RuntimeHandles> {
         self.runtime
             .lock()
-            .expect("runtime mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .take()
     }
 
@@ -403,7 +400,7 @@ impl AppState {
     pub fn has_system_proxy_snapshot(&self) -> bool {
         self.system_proxy_snapshot
             .lock()
-            .expect("system proxy snapshot mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .is_some()
     }
 
@@ -411,7 +408,7 @@ impl AppState {
         let mut guard = self
             .system_proxy_snapshot
             .lock()
-            .expect("system proxy snapshot mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         if guard.is_none() {
             *guard = Some(snapshot);
         }
@@ -420,7 +417,7 @@ impl AppState {
     pub fn take_system_proxy_snapshot(&self) -> Option<SystemProxySnapshot> {
         self.system_proxy_snapshot
             .lock()
-            .expect("system proxy snapshot mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .take()
     }
 
@@ -433,10 +430,7 @@ impl AppState {
         http2_enabled: bool,
         workspace_id: String,
     ) -> BootstrapStatus {
-        let mut status = self
-            .status
-            .lock()
-            .expect("bootstrap status mutex should not be poisoned");
+        let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.port = port;
         status.running = true;
         status.ssl_enabled = enable_ssl;
@@ -447,10 +441,7 @@ impl AppState {
     }
 
     pub fn stop_proxy(&self, workspace_id: String) -> BootstrapStatus {
-        let mut status = self
-            .status
-            .lock()
-            .expect("bootstrap status mutex should not be poisoned");
+        let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.running = false;
         status.active_workspace_id = Some(workspace_id);
         status.started_at = None;
@@ -458,10 +449,7 @@ impl AppState {
     }
 
     pub fn set_system_proxy_enabled(&self, enabled: bool) -> BootstrapStatus {
-        let mut status = self
-            .status
-            .lock()
-            .expect("bootstrap status mutex should not be poisoned");
+        let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.system_proxy_enabled = enabled;
         if !enabled {
             status.system_proxy_recovery_warning = None;
@@ -470,10 +458,7 @@ impl AppState {
     }
 
     pub fn set_system_proxy_recovery_warning(&self, warning: Option<String>) -> BootstrapStatus {
-        let mut status = self
-            .status
-            .lock()
-            .expect("bootstrap status mutex should not be poisoned");
+        let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.system_proxy_recovery_warning = warning;
         status.clone()
     }
@@ -481,17 +466,14 @@ impl AppState {
     // ── TLS / cert ──────────────────────────────────────────────────
 
     pub fn set_tls_manager(&self, manager: Arc<TlsManager>) {
-        let mut tls = self
-            .tls_manager
-            .lock()
-            .expect("tls_manager mutex should not be poisoned");
+        let mut tls = self.tls_manager.lock().unwrap_or_else(|e| e.into_inner());
         *tls = Some(manager);
     }
 
     pub fn read_tls_manager(&self) -> Option<Arc<TlsManager>> {
         self.tls_manager
             .lock()
-            .expect("tls_manager mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
@@ -499,7 +481,7 @@ impl AppState {
         let mut cache = self
             .cert_status_cache
             .lock()
-            .expect("cert_status mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         *cache = Some(status);
     }
 
@@ -530,34 +512,28 @@ impl AppState {
     // ── app handle ──────────────────────────────────────────────────
 
     pub fn set_app_handle(&self, handle: tauri::AppHandle) {
-        let mut guard = self
-            .app_handle
-            .lock()
-            .expect("app_handle mutex should not be poisoned");
+        let mut guard = self.app_handle.lock().unwrap_or_else(|e| e.into_inner());
         *guard = Some(handle);
     }
 
     pub fn read_app_handle(&self) -> Option<tauri::AppHandle> {
         self.app_handle
             .lock()
-            .expect("app_handle mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
     // ── focused hosts ───────────────────────────────────────────────
 
     pub fn set_focused_hosts(&self, hosts: Vec<String>) {
-        let mut focused_hosts = self
-            .focused_hosts
-            .lock()
-            .expect("focused_hosts mutex should not be poisoned");
+        let mut focused_hosts = self.focused_hosts.lock().unwrap_or_else(|e| e.into_inner());
         *focused_hosts = normalize_hosts(hosts);
     }
 
     pub fn read_focused_hosts(&self) -> HashSet<String> {
         self.focused_hosts
             .lock()
-            .expect("focused_hosts mutex should not be poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 }
@@ -618,7 +594,7 @@ mod tests {
                 .repository
                 .db()
                 .lock()
-                .expect("db mutex should not be poisoned");
+                .unwrap_or_else(|e| e.into_inner());
             aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
         }
 

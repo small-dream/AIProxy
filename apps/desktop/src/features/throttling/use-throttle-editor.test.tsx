@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useThrottleEditor } from "./use-throttle-editor";
 
@@ -41,6 +41,9 @@ const profilesState: { current: ThrottleProfile[] } = {
 };
 
 // Mock the query/mutation hooks so we control array identity exactly.
+// M23: setActiveMutation.mutate is exposed via a holder so the temporary-
+// enable test can assert whether the timeout callback deactivated the profile.
+const setActiveMutateMock = vi.fn();
 vi.mock("./use-throttle-profiles", () => ({
   useThrottleProfiles: () => ({ data: profilesState.current, isError: false }),
   useThrottleRules: () => ({ data: rulesState.current, isError: false }),
@@ -48,7 +51,7 @@ vi.mock("./use-throttle-profiles", () => ({
   useSaveThrottleProfile: () => ({ mutate: vi.fn() }),
   useSaveThrottleRule: () => ({ mutate: vi.fn() }),
   useDeleteThrottleRule: () => ({ mutate: vi.fn() }),
-  useSetActiveThrottleProfile: () => ({ mutate: vi.fn() }),
+  useSetActiveThrottleProfile: () => ({ mutate: setActiveMutateMock }),
 }));
 
 // The hook reads router location state for the "seed" feature at the top
@@ -108,7 +111,10 @@ function resetFixtures() {
   ];
 }
 
-beforeEach(resetFixtures);
+beforeEach(() => {
+  resetFixtures();
+  setActiveMutateMock.mockReset();
+});
 
 describe("useThrottleEditor draft sync (H1/H2)", () => {
   it("does not overwrite an edited rule draft when rules refetch with a new array identity (H1)", () => {
@@ -179,5 +185,102 @@ describe("useThrottleEditor draft sync (H1/H2)", () => {
     // id (mirroring handleNewRule), so the profile-sync effect early-returns
     // and does not clobber the in-flight empty draft.
     expect(result.current.profileDraft?.id).toBe(result.current.selectedProfileId);
+  });
+});
+
+describe("useThrottleEditor temporary-enable timeout (M23)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does NOT disable a profile the user switched to after a temporary-enable on a different profile", () => {
+    // M23: temporarily enabling profile A then manually activating profile B
+    // must not let A's 15-minute timer later disable B. The timeout callback
+    // checks the current active profile id against the one that was temporarily
+    // enabled and skips the deactivate call if they differ.
+    profilesState.current = [
+      {
+        id: "p1",
+        name: "P1",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: false,
+        preset: false,
+        note: "",
+      },
+      {
+        id: "p2",
+        name: "P2",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: false,
+        preset: false,
+        note: "",
+      },
+    ];
+
+    const { result, rerender } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
+
+    // Temporarily enable p1 (selectedProfileId defaults to nothing, so this
+    // also drives the selection).
+    act(() => result.current.handleTemporaryEnable());
+    // The mutate mock records the temporary-enable activation of p1.
+    expect(setActiveMutateMock).toHaveBeenCalledWith("p1");
+
+    // Simulate the user manually activating p2 (the real mutation would flip
+    // enabled in profilesState; we mirror that so activeProfile resolves to p2).
+    act(() => {
+      profilesState.current = [
+        { ...profilesState.current[0]!, enabled: false },
+        { ...profilesState.current[1]!, enabled: true },
+      ];
+    });
+    rerender();
+
+    // Fast-forward past the full TEMP_ENABLE_MS window. The timer must NOT
+    // call mutate(undefined) — that would silently disable the user's new
+    // active profile p2.
+    act(() => {
+      vi.advanceTimersByTime(16 * 60 * 1000);
+    });
+
+    // No deactivate call should have fired after the switch.
+    expect(setActiveMutateMock).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it("DOES disable the profile when it is still the active one at timeout", () => {
+    // M23 baseline: the guard must not BREAK the normal temporary-enable
+    // behavior — when the user has NOT switched profiles, the timer still
+    // deactivates.
+    const { result, rerender } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => result.current.handleTemporaryEnable());
+    expect(setActiveMutateMock).toHaveBeenCalledWith("p1");
+
+    // p1 becomes the active profile (the temporary-enable activation). The
+    // rerender lets the activeProfileIdRef-sync effect pick up the new value.
+    act(() => {
+      profilesState.current = [{ ...profilesState.current[0]!, enabled: true }];
+    });
+    rerender();
+
+    act(() => {
+      vi.advanceTimersByTime(16 * 60 * 1000);
+    });
+
+    expect(setActiveMutateMock).toHaveBeenCalledWith(undefined);
   });
 });

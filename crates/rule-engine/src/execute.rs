@@ -373,9 +373,26 @@ fn run_script_in_thread(
         let maybe: MaybePromise = invoke
             .call((hook_name.to_string(), payload_json.to_string()))
             .map_err(|error| format!("run {hook_name}: {error}"))?;
-        let result_json: String = maybe
-            .finish::<String>()
-            .map_err(|error| format!("await {hook_name} result: {error}"))?;
+        let result_json: String = maybe.finish::<String>().map_err(|error| {
+            // M7: surface a never-settling Promise (Error::WouldBlock — the
+            // QuickJS job queue drained before the hook's Promise resolved) as
+            // a distinct, operator-actionable message rather than a generic
+            // await error. The interrupt handler polls on every
+            // execute_pending_job iteration so a hook that exceeds the
+            // execution timeout is normally caught there; WouldBlock is the
+            // narrower case of a Promise that will NEVER settle on its own
+            // (e.g. `await new Promise(() => {})`) and has not yet hit the
+            // wall-clock timeout.
+            if matches!(error, rquickjs::Error::WouldBlock) {
+                format!(
+                    "await {hook_name} result: hook returned a Promise that never settled \
+                     (e.g. `await new Promise(() => {{}})`); the QuickJS job queue drained \
+                     before resolution"
+                )
+            } else {
+                format!("await {hook_name} result: {error}")
+            }
+        })?;
 
         serde_json::from_str(&result_json)
             .map_err(|error| format!("decode {hook_name} result: {error}"))

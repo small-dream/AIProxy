@@ -367,16 +367,50 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     detail.summary.response_mime_type = Some("websocket".to_string());
     detail.raw_response_head = raw_response_head;
 
-    if status_code != 101
-        || !upstream_headers
-            .iter()
-            .any(|(n, _)| n.eq_ignore_ascii_case("upgrade"))
-    {
-        // Upstream did not agree to upgrade — return its response as-is.
+    // M5: validate the full RFC 6455 §4.2.2 101 handshake before entering the
+    // relay. Previously the check only required an `Upgrade` header, accepting
+    // malformed 101 responses (e.g. `Upgrade: h2c` with no accept key) as a
+    // valid WebSocket upgrade and then parsing arbitrary upstream bytes as WS
+    // frames. Now require Connection: upgrade + Upgrade: websocket + a
+    // Sec-WebSocket-Accept value that matches SHA1(client Sec-WebSocket-Key +
+    // magic GUID), so the upstream must have actually processed our key.
+    let client_ws_key = request
+        .headers
+        .get("sec-websocket-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    if status_code != 101 || !is_valid_ws_upgrade_handshake(&upstream_headers, client_ws_key) {
+        // Upstream did not agree to upgrade — return its response as-is, EXCEPT
+        // when the upstream claimed 101 with an invalid handshake (e.g. wrong
+        // Sec-WebSocket-Accept value, or missing Connection/Upgrade/Accept).
+        // In that malformed-101 case we must NOT forward the 101 to the client:
+        // the client would believe the upgrade succeeded and start framing WS,
+        // but the proxy never registered a relay, so the connection would hang
+        // waiting for frames that will never arrive. Treat it as an upstream
+        // protocol error and respond 502 Bad Gateway instead.
+        let malformed_101 = status_code == 101;
+        let forwarded_status = if malformed_101 {
+            tracing::warn!(
+                event = "ws_hyper_upstream_malformed_101",
+                request_id = %request_id,
+                "upstream returned 101 with an invalid WebSocket handshake; responding 502 instead of forwarding the 101"
+            );
+            // Reflect the synthesized 502 in the captured session detail too,
+            // so the Inspector does not show a misleading 101 for a connection
+            // the proxy never upgraded. Clear the WS mime type for the same
+            // reason.
+            detail.summary.status_code = StatusCode::BAD_GATEWAY.as_u16();
+            detail.summary.response_mime_type = None;
+            StatusCode::BAD_GATEWAY.as_u16()
+        } else {
+            status_code
+        };
+
         tracing::warn!(
             event = "ws_hyper_upstream_refused",
             request_id = %request_id,
-            status_code = status_code,
+            status_code = forwarded_status,
             "ws_hyper_upstream_refused"
         );
 
@@ -412,9 +446,20 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             }
         };
         let mut builder = hyper::Response::builder()
-            .status(StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_GATEWAY))
+            .status(StatusCode::from_u16(forwarded_status).unwrap_or(StatusCode::BAD_GATEWAY))
             .header("Content-Length", body_bytes.len());
         for (name, value) in &upstream_headers {
+            // For a malformed-101, strip the upgrade-related headers so the
+            // client does not see a contradictory 502 carrying Connection/
+            // Upgrade: websocket (which could confuse some clients into WS
+            // framing). For a genuine non-101 refusal, forward headers as-is.
+            if malformed_101
+                && (name.eq_ignore_ascii_case("connection")
+                    || name.eq_ignore_ascii_case("upgrade")
+                    || name.eq_ignore_ascii_case("sec-websocket-accept"))
+            {
+                continue;
+            }
             if name.eq_ignore_ascii_case("connection")
                 || name.eq_ignore_ascii_case("transfer-encoding")
                 || name.eq_ignore_ascii_case("content-length")
@@ -670,13 +715,19 @@ async fn read_chunked_body(
 
     loop {
         // Read the chunk-size line (hex size, optional ";ext", \r\n-terminated).
+        // M1: if the upstream stops (EOF / idle timeout) before the size line
+        // arrives, return the body collected so far rather than erroring — the
+        // caller needs the partial refusal body to preserve the upstream status.
         let line_end = loop {
             if let Some(rel) = find_crlf(&buf[pos..]) {
-                break pos + rel;
+                break Some(pos + rel);
             }
             if !refill_stream(upstream, &mut buf, &mut pos).await? {
-                return Err("chunked body ended before size line".into());
+                break None;
             }
+        };
+        let Some(line_end) = line_end else {
+            break;
         };
 
         let size_str = std::str::from_utf8(&buf[pos..line_end])
@@ -694,7 +745,12 @@ async fn read_chunked_body(
         }
 
         // Buffer the full chunk data + trailing \r\n before copying it out.
-        ensure_bytes(upstream, &mut buf, &mut pos, size.saturating_add(2)).await?;
+        // M1: a mid-chunk idle timeout / EOF (ensure_bytes returns Ok(false))
+        // ends the body — return what was collected so far instead of erroring
+        // and dropping the partial refusal body.
+        if !ensure_bytes(upstream, &mut buf, &mut pos, size.saturating_add(2)).await? {
+            break;
+        }
 
         let remaining = MAX_CAPTURED_BODY_BYTES.saturating_sub(body.len());
         let to_take = std::cmp::min(size, remaining);
@@ -712,6 +768,13 @@ async fn read_chunked_body(
 
 /// Drop consumed bytes before `*pos`, then read more from the upstream with an
 /// idle timeout. Returns `false` on EOF (no more data available).
+///
+/// M1: an idle timeout returns `Ok(false)` (treated as end of body) instead of
+/// `Err`, matching `read_until_close_body`. The contract of
+/// `read_full_response_body` is to preserve the upstream refusal status code
+/// (e.g. 403) and return the body collected so far on idle timeout or byte
+/// ceiling; surfacing the timeout as a hard error dropped the partial refusal
+/// body and synthesized a 502.
 async fn refill_stream(
     upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
     buf: &mut Vec<u8>,
@@ -730,7 +793,7 @@ async fn refill_stream(
     {
         Ok(Ok(n)) => n,
         Ok(Err(e)) => return Err(format!("read chunked body: {e}")),
-        Err(_) => return Err("chunked body read timed out".to_string()),
+        Err(_) => return Ok(false), // idle timeout — treat as end of body (M1)
     };
     if n == 0 {
         return Ok(false); // EOF
@@ -741,18 +804,23 @@ async fn refill_stream(
 
 /// Ensure `buf[pos..]` contains at least `need` bytes, refilling from the
 /// upstream (with idle timeout) as necessary.
+///
+/// Returns `Ok(false)` when the upstream stops producing bytes (EOF or idle
+/// timeout, signalled by `refill_stream` as `Ok(false)`) before `need` is
+/// satisfied, so the caller can treat it as end of body. Returns `Ok(true)`
+/// once `need` bytes are buffered. Returns `Err` only on a genuine I/O error.
 async fn ensure_bytes(
     upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
     buf: &mut Vec<u8>,
     pos: &mut usize,
     need: usize,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     while buf.len() - *pos < need {
         if !refill_stream(upstream, buf, pos).await? {
-            return Err("chunked body ended unexpectedly (EOF)".into());
+            return Ok(false);
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Return the byte index of the first `\r\n` in `slice`, if present.
@@ -762,6 +830,13 @@ fn find_crlf(slice: &[u8]) -> Option<usize> {
 
 /// Parse an HTTP response head string into a status code and header list.
 /// Input: "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n...\r\n\r\n"
+///
+/// M4: handles RFC 7230 §3.2.4 obs-fold — a line beginning with SP or HTAB is
+/// a continuation of the previous header's value and is appended (with a
+/// separating space) to it, instead of being silently dropped because it has
+/// no `:`. A non-continuation line that has no valid `name:value` split is
+/// logged and skipped (rather than silently discarded), so malformed upstream
+/// responses are at least visible to operators.
 pub(crate) fn parse_upstream_response_head(
     head: &str,
 ) -> Result<(u16, Vec<(String, String)>), String> {
@@ -776,16 +851,110 @@ pub(crate) fn parse_upstream_response_head(
 
     let mut headers: Vec<(String, String)> = Vec::new();
     for line in lines {
+        // A leading SP/HTAB marks an obs-fold continuation line (RFC 7230
+        // §3.2.4). Append it to the most recent header's value. If there is no
+        // previous header the continuation is orphaned — warn and skip.
+        let is_continuation = line.starts_with(' ') || line.starts_with('\t');
+        if is_continuation {
+            let continuation = line.trim_matches(|c: char| c == ' ' || c == '\t');
+            if continuation.is_empty() {
+                continue;
+            }
+            match headers.last_mut() {
+                Some((_, value)) => {
+                    if !value.is_empty() {
+                        value.push(' ');
+                    }
+                    value.push_str(continuation);
+                }
+                None => {
+                    tracing::warn!(
+                        event = "ws_upgrade_obs_fold_orphan",
+                        "obs-fold continuation line appeared before any header; ignored"
+                    );
+                }
+            }
+            continue;
+        }
+
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
         if let Some((name, value)) = line.split_once(':') {
             headers.push((name.trim().to_string(), value.trim().to_string()));
+        } else {
+            // No `:` and not a continuation: a malformed header line. Warn so
+            // the operator can see the broken upstream, instead of silently
+            // dropping it (the previous behaviour could hide a missing
+            // Sec-WebSocket-Accept or Content-Length line).
+            tracing::warn!(
+                event = "ws_upgrade_malformed_header_line",
+                line = %line,
+                "malformed upstream header line has no ':' separator; skipped"
+            );
         }
     }
 
     Ok((status_code, headers))
+}
+
+/// The RFC 6455 §1.3 magic GUID appended to the client's Sec-WebSocket-Key
+/// before SHA-1'ing to derive the expected Sec-WebSocket-Accept value.
+const WS_ACCEPT_MAGIC_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+/// Compute the expected `Sec-WebSocket-Accept` value for a client key per
+/// RFC 6455 §1.3: `base64(SHA1(key + magic GUID))`. SHA-1 is used purely as the
+/// spec-defined handshake confirmation, not for any security-sensitive digest.
+pub(crate) fn compute_ws_accept(client_key: &str) -> String {
+    use sha1::{Digest, Sha1};
+    let mut hasher = Sha1::new();
+    hasher.update(client_key.as_bytes());
+    hasher.update(WS_ACCEPT_MAGIC_GUID.as_bytes());
+    BASE64_STANDARD.encode(hasher.finalize())
+}
+
+/// Validate a full RFC 6455 §4.2.2 101 Switching Protocols handshake.
+///
+/// M5: the previous check only required `status == 101` plus any `Upgrade`
+/// header, accepting `HTTP/1.1 101 Upgrade: h2c` (no accept key) as a valid
+/// WebSocket upgrade. To enter the relay we now require:
+/// - `Connection:` header whose token list contains `upgrade` (case-insensitive)
+/// - `Upgrade: websocket`
+/// - a `Sec-WebSocket-Accept` header whose value equals
+///   `base64(SHA1(client_sec_websocket_key + magic GUID))` — the full RFC 6455
+///   §4.2.2 confirmation that the upstream actually processed our key, not just
+///   echoed a header name. `client_key` is the request's `Sec-WebSocket-Key`
+///   value; if it is missing the accept value cannot be verified and the
+///   handshake is rejected.
+pub(crate) fn is_valid_ws_upgrade_handshake(
+    headers: &[(String, String)],
+    client_key: Option<&str>,
+) -> bool {
+    let has_connection_upgrade = headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("connection")
+            && value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+    });
+    let has_upgrade_websocket = headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("upgrade") && value.trim().eq_ignore_ascii_case("websocket")
+    });
+    if !has_connection_upgrade || !has_upgrade_websocket {
+        return false;
+    }
+    // RFC 6455 §4.2.2 §5.: the response Sec-WebSocket-Accept must equal the
+    // SHA-1 of our key + GUID. A bare/echoed/wrong value means the upstream did
+    // not actually perform the handshake calculation (e.g. an `Upgrade: h2c`
+    // server that happens to send an accept header) and we must NOT relay WS
+    // frames over the connection.
+    let Some(client_key) = client_key else {
+        return false;
+    };
+    let expected_accept = compute_ws_accept(client_key);
+    headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("sec-websocket-accept") && value.trim() == expected_accept
+    })
 }
 
 /// Convert a list of (name, value) header pairs into a reqwest HeaderMap.
@@ -818,7 +987,13 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
         if name.as_str().eq_ignore_ascii_case("host") {
             continue;
         }
-        raw.push_str(&format!("{}: {}\r\n", name, value.to_str().unwrap_or("")));
+        // M6: HTTP header field values are opaque octets; obs-text / Latin-1
+        // bytes are legal but `HeaderValue::to_str()` rejects them, and the old
+        // `unwrap_or("")` silently erased those values when forwarding to the
+        // upstream (e.g. a Latin-1 Origin or an echoed Sec-WebSocket-Protocol).
+        // Use a lossy decode so the value is preserved.
+        let value_str = String::from_utf8_lossy(value.as_bytes());
+        raw.push_str(&format!("{}: {}\r\n", name, value_str));
     }
     raw.push_str("\r\n");
     Ok(raw)
@@ -883,6 +1058,230 @@ mod tests {
         let head = "HTTP/1.1 200\r\n\r\n";
         let (status, _) = parse_upstream_response_head(head).unwrap();
         assert_eq!(status, 200);
+    }
+
+    // M4: obs-fold continuation lines (RFC 7230 §3.2.4) must be folded into the
+    // preceding header's value rather than silently dropped.
+    #[test]
+    fn parses_obs_fold_continuation_into_previous_header() {
+        let head = concat!(
+            "HTTP/1.1 101 Switching Protocols\r\n",
+            "Upgrade: websocket\r\n",
+            "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n",
+            // obs-fold continuation — leading SP, no ':'
+            "  continuation-token\r\n",
+            "Connection: upgrade\r\n",
+            "\r\n",
+        );
+        let (status, headers) = parse_upstream_response_head(head).unwrap();
+        assert_eq!(status, 101);
+        let accept = headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("sec-websocket-accept"))
+            .map(|(_, v)| v.clone())
+            .expect("sec-websocket-accept header must be present");
+        assert!(
+            accept.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="),
+            "accept header must contain original value, got: {accept}"
+        );
+        assert!(
+            accept.contains("continuation-token"),
+            "obs-fold continuation must be appended to accept header, got: {accept}"
+        );
+    }
+
+    // M4: a tab-prefixed continuation folds the same way as a space-prefixed one.
+    #[test]
+    fn parses_obs_fold_with_tab_prefix() {
+        let head = "HTTP/1.1 200 OK\r\nX-Folded: a\r\n\tb\r\n\r\n";
+        let (_status, headers) = parse_upstream_response_head(head).unwrap();
+        let folded = headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case("x-folded"))
+            .map(|(_, v)| v.as_str())
+            .expect("x-folded header must be present");
+        assert_eq!(folded, "a b");
+    }
+
+    // M4: a non-continuation line with no ':' is logged and skipped (not silently
+    // dropped, not parsed as a header with empty name). The remaining headers
+    // must still parse correctly.
+    #[test]
+    fn parses_skips_malformed_line_without_colon() {
+        let head = concat!(
+            "HTTP/1.1 200 OK\r\n",
+            "X-Valid: yes\r\n",
+            "this-line-has-no-colon\r\n",
+            "X-Other: ok\r\n",
+            "\r\n",
+        );
+        let (status, headers) = parse_upstream_response_head(head).unwrap();
+        assert_eq!(status, 200);
+        // The malformed line must not become a header entry.
+        assert_eq!(headers.len(), 2);
+        assert!(headers
+            .iter()
+            .any(|(n, v)| n.eq_ignore_ascii_case("x-valid") && v == "yes"));
+        assert!(headers
+            .iter()
+            .any(|(n, v)| n.eq_ignore_ascii_case("x-other") && v == "ok"));
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_ws_accept / is_valid_ws_upgrade_handshake (M5)
+    // -----------------------------------------------------------------------
+
+    // The RFC 6455 §1.3 worked example: client key "dGhlIHNhbXBsZSBub25jZQ=="
+    // must produce accept "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=". This is the canonical
+    // test vector from the spec.
+    const RFC6455_EXAMPLE_CLIENT_KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
+    const RFC6455_EXAMPLE_ACCEPT: &str = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+
+    #[test]
+    fn compute_ws_accept_matches_rfc6455_example() {
+        assert_eq!(
+            compute_ws_accept(RFC6455_EXAMPLE_CLIENT_KEY),
+            RFC6455_EXAMPLE_ACCEPT,
+            "computed accept must match the RFC 6455 §1.3 worked example"
+        );
+    }
+
+    #[test]
+    fn handshake_valid_with_correct_accept_value() {
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            (
+                "Sec-WebSocket-Accept".to_string(),
+                RFC6455_EXAMPLE_ACCEPT.to_string(),
+            ),
+        ];
+        assert!(is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_accept_value_is_wrong() {
+        // M5 value verification: a bare/echoed/wrong accept value must be
+        // rejected even though the header is present. Previously the check only
+        // verified header existence, so "Sec-WebSocket-Accept: x" passed and the
+        // relay accepted a handshake the upstream never actually computed.
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            ("Sec-WebSocket-Accept".to_string(), "x".to_string()),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_accept_is_a_bogus_echoed_value() {
+        // The upstream must NOT pass by echoing a plausible-looking but
+        // uncomputed base64 value.
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            ("Sec-WebSocket-Accept".to_string(), "abc123==".to_string()),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_connection_missing_upgrade_token() {
+        // Connection present but no "upgrade" token — must NOT validate.
+        let headers = vec![
+            ("Connection".to_string(), "keep-alive".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            (
+                "Sec-WebSocket-Accept".to_string(),
+                RFC6455_EXAMPLE_ACCEPT.to_string(),
+            ),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_valid_when_connection_lists_upgrade_among_other_tokens() {
+        let headers = vec![
+            ("Connection".to_string(), "keep-alive, upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            (
+                "Sec-WebSocket-Accept".to_string(),
+                RFC6455_EXAMPLE_ACCEPT.to_string(),
+            ),
+        ];
+        assert!(is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_upgrade_not_websocket() {
+        // e.g. the malformed `HTTP/1.1 101 Upgrade: h2c` case — Connection has
+        // upgrade, but Upgrade is "h2c" not "websocket", and no Accept header.
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "h2c".to_string()),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_accept_header_absent() {
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
+    }
+
+    #[test]
+    fn handshake_invalid_when_client_key_is_missing() {
+        // Without the client Sec-WebSocket-Key the accept value cannot be
+        // verified — reject rather than fall back to existence-only.
+        let headers = vec![
+            ("Connection".to_string(), "upgrade".to_string()),
+            ("Upgrade".to_string(), "websocket".to_string()),
+            (
+                "Sec-WebSocket-Accept".to_string(),
+                RFC6455_EXAMPLE_ACCEPT.to_string(),
+            ),
+        ];
+        assert!(!is_valid_ws_upgrade_handshake(&headers, None));
+    }
+
+    #[test]
+    fn handshake_is_case_insensitive() {
+        let headers = vec![
+            ("connection".to_string(), "Upgrade".to_string()),
+            ("upgrade".to_string(), "WebSocket".to_string()),
+            (
+                "sec-websocket-accept".to_string(),
+                RFC6455_EXAMPLE_ACCEPT.to_string(),
+            ),
+        ];
+        assert!(is_valid_ws_upgrade_handshake(
+            &headers,
+            Some(RFC6455_EXAMPLE_CLIENT_KEY)
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -957,5 +1356,27 @@ mod tests {
         let raw = build_ws_upgrade_request(&request).unwrap();
         // Host should appear exactly once
         assert_eq!(raw.matches("Host:").count(), 1);
+    }
+
+    // M6: a header value containing non-ASCII bytes (legal obs-text / Latin-1)
+    // must be forwarded lossily rather than erased to an empty string by
+    // `HeaderValue::to_str()`.
+    #[test]
+    fn ws_upgrade_request_preserves_non_ascii_header_value() {
+        let mut request = make_ws_request();
+        // 0xE9 is 'é' in Latin-1 / obs-text — `to_str()` rejects it.
+        request
+            .headers
+            .insert("x-origin", HeaderValue::from_bytes(b"caf\xe9").unwrap());
+
+        let raw = build_ws_upgrade_request(&request).unwrap();
+        assert!(
+            raw.contains("x-origin: caf"),
+            "non-ASCII header value must be preserved (lossily), got: {raw}"
+        );
+        assert!(
+            !raw.contains("x-origin: \r\n"),
+            "non-ASCII header value must NOT be erased to empty, got: {raw}"
+        );
     }
 }

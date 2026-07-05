@@ -104,7 +104,7 @@ pub fn run() {
         let conn = app_state
             .read_db_connection()
             .lock()
-            .expect("db mutex should not be poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         // is_empty now propagates DB errors (M5). On error we conservatively
         // skip seeding: writing a default row when the emptiness check itself
         // failed could overwrite or duplicate existing data on a transient

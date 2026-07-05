@@ -758,4 +758,42 @@ export function onRequest() {
             "snapshot must be rebuilt after a mutation"
         );
     }
+
+    /// M7: a hook that awaits a never-settling Promise (`new Promise(() => {})`)
+    /// must produce a distinct, operator-actionable error message rather than a
+    /// generic await failure, so the cause is obvious in the script trace.
+    ///
+    /// `MaybePromise::finish` returns `Error::WouldBlock` as soon as the QuickJS
+    /// job queue drains before settlement — this happens immediately (the queue
+    /// is empty after the constructor returns), well before the wall-clock
+    /// timeout. The error message must mention "never settled".
+    #[test]
+    fn never_settling_hook_produces_clear_error() {
+        let rule = base_rule(
+            ScriptRuleLanguage::TypeScript,
+            "export async function onRequest(ctx) { await new Promise(() => {}); }",
+        );
+        let compiled = compile_script_rule(rule).expect("never-settling hook compiles");
+        let result = execute_request_hook(&compiled, payload());
+
+        // The hook must not report Success — it failed because the Promise
+        // never settled.
+        assert_ne!(
+            result.trace.outcome,
+            ScriptRunOutcome::Success,
+            "a never-settling Promise must not be reported as Success"
+        );
+        // The error entry must surface the actionable WouldBlock diagnostic.
+        let error_messages: Vec<String> = result
+            .trace
+            .entries
+            .iter()
+            .filter(|e| e.kind == ScriptRunEntryKind::Error)
+            .filter_map(|e| e.message.clone())
+            .collect();
+        assert!(
+            error_messages.iter().any(|m| m.contains("never settled")),
+            "expected an error mentioning 'never settled', got: {error_messages:?}"
+        );
+    }
 }
