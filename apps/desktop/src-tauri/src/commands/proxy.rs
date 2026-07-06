@@ -254,7 +254,15 @@ async fn start_proxy_impl(
                                 fin: msg.fin,
                             };
                             let _ = tauri::async_runtime::spawn_blocking(move || {
-                                let conn = db.lock().unwrap_or_else(|e| e.into_inner());
+                                // Fail-closed on poison: skip the insert rather
+                                // than write through a poisoned Connection.
+                                let conn = match crate::bootstrap::lock_recovery::lock_db_best_effort(
+                                    &db,
+                                    "ws_collector",
+                                ) {
+                                    Ok(conn) => conn,
+                                    Err(()) => return,
+                                };
                                 if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
                                     tracing::error!(
                                         component = "desktop.ws_collector",

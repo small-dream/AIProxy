@@ -10,6 +10,7 @@
 mod cache;
 mod converters;
 mod events;
+pub(crate) mod lock_recovery;
 mod repository;
 
 use cache::SessionCache;
@@ -157,11 +158,7 @@ impl AppState {
     fn init_from_db(&self) {
         self.clear_session_storage();
 
-        let conn = self
-            .repository
-            .db()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let conn = self.repository.lock_or_recover("startup_load");
 
         if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
             if !rows.is_empty() {
@@ -214,7 +211,10 @@ impl AppState {
 
     // ── session detail ──────────────────────────────────────────────
 
-    pub fn read_session_detail(&self, session_id: &str) -> Option<ProxySessionDetail> {
+    pub fn read_session_detail(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ProxySessionDetail>, String> {
         // Try in-memory cache first
         if let Some(detail) = self.cache.try_get_detail(session_id) {
             tracing::debug!(
@@ -223,7 +223,7 @@ impl AppState {
                 session_id = %session_id,
                 "session_detail_memory_cache_hit"
             );
-            return Some(detail);
+            return Ok(Some(detail));
         }
         tracing::debug!(
             component = "desktop.sessions",
@@ -232,14 +232,21 @@ impl AppState {
             "session_detail_memory_cache_miss"
         );
 
-        // Fallback: load from DB via Repository
-        let row = self.repository.load_session_detail_or_log(session_id)?;
+        // Fallback: load from DB via Repository. Fail-closed on poison (returns
+        // `DB_POISONED`) so this IPC-reachable read stays consistent with all
+        // other IPC DB commands. See ADR-005.
+        let row = match self.repository.load_session_detail_for_ipc(session_id)? {
+            Some(row) => row,
+            None => return Ok(None),
+        };
 
-        let summary = self.cache.find_summary(session_id).or_else(|| {
-            self.repository
-                .load_session_summary_or_log(session_id)
-                .map(summary_row_to_proxy)
-        })?;
+        let summary = match self.cache.find_summary(session_id) {
+            Some(s) => s,
+            None => match self.repository.load_session_summary_for_ipc(session_id)? {
+                Some(row) => summary_row_to_proxy(row),
+                None => return Ok(None),
+            },
+        };
 
         let detail = detail_row_to_proxy(&row, summary, self.repository.body_store().as_ref());
 
@@ -252,7 +259,7 @@ impl AppState {
             "session_detail_db_backfill_succeeded"
         );
 
-        Some(detail)
+        Ok(Some(detail))
     }
 
     // ── session lifecycle ───────────────────────────────────────────
@@ -374,6 +381,16 @@ impl AppState {
 
     pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
         self.repository.db()
+    }
+
+    /// Acquire the DB connection lock for an IPC command handler (fail-closed
+    /// on poison — returns a structured `DB_POISONED` error). Thin proxy over
+    /// [`Repository::lock_for_ipc`] so command files don't need to import the
+    /// `Repository` type. See ADR-005.
+    pub fn lock_db_for_ipc(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, aiproxy_db::rusqlite::Connection>, String> {
+        self.repository.lock_for_ipc()
     }
 
     /// M17: returns the lock that serializes system-proxy enable/disable/restart.
@@ -603,6 +620,7 @@ mod tests {
 
         let loaded = state
             .read_session_detail("db-session")
+            .expect("db read should not surface a poison error")
             .expect("detail should load from db");
 
         assert_eq!(loaded.id, "db-session");

@@ -271,10 +271,7 @@ pub async fn list_api_collections(
 ) -> Result<Vec<ApiCollectionOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_api_collections", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows = aiproxy_db::collections::list_all_collections(&conn_guard)
             .map_err(|error| app_error(ERR_INTERNAL, format!("list collections: {error}")))?;
         Ok(rows
@@ -313,10 +310,7 @@ pub async fn upsert_api_collection(
 
     let state = Arc::clone(state.inner());
     run_blocking_command("upsert_api_collection", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::upsert_collection(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection: {e}")))?;
         Ok(ApiCollectionOutput {
@@ -339,10 +333,7 @@ pub async fn delete_api_collection(
 ) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("delete_api_collection", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::delete_collection(&conn_guard, &input.id)
             .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection: {e}")))?;
         Ok(())
@@ -361,10 +352,7 @@ pub async fn list_api_collection_items(
 ) -> Result<Vec<ApiCollectionItemOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_api_collection_items", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows =
             aiproxy_db::collections::list_collection_items(&conn_guard, &input.collection_id)
                 .map_err(|error| {
@@ -385,10 +373,7 @@ pub async fn get_api_collection_item(
 ) -> Result<ApiCollectionItemOutput, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("get_api_collection_item", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let row = aiproxy_db::collections::get_collection_item(&conn_guard, &input.id)
             .map_err(|e| app_error(ERR_INTERNAL, format!("get collection item: {e}")))?
             .ok_or_else(|| {
@@ -435,10 +420,7 @@ pub async fn upsert_api_collection_item(
 
     let state = Arc::clone(state.inner());
     run_blocking_command("upsert_api_collection_item", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::upsert_collection_item(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert collection item: {e}")))?;
         Ok(collection_item_output_from_row(row))
@@ -453,10 +435,7 @@ pub async fn delete_api_collection_item(
 ) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("delete_api_collection_item", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::delete_collection_item(&conn_guard, &input.id)
             .map_err(|e| app_error(ERR_INTERNAL, format!("delete collection item: {e}")))?;
         Ok(())
@@ -472,10 +451,7 @@ pub async fn move_api_collection_item(
     let now = chrono::Utc::now().to_rfc3339();
     let state = Arc::clone(state.inner());
     run_blocking_command("move_api_collection_item", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::move_collection_item(
             &conn_guard,
             &input.id,
@@ -497,10 +473,7 @@ pub async fn move_api_collection(
     let now = chrono::Utc::now().to_rfc3339();
     let state = Arc::clone(state.inner());
     run_blocking_command("move_api_collection", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::collections::move_collection(
             &conn_guard,
             &input.id,
@@ -523,7 +496,7 @@ pub async fn save_session_to_collection(
     state: State<'_, Arc<AppState>>,
 ) -> Result<ApiCollectionItemOutput, String> {
     let detail = state
-        .read_session_detail(&input.session_id)
+        .read_session_detail(&input.session_id)?
         .ok_or_else(|| {
             app_error(
                 ERR_INVALID_INPUT,
@@ -611,10 +584,7 @@ pub async fn batch_execute_collection_items(
         Vec<aiproxy_db::collections::CollectionItemRow>,
         std::collections::HashMap<String, String>,
     ) = run_blocking_command("batch_execute_collection_items_load", move || {
-        let conn = state_for_load.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state_for_load.lock_db_for_ipc()?;
 
         let mut found = Vec::new();
         for id in &input.item_ids {

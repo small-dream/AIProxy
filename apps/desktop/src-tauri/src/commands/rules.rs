@@ -7,10 +7,7 @@ pub async fn list_script_session_trace(
 ) -> Result<Vec<ScriptSessionTraceOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_script_session_trace", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let runs = aiproxy_db::rules::load_script_runs_for_session(&conn_guard, &input.session_id)
             .map_err(|error| app_error(ERR_INTERNAL, format!("Load script runs: {error}")))?;
         let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -51,10 +48,7 @@ pub async fn list_rewrite_session_trace(
 ) -> Result<Vec<RewriteSessionTraceOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_rewrite_session_trace", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let runs = aiproxy_db::rules::load_rewrite_runs_for_session(&conn_guard, &input.session_id)
             .map_err(|error| app_error(ERR_INTERNAL, format!("Load rewrite runs: {error}")))?;
         let run_ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
@@ -96,10 +90,7 @@ pub async fn list_map_session_trace(
 ) -> Result<Vec<MapSessionTraceOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_map_session_trace", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let runs = aiproxy_db::rules::load_map_runs_for_session(&conn_guard, &input.session_id)
             .map_err(|error| app_error(ERR_INTERNAL, format!("Load map runs: {error}")))?;
 
@@ -129,10 +120,7 @@ pub async fn list_throttle_session_trace(
 ) -> Result<Vec<ThrottleSessionTraceOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_throttle_session_trace", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let runs =
             aiproxy_db::rules::load_throttle_runs_for_session(&conn_guard, &input.session_id)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("Load throttle runs: {error}")))?;
@@ -165,10 +153,7 @@ pub async fn list_throttled_session_ids(
 ) -> Result<Vec<String>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_throttled_session_ids", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::rules::load_throttled_session_ids(&conn_guard, &input.workspace_id).map_err(
             |error| app_error(ERR_INTERNAL, format!("Load throttled session IDs: {error}")),
         )
@@ -213,10 +198,7 @@ pub async fn set_breakpoint_rules(
     run_blocking_command("set_breakpoint_rules", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             aiproxy_db::rules::replace_breakpoint_rules(&conn_guard, &rows).map_err(|error| {
                 app_error(ERR_INTERNAL, format!("Set breakpoint rules: {error}"))
             })?;
@@ -292,10 +274,7 @@ pub async fn save_rewrite_rule(
     run_blocking_command("save_rewrite_rule", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             aiproxy_db::rules::save_rewrite_rule(&conn_guard, &row)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("Save rewrite rule: {error}")))?;
             Ok(())
@@ -489,10 +468,7 @@ pub async fn save_map_rule(
     run_blocking_command("save_map_rule", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             aiproxy_db::rules::save_map_rule(&conn_guard, &row)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("Save map rule: {error}")))?;
             Ok(())
@@ -628,10 +604,7 @@ pub async fn save_script_rule(
     run_blocking_command("save_script_rule", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             aiproxy_db::rules::save_script_rule(&conn_guard, &row)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("Save script rule: {error}")))?;
             Ok(())
@@ -765,10 +738,7 @@ pub async fn delete_rule(
     run_blocking_command("delete_rule", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             let db_result = match rule_type.as_str() {
                 "rewrite" => aiproxy_db::rules::delete_rewrite_rule(&conn_guard, &rule_id),
                 "map" => aiproxy_db::rules::delete_map_rule(&conn_guard, &rule_id),
@@ -840,10 +810,7 @@ pub async fn save_dns_mapping(
     run_blocking_command("save_dns_mapping", {
         let state = Arc::clone(&state);
         move || {
-            let conn = state.read_db_connection();
-            let conn_guard = conn
-                .lock()
-                .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+            let conn_guard = state.lock_db_for_ipc()?;
             aiproxy_db::rules::save_dns_mapping(&conn_guard, &row)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("Save DNS mapping: {error}")))?;
             Ok(())

@@ -34,10 +34,7 @@ pub async fn list_ws_messages(
     let offset = input.offset.unwrap_or(0);
     let state = Arc::clone(state.inner());
     run_blocking_command("list_ws_messages", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows =
             aiproxy_db::sessions::load_ws_messages(&conn_guard, &input.session_id, limit, offset)
                 .map_err(|error| app_error(ERR_INTERNAL, format!("list ws messages: {error}")))?;
@@ -154,10 +151,7 @@ pub async fn search_ws_messages(
     let offset = input.offset.unwrap_or(0);
     let state = Arc::clone(state.inner());
     run_blocking_command("search_ws_messages", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows = aiproxy_db::sessions::search_ws_messages(
             &conn_guard,
             &input.session_id,

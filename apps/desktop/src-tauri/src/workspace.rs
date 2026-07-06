@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+use crate::bootstrap::lock_recovery::recover_guard;
+
 /// Workspace data stored in memory, matching the TypeScript `Workspace` contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,14 +59,14 @@ impl WorkspaceManager {
         let mut guard = self
             .workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"));
         *guard = workspaces;
     }
 
     pub fn list(&self) -> Vec<WorkspaceData> {
         self.workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"))
             .clone()
     }
 
@@ -100,7 +102,7 @@ impl WorkspaceManager {
 
         self.workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"))
             .push(workspace.clone());
 
         workspace
@@ -109,7 +111,7 @@ impl WorkspaceManager {
     pub fn load(&self, workspace_id: &str) -> Option<WorkspaceData> {
         self.workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"))
             .iter()
             .find(|w| w.id == workspace_id)
             .cloned()
@@ -122,7 +124,7 @@ impl WorkspaceManager {
         let mut workspaces = self
             .workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"));
         workspaces.retain(|w| w.id != workspace_id);
     }
 
@@ -140,7 +142,7 @@ impl WorkspaceManager {
         let mut workspaces = self
             .workspaces
             .lock()
-            .expect("workspace list mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"));
 
         let workspace = workspaces
             .iter_mut()

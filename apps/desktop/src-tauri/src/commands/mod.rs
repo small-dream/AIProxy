@@ -2,7 +2,7 @@ mod ai;
 mod app;
 mod certificates;
 mod collections;
-mod common;
+pub(crate) mod common;
 mod compose;
 mod environments;
 mod files;

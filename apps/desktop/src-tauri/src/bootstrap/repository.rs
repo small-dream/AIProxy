@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use aiproxy_db::body_store::BodyStore;
 use aiproxy_db::rules::{
@@ -7,6 +7,11 @@ use aiproxy_db::rules::{
 use aiproxy_proxy_core::{
     MapTrace, ProxySessionSummary, RewriteTrace, ScriptLogLevel, ScriptRunEntryKind,
     ScriptRunOutcome, ScriptTrace, ScriptTraceStage, ThrottleTrace,
+};
+
+use crate::bootstrap::lock_recovery::{
+    lock_db_best_effort as lock_best_effort_helper, lock_db_for_ipc as lock_for_ipc_helper,
+    lock_db_or_recover as lock_db_or_recover_helper,
 };
 
 /// Encapsulates all direct database and body-store I/O.
@@ -34,6 +39,56 @@ impl Repository {
         &self.db
     }
 
+    /// Acquire the DB connection lock for an IPC command handler. Returns a
+    /// structured `DB_POISONED` error on poison (fail-closed): a poisoned
+    /// `Connection` may have torn statement state and must not be reused for
+    /// user-data writes. Use [`Self::lock_best_effort`] for best-effort
+    /// internal write paths (which skip on poison) or [`Self::lock_or_recover`]
+    /// for read-only paths.
+    ///
+    /// Thin wrapper over [`lock_recovery::lock_db_for_ipc`]. Command files
+    /// that prefer to clone the `Arc` and call inside a `move` closure can
+    /// use the free function directly.
+    ///
+    /// See ADR-005 for the policy rationale.
+    pub fn lock_for_ipc(
+        &self,
+    ) -> Result<MutexGuard<'_, aiproxy_db::rusqlite::Connection>, String> {
+        lock_for_ipc_helper(&self.db)
+    }
+
+    /// Acquire the DB connection lock for a **read-only** best-effort internal
+    /// path (fail-open + log). Use this from session loaders and startup reads
+    /// — paths that (a) have no `Result` channel to the user, AND (b) only
+    /// **read** the DB. A poisoned `Connection` may return garbage rows, but
+    /// the caller already handles DB errors via `tracing::*`.
+    ///
+    /// **Do NOT use for write paths** — use [`Self::lock_best_effort`] instead,
+    /// which skips the write on poison to avoid corrupting user data.
+    /// `category` identifies the caller in logs (e.g. `"startup_load"`).
+    ///
+    /// See ADR-005 for the policy rationale.
+    pub fn lock_or_recover(
+        &self,
+        category: &'static str,
+    ) -> MutexGuard<'_, aiproxy_db::rusqlite::Connection> {
+        lock_db_or_recover_helper(&self.db, category)
+    }
+
+    /// Acquire the DB connection lock for a best-effort **write** path. On
+    /// poison, returns `Err(())` (after logging) so the caller can skip the
+    /// write — never write through a poisoned `Connection`. Use this from
+    /// session persisters, deleters, and the WS collector. `category`
+    /// identifies the caller in logs (e.g. `"session_persistence"`).
+    ///
+    /// See ADR-005 for the policy rationale.
+    pub fn lock_best_effort(
+        &self,
+        category: &'static str,
+    ) -> Result<MutexGuard<'_, aiproxy_db::rusqlite::Connection>, ()> {
+        lock_best_effort_helper(&self.db, category)
+    }
+
     /// Access the body store.
     pub fn body_store(&self) -> &Arc<BodyStore> {
         &self.body_store
@@ -52,8 +107,10 @@ impl Repository {
     /// orphan blobs persist but are harmless (no DB rows reference them and a
     /// later clear/full session re-run will sweep them again).
     pub fn clear_all_sessions(&self) {
-        {
-            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        // Fail-closed on poison: skip the DB clear rather than write through a
+        // potentially torn Connection. The body-store clear below still runs
+        // (it's independent of the DB Connection).
+        if let Ok(conn) = self.lock_best_effort("session_clear") {
             if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -116,8 +173,9 @@ impl Repository {
     /// blocking thread.
     #[allow(dead_code)] // synchronous API; the hot path uses delete_sessions_and_bodies_async
     pub fn delete_sessions_by_ids(&self, ids: &[String]) {
-        {
-            let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        // Fail-closed on poison: skip the DB delete; the body-file cleanup
+        // below still runs (independent of the DB Connection).
+        if let Ok(conn) = self.lock_best_effort("session_delete") {
             if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -174,14 +232,16 @@ impl Repository {
         });
     }
 
-    /// Load a session detail row from the database, with tracing.
-    /// Returns `None` when the row doesn't exist or an error occurs
-    /// (both cases are logged).
-    pub fn load_session_detail_or_log(
+    /// Load a session detail row from the database for an IPC-reachable path,
+    /// with tracing. Fail-closed on poison: returns a structured `DB_POISONED`
+    /// error so session-detail IPC commands stay consistent with all other IPC
+    /// DB commands. Returns `Ok(None)` when the row doesn't exist or a DB
+    /// error occurs (both cases are logged). See ADR-005.
+    pub fn load_session_detail_for_ipc(
         &self,
         session_id: &str,
-    ) -> Option<aiproxy_db::sessions::SessionDetailRow> {
-        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+    ) -> Result<Option<aiproxy_db::sessions::SessionDetailRow>, String> {
+        let conn = self.lock_for_ipc()?;
         match aiproxy_db::sessions::load_session_detail(&conn, session_id) {
             Ok(Some(row)) => {
                 tracing::debug!(
@@ -190,7 +250,7 @@ impl Repository {
                     session_id = %session_id,
                     "session_detail_db_hit"
                 );
-                Some(row)
+                Ok(Some(row))
             }
             Ok(None) => {
                 tracing::warn!(
@@ -199,7 +259,7 @@ impl Repository {
                     session_id = %session_id,
                     "session_detail_db_miss"
                 );
-                None
+                Ok(None)
             }
             Err(error) => {
                 tracing::error!(
@@ -209,17 +269,19 @@ impl Repository {
                     error = %error,
                     "load_session_detail_failed"
                 );
-                None
+                Ok(None)
             }
         }
     }
 
-    /// Load a session summary row from the database, with tracing.
-    pub fn load_session_summary_or_log(
+    /// Load a session summary row from the database for an IPC-reachable path,
+    /// with tracing. Fail-closed on poison (returns `DB_POISONED`). See
+    /// [`load_session_detail_for_ipc`]. See ADR-005.
+    pub fn load_session_summary_for_ipc(
         &self,
         session_id: &str,
-    ) -> Option<aiproxy_db::sessions::SessionSummaryRow> {
-        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+    ) -> Result<Option<aiproxy_db::sessions::SessionSummaryRow>, String> {
+        let conn = self.lock_for_ipc()?;
         match aiproxy_db::sessions::load_session_summary(&conn, session_id) {
             Ok(Some(row)) => {
                 tracing::debug!(
@@ -228,7 +290,7 @@ impl Repository {
                     session_id = %session_id,
                     "session_summary_db_hit"
                 );
-                Some(row)
+                Ok(Some(row))
             }
             Ok(None) => {
                 tracing::warn!(
@@ -237,7 +299,7 @@ impl Repository {
                     session_id = %session_id,
                     "session_summary_db_miss"
                 );
-                None
+                Ok(None)
             }
             Err(error) => {
                 tracing::error!(
@@ -247,7 +309,7 @@ impl Repository {
                     error = %error,
                     "load_session_summary_failed"
                 );
-                None
+                Ok(None)
             }
         }
     }
@@ -260,7 +322,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionDetailRow>, String> {
-        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.lock_or_recover("session_detail_row_load");
         aiproxy_db::sessions::load_session_detail(&conn, session_id).map_err(|e| e.to_string())
     }
 
@@ -270,7 +332,7 @@ impl Repository {
         &self,
         session_id: &str,
     ) -> Result<Option<aiproxy_db::sessions::SessionSummaryRow>, String> {
-        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.lock_or_recover("session_summary_row_load");
         aiproxy_db::sessions::load_session_summary(&conn, session_id).map_err(|e| e.to_string())
     }
 
@@ -282,7 +344,12 @@ impl Repository {
         summary_row: &aiproxy_db::sessions::SessionSummaryRow,
         detail_row: &aiproxy_db::sessions::SessionDetailRow,
     ) {
-        let conn = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        // Fail-closed on poison: skip the upsert rather than write through a
+        // potentially torn Connection.
+        let conn = match self.lock_best_effort("session_upsert") {
+            Ok(conn) => conn,
+            Err(()) => return,
+        };
         if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, summary_row, detail_row) {
             tracing::error!(
                 component = "desktop.persistence",
@@ -542,7 +609,17 @@ impl Repository {
             let row_build_elapsed_us = row_build_started_at.elapsed().as_micros();
             log_storage_stats(&detail, &detail_row, spill_elapsed_us, row_build_elapsed_us);
 
-            let conn = db.lock().unwrap_or_else(|e| e.into_inner());
+            // Fail-closed on poison: skip the write rather than mutate user
+            // data through a potentially torn Connection. Return the detail
+            // unchanged (same as the JoinError fallback) — the session simply
+            // isn't persisted in this rare case.
+            let conn = match crate::bootstrap::lock_recovery::lock_db_best_effort(
+                &db,
+                "session_persist_full",
+            ) {
+                Ok(conn) => conn,
+                Err(()) => return detail,
+            };
             if let Err(e) = aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row) {
                 tracing::error!(
                     component = "desktop.persistence",
@@ -608,7 +685,16 @@ impl Repository {
                 }
             }
 
-            let conn = db.lock().unwrap_or_else(|e| e.into_inner());
+            // Fail-closed on poison: skip the batch write rather than mutate
+            // user data through a potentially torn Connection. Return sessions
+            // unchanged — they simply aren't persisted in this rare case.
+            let conn = match crate::bootstrap::lock_recovery::lock_db_best_effort(
+                &db,
+                "session_persist_batch",
+            ) {
+                Ok(conn) => conn,
+                Err(()) => return sessions,
+            };
             for session in sessions.iter() {
                 let summary_row =
                     crate::bootstrap::converters::proxy_summary_to_row(&session.summary);
@@ -755,8 +841,10 @@ fn delete_sessions_impl(
     body_store: &Arc<BodyStore>,
     ids: &[String],
 ) {
+    // Fail-closed on poison: skip the DB delete; the body-file cleanup below
+    // still runs (independent of the DB Connection).
+    if let Ok(conn) = crate::bootstrap::lock_recovery::lock_db_best_effort(db, "session_delete_impl")
     {
-        let conn = db.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
             tracing::error!(
                 component = "desktop.persistence",

@@ -78,9 +78,7 @@ pub async fn get_ai_settings(state: State<'_, Arc<AppState>>) -> Result<AiSettin
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("get_ai_settings", move || {
-        let conn = db
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = crate::bootstrap::lock_recovery::lock_db_for_ipc(&db)?;
         let row = aiproxy_db::ai::load_ai_settings(&conn)
             .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
         Ok(row_to_public(row.as_ref()))
@@ -102,9 +100,7 @@ pub async fn save_ai_settings(
     let db = Arc::clone(state.read_db_connection());
 
     run_blocking_command("save_ai_settings", move || {
-        let conn = db
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = crate::bootstrap::lock_recovery::lock_db_for_ipc(&db)?;
         let existing = aiproxy_db::ai::load_ai_settings(&conn)
             .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))?;
         let existing_api_key = existing
@@ -216,9 +212,7 @@ async fn load_configured_ai_settings(
 ) -> Result<aiproxy_db::ai::AiSettingsRow, String> {
     let db = Arc::clone(app_state.read_db_connection());
     let row = run_blocking_command("load_configured_ai_settings", move || {
-        let conn = db
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn = crate::bootstrap::lock_recovery::lock_db_for_ipc(&db)?;
         aiproxy_db::ai::load_ai_settings(&conn)
             .map_err(|e| app_error(ERR_INTERNAL, format!("load AI settings: {e}")))
     })

@@ -42,10 +42,7 @@ pub async fn create_workspace(
     let app_state = Arc::clone(state.inner());
     let workspace_for_db = workspace.clone();
     let db_result = run_blocking_command("create_workspace", move || {
-        let conn = app_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = app_state.lock_db_for_ipc()?;
         let row = aiproxy_db::workspaces::WorkspaceRow {
             id: workspace_for_db.id.clone(),
             name: workspace_for_db.name.clone(),
@@ -195,10 +192,7 @@ pub async fn update_workspace(
     let app_state = Arc::clone(state.inner());
     let updated_at = workspace.updated_at.clone();
     let db_result = run_blocking_command("update_workspace", move || {
-        let conn = app_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = app_state.lock_db_for_ipc()?;
         if let Err(error) = aiproxy_db::workspaces::update_workspace(
             &conn_guard,
             &input.workspace_id,

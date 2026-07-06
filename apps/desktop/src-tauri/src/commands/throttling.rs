@@ -47,10 +47,7 @@ pub async fn save_throttle_profile(
     let db_state = Arc::clone(&state);
     let row_input = input.clone();
     run_blocking_command("save_throttle_profile", move || {
-        let conn = db_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = db_state.lock_db_for_ipc()?;
         let row = aiproxy_db::rules::ThrottleProfileRow {
             id: row_input.id.clone(),
             workspace_id: row_input.workspace_id.clone(),
@@ -88,10 +85,7 @@ pub async fn save_throttle_rule(
     let db_state = Arc::clone(&state);
     let row_input = input.clone();
     run_blocking_command("save_throttle_rule", move || {
-        let conn = db_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = db_state.lock_db_for_ipc()?;
         let row = aiproxy_db::rules::ThrottleRuleRow {
             id: row_input.id.clone(),
             workspace_id: row_input.workspace_id.clone(),
@@ -128,10 +122,7 @@ pub async fn delete_throttle_rule(
     let db_state = Arc::clone(&state);
     let rule_id = input.rule_id.clone();
     run_blocking_command("delete_throttle_rule", move || {
-        let conn = db_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = db_state.lock_db_for_ipc()?;
         aiproxy_db::rules::delete_throttle_rule(&conn_guard, &input.rule_id)
             .map_err(|error| app_error(ERR_INTERNAL, format!("delete throttle rule: {error}")))?;
         Ok(())
@@ -159,10 +150,7 @@ pub async fn set_active_throttle_profile(
     let workspace_id = input.workspace_id.clone();
     let profile_id = input.profile_id.clone();
     run_blocking_command("set_active_throttle_profile", move || {
-        let conn = db_state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = db_state.lock_db_for_ipc()?;
         aiproxy_db::rules::set_active_throttle_profile(
             &conn_guard,
             &input.workspace_id,

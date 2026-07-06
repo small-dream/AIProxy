@@ -39,11 +39,16 @@ pub(super) const ERR_INVALID_INPUT: &str = "INVALID_INPUT";
 pub(super) const ERR_CERT_NOT_FOUND: &str = "CERT_NOT_FOUND";
 pub(super) const ERR_INTERNAL: &str = "INTERNAL_ERROR";
 pub(super) const ERR_PROCESS_CHANGED: &str = "PROCESS_CHANGED";
+/// The DB connection mutex is poisoned (a prior panic left it locked).
+/// A poisoned `rusqlite::Connection` may have torn statement state and must
+/// not be reused for user-data writes — IPC handlers return this code so the
+/// frontend can prompt a restart. See ADR-005.
+pub(crate) const ERR_DB_POISONED: &str = "DB_POISONED";
 
 /// Produces a structured JSON error string with `code` and `message`.
 /// Tauri commands return `Result<T, String>`, so the error payload is a
 /// JSON-encoded string that the frontend can parse via `coerceAppError`.
-pub(super) fn app_error(code: &str, message: impl AsRef<str>) -> String {
+pub(crate) fn app_error(code: &str, message: impl AsRef<str>) -> String {
     serde_json::json!({
         "code": code,
         "message": message.as_ref(),

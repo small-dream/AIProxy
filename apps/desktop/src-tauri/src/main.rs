@@ -99,12 +99,13 @@ pub fn run() {
 
     let app_state = AppState::new(Arc::new(Mutex::new(db_connection)), Arc::new(body_store));
 
-    // Seed default workspace to DB if empty
-    {
-        let conn = app_state
-            .read_db_connection()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    // Seed default workspace to DB if empty. Fail-closed on poison: skip the
+    // whole block (the is_empty read + the conditional upsert write) rather
+    // than risk writing through a poisoned Connection.
+    if let Ok(conn) = crate::bootstrap::lock_recovery::lock_db_best_effort(
+        app_state.read_db_connection(),
+        "startup_seed",
+    ) {
         // is_empty now propagates DB errors (M5). On error we conservatively
         // skip seeding: writing a default row when the emptiness check itself
         // failed could overwrite or duplicate existing data on a transient

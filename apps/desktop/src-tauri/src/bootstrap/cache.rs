@@ -3,6 +3,8 @@ use std::sync::Mutex;
 
 use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
 
+use super::lock_recovery::recover_guard;
+
 const SESSION_DETAIL_CACHE_CAPACITY: usize = 1_000;
 const SESSION_SUMMARY_MAX: usize = 15_000;
 
@@ -44,7 +46,7 @@ impl SessionCache {
     pub fn read_summaries(&self) -> Vec<ProxySessionSummary> {
         self.summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"))
             .clone()
     }
 
@@ -52,7 +54,7 @@ impl SessionCache {
     pub fn find_summary(&self, session_id: &str) -> Option<ProxySessionSummary> {
         self.summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"))
             .iter()
             .find(|s| s.id == session_id)
             .cloned()
@@ -68,7 +70,7 @@ impl SessionCache {
         let mut summaries = self
             .summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"));
 
         if let Some(existing) = summaries.iter_mut().find(|s| s.id == summary.id) {
             *existing = summary;
@@ -89,7 +91,7 @@ impl SessionCache {
     pub fn remove_summaries(&self, ids: &HashSet<String>) {
         self.summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"))
             .retain(|s| !ids.contains(&s.id));
     }
 
@@ -99,7 +101,7 @@ impl SessionCache {
         let mut guard = self
             .summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"));
         *guard = summaries;
     }
 
@@ -108,7 +110,7 @@ impl SessionCache {
         let mut summaries = self
             .summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"));
         let ids: Vec<String> = summaries.iter().map(|s| s.id.clone()).collect();
         summaries.clear();
         ids
@@ -119,7 +121,7 @@ impl SessionCache {
         let mut summaries = self
             .summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"));
         let ids: Vec<String> = summaries
             .iter()
             .filter(|s| s.id != keep_id)
@@ -133,7 +135,7 @@ impl SessionCache {
     pub fn summary_count(&self) -> usize {
         self.summaries
             .lock()
-            .expect("session summaries mutex should not be poisoned")
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.summaries"))
             .len()
     }
 
@@ -145,7 +147,7 @@ impl SessionCache {
         let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.details"));
         let detail = state.map.get(session_id).cloned();
         if detail.is_some() {
             // Touch the LRU order inside the same lock acquisition so the
@@ -164,7 +166,7 @@ impl SessionCache {
         let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.details"));
 
         state.map.insert(session_id.clone(), detail);
 
@@ -194,7 +196,7 @@ impl SessionCache {
         let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.details"));
         if state.map.contains_key(session_id) {
             state.map.insert(session_id.to_string(), detail);
         }
@@ -205,7 +207,7 @@ impl SessionCache {
         let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.details"));
         for id in ids {
             state.map.remove(id);
         }
@@ -218,7 +220,7 @@ impl SessionCache {
         let mut state = self
             .details
             .lock()
-            .expect("session detail mutex should not be poisoned");
+            .unwrap_or_else(|e| recover_guard(e, "session_cache.details"));
         state.map.clear();
         state.order.clear();
     }

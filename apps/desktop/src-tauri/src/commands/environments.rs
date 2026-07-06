@@ -64,10 +64,7 @@ pub async fn list_api_environments(
 ) -> Result<Vec<ApiEnvironmentOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_api_environments", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows = aiproxy_db::environments::list_environments(&conn_guard)
             .map_err(|error| app_error(ERR_INTERNAL, format!("list environments: {error}")))?;
         Ok(rows
@@ -102,10 +99,7 @@ pub async fn upsert_api_environment(
 
     let state = Arc::clone(state.inner());
     run_blocking_command("upsert_api_environment", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::environments::upsert_environment(&conn_guard, &row)
             .map_err(|e| app_error(ERR_INTERNAL, format!("upsert environment: {e}")))?;
         Ok(ApiEnvironmentOutput {
@@ -126,10 +120,7 @@ pub async fn delete_api_environment(
 ) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("delete_api_environment", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::environments::delete_environment(&conn_guard, &input.id)
             .map_err(|e| app_error(ERR_INTERNAL, format!("delete environment: {e}")))?;
         Ok(())
@@ -144,10 +135,7 @@ pub async fn list_api_environment_variables(
 ) -> Result<Vec<ApiEnvironmentVariableOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_api_environment_variables", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows = aiproxy_db::environments::list_environment_variables(
             &conn_guard,
             &input.environment_id,
@@ -189,10 +177,7 @@ pub async fn set_api_environment_variables(
 
     let state = Arc::clone(state.inner());
     run_blocking_command("set_api_environment_variables", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::environments::set_environment_variables(
             &conn_guard,
             &input.environment_id,
@@ -240,10 +225,7 @@ pub async fn list_api_global_variables(
 ) -> Result<Vec<ApiGlobalVariableOutput>, String> {
     let state = Arc::clone(state.inner());
     run_blocking_command("list_api_global_variables", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         let rows = aiproxy_db::environments::list_global_variables(&conn_guard)
             .map_err(|error| app_error(ERR_INTERNAL, format!("list global variables: {error}")))?;
         Ok(rows
@@ -280,10 +262,7 @@ pub async fn set_api_global_variables(
 
     let state = Arc::clone(state.inner());
     run_blocking_command("set_api_global_variables", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::environments::set_global_variables(&conn_guard, &vars)
             .map_err(|e| app_error(ERR_INTERNAL, format!("set global variables: {e}")))?;
         Ok(())

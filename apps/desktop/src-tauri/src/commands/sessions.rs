@@ -169,7 +169,7 @@ pub fn get_session_detail(
     input: GetSessionDetailInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionDetailPayload, String> {
-    let detail = match state.read_session_detail(&input.session_id) {
+    let detail = match state.read_session_detail(&input.session_id)? {
         Some(detail) => detail,
         None => {
             log_session_not_found(
@@ -192,7 +192,7 @@ pub fn get_session_detail_content(
     input: GetSessionDetailContentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionDetailContentPatchPayload, String> {
-    let detail = match state.read_session_detail(&input.session_id) {
+    let detail = match state.read_session_detail(&input.session_id)? {
         Some(detail) => detail,
         None => {
             log_session_not_found(
@@ -571,10 +571,7 @@ pub async fn get_insights(
         host_keyword: input.host_keyword,
     };
     run_blocking_command("get_insights", move || {
-        let conn = state.read_db_connection();
-        let conn_guard = conn
-            .lock()
-            .map_err(|_| app_error(ERR_INTERNAL, "db mutex poisoned"))?;
+        let conn_guard = state.lock_db_for_ipc()?;
         aiproxy_db::insights::compute_insights(&conn_guard, &filter)
             .map_err(|e| app_error(ERR_INTERNAL, format!("compute insights: {e}")))
     })
