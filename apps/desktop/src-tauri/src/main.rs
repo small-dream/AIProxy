@@ -3,7 +3,12 @@
 // remain visible during development.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// Load compiled-in menu translations from src-tauri/locales/*.yml; English fallback.
+// Pull the `t!` translation macro into crate-wide scope so any module (e.g.
+// `menu`) can invoke it directly, and load compiled-in menu translations from
+// src-tauri/locales/*.yml with an English fallback.
+#[macro_use]
+extern crate rust_i18n;
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod bootstrap;
