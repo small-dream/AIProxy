@@ -226,6 +226,7 @@
 - **证据**：`update_workspace` 入参与 UPDATE SET 都**不含** `system_proxy_enabled`。该列真实存在（`schema.rs:11`），被 `row_to_workspace`（:188）读回，运行时由 `proxy.rs:474/529` 的 `set_system_proxy_enabled(true/false)` 切换——但只更新内存 `BootstrapStatus`，**从不**写回 `workspaces` 行。IPC `UpdateWorkspaceInput`（`commands/workspaces.rs:121-145`）也无该字段。重启时 `main.rs:134` 从 DB 读 `ws.system_proxy_enabled`（seed/create 时值），toggle 回退。
 - **影响**：启用系统代理→退出→重启，工作区显示系统代理为关（内存状态经 `system_proxy_recovery.rs` 另行恢复，但持久化行陈旧）。用户可见、安全敏感设置的真实跨重启失步。导出/导入工作区快照也捕获陈旧值。
 - **修复方向**：两步缺一不可——(1) `update_workspace` 与 `UpdateWorkspaceInput` 加 `system_proxy_enabled: Option<bool>` 并入 UPDATE SET（提供持久化能力）；(2) **在两个实际 toggle 路径调用它**：`enable_system_proxy_impl`（`proxy.rs:474` `state.set_system_proxy_enabled(true)`）与 `disable_system_proxy_impl`（`:529` `state.set_system_proxy_enabled(false)`）在更新内存态后，同步把对应 `workspace_id` 的 `system_proxy_enabled` 写回 DB。仅做 (1) 不接 (2) 只增加能力但不改变现状。或者，若该字段有意仅运行时，则从 `WorkspaceRow`/`row_to_workspace`/`main.rs:134` 读路径移除该列，停止广告一个从不持久化的字段（消除"重启回退"的误导）。
+- **状态：已修复 @ batch 8（2026-07-11）** — 采用专用 helper（避免改宽 `update_workspace` 签名）：`workspaces::set_workspace_system_proxy_enabled(conn, id, enabled)` 单列 UPDATE。在两个 toggle 路径接入：`enable_system_proxy_impl` 与 `disable_system_proxy_impl` 在内存态切换后用 `run_blocking_command` + `lock_db_for_ipc` 写回 DB（best-effort，持久化失败只 warn 不撤销已完成的 apply/restore）。`workspace_id` 取自 `status.active_workspace_id`（enable 路径已有 :424；disable 路径新增读取）。测试：`m9_set_workspace_system_proxy_enabled_round_trips`。
 
 ### M10 ✅ `throttle_runs.profile_id`/`rule_id` 无 FK——删 profile/rule 留孤儿 trace 永不清理 `[来源:D]`
 - **位置**：`crates/db/src/schema.rs:81-99`、`crates/db/src/rules.rs:525-545`（`delete_throttle_profile`）、`:582-586`（`delete_throttle_rule`）
@@ -262,6 +263,7 @@
 - **证据**：三条顺序 `std::fs::write`（cert、install-copy、key），各为截断-写。Round 4 L8 已为 `system_proxy_recovery.rs` 改 `write_atomic`，但 `CertStorage::save_root_cert` 未转。
 - **影响**：崩溃/掉电在三次写之间留不一致（新 cert PEM 配空 key PEM；或 install-copy 写了 key 没写）。下次启动 `root_cert_exists()`（只查存在）返 true 但 key 不可解析，`load_from_pem` 隐晦失败。旋转被打断还可能 cert/key 来自不同代。
 - **修复方向**：三次写均用 `write_atomic`（同目录临时文件 + fsync + rename）；先写 key 后写 cert 使"cert 存在⇒key 有效"不变式成立，或单代原子写 + marker 门控 `root_cert_exists`。
+- **状态：已修复 @ batch 8（2026-07-11）** — 新增 `write_file_atomic(path, contents, secret)`（同目录临时文件 + unix `OpenOptionsExt::mode(0o600)` for secret + `sync_all` + `rename`，失败清 temp）；替换 `save_root_cert` 三条 `std::fs::write`（key 先、cert/install-copy 后）；H2 的 `write_secret_file` 合并为 `write_file_atomic(_, _, true)` 的薄封装后移除（dead code）。测试：`m13_save_root_cert_leaves_no_temp_files`。
 
 ### M14 🔶 `root_cert_exists` 只查存在不查有效性/配对 `[来源:D]`
 - **位置**：`crates/tls-manager/src/storage.rs:95-97`
@@ -269,6 +271,7 @@
 - **证据**：`self.root_cert_path.exists() && self.root_key_path.exists()`。配合 M13（非原子写），被打断的旋转留零字节/部分文件"存在"但不可解析。该函数是 bootstrap 决定 generate-vs-load 的门控。
 - **影响**：被打断旋转后，app 信 CA 存在并尝试 load，`load_from_pem` 失败，启动报错（而非干净重建）。
 - **修复方向**：`root_cert_exists` 做廉价解析（或至少非空+有效 PEM fence），不可解析视为"不存在"走生成路径。
+- **状态：已修复 @ batch 8（2026-07-11）** — `root_cert_exists` 从"只查 `exists()`"升级为读两文件 + 断言非空 + 含 `BEGIN CERTIFICATE`/`PRIVATE KEY` PEM fence；任一失败返 false（走 bootstrap 重建）。不做完整 `load_from_pem`（会重签，L7，过重）。测试：`m14_root_cert_exists_false_for_empty_files`、`m14_root_cert_exists_false_for_missing_pem_fence`、`m14_root_cert_exists_true_for_valid_pair`。
 
 ### M15 ✅ 同步证书命令在 IPC 线程 spawn 子进程 + 递归走文件系统 `[来源:T]`
 - **位置**：`apps/desktop/src-tauri/src/commands/certificates.rs:102`（`get_certificate_status`）、`:117`（`open_certificate_install_guide`）、`:124`（`launch_certificate_installer`）、`:277`（`diagnose_certificate_setup`）

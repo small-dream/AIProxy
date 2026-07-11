@@ -92,8 +92,20 @@ impl CertStorage {
         }
     }
 
+    /// Whether a usable root cert + key pair exists on disk.
+    ///
+    /// M14: this checks not just file existence but that both files are non-empty
+    /// and contain valid PEM fences (`BEGIN CERTIFICATE` / `PRIVATE KEY`). A torn
+    /// write (pre-M13 atomic writes) or external corruption could leave a file
+    /// that "exists" but is unparseable; treating that as "absent" lets the
+    /// bootstrap cleanly regenerate instead of erroring out on `load_from_pem`.
+    /// A full `load_from_pem` is avoided here because it re-signs in memory (L7)
+    /// and is heavier than wanted for a bootstrap gate.
     pub fn root_cert_exists(&self) -> bool {
-        self.root_cert_path.exists() && self.root_key_path.exists()
+        let cert = std::fs::read_to_string(&self.root_cert_path).ok();
+        let key = std::fs::read_to_string(&self.root_key_path).ok();
+        matches!(cert.as_deref(), Some(s) if !s.is_empty() && s.contains("BEGIN CERTIFICATE"))
+            && matches!(key.as_deref(), Some(s) if !s.is_empty() && s.contains("PRIVATE KEY"))
     }
 
     pub fn root_cert_path(&self) -> &Path {
@@ -173,23 +185,14 @@ impl CertStorage {
             })?;
         }
 
-        std::fs::write(&self.root_cert_path, cert_pem).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to write root cert: {e}"))
-        })?;
-
-        std::fs::write(&self.root_cert_install_path, cert_pem).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to write installable root cert: {e}"))
-        })?;
-
-        // H2: write the private key with 0600 from the outset on unix.
-        // `std::fs::write` honors the process umask, so on a typical Linux
-        // desktop (umask 0022) the key would land at 0644 and stay world-readable
-        // until `ensure_secure_permissions` tightens it microseconds later. A
-        // crash/SIGKILL in that window leaves the key permanently loose. Creating
-        // the file with mode 0600 closes the exposure window; the subsequent
-        // `ensure_secure_permissions` call remains as defence-in-depth and to
-        // migrate pre-existing installs.
-        write_secret_file(&self.root_key_path, key_pem)?;
+        // M13: write all three files atomically (temp + rename) so a crash or
+        // power loss mid-save never leaves a truncated/partial cert or key.
+        // Write the key first, then the certs, so "root_cert_exists ⇒ key is
+        // valid" holds as closely as possible. The key is written as a secret
+        // (0600 on unix, H2); the cert files use default permissions.
+        write_file_atomic(&self.root_key_path, key_pem, true)?;
+        write_file_atomic(&self.root_cert_path, cert_pem, false)?;
+        write_file_atomic(&self.root_cert_install_path, cert_pem, false)?;
 
         // Restrict the private key (0600) and cert dir (0700) to the current
         // user. `ensure_secure_permissions` is unconditional, so it also
@@ -317,38 +320,63 @@ impl CertStorage {
     }
 }
 
-/// Write a secret file (e.g. a private key) with owner-only permissions from
-/// the outset.
-///
-/// On unix, `std::fs::write` creates the file honoring the process umask, so a
-/// typical desktop (umask 0022) would land the file at 0644 — world-readable —
-/// until a separate chmod tightens it. This helper creates the file with mode
-/// 0600 directly (H2), eliminating the exposure window between create and chmod.
-/// On non-unix it falls back to a plain write (Windows relies on the inherited
-/// ACL of the per-user app-data dir).
-fn write_secret_file(path: &Path, contents: &str) -> Result<(), TlsManagerError> {
+/// Write a file atomically via temp-file + rename, so a crash mid-write never
+/// leaves a truncated/partial file (M13). When `secret` is true the temp file
+/// is created with mode 0600 on unix (H2), eliminating the umask exposure
+/// window. The temp file is created in the same directory as `path` so the
+/// rename is atomic on the same filesystem (POSIX `rename`, Windows
+/// `MoveFileEx` with `MOVEFILE_REPLACE_EXISTING`).
+fn write_file_atomic(path: &Path, contents: &str, secret: bool) -> Result<(), TlsManagerError> {
+    let dir = path.parent().ok_or_else(|| {
+        TlsManagerError::StorageError("destination path has no parent directory".to_string())
+    })?;
+    let pid = std::process::id();
+    let tmp = dir.join(format!(
+        ".{}-{}-{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("aiproxy"),
+        pid,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    ));
+
+    // Write the temp file with the appropriate permissions.
     #[cfg(unix)]
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(|e| {
-                TlsManagerError::StorageError(format!("failed to create secret file: {e}"))
-            })?;
-        file.write_all(contents.as_bytes()).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to write secret file: {e}"))
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        if secret {
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to create temp file: {e}"))
         })?;
+        file.write_all(contents.as_bytes()).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to write temp file: {e}"))
+        })?;
+        file.sync_all()
+            .map_err(|e| TlsManagerError::StorageError(format!("failed to sync temp file: {e}")))?;
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(path, contents).map_err(|e| {
-            TlsManagerError::StorageError(format!("failed to write secret file: {e}"))
+        let _ = secret; // non-unix relies on inherited ACLs
+        std::fs::write(&tmp, contents).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to write temp file: {e}"))
         })?;
+    }
+
+    // Rename is atomic on the same filesystem.
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // Clean up the temp file on rename failure.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(TlsManagerError::StorageError(format!(
+            "failed to rename temp file into place: {e}"
+        )));
     }
     Ok(())
 }
@@ -384,6 +412,67 @@ mod tests {
         assert!(loaded_pem.contains("BEGIN CERTIFICATE"));
     }
 
+    // M14: root_cert_exists must return false for empty/corrupt files, not just
+    // missing files. A torn write (pre-M13) or external corruption could leave a
+    // file that "exists" but is unparseable; bootstrap should regenerate.
+    #[test]
+    fn m14_root_cert_exists_false_for_empty_files() {
+        let storage = CertStorage::new_in_temp_dir();
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        std::fs::write(storage.root_cert_path(), "").unwrap();
+        std::fs::write(storage.root_key_path(), "").unwrap();
+        assert!(
+            !storage.root_cert_exists(),
+            "empty files must not count as a valid cert pair"
+        );
+    }
+
+    // M14: files without valid PEM fences must not count as existing.
+    #[test]
+    fn m14_root_cert_exists_false_for_missing_pem_fence() {
+        let storage = CertStorage::new_in_temp_dir();
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        std::fs::write(storage.root_cert_path(), "not a cert").unwrap();
+        std::fs::write(storage.root_key_path(), "not a key").unwrap();
+        assert!(
+            !storage.root_cert_exists(),
+            "files without PEM fences must not count as a valid cert pair"
+        );
+    }
+
+    // M14: a valid pair (after save_root_cert) must report true. This overlaps
+    // with saves_and_loads_root_cert but explicitly pins the M14 contract.
+    #[test]
+    fn m14_root_cert_exists_true_for_valid_pair() {
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        assert!(storage.root_cert_exists());
+    }
+
+    // M13: save_root_cert must write atomically — after a successful save, no
+    // stray temp files should remain in the cert dir.
+    #[test]
+    fn m13_save_root_cert_leaves_no_temp_files() {
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(storage.cert_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "no temp files should remain after atomic save, found {:?}",
+            leftovers.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+        );
+    }
+
     // H2: the private key must be created with owner-only permissions from the
     // outset, not left world-readable until a later chmod. This test verifies
     // the key file mode immediately after save_root_cert, with no intervening
@@ -408,7 +497,7 @@ mod tests {
         );
     }
 
-    // H2: the write_secret_file helper itself creates 0600 files.
+    // H2: write_file_atomic with secret=true creates 0600 files on unix.
     #[cfg(unix)]
     #[test]
     fn h2_write_secret_file_creates_0600() {
@@ -416,9 +505,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aiproxy-h2-secret-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test-key.pem");
-        write_secret_file(&path, "secret contents").unwrap();
+        write_file_atomic(&path, "secret contents", true).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "write_secret_file must create 0600");
+        assert_eq!(mode, 0o600, "write_file_atomic(secret=true) must create 0600");
         std::fs::remove_dir_all(&dir).ok();
     }
 

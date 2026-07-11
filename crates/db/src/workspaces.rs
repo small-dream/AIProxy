@@ -126,6 +126,27 @@ pub fn update_workspace(
     Ok(())
 }
 
+/// Persist the `system_proxy_enabled` toggle for a workspace (M9).
+///
+/// The enable/disable system-proxy commands previously only mutated the
+/// in-memory `BootstrapStatus`, so the toggle reverted on restart. This
+/// dedicated helper persists it without touching the wide `update_workspace`
+/// signature. System-proxy *actual* restoration on restart is handled
+/// independently by `system_proxy_recovery.rs`; this column is mainly for UI
+/// consistency across restarts.
+pub fn set_workspace_system_proxy_enabled(
+    conn: &Connection,
+    id: &str,
+    enabled: bool,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE workspaces SET system_proxy_enabled=?1 WHERE id=?2",
+        params![enabled as i32, id],
+    )
+    .map_err(|e| DbError::query("set workspace system_proxy_enabled", e))?;
+    Ok(())
+}
+
 /// Load a single workspace by ID.
 pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
@@ -434,5 +455,54 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rule_count, 1, "child rule must survive workspace re-upsert");
+    }
+
+    // M9: set_workspace_system_proxy_enabled must persist the toggle so it
+    // survives restart. The enable/disable commands previously only mutated
+    // in-memory status, so the column reverted on restart.
+    #[test]
+    fn m9_set_workspace_system_proxy_enabled_round_trips() {
+        let conn = test_conn();
+        let ws = WorkspaceRow {
+            id: "ws-m9".into(),
+            name: "M9".into(),
+            proxy_port: 8888,
+            ssl_enabled: false,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_workspace(&conn, &ws).unwrap();
+        // Initially false.
+        assert!(
+            !load_workspace(&conn, "ws-m9")
+                .unwrap()
+                .unwrap()
+                .system_proxy_enabled
+        );
+
+        // Enable — must persist.
+        set_workspace_system_proxy_enabled(&conn, "ws-m9", true).unwrap();
+        assert!(
+            load_workspace(&conn, "ws-m9")
+                .unwrap()
+                .unwrap()
+                .system_proxy_enabled,
+            "system_proxy_enabled must be persisted as true"
+        );
+
+        // Disable — must persist.
+        set_workspace_system_proxy_enabled(&conn, "ws-m9", false).unwrap();
+        assert!(
+            !load_workspace(&conn, "ws-m9")
+                .unwrap()
+                .unwrap()
+                .system_proxy_enabled,
+            "system_proxy_enabled must be persisted as false"
+        );
     }
 }

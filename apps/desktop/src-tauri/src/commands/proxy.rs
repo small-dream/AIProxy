@@ -471,12 +471,40 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     );
 
     state.set_system_proxy_recovery_warning(None);
+
+    // M9: persist the toggle to the workspace row so it survives restart. The
+    // in-memory status was already flipped below; this writes the same value to
+    // the DB column. Skipped when no workspace is active (defensive — the toggle
+    // is workspace-scoped).
+    if let Some(workspace_id) = &workspace_id {
+        let workspace_id = workspace_id.clone();
+        let state_for_persist = Arc::clone(&state);
+        if let Err(error) = run_blocking_command("enable_system_proxy_persist", move || {
+            let conn = state_for_persist.lock_db_for_ipc()?;
+            aiproxy_db::workspaces::set_workspace_system_proxy_enabled(&conn, &workspace_id, true)
+                .map_err(|e| app_error(ERR_INTERNAL, format!("persist system_proxy_enabled: {e}")))
+        })
+        .await
+        {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "enable_system_proxy_persist_failed",
+                error = %error,
+                "enable_system_proxy_persist_failed"
+            );
+        }
+    }
+
     Ok(state.set_system_proxy_enabled(true))
 }
 
 async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
     // M17: serialize against concurrent enable/restart (see enable_system_proxy_impl).
     let _op_guard = state.system_proxy_op_lock().lock().await;
+
+    // M9: capture the workspace id before the restore so we can persist the
+    // toggle after the system-proxy restore succeeds.
+    let workspace_id = state.read_status().active_workspace_id.clone();
 
     if let Some(snapshot) = state.take_system_proxy_snapshot() {
         // H11: restore spawns blocking subprocesses (networksetup/gsettings)
@@ -525,6 +553,27 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
         reason = "user_request",
         "disable_system_proxy_succeeded"
     );
+
+    // M9: persist the disabled toggle to the workspace row so it survives
+    // restart. Best-effort: a failure here does not undo the restore.
+    if let Some(workspace_id) = &workspace_id {
+        let workspace_id = workspace_id.clone();
+        let state_for_persist = Arc::clone(&state);
+        if let Err(error) = run_blocking_command("disable_system_proxy_persist", move || {
+            let conn = state_for_persist.lock_db_for_ipc()?;
+            aiproxy_db::workspaces::set_workspace_system_proxy_enabled(&conn, &workspace_id, false)
+                .map_err(|e| app_error(ERR_INTERNAL, format!("persist system_proxy_enabled: {e}")))
+        })
+        .await
+        {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "disable_system_proxy_persist_failed",
+                error = %error,
+                "disable_system_proxy_persist_failed"
+            );
+        }
+    }
 
     Ok(state.set_system_proxy_enabled(false))
 }
