@@ -4,8 +4,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // Pull the `t!` translation macro into crate-wide scope so any module (e.g.
-// `menu`) can invoke it directly, and load compiled-in menu translations from
-// src-tauri/locales/*.yml with an English fallback.
+// `menu`) can invoke it directly via bare `t!(...)`, and load compiled-in menu
+// translations from src-tauri/locales/*.yml with an English fallback.
+// clippy flags this as "unused `#[macro_use]` import" — a false positive: it
+// does not track the bare `t!` calls in `menu.rs`. The allow is scoped to this
+// item only (not crate-wide) so genuine unused imports elsewhere are still
+// caught. Do NOT remove the import: the build relies on it across platforms.
+#[allow(unused_imports)]
 #[macro_use]
 extern crate rust_i18n;
 
