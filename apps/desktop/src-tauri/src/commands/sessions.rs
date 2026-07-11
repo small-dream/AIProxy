@@ -188,26 +188,27 @@ pub fn get_session_detail(
 }
 
 #[tauri::command]
-pub fn get_session_detail_content(
+pub async fn get_session_detail_content(
     input: GetSessionDetailContentInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionDetailContentPatchPayload, String> {
-    let detail = match state.read_session_detail(&input.session_id)? {
-        Some(detail) => detail,
-        None => {
-            log_session_not_found(
-                "get_session_detail_content",
-                &input.session_id,
-                state.inner().as_ref(),
-            );
-            return Err(session_not_found_error(&input.session_id));
-        }
-    };
-    let payload = build_session_detail_content_patch(&detail, &input);
-
-    log_session_detail_content_stats(&detail, &payload, &input);
-
-    Ok(payload)
+    // M16: the DB read + body base64-encode (build_session_detail_content_patch
+    // calls body.base64_text() on request/response bodies) is CPU/IO-bound and
+    // can be large; offload so the IPC worker is not parked.
+    let state = Arc::clone(state.inner());
+    run_blocking_command("get_session_detail_content", move || {
+        let detail = match state.read_session_detail(&input.session_id)? {
+            Some(detail) => detail,
+            None => {
+                log_session_not_found("get_session_detail_content", &input.session_id, &state);
+                return Err(session_not_found_error(&input.session_id));
+            }
+        };
+        let payload = build_session_detail_content_patch(&detail, &input);
+        log_session_detail_content_stats(&detail, &payload, &input);
+        Ok(payload)
+    })
+    .await
 }
 
 fn session_not_found_error(session_id: &str) -> String {

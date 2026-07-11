@@ -114,6 +114,7 @@
 - **证据**：顺序为：`state.set_runtime(...)`（:297，注册运行时句柄）→ `state.start_proxy(...)`（:302，状态置 Running）→ 若 `system_proxy_enabled` 则 `apply_system_proxy_settings(...)`（:329）。若该 `apply` 失败（networksetup 非零、注册表 ACL 拒绝、gsettings schema 缺失），`?` 把 Err 透传给渲染进程。此时：代理服务器已绑定监听；`RuntimeHandles` 已注册为活动运行时；内存状态已是 Running。
 - **影响**：UI 显示"启动失败"，用户以为代理已关——但代理实际在跑，系统代理可能已半应用态。渲染进程收到 Err 没有句柄可调 `stop_proxy`，孤立服务器一直监听到进程退出。
 - **修复方向**：解耦 reapply 结果与启动结果——reapply 失败视为非致命警告（记日志 + emit 前端事件让 UI 显示 banner，但返回 `Ok(status)`）；或若必须中止，把 reapply 放在 `set_runtime`/`start_proxy` **之前**，失败时丢弃 `started_proxy_server`。
+- **状态：已修复 @ batch 9（2026-07-11）** — reapply 的 `run_blocking_command(...).await?` 改为 `if let Err(error) = ... { tracing::warn!(...); handle.emit("system-proxy-warning", {"reason":"reapply_failed",...}) }`，删 `?`，返回 `Ok(status)`。代理已绑定监听 + 状态已 Running 后 reapply 失败不再撤销启动，孤立监听器不再残留。
 
 ### H5 ✅ `delete_sessions_by_ids` 手删全部子表，与 `clear_all_sessions`（纯 CASCADE）策略相反——新子表必孤立 `[来源:D]`
 - **位置**：`crates/db/src/sessions.rs:305-393`（手删 `script_run_entries/script_runs/rewrite_run_entries/rewrite_runs/map_runs/throttle_runs/ws_messages/session_details` 后删 `session_summaries`）vs `clear_all_sessions:396-412`（仅 `DELETE FROM session_summaries`，靠 `ON DELETE CASCADE`）
@@ -152,6 +153,7 @@
 - **证据**：`select!` 的 WS 分支内 `spawn_blocking(move || insert_ws_message(...)).await` 被直接 await，循环无法在 DB 插入完成前 `recv()` 下一条消息。会话分支批处理（最多 `SESSION_BATCH_SIZE`），WS 分支严格逐条。DB 插入还要竞争全局唯一 `Connection` mutex（Round 4 A4）。
 - **影响**：高频 WS 流（用户正在调试的 chatty WS）下，mpsc 接收端因插入串行而积压；若 channel 满则把背压传回代理 WS relay 路径，增加 UI 消息延迟。
 - **修复方向**：解耦接收与持久化——spawn 插入但不 await（跟踪 JoinHandle），或推内部 channel 由专用 WS 持久化任务批量插入（镜像会话分支）；receive 后立即 emit 前端，不等待持久化。
+- **状态：已修复 @ batch 9（2026-07-11）** — WS 分支 `spawn_blocking(...).await` 改为 spawn 不 await，handle 推入 `Vec<JoinHandle<()>>`；超 `MAX_INFLIGHT_WS_INSERTS`(64) 时 await 最旧的（FIFO 背压）；前端 emit 移到 spawn 后立即执行（解耦 UI 延迟）；循环退出前 drain 剩余 in-flight。复用现有单行 `insert_ws_message`。
 
 ---
 
@@ -163,6 +165,7 @@
 - **证据**：`target_value`（用户规则字符串）直接作文件系统路径，无 `canonicalize`、无根约束。`is_file()`（:103 stat）→ `fs::read`（:104，TOCTOU）；目录分支把请求 path 追加后 `is_file()`（:124）→ `read`（:125，TOCTOU）。`sanitize_request_path`（:29-41）只清洗请求 URL 的 `.`/`..`，不约束 `target_value` 本身；目录内软链被 `fs::read` 跟随。对比 H10 修复（`pick_and_read_script_file`）做了 canonicalize + 限定，map-local 一无所有。
 - **影响**：误配/恶意 map-local 规则可把磁盘任意文件服务给任何被代理客户端；目录服务下软链逃逸未防。
 - **修复方向**：canonicalize 解析路径并验证 `starts_with` 配置根；决定并文档化软链跟随策略；对齐 `files.rs::reject_unsafe_write_path`。
+- **状态：已修复 @ batch 9（2026-07-11）** — `apply_local_map_rule` 对 `target_value` 与目录分支的 `resolved_path` 都先 `fs::canonicalize`（解析软链、悬空链 fail-closed），再用 canonical 路径 `is_file`/`fs::read`（闭合 TOCTOU）。文档化"target_value 是用户显式信任路径"（按决策不引入根约束概念）。测试：`m1_map_local_fails_closed_on_dangling_symlink`、`m1_map_local_canonicalizes_symlink_to_real_file`（均 `#[cfg(unix)]`）。
 
 ### M2 ✅ Map-Local 命中即向客户端泄露任意可达文件（target_value 无任何约束的具体化） `[来源:R]`
 - **位置**：`crates/proxy-core/src/rules/map.rs:97-135`（与 M1 同位但聚焦泄露面）
@@ -170,6 +173,7 @@
 - **证据**：规则 `target_value = "C:\Windows\System32\drivers\etc\hosts"` 或 `/etc/passwd` 会被原样 `fs::read`。对调试工具（规则用户作者）属较低危，但路径零约束 + 软链逃逸并存。
 - **影响**：被代理的任何客户端可经 map-local 规则读到磁盘任意可达文件。
 - **修复方向**：同 M1；至少要求 target_value 在配置根下。
+- **状态：已修复 @ batch 9（2026-07-11）** — 随 M1 一并闭合（canonicalize 在 `apply_local_map_rule` 入口对所有 target_value 生效）。
 
 ### M3 ✅ 响应 body rewrite 即使未实际改写也无条件 `strip_plain_body_edit_headers`（剥 content-encoding/etag） `[来源:R]`
 - **位置**：`crates/proxy-core/src/rules/rewrite.rs:608-611`
@@ -177,6 +181,7 @@
 - **证据**：`apply_one_response_rule` 的 `"body"` 分支总是执行 `response_headers.insert(CONTENT_TYPE, ...)` + `strip_plain_body_edit_headers(...)`，**不论** body 是否被 `fields` 改写或 `text` 等于现有 body。对比脚本路径（`js_bridge.rs:266-283`）用 `requestChanged`/`responseChanged` JSON diff 仅在真正变更时剥头。rewrite 路径无此守卫——仅**匹配**一条 body-rewrite 规则（即便所有字段操作都是 no-op）就剥 `content-encoding`/`etag`/`content-md5`/`digest`。
 - **影响**：匹配但未改写 body 的规则仍剥响应 `content-encoding`/`etag`，对校验这些头的客户端损坏完整性。脚本路径已专门硬化（`no_op_script_reports_no_request_or_response_mutation`），rewrite 路径未跟进。
 - **修复方向**：改写前快照 body 字节；若操作后未变则跳过剥头。
+- **状态：已修复 @ batch 9（2026-07-11）** — `apply_one_response_rule` 的 `"body"` 分支开头快照 `let body_before = response.response_body.clone();`，把 content-type insert + `strip_plain_body_edit_headers` 包进 `if response.response_body != body_before { ... }`（对比脚本路径 `responseChanged` 的硬化先例）。测试：`m3_response_body_rewrite_noop_preserves_integrity_headers`（body 未变时 content-encoding/etag 保留）；现有 `applies_response_body_rewrite_as_plain_body` 验证变更时仍剥头。
 
 ### M4 ✅ Throttle URL 匹配用 OR 匹配 url **或** host，宽 `url_pattern` 误伤远超预期主机 `[来源:R]`
 - **位置**：`crates/proxy-core/src/rules/mod.rs:222-225`
@@ -279,6 +284,7 @@
 - **证据**：`diagnose_certificate_setup`（:277）是裸 `#[tauri::command]`（非 async、无 `run_blocking_command`），同步在 IPC worker 线程调：`is_cert_trusted_on_platform`（spawn `security find-certificate`/`certutil`）、`resolve_adb_path`（spawn `adb --version`）、`resolve_hdc_path`（spawn `hdc -v` + 递归 FS 走查找二进制）、`ios_simctl_available`（spawn `xcrun simctl list`）。`get_certificate_status`/`open_certificate_install_guide`/`launch_certificate_installer` 各先调 `get_certificate_status_impl`（读 PEM + spawn 信任检测）。
 - **影响**：每个阻塞 IPC worker 数十至数百 ms/子进程启动 + hdc 递归 FS 走。H11 已为系统代理修此模式，M14/M15 已为 DB 命令修，证书命令被两轮清扫漏。Certificates 页轮询信任状态可拖累 IPC 池。
 - **修复方向**：转 async + `run_blocking_command("diagnose_certificate_setup", move || {...}).await`（DB 命令已用）；体已同步可调，机械包装。
+- **状态：已修复 @ batch 9（2026-07-11）** — 4 个同步命令转 `pub async fn`：`get_certificate_status`/`open_certificate_install_guide`/`launch_certificate_installer` 包装既有 `*_impl`；`diagnose_certificate_setup` 提取 `diagnose_certificate_setup_impl` 后包装。均用 `run_blocking_command("<name>", move || {...}).await`（仿同文件 `list_android_adb_devices`）。子进程/FS 走卸载到 blocking 池。
 
 ### M16 ✅ `get_session_detail_content` 在 IPC 线程 base64 编码大 body（CPU 密集） `[来源:T]`
 - **位置**：`apps/desktop/src-tauri/src/commands/sessions.rs:190-211`（`build_session_detail_content_patch` 调 `body.base64_text()`，~`:492-511`）
@@ -286,6 +292,7 @@
 - **证据**：`get_session_detail_content` 是同步 `#[tauri::command]`，调 `build_session_detail_content_patch` 对请求/响应 body 调 `body.base64_text()`。body 可达 `BODY_FILE_THRESHOLD`+；溢出 body 从盘读回 + base64。多 MB body 的 base64 展开（~1.33x）在 IPC worker 同步跑。
 - **影响**：UI 选大 session 卡住 IPC worker 整个编码时长，延迟其他命令。最坏是 spool 阈值下的大 inline body。
 - **修复方向**：命令转 async，body 读 + base64 进 `spawn_blocking`；或专用 `get_session_body` 流式命令让渲染端增量解码。
+- **状态：已修复 @ batch 9（2026-07-11）** — `get_session_detail_content` 转 `pub async fn`，DB 读 + `build_session_detail_content_patch`（含 `body.base64_text()`）+ stats 整体移进 `run_blocking_command("get_session_detail_content", move || {...}).await` 闭包。大 body base64 不再在 IPC worker 同步跑。
 
 ### M17 ✅ `session_stats::record` 在调用方线程（含 IPC worker）同步文件 append `[来源:T]`
 - **位置**：`apps/desktop/src-tauri/src/session_stats.rs:73-110`
@@ -293,6 +300,7 @@
 - **证据**：`record` 内联调自同步 IPC handler（`get_session_detail_content`→`log_session_detail_content_stats`→`record`；`get_session_detail`→`log_session_detail_serialization_stats`→`record`）。每次 `create_dir_all`（每次 stat/mkdir）+ `OpenOptions.open`（每次同步 open）+ `writeln`（同步写，无 fsync 规避）。`WRITE_LOCK` 全局 `Mutex`，并发调用方（WS collector 线程 + IPC worker）逐 append 串行。
 - **影响**：stats 开启（debug 默认、release env 可选）时每次 session-detail IPC 做一次无缓冲 open+append；无 channel/buffer。
 - **修复方向**：stats 行推 `mpsc` 由单写任务 drain（开文件一次 + 批写 + 周期 flush）；至少把 `create_dir_all` 提到 `initialize` 一次性，文件句柄存 `OnceLock<File>`。
+- **状态：已修复 @ batch 9（2026-07-11）** — 加 `static LOG_FILE: OnceLock<Mutex<File>>`；`initialize` 开文件（truncate）后存入；`append_to_log_file` 去掉每次 `create_dir_all` + `OpenOptions.open`，改为 `LOG_FILE.get()` 后锁内 `writeln`（MPSC+drain 属 A15 架构治理，本轮取最小修复）。顺带去掉 `env::set_var`（L13，改不往返环境变量）。未初始化时回退旧 reopen 路径（保留 `WRITE_LOCK`）。
 
 ### M18 ✅ JSON 树列拖拽：window pointer 监听在拖拽中卸载泄漏（M21 模式，6 处之一） `[来源:F]`
 - **位置**：`apps/desktop/src/features/sessions/components/SessionInspectorJsonTree.tsx:325-339`

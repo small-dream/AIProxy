@@ -636,6 +636,87 @@ fn applies_response_body_rewrite_as_plain_body() {
     assert_eq!(traces.len(), 1);
 }
 
+// M3: a body-rewrite rule that matches but does NOT actually change the body
+// must preserve content-encoding/etag/content-md5/digest. Previously the rule
+// unconditionally stripped these headers even when the body was unchanged,
+// corrupting integrity for clients that validate them (the script path was
+// hardened against this; the rewrite path was not).
+#[test]
+fn m3_response_body_rewrite_noop_preserves_integrity_headers() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-response-body-noop".to_string(),
+        enabled: true,
+        name: "Rewrite response body noop".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "response".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "body".to_string(),
+        workspace_id: "default".to_string(),
+        // The replace text equals the existing body → no-op.
+        payload: json!({
+            "contentType": "application/json",
+            "target": "response",
+            "text": "{\"unchanged\":true}"
+        }),
+    });
+
+    let request = build_test_request("http://example.com/api/users");
+    let mut response = UpstreamResponse {
+        body_truncated: false,
+        connect_ms: 0,
+        dns_ms: 0,
+        request_send_ms: 0,
+        response_body: br#"{"unchanged":true}"#.to_vec(),
+        response_body_size_bytes: 18,
+        response_headers: HeaderMap::new(),
+        response_read_ms: 0,
+        spooled_response_path: None,
+        status_code: StatusCode::OK,
+        tls_ms: None,
+        waiting_ms: 0,
+    };
+    response
+        .response_headers
+        .insert("content-type", HeaderValue::from_static("application/json"));
+    response
+        .response_headers
+        .insert("content-encoding", HeaderValue::from_static("gzip"));
+    response
+        .response_headers
+        .insert("etag", HeaderValue::from_static("\"abc\""));
+
+    apply_response_rewrite_rules(
+        &Some(Arc::new(manager)),
+        "default",
+        &request,
+        &mut response,
+        false,
+    )
+    .unwrap();
+
+    // Body unchanged.
+    assert_eq!(response.response_body, br#"{"unchanged":true}"#);
+    // Integrity headers preserved because the body was not mutated.
+    assert_eq!(
+        response
+            .response_headers
+            .get("content-encoding")
+            .and_then(|v| v.to_str().ok()),
+        Some("gzip"),
+        "content-encoding must be preserved when body is unchanged (M3)"
+    );
+    assert!(
+        response.response_headers.contains_key("etag"),
+        "etag must be preserved when body is unchanged (M3)"
+    );
+}
+
 #[test]
 fn applies_request_body_rewrite_to_json_fields() {
     let manager = RewriteManager::new();
@@ -1651,6 +1732,80 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
     );
 
     let _ = fs::remove_dir_all(dir_path);
+}
+
+// M1/M2: a map-local rule pointing at a dangling symlink must fail closed
+// (return an error) rather than silently serving nothing or panicking.
+// `canonicalize` resolves the link and fails when the target is missing.
+#[cfg(unix)]
+#[test]
+fn m1_map_local_fails_closed_on_dangling_symlink() {
+    let dir = std::env::temp_dir().join(format!("aiproxy-map-dangling-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let link = dir.join("link.har");
+    let dangling = dir.join("does-not-exist");
+    std::os::unix::fs::symlink(&dangling, &link).unwrap();
+
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-dangling".to_string(),
+        enabled: true,
+        mode: "local".to_string(),
+        name: "dangling".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: link.display().to_string(),
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/asset");
+    let result = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request);
+    assert!(
+        result.is_err(),
+        "map-local on a dangling symlink must fail closed, got {result:?}"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+// M1/M2: a map-local rule pointing at a symlink whose target IS a real file
+// must serve the resolved target's contents (canonicalize resolves the link).
+#[cfg(unix)]
+#[test]
+fn m1_map_local_canonicalizes_symlink_to_real_file() {
+    let dir = std::env::temp_dir().join(format!("aiproxy-map-link-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let real = dir.join("real.txt");
+    fs::write(&real, "via-link").unwrap();
+    let link = dir.join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-link".to_string(),
+        enabled: true,
+        mode: "local".to_string(),
+        name: "link".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: link.display().to_string(),
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/asset");
+    let (response, _traces) =
+        apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+    let response = response.expect("symlink to real file should resolve");
+    assert_eq!(
+        String::from_utf8(response.response_body.clone()).unwrap(),
+        "via-link"
+    );
+    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]

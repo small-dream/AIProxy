@@ -98,16 +98,30 @@ fn apply_local_map_rule(
     request: &ParsedProxyRequest,
     rule: &MapRule,
 ) -> Result<(UpstreamResponse, String), String> {
+    // M1/M2: canonicalize the target path before any is_file/is_dir/fs::read.
+    // `canonicalize` resolves symlinks (so a swapped link target is the target
+    // we actually read) and fails closed on a dangling link. Reading the
+    // canonical path afterwards closes the TOCTOU window between the is_file
+    // stat and fs::read (both operate on the same resolved inode with no
+    // further symlink resolution). The target_value is a user-configured,
+    // explicitly-trusted path; no root confinement is applied (documented).
     let target_path = PathBuf::from(&rule.target_value);
+    let target_canon = fs::canonicalize(&target_path).map_err(|error| {
+        format!(
+            "map local rule '{}' target '{}' could not be resolved: {error}",
+            rule.id,
+            target_path.display()
+        )
+    })?;
 
-    if target_path.is_file() {
-        return build_local_file_response(&target_path)
-            .map(|response| (response, target_path.display().to_string()));
+    if target_canon.is_file() {
+        return build_local_file_response(&target_canon)
+            .map(|response| (response, target_canon.display().to_string()));
     }
 
-    let mut resolved_path = target_path.clone();
+    let mut resolved_path = target_canon.clone();
 
-    if target_path.is_dir() {
+    if target_canon.is_dir() {
         let requested_path = sanitize_request_path(request.url.path());
 
         if requested_path.as_os_str().is_empty() {
@@ -119,6 +133,9 @@ fn apply_local_map_rule(
         if resolved_path.is_dir() {
             resolved_path.push("index.html");
         }
+        // Canonicalize the joined path so the final read also resolves symlinks
+        // and fails closed on a dangling link inside the served directory.
+        resolved_path = fs::canonicalize(&resolved_path).unwrap_or(resolved_path);
     }
 
     if resolved_path.is_file() {

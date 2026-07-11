@@ -100,10 +100,16 @@ pub struct InstallHarmonyCertificateViaHdcInput {
 }
 
 #[tauri::command]
-pub fn get_certificate_status(
+pub async fn get_certificate_status(
     state: State<'_, Arc<AppState>>,
 ) -> Result<CertificateStateSnapshot, String> {
-    get_certificate_status_impl(Arc::clone(state.inner()))
+    // M15: is_cert_trusted_on_platform spawns subprocesses (security/certutil);
+    // offload so the IPC worker is not parked.
+    let state = Arc::clone(state.inner());
+    run_blocking_command("get_certificate_status", move || {
+        get_certificate_status_impl(state)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -115,15 +121,25 @@ pub async fn generate_root_certificate(
 }
 
 #[tauri::command]
-pub fn open_certificate_install_guide(
+pub async fn open_certificate_install_guide(
     state: State<'_, Arc<AppState>>,
 ) -> Result<serde_json::Value, String> {
-    open_certificate_install_guide_impl(Arc::clone(state.inner()))
+    // M15: reads PEM + spawns trust detection; offload.
+    let state = Arc::clone(state.inner());
+    run_blocking_command("open_certificate_install_guide", move || {
+        open_certificate_install_guide_impl(state)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn launch_certificate_installer(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    launch_certificate_installer_impl(Arc::clone(state.inner()))
+pub async fn launch_certificate_installer(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    // M15: reads PEM + spawns trust detection before launching; offload.
+    let state = Arc::clone(state.inner());
+    run_blocking_command("launch_certificate_installer", move || {
+        launch_certificate_installer_impl(state)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -275,7 +291,17 @@ pub struct SetupDiagnostic {
 }
 
 #[tauri::command]
-pub fn diagnose_certificate_setup() -> Result<SetupDiagnostic, String> {
+pub async fn diagnose_certificate_setup() -> Result<SetupDiagnostic, String> {
+    // M15: spawns subprocesses (security/certutil, adb, hdc, xcrun) + recursive
+    // FS walk for hdc; offload so the IPC worker is not parked.
+    run_blocking_command(
+        "diagnose_certificate_setup",
+        diagnose_certificate_setup_impl,
+    )
+    .await
+}
+
+fn diagnose_certificate_setup_impl() -> Result<SetupDiagnostic, String> {
     let platform = detect_platform();
 
     let storage = CertStorage::resolve()

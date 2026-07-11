@@ -3,7 +3,7 @@ use chrono::Utc;
 use std::{
     env,
     ffi::OsStr,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     sync::{
@@ -17,6 +17,13 @@ const SESSION_STATS_FILE_ENV_VAR: &str = "AIPROXY_SESSION_STATS_FILE";
 const SESSION_STATS_FILE_NAME: &str = "session-stats.log";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+/// M17: the stats log file handle, opened once in `initialize` and held open
+/// for the process lifetime. Previously `append_to_log_file` did a
+/// `create_dir_all`, an `OpenOptions::open`, and a close on every `record()`
+/// call, blocking the caller (often an IPC worker) with syscalls per event.
+/// The handle is stored in a `Mutex` so writers serialize without a separate
+/// lock.
+static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
 static SESSION_STATS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn initialize() -> Result<Option<PathBuf>, String> {
@@ -44,7 +51,10 @@ pub fn initialize() -> Result<Option<PathBuf>, String> {
         })?;
     }
 
-    OpenOptions::new()
+    // M17: open the file once (truncate to reset for this run) and hold the
+    // handle in LOG_FILE for the process lifetime. `record()` will append to
+    // this handle without reopening per call.
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -55,9 +65,10 @@ pub fn initialize() -> Result<Option<PathBuf>, String> {
                 log_file_path.display()
             )
         })?;
+    let _ = LOG_FILE.set(Mutex::new(file));
 
-    env::set_var(SESSION_STATS_FILE_ENV_VAR, &log_file_path);
-
+    // L13: record the resolved path for observability without round-tripping
+    // through env::set_var (which is not thread-safe).
     record(
         "session_stats_initialized",
         &[("stats_file", log_file_path.display().to_string())],
@@ -91,6 +102,20 @@ pub fn record(event: &str, fields: &[(&str, String)]) {
 }
 
 fn append_to_log_file(line: &str) {
+    // M17: append to the held file handle (opened once in initialize). No per-call
+    // create_dir_all or open. Falls back to the legacy reopen path only if
+    // initialize was never called (e.g. stats enabled via env after startup).
+    if let Some(cell) = LOG_FILE.get() {
+        // LOG_FILE's own Mutex serializes writers; WRITE_LOCK is kept for the
+        // fallback path below so the two paths do not race each other.
+        if let Ok(mut file) = cell.lock() {
+            let _ = writeln!(file, "{line}");
+            return;
+        }
+    }
+
+    // Fallback: initialize was not called (LOG_FILE unset). Reopen per call
+    // under the global lock to preserve the pre-M17 behavior.
     let write_lock = WRITE_LOCK.get_or_init(|| Mutex::new(()));
     let _write_guard = write_lock.lock().unwrap_or_else(|error| error.into_inner());
 

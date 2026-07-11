@@ -587,6 +587,12 @@ fn apply_one_response_rule(
 
             let mode = payload.mode.as_deref().unwrap_or("replace");
             let before = body_preview(&response.response_body);
+            // M3: snapshot the raw body bytes so we can detect whether this rule
+            // actually mutated it. content-encoding/etag/content-md5 must only be
+            // stripped when the body genuinely changed — a matching-but-no-op
+            // rule must not corrupt integrity headers for clients that validate
+            // them (the script path was hardened this way; rewrite was not).
+            let body_before = response.response_body.clone();
             if mode.eq_ignore_ascii_case("fields") {
                 let fields = payload.fields.unwrap_or_default();
                 let (rewritten_body, field_entries) =
@@ -605,10 +611,14 @@ fn apply_one_response_rule(
                 ));
             }
 
-            if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
-                response.response_headers.insert(CONTENT_TYPE, content_type);
+            // M3: only override content-type and strip integrity headers when the
+            // body was actually rewritten.
+            if response.response_body != body_before {
+                if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
+                    response.response_headers.insert(CONTENT_TYPE, content_type);
+                }
+                strip_plain_body_edit_headers(&mut response.response_headers);
             }
-            strip_plain_body_edit_headers(&mut response.response_headers);
         }
         _ => {
             entries.push(trace_entry(

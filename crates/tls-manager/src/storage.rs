@@ -507,7 +507,10 @@ mod tests {
         let path = dir.join("test-key.pem");
         write_file_atomic(&path, "secret contents", true).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "write_file_atomic(secret=true) must create 0600");
+        assert_eq!(
+            mode, 0o600,
+            "write_file_atomic(secret=true) must create 0600"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

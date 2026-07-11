@@ -221,6 +221,15 @@ async fn start_proxy_impl(
     let state_for_collector = Arc::clone(&state);
     let state_for_ws = Arc::clone(&state);
     let collector_handle = tauri::async_runtime::spawn(async move {
+        // H8: track in-flight WS insert tasks so persistence is decoupled from
+        // the receive loop. Previously each insert was awaited inline, so the
+        // loop could not recv() the next message until the DB insert (contending
+        // for the global Connection mutex) completed. We cap the in-flight count
+        // to apply backpressure (draining the oldest when full), mirroring how
+        // the session branch backpressures via upsert_session_batch_async.
+        const MAX_INFLIGHT_WS_INSERTS: usize = 64;
+        let mut inflight_ws_inserts: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
+
         loop {
             tokio::select! {
                 session = session_receiver.recv() => {
@@ -253,7 +262,9 @@ async fn start_proxy_impl(
                                 payload_size: msg.payload_size,
                                 fin: msg.fin,
                             };
-                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                            // H8: do NOT await — spawn and track the handle so the
+                            // receive loop can pull the next message immediately.
+                            let handle = tauri::async_runtime::spawn_blocking(move || {
                                 // Fail-closed on poison: skip the insert rather
                                 // than write through a poisoned Connection.
                                 let conn = match crate::bootstrap::lock_recovery::lock_db_best_effort(
@@ -271,9 +282,18 @@ async fn start_proxy_impl(
                                         "insert_ws_message_failed"
                                     );
                                 }
-                            }).await;
+                            });
+                            inflight_ws_inserts.push(handle);
+                            // H8: backpressure — if too many inserts are in flight,
+                            // await the oldest to bound memory/task growth.
+                            while inflight_ws_inserts.len() > MAX_INFLIGHT_WS_INSERTS {
+                                if let Some(oldest) = inflight_ws_inserts.first_mut() {
+                                    let _ = oldest.await;
+                                }
+                                inflight_ws_inserts.remove(0);
+                            }
 
-                            // Emit to frontend
+                            // Emit to frontend immediately (decoupled from DB persist).
                             if let Some(handle) = state_for_ws.read_app_handle() {
                                 let _ = handle.emit("ws-message", serde_json::json!({
                                     "id": msg.id,
@@ -291,6 +311,11 @@ async fn start_proxy_impl(
                     }
                 }
             }
+        }
+
+        // H8: drain remaining in-flight inserts before the collector task exits.
+        for handle in inflight_ws_inserts {
+            let _ = handle.await;
         }
     });
 
@@ -323,10 +348,31 @@ async fn start_proxy_impl(
         // H11: apply spawns blocking platform I/O (networksetup/gsettings/
         // registry); offload so the tokio worker is not parked.
         let reapply_settings = SystemProxySettings::localhost(status.port);
-        run_blocking_command("start_proxy_reapply_system_proxy", move || {
+        // H4: reapply failure must NOT abort an otherwise-successful start. By
+        // this point the listener is bound, RuntimeHandles are registered, and
+        // status is Running. Returning Err here would leave an orphaned proxy
+        // the renderer cannot stop. Treat a reapply failure as a non-fatal
+        // warning: log it and emit a frontend event so the UI can show a
+        // banner, but return Ok(status).
+        let state_for_warn = Arc::clone(&state);
+        if let Err(error) = run_blocking_command("start_proxy_reapply_system_proxy", move || {
             apply_system_proxy_settings(&reapply_settings)
         })
-        .await?;
+        .await
+        {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "start_proxy_system_proxy_reapply_failed",
+                error = %error,
+                "system proxy reapply failed after successful proxy start; proxy is running but OS proxy may be stale"
+            );
+            if let Some(handle) = state_for_warn.read_app_handle() {
+                let _ = handle.emit(
+                    "system-proxy-warning",
+                    serde_json::json!({"reason": "reapply_failed", "error": &error}),
+                );
+            }
+        }
     } else {
         tracing::debug!(
             component = "desktop.commands",
