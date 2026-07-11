@@ -2,11 +2,10 @@ import { useCallback, useState } from "react";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import type { SessionDetail } from "@aiproxy/shared-types";
 import { type QueryClient } from "@tanstack/react-query";
-import { open } from "@tauri-apps/plugin-dialog";
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
-import { readHarFile } from "@/services/commands";
+import { pickAndReadHarFile } from "@/services/commands";
 import { upsertImportedSessions } from "@/features/sessions/imported-sessions.store";
 import { upsertSessionSummary } from "@/features/sessions/session-cache.helpers";
 import {
@@ -123,20 +122,13 @@ export function useSessionImportExport({
 
   const handleImportHarPickerOpen = useCallback(async () => {
     try {
-      const selected = await open({
-        directory: false,
-        filters: [{ name: "HAR", extensions: ["har"] }],
-        multiple: false,
-        title: t("sessionsImport.title"),
-      });
+      // H3: the backend owns the OS file dialog and the read, returning the
+      // picked file's contents. The renderer never supplies a path, closing
+      // the arbitrary-file-read primitive of the old read_har_file(path).
+      const result = await pickAndReadHarFile(t("sessionsImport.title"));
+      if (!result) return; // user cancelled the dialog
 
-      if (!selected || Array.isArray(selected)) return;
-      if (!selected.toLowerCase().endsWith(".har")) {
-        throw new Error(t("sessionsImport.invalidFileType"));
-      }
-
-      const contents = await readHarFile(selected);
-      const details = parseHarArchive(contents);
+      const details = parseHarArchive(result.contents);
       handleImportSessions(details);
     } catch (error) {
       setImportSnackbarMessage(

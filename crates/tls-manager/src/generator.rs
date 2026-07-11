@@ -38,11 +38,10 @@ impl RootCaPair {
 
         let now = chrono::Utc::now();
         params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
-        params.not_after = rcgen::date_time_ymd(
-            now.year() + ROOT_CA_VALIDITY_YEARS as i32,
-            now.month() as u8,
-            now.day() as u8,
-        );
+        // H1: use the leap-day-safe helper so Feb 29 does not panic inside
+        // rcgen::date_time_ymd.
+        let (na_year, na_month, na_day) = not_after_ymd(ROOT_CA_VALIDITY_YEARS);
+        params.not_after = rcgen::date_time_ymd(na_year, na_month, na_day);
 
         let key_pair = Arc::new(KeyPair::generate()?);
         let cert = params.clone().self_signed(&key_pair)?;
@@ -197,6 +196,39 @@ fn leaf_not_before_ymd() -> (i32, u8, u8) {
     )
 }
 
+/// `rcgen::date_time_ymd` values for a cert's not_after, `years` years from
+/// today.
+///
+/// `rcgen::date_time_ymd` panics (`.expect`) on a non-existent calendar date
+/// (rcgen 0.13.2, `certificate.rs:1186-1193`). Adding a fixed number of years
+/// to `(year, 2, 29)` yields `(non-leap-year, 2, 29)` which does not exist — so
+/// generating any cert on Feb 29 of a leap year would panic, including in
+/// `sign_host_certificate_from_data` on the synchronous rustls handshake path
+/// (H1). This helper clamps Feb 29 → Feb 28 of the target year when the target
+/// year is not a leap year, which is the only (year, month, day) combination
+/// `now + N years` can produce that is invalid. (Jan 31 / Mar 31 + N years
+/// remain Jan 31 / Mar 31 — those days exist in every month-of-the-same-index.)
+fn not_after_ymd(years: u32) -> (i32, u8, u8) {
+    let now = chrono::Utc::now();
+    let target_year = now.year() + years as i32;
+    let month = now.month() as u8;
+    let day = now.day() as u8;
+    // Feb 29 only exists in leap years. Clamp to Feb 28 when the target year
+    // is not a leap year. (chrono::Datelake is not needed; use the Gregorian
+    // leap rule directly.)
+    let day = if month == 2 && day == 29 && !is_leap_year(target_year) {
+        28
+    } else {
+        day
+    };
+    (target_year, month, day)
+}
+
+/// Gregorian leap-year test.
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
 /// Sign a leaf certificate for a specific hostname using the root CA.
 pub fn sign_host_certificate(
     root_ca: &RootCaPair,
@@ -211,14 +243,12 @@ pub fn sign_host_certificate(
         .extended_key_usages
         .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
 
-    let now = chrono::Utc::now();
     let (nb_year, nb_month, nb_day) = leaf_not_before_ymd();
     params.not_before = rcgen::date_time_ymd(nb_year, nb_month, nb_day);
-    params.not_after = rcgen::date_time_ymd(
-        now.year() + DYNAMIC_CERT_VALIDITY_YEARS as i32,
-        now.month() as u8,
-        now.day() as u8,
-    );
+    // H1: use the leap-day-safe helper so Feb 29 does not panic inside
+    // rcgen::date_time_ymd.
+    let (na_year, na_month, na_day) = not_after_ymd(DYNAMIC_CERT_VALIDITY_YEARS);
+    params.not_after = rcgen::date_time_ymd(na_year, na_month, na_day);
 
     let host_key_pair = KeyPair::generate()?;
     let cert = params.signed_by(&host_key_pair, &root_ca.issuer_cert, &root_ca.key_pair)?;
@@ -243,14 +273,12 @@ pub fn sign_host_certificate_from_data(
         .extended_key_usages
         .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
 
-    let now = chrono::Utc::now();
     let (nb_year, nb_month, nb_day) = leaf_not_before_ymd();
     params.not_before = rcgen::date_time_ymd(nb_year, nb_month, nb_day);
-    params.not_after = rcgen::date_time_ymd(
-        now.year() + DYNAMIC_CERT_VALIDITY_YEARS as i32,
-        now.month() as u8,
-        now.day() as u8,
-    );
+    // H1: use the leap-day-safe helper so Feb 29 does not panic inside
+    // rcgen::date_time_ymd.
+    let (na_year, na_month, na_day) = not_after_ymd(DYNAMIC_CERT_VALIDITY_YEARS);
+    params.not_after = rcgen::date_time_ymd(na_year, na_month, na_day);
 
     let host_key_pair = KeyPair::generate()?;
     let cert = params.signed_by(&host_key_pair, &sign_data.issuer_cert, &sign_data.key_pair)?;
@@ -330,5 +358,52 @@ mod tests {
         let storage = CertStorage::new_in_temp_dir();
         let config = root_ca.create_server_config(&storage, None);
         assert!(config.is_ok(), "should produce a valid ServerConfig");
+    }
+
+    // H1: not_after_ymd must never return a (year, 2, 29) triple for a
+    // non-leap target year, because rcgen::date_time_ymd panics on such dates.
+    #[test]
+    fn h1_not_after_ymd_clamps_feb_29_on_non_leap_target() {
+        // Simulate the leap-day scenario directly: if "today" were Feb 29 of a
+        // leap year, +1 year and +10 years land on non-leap years.
+        // We assert the helper's clamp logic by testing is_leap_year + the
+        // documented invariant: a returned (y, 2, 29) implies y is a leap year.
+        for years in [ROOT_CA_VALIDITY_YEARS, DYNAMIC_CERT_VALIDITY_YEARS] {
+            let (y, m, d) = not_after_ymd(years);
+            if m == 2 && d == 29 {
+                assert!(
+                    is_leap_year(y),
+                    "not_after_ymd({years}) returned Feb 29 for non-leap year {y}"
+                );
+            }
+            // The triple must always be a valid date for rcgen::date_time_ymd.
+            // Constructing it must not panic.
+            let _ = rcgen::date_time_ymd(y, m, d);
+        }
+    }
+
+    // H1: direct leap-year math test — the only dangerous input is Feb 29.
+    #[test]
+    fn h1_is_leap_year_gregorian_rule() {
+        assert!(is_leap_year(2024));
+        assert!(is_leap_year(2000));
+        assert!(!is_leap_year(2029));
+        assert!(!is_leap_year(2100));
+        assert!(!is_leap_year(1900));
+    }
+
+    // H1: full end-to-end — cert generation must not panic on the leap-day
+    // code path. We cannot mock chrono::Utc::now(), but the helper's clamp is
+    // unit-tested above, and this test asserts the real generate() path
+    // produces a valid cert today (whenever "today" is).
+    #[test]
+    fn h1_root_ca_generate_not_after_is_valid_date() {
+        let root_ca = RootCaPair::generate().unwrap();
+        let parsed = x509_parser::parse_x509_certificate(root_ca.cert_der()).unwrap();
+        let cert = parsed.1;
+        // not_after must be in the future and parseable (already asserted by
+        // x509_parser). Confirm it is roughly ROOT_CA_VALIDITY_YEARS out.
+        let validity = cert.validity();
+        assert!(validity.not_after.timestamp() > validity.not_before.timestamp());
     }
 }

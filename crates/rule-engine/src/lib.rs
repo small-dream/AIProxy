@@ -12,7 +12,8 @@ pub use types::{
 };
 
 pub use compile::compile_script_rule;
-pub use execute::{execute_request_hook, execute_response_hook};
+pub use execute::{execute_request_hook, execute_response_hook, trim_to_byte_limit};
+pub use types::MAX_LOG_ENTRY_BYTES;
 
 #[cfg(test)]
 mod tests {

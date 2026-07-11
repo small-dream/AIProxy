@@ -9,10 +9,22 @@ pub struct SaveTextFileInput {
     pub reveal_in_folder: Option<bool>,
 }
 
+/// Input for [`pick_and_read_har_file`]. The renderer supplies only a localized
+/// dialog title — never a path — so a compromised renderer cannot inject an
+/// arbitrary path (H3, mirroring the H10 fix for `read_script_source_file`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReadHarFileInput {
-    pub path: String,
+pub struct PickHarFileInput {
+    pub title: String,
+}
+
+/// Output of [`pick_and_read_har_file`]: the HAR file contents and the picked
+/// file name (for display). `None` is returned when the user cancels the dialog.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarFileOutput {
+    pub file_name: String,
+    pub contents: String,
 }
 
 /// Validate that `name` is a plain file basename safe to join under the
@@ -69,20 +81,94 @@ pub fn save_text_file(input: SaveTextFileInput, app: tauri::AppHandle) -> Result
     Ok(target_path.display().to_string())
 }
 
-#[tauri::command]
-pub fn read_har_file(input: ReadHarFileInput) -> Result<String, String> {
-    let path = Path::new(&input.path);
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .ok_or_else(|| "HAR file must end with .har".to_string())?;
+/// Upper bound on a HAR import. HAR archives can be large, but capping
+/// prevents a pathologically-large (or maliciously-crafted) file from consuming
+/// unbounded memory through the IPC boundary.
+const MAX_HAR_IMPORT_BYTES: usize = 64 * 1024 * 1024;
 
-    if extension != "har" {
-        return Err("HAR file must end with .har".to_string());
+fn err_invalid_har() -> String {
+    app_error(ERR_INVALID_INPUT, "Unsupported HAR file path.")
+}
+
+/// Whether `path` has a `.har` extension (case-insensitive). Extracted as a
+/// pure helper so it can be unit-tested independently of the dialog-driven
+/// `pick_and_read_har_file` command.
+fn is_har_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("har"))
+        .unwrap_or(false)
+}
+
+/// H3 (mirrors the H10 fix for `read_script_source_file`): the backend owns the
+/// file dialog. The renderer supplies only a localized dialog title — never a
+/// path — and the OS file picker is driven from the Rust side via
+/// `tauri-plugin-dialog`. This closes the arbitrary-file-read primitive under
+/// the compromised-renderer threat model: a malicious renderer can trigger the
+/// dialog but cannot inject a path, because the picker result never crosses the
+/// IPC boundary as input. The picked path is canonicalized before read so a
+/// swapped symlink target does not redirect the read after selection. Returns
+/// `None` when the user cancels.
+#[tauri::command]
+pub async fn pick_and_read_har_file(
+    app: tauri::AppHandle,
+    input: PickHarFileInput,
+) -> Result<Option<HarFileOutput>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("HAR", &["har"])
+        .set_title(input.title)
+        .pick_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|e| app_error(ERR_INTERNAL, format!("dialog channel closed: {e}")))?
+    else {
+        return Ok(None);
+    };
+
+    let path_buf = match picked.into_path() {
+        Ok(p) => p,
+        Err(_) => return Err(err_invalid_har()),
+    };
+
+    // Canonicalize to resolve any symlink at the picked location, then verify
+    // the extension on the canonical target (a symlink `innocent.har` pointing
+    // at a non-HAR file must still be rejected).
+    let canon = std::fs::canonicalize(&path_buf).map_err(|_| err_invalid_har())?;
+    if !is_har_extension(&canon) {
+        return Err(err_invalid_har());
     }
 
-    std::fs::read_to_string(path).map_err(|error| format!("read HAR file: {error}"))
+    let bytes = run_blocking_command("pick_and_read_har_file_read", move || {
+        std::fs::read(&canon).map_err(|_| err_invalid_har())
+    })
+    .await?;
+    if bytes.len() > MAX_HAR_IMPORT_BYTES {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!(
+                "HAR file exceeds the {} MB limit",
+                MAX_HAR_IMPORT_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+
+    let contents = String::from_utf8(bytes).map_err(|_| err_invalid_har())?;
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("import.har")
+        .to_string();
+
+    Ok(Some(HarFileOutput {
+        file_name,
+        contents,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,7 +267,7 @@ fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf 
 
 #[cfg(test)]
 mod tests {
-    use super::validate_export_basename;
+    use super::{validate_export_basename, *};
 
     #[test]
     fn accepts_plain_basename() {
@@ -216,5 +302,30 @@ mod tests {
     fn rejects_absolute_paths() {
         assert!(validate_export_basename("/etc/passwd").is_err());
         assert!(validate_export_basename("C:\\Users\\x").is_err());
+    }
+
+    // H3: the HAR extension check is case-insensitive and rejects non-HAR / no
+    // extension. The dialog-driven command cannot be unit-tested, but the pure
+    // classifier it relies on is.
+    #[test]
+    fn h3_is_har_extension_classifies_case_insensitively() {
+        assert!(is_har_extension(Path::new("capture.har")));
+        assert!(is_har_extension(Path::new("capture.HAR")));
+        assert!(is_har_extension(Path::new("capture.Har")));
+        assert!(is_har_extension(Path::new("/some/dir/capture.har")));
+        // Non-HAR extensions and no extension are rejected.
+        assert!(!is_har_extension(Path::new("secret.js")));
+        assert!(!is_har_extension(Path::new("id_rsa")));
+        assert!(!is_har_extension(Path::new("no_extension")));
+    }
+
+    // H3: err_invalid_har produces a structured INVALID_INPUT error, so the
+    // frontend's coerceAppError can recover the code (consistent with A3).
+    #[test]
+    fn h3_err_invalid_har_returns_structured_invalid_input_error() {
+        let raw = err_invalid_har();
+        // app_error produces a JSON string with a "code" field.
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["code"], serde_json::json!("INVALID_INPUT"));
     }
 }

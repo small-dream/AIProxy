@@ -2,7 +2,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
-pub(crate) const MAX_LOG_ENTRY_BYTES: usize = 8 * 1024;
+pub const MAX_LOG_ENTRY_BYTES: usize = 8 * 1024;
 pub(crate) const MAX_SCRIPT_ENTRIES: usize = 50;
 pub(crate) const MAX_SCRIPT_SOURCE_BYTES: usize = 128 * 1024;
 /// Wall-clock budget for a single script rule hook (onRequest/onResponse).

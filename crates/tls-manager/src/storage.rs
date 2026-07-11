@@ -181,8 +181,15 @@ impl CertStorage {
             TlsManagerError::StorageError(format!("failed to write installable root cert: {e}"))
         })?;
 
-        std::fs::write(&self.root_key_path, key_pem)
-            .map_err(|e| TlsManagerError::StorageError(format!("failed to write root key: {e}")))?;
+        // H2: write the private key with 0600 from the outset on unix.
+        // `std::fs::write` honors the process umask, so on a typical Linux
+        // desktop (umask 0022) the key would land at 0644 and stay world-readable
+        // until `ensure_secure_permissions` tightens it microseconds later. A
+        // crash/SIGKILL in that window leaves the key permanently loose. Creating
+        // the file with mode 0600 closes the exposure window; the subsequent
+        // `ensure_secure_permissions` call remains as defence-in-depth and to
+        // migrate pre-existing installs.
+        write_secret_file(&self.root_key_path, key_pem)?;
 
         // Restrict the private key (0600) and cert dir (0700) to the current
         // user. `ensure_secure_permissions` is unconditional, so it also
@@ -310,6 +317,42 @@ impl CertStorage {
     }
 }
 
+/// Write a secret file (e.g. a private key) with owner-only permissions from
+/// the outset.
+///
+/// On unix, `std::fs::write` creates the file honoring the process umask, so a
+/// typical desktop (umask 0022) would land the file at 0644 — world-readable —
+/// until a separate chmod tightens it. This helper creates the file with mode
+/// 0600 directly (H2), eliminating the exposure window between create and chmod.
+/// On non-unix it falls back to a plain write (Windows relies on the inherited
+/// ACL of the per-user app-data dir).
+fn write_secret_file(path: &Path, contents: &str) -> Result<(), TlsManagerError> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| {
+                TlsManagerError::StorageError(format!("failed to create secret file: {e}"))
+            })?;
+        file.write_all(contents.as_bytes()).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to write secret file: {e}"))
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents).map_err(|e| {
+            TlsManagerError::StorageError(format!("failed to write secret file: {e}"))
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,6 +382,44 @@ mod tests {
 
         let loaded_pem = storage.load_root_cert_pem().unwrap();
         assert!(loaded_pem.contains("BEGIN CERTIFICATE"));
+    }
+
+    // H2: the private key must be created with owner-only permissions from the
+    // outset, not left world-readable until a later chmod. This test verifies
+    // the key file mode immediately after save_root_cert, with no intervening
+    // chmod step.
+    #[cfg(unix)]
+    #[test]
+    fn h2_root_key_created_with_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let mode = std::fs::metadata(storage.root_key_path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "root key must be 0600 immediately after save (got {mode:#o})"
+        );
+    }
+
+    // H2: the write_secret_file helper itself creates 0600 files.
+    #[cfg(unix)]
+    #[test]
+    fn h2_write_secret_file_creates_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("aiproxy-h2-secret-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test-key.pem");
+        write_secret_file(&path, "secret contents").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "write_secret_file must create 0600");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

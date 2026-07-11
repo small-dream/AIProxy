@@ -173,7 +173,7 @@ pub fn run() {
             commands::get_port_occupant,
             commands::kill_proxy_port_process,
             commands::save_text_file,
-            commands::read_har_file,
+            commands::pick_and_read_har_file,
             commands::save_media_file,
             commands::get_certificate_status,
             commands::diagnose_certificate_setup,

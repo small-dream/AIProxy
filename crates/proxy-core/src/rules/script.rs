@@ -232,16 +232,15 @@ fn runtime_join_failure_trace(
     rule_name: String,
     join_error: tokio::task::JoinError,
 ) -> aiproxy_rule_engine::ScriptHookResult {
-    // Cap the message at a sane byte length (the rule-engine trims log
-    // entries to MAX_LOG_ENTRY_BYTES; mirror that bound locally without a
-    // cross-crate dependency on the constant).
-    const MAX_MSG_BYTES: usize = 4 * 1024;
+    // H7: cap the message with the rule-engine's char-boundary-safe
+    // `trim_to_byte_limit`. The previous `message[..MAX_MSG_BYTES]` indexed a
+    // String at a fixed byte offset, which panics if the offset lands inside a
+    // multi-byte UTF-8 code point — `join_error`'s Display (the spawn task's
+    // panic payload) can contain arbitrary Unicode. Reusing the shared helper
+    // also removes the 4 KB vs 8 KB drift the old comment acknowledged.
     let message = format!("script hook dropped by runtime: {join_error}");
-    let message = if message.len() > MAX_MSG_BYTES {
-        message[..MAX_MSG_BYTES].to_string()
-    } else {
-        message
-    };
+    let message =
+        aiproxy_rule_engine::trim_to_byte_limit(&message, aiproxy_rule_engine::MAX_LOG_ENTRY_BYTES);
     aiproxy_rule_engine::ScriptHookResult {
         request: None,
         response: None,

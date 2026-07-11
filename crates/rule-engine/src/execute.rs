@@ -421,7 +421,7 @@ fn sanitize_entries(entries: Vec<ScriptRunEntry>) -> Vec<ScriptRunEntry> {
         .collect()
 }
 
-fn trim_to_byte_limit(value: &str, limit: usize) -> String {
+pub fn trim_to_byte_limit(value: &str, limit: usize) -> String {
     if value.len() <= limit {
         return value.to_string();
     }
@@ -498,5 +498,42 @@ mod tests {
         let recovered = gate.acquire(Instant::now() + Duration::from_secs(5));
         assert!(recovered.is_some());
         assert_eq!(*gate.available.lock().unwrap(), CAP - 1);
+    }
+
+    // H7: trim_to_byte_limit must never panic when the byte limit falls inside
+    // a multi-byte UTF-8 code point. The previous code in proxy-core used
+    // `message[..MAX_MSG_BYTES]` (raw byte slicing), which panics on a non-char
+    // boundary. This test reproduces the dangerous input shape (a long string of
+    // multi-byte chars whose total byte length exceeds the limit) and asserts the
+    // helper returns a valid truncated string ending in "..." instead of panicking.
+    #[test]
+    fn h7_trim_to_byte_limit_handles_multibyte_at_boundary() {
+        // "字" is 3 bytes in UTF-8. Build a string well over the limit.
+        let big: String = "字".repeat(10_000);
+        let trimmed = trim_to_byte_limit(&big, 100);
+        // Must not panic, must be valid UTF-8, and must be <= the limit.
+        assert!(
+            trimmed.len() <= 100,
+            "trimmed len {} exceeds limit",
+            trimmed.len()
+        );
+        assert!(trimmed.ends_with("..."), "trimmed should end with ellipsis");
+        // The char boundary must be respected: the trimmed portion (minus the
+        // "...") must be a whole number of "字" chars.
+        let stem = &trimmed[..trimmed.len() - 3];
+        assert!(
+            stem.chars().all(|c| c == '字'),
+            "stem split a multibyte char"
+        );
+    }
+
+    // H7: a string under the limit is returned verbatim (no truncation).
+    #[test]
+    fn h7_trim_to_byte_limit_returns_short_strings_verbatim() {
+        assert_eq!(trim_to_byte_limit("hello", 100), "hello");
+        assert_eq!(trim_to_byte_limit("", 100), "");
+        // Exactly at the limit is not truncated.
+        let exact: String = "a".repeat(100);
+        assert_eq!(trim_to_byte_limit(&exact, 100), exact);
     }
 }
