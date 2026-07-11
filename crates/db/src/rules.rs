@@ -529,9 +529,20 @@ pub fn delete_throttle_profile(conn: &Connection, id: &str) -> Result<(), DbErro
     // SQLITE_CONSTRAINT ForeignKey whenever any throttle_rule still references
     // the profile. Deleting the children first mirrors clear_script_runs
     // (above) and keeps the two deletes atomic.
+    //
+    // M10: throttle_runs has no FK on rule_id/profile_id, so deleting a profile
+    // would leave throttle_runs.rule_id pointing at a deleted rule. Null out
+    // those rule_ids before the rule rows go. The denormalized profile_name/
+    // rule_name snapshots keep the run history displayable.
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| DbError::query("begin delete throttle profile transaction", e))?;
+    tx.execute(
+        "UPDATE throttle_runs SET rule_id = NULL
+            WHERE rule_id IN (SELECT id FROM throttle_rules WHERE profile_id = ?1)",
+        params![id],
+    )
+    .map_err(|e| DbError::query("null throttle_runs rule_id for profile", e))?;
     tx.execute(
         "DELETE FROM throttle_rules WHERE profile_id = ?1",
         params![id],
@@ -580,8 +591,21 @@ pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(
 }
 
 pub fn delete_throttle_rule(conn: &Connection, id: &str) -> Result<(), DbError> {
-    conn.execute("DELETE FROM throttle_rules WHERE id = ?1", params![id])
+    // M10: throttle_runs has no FK on rule_id, so deleting a rule would leave
+    // throttle_runs.rule_id dangling. Null it out first. The denormalized
+    // rule_name snapshot keeps the run history displayable.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| DbError::query("begin delete throttle rule transaction", e))?;
+    tx.execute(
+        "UPDATE throttle_runs SET rule_id = NULL WHERE rule_id = ?1",
+        params![id],
+    )
+    .map_err(|e| DbError::query("null throttle_runs rule_id for rule", e))?;
+    tx.execute("DELETE FROM throttle_rules WHERE id = ?1", params![id])
         .map_err(|e| DbError::query("delete throttle rule", e))?;
+    tx.commit()
+        .map_err(|e| DbError::query("commit delete throttle rule transaction", e))?;
     Ok(())
 }
 
@@ -1676,6 +1700,235 @@ mod tests {
         // Both the profile and its referencing rule must be gone.
         assert!(load_all_throttle_profiles(&conn).unwrap().is_empty());
         assert!(load_all_throttle_rules(&conn).unwrap().is_empty());
+    }
+
+    // M10: deleting a throttle profile must null out the rule_id in
+    // throttle_runs that referenced the profile's rules, rather than leaving a
+    // dangling rule_id (throttle_runs has no FK on rule_id/profile_id).
+    #[test]
+    fn m10_delete_throttle_profile_nulls_orphan_run_rule_ids() {
+        let conn = test_conn();
+        // Seed a session (FK target for throttle_runs.session_id).
+        crate::sessions::upsert_session(
+            &conn,
+            &crate::sessions::SessionSummaryRow {
+                id: "s1".into(),
+                method: "GET".into(),
+                host: "example.com".into(),
+                path: "/".into(),
+                protocol: "https".into(),
+                scheme: "https".into(),
+                http_version: "2".into(),
+                transport_protocol: "tcp".into(),
+                application_protocol: "http".into(),
+                started_at: "2026-01-01T00:00:00Z".into(),
+                finished_at: "2026-01-01T00:00:00Z".into(),
+                duration_ms: 0,
+                size_bytes: 0,
+                status_code: 200,
+                url: "https://example.com/".into(),
+                response_mime_type: None,
+            },
+            &crate::sessions::SessionDetailRow {
+                id: "s1-detail".into(),
+                session_summary_id: "s1".into(),
+                query_params: "[]".into(),
+                cookies: "[]".into(),
+                request_headers: "[]".into(),
+                response_headers: "[]".into(),
+                raw_request: None,
+                raw_response: None,
+                client_address: None,
+                server_ip: None,
+                tls_cipher_suite: None,
+                tls_protocol: None,
+                request_body_ref: None,
+                response_body_ref: None,
+                timing: None,
+                trailers: None,
+                h2_stream_id: None,
+            },
+        )
+        .unwrap();
+
+        let profile = ThrottleProfileRow {
+            id: "tp1".into(),
+            workspace_id: "default".into(),
+            name: "Slow".into(),
+            note: None,
+            enabled: true,
+            preset: false,
+            latency_ms: 100,
+            upload_kbps: 300,
+            download_kbps: 500,
+            packet_loss_ratio: 0.0,
+        };
+        save_throttle_profile(&conn, &profile).unwrap();
+        let rule = ThrottleRuleRow {
+            id: "tr1".into(),
+            workspace_id: "default".into(),
+            name: "rule".into(),
+            note: None,
+            enabled: true,
+            priority: 1,
+            profile_id: "tp1".into(),
+            url_pattern: "example.com".into(),
+            methods: "[\"GET\"]".into(),
+            stage: "request".into(),
+        };
+        save_throttle_rule(&conn, &rule).unwrap();
+
+        // Insert a throttle_run referencing the rule.
+        replace_throttle_runs_for_session(
+            &conn,
+            "s1",
+            &[ThrottleRunRow {
+                id: "run1".into(),
+                session_id: "s1".into(),
+                workspace_id: "default".into(),
+                profile_id: "tp1".into(),
+                profile_name: "Slow".into(),
+                rule_id: Some("tr1".into()),
+                rule_name: Some("rule".into()),
+                stage: "request".into(),
+                outcome: "applied".into(),
+                delay_ms: 0,
+                latency_ms: 100,
+                transfer_delay_ms: 0,
+                body_bytes: 0,
+                message: None,
+                sequence: 0,
+                created_at: "2026-01-01T00:00:00Z".into(),
+            }],
+        )
+        .unwrap();
+
+        // Delete the profile — must null out the run's rule_id.
+        delete_throttle_profile(&conn, "tp1").unwrap();
+
+        let runs = load_throttle_runs_for_session(&conn, "s1").unwrap();
+        assert_eq!(runs.len(), 1, "run row should survive profile delete");
+        assert!(
+            runs[0].rule_id.is_none(),
+            "rule_id must be nulled after profile delete, got {:?}",
+            runs[0].rule_id
+        );
+        // Denormalized name snapshot survives.
+        assert_eq!(runs[0].rule_name.as_deref(), Some("rule"));
+    }
+
+    // M10: deleting a single throttle rule must null out its rule_id in
+    // throttle_runs, rather than leaving a dangling reference.
+    #[test]
+    fn m10_delete_throttle_rule_nulls_orphan_run_rule_id() {
+        let conn = test_conn();
+        crate::sessions::upsert_session(
+            &conn,
+            &crate::sessions::SessionSummaryRow {
+                id: "s2".into(),
+                method: "GET".into(),
+                host: "example.com".into(),
+                path: "/".into(),
+                protocol: "https".into(),
+                scheme: "https".into(),
+                http_version: "2".into(),
+                transport_protocol: "tcp".into(),
+                application_protocol: "http".into(),
+                started_at: "2026-01-01T00:00:00Z".into(),
+                finished_at: "2026-01-01T00:00:00Z".into(),
+                duration_ms: 0,
+                size_bytes: 0,
+                status_code: 200,
+                url: "https://example.com/".into(),
+                response_mime_type: None,
+            },
+            &crate::sessions::SessionDetailRow {
+                id: "s2-detail".into(),
+                session_summary_id: "s2".into(),
+                query_params: "[]".into(),
+                cookies: "[]".into(),
+                request_headers: "[]".into(),
+                response_headers: "[]".into(),
+                raw_request: None,
+                raw_response: None,
+                client_address: None,
+                server_ip: None,
+                tls_cipher_suite: None,
+                tls_protocol: None,
+                request_body_ref: None,
+                response_body_ref: None,
+                timing: None,
+                trailers: None,
+                h2_stream_id: None,
+            },
+        )
+        .unwrap();
+        save_throttle_profile(
+            &conn,
+            &ThrottleProfileRow {
+                id: "tp2".into(),
+                workspace_id: "default".into(),
+                name: "Slow".into(),
+                note: None,
+                enabled: true,
+                preset: false,
+                latency_ms: 100,
+                upload_kbps: 300,
+                download_kbps: 500,
+                packet_loss_ratio: 0.0,
+            },
+        )
+        .unwrap();
+        save_throttle_rule(
+            &conn,
+            &ThrottleRuleRow {
+                id: "tr2".into(),
+                workspace_id: "default".into(),
+                name: "rule2".into(),
+                note: None,
+                enabled: true,
+                priority: 1,
+                profile_id: "tp2".into(),
+                url_pattern: "example.com".into(),
+                methods: "[\"GET\"]".into(),
+                stage: "request".into(),
+            },
+        )
+        .unwrap();
+        replace_throttle_runs_for_session(
+            &conn,
+            "s2",
+            &[ThrottleRunRow {
+                id: "run2".into(),
+                session_id: "s2".into(),
+                workspace_id: "default".into(),
+                profile_id: "tp2".into(),
+                profile_name: "Slow".into(),
+                rule_id: Some("tr2".into()),
+                rule_name: Some("rule2".into()),
+                stage: "request".into(),
+                outcome: "applied".into(),
+                delay_ms: 0,
+                latency_ms: 100,
+                transfer_delay_ms: 0,
+                body_bytes: 0,
+                message: None,
+                sequence: 0,
+                created_at: "2026-01-01T00:00:00Z".into(),
+            }],
+        )
+        .unwrap();
+
+        // Delete just the rule — must null out the run's rule_id.
+        delete_throttle_rule(&conn, "tr2").unwrap();
+
+        let runs = load_throttle_runs_for_session(&conn, "s2").unwrap();
+        assert_eq!(runs.len(), 1);
+        assert!(
+            runs[0].rule_id.is_none(),
+            "rule_id must be nulled after rule delete, got {:?}",
+            runs[0].rule_id
+        );
     }
 
     #[test]

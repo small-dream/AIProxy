@@ -437,6 +437,29 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     )
     .map_err(|e| DbError::MigrationFailed(format!("create throttle unique index: {e}")))?;
 
+    // M11: enforce uniqueness of (environment_id, key) for env vars and key for
+    // global vars. The old upserts used INSERT OR REPLACE keyed on the row id
+    // (a UUID), so two rows with the same natural key but different ids could
+    // coexist and variable resolution picked one arbitrarily. First collapse
+    // any pre-existing duplicates (keep the smallest-id row per natural key) so
+    // the index build does not fail with a UNIQUE violation; then create the
+    // indexes idempotently. The upserts have been switched to natural-key
+    // ON CONFLICT upserts so they update the existing row instead of colliding.
+    collapse_duplicate_env_variables(conn)?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_env_vars_env_key \
+         ON api_environment_variables(environment_id, key)",
+        [],
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("create env vars unique index: {e}")))?;
+    collapse_duplicate_global_variables(conn)?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_global_vars_unique_key \
+         ON api_global_variables(key)",
+        [],
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("create global vars unique index: {e}")))?;
+
     Ok(())
 }
 
@@ -488,6 +511,38 @@ fn collapse_duplicate_enabled_throttle_profiles(conn: &Connection) -> Result<(),
          )",
     )
     .map_err(|e| DbError::MigrationFailed(format!("collapse throttle profile duplicates: {e}")))?;
+    Ok(())
+}
+
+/// M11: collapse pre-existing duplicate `(environment_id, key)` rows in
+/// `api_environment_variables` by keeping only the smallest-id row per natural
+/// key and deleting the rest. Makes older databases safe to add the
+/// `idx_api_env_vars_env_key` UNIQUE index. Idempotent.
+fn collapse_duplicate_env_variables(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "DELETE FROM api_environment_variables \
+         WHERE id NOT IN ( \
+             SELECT MIN(id) FROM api_environment_variables \
+             GROUP BY environment_id, key \
+         )",
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("collapse env var duplicates: {e}")))?;
+    Ok(())
+}
+
+/// M11: collapse pre-existing duplicate `key` rows in `api_global_variables`
+/// by keeping only the smallest-id row per key and deleting the rest. Makes
+/// older databases safe to add the `idx_api_global_vars_unique_key` UNIQUE
+/// index. Idempotent.
+fn collapse_duplicate_global_variables(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "DELETE FROM api_global_variables \
+         WHERE id NOT IN ( \
+             SELECT MIN(id) FROM api_global_variables \
+             GROUP BY key \
+         )",
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("collapse global var duplicates: {e}")))?;
     Ok(())
 }
 

@@ -121,6 +121,7 @@
 - **证据**：`clear_all_sessions` 的注释明确指出其前身"手写 child→parent DELETE 列表复制了级联图，新增子表会静默孤立"，故已改为纯 CASCADE。但 `delete_sessions_by_ids` 仍保留 8 条手删语句。在 `foreign_keys=ON` 且所有子表 FK 均 `ON DELETE CASCADE` 下，这些手删（a）完全冗余；（b）是 L9 刚移除的同款维护陷阱——下一个新增子表（如未来 `http2_frames`）会被 `delete_sessions_by_ids` 孤立，却被 `clear_all_sessions` 正确级联。
 - **影响**：（1）性能：删 500 会话 = 9 语句 × 批次；（2）孤儿数据随新子表累积；（3）两条路径策略相反是经典漂移 bug 源。
 - **修复方向**：把 `delete_sessions_by_ids` 折叠为每批单条 `DELETE FROM session_summaries WHERE id IN (...)`（与 `clear_all_sessions` 一致），删掉 8 条手删。
+- **状态：已修复 @ batch 7（2026-07-11）** — 删掉 8 条手删子表语句（script_run_entries/script_runs/rewrite_run_entries/rewrite_runs/map_runs/throttle_runs/ws_messages/session_details），仅保留批量化 `DELETE FROM session_summaries WHERE id IN (...)` 循环（保留 `DELETE_SESSIONS_BATCH_SIZE=500` 分批），与 `clear_all_sessions` 纯 CASCADE 策略一致。测试：`h5_delete_sessions_by_ids_cascades_child_tables`（建 session + ws message + detail，删除后断言子表全空）。
 
 ### H6 ✅ `upsert_session` 不校验 `detail.session_summary_id == summary.id`——summary/detail 可静默交叉链接 `[来源:D]`
 - **位置**：`crates/db/src/sessions.rs:60-201`
@@ -128,6 +129,7 @@
 - **证据**：函数取 `&SessionSummaryRow` 与 `&SessionDetailRow` 为**独立**参数，一个事务内分别 UPDATE-or-INSERT，但从不断言 `detail.session_summary_id == summary.id`。`session_details.session_summary_id` 是指向 `session_summaries(id)` 的 FK（`schema.rs:155`），UPDATE 分支（`:134-163`）以 `detail.id` 的 `WHERE id=?1` 定位。若调用方传入 `session_summary_id` 错配的 detail（未来批量导入/会话复制场景），会静默把 detail 重链到另一个 summary。`load_session_detail`（`:261`）按 `session_summary_id` 查，交叉链接的 detail 会在错误的会话下显示且无错误。
 - **影响**：当前唯一调用方传一致 id，故为潜在一致性洞；但 DB 层零校验，任何未来调用方（批量导入、fork session）都会静默错链。
 - **修复方向**：在函数内从 `summary.id` 派生 `detail.id` 与 `detail.session_summary_id`（单一真源），或断言相等并返回 `DbError::Validation`。
+- **状态：已修复 @ batch 7（2026-07-11）** — `upsert_session` 事务开头断言 `detail.session_summary_id == summary.id`，否则 `Err(DbError::Validation(...))`；不强制 `detail.id == summary.id`（detail 有独立 PK，测试用 `{summary_id}-detail` 约定）。测试：`h6_upsert_session_rejects_mismatched_session_summary_id`、`h6_upsert_session_accepts_detail_with_independent_id`。
 
 ### H7 ✅ `runtime_join_failure_trace` 在固定字节偏移切 String，多字节 UTF-8 越界即 panic `[来源:R]`
 - **位置**：`crates/proxy-core/src/rules/script.rs:240-244`
@@ -231,6 +233,7 @@
 - **证据**：`throttle_runs` 仅声明 `FOREIGN KEY (session_id) ... ON DELETE CASCADE`（`schema.rs:98`），`profile_id`/`rule_id` 无 FK。对比 `script_runs`/`rewrite_runs`/`map_runs` 均有 `FOREIGN KEY (rule_id) ... ON DELETE CASCADE`。`delete_throttle_profile`（:535-539）只清 `throttle_rules` 不清 `throttle_runs`；`delete_throttle_rule` 是裸 `DELETE FROM throttle_rules`。`load_throttled_session_ids`（:727-746）只按 `workspace_id` 过滤，孤儿仍浮现指向已删 profile。
 - **影响**：删 throttle profile 留孤儿 `throttle_runs`（profile 已删但 `profile_id` 仍指死 id，`profile_name` 去规范化故 UI 仍显示名）。随删/建循环累积死 trace。
 - **修复方向**：加 `FOREIGN KEY (profile_id) ... ON DELETE SET NULL`（profile_id 需可空）+ `FOREIGN KEY (rule_id) ... ON DELETE SET NULL`；删除时清/置空引用。
+- **状态：已修复 @ batch 7（2026-07-11）** — 应用层引用清理（避免表重建，profile_id NOT NULL 无法改 SET NULL）。`delete_throttle_profile` 在删 `throttle_rules` 前加 `UPDATE throttle_runs SET rule_id = NULL WHERE rule_id IN (SELECT id FROM throttle_rules WHERE profile_id = ?1)`；`delete_throttle_rule` 加 `UPDATE throttle_runs SET rule_id = NULL WHERE rule_id = ?1`（均在事务内）。profile_id 保留（profile_name 去规范化快照使运行历史仍有意义）。测试：`m10_delete_throttle_profile_nulls_orphan_run_rule_ids`、`m10_delete_throttle_rule_nulls_orphan_run_rule_id`。
 
 ### M11 ✅ 环境变量/全局变量无 UNIQUE 约束——重复 key 静默共存，解析非确定取一 `[来源:D]`
 - **位置**：`crates/db/src/schema.rs:333-351`、`crates/db/src/environments.rs:110-129`（`upsert_environment_variable`）、`:183-192`（`upsert_global_variable`）
@@ -238,6 +241,7 @@
 - **证据**：`api_environment_variables` 的 `(environment_id, key)` 与 `api_global_variables` 的 `(key)` 仅非唯一索引。两个 upsert 用 `INSERT OR REPLACE` 按**行 id**（UUID）定位，非自然键。两条同 key 不同 id 的行共存。消费者返回两者，变量替换线性/首匹配非确定取一。批量 `set_*_variables`（DELETE-then-INSERT）避免，但单项 upsert 路径不避免。
 - **影响**：UI bug 或导入造同 key（新 UUID）重复行；变量解析任意取一，用户"我设了 token 却解析到旧值"。非唯一索引掩盖问题（无约束错误）。
 - **修复方向**：加 `CREATE UNIQUE INDEX ... ON api_environment_variables(environment_id, key)` 与 `... ON api_global_variables(key)`；或 INSERT OR REPLACE 按自然键。
+- **状态：已修复 @ batch 7（2026-07-11）** — 镜像 M30 两步：(1) `run_migrations` 加 `collapse_duplicate_env_variables`（按 `(environment_id, key)` 保留 min(id)）+ `collapse_duplicate_global_variables`（按 `key` 保留 min(id)）去重存量；(2) `CREATE UNIQUE INDEX idx_api_env_vars_env_key ON api_environment_variables(environment_id, key)` + `idx_api_global_vars_unique_key ON api_global_variables(key)`；(3) 两个 upsert 从 id 键控 `INSERT OR REPLACE` 改为自然键 `ON CONFLICT(...) DO UPDATE SET ...`，否则新索引会破坏现有保存路径。测试：`m11_upsert_env_var_on_conflict_updates_existing_key`、`m11_env_var_unique_index_rejects_duplicate_key`、`m11_upsert_global_var_on_conflict_updates_existing_key`、`m11_global_var_unique_index_rejects_duplicate_key`。
 
 ### M12 ✅ macOS `is_trusted_macos` 把任何 `verify-cert` 成功当"已信任"，含"结构有效但未装信任域" `[来源:D]`
 - **位置**：`crates/tls-manager/src/trust.rs:146-160`

@@ -63,6 +63,17 @@ pub fn upsert_session(
     summary: &SessionSummaryRow,
     detail: &SessionDetailRow,
 ) -> Result<(), DbError> {
+    // H6: the detail row's FK (session_summary_id) must point at the summary
+    // being upserted in the same call. A mismatch would silently cross-link a
+    // detail (body/headers/timing) to the wrong session. The detail's own PK
+    // (id) is intentionally independent (callers use "{summary_id}-detail").
+    if detail.session_summary_id != summary.id {
+        return Err(DbError::Validation(format!(
+            "session_summary_id mismatch: detail '{}' != summary '{}'",
+            detail.session_summary_id, summary.id
+        )));
+    }
+
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| DbError::query("begin upsert session transaction", e))?;
@@ -320,62 +331,14 @@ pub fn delete_sessions_by_ids(conn: &Connection, ids: &[String]) -> Result<usize
             .collect();
         let placeholder_list = placeholders.join(",");
 
-        let delete_script_entries_sql = format!(
-            "DELETE FROM script_run_entries WHERE run_id IN (SELECT id FROM script_runs WHERE session_id IN ({}))",
-            placeholder_list
-        );
-        tx.execute(&delete_script_entries_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete script run entries for sessions", e))?;
-
-        let delete_script_runs_sql = format!(
-            "DELETE FROM script_runs WHERE session_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_script_runs_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete script runs for sessions", e))?;
-
-        let delete_rewrite_entries_sql = format!(
-            "DELETE FROM rewrite_run_entries WHERE run_id IN (SELECT id FROM rewrite_runs WHERE session_id IN ({}))",
-            placeholder_list
-        );
-        tx.execute(&delete_rewrite_entries_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete rewrite run entries for sessions", e))?;
-
-        let delete_rewrite_runs_sql = format!(
-            "DELETE FROM rewrite_runs WHERE session_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_rewrite_runs_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete rewrite runs for sessions", e))?;
-
-        let delete_map_runs_sql = format!(
-            "DELETE FROM map_runs WHERE session_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_map_runs_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete map runs for sessions", e))?;
-
-        let delete_throttle_runs_sql = format!(
-            "DELETE FROM throttle_runs WHERE session_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_throttle_runs_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete throttle runs for sessions", e))?;
-
-        let delete_ws_messages_sql = format!(
-            "DELETE FROM ws_messages WHERE session_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_ws_messages_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete ws messages for sessions", e))?;
-
-        let delete_session_details_sql = format!(
-            "DELETE FROM session_details WHERE session_summary_id IN ({})",
-            placeholder_list
-        );
-        tx.execute(&delete_session_details_sql, params.as_slice())
-            .map_err(|e| DbError::query("delete session details", e))?;
-
+        // H5: rely on ON DELETE CASCADE for all child tables (session_details,
+        // ws_messages, script_runs/script_run_entries, rewrite_runs/
+        // rewrite_run_entries, map_runs, throttle_runs). All child FKs are
+        // declared ON DELETE CASCADE and foreign_keys=ON (connection.rs). This
+        // matches clear_all_sessions and avoids the maintenance trap where a
+        // newly-added child table would be silently orphaned by this path but
+        // correctly cascaded by clear_all_sessions. The previous hand-written
+        // child->parent DELETE list duplicated the cascade graph.
         let sql = format!(
             "DELETE FROM session_summaries WHERE id IN ({})",
             placeholder_list
@@ -853,5 +816,79 @@ mod tests {
         );
         assert_eq!(summaries[0].status_code, 404);
         assert_eq!(summaries[0].finished_at, "2026-04-19T00:00:09Z");
+    }
+
+    // H5: delete_sessions_by_ids must cascade to all child tables via
+    // ON DELETE CASCADE, matching clear_all_sessions. The pre-fix path
+    // hand-deleted each child; a future child table would be orphaned. This
+    // test inserts a session with a script_run (whose entries are a
+    // grandchild) and verifies all descendants are removed.
+    #[test]
+    fn h5_delete_sessions_by_ids_cascades_child_tables() {
+        let conn = test_conn();
+        upsert_session(
+            &conn,
+            &test_summary("h5", "h5.example.com"),
+            &test_detail("h5"),
+        )
+        .unwrap();
+        // Insert a session detail row (child) and a ws message (child).
+        insert_ws_message(
+            &conn,
+            &WsMessageRow {
+                id: "h5m".into(),
+                session_id: "h5".into(),
+                direction: "clientToServer".into(),
+                timestamp: "2026-04-19T00:00:01Z".into(),
+                opcode: "text".into(),
+                payload_text: None,
+                payload_size: 0,
+                fin: true,
+            },
+        )
+        .unwrap();
+
+        delete_sessions_by_ids(&conn, &["h5".into()]).unwrap();
+
+        // Summary gone.
+        assert!(load_session_summary(&conn, "h5").unwrap().is_none());
+        // Child table (ws_messages) cascaded.
+        assert!(load_ws_messages(&conn, "h5", 100, 0).unwrap().is_empty());
+        // Child table (session_details) cascaded — verify via load_session_detail.
+        assert!(load_session_detail(&conn, "h5").unwrap().is_none());
+    }
+
+    // H6: upsert_session must reject a detail whose session_summary_id does not
+    // match the summary id, preventing a silent cross-link of body/headers to
+    // the wrong session.
+    #[test]
+    fn h6_upsert_session_rejects_mismatched_session_summary_id() {
+        let conn = test_conn();
+        let summary = test_summary("h6-summary", "h6.example.com");
+        // Detail points at a DIFFERENT summary id.
+        let mut detail = test_detail("h6-summary");
+        detail.session_summary_id = "wrong-id".into();
+        let result = upsert_session(&conn, &summary, &detail);
+        assert!(
+            matches!(result, Err(DbError::Validation(_))),
+            "expected Validation error for mismatched session_summary_id, got {result:?}"
+        );
+        // Nothing was written.
+        assert!(
+            load_session_summary(&conn, "h6-summary").unwrap().is_none(),
+            "no summary should be written on a rejected upsert"
+        );
+    }
+
+    // H6: a detail with its own independent PK id but a matching FK is accepted
+    // (the detail.id convention is "{summary_id}-detail", not equal to summary.id).
+    #[test]
+    fn h6_upsert_session_accepts_detail_with_independent_id() {
+        let conn = test_conn();
+        let summary = test_summary("h6b", "h6b.example.com");
+        let detail = test_detail("h6b"); // id = "h6b-detail", session_summary_id = "h6b"
+        upsert_session(&conn, &summary, &detail).unwrap();
+        let loaded = load_session_detail(&conn, "h6b").unwrap();
+        assert!(loaded.is_some(), "detail should load with matching FK");
     }
 }

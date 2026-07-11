@@ -111,10 +111,18 @@ pub fn upsert_environment_variable(
     conn: &Connection,
     v: &EnvironmentVariableRow,
 ) -> Result<(), DbError> {
+    // M11: conflict on the natural key (environment_id, key) so two upserts
+    // with different row ids but the same key update the single existing row
+    // instead of creating duplicates. The previous INSERT OR REPLACE keyed on
+    // the row id allowed duplicate natural keys to coexist.
     conn.execute(
-        "INSERT OR REPLACE INTO api_environment_variables
+        "INSERT INTO api_environment_variables
             (id, environment_id, key, value, enabled, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(environment_id, key) DO UPDATE SET
+            value = excluded.value,
+            enabled = excluded.enabled,
+            sort_order = excluded.sort_order",
         params![
             v.id,
             v.environment_id,
@@ -181,10 +189,17 @@ pub fn set_environment_variables(
 // ---------------------------------------------------------------------------
 
 pub fn upsert_global_variable(conn: &Connection, v: &GlobalVariableRow) -> Result<(), DbError> {
+    // M11: conflict on the natural key (key) so two upserts with different row
+    // ids but the same key update the single existing row instead of creating
+    // duplicates.
     conn.execute(
-        "INSERT OR REPLACE INTO api_global_variables
+        "INSERT INTO api_global_variables
             (id, key, value, enabled, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            enabled = excluded.enabled,
+            sort_order = excluded.sort_order",
         params![v.id, v.key, v.value, v.enabled as i32, v.sort_order as i32,],
     )
     .map_err(|e| DbError::query("upsert global variable", e))?;
@@ -472,5 +487,141 @@ mod tests {
         let vars = list_global_variables(&conn).unwrap();
         assert_eq!(vars.len(), 1);
         assert_eq!(vars[0].key, "token");
+    }
+
+    // M11: upserting an env var with the same (environment_id, key) but a
+    // different row id must UPDATE the existing row, not create a duplicate.
+    // The UNIQUE index + ON CONFLICT upsert enforce this.
+    #[test]
+    fn m11_upsert_env_var_on_conflict_updates_existing_key() {
+        let conn = test_conn();
+        upsert_environment(
+            &conn,
+            &EnvironmentRow {
+                id: "env1".into(),
+                name: "Dev".into(),
+                sort_order: 0,
+                created_at: now(),
+                updated_at: now(),
+            },
+        )
+        .unwrap();
+        upsert_environment_variable(
+            &conn,
+            &EnvironmentVariableRow {
+                id: "v1".into(),
+                environment_id: "env1".into(),
+                key: "token".into(),
+                value: "old".into(),
+                enabled: true,
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+        // Same key, different id — must update, not duplicate.
+        upsert_environment_variable(
+            &conn,
+            &EnvironmentVariableRow {
+                id: "v2".into(),
+                environment_id: "env1".into(),
+                key: "token".into(),
+                value: "new".into(),
+                enabled: true,
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+
+        let vars = list_environment_variables(&conn, "env1").unwrap();
+        assert_eq!(vars.len(), 1, "no duplicate env var for same key");
+        assert_eq!(vars[0].value, "new");
+    }
+
+    // M11: the UNIQUE index rejects a direct duplicate insert.
+    #[test]
+    fn m11_env_var_unique_index_rejects_duplicate_key() {
+        let conn = test_conn();
+        upsert_environment(
+            &conn,
+            &EnvironmentRow {
+                id: "env1".into(),
+                name: "Dev".into(),
+                sort_order: 0,
+                created_at: now(),
+                updated_at: now(),
+            },
+        )
+        .unwrap();
+        // Insert two rows with the same natural key directly (bypassing the
+        // ON CONFLICT upsert) to prove the index blocks it.
+        conn.execute(
+            "INSERT INTO api_environment_variables (id, environment_id, key, value, enabled, sort_order) \
+             VALUES ('a', 'env1', 'dup', '1', 1, 0)",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO api_environment_variables (id, environment_id, key, value, enabled, sort_order) \
+             VALUES ('b', 'env1', 'dup', '2', 1, 0)",
+            [],
+        );
+        assert!(
+            dup.is_err(),
+            "UNIQUE index must reject duplicate (env, key)"
+        );
+    }
+
+    // M11: upserting a global var with the same key but a different row id must
+    // UPDATE the existing row, not create a duplicate.
+    #[test]
+    fn m11_upsert_global_var_on_conflict_updates_existing_key() {
+        let conn = test_conn();
+        upsert_global_variable(
+            &conn,
+            &GlobalVariableRow {
+                id: "g1".into(),
+                key: "token".into(),
+                value: "old".into(),
+                enabled: true,
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+        upsert_global_variable(
+            &conn,
+            &GlobalVariableRow {
+                id: "g2".into(),
+                key: "token".into(),
+                value: "new".into(),
+                enabled: true,
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+
+        let vars = list_global_variables(&conn).unwrap();
+        assert_eq!(vars.len(), 1, "no duplicate global var for same key");
+        assert_eq!(vars[0].value, "new");
+    }
+
+    // M11: the UNIQUE index rejects a direct duplicate global var insert.
+    #[test]
+    fn m11_global_var_unique_index_rejects_duplicate_key() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO api_global_variables (id, key, value, enabled, sort_order) \
+             VALUES ('a', 'dup', '1', 1, 0)",
+            [],
+        )
+        .unwrap();
+        let dup = conn.execute(
+            "INSERT INTO api_global_variables (id, key, value, enabled, sort_order) \
+             VALUES ('b', 'dup', '2', 1, 0)",
+            [],
+        );
+        assert!(
+            dup.is_err(),
+            "UNIQUE index must reject duplicate global key"
+        );
     }
 }
