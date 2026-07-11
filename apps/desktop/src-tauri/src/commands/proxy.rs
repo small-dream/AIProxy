@@ -519,29 +519,43 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     state.set_system_proxy_recovery_warning(None);
 
     // M9: persist the toggle to the workspace row so it survives restart. The
-    // in-memory status was already flipped below; this writes the same value to
-    // the DB column. Skipped when no workspace is active (defensive — the toggle
-    // is workspace-scoped).
-    if let Some(workspace_id) = &workspace_id {
+    // OS proxy has already been applied at this point. If the DB write fails we
+    // cannot silently proceed — the in-memory status would say enabled while
+    // the workspace row stays stale, recreating the exact cross-restart drift
+    // M9 was meant to fix. Rather than roll back the already-applied OS proxy
+    // (which is more disruptive than the drift itself), we surface a DEGRADED
+    // state: the toggle is enabled in memory AND a recovery warning is set so
+    // the UI can prompt the user to retry. The next successful persist or
+    // restart re-syncs.
+    let persist_failed = if let Some(workspace_id) = &workspace_id {
         let workspace_id = workspace_id.clone();
         let state_for_persist = Arc::clone(&state);
-        if let Err(error) = run_blocking_command("enable_system_proxy_persist", move || {
+        let result = run_blocking_command("enable_system_proxy_persist", move || {
             let conn = state_for_persist.lock_db_for_ipc()?;
             aiproxy_db::workspaces::set_workspace_system_proxy_enabled(&conn, &workspace_id, true)
                 .map_err(|e| app_error(ERR_INTERNAL, format!("persist system_proxy_enabled: {e}")))
         })
-        .await
-        {
+        .await;
+        if let Err(error) = &result {
             tracing::warn!(
                 component = "desktop.commands",
                 event = "enable_system_proxy_persist_failed",
                 error = %error,
-                "enable_system_proxy_persist_failed"
+                "enable_system_proxy_persist_failed: OS proxy applied but the workspace toggle was NOT persisted; UI is degraded"
             );
         }
-    }
+        result.is_err()
+    } else {
+        false
+    };
 
-    Ok(state.set_system_proxy_enabled(true))
+    let mut status = state.set_system_proxy_enabled(true);
+    if persist_failed {
+        status = state.set_system_proxy_recovery_warning(Some(
+            "The system proxy was enabled, but the preference could not be saved. It may revert after restarting the app. Retry saving from Settings.".to_string(),
+        ));
+    }
+    Ok(status)
 }
 
 async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
@@ -601,27 +615,39 @@ async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStat
     );
 
     // M9: persist the disabled toggle to the workspace row so it survives
-    // restart. Best-effort: a failure here does not undo the restore.
-    if let Some(workspace_id) = &workspace_id {
+    // restart. The OS proxy has already been restored at this point. If the DB
+    // write fails we surface a DEGRADED state (recovery warning) rather than
+    // silently leaving the workspace row stale — see enable_system_proxy_impl
+    // for the full rationale.
+    let persist_failed = if let Some(workspace_id) = &workspace_id {
         let workspace_id = workspace_id.clone();
         let state_for_persist = Arc::clone(&state);
-        if let Err(error) = run_blocking_command("disable_system_proxy_persist", move || {
+        let result = run_blocking_command("disable_system_proxy_persist", move || {
             let conn = state_for_persist.lock_db_for_ipc()?;
             aiproxy_db::workspaces::set_workspace_system_proxy_enabled(&conn, &workspace_id, false)
                 .map_err(|e| app_error(ERR_INTERNAL, format!("persist system_proxy_enabled: {e}")))
         })
-        .await
-        {
+        .await;
+        if let Err(error) = &result {
             tracing::warn!(
                 component = "desktop.commands",
                 event = "disable_system_proxy_persist_failed",
                 error = %error,
-                "disable_system_proxy_persist_failed"
+                "disable_system_proxy_persist_failed: OS proxy restored but the workspace toggle was NOT persisted; UI is degraded"
             );
         }
-    }
+        result.is_err()
+    } else {
+        false
+    };
 
-    Ok(state.set_system_proxy_enabled(false))
+    let mut status = state.set_system_proxy_enabled(false);
+    if persist_failed {
+        status = state.set_system_proxy_recovery_warning(Some(
+            "The system proxy was disabled, but the preference could not be saved. It may revert after restarting the app. Retry saving from Settings.".to_string(),
+        ));
+    }
+    Ok(status)
 }
 
 // --- Certificate command implementations ---

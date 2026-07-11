@@ -94,18 +94,28 @@ impl CertStorage {
 
     /// Whether a usable root cert + key pair exists on disk.
     ///
-    /// M14: this checks not just file existence but that both files are non-empty
-    /// and contain valid PEM fences (`BEGIN CERTIFICATE` / `PRIVATE KEY`). A torn
-    /// write (pre-M13 atomic writes) or external corruption could leave a file
-    /// that "exists" but is unparseable; treating that as "absent" lets the
-    /// bootstrap cleanly regenerate instead of erroring out on `load_from_pem`.
-    /// A full `load_from_pem` is avoided here because it re-signs in memory (L7)
-    /// and is heavier than wanted for a bootstrap gate.
+    /// M14: this checks not just file existence but that both files contain a
+    /// complete, well-formed PEM block (matching BEGIN/END fences with base64
+    /// body that decodes). A torn write (pre-M13 atomic writes) or external
+    /// corruption can leave a file that "exists" and even contains the BEGIN
+    /// fence but is truncated mid-base64; the earlier substring-only check
+    /// (`contains("BEGIN CERTIFICATE")`) returned true for such files, causing
+    /// `generate_root_certificate_impl` to skip regeneration and then fail
+    /// opaquely in `load_from_pem`. Treating an unparseable pair as "absent"
+    /// lets the bootstrap cleanly regenerate. A full `load_from_pem` is avoided
+    /// here because it re-signs in memory (L7) and is heavier than wanted for a
+    /// bootstrap gate.
     pub fn root_cert_exists(&self) -> bool {
         let cert = std::fs::read_to_string(&self.root_cert_path).ok();
         let key = std::fs::read_to_string(&self.root_key_path).ok();
-        matches!(cert.as_deref(), Some(s) if !s.is_empty() && s.contains("BEGIN CERTIFICATE"))
-            && matches!(key.as_deref(), Some(s) if !s.is_empty() && s.contains("PRIVATE KEY"))
+        matches!(cert.as_deref(), Some(s) if pem_block_is_complete(s, "CERTIFICATE"))
+            && matches!(
+                key.as_deref(),
+                Some(s) if pem_block_is_complete(s, "PRIVATE KEY")
+                    || pem_block_is_complete(s, "EC PRIVATE KEY")
+                    || pem_block_is_complete(s, "RSA PRIVATE KEY")
+                    || pem_block_is_complete(s, "ENCRYPTED PRIVATE KEY")
+            )
     }
 
     pub fn root_cert_path(&self) -> &Path {
@@ -381,6 +391,38 @@ fn write_file_atomic(path: &Path, contents: &str, secret: bool) -> Result<(), Tl
     Ok(())
 }
 
+/// Whether `pem` contains a complete, well-formed PEM block of the given type
+/// (`-----BEGIN {label}-----` ... `-----END {label}-----` with a base64 body
+/// that decodes without error). Used by [`CertStorage::root_cert_exists`] (M14)
+/// to reject truncated/corrupt PEM files that still contain a BEGIN fence.
+fn pem_block_is_complete(pem: &str, label: &str) -> bool {
+    let begin = format!("-----BEGIN {label}-----");
+    let end = format!("-----END {label}-----");
+    let Some(begin_idx) = pem.find(&begin) else {
+        return false;
+    };
+    // Search for the END fence after the BEGIN fence.
+    let rest = &pem[begin_idx + begin.len()..];
+    let Some(end_idx) = rest.find(&end) else {
+        return false; // truncated — no closing fence
+    };
+    // Extract the base64 body between the fences, stripping any PEM headers
+    // (e.g. "Proc-Type") and whitespace/newlines.
+    let body = rest[..end_idx]
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.contains(':') // skip header lines like "Proc-Type: 4"
+        })
+        .collect::<String>();
+    // The body must be non-empty base64 that decodes. base64::decode rejects
+    // truncated/illegal-length input, which is the torn-write signal.
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(body.trim())
+        .is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +480,61 @@ mod tests {
             !storage.root_cert_exists(),
             "files without PEM fences must not count as a valid cert pair"
         );
+    }
+
+    // M14: a truncated PEM that still contains the BEGIN fence but is cut
+    // mid-base64 (realistic torn-write shape) must NOT count as existing.
+    // The earlier `contains("BEGIN CERTIFICATE")` check returned true for this,
+    // causing generate_root_certificate_impl to skip regeneration and then
+    // fail in load_from_pem.
+    #[test]
+    fn m14_root_cert_exists_false_for_truncated_pem() {
+        let storage = CertStorage::new_in_temp_dir();
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        // Truncated cert: has BEGIN fence + partial base64, no END fence.
+        std::fs::write(
+            storage.root_cert_path(),
+            "-----BEGIN CERTIFICATE-----\nMIIBxTCCAWugAwIBAgIUd4\n",
+        )
+        .unwrap();
+        // Truncated key: same shape.
+        std::fs::write(
+            storage.root_key_path(),
+            "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49\n",
+        )
+        .unwrap();
+        assert!(
+            !storage.root_cert_exists(),
+            "truncated PEM (BEGIN fence but no END / illegal base64) must not count as valid"
+        );
+    }
+
+    // M14: a PEM with both fences but a body whose base64 length is illegal
+    // (truncated mid-block) must be rejected.
+    #[test]
+    fn m14_pem_block_is_complete_rejects_truncated_body() {
+        // Valid base64 in a complete block → true.
+        assert!(pem_block_is_complete(
+            "-----BEGIN CERTIFICATE-----\nMIIBxTCCAWugAwIBAgIUd4Q=\n-----END CERTIFICATE-----\n",
+            "CERTIFICATE",
+        ));
+        // Truncated: no END fence → false.
+        assert!(!pem_block_is_complete(
+            "-----BEGIN CERTIFICATE-----\nMIIBxTCCAWugAwIBAgIUd4\n",
+            "CERTIFICATE",
+        ));
+        // END fence but illegal-length base64 → false.
+        assert!(!pem_block_is_complete(
+            "-----BEGIN CERTIFICATE-----\nMI\n-----END CERTIFICATE-----\n",
+            "CERTIFICATE",
+        ));
+        // No BEGIN fence → false.
+        assert!(!pem_block_is_complete("not a pem at all", "CERTIFICATE"));
+        // Wrong label → false.
+        assert!(!pem_block_is_complete(
+            "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBCIUd4Q=\n-----END PRIVATE KEY-----\n",
+            "CERTIFICATE",
+        ));
     }
 
     // M14: a valid pair (after save_root_cert) must report true. This overlaps
