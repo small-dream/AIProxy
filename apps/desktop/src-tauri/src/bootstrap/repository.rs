@@ -51,9 +51,7 @@ impl Repository {
     /// use the free function directly.
     ///
     /// See ADR-005 for the policy rationale.
-    pub fn lock_for_ipc(
-        &self,
-    ) -> Result<MutexGuard<'_, aiproxy_db::rusqlite::Connection>, String> {
+    pub fn lock_for_ipc(&self) -> Result<MutexGuard<'_, aiproxy_db::rusqlite::Connection>, String> {
         lock_for_ipc_helper(&self.db)
     }
 
@@ -843,7 +841,8 @@ fn delete_sessions_impl(
 ) {
     // Fail-closed on poison: skip the DB delete; the body-file cleanup below
     // still runs (independent of the DB Connection).
-    if let Ok(conn) = crate::bootstrap::lock_recovery::lock_db_best_effort(db, "session_delete_impl")
+    if let Ok(conn) =
+        crate::bootstrap::lock_recovery::lock_db_best_effort(db, "session_delete_impl")
     {
         if let Err(error) = aiproxy_db::sessions::delete_sessions_by_ids(&conn, ids) {
             tracing::error!(
