@@ -32,7 +32,9 @@ pub(crate) use rewrite::{
     strip_plain_body_edit_headers,
 };
 pub(crate) use script::{apply_request_script_rules, apply_response_script_rules};
-pub(crate) use throttle::{apply_request_throttle, apply_response_throttle};
+pub(crate) use throttle::{
+    apply_request_throttle, evaluate_response_throttle, throttle_response_body,
+};
 
 // ---------------------------------------------------------------------------
 // Pipeline orchestration functions (reference multiple managers)

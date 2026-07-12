@@ -3,12 +3,12 @@ use crate::connection::{ConnectionContext, ConnectionMode};
 use crate::MAX_CAPTURED_BODY_BYTES;
 use crate::{
     apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
-    apply_response_rewrite_rules, apply_response_script_rules, apply_response_throttle,
-    build_cookie_entries, build_header_entries_from_map, build_pending_session_detail,
-    build_query_params, build_raw_http_head, build_request_path, build_session_detail,
-    intercept_request_stage, intercept_response_stage, throttle_selection_matches_stage,
-    BreakpointActionKind, ParsedProxyRequest, ProxySessionDetail, ProxyTimingBreakdown,
-    RequestRuntimeOutcome, UpstreamResponse,
+    apply_response_rewrite_rules, apply_response_script_rules, build_cookie_entries,
+    build_header_entries_from_map, build_pending_session_detail, build_query_params,
+    build_raw_http_head, build_request_path, build_session_detail, evaluate_response_throttle,
+    intercept_request_stage, intercept_response_stage, throttle_response_body,
+    throttle_selection_matches_stage, BreakpointActionKind, ParsedProxyRequest, ProxySessionDetail,
+    ProxyTimingBreakdown, RequestRuntimeOutcome, UpstreamResponse,
 };
 use http_body_util::BodyExt;
 use std::future::Future;
@@ -401,6 +401,9 @@ async fn stage_intercept_request_breakpoint(
             Ok(BreakpointRequestOutcome::Drop(response))
         }
         BreakpointActionKind::Mock => {
+            // Populated by the response throttle below; when Some, the mock
+            // response body is wrapped with per-chunk download shaping.
+            let mut response_download_kbps: Option<u32> = None;
             let Some(ref mock) = resolution.mock else {
                 return Ok(BreakpointRequestOutcome::Forward {
                     map_traces,
@@ -472,12 +475,17 @@ async fn stage_intercept_request_breakpoint(
                 // Mock responses are never spooled/truncated, so the in-memory
                 // body length IS the true wire size — this matches the upstream
                 // path's `response_body_size_bytes` basis (M10 consistency).
-                match apply_response_throttle(selection, mock_response.response_body.len()).await {
-                    Ok(trace) => {
+                match evaluate_response_throttle(selection, mock_response.response_body.len()).await
+                {
+                    Ok(plan) => {
                         if let Some(manager) = ctx.throttle_manager.as_ref() {
-                            manager.record_trace(&trace);
+                            manager.record_trace(&plan.trace);
                         }
-                        throttle_traces.push(trace);
+                        // Stash the download rate so the response body can be
+                        // wrapped per-chunk below (M5/M6: real bandwidth shaping
+                        // instead of an upfront sleep).
+                        response_download_kbps = Some(plan.download_kbps);
+                        throttle_traces.push(plan.trace);
                     }
                     // M9: response-stage packet loss drops the response. Build a
                     // 504 detail that carries the response-stage message AND all
@@ -571,15 +579,22 @@ async fn stage_intercept_request_breakpoint(
             )
             .await;
 
+            // M5/M6: wrap the mock body with per-chunk download throttling when
+            // a rate is configured. throttle_response_body returns the body
+            // unchanged (boxed) when download_kbps == 0, so the no-throttle path
+            // stays allocation-cheap.
+            let mock_body =
+                http_body_util::Full::new(bytes::Bytes::from(mock_response.response_body.clone()))
+                    .map_err(|e: std::convert::Infallible| e.to_string());
+            let mock_body = throttle_response_body(mock_body, response_download_kbps.unwrap_or(0));
+
             let response = build_hyper_response_from_upstream(
                 mock_response.status_code,
                 &mock_response.response_headers,
                 // M3: mock breakpoint bodies are in-memory and never spooled,
                 // so wrap them in a Full<Bytes> BoxBody. No explicit
                 // Content-Length needed — hyper derives it from Full.
-                http_body_util::Full::new(bytes::Bytes::from(mock_response.response_body.clone()))
-                    .map_err(|e: std::convert::Infallible| e.to_string())
-                    .boxed(),
+                mock_body,
                 None,
             )?;
             Ok(BreakpointRequestOutcome::Mock(response))
@@ -989,16 +1004,24 @@ async fn stage_process_upstream_response(
     }
 
     // --- Response throttle ---
+    // M5/M6: evaluate_response_throttle sleeps only latency_ms here; the
+    // transfer delay is applied per-chunk by wrapping the response body with
+    // throttle_response_body below. `response_download_kbps` carries the rate
+    // down to the body construction.
+    let mut response_download_kbps: u32 = 0;
     if let Some(selection) = throttle_selection
         .as_ref()
         .filter(|s| throttle_selection_matches_stage(s, "response"))
     {
-        match apply_response_throttle(selection, upstream_response.response_body_size_bytes).await {
-            Ok(trace) => {
+        match evaluate_response_throttle(selection, upstream_response.response_body_size_bytes)
+            .await
+        {
+            Ok(plan) => {
                 if let Some(manager) = ctx.throttle_manager.as_ref() {
-                    manager.record_trace(&trace);
+                    manager.record_trace(&plan.trace);
                 }
-                throttle_traces.push(trace);
+                response_download_kbps = plan.download_kbps;
+                throttle_traces.push(plan.trace);
                 session_detail.throttle_traces = throttle_traces.clone();
             }
             // M9: response-stage packet loss drops the response. Discard the
@@ -1102,18 +1125,23 @@ async fn stage_process_upstream_response(
         let framed = cleaned
             .map_ok(http_body::Frame::data)
             .map_err(|e| e.to_string());
-        (
-            http_body_util::StreamBody::new(framed).boxed(),
-            content_length,
-        )
+        // M5/M6: wrap with per-chunk download throttling. throttle_response_body
+        // boxes the body itself and is a no-op (boxed passthrough) when
+        // response_download_kbps == 0.
+        let throttled = throttle_response_body(
+            http_body_util::StreamBody::new(framed),
+            response_download_kbps,
+        );
+        (throttled, content_length)
     } else {
         // In-memory body (small responses / responses under the spool
         // threshold). Clone into Bytes; no file to clean up. hyper derives
         // the Content-Length from the finite Full<Bytes> body.
-        (
+        let in_memory =
             http_body_util::Full::new(bytes::Bytes::from(upstream_response.response_body.clone()))
-                .map_err(|e: std::convert::Infallible| e.to_string())
-                .boxed(),
+                .map_err(|e: std::convert::Infallible| e.to_string());
+        (
+            throttle_response_body(in_memory, response_download_kbps),
             None,
         )
     };
@@ -2051,7 +2079,7 @@ mod tests {
         };
 
         // Throttle selection with 100% packet loss and a response-stage rule.
-        // `apply_response_throttle` rolls the loss BEFORE sleeping latency, so
+        // `evaluate_response_throttle` rolls the loss BEFORE sleeping latency, so
         // the response is dropped on the first call.
         let throttle_selection = Some(ThrottleRuntimeSelection {
             profile: ThrottleProfileData {
