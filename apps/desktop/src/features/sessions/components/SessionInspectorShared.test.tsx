@@ -48,6 +48,80 @@ describe("SearchableCodeBlock", () => {
     expect(container).not.toHaveTextContent("line 0 match");
   });
 
+  it("uses full-text match positions for JSON syntax-highlighted search marks", () => {
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => undefined);
+    const code = '{\n  "status": "ok",\n  "target": "needle"\n}';
+    const targetIndex = code.indexOf("needle");
+    const matcher = (text: string) => {
+      const index = text.indexOf("needle");
+      return index === -1 ? [] : [{ start: index, end: index + "needle".length }];
+    };
+
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock
+        code={code}
+        currentMatchIndex={0}
+        language="json"
+        matcher={matcher}
+        searchQuery=""
+      />,
+    );
+
+    const targetMark = container.querySelector(`mark[data-match-index="${targetIndex}"]`);
+
+    expect(targetMark).toHaveTextContent("needle");
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    scrollIntoView.mockRestore();
+  });
+
+  it("keeps JSON search positioning when a match spans syntax tokens", () => {
+    const code = '{\n  "status": "ok",\n  "target": "needle"\n}';
+    const query = '"target": "needle"';
+    const targetIndex = code.indexOf(query);
+    const matcher = (text: string) => {
+      const index = text.indexOf(query);
+      return index === -1 ? [] : [{ start: index, end: index + query.length }];
+    };
+
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock
+        code={code}
+        currentMatchIndex={0}
+        language="json"
+        matcher={matcher}
+        searchQuery=""
+      />,
+    );
+
+    expect(
+      container.querySelector(`mark[data-match-index="${targetIndex}"]`),
+    ).toBeInTheDocument();
+  });
+
+  it("reuses full-text matches for non-virtualized JSON highlighting", () => {
+    const code = '{\n  "status": "ok",\n  "target": "needle"\n}';
+    const matcher = vi.fn((text: string) => {
+      const index = text.indexOf("needle");
+      return index === -1 ? [] : [{ start: index, end: index + "needle".length }];
+    });
+
+    renderWithProviders(
+      <SearchableCodeBlock
+        code={code}
+        currentMatchIndex={0}
+        language="json"
+        matcher={matcher}
+        searchQuery=""
+      />,
+    );
+
+    expect(matcher).toHaveBeenCalledTimes(1);
+    expect(matcher).toHaveBeenCalledWith(code);
+  });
+
   describe("context menu", () => {
     it("shows Copy and Search options when right-clicking with selected text", () => {
       const getSelectionSpy = mockWindowSelection("hello");

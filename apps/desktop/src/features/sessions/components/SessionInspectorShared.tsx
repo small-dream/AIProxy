@@ -905,8 +905,10 @@ export function SearchableCodeBlock({
               undefined,
               matcher,
               currentMatchRange,
+              0,
+              allMatches,
             )
-          : renderHighlightedText(code, undefined, matcher, currentMatchRange)
+          : renderHighlightedText(code, undefined, matcher, currentMatchRange, 0, allMatches)
         : effectiveLanguage === "json"
           ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
           : renderHighlightedText(code, deferredSearchQuery)}
@@ -1243,10 +1245,20 @@ export function renderJsonSyntaxHighlightedText(
   searchQuery?: string,
   matcher?: SearchMatcher | null | undefined,
   currentMatchRange?: { start: number; end: number } | null | undefined,
+  matchOffset = 0,
+  matches?: Array<{ start: number; end: number }> | undefined,
 ) {
   const tokenPattern =
     /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
   const segments: React.ReactNode[] = [];
+  const absoluteMatches =
+    matches ??
+    (matcher
+      ? matcher(text).map((match) => ({
+          start: matchOffset + match.start,
+          end: matchOffset + match.end,
+        }))
+      : null);
   let cursor = 0;
   let tokenIndex = 0;
 
@@ -1255,12 +1267,24 @@ export function renderJsonSyntaxHighlightedText(
     const matchIndex = match.index ?? 0;
 
     if (matchIndex > cursor) {
-      segments.push(text.slice(cursor, matchIndex));
+      const plainText = text.slice(cursor, matchIndex);
+      const plainTextOffset = matchOffset + cursor;
+      segments.push(
+        absoluteMatches
+          ? renderHighlightedTextWithAbsoluteMatches(
+              plainText,
+              absoluteMatches,
+              currentMatchRange,
+              plainTextOffset,
+            )
+          : renderHighlightedText(plainText, searchQuery),
+      );
     }
 
     if (match[1]) {
       const stringToken = match[1];
       const hasColon = Boolean(match[2]);
+      const tokenMatchOffset = matchOffset + matchIndex;
 
       segments.push(
         <Box
@@ -1268,51 +1292,102 @@ export function renderJsonSyntaxHighlightedText(
           key={`json-token-${tokenIndex++}`}
           sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}
         >
-          {renderHighlightedText(stringToken, searchQuery, matcher, currentMatchRange)}
+          {absoluteMatches
+            ? renderHighlightedTextWithAbsoluteMatches(
+                stringToken,
+                absoluteMatches,
+                currentMatchRange,
+                tokenMatchOffset,
+              )
+            : renderHighlightedText(stringToken, searchQuery)}
         </Box>,
       );
 
       if (hasColon) {
+        const colonToken = match[2] ?? "";
+        const colonOffset = tokenMatchOffset + stringToken.length;
         segments.push(
           <Box
             component="span"
             key={`json-token-${tokenIndex++}`}
             sx={{ color: tokenColors.punctuation }}
           >
-            {match[2]}
+            {absoluteMatches
+              ? renderHighlightedTextWithAbsoluteMatches(
+                  colonToken,
+                  absoluteMatches,
+                  currentMatchRange,
+                  colonOffset,
+                )
+              : renderHighlightedText(colonToken, searchQuery)}
           </Box>,
         );
       }
     } else if (matchedText === "true" || matchedText === "false") {
+      const tokenMatchOffset = matchOffset + matchIndex;
+
       segments.push(
         <Box
           component="span"
           key={`json-token-${tokenIndex++}`}
           sx={{ color: tokenColors.boolean }}
         >
-          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
+          {absoluteMatches
+            ? renderHighlightedTextWithAbsoluteMatches(
+                matchedText,
+                absoluteMatches,
+                currentMatchRange,
+                tokenMatchOffset,
+              )
+            : renderHighlightedText(matchedText, searchQuery)}
         </Box>,
       );
     } else if (matchedText === "null") {
+      const tokenMatchOffset = matchOffset + matchIndex;
+
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.null }}>
-          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
+          {absoluteMatches
+            ? renderHighlightedTextWithAbsoluteMatches(
+                matchedText,
+                absoluteMatches,
+                currentMatchRange,
+                tokenMatchOffset,
+              )
+            : renderHighlightedText(matchedText, searchQuery)}
         </Box>,
       );
     } else if (/^-?\d/.test(matchedText)) {
+      const tokenMatchOffset = matchOffset + matchIndex;
+
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.number }}>
-          {renderHighlightedText(matchedText, searchQuery, matcher, currentMatchRange)}
+          {absoluteMatches
+            ? renderHighlightedTextWithAbsoluteMatches(
+                matchedText,
+                absoluteMatches,
+                currentMatchRange,
+                tokenMatchOffset,
+              )
+            : renderHighlightedText(matchedText, searchQuery)}
         </Box>,
       );
     } else {
+      const tokenMatchOffset = matchOffset + matchIndex;
       segments.push(
         <Box
           component="span"
           key={`json-token-${tokenIndex++}`}
           sx={{ color: tokenColors.punctuation }}
         >
-          {matchedText}
+          {absoluteMatches
+            ? renderHighlightedTextWithAbsoluteMatches(
+                matchedText,
+                absoluteMatches,
+                currentMatchRange,
+                tokenMatchOffset,
+              )
+            : renderHighlightedText(matchedText, searchQuery)}
         </Box>,
       );
     }
@@ -1321,7 +1396,18 @@ export function renderJsonSyntaxHighlightedText(
   }
 
   if (cursor < text.length) {
-    segments.push(text.slice(cursor));
+    const trailingText = text.slice(cursor);
+    const trailingOffset = matchOffset + cursor;
+    segments.push(
+      absoluteMatches
+        ? renderHighlightedTextWithAbsoluteMatches(
+            trailingText,
+            absoluteMatches,
+            currentMatchRange,
+            trailingOffset,
+          )
+        : renderHighlightedText(trailingText, searchQuery),
+    );
   }
 
   return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
@@ -1332,47 +1418,26 @@ export function renderHighlightedText(
   searchQuery?: string,
   matcher?: SearchMatcher | null | undefined,
   currentMatchRange?: { start: number; end: number } | null | undefined,
+  matchOffset = 0,
+  matches?: Array<{ start: number; end: number }> | undefined,
 ) {
   if (matcher) {
-    const matches = matcher(text);
-    if (matches.length === 0) {
+    const absoluteMatches =
+      matches ??
+      matcher(text).map((match) => ({
+        start: matchOffset + match.start,
+        end: matchOffset + match.end,
+      }));
+    if (absoluteMatches.length === 0) {
       return text;
     }
 
-    const segments: React.ReactNode[] = [];
-    let cursor = 0;
-
-    for (const match of matches) {
-      if (match.start > cursor) {
-        segments.push(text.slice(cursor, match.start));
-      }
-
-      const isCurrent =
-        currentMatchRange &&
-        currentMatchRange.start === match.start &&
-        currentMatchRange.end === match.end;
-      segments.push(
-        <Box
-          component="mark"
-          data-match-index={match.start}
-          key={`${match.start}-${match.end}`}
-          sx={{
-            bgcolor: isCurrent ? "warning.dark" : "warning.light",
-            color: isCurrent ? "warning.contrastText" : undefined,
-            px: 0.25,
-          }}
-        >
-          {text.slice(match.start, match.end)}
-        </Box>,
-      );
-      cursor = match.end;
-    }
-
-    if (cursor < text.length) {
-      segments.push(text.slice(cursor));
-    }
-
-    return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
+    return renderHighlightedTextWithAbsoluteMatches(
+      text,
+      absoluteMatches,
+      currentMatchRange,
+      matchOffset,
+    );
   }
 
   const normalizedQuery = normalizeSearch(searchQuery);
@@ -1407,6 +1472,63 @@ export function renderHighlightedText(
       </Box>,
     );
     cursor = endIndex;
+  }
+
+  return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
+}
+
+function renderHighlightedTextWithAbsoluteMatches(
+  text: string,
+  absoluteMatches: Array<{ start: number; end: number }>,
+  currentMatchRange: { start: number; end: number } | null | undefined,
+  matchOffset: number,
+) {
+  const segmentStart = matchOffset;
+  const segmentEnd = matchOffset + text.length;
+  const overlappingMatches = absoluteMatches.filter(
+    (match) => match.start < segmentEnd && match.end > segmentStart,
+  );
+
+  if (overlappingMatches.length === 0) {
+    return text;
+  }
+
+  const segments: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of overlappingMatches) {
+    const overlapStart = Math.max(match.start, segmentStart);
+    const overlapEnd = Math.min(match.end, segmentEnd);
+    const localStart = overlapStart - segmentStart;
+    const localEnd = overlapEnd - segmentStart;
+
+    if (localStart > cursor) {
+      segments.push(text.slice(cursor, localStart));
+    }
+
+    const isCurrent =
+      currentMatchRange &&
+      currentMatchRange.start === match.start &&
+      currentMatchRange.end === match.end;
+    segments.push(
+      <Box
+        component="mark"
+        data-match-index={match.start}
+        key={`${match.start}-${overlapStart}-${overlapEnd}`}
+        sx={{
+          bgcolor: isCurrent ? "warning.dark" : "warning.light",
+          color: isCurrent ? "warning.contrastText" : undefined,
+          px: 0.25,
+        }}
+      >
+        {text.slice(localStart, localEnd)}
+      </Box>,
+    );
+    cursor = localEnd;
+  }
+
+  if (cursor < text.length) {
+    segments.push(text.slice(cursor));
   }
 
   return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
