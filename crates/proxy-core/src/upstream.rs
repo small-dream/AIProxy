@@ -116,7 +116,10 @@ pub(crate) async fn forward_request(
     }
 
     // --- Try h2 connection pool for HTTPS requests ---
-    let is_https = request.url.scheme() == "https";
+    // R6-1: treat `wss` like `https` (same TLS transport). The WS upgrade path
+    // connects upstream directly and never reaches here, but keep this scheme
+    // check aligned so a `wss://` URL could never silently take the plain path.
+    let is_https = matches!(request.url.scheme(), "https" | "wss");
     let pool_result = if is_https {
         if let Some(ref p) = pool {
             let key = crate::upstream_pool::UpstreamKey {

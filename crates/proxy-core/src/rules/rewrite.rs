@@ -267,22 +267,27 @@ pub(crate) fn apply_request_rewrite_rules(
             }
         };
 
-        // Structural failure: the request is in an inconsistent state and cannot
-        // be forwarded safely. Abort the whole request rather than continuing
-        // with corrupt runtime state. The error trace is recorded first so the
-        // failure is still visible in the session. This only happens after a
-        // successful mutation; skipped/error rules leave the request untouched.
-        if outcome == "success" {
-            rebuild_request_runtime_state(request).inspect_err(|_error| {
-                traces.push(build_rewrite_trace(
-                    &rule,
-                    "request",
-                    started_at,
-                    "error",
-                    std::mem::take(&mut entries),
-                ));
-            })?;
-        }
+        // After a successful mutation, rebuild the request's derived runtime
+        // state (headers / host / path / raw head) so subsequent rules and the
+        // upstream forward see a consistent request. A rebuild failure (e.g. a
+        // rewrite producing an illegal header name/value, or a redirect URL
+        // losing its host) is downgraded to a per-rule error trace and the
+        // cascade continues — it does NOT abort the whole request. Aborting
+        // would close the connection with no response and no session (R6-3).
+        // The request keeps the last successfully-rebuilt state; if a later
+        // rule or the upstream forward still trips on the inconsistent state,
+        // the forward stage's existing 502-session fallback handles it.
+        let outcome = if outcome == "success" {
+            match rebuild_request_runtime_state(request) {
+                Ok(()) => "success",
+                Err(error) => {
+                    entries.push(trace_entry(0, "error", None, None, None, Some(error)));
+                    "error"
+                }
+            }
+        } else {
+            outcome
+        };
 
         traces.push(build_rewrite_trace(
             &rule, "request", started_at, outcome, entries,

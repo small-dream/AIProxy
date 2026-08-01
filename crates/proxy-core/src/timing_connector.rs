@@ -122,7 +122,13 @@ impl Service<Uri> for TimingConnector {
         Box::pin(async move {
             let host = host_for_decision;
             let port = uri_port(&uri);
-            let is_https = uri.scheme() == Some(&Scheme::HTTPS);
+            // R6-1: treat `wss` like `https` (same TLS transport). The WS upgrade
+            // path connects upstream directly and never reaches this connector,
+            // but keep the scheme check aligned for robustness.
+            let is_https = matches!(
+                uri.scheme().map(|s| s.as_str()),
+                Some("https") | Some("wss")
+            );
 
             // Phase 1: DNS resolution (or skip if override provided)
             let (dns_ms, socket_addr) = if let Some(ip) = dns_override_ip {

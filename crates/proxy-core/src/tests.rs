@@ -900,6 +900,130 @@ fn isolates_a_failing_request_rewrite_rule_and_continues_cascade() {
     );
 }
 
+// R6-3 regression: a rewrite rule that applies successfully but whose mutation
+// makes `rebuild_request_runtime_state` fail (here: an illegal header NAME that
+// `HeaderName::from_bytes` rejects during rebuild) must be downgraded to a
+// per-rule error trace, NOT abort the whole request. Before the fix the `?` on
+// the rebuild propagated all the way up and closed the connection with no
+// response and no session.
+#[test]
+fn rebuild_failure_on_request_rewrite_does_not_abort_request() {
+    let manager = RewriteManager::new();
+    // Rule 1 (runs first): a normal header rewrite that succeeds and rebuilds.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-header-ok".to_string(),
+        enabled: true,
+        name: "Header OK".to_string(),
+        note: None,
+        priority: 30,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-first",
+            "operation": "set",
+            "target": "request",
+            "value": "applied"
+        }),
+    });
+    // Rule 2: a header rewrite with an ILLEGAL header name. `set_header_entry`
+    // stores it verbatim (no validation), so `apply_one_request_rule` returns
+    // Ok("success"); the failure surfaces only when `rebuild_request_runtime_state`
+    // calls `HeaderName::from_bytes("bad header")` (space is not a valid token char).
+    manager.save_rule(RewriteRule {
+        id: "rewrite-header-bad-name".to_string(),
+        enabled: true,
+        name: "Header bad name".to_string(),
+        note: None,
+        priority: 20,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "bad header",
+            "operation": "set",
+            "target": "request",
+            "value": "oops"
+        }),
+    });
+    // Rule 3: a normal header rewrite that must still run after rule 2's rebuild
+    // failure — proving the cascade was not aborted.
+    manager.save_rule(RewriteRule {
+        id: "rewrite-header-after".to_string(),
+        enabled: true,
+        name: "Header after".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["POST".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        workspace_id: "default".to_string(),
+        payload: json!({
+            "headerName": "x-third",
+            "operation": "set",
+            "target": "request",
+            "value": "applied"
+        }),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    request.method = Method::POST;
+    request.headers = build_upstream_headers_from_entries(&request.request_headers).unwrap();
+
+    // The whole cascade returns Ok — the rebuild failure did NOT abort the request.
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .expect("a rebuild failure must not abort the request");
+
+    // All three rules produced a trace — the cascade ran to completion.
+    assert_eq!(traces.len(), 3);
+    // Rule 1 (before the bad rule) succeeded and rebuilt cleanly.
+    assert_eq!(
+        traces
+            .iter()
+            .find(|trace| trace.rule_id == "rewrite-header-ok")
+            .unwrap()
+            .outcome,
+        "success"
+    );
+    // Rule 2 was downgraded to an error outcome (rebuild failure), not success,
+    // and — critically — did not propagate as Err.
+    let bad_trace = traces
+        .iter()
+        .find(|trace| trace.rule_id == "rewrite-header-bad-name")
+        .expect("rebuild-failing rule still emits a trace");
+    assert_eq!(bad_trace.outcome, "error");
+    // Rule 3 still RAN (it has a trace). Its own rebuild also errors because the
+    // illegal header name written by rule 2 is still present in request_headers,
+    // but the point of R6-3 is that this is a per-rule error, not a request-wide
+    // abort: the cascade kept going and the mutation below is still applied.
+    let after_trace = traces
+        .iter()
+        .find(|trace| trace.rule_id == "rewrite-header-after")
+        .expect("rule after the failing one still runs");
+    assert_eq!(after_trace.outcome, "error");
+    // Rule 3's mutation is observable in request_headers — proving the request
+    // was not dropped and the cascade continued past the rebuild failure.
+    assert_eq!(
+        header_entry(&request.request_headers, "x-third"),
+        Some("applied")
+    );
+}
+
 // H4 regression (response stage): same isolation for response rewrite rules.
 #[test]
 fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
@@ -2536,6 +2660,111 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
     assert_no_duplicate_completed_sessions(&mut started_proxy, "ws_connect_failure").await;
 
     started_proxy.server_handle.shutdown().await;
+}
+
+// R6-2: a request body exceeding the 20 MiB capture limit must produce a 413
+// response AND a recorded session, instead of closing the connection silently
+// (which previously left the client with a reset and no session record).
+#[tokio::test]
+async fn request_body_over_limit_returns_413_and_records_session() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    // The upstream should never receive the request — the proxy rejects it at
+    // parse time. Accept but assert nothing is read.
+    let upstream_task = tokio::spawn(async move {
+        if let Ok((mut _stream, _)) = upstream_listener.accept().await {
+            // Give the proxy a moment, then drop — the upstream is irrelevant
+            // because the 413 is emitted before forwarding.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/upload");
+    let body_len = MAX_CAPTURED_BODY_BYTES + 1024;
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request_head = format!(
+        "POST {target_url} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{upstream_port}\r\n\
+         Content-Length: {body_len}\r\n\
+         Connection: close\r\n\
+         \r\n"
+    );
+    client_stream
+        .write_all(request_head.as_bytes())
+        .await
+        .unwrap();
+
+    // Stream the oversized body in chunks so the proxy's Limited reader trips
+    // the 20 MiB ceiling. Sending it in 1 MiB chunks keeps memory bounded.
+    let chunk = vec![b'a'; 1024 * 1024];
+    let mut sent = 0usize;
+    while sent < body_len {
+        let n = std::cmp::min(chunk.len(), body_len - sent);
+        client_stream.write_all(&chunk[..n]).await.unwrap();
+        sent += n;
+    }
+    client_stream.flush().await.unwrap();
+
+    // Read the full response. Before the fix this would be a connection reset
+    // (EOF with no HTTP response); after the fix it is a real 413.
+    let mut response_bytes = Vec::new();
+    client_stream
+        .read_to_end(&mut response_bytes)
+        .await
+        .unwrap();
+    let response_text = String::from_utf8_lossy(&response_bytes);
+    assert!(
+        response_text.contains("413"),
+        "expected a 413 response, got: {response_text}"
+    );
+
+    // A session with status 413 must be recorded (previously: no session at all).
+    let session: ProxySessionDetail = timeout(Duration::from_secs(5), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the 413 session detail");
+    assert_eq!(
+        session.summary.status_code, 413,
+        "expected 413 session, got {}",
+        session.summary.status_code
+    );
+
+    assert_no_duplicate_completed_sessions(&mut started_proxy, "request_body_too_large").await;
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
 }
 
 #[tokio::test]

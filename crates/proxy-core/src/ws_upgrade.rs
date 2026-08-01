@@ -110,6 +110,64 @@ async fn send_ws_upstream_error_session(
         .unwrap_or_else(|_| crate::http_proxy::build_empty_response(StatusCode::BAD_GATEWAY))
 }
 
+/// Default upstream port for a WebSocket upgrade request (R6-1).
+///
+/// The transport is decided by the URL scheme, not just `ctx.mode`: a `wss://`
+/// absolute-form request sent directly over the plain HTTP proxy port still
+/// targets 443. `ws://` (and the MITM path, where the URL is normalized to
+/// `https://`) keep the connection-mode defaults.
+fn ws_default_port(url: &url::Url, mode: &ConnectionMode) -> u16 {
+    if url.scheme() == "wss" {
+        443
+    } else {
+        match mode {
+            ConnectionMode::PlainHttp => 80,
+            ConnectionMode::MitmHttps { .. } => 443,
+        }
+    }
+}
+
+/// Whether the upstream WebSocket connection must use TLS (R6-1).
+///
+/// TLS is required when EITHER the connection is the MITM path (the browser
+/// already CONNECTed, URL normalized to `https://`) OR the URL scheme is
+/// `wss://` (absolute-form `wss://` request sent over the plain proxy port).
+fn ws_needs_tls(url: &url::Url, mode: &ConnectionMode) -> bool {
+    matches!(mode, ConnectionMode::MitmHttps { .. }) || url.scheme() == "wss"
+}
+
+/// Wrap an already-connected TCP stream in TLS for the WebSocket upstream
+/// (R6-1). Shared by the MITM path and the `wss://`-over-plain-proxy path.
+///
+/// On handshake failure returns `Err(message)` so the caller can emit a 502
+/// session (mirroring the original inline behavior).
+async fn connect_ws_upstream_tls(
+    tcp: tokio::net::TcpStream,
+    request: &ParsedProxyRequest,
+    ctx: &ConnectionContext,
+) -> Result<TlsOrPlain<tokio::net::TcpStream>, String> {
+    // H3: select the verifying vs dangerous client config based on the
+    // effective verify decision for THIS host: verify when the global
+    // switch is on OR the host is on the per-host allowlist. WSS has no
+    // ALPN requirements, so pass an empty protocol list.
+    let verify = ctx.verify_upstream_tls
+        || crate::timing_connector::host_in_allowlist(&ctx.tls_verify_hosts, &request.host);
+    let client_config =
+        aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(vec![], verify);
+    let tls_connector = tokio_rustls::TlsConnector::from(client_config);
+    let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(request.host.clone())
+        .unwrap_or_else(|_| {
+            tokio_rustls::rustls::pki_types::ServerName::IpAddress(
+                std::net::Ipv4Addr::LOCALHOST.into(),
+            )
+        });
+    let tls_stream = tls_connector
+        .connect(dns_name, tcp)
+        .await
+        .map_err(|e| format!("WebSocket upstream TLS handshake: {e}"))?;
+    Ok(TlsOrPlain::Tls(Box::new(tls_stream)))
+}
+
 /// Handle a WebSocket upgrade request via hyper's upgrade mechanism.
 ///
 /// The caller MUST have already:
@@ -137,10 +195,14 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     let request_id = request.request_id.clone();
 
     // Determine upstream port.
-    let port = request.url.port().unwrap_or(match ctx.mode {
-        ConnectionMode::PlainHttp => 80,
-        ConnectionMode::MitmHttps { .. } => 443,
-    });
+    // R6-1: the transport (plain vs TLS) must follow the URL scheme, not just
+    // `ctx.mode`. A `wss://` absolute-form request arriving over the plain HTTP
+    // proxy port (`ctx.mode == PlainHttp`) still needs port 443 + TLS; browsers
+    // normally CONNECT first (-> MitmHttps), so this is an edge but real path.
+    let port = request
+        .url
+        .port()
+        .unwrap_or(ws_default_port(&request.url, &ctx.mode));
 
     // Resolve DNS override.
     let connect_host =
@@ -186,48 +248,30 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         }
     };
 
-    let mut upstream = match ctx.mode {
-        ConnectionMode::MitmHttps { .. } => {
-            // H3: select the verifying vs dangerous client config based on the
-            // effective verify decision for THIS host: verify when the global
-            // switch is on OR the host is on the per-host allowlist. WSS has no
-            // ALPN requirements, so pass an empty protocol list.
-            let verify = ctx.verify_upstream_tls
-                || crate::timing_connector::host_in_allowlist(&ctx.tls_verify_hosts, &request.host);
-            let client_config =
-                aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(
-                    vec![],
-                    verify,
-                );
-            let tls_connector = tokio_rustls::TlsConnector::from(client_config);
-            let dns_name =
-                tokio_rustls::rustls::pki_types::ServerName::try_from(request.host.clone())
-                    .unwrap_or_else(|_| {
-                        tokio_rustls::rustls::pki_types::ServerName::IpAddress(
-                            std::net::Ipv4Addr::LOCALHOST.into(),
-                        )
-                    });
-            let tls_stream = match tls_connector.connect(dns_name, ws_tcp).await {
-                Ok(s) => s,
-                Err(e) => {
-                    let error = format!("WebSocket upstream TLS handshake: {e}");
-                    return Ok(send_ws_upstream_error_session(
-                        &request,
-                        ctx,
-                        &error,
-                        started_at,
-                        started_at_instant,
-                        map_traces,
-                        rewrite_traces,
-                        script_traces,
-                        throttle_traces,
-                    )
-                    .await);
-                }
-            };
-            TlsOrPlain::Tls(Box::new(tls_stream))
+    // R6-1: TLS is required when EITHER we are in MITM mode (CONNECT already
+    // happened, URL normalized to https://) OR the URL scheme itself is `wss`
+    // (a wss:// absolute-form request sent directly over the plain proxy port).
+    let needs_tls = ws_needs_tls(&request.url, &ctx.mode);
+    let mut upstream = if needs_tls {
+        match connect_ws_upstream_tls(ws_tcp, &request, ctx).await {
+            Ok(stream) => stream,
+            Err(error) => {
+                return Ok(send_ws_upstream_error_session(
+                    &request,
+                    ctx,
+                    &error,
+                    started_at,
+                    started_at_instant,
+                    map_traces,
+                    rewrite_traces,
+                    script_traces,
+                    throttle_traces,
+                )
+                .await);
+            }
         }
-        ConnectionMode::PlainHttp => TlsOrPlain::Plain(ws_tcp),
+    } else {
+        TlsOrPlain::Plain(ws_tcp)
     };
 
     // Build and send the raw upgrade request to upstream.
@@ -1002,6 +1046,77 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // ws_default_port / ws_needs_tls (R6-1)
+    // -----------------------------------------------------------------------
+
+    fn mitm_mode() -> ConnectionMode {
+        ConnectionMode::MitmHttps {
+            host: "example.com".to_string(),
+            port: 443,
+            tls_protocol: None,
+            tls_cipher_suite: None,
+            tls_ms: 0,
+            alpn_protocol: None,
+        }
+    }
+
+    #[test]
+    fn ws_default_port_wss_over_plain_proxy_is_443() {
+        // R6-1: a `wss://` absolute-form request over the plain HTTP proxy port
+        // must default to 443, not 80.
+        let url = url::Url::parse("wss://echo.example.com/chat").unwrap();
+        assert_eq!(ws_default_port(&url, &ConnectionMode::PlainHttp), 443);
+    }
+
+    #[test]
+    fn ws_default_port_ws_over_plain_proxy_is_80() {
+        let url = url::Url::parse("ws://echo.example.com/chat").unwrap();
+        assert_eq!(ws_default_port(&url, &ConnectionMode::PlainHttp), 80);
+    }
+
+    #[test]
+    fn ws_default_port_mitm_is_443() {
+        // MITM path: URL is normalized to https://, default stays 443.
+        let url = url::Url::parse("https://echo.example.com/chat").unwrap();
+        assert_eq!(ws_default_port(&url, &mitm_mode()), 443);
+    }
+
+    #[test]
+    fn ws_default_port_explicit_port_wins() {
+        // When the URL carries an explicit port, the caller already selects it
+        // via `url.port().unwrap_or(ws_default_port(...))`. Verify the default
+        // is NOT consulted for a scheme that the `url` crate knows about (https),
+        // so explicit ports on the real MITM path (normalized to https://) win.
+        let url = url::Url::parse("https://echo.example.com:8443/chat").unwrap();
+        assert_eq!(url.port(), Some(8443));
+        assert_eq!(ws_default_port(&url, &mitm_mode()), 443); // default only, as fallback
+    }
+
+    #[test]
+    fn ws_needs_tls_wss_over_plain_proxy_requires_tls() {
+        // R6-1: `wss://` over plain proxy must use TLS even though ctx.mode is
+        // PlainHttp. Before the fix this returned false (plain TCP) — the bug.
+        let url = url::Url::parse("wss://echo.example.com/chat").unwrap();
+        assert!(ws_needs_tls(&url, &ConnectionMode::PlainHttp));
+    }
+
+    #[test]
+    fn ws_needs_tls_ws_over_plain_proxy_is_plain() {
+        let url = url::Url::parse("ws://echo.example.com/chat").unwrap();
+        assert!(!ws_needs_tls(&url, &ConnectionMode::PlainHttp));
+    }
+
+    #[test]
+    fn ws_needs_tls_mitm_always_requires_tls() {
+        // MITM path (browser CONNECTed) always uses TLS regardless of scheme.
+        let https = url::Url::parse("https://echo.example.com/chat").unwrap();
+        assert!(ws_needs_tls(&https, &mitm_mode()));
+        // Even if a wss:// URL somehow reached the MITM path, TLS is still used.
+        let wss = url::Url::parse("wss://echo.example.com/chat").unwrap();
+        assert!(ws_needs_tls(&wss, &mitm_mode()));
+    }
 
     // -----------------------------------------------------------------------
     // parse_upstream_response_head

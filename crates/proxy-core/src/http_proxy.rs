@@ -227,11 +227,26 @@ struct ParsedRequest {
     ws_on_upgrade: Option<hyper::upgrade::OnUpgrade>,
 }
 
+/// Outcome of Stage 1 (request parsing).
+///
+/// `PayloadTooLarge` (R6-2) is a graceful degradation path: a request body
+/// exceeding `MAX_CAPTURED_BODY_BYTES` is NOT a hard error that closes the
+/// connection. Instead the proxy returns `413 Payload Too Large` with a session
+/// record. The `request` here is a minimal `ParsedProxyRequest` (empty body)
+/// built from the request line/headers, just enough to populate the session.
+enum Stage1Outcome {
+    Parsed(ParsedRequest),
+    PayloadTooLarge {
+        request: ParsedProxyRequest,
+        limit: usize,
+    },
+}
+
 /// Detect WebSocket upgrades, read the body, and build a [`ParsedProxyRequest`].
 async fn stage_parse_request(
     req: hyper::Request<hyper::body::Incoming>,
     ctx: &ConnectionContext,
-) -> Result<ParsedRequest, crate::ProxyError> {
+) -> Result<Stage1Outcome, crate::ProxyError> {
     let request_id = Uuid::new_v4().to_string();
 
     // Detect WebSocket upgrade and capture OnUpgrade before consuming req.
@@ -256,17 +271,38 @@ async fn stage_parse_request(
     // Build ParsedProxyRequest from the hyper Request.
     let (parts, body) = req.into_parts();
     let limited_body = http_body_util::Limited::new(body, MAX_CAPTURED_BODY_BYTES);
-    let body_bytes = BodyExt::collect(limited_body)
-        .await
-        .map_err(|e| crate::ProxyError::Other(format!("failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = match BodyExt::collect(limited_body).await {
+        Ok(collected) => collected.to_bytes(),
+        Err(error) => {
+            // R6-2: a `LengthLimitError` means the request body exceeded the
+            // 20 MiB capture limit. Downgrade to a 413 + session instead of
+            // aborting the connection (which previously left the client with a
+            // reset and no session record). Any OTHER body-read error is still
+            // a hard failure.
+            if error
+                .downcast_ref::<http_body_util::LengthLimitError>()
+                .is_some()
+            {
+                // Build a minimal request (empty body) for the session record.
+                let request =
+                    build_parsed_request_from_hyper(parts, bytes::Bytes::new(), ctx, &request_id)?;
+                return Ok(Stage1Outcome::PayloadTooLarge {
+                    request,
+                    limit: MAX_CAPTURED_BODY_BYTES,
+                });
+            }
+            return Err(crate::ProxyError::Other(format!(
+                "failed to read request body: {error}"
+            )));
+        }
+    };
 
     let request = build_parsed_request_from_hyper(parts, body_bytes, ctx, &request_id)?;
 
-    Ok(ParsedRequest {
+    Ok(Stage1Outcome::Parsed(ParsedRequest {
         request,
         ws_on_upgrade,
-    })
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1165,10 +1201,60 @@ pub(crate) async fn handle_http_request(
     started_at_instant: Instant,
 ) -> Result<ProxyResponse, String> {
     // --- Stage 1: Parse request ---
-    let ParsedRequest {
-        mut request,
-        ws_on_upgrade,
-    } = stage_parse_request(req, ctx).await?;
+    let (request, ws_on_upgrade) = match stage_parse_request(req, ctx).await? {
+        Stage1Outcome::Parsed(ParsedRequest {
+            request,
+            ws_on_upgrade,
+        }) => (request, ws_on_upgrade),
+        // R6-2: request body exceeded the 20 MiB capture limit. Return 413 and
+        // record a session instead of closing the connection silently. Stage 4's
+        // cancellation guard has not been created yet, so this never trips 499.
+        Stage1Outcome::PayloadTooLarge { request, limit } => {
+            let host = request.host.clone();
+            let response_message = format!(
+                "Request body exceeds the {} byte capture limit and was rejected.",
+                limit
+            );
+            let detail = build_session_detail(
+                &request,
+                StatusCode::PAYLOAD_TOO_LARGE.as_u16(),
+                &HeaderMap::new(),
+                response_message.as_bytes(),
+                response_message.len(),
+                started_at,
+                started_at_instant,
+                ProxyTimingBreakdown {
+                    connect_ms: None,
+                    dns_ms: None,
+                    request_send_ms: None,
+                    response_read_ms: Some(0),
+                    tls_ms: None,
+                    total_ms: Some(started_at_instant.elapsed().as_millis()),
+                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+                },
+                false,
+                false, // M2 skip_bodies
+            );
+            if ctx.session_sender.send(detail).await.is_err() {
+                tracing::debug!(
+                    event = "session_send_dropped",
+                    reason = "receiver_disconnected",
+                    "session_send_dropped"
+                );
+            }
+            tracing::warn!(
+                event = "request_body_too_large",
+                request_id = %request.request_id,
+                host = %host,
+                url = %request.url,
+                limit,
+                "request_body_too_large"
+            );
+            return build_plain_text_response(StatusCode::PAYLOAD_TOO_LARGE, &response_message)
+                .map_err(|e| e.to_string());
+        }
+    };
+    let mut request = request;
 
     let host = request.host.clone();
     let is_h2 = ctx.mode.is_h2();
