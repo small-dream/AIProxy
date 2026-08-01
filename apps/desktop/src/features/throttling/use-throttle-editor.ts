@@ -156,7 +156,21 @@ export function useThrottleEditor() {
     () => rules.find((rule) => rule.id === selectedRuleId),
     [rules, selectedRuleId],
   );
-  const activeRuleCount = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
+  // R6-6: a rule only takes effect when it is enabled AND the profile it
+  // references is enabled. This mirrors the backend's
+  // `active_throttle_selection_for_request` gate, so the count stays consistent
+  // with the "off" status chip shown after "Disable Throttling" (which disables
+  // every profile). Counting only `rule.enabled` here would over-report active
+  // rules while the chip reads "off".
+  const enabledProfileIds = useMemo(
+    () => new Set(profiles.filter((profile) => profile.enabled).map((profile) => profile.id)),
+    [profiles],
+  );
+  const activeRuleCount = useMemo(
+    () =>
+      rules.filter((rule) => rule.enabled && enabledProfileIds.has(rule.profileId)).length,
+    [rules, enabledProfileIds],
+  );
   // Memoize the derived error/label values so child components receiving them
   // aren't re-rendered on every keystroke (the inputs update profileDraft/ruleDraft
   // frequently). Previously these rebuilt new arrays/strings each render (L15).

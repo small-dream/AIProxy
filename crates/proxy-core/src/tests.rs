@@ -1,6 +1,7 @@
 use super::rules::{
-    active_throttle_profile_for_workspace, apply_map_rules, apply_request_rewrite_rules,
-    apply_response_rewrite_rules,
+    active_throttle_profile_for_workspace, active_throttle_selection_for_request, apply_map_rules,
+    apply_request_rewrite_rules, apply_response_rewrite_rules, ThrottleRuleData,
+    ThrottleRuntimeSelection,
 };
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
@@ -2000,6 +2001,84 @@ fn picks_the_active_throttle_profile_for_the_workspace() {
 
     assert_eq!(profile.id, "profile-b");
     assert_eq!(profile.latency_ms, 120);
+}
+
+/// Build a throttle rule matching `https://api.example.com/v1/users` for the
+/// given profile, used by the R6-6 selection tests.
+fn throttle_rule_for(profile_id: &str, enabled: bool) -> ThrottleRuleData {
+    ThrottleRuleData {
+        id: "rule-1".to_string(),
+        enabled,
+        methods: vec!["GET".to_string()],
+        name: "api rule".to_string(),
+        note: None,
+        priority: 100,
+        profile_id: profile_id.to_string(),
+        stage: "both".to_string(),
+        url_pattern: "api.example.com".to_string(),
+        workspace_id: "default".to_string(),
+    }
+}
+
+// R6-6: an enabled rule whose referenced profile is enabled selects that
+// rule+profile combination.
+#[test]
+fn throttle_rule_selects_when_its_profile_is_enabled() {
+    let manager = ThrottleManager::new();
+    manager.save_profile(ThrottleProfileData {
+        id: "profile-a".to_string(),
+        download_kbps: 1024,
+        enabled: true,
+        latency_ms: 40,
+        name: "Active".to_string(),
+        note: None,
+        packet_loss_ratio: 0.0,
+        preset: false,
+        upload_kbps: 512,
+        workspace_id: "default".to_string(),
+    });
+    manager.save_rule(throttle_rule_for("profile-a", true));
+
+    let request = build_test_request("https://api.example.com/v1/users");
+    let selection: Option<ThrottleRuntimeSelection> =
+        active_throttle_selection_for_request(&Some(Arc::new(manager)), "default", &request);
+
+    let selection = selection.expect("enabled rule + enabled profile must select");
+    assert_eq!(selection.profile.id, "profile-a");
+    assert_eq!(selection.rule.map(|r| r.id), Some("rule-1".to_string()));
+}
+
+// R6-6: an enabled rule whose referenced profile is DISABLED must NOT select.
+// Before the fix the rule branch ignored `profile.enabled`, so "Disable
+// Throttling" (which sets every profile `enabled = false`) left targeted rules
+// still throttling while the UI status chip read "off".
+#[test]
+fn throttle_rule_does_not_select_when_its_profile_is_disabled() {
+    let manager = ThrottleManager::new();
+    manager.save_profile(ThrottleProfileData {
+        id: "profile-a".to_string(),
+        download_kbps: 1024,
+        enabled: false, // "Disable Throttling" clears the active profile.
+        latency_ms: 40,
+        name: "Inactive".to_string(),
+        note: None,
+        packet_loss_ratio: 0.0,
+        preset: false,
+        upload_kbps: 512,
+        workspace_id: "default".to_string(),
+    });
+    manager.save_rule(throttle_rule_for("profile-a", true));
+
+    let request = build_test_request("https://api.example.com/v1/users");
+    let selection =
+        active_throttle_selection_for_request(&Some(Arc::new(manager)), "default", &request);
+
+    // No active profile and the rule's profile is disabled -> no throttling,
+    // matching the "off" status chip.
+    assert!(
+        selection.is_none(),
+        "rule referencing a disabled profile must not select, got: {selection:?}"
+    );
 }
 
 #[tokio::test]

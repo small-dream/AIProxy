@@ -170,7 +170,7 @@ aiproxy-proxy-core`（216 项测试全绿，新增 9 项回归测试）。
 - **修复方向**：仅匹配 URL（与 rewrite/script 对齐）；如需 host 匹配，应显式
   使用独立字段或仅在 pattern 不含 `/` 时回退 host。
 
-### R6-5 ✅ "复制为 cURL" 生成 POSIX shell 语法，Windows 下不可直接运行
+### R6-5 🔧 已修复 · "复制为 cURL" 生成 POSIX shell 语法，Windows 下不可直接运行
 
 - **位置**：`apps/desktop/src/features/compose/curl-export.ts:9-31`
 - **类别**：UX / 平台适配
@@ -180,7 +180,7 @@ aiproxy-proxy-core`（216 项测试全绿，新增 9 项回归测试）。
 - **修复方向**：按平台输出；Windows 下用双引号 + `^` 续行（cmd）或
   PowerShell 兼容转义，或提供平台感知的生成函数。
 
-### R6-6 ✅ "禁用全局"节流与规则实际生效状态不一致（UX 误导）
+### R6-6 🔧 已修复 · "禁用全局"节流与规则实际生效状态不一致（UX 误导）
 
 - **位置**：`apps/desktop/src/features/throttling/use-throttle-editor.ts:375`
   （`handleDisableGlobal`）、`crates/proxy-core/src/rules/mod.rs:238-250`
@@ -193,6 +193,32 @@ aiproxy-proxy-core`（216 项测试全绿，新增 9 项回归测试）。
   "Disable Global" 文案与 on/off 状态对用户有明确误导。
 - **修复方向**：规则分支同样校验 `profile.enabled`；或将全局开关语义统一为
   "关闭全部限速"（禁用所有规则/配置），并在文案上明确区分。
+
+### 修复记录（2026-08-01）
+
+R6-5 / R6-6 两项低危均已于 `dev` 分支修复并验证（前端 `pnpm typecheck` +
+`pnpm lint` + `pnpm test` 412 项全绿，含新增 cURL 8 项；后端
+`cargo test -p aiproxy-proxy-core` 218 项全绿，含新增 R6-6 2 项）。
+
+- **R6-5**（`apps/desktop/src/features/compose/curl-export.ts`）：`generateCurlCommand`
+  内部按平台分流。复用现有 `detectBrowserPlatform()`（`services/commands/runtime.ts`，
+  默认 windows）自动检测：Windows 输出**双引号包裹 + `""` 翻倍转义 + 单行**（cmd 与
+  PowerShell 的最大公约数——二者无公共续行符故单行），macOS/Linux 保留原 POSIX 单引号
+  + `\` 续行。两个调用点（compose 页、会话右键 `buildCurlCommand`）签名不变、零改动。
+  新增可选 `options.platform` 参数供测试注入。
+  回归测试：`apps/desktop/src/features/compose/curl-export.test.ts`（8 项，覆盖双引号转义、
+  无续行、GET 省略 -X、POSIX 单引号转义等）。
+
+- **R6-6**（`crates/proxy-core/src/rules/mod.rs` + 前端
+  `use-throttle-editor.ts`）：采用「禁用全局=关闭全部」语义。规则分支的 profile 查找
+  增加 `&& profile.enabled` 校验——规则生效 ⟺ 规则自身 enabled 且其引用的 profile enabled。
+  这样「关闭弱网」（全部 profile `enabled=false`）真正接管所有节流，与状态 chip "off" 一致；
+  与 profile 回退分支（`active_throttle_profile_for_workspace` 已有的 `profile.enabled` 门）
+  对齐。前端 `activeRuleCount` 同步改为只计「规则 enabled 且其 profile enabled」，使子标题
+  `activeStatusScope` 计数与后端实际生效一致（profile 全关时归零）。`handleDisableGlobal`
+  行为不变（后端据此真正关闭规则）。
+  回归测试：`tests::throttle_rule_selects_when_its_profile_is_enabled`、
+  `tests::throttle_rule_does_not_select_when_its_profile_is_disabled`。
 
 ---
 

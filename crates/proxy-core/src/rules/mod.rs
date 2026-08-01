@@ -204,7 +204,7 @@ pub(crate) fn throttle_selection_matches_stage(
         .unwrap_or(true)
 }
 
-fn active_throttle_selection_for_request(
+pub(crate) fn active_throttle_selection_for_request(
     throttle_manager: &Option<Arc<ThrottleManager>>,
     workspace_id: &str,
     request: &ParsedProxyRequest,
@@ -230,9 +230,21 @@ fn active_throttle_selection_for_request(
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
 
     for rule in rules {
+        // R6-6: a targeted rule only takes effect when BOTH the rule itself is
+        // enabled AND the profile it references is enabled. Without the
+        // `profile.enabled` check here, "Disable Throttling" (which clears the
+        // active profile by setting every profile `enabled = false`) would
+        // leave targeted rules still matching and throttling via their now-
+        // disabled profile — while the UI status chip read "off". This mirrors
+        // the `profile.enabled` gate already used by the active-profile
+        // fallback below (`active_throttle_profile_for_workspace`).
         if let Some(profile) = profiles
             .iter()
-            .find(|profile| profile.workspace_id == workspace_id && profile.id == rule.profile_id)
+            .find(|profile| {
+                profile.workspace_id == workspace_id
+                    && profile.id == rule.profile_id
+                    && profile.enabled
+            })
             .cloned()
         {
             return Some(ThrottleRuntimeSelection {
