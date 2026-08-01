@@ -2081,6 +2081,70 @@ fn throttle_rule_does_not_select_when_its_profile_is_disabled() {
     );
 }
 
+/// Build a ThrottleManager with one enabled profile and one enabled rule whose
+/// `url_pattern` is `pattern`. Used by the R6-4 URL-matching tests.
+fn throttle_manager_with_url_pattern(pattern: &str) -> Arc<ThrottleManager> {
+    let manager = ThrottleManager::new();
+    manager.save_profile(ThrottleProfileData {
+        id: "profile-a".to_string(),
+        download_kbps: 1024,
+        enabled: true,
+        latency_ms: 40,
+        name: "Active".to_string(),
+        note: None,
+        packet_loss_ratio: 0.0,
+        preset: false,
+        upload_kbps: 512,
+        workspace_id: "default".to_string(),
+    });
+    manager.save_rule(ThrottleRuleData {
+        id: "rule-1".to_string(),
+        enabled: true,
+        methods: vec!["GET".to_string()],
+        name: "pattern rule".to_string(),
+        note: None,
+        priority: 100,
+        profile_id: "profile-a".to_string(),
+        stage: "both".to_string(),
+        url_pattern: pattern.to_string(),
+        workspace_id: "default".to_string(),
+    });
+    Arc::new(manager)
+}
+
+// R6-4: throttle URL matching is URL-only and aligned with rewrite/script/map
+// rules. A pattern that is a substring of the URL selects the RULE (not just
+// the active-profile fallback).
+#[test]
+fn throttle_rule_matches_when_pattern_is_substring_of_url() {
+    let manager = throttle_manager_with_url_pattern("/v1/users");
+    let request = build_test_request("https://api.example.com/v1/users");
+    let selection = active_throttle_selection_for_request(&Some(manager), "default", &request);
+    let matched_rule = selection.and_then(|s| s.rule.map(|r| r.id));
+    assert_eq!(
+        matched_rule,
+        Some("rule-1".to_string()),
+        "pattern present in the URL must match the rule"
+    );
+}
+
+// R6-4: a pattern that is NOT in the URL must not match the rule. Before the
+// fix the rule also OR-matched `request.host`. We assert on the matched RULE
+// (not the whole selection) because an enabled active profile still surfaces as
+// a rule-less fallback selection — that fallback is unrelated to R6-4.
+#[test]
+fn throttle_rule_does_not_match_when_pattern_absent_from_url() {
+    // Pattern "staging" appears in neither the URL nor its host.
+    let manager = throttle_manager_with_url_pattern("staging");
+    let request = build_test_request("https://api.example.com/v1/users");
+    let selection = active_throttle_selection_for_request(&Some(manager), "default", &request);
+    let matched_rule = selection.and_then(|s| s.rule.map(|r| r.id));
+    assert_eq!(
+        matched_rule, None,
+        "pattern absent from the URL must not match the rule, got: {matched_rule:?}"
+    );
+}
+
 #[tokio::test]
 async fn forwards_plain_http_requests_and_emits_a_session_detail() {
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();

@@ -221,10 +221,13 @@ pub(crate) fn active_throttle_selection_for_request(
                 || throttle_stage_matches(&rule.stage, "response")
         })
         .filter(|rule| method_matches(&rule.methods, &request.method))
-        .filter(|rule| {
-            pattern_matches(&rule.url_pattern, request.url.as_str(), None)
-                || pattern_matches(&rule.url_pattern, &request.host, None)
-        })
+        // R6-4: match against the URL only — NOT `|| request.host`. The OR was
+        // inconsistent with rewrite/script/map rules (which all match URL only)
+        // and, because `request.url` is an absolute URL that always contains
+        // the host, the host fallback was also redundant for the default
+        // "contains" match type. Dropping it aligns throttle URL matching with
+        // the other rule kinds.
+        .filter(|rule| pattern_matches(&rule.url_pattern, request.url.as_str(), None))
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));

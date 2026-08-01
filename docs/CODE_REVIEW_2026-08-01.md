@@ -152,7 +152,7 @@ aiproxy-proxy-core`（216 项测试全绿，新增 9 项回归测试）。
 
 ## 4. 🟡 低危（3 项）
 
-### R6-4 ✅ 节流规则 URL 匹配用 URL **或** host 的 contains 匹配（第五轮 M4，仍未修）
+### R6-4 🔧 已修复 · 节流规则 URL 匹配用 URL **或** host 的 contains 匹配（第五轮 M4）
 
 - **位置**：`crates/proxy-core/src/rules/mod.rs:225-226`
 - **类别**：规则匹配正确性
@@ -169,6 +169,15 @@ aiproxy-proxy-core`（216 项测试全绿，新增 9 项回归测试）。
   当前代码仍保留该行为。
 - **修复方向**：仅匹配 URL（与 rewrite/script 对齐）；如需 host 匹配，应显式
   使用独立字段或仅在 pattern 不含 `/` 时回退 host。
+- **修复说明（2026-08-01）**：删除规则分支的 `|| pattern_matches(...,
+  &request.host, None)`，仅匹配 `request.url.as_str()`，与 rewrite
+  （`active_rewrite_rules_for_stage`）、script（`active_script_rules_for_stage`）、
+  map（`active_map_rule_for_request`）三类规则对齐。复核发现：对默认 `contains`
+  匹配，`request.url` 是绝对 URL（始终含 host），host 本身是 URL 的子串，故该 OR
+  实为冗余（dead code）——删除不改变 contains 语义，仅消除与其它规则类型的不一致。
+  回归测试：`tests::throttle_rule_matches_when_pattern_is_substring_of_url`、
+  `tests::throttle_rule_does_not_match_when_pattern_absent_from_url`（断言匹配到的是
+  rule 而非 active-profile 回退）。`cargo test -p aiproxy-proxy-core` 220 项全绿。
 
 ### R6-5 🔧 已修复 · "复制为 cURL" 生成 POSIX shell 语法，Windows 下不可直接运行
 
