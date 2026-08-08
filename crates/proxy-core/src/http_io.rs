@@ -110,6 +110,11 @@ pub(crate) fn build_upstream_headers(
         if should_strip_hop_by_hop(header.name, &strip, is_ws_upgrade) {
             continue;
         }
+        // Pseudo-headers never appear in h1/httparse traffic, but strip them
+        // defensively to keep every outgoing-HeaderMap builder consistent.
+        if is_pseudo_header_name(header.name) {
+            continue;
+        }
 
         let header_name = HeaderName::from_bytes(header.name.as_bytes())
             .map_err(|error| format!("invalid header name: {error}"))?;
@@ -147,6 +152,12 @@ pub(crate) fn build_upstream_headers_from_entries(
         if should_strip_hop_by_hop(&header.name, &strip, is_ws_upgrade) {
             continue;
         }
+        // Strip h2 pseudo-headers (`:method`, `:path`, …). Replayed/composed h2
+        // sessions carry them in `request_headers`; `:` is not a valid h1
+        // header name, so `HeaderName::from_bytes` below would reject them.
+        if is_pseudo_header_name(&header.name) {
+            continue;
+        }
 
         let header_name = HeaderName::from_bytes(header.name.as_bytes())
             .map_err(|error| format!("invalid header name: {error}"))?;
@@ -165,6 +176,16 @@ pub(crate) fn should_skip_request_header(header_name: &str) -> bool {
         || header_name.eq_ignore_ascii_case("proxy-connection")
         || header_name.eq_ignore_ascii_case(CONTENT_LENGTH.as_str())
         || header_name.eq_ignore_ascii_case(TRANSFER_ENCODING.as_str())
+}
+
+/// Whether `name` is an HTTP/2 pseudo-header (`:method`, `:path`, `:scheme`,
+/// `:authority`, …). Pseudo-headers are transport-level metadata, not real
+/// headers: `:` is not a valid HTTP/1.1 header-name token (RFC 7230), so
+/// `http::HeaderName::from_bytes` rejects them. Every code path that builds an
+/// outgoing `HeaderMap` from a captured/replayed header list must strip them
+/// first — see `build_upstream_headers_from_hyper` for the live h2 path.
+pub(crate) fn is_pseudo_header_name(name: &str) -> bool {
+    name.starts_with(':')
 }
 
 /// Headers to skip even for WS upgrades (host, content-length, transfer-encoding).
@@ -982,6 +1003,61 @@ mod tests {
         assert!(map.get("keep-alive").is_none());
         assert!(map.get("proxy-authenticate").is_none());
         assert_eq!(map.get("x-survive").unwrap().to_str().unwrap(), "1");
+    }
+
+    #[test]
+    fn build_upstream_headers_from_entries_strips_pseudo_headers() {
+        // Replayed/composed h2 sessions carry `:method`/`:path`/`:scheme`/
+        // `:authority` as header entries. They must be stripped when building an
+        // outgoing HeaderMap — `:` is not a valid HTTP/1.1 header-name token
+        // (RFC 7230), so `HeaderName::from_bytes` would reject them and the
+        // build would hard-fail (the Compose/Replay "invalid header name
+        // ':method'" bug).
+        let entries = vec![
+            ProxyHeaderEntry {
+                name: ":method".to_string(),
+                value: "GET".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":path".to_string(),
+                value: "/x".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":scheme".to_string(),
+                value: "https".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":authority".to_string(),
+                value: "ex.com".to_string(),
+                is_pseudo: Some(true),
+            },
+            // A `:`-prefixed name even without the `is_pseudo` flag must be
+            // stripped (defensive: the leading colon is what makes it illegal).
+            ProxyHeaderEntry {
+                name: ":custom".to_string(),
+                value: "v".to_string(),
+                is_pseudo: None,
+            },
+            ProxyHeaderEntry {
+                name: "x-real".to_string(),
+                value: "1".to_string(),
+                is_pseudo: None,
+            },
+        ];
+        let map = build_upstream_headers_from_entries(&entries).unwrap();
+        let leaked: Vec<_> = map
+            .keys()
+            .filter(|k| k.as_str().starts_with(':'))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "pseudo-headers leaked into outgoing map: {leaked:?}"
+        );
+        assert_eq!(map.keys().count(), 1, "only x-real should survive");
+        assert_eq!(map.get("x-real").unwrap().to_str().unwrap(), "1");
     }
 
     #[test]

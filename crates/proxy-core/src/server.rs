@@ -571,6 +571,14 @@ pub async fn send_direct_request(
     // Build header map, skipping hop-by-hop headers
     let mut header_map = HeaderMap::new();
     for header in &headers {
+        // Strip h2 pseudo-headers (`:method`, `:path`, `:scheme`, `:authority`)
+        // carried in from replayed/composed h2 sessions. They are illegal as
+        // HTTP/1.1 header names (rejected by `HeaderName::from_bytes` below) and
+        // redundant with the method/URL set above. Mirrors
+        // `build_upstream_headers_from_hyper`.
+        if is_pseudo_header_name(&header.name) {
+            continue;
+        }
         if should_skip_request_header(&header.name) {
             continue;
         }

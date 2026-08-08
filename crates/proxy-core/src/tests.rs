@@ -2556,6 +2556,79 @@ async fn direct_request_marks_large_response_previews_as_truncated() {
     upstream_task.await.unwrap();
 }
 
+#[tokio::test]
+async fn send_direct_request_strips_h2_pseudo_headers() {
+    // Composing/replaying an h2 session carries `:method`/`:path`/`:scheme`/
+    // `:authority` as header entries. They must be stripped before building the
+    // outgoing request: `:` is not a valid HTTP/1.1 header name, so
+    // `HeaderName::from_bytes` would reject them (regression: the Compose/Replay
+    // "invalid header name ':method'" error), and they are redundant with the
+    // method/URL already set on the request.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = vec![0_u8; 4096];
+        let read = stream.read(&mut buffer).await.unwrap();
+        let received = String::from_utf8_lossy(&buffer[..read]).to_string();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .unwrap();
+        received
+    });
+
+    let detail = send_direct_request(
+        "GET".to_string(),
+        format!("http://127.0.0.1:{upstream_port}/compose"),
+        vec![
+            ProxyHeaderEntry {
+                name: ":method".to_string(),
+                value: "GET".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":path".to_string(),
+                value: "/compose".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":scheme".to_string(),
+                value: "https".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: ":authority".to_string(),
+                value: "example.com".to_string(),
+                is_pseudo: Some(true),
+            },
+            ProxyHeaderEntry {
+                name: "x-real".to_string(),
+                value: "1".to_string(),
+                is_pseudo: None,
+            },
+        ],
+        None,
+    )
+    .await
+    .expect("pseudo-headers must not fail the request");
+
+    assert_eq!(detail.summary.status_code, 200);
+
+    let received = upstream_task.await.unwrap();
+    assert!(
+        !received.contains(":method")
+            && !received.contains(":path")
+            && !received.contains(":scheme")
+            && !received.contains(":authority"),
+        "pseudo-headers leaked onto the wire:\n{received}"
+    );
+    assert!(
+        received.contains("x-real: 1"),
+        "real header was dropped:\n{received}"
+    );
+}
+
 fn build_test_session_detail() -> ProxySessionDetail {
     ProxySessionDetail {
         client_address: Some("127.0.0.1:54321".to_string()),
