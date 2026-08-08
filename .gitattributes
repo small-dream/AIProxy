@@ -1,0 +1,15 @@
+# Normalize line endings: always use LF in the repository.
+# Git will check out with LF on all platforms (no CRLF conversion).
+* text=auto eol=lf
+
+# Binary files — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
