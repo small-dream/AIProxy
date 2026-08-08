@@ -81,7 +81,13 @@ Simulate slow networks with preset profiles (Slow 3G, Wi-Fi) or custom rules, wi
 
 Pre-built binaries are available on the [GitHub Releases](https://github.com/small-dream/AIProxy/releases) page.
 
-> **Note:** Builds are currently unsigned. On macOS, you may need to right-click → Open the first time. On Windows, SmartScreen may show a warning — click "More info" → "Run anyway".
+> **Note:** Builds are currently unsigned. On macOS, a browser-downloaded app is flagged by Gatekeeper as **"damaged and can't be opened"** — and on recent macOS the usual right-click → Open shortcut does **not** bypass this. After dragging `AIProxy.app` to `/Applications`, clear the quarantine attribute, then open normally:
+>
+> ```bash
+> xattr -cr /Applications/AIProxy.app
+> ```
+>
+> (Adjust the path if the app lives elsewhere, e.g. `~/Downloads/AIProxy.app`.) On Windows, SmartScreen may show a warning — click "More info" → "Run anyway".
 
 ## Quick Start (Development)
 

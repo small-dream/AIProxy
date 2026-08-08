@@ -81,7 +81,13 @@
 
 预编译的二进制文件可在 [GitHub Releases](https://github.com/small-dream/AIProxy/releases) 页面下载。
 
-> **注意：** 当前构建未签名。macOS 首次打开需右键 → 打开；Windows SmartScreen 可能提示警告，点击"更多信息" → "仍要运行"即可。
+> **注意：** 当前构建未签名。macOS 用浏览器下载后，Gatekeeper 会提示 **"已损坏，无法打开，应移至废纸篓"** —— 在新版 macOS 上「右键 → 打开」**无法**绕过此提示。请先将 `AIProxy.app` 拖到「应用程序」，再清除隔离属性即可正常打开：
+>
+> ```bash
+> xattr -cr /Applications/AIProxy.app
+> ```
+>
+> （路径按 app 实际位置调整，例如 `~/Downloads/AIProxy.app`。）Windows 的 SmartScreen 可能提示警告，点击"更多信息" → "仍要运行"即可。
 
 ## 快速开始（开发）
 

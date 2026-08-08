@@ -106,11 +106,17 @@ pnpm desktop:bundle:linux
 
 ### 为什么建议签名与公证
 
-如果不做签名 / 公证，用户下载后通常会遇到：
+如果不做签名 / 公证，用户从浏览器下载后会被 Gatekeeper 拦截：
 
-- Gatekeeper 拦截
-- “无法验证开发者” 提示
-- 安装摩擦较大
+- 未签名 app 经浏览器下载后会被打上 `com.apple.quarantine` 隔离标记
+- 在新版 macOS 上，提示通常是 **“已损坏，无法打开，应移至废纸篓”**（而不是较温和的“无法验证开发者”）
+- **“右键 → 打开”对新版 macOS 上的“已损坏”提示无效**，用户必须手动清除隔离属性才能运行：
+
+  ```bash
+  xattr -cr /Applications/AIProxy.app
+  ```
+
+- 安装摩擦较大，普通用户难以自行解决
 
 ### 推荐发布渠道
 
@@ -267,7 +273,7 @@ Tauri 官方参考：
 - 安装方式
 - 已知限制
 - 签名状态：`signed/notarized` 或 `unsigned`
-- 未签名产物的用户安装提示
+- 未签名产物的用户安装提示（如 macOS 需执行 `xattr -cr /Applications/AIProxy.app` 清除隔离属性）
 
 ## 8. GitHub Actions 自动发布
 

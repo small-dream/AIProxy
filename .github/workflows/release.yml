@@ -268,7 +268,7 @@ jobs:
             echo "Pre-built installers are available below. This is an early release — builds are currently unsigned."
             echo
             echo "- **Windows**: \`.msi\` or \`.exe\` installer"
-            echo "- **macOS**: \`.dmg\` (right-click → Open the first time)"
+            echo "- **macOS**: \`.dmg\` (unsigned) — Gatekeeper shows a \"damaged\" warning after a browser download; clear it with \`xattr -cr /Applications/AIProxy.app\` (right-click → Open no longer bypasses this on recent macOS)"
             echo "- **Linux**: \`.AppImage\`, \`.deb\`, or \`.rpm\`"
             echo
             echo "## Signing status"
