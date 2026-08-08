@@ -11,8 +11,9 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-license = "UNLICENSED"
+license = "MIT"
 version = "0.1.0"
+repository = "https://github.com/small-dream/AIProxy"
 
 [profile.release]
 lto = true

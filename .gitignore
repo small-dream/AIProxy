@@ -5,6 +5,7 @@ coverage/
 .claude/
 .zcode/
 .DS_Store
+Thumbs.db
 
 target/
 
@@ -12,8 +13,14 @@ target/
 *.tmp
 *.temp
 
+logs/
+
 .vscode/
 .idea/
+.fleet/
+.history/
+.codeartsdoer/
+.agents/
 
 apps/desktop/src-tauri/gen/
 .pnpm-store/

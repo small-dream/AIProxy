@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AIProxy — Insights (Light)</title>
+<style>
+  :root {
+    --primary: #2563EB;
+    --bg: #F4F7FB;
+    --surface: #FFFFFF;
+    --surface-2: #EEF3F8;
+    --outline: #D7DEE8;
+    --text: #111827;
+    --text-2: #5B6678;
+    --success: #16803C;
+    --warning: #B7791F;
+    --error: #C2413B;
+    --info: #0369A1;
+    --activity-bg: #111827;
+    --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    background-image: linear-gradient(180deg, rgba(37,99,235,0.04) 0%, transparent 300px);
+    color: var(--text);
+    width: 1440px;
+    height: 900px;
+    overflow: hidden;
+    display: flex;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Activity Bar */
+  .activity-bar {
+    width: 56px; background: var(--activity-bg);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 4px; flex-shrink: 0; z-index: 10;
+  }
+  .activity-bar .group { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+  .activity-bar .divider { width: 24px; height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0; }
+  .nav-item {
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; color: #6B7280; position: relative; cursor: pointer;
+  }
+  .nav-item svg { width: 22px; height: 22px; }
+  .nav-item.active { color: #fff; background: rgba(255,255,255,0.07); }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 22px; background: #60A5FA; border-radius: 0 2px 2px 0;
+  }
+  .nav-item.spacer { flex: 1; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  .top-controls {
+    height: 44px; display: flex; align-items: center;
+    padding: 0 16px; gap: 10px; flex-shrink: 0;
+  }
+  .proxy-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; border: none; cursor: pointer;
+  }
+  .proxy-btn.running { background: rgba(194,65,59,0.1); color: var(--error); }
+  .sys-proxy-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    background: rgba(22,128,60,0.1); color: var(--success);
+    border: 1px solid rgba(22,128,60,0.15);
+  }
+
+  /* Content area */
+  .content { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+
+  .insights-card {
+    background: var(--surface); border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+    border: 1px solid var(--outline);
+    padding: 20px 24px;
+  }
+
+  .insights-toolbar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
+  }
+  .insights-title { font-size: 18px; font-weight: 700; }
+  .search-box {
+    flex: 1; max-width: 320px; display: flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--outline);
+    border-radius: 6px; padding: 6px 12px;
+  }
+  .search-box input {
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 12px; flex: 1; font-family: var(--sans);
+  }
+  .count-badge {
+    font-size: 12px; font-weight: 600; color: var(--primary);
+    background: rgba(37,99,235,0.08); border-radius: 16px;
+    padding: 4px 10px;
+  }
+
+  /* Overview cards row */
+  .overview-row {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+    margin-bottom: 20px;
+  }
+  .overview-card {
+    background: var(--surface); border: 1px solid var(--outline);
+    border-left-width: 3px; border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .overview-card.total { border-left-color: var(--primary); }
+  .overview-card.errors { border-left-color: var(--error); }
+  .overview-card.avg { border-left-color: var(--info); }
+  .overview-card.p95 { border-left-color: var(--warning); }
+  .overview-card.traffic { border-left-color: var(--success); }
+  .overview-label { font-size: 11px; color: var(--text-2); margin-bottom: 4px; }
+  .overview-value { font-size: 22px; font-weight: 750; font-family: var(--mono); }
+  .overview-sub { font-size: 10.5px; color: var(--text-2); margin-top: 2px; }
+
+  /* Host table */
+  .section-title {
+    font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--text);
+  }
+  .host-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  .host-table th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    color: var(--text-2); padding: 8px 12px;
+    border-bottom: 1px solid var(--outline);
+    background: var(--surface-2); position: sticky; top: 0;
+  }
+  .host-table th.num { text-align: right; }
+  .host-table td {
+    padding: 7px 12px; font-size: 12px;
+    border-bottom: 1px solid var(--outline);
+  }
+  .host-table td.num { text-align: right; font-family: var(--mono); }
+  .host-table tr:hover td { background: var(--surface-2); }
+  .host-name { font-family: var(--mono); font-weight: 600; }
+  .error-count { color: var(--error); font-weight: 600; }
+  .zero { color: var(--text-2); }
+
+  /* Distributions */
+  .distributions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .dist-card {}
+  .dist-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .dist-label { width: 60px; font-size: 12px; font-family: var(--mono); font-weight: 600; }
+  .dist-bar-track { flex: 1; height: 18px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .dist-bar { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; }
+  .dist-bar.green { background: rgba(22,128,60,0.15); color: var(--success); }
+  .dist-bar.red { background: rgba(194,65,59,0.12); color: var(--error); }
+  .dist-bar.amber { background: rgba(183,121,31,0.12); color: var(--warning); }
+  .dist-bar.blue { background: rgba(37,99,235,0.12); color: var(--primary); }
+  .dist-bar.gray { background: var(--surface-2); color: var(--text-2); }
+  .dist-count { font-size: 11px; font-weight: 700; }
+  .dist-pct { width: 44px; text-align: right; font-size: 11px; color: var(--text-2); }
+
+  /* Status bar */
+  .status-bar {
+    height: 30px; background: var(--surface); border-top: 1px solid var(--outline);
+    display: flex; align-items: center; padding: 0 8px; gap: 0; flex-shrink: 0;
+  }
+  .status-pill {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 12px; height: 100%; font-size: 11px; color: var(--text-2);
+    border-right: 1px solid var(--outline);
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .status-dot.recording { background: var(--error); }
+  .status-pill .mono { font-family: var(--mono); color: var(--text); }
+  .status-pill.on { color: var(--success); }
+</style>
+</head>
+<body>
+
+<!-- Activity Bar -->
+<div class="activity-bar">
+  <div class="group">
+    <div class="nav-item" title="Sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div>
+    <div class="nav-item active" title="Insights"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="12" width="8" height="9" rx="1"/><rect x="3" y="15" width="8" height="6" rx="1"/></svg></div>
+    <div class="nav-item" title="Compose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg></div>
+    <div class="nav-item" title="Collections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+    <div class="nav-item" title="Compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M5 8l-3 4 3 4"/><path d="M19 8l3 4-3 4"/></svg></div>
+    <div class="nav-item" title="Rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18-5h-3a2 2 0 0 0-2 2v3M8 21H5a2 2 0 0 1-2-2v-3m18 5h-3a2 2 0 0 1-2-2v-3"/></svg></div>
+    <div class="nav-item" title="Throttling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>
+  </div>
+  <div class="nav-item spacer"></div>
+  <div class="divider"></div>
+  <div class="nav-item" title="Certificates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+  <div class="nav-item" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="top-controls">
+    <button class="proxy-btn running">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+      Stop Proxy
+    </button>
+    <button class="sys-proxy-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      System Proxy On
+    </button>
+  </div>
+
+  <div class="content">
+    <div class="insights-card">
+      <div class="insights-toolbar">
+        <span class="insights-title">Traffic Insights</span>
+        <div class="search-box">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5B6678" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input placeholder="Search domains..." value="">
+        </div>
+        <div class="count-badge">1,284 requests</div>
+      </div>
+
+      <!-- Overview cards -->
+      <div class="overview-row">
+        <div class="overview-card total">
+          <div class="overview-label">Total Requests</div>
+          <div class="overview-value">1,284</div>
+          <div class="overview-sub">↑ 18% vs last hour</div>
+        </div>
+        <div class="overview-card errors">
+          <div class="overview-label">Error Rate</div>
+          <div class="overview-value">2.3%</div>
+          <div class="overview-sub">29 failed requests</div>
+        </div>
+        <div class="overview-card avg">
+          <div class="overview-label">Avg Duration</div>
+          <div class="overview-value">186 ms</div>
+          <div class="overview-sub">across all hosts</div>
+        </div>
+        <div class="overview-card p95">
+          <div class="overview-label">P95 Duration</div>
+          <div class="overview-value">1.42 s</div>
+          <div class="overview-sub">95th percentile</div>
+        </div>
+        <div class="overview-card traffic">
+          <div class="overview-label">Total Traffic</div>
+          <div class="overview-value">48.2 MB</div>
+          <div class="overview-sub">received + sent</div>
+        </div>
+      </div>
+
+      <!-- Host table -->
+      <div class="section-title">Per-Host Breakdown</div>
+      <table class="host-table">
+        <thead>
+          <tr>
+            <th>Host</th>
+            <th class="num">Requests</th>
+            <th class="num">Errors</th>
+            <th class="num">Avg Duration</th>
+            <th class="num">P95</th>
+            <th class="num">Traffic</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="host-name">api.openai.com</td>
+            <td class="num">342</td>
+            <td class="num error-count">12</td>
+            <td class="num">412 ms</td>
+            <td class="num">2.1 s</td>
+            <td class="num">12.4 MB</td>
+          </tr>
+          <tr>
+            <td class="host-name">cdn.example.com</td>
+            <td class="num">528</td>
+            <td class="num zero">0</td>
+            <td class="num">87 ms</td>
+            <td class="num">340 ms</td>
+            <td class="num">28.6 MB</td>
+          </tr>
+          <tr>
+            <td class="host-name">auth.example.com</td>
+            <td class="num">156</td>
+            <td class="num error-count">8</td>
+            <td class="num">203 ms</td>
+            <td class="num">890 ms</td>
+            <td class="num">2.1 MB</td>
+          </tr>
+          <tr>
+            <td class="host-name">ws.gateway.io</td>
+            <td class="num">98</td>
+            <td class="num zero">0</td>
+            <td class="num">45 ms</td>
+            <td class="num">120 ms</td>
+            <td class="num">1.8 MB</td>
+          </tr>
+          <tr>
+            <td class="host-name">graphql.service.io</td>
+            <td class="num">87</td>
+            <td class="num error-count">5</td>
+            <td class="num">356 ms</td>
+            <td class="num">1.5 s</td>
+            <td class="num">3.3 MB</td>
+          </tr>
+          <tr>
+            <td class="host-name">static.assets.net</td>
+            <td class="num">73</td>
+            <td class="num zero">0</td>
+            <td class="num">34 ms</td>
+            <td class="num">95 ms</td>
+            <td class="num">156 KB</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Distributions -->
+      <div class="distributions">
+        <div class="dist-card">
+          <div class="section-title">Status Code Distribution</div>
+          <div class="dist-item">
+            <span class="dist-label">2xx</span>
+            <div class="dist-bar-track"><div class="dist-bar green" style="width:82%"><span class="dist-count">1,053</span></div></div>
+            <span class="dist-pct">82%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">3xx</span>
+            <div class="dist-bar-track"><div class="dist-bar blue" style="width:8%"><span class="dist-count">102</span></div></div>
+            <span class="dist-pct">8%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">4xx</span>
+            <div class="dist-bar-track"><div class="dist-bar amber" style="width:6%"><span class="dist-count">77</span></div></div>
+            <span class="dist-pct">6%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">5xx</span>
+            <div class="dist-bar-track"><div class="dist-bar red" style="width:4%"><span class="dist-count">52</span></div></div>
+            <span class="dist-pct">4%</span>
+          </div>
+        </div>
+        <div class="dist-card">
+          <div class="section-title">Method Distribution</div>
+          <div class="dist-item">
+            <span class="dist-label">GET</span>
+            <div class="dist-bar-track"><div class="dist-bar blue" style="width:64%"><span class="dist-count">822</span></div></div>
+            <span class="dist-pct">64%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">POST</span>
+            <div class="dist-bar-track"><div class="dist-bar green" style="width:24%"><span class="dist-count">308</span></div></div>
+            <span class="dist-pct">24%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">PUT</span>
+            <div class="dist-bar-track"><div class="dist-bar amber" style="width:7%"><span class="dist-count">90</span></div></div>
+            <span class="dist-pct">7%</span>
+          </div>
+          <div class="dist-item">
+            <span class="dist-label">DEL</span>
+            <div class="dist-bar-track"><div class="dist-bar red" style="width:5%"><span class="dist-count">64</span></div></div>
+            <span class="dist-pct">5%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div class="status-pill">
+      <span class="status-dot recording"></span>
+      Recording
+    </div>
+    <div class="status-pill">Port <span class="mono">8888</span></div>
+    <div class="status-pill on">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+      System Proxy
+    </div>
+    <div class="status-pill">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      HTTPS Ready
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

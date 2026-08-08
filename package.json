@@ -2,7 +2,17 @@
   "name": "aiproxy",
   "version": "0.1.0",
   "private": true,
+  "description": "A modern, cross-platform proxy debugging tool for developers",
+  "license": "MIT",
   "packageManager": "pnpm@10.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/small-dream/AIProxy.git"
+  },
+  "homepage": "https://github.com/small-dream/AIProxy",
+  "bugs": {
+    "url": "https://github.com/small-dream/AIProxy/issues"
+  },
   "scripts": {
     "setup:macos": "bash ./scripts/setup/setup-macos.sh",
     "setup:linux": "bash ./scripts/setup/setup-linux.sh",

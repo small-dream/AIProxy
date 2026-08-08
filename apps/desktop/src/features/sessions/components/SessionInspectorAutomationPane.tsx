@@ -45,6 +45,7 @@ function outcomeColor(outcome: string): "default" | "error" | "info" | "success"
 }
 
 function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
+  const { t } = useI18n();
   const title = trace.ruleName || trace.ruleId;
 
   return (
@@ -110,7 +111,7 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
           <Typography variant="body2" sx={{
             color: "text.secondary"
           }}>
-            No recorded changes.
+            {t("automationTab.noChanges")}
           </Typography>
         ) : (
           trace.entries.map((entry) => (
@@ -156,8 +157,8 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
                     gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
                   }}
                 >
-                  <DiffValue label="Before" value={entry.before} />
-                  <DiffValue label="After" value={entry.after} />
+                  <DiffValue label={t("automationTab.before")} value={entry.before} />
+                  <DiffValue label={t("automationTab.after")} value={entry.after} />
                 </Box>
               </Stack>
             </Paper>
@@ -169,6 +170,7 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
 }
 
 function DiffValue({ label, value }: { label: string; value: string | undefined }) {
+  const { t } = useI18n();
   return (
     <Stack spacing={0.4}>
       <Typography
@@ -193,7 +195,7 @@ function DiffValue({ label, value }: { label: string; value: string | undefined 
           whiteSpace: "pre-wrap",
         }}
       >
-        {value ?? "(empty)"}
+        {value ?? t("automationTab.emptyValue")}
       </Typography>
     </Stack>
   );
@@ -284,6 +286,7 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
 }
 
 function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
+  const { t } = useI18n();
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
       <Stack spacing={1}>
@@ -334,9 +337,9 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
           </Stack>
         </Stack>
         <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-          <DiffValue label="Original" value={trace.originalUrl} />
+          <DiffValue label={t("automationTab.original")} value={trace.originalUrl} />
           <DiffValue
-            label={trace.mode === "local" ? "Local Path" : "Mapped URL"}
+            label={trace.mode === "local" ? t("automationTab.localPath") : t("automationTab.mappedUrl")}
             value={trace.localPath ?? trace.mappedUrl}
           />
         </Box>
@@ -351,6 +354,7 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
 }
 
 function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
+  const { t } = useI18n();
   return (
     <Paper elevation={0} sx={{ border: 1, borderColor: "divider", borderRadius: "8px", p: 1.5 }}>
       <Stack spacing={1}>
@@ -412,9 +416,9 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
             gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" },
           }}
         >
-          <Metric label="Latency" value={`${trace.latencyMs} ms`} />
-          <Metric label="Transfer" value={`${trace.transferDelayMs} ms`} />
-          <Metric label="Body" value={`${trace.bodyBytes} B`} />
+          <Metric label={t("automationTab.latency")} value={`${trace.latencyMs} ms`} />
+          <Metric label={t("automationTab.transfer")} value={`${trace.transferDelayMs} ms`} />
+          <Metric label={t("automationTab.body")} value={`${trace.bodyBytes} B`} />
         </Box>
         {trace.message ? (
           <Typography variant="body2" sx={{
@@ -520,7 +524,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
             alignItems: "center"
           }}>
             <SpeedRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-            <Typography variant="subtitle2">Throttling</Typography>
+            <Typography variant="subtitle2">{t("automationTab.throttling")}</Typography>
             <Chip size="small" label={throttleTraces.length} sx={{ height: 20 }} />
           </Stack>
           {throttleTraces.map((trace) => (
@@ -537,7 +541,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
             alignItems: "center"
           }}>
             <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-            <Typography variant="subtitle2">Map</Typography>
+            <Typography variant="subtitle2">{t("automationTab.map")}</Typography>
             <Chip size="small" label={mapTraces.length} sx={{ height: 20 }} />
           </Stack>
           {mapTraces.map((trace, index) => (
@@ -551,7 +555,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
             alignItems: "center"
           }}>
             <RuleRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-            <Typography variant="subtitle2">Rewrite</Typography>
+            <Typography variant="subtitle2">{t("automationTab.rewrite")}</Typography>
             <Chip size="small" label={rewriteTraces.length} sx={{ height: 20 }} />
           </Stack>
           {rewriteTraces.map((trace) => (
@@ -568,7 +572,7 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
             alignItems: "center"
           }}>
             <CodeRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
-            <Typography variant="subtitle2">Script</Typography>
+            <Typography variant="subtitle2">{t("automationTab.script")}</Typography>
             <Chip size="small" label={scriptTraces.length} sx={{ height: 20 }} />
           </Stack>
           {scriptTraces.map((trace, index) => (

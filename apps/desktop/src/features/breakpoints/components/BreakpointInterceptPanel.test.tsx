@@ -19,7 +19,7 @@ vi.mock("@/services/commands", async (importOriginal) => {
 
 function createHit(overrides: Partial<BreakpointHit> = {}): BreakpointHit {
   return {
-    host: "pb.photoaffections.com",
+    host: "api.example.com",
     method: "POST",
     path: "/api/?_method=app.launch&_app=Android-PBUS-3.14.0",
     requestBody: {
@@ -29,11 +29,11 @@ function createHit(overrides: Partial<BreakpointHit> = {}): BreakpointHit {
     },
     requestHeaders: [
       { name: "Content-Type", value: "application/x-www-form-urlencoded" },
-      { name: "Host", value: "pb.photoaffections.com" },
+      { name: "Host", value: "api.example.com" },
     ],
     sessionId: "breakpoint-1",
     stage: "request",
-    url: "https://pb.photoaffections.com/api/?_method=app.launch&_app=Android-PBUS-3.14.0",
+    url: "https://api.example.com/api/?_method=app.launch&_app=Android-PBUS-3.14.0",
     ...overrides,
   };
 }
@@ -62,7 +62,7 @@ describe("BreakpointInterceptPanel", () => {
     renderPanel();
 
     expect(screen.getByText("POST")).toBeInTheDocument();
-    expect(screen.getByText("pb.photoaffections.com")).toBeInTheDocument();
+    expect(screen.getByText("api.example.com")).toBeInTheDocument();
     expect(
       screen.getByText("/api/?_method=app.launch&_app=Android-PBUS-3.14.0"),
     ).toBeInTheDocument();

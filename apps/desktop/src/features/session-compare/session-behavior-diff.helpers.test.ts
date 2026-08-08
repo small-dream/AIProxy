@@ -30,12 +30,12 @@ describe("session-behavior-diff.helpers", () => {
       normalizeEndpoint(
         summary({
           method: "POST",
-          host: "pb.photoaffections.com",
+          host: "api.example.com",
           path: "/api/",
-          url: "https://pb.photoaffections.com/api/?_method=site.track_events&_device=abc&_full_version=1.2.3",
+          url: "https://api.example.com/api/?_method=site.track_events&_device=abc&_full_version=1.2.3",
         }),
       ),
-    ).toBe("POST pb.photoaffections.com/api/ _method=site.track_events");
+    ).toBe("POST api.example.com/api/ _method=site.track_events");
   });
 
   it("applies a shared domain filter to both sides", () => {

@@ -1,181 +1,223 @@
+<div align="center">
+
 # AIProxy
 
-AIProxy 是一个面向开发者的跨平台代理调试工具项目，目标能力对标 Charles，并采用独立的 Material Design 桌面体验。
+**A modern, cross-platform proxy debugging tool for developers.**
 
-当前仓库已完成：
+Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polished Material Design desktop experience.
 
-- `docs/` 需求、架构、接口、UI、工程规范文档
-- pnpm + Cargo monorepo 工程骨架
-- Tauri 2 + React 19 桌面端应用
-- Rust 代理核心、证书、数据库、规则、弱网与导出模块
-- HTTP / HTTPS / WebSocket 抓包、MITM 解密、系统代理接管与手机端抓包辅助
-- Rewrite / Map / DNS / Script / Breakpoint / Throttling 规则工作台
-- Sessions、Compose、Collections、Rules、Throttling、Certificates、Settings 页面闭环
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## 质量校验
+[![CI](https://github.com/small-dream/AIProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/small-dream/AIProxy/actions/workflows/ci.yml)
+[![Release](https://github.com/small-dream/AIProxy/actions/workflows/release.yml/badge.svg)](https://github.com/small-dream/AIProxy/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#platform-support)
+[![Tauri](https://img.shields.io/badge/Tauri-2-orange)](https://tauri.app)
+[![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev)
+[![Rust](https://img.shields.io/badge/Rust-2021-dea584)](https://www.rust-lang.org)
 
-桌面端当前质量命令：
+</div>
 
-- `pnpm --filter @aiproxy/desktop lint`
-- `pnpm --filter @aiproxy/desktop test`
-- `pnpm --filter @aiproxy/desktop typecheck`
+---
 
-说明：
+## 📸 Screenshots
 
-- 桌面端 lint 采用 ESLint flat config，配置文件位于 `apps/desktop/eslint.config.mjs`
-- 当前版本组合为 `eslint@10.2.0` + `@eslint/js@10.0.1`
-- `eslint-plugin-react-hooks@7.0.1` 在安装时仍会对 ESLint 10 给出 peer warning，但当前仓库接受该 warning，且 lint 可正常执行
+### Traffic Inspector (Dark Theme)
+The three-pane session workspace — domain-grouped traffic explorer on the left, request/response inspector with JSON syntax highlighting on the right.
 
-## 文档入口
+<img src="./docs/screenshots/sessions-dark.png" alt="AIProxy Sessions — Traffic Inspector (Dark)" width="800">
 
-- `docs/PRD.md`
-- `docs/NEXT_6_MONTH_ROADMAP.md`
-- `docs/ARCHITECTURE.md`
-- `docs/API_SPEC.md`
-- `docs/UI_GUIDELINES.md`
-- `docs/PAGE_BLUEPRINTS.md`
-- `docs/ENGINEERING_GUIDELINES.md`
-- `docs/SYSTEM_PROXY.md`
-- `docs/DECISIONS/ADR-001-frontend-i18n.md`
-- `docs/BUILD_RUN_PACKAGE_GUIDE.md`
-- `docs/RELEASE_GUIDE.md`
+### Traffic Insights (Light Theme)
+Aggregate analytics dashboard with overview cards, per-host breakdown table, and status code / method distributions.
 
-## 用户指南
+<img src="./docs/screenshots/insights-light.png" alt="AIProxy Insights — Analytics Dashboard (Light)" width="800">
 
-- `apps/desktop/user-guides/dns-mapping.md`
-- `apps/desktop/user-guides/throttling.md`
-- `apps/desktop/user-guides/websocket-inspector.md`
-- `apps/desktop/user-guides/script-rules.md`
-- `apps/desktop/user-guides/script-rules-examples.md`
-- `apps/desktop/user-guides/collections-and-environments.md`
+### Network Throttling (Dark Theme)
+Simulate slow networks with preset profiles (Slow 3G, Wi-Fi) or custom rules, with live hit/drop/delay statistics.
 
-## 仓库结构
+<img src="./docs/screenshots/throttling-dark.png" alt="AIProxy Throttling — Network Shaping (Dark)" width="800">
 
-```text
-apps/           桌面端应用
-crates/         Rust 核心能力模块
-packages/       共享类型、UI tokens、工程配置
-docs/           需求与架构事实源
-fixtures/       测试与调试样本
-scripts/        开发、构建、发布脚本
+> 💡 These are rendered UI mockups. Real screenshots will replace them as the project matures.
+
+---
+
+## ✨ Features
+
+### Traffic Capture & Inspection
+- 🔍 **Full protocol support** — HTTP, HTTPS (MITM decryption), and WebSocket
+- 📱 **Mobile debugging** — capture traffic from iOS, Android, and HarmonyOS devices over Wi-Fi
+- 🌐 **System proxy takeover** — automatic system proxy configuration on all platforms
+- 📋 **Rich session view** — headers, body, timing, transfer stats, and JSON highlighting
+
+### Rules & Manipulation
+- ✏️ **Rewrite Rules** — modify requests and responses on the fly
+- 🗺️ **Map Local / Map Remote** — redirect traffic to local files or different servers
+- 🌐 **DNS Mapping** — override DNS resolution for testing
+- 📜 **Script Rules** — JavaScript-powered request/response interception (QuickJS runtime)
+- ⏸️ **Breakpoints** — intercept, inspect, modify, mock, or drop requests at request/response stage
+
+### Developer Tools
+- 🐌 **Throttling** — simulate slow networks with configurable profiles and per-rule targeting
+- 📬 **Compose & Repeat** — craft and resend requests with full editing
+- 📂 **Collections** — save, organize, and batch-execute requests with environments
+- 🔀 **Session Compare** — diff two sessions to spot behavioral changes
+- 📊 **Insights** — aggregate traffic analytics
+- 🔐 **Certificate Center** — root CA generation, trust management, and QR-code mobile setup
+
+### Experience
+- 🎨 **Material Design** — clean, modern UI with light / dark / system themes
+- 🌍 **Bilingual** — English & 简体中文, follows your system language
+- ⚡ **Fast & Native** — Rust core with Tauri 2 shell, not another Electron app
+
+## Platform Support
+
+| Platform | Status |
+|----------|--------|
+| 🪟 Windows | ✅ Supported |
+| 🍎 macOS | ✅ Supported |
+| 🐧 Linux | ✅ Supported |
+
+## Download
+
+Pre-built binaries are available on the [GitHub Releases](https://github.com/small-dream/AIProxy/releases) page.
+
+> **Note:** Builds are currently unsigned. On macOS, you may need to right-click → Open the first time. On Windows, SmartScreen may show a warning — click "More info" → "Run anyway".
+
+## Quick Start (Development)
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 22+
+- [pnpm](https://pnpm.io/) 10+
+- [Rust](https://www.rust-lang.org/tools/install) (stable)
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/small-dream/AIProxy.git
+cd AIProxy
+
+# Install dependencies
+pnpm install
+
+# One-time system setup (installs Tauri prerequisites):
+#   macOS:  bash scripts/setup/setup-macos.sh
+#   Linux:  bash scripts/setup/setup-linux.sh
+#   Windows: powershell -ExecutionPolicy Bypass -File .\scripts\setup\setup-windows.ps1
 ```
 
-## 快速入口
+### Run
 
-环境初始化一键脚本：
+```bash
+# Start the desktop app in development mode
+pnpm desktop:run           # auto-detects platform
+# Or explicitly:
+pnpm desktop:run:macos
+pnpm desktop:run:windows
+pnpm desktop:run:linux
+```
 
-- macOS: `bash scripts/setup/setup-macos.sh`
-- Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\setup\setup-windows.ps1`
-- Linux: `bash scripts/setup/setup-linux.sh`
+### Build & Bundle
 
-运行：
+```bash
+# Build the frontend
+pnpm build
 
-- macOS: `pnpm desktop:run:macos`
-- Windows: `pnpm desktop:run:windows`
-- Linux: `pnpm desktop:run:linux`
+# Create a distributable bundle (.dmg / .msi / .AppImage, etc.)
+pnpm desktop:bundle:macos
+pnpm desktop:bundle:windows
+pnpm desktop:bundle:linux
+```
 
-打包：
+## Project Structure
 
-- macOS: `pnpm desktop:bundle:macos`
-- Windows: `pnpm desktop:bundle:windows`
-- Linux: `pnpm desktop:bundle:linux`
+```text
+apps/desktop/      Tauri 2 + React 19 desktop application
+  src/             Frontend source (pages, features, components, i18n)
+  src-tauri/       Rust Tauri shell + proxy integration
+crates/            Rust core modules
+  proxy-core/      Proxy engine (HTTP/HTTPS/WS capture, MITM)
+  rule-engine/     Rewrite / Map / Script rule execution
+  tls-manager/     Certificate authority & TLS management
+  db/              SQLite persistence layer
+packages/          Shared TypeScript packages
+  shared-types/    Frontend ↔ backend contracts
+  ui-tokens/       Design tokens
+docs/              Architecture & design documents
+scripts/           Setup, build, and release scripts
+```
 
-## 开发约定
+## Quality Checks
 
-- 任何需求变更先更新 `docs/PRD.md` 与 `docs/ARCHITECTURE.md`
-- 所有接口变更同步更新 `docs/API_SPEC.md`
-- 所有 UI 规范变更同步更新 `docs/UI_GUIDELINES.md`
-- 所有页面结构调整同步更新 `docs/PAGE_BLUEPRINTS.md`
-- 所有工程实现遵循 `docs/ENGINEERING_GUIDELINES.md`
-- 多语言能力遵循 `docs/DECISIONS/ADR-001-frontend-i18n.md`
+```bash
+pnpm lint         # ESLint across the workspace
+pnpm typecheck    # TypeScript type checking
+pnpm test         # Frontend tests (Vitest)
+cargo fmt --all   # Format Rust code
+cargo clippy --workspace -- -D warnings   # Lint Rust code
+cargo test --workspace                     # Rust tests
+```
 
-## 开发期日志
+## Documentation
 
-桌面端开发构建会把结构化调试日志写入以下位置之一：
+- [Product Requirements (PRD)](./docs/PRD.md)
+- [Architecture](./docs/ARCHITECTURE.md)
+- [API Specification](./docs/API_SPEC.md)
+- [UI Guidelines](./docs/UI_GUIDELINES.md)
+- [Engineering Guidelines](./docs/ENGINEERING_GUIDELINES.md)
+- [Build, Run & Package Guide](./docs/BUILD_RUN_PACKAGE_GUIDE.md)
+- [Release Guide](./docs/RELEASE_GUIDE.md)
+- [Architecture Decision Records (ADRs)](./docs/DECISIONS/)
 
-- 优先：`logs/dev/aiproxy-desktop-dev.log`
-- 回退：`%TEMP%\\aiproxy-dev\\logs\\dev\\aiproxy-desktop-dev.log`
+### In-App User Guides
 
-当前日志覆盖：
+Bilingual guides are available within the app's Docs page, covering DNS mapping, throttling, WebSocket inspection, script rules, and collections.
 
-- Tauri 命令调用开始 / 成功 / 失败
-- Windows 系统代理快照、接管、恢复、WinINet 刷新
-- Rust 代理核心监听、CONNECT 分流、TLS 握手、上游请求开始 / 成功 / 失败
-- 前端命令层控制台结构化日志
+## Internationalization
 
-说明：
+AIProxy ships with full bilingual support:
 
-- 桌面端每次启动会自动清空旧的 `dev log`，只保留本次运行日志
-- 证书已信任时，主界面启动按钮会以 HTTPS 解密模式启动代理
+- **English** and **简体中文**
+- Automatically follows your system language
+- Manually switchable in Settings → Appearance
 
-抓包链路排障建议：
+The frontend uses a custom type-safe i18n system (no external library) with compile-time key validation. The Rust layer uses `rust-i18n` for native menu strings. See [ADR-001](./docs/DECISIONS/ADR-001-frontend-i18n.md) for the design rationale.
 
-1. 在 Certificates 页面生成并信任根证书
-2. 点击 `Start HTTPS Proxy`
-3. 点击 `Enable System Proxy`
-4. 打开一个 `https://` 站点
-5. 查看 `logs/dev/aiproxy-desktop-dev.log`
-6. 重点搜索 `start_proxy_requested`、`start_proxy_succeeded`、`enable_system_proxy_succeeded`、`listener_started`、`connect_received`、`connect_mitm_started`、`tls_handshake_succeeded`、`upstream_request_started`、`https_request_forwarded`
+## Contributing
 
-## 本地开发建议
+Contributions are welcome! 🎉
 
-1. 安装 Node.js、pnpm、Rust 与 Tauri 所需系统依赖
-2. 执行 `pnpm install`
-3. 执行 `pnpm --filter @aiproxy/desktop typecheck`
-4. 执行 `pnpm --filter @aiproxy/desktop test`
-5. 使用 `pnpm desktop:run:<platform>` 启动桌面端，例如 `pnpm desktop:run:macos`
+Please read our [Contributing Guide](./CONTRIBUTING.md) to get started. By participating, you are expected to uphold our [Code of Conduct](./CODE_OF_CONDUCT.md).
 
-## 当前实现状态
+### Good First Issues
 
-- 前端主工作台已接入 bootstrap 查询
-- 首页支持基于共享契约展示代理状态
-- Tauri 侧已提供最小状态命令用于后续接入真实代理运行时
-- P0-1 已支持本地明文 HTTP 代理捕获与会话列表展示
-- P0-2 已支持 HTTPS 证书生成、MITM 解密、系统代理接管
-- 手机端抓包：代理绑定 `0.0.0.0`，支持局域网设备连接；Certificates 页面提供二维码下载证书、iOS/Android/HarmonyOS 配置指引，以及 Android 开发者 ADB 辅助安装、HarmonyOS 开发者 hdc 辅助推送
-- P0-4 已支持 Compose / Repeat（构造请求与重发）
-- P0-5 已支持 Breakpoints（请求/响应阶段断点拦截、查看修改、放行/丢弃/Mock）
-- WebSocket Inspector 已支持消息查看、搜索、连接状态展示与活跃连接消息注入（重放）
-- Rewrite / Map Local / Map Remote / DNS Mapping / Script Rules 已接入规则中心和 SQLite 持久化
-- Throttling 已支持弱网 Profile、定向规则、运行统计与会话级 trace
-- Sessions 已支持右键操作、按需详情加载、导出 Session Snapshot / HAR / cURL，以及 HAR 导入读取
-- Collections 已支持集合/文件夹、请求保存、拖拽排序、从 Session 保存请求、环境变量与批量执行
-- 桌面端已规划双语国际化方案：支持 `中文 / English`，默认跟随系统语言
-- 桌面端设置页已支持代理预设管理（端口、SSL）以及应用级语言、外观偏好
-- 桌面端主题系统已支持浅色、暗黑与跟随系统，并覆盖应用壳层、卡片、导航、会话视图与 JSON 代码高亮
+Check out issues labeled [`good first issue`](https://github.com/small-dream/AIProxy/labels/good%20first%20issue) for beginner-friendly tasks.
 
-## 当前可手动验证的 HTTP 抓包闭环
+## Security
 
-1. 启动桌面应用
-2. 点击 `Start Proxy`
-3. 将浏览器或系统 HTTP 代理指向 `127.0.0.1:8888`
-4. 访问一个明文 `http://` 站点
-5. 在 `Sessions` 页面查看捕获到的会话列表
+Found a security vulnerability? Please see our [Security Policy](./SECURITY.md) for responsible disclosure instructions. **Do not open a public issue for security vulnerabilities.**
 
-## 当前可手动验证的 HTTPS 抓包闭环
+## Roadmap
 
-1. 在 Certificates 页面生成根证书
-2. 安装并信任根证书（Windows: 点击 Install Certificate）
-3. 点击 `Start HTTPS Proxy`
-4. 点击 `Enable System Proxy`
-5. 访问一个 `https://` 站点
-6. 在 `Sessions` 页面查看捕获到的 HTTPS 会话详情
+See the [6-month roadmap](./docs/NEXT_6_MONTH_ROADMAP.md) for planned features and direction.
 
-## 当前可手动验证的手机端抓包闭环
+## Tech Stack
 
-1. 确保手机与电脑在同一 Wi-Fi 网络
-2. 启动 HTTPS 代理
-3. 在 Certificates 页面查看 Mobile Setup Card 中的二维码和 IP 信息
-4. 手机扫描二维码下载并安装根证书（iOS 需额外启用证书信任）
-5. 手机 Wi-Fi 代理设置为手动，填入电脑 IP 和代理端口
-6. 在 `Sessions` 页面查看来自手机的 HTTP/HTTPS 会话
+| Layer | Technology |
+|-------|-----------|
+| Shell | Tauri 2 |
+| Frontend | React 19, TypeScript, Vite 8 |
+| UI | MUI 9 (Material UI), Emotion |
+| State | Zustand, TanStack Query |
+| Routing | React Router 7 |
+| Core | Rust 2021 |
+| i18n | Custom type-safe (frontend), rust-i18n (Rust) |
 
-Android 开发者也可以在 Certificates 页的 Android 标签中使用 `ADB Install`，在多台设备/模拟器同时连接时选择目标 serial，将证书推送到对应设备并直接拉起系统安装器。
+## License
 
-HarmonyOS NEXT 开发者可以在 Certificates 页的「鸿蒙」标签中使用 `hdc` 推送证书，在多台设备/模拟器同时连接时选择目标 serial，通过 hdc 将证书推送到目标的「下载」目录（`/storage/media/100/local/files/Download/`）并尝试拉起证书管理器（HarmonyOS NEXT 无一键信任命令，仍需手动在「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」中进入「下载」目录选中证书完成安装；若系统文件选择器仍看不到该文件，可改用二维码/设备浏览器下载证书。用户安装的是 VPN 与应用证书，不是系统根证书；系统代理也需在设备或模拟器网络设置中手动配置）。
+[MIT](./LICENSE) © 2024-2026 small-dream
 
-当前限制：
+## Acknowledgments
 
-- HTTPS 证书信任流程跨平台复杂度高
-- Android 7+ 默认不信任用户证书，需要额外配置
-- HarmonyOS NEXT 无官方 hdc 全局 HTTP 代理命令，代理需在设备 Wi-Fi 或模拟器网络设置中手动配置
+Built with these outstanding open-source projects: [Tauri](https://tauri.app), [React](https://react.dev), [Rust](https://www.rust-lang.org), [MUI](https://mui.com), and many more.

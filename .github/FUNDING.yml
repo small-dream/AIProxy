@@ -1,0 +1,14 @@
+# These are example funding model configurations. Uncomment and replace with
+# your preferred platforms to enable the "Sponsor" button on the repository.
+#
+# github: [small-dream]
+# patreon: # Replace with your Patreon username
+# open_collective: # Replace with your Open Collective username
+# ko_fi: # Replace with your Ko-fi page
+# tidelift: # Replace with your Tidelift account
+# community_bridge: # Replace with your Community Bridge username
+# liberapay: # Replace with your Liberapay account
+# issuehunt: # Replace with your IssueHunt username
+# otechie: # Replace with your Otechie username
+# lfx_crowdfunding: # Replace with your LFX Crowdfunding username
+# custom: # Replace with up to 4 custom sponsorship URLs e.g., ['link1', 'link2']
