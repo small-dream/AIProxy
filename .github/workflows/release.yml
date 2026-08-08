@@ -22,22 +22,18 @@ jobs:
             bundle-command: pnpm desktop:bundle:macos
             artifact-glob: |
               target/release/bundle/macos/*.app.tar.gz
-              target/release/bundle/macos/*.app.tar.gz.sig
               target/release/bundle/dmg/*.dmg
           - platform: windows
             os: windows-latest
             bundle-command: pnpm desktop:bundle:windows
             artifact-glob: |
               target/release/bundle/msi/*.msi
-              target/release/bundle/msi/*.msi.sig
               target/release/bundle/nsis/*.exe
-              target/release/bundle/nsis/*.exe.sig
           - platform: linux
             os: ubuntu-latest
             bundle-command: pnpm desktop:bundle:linux
             artifact-glob: |
               target/release/bundle/appimage/*.AppImage
-              target/release/bundle/appimage/*.AppImage.sig
               target/release/bundle/deb/*.deb
               target/release/bundle/rpm/*.rpm
 
@@ -202,10 +198,12 @@ jobs:
             return `https://github.com/${repo}/releases/download/${tag}/${name}`;
           }
 
+          // Only include a platform in the updater manifest when its .sig is present.
+          // When no signing key is configured, no .sig files exist, so the manifest
+          // is skipped entirely and the release ships plain installers.
           function signatureFor(file) {
             const sig = byName.get(`${path.basename(file)}.sig`);
-            if (!sig) throw new Error(`Missing updater signature for ${file}`);
-            return fs.readFileSync(sig, "utf8").trim();
+            return sig ? fs.readFileSync(sig, "utf8").trim() : null;
           }
 
           const platforms = {};
@@ -214,24 +212,27 @@ jobs:
           const windows = pick((name) => name.endsWith(".exe")) ?? pick((name) => name.endsWith(".msi"));
 
           if (mac) {
-            const entry = { signature: signatureFor(mac), url: assetUrl(mac) };
-            platforms[platformByBundle.get("macos") ?? "darwin-x86_64"] = entry;
+            const signature = signatureFor(mac);
+            if (signature) platforms[platformByBundle.get("macos") ?? "darwin-x86_64"] = { signature, url: assetUrl(mac) };
           }
           if (linux) {
-            platforms[platformByBundle.get("linux") ?? "linux-x86_64"] = { signature: signatureFor(linux), url: assetUrl(linux) };
+            const signature = signatureFor(linux);
+            if (signature) platforms[platformByBundle.get("linux") ?? "linux-x86_64"] = { signature, url: assetUrl(linux) };
           }
           if (windows) {
-            platforms[platformByBundle.get("windows") ?? "windows-x86_64"] = { signature: signatureFor(windows), url: assetUrl(windows) };
+            const signature = signatureFor(windows);
+            if (signature) platforms[platformByBundle.get("windows") ?? "windows-x86_64"] = { signature, url: assetUrl(windows) };
           }
 
           if (Object.keys(platforms).length === 0) {
-            throw new Error("No updater artifacts were found.");
+            console.log("No signed updater artifacts found — skipping latest.json. Installers will still be published without auto-update support.");
+          } else {
+            fs.writeFileSync(
+              "latest.json",
+              `${JSON.stringify({ version, notes: `AIProxy ${version}`, pub_date: new Date().toISOString(), platforms }, null, 2)}\n`,
+            );
+            console.log("Wrote latest.json with", Object.keys(platforms).length, "platform(s).");
           }
-
-          fs.writeFileSync(
-            "latest.json",
-            `${JSON.stringify({ version, notes: `AIProxy ${version}`, pub_date: new Date().toISOString(), platforms }, null, 2)}\n`,
-          );
           NODE
 
       - name: Build release notes
@@ -239,10 +240,17 @@ jobs:
           {
             echo "AIProxy release ${GITHUB_REF_NAME}"
             echo
-            echo "Signing status:"
-            cat release-artifacts/signing-*/*.md
+            echo "## Download"
             echo
-            echo "Unsigned artifacts are expected until platform signing secrets are configured."
+            echo "Pre-built installers are available below. This is an early release — builds are currently unsigned."
+            echo
+            echo "- **Windows**: \`.msi\` or \`.exe\` installer"
+            echo "- **macOS**: \`.dmg\` (right-click → Open the first time)"
+            echo "- **Linux**: \`.AppImage\`, \`.deb\`, or \`.rpm\`"
+            echo
+            echo "## Signing status"
+            echo
+            cat release-artifacts/signing-*/*.md
           } > release-notes.md
 
       - name: Publish release
