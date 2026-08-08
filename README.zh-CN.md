@@ -25,19 +25,17 @@
 ### 流量检查器（暗黑主题）
 三栏会话工作台 — 左侧按域名分组的流量浏览器，右侧带 JSON 语法高亮的请求/响应检查器。
 
-<img src="./docs/screenshots/sessions-dark.png" alt="AIProxy Sessions — 流量检查器（暗黑）" width="800">
+<img src="./docs/screenshots/1.jpg" alt="AIProxy Sessions — 流量检查器（暗黑）" width="800">
+
+### 流量检查器（浅色主题）
+浅色主题下的同一套三栏会话工作台 — 请求/响应检查器，支持查询参数与 JSON 语法高亮。
+
+<img src="./docs/screenshots/2.jpg" alt="AIProxy Sessions — 流量检查器（浅色）" width="800">
 
 ### 流量洞察（浅色主题）
 聚合分析仪表盘，包含概览卡片、分域名统计表格和状态码/请求方法分布图。
 
-<img src="./docs/screenshots/insights-light.png" alt="AIProxy Insights — 分析仪表盘（浅色）" width="800">
-
-### 弱网模拟（暗黑主题）
-通过预设 Profile（慢速 3G、Wi-Fi）或自定义规则模拟慢速网络，实时显示命中/丢弃/延迟统计。
-
-<img src="./docs/screenshots/throttling-dark.png" alt="AIProxy Throttling — 弱网模拟（暗黑）" width="800">
-
-> 💡 以上为渲染的 UI 模型图，后续将替换为真实截图。
+<img src="./docs/screenshots/3.jpg" alt="AIProxy Insights — 分析仪表盘（浅色）" width="800">
 
 ---
 

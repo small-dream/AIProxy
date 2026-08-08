@@ -45,4 +45,4 @@ ADRs capture important architectural decisions and their rationale.
 
 ### Screenshots
 
-UI screenshots and their source HTML mockups are in [screenshots/](./screenshots/). The mockups can be regenerated from the HTML files in [screenshots/mockups/](./screenshots/mockups/) using a headless browser.
+Real UI screenshots are in [screenshots/](./screenshots/).

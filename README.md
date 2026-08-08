@@ -25,19 +25,17 @@ Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polishe
 ### Traffic Inspector (Dark Theme)
 The three-pane session workspace — domain-grouped traffic explorer on the left, request/response inspector with JSON syntax highlighting on the right.
 
-<img src="./docs/screenshots/sessions-dark.png" alt="AIProxy Sessions — Traffic Inspector (Dark)" width="800">
+<img src="./docs/screenshots/1.jpg" alt="AIProxy Sessions — Traffic Inspector (Dark)" width="800">
+
+### Traffic Inspector (Light Theme)
+The same three-pane session workspace in the light theme — request/response inspector with query parameters and JSON syntax highlighting.
+
+<img src="./docs/screenshots/2.jpg" alt="AIProxy Sessions — Traffic Inspector (Light)" width="800">
 
 ### Traffic Insights (Light Theme)
 Aggregate analytics dashboard with overview cards, per-host breakdown table, and status code / method distributions.
 
-<img src="./docs/screenshots/insights-light.png" alt="AIProxy Insights — Analytics Dashboard (Light)" width="800">
-
-### Network Throttling (Dark Theme)
-Simulate slow networks with preset profiles (Slow 3G, Wi-Fi) or custom rules, with live hit/drop/delay statistics.
-
-<img src="./docs/screenshots/throttling-dark.png" alt="AIProxy Throttling — Network Shaping (Dark)" width="800">
-
-> 💡 These are rendered UI mockups. Real screenshots will replace them as the project matures.
+<img src="./docs/screenshots/3.jpg" alt="AIProxy Insights — Analytics Dashboard (Light)" width="800">
 
 ---
 
