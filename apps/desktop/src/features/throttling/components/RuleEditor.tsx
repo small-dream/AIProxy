@@ -35,7 +35,18 @@ export function RuleEditor(props: {
   onSave: () => void;
   saving: boolean;
 }) {
-  const { draft, errors, isError = false, profiles, t, onChange, onDuplicate, onDelete, onSave, saving } = props;
+  const {
+    draft,
+    errors,
+    isError = false,
+    profiles,
+    t,
+    onChange,
+    onDuplicate,
+    onDelete,
+    onSave,
+    saving,
+  } = props;
 
   // L3: priority is committed from a local text draft so clearing the field
   // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
@@ -154,8 +165,9 @@ export function RuleEditor(props: {
           borderColor: "divider",
           borderRadius: "8px",
           px: 1.25,
-          py: 0.75
-        }}>
+          py: 0.75,
+        }}
+      >
         <Switch
           size="small"
           checked={draft.enabled}
@@ -164,15 +176,22 @@ export function RuleEditor(props: {
         <Typography variant="body2" sx={{ fontWeight: 650 }}>
           {t("throttlingPage.ruleFields.enabled")}
         </Typography>
-        <Typography variant="caption" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("throttlingPage.ruleFields.enabledHint")}
         </Typography>
       </Stack>
-      <Stack direction="row" spacing={1} sx={{
-        justifyContent: "space-between"
-      }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          justifyContent: "space-between",
+        }}
+      >
         <Button
           color="error"
           variant="outlined"
@@ -210,8 +229,9 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
         borderColor: "divider",
         borderRadius: "8px",
         px: 1.25,
-        py: 1.5
-      }}>
+        py: 1.5,
+      }}
+    >
       {children}
     </Typography>
   );

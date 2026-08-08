@@ -52,8 +52,7 @@ describe("readPortFromError", () => {
 });
 
 describe("retryWhilePortInUse", () => {
-  const portInUseError = () =>
-    JSON.stringify({ code: "PORT_IN_USE", message: "Port busy" });
+  const portInUseError = () => JSON.stringify({ code: "PORT_IN_USE", message: "Port busy" });
 
   it("returns the result without sleeping when the first attempt succeeds", async () => {
     const sleep = vi.fn().mockResolvedValue(undefined);

@@ -313,8 +313,9 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
                 <Stack
                   sx={{
                     alignItems: "center",
-                    py: 1.25
-                  }}>
+                    py: 1.25,
+                  }}
+                >
                   <CircularProgress size={16} />
                 </Stack>
               ) : (

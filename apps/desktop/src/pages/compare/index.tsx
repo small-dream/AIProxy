@@ -35,31 +35,38 @@ export function ComparePage() {
 
   return (
     <Stack spacing={1.5} sx={{ height: "100%", minHeight: 0 }}>
-      {cmp.isSessionsError && (
-        <Alert severity="error">{t("common.errors.generic")}</Alert>
-      )}
+      {cmp.isSessionsError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
       <Stack
         direction={{ md: "row", xs: "column" }}
         spacing={1.25}
         sx={{
           alignItems: { md: "center", xs: "stretch" },
-          justifyContent: "space-between"
-        }}>
+          justifyContent: "space-between",
+        }}
+      >
         <Stack spacing={0.25}>
           <Typography variant="h4" sx={{ fontSize: 28, lineHeight: 1.15 }}>
             {t("comparePage.title")}
           </Typography>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {cmp.compareMode === "request"
               ? t("comparePage.requestDescription")
               : t("comparePage.sessionDescription")}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={1} useFlexGap sx={{
-          flexWrap: "wrap"
-        }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            flexWrap: "wrap",
+          }}
+        >
           <Button
             size="small"
             variant="outlined"
@@ -166,8 +173,9 @@ export function ComparePage() {
                 borderBottom: 1,
                 borderColor: "divider",
                 px: 1.5,
-                py: 1
-              }}>
+                py: 1,
+              }}
+            >
               <CompareArrowsRoundedIcon sx={{ color: "primary.main", fontSize: 20 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
                 {cmp.compareMode === "request"
@@ -175,9 +183,13 @@ export function ComparePage() {
                   : t("comparePage.behaviorWorkbench")}
               </Typography>
               {cmp.compareMode === "request" && cmp.detailState.loading ? (
-                <Typography component="span" variant="body2" sx={{
-                  color: "text.secondary"
-                }}>
+                <Typography
+                  component="span"
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                  }}
+                >
                   {t("comparePage.loadingDetails")}
                 </Typography>
               ) : null}
@@ -218,7 +230,12 @@ export function ComparePage() {
           onConfigure={() => navigate("/settings")}
         />
       </Box>
-      <Dialog open={cmp.previewOpen} onClose={() => cmp.setPreviewOpen(false)} fullWidth maxWidth="md">
+      <Dialog
+        open={cmp.previewOpen}
+        onClose={() => cmp.setPreviewOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
         <DialogTitle>{t("comparePage.previewPayload")}</DialogTitle>
         <DialogContent>
           <Typography

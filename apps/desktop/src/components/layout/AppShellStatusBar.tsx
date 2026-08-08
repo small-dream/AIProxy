@@ -71,8 +71,9 @@ function StatusItem({
         minWidth: 0,
         px: 0.875,
         py: 0.25,
-        whiteSpace: "nowrap"
-      }}>
+        whiteSpace: "nowrap",
+      }}
+    >
       {icon ? (
         <Box
           sx={{
@@ -181,20 +182,24 @@ export function AppShellStatusBar({
       <Stack
         direction="row"
         spacing={0.5}
-        sx={[{
-          alignItems: "center"
-        }, (theme) => ({
-          bgcolor:
-            theme.palette.mode === "dark"
-              ? alpha(theme.palette.background.paper, 0.82)
-              : alpha(theme.palette.background.paper, 0.92),
-          minHeight: 32,
-          overflowX: "auto",
-          px: 1.25,
-          py: 0.375,
-          scrollbarWidth: "thin",
-          whiteSpace: "nowrap",
-        })]}>
+        sx={[
+          {
+            alignItems: "center",
+          },
+          (theme) => ({
+            bgcolor:
+              theme.palette.mode === "dark"
+                ? alpha(theme.palette.background.paper, 0.82)
+                : alpha(theme.palette.background.paper, 0.92),
+            minHeight: 32,
+            overflowX: "auto",
+            px: 1.25,
+            py: 0.375,
+            scrollbarWidth: "thin",
+            whiteSpace: "nowrap",
+          }),
+        ]}
+      >
         <StatusItem
           active={proxyStatus?.running ?? false}
           icon={<FiberManualRecordRoundedIcon />}

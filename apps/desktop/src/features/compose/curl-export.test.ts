@@ -21,7 +21,7 @@ describe("generateCurlCommand", () => {
       expect(cmd.startsWith("curl")).toBe(true);
       expect(cmd).toContain("-X POST");
       expect(cmd).toContain("-H 'Content-Type: application/json'");
-      expect(cmd).toContain("-d '{\"hello\":\"world\"}'");
+      expect(cmd).toContain('-d \'{"hello":"world"}\'');
       expect(cmd.endsWith("'https://example.com/api?q=hello'")).toBe(true);
     });
 
@@ -82,7 +82,7 @@ describe("generateCurlCommand", () => {
         {
           method: "POST",
           url: 'https://example.com/a"b',
-          headers: [{ name: 'X-Q', value: 'say "hi"', isPseudo: false }],
+          headers: [{ name: "X-Q", value: 'say "hi"', isPseudo: false }],
           body: 'k"v',
         },
         { platform: "windows" },

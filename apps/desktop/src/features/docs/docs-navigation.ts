@@ -10,9 +10,7 @@ export function groupDocsEntries(entries: DocsEntry[] = docsEntries): GroupedDoc
   return docsGroupOrder
     .map((group) => ({
       group,
-      entries: entries
-        .filter((entry) => entry.group === group)
-        .sort((a, b) => a.order - b.order),
+      entries: entries.filter((entry) => entry.group === group).sort((a, b) => a.order - b.order),
     }))
     .filter((grouped) => grouped.entries.length > 0);
 }

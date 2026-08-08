@@ -360,8 +360,7 @@ export function RewriteRulesPanel() {
     // M22: only sync the draft when the selection actually changes — NOT on
     // every rules[] refetch. Protects in-flight edits from being clobbered.
     const selectionValid =
-      selectedRuleId &&
-      (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId);
+      selectedRuleId && (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId);
     if (selectionValid) {
       lastSyncedRuleIdRef.current = selectedRuleId;
       return;
@@ -451,16 +450,23 @@ export function RewriteRulesPanel() {
   return (
     <>
       {isRulesError && (
-        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+        <Alert severity="error" sx={{ mb: 1 }}>
+          {t("common.errors.generic")}
+        </Alert>
       )}
       <ManagedRulesWorkbench
         searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         createActions={
-          <Stack direction="row" spacing={0.75} useFlexGap sx={{
-            flexWrap: "wrap"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            useFlexGap
+            sx={{
+              flexWrap: "wrap",
+            }}
+          >
             {(["header", "query", "body", "redirect"] as const).map((type) => (
               <Button
                 key={type}
@@ -529,9 +535,12 @@ export function RewriteRulesPanel() {
                 gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
               }}
             >
-              <Stack spacing={2} sx={{
-                minWidth: 0
-              }}>
+              <Stack
+                spacing={2}
+                sx={{
+                  minWidth: 0,
+                }}
+              >
                 <RuleSection>
                   <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
                     <TextField
@@ -553,8 +562,9 @@ export function RewriteRulesPanel() {
                           variant="caption"
                           sx={{
                             color: "text.secondary",
-                            fontWeight: 650
-                          }}>
+                            fontWeight: 650,
+                          }}
+                        >
                           {t("rulesPage.editor.matchType")}
                         </Typography>
                         <Select
@@ -584,8 +594,9 @@ export function RewriteRulesPanel() {
                           variant="caption"
                           sx={{
                             color: "text.secondary",
-                            lineHeight: 1.35
-                          }}>
+                            lineHeight: 1.35,
+                          }}
+                        >
                           {t(
                             `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
                           )}
@@ -598,8 +609,9 @@ export function RewriteRulesPanel() {
                           variant="caption"
                           sx={{
                             color: "text.secondary",
-                            fontWeight: 650
-                          }}>
+                            fontWeight: 650,
+                          }}
+                        >
                           {httpMethodsLabel}
                         </Typography>
                         <Select
@@ -629,8 +641,9 @@ export function RewriteRulesPanel() {
                           variant="caption"
                           sx={{
                             color: "text.secondary",
-                            fontWeight: 650
-                          }}>
+                            fontWeight: 650,
+                          }}
+                        >
                           {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
                         </Typography>
                         <Select
@@ -727,9 +740,13 @@ export function RewriteRulesPanel() {
                 }}
               >
                 <Stack spacing={0.15}>
-                  <Stack direction="row" spacing={0.75} sx={{
-                    alignItems: "center"
-                  }}>
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    sx={{
+                      alignItems: "center",
+                    }}
+                  >
                     <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
                       {t(template.label)}
                     </Typography>
@@ -739,9 +756,12 @@ export function RewriteRulesPanel() {
                       sx={{ height: 18, fontSize: 10 }}
                     />
                   </Stack>
-                  <Typography variant="caption" sx={{
-                    color: "text.secondary"
-                  }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                    }}
+                  >
                     {t(template.description)}
                   </Typography>
                 </Stack>
@@ -805,7 +825,7 @@ function RewriteEditorHeader({
         direction={{ xs: "column", md: "row" }}
         spacing={1.25}
         sx={{
-          alignItems: { xs: "stretch", md: "center" }
+          alignItems: { xs: "stretch", md: "center" },
         }}
       >
         <TextField
@@ -824,11 +844,15 @@ function RewriteEditorHeader({
             borderColor: "divider",
             borderRadius: "8px",
             minHeight: 40,
-            px: 1
-          }}>
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+            px: 1,
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("rulesPage.editor.enabled")}
           </Typography>
           <Switch
@@ -897,16 +921,24 @@ function RewriteRuleTester({
   testResult: { ok: boolean; reason: string };
 }) {
   const { t } = useI18n();
-  const sampleUrlLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.sampleUrl"), "optional", t);
+  const sampleUrlLabel = formatRuleFieldLabel(
+    t("rulesPage.rewrite.tester.sampleUrl"),
+    "optional",
+    t,
+  );
   const methodLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.method"), "optional", t);
   const stageLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.stage"), "optional", t);
 
   return (
     <RuleSection>
       <FieldGroup title={t("rulesPage.rewrite.tester.sectionTitle")}>
-        <Stack direction="row" spacing={0.75} sx={{
-          alignItems: "center"
-        }}>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{
+            alignItems: "center",
+          }}
+        >
           <FactCheckRoundedIcon color={testResult.ok ? "success" : "disabled"} fontSize="small" />
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
             {t("rulesPage.rewrite.tester.title")}
@@ -950,9 +982,12 @@ function RewriteRuleTester({
         <Alert severity={testResult.ok ? "success" : "info"} variant="outlined" sx={{ py: 0.25 }}>
           {testResult.reason}
         </Alert>
-        <Typography variant="caption" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {testResult.ok
             ? describeRewriteAction(draft, t)
             : t("rulesPage.rewrite.tester.waiting", {
@@ -1327,9 +1362,7 @@ function BodyFieldsEditor({
               >
                 <MenuItem value="string">{t("rulesPage.rewrite.bodyValueTypes.string")}</MenuItem>
                 <MenuItem value="number">{t("rulesPage.rewrite.bodyValueTypes.number")}</MenuItem>
-                <MenuItem value="boolean">
-                  {t("rulesPage.rewrite.bodyValueTypes.boolean")}
-                </MenuItem>
+                <MenuItem value="boolean">{t("rulesPage.rewrite.bodyValueTypes.boolean")}</MenuItem>
                 <MenuItem value="null">{t("rulesPage.rewrite.bodyValueTypes.null")}</MenuItem>
                 <MenuItem value="json">{t("rulesPage.rewrite.bodyValueTypes.json")}</MenuItem>
               </Select>

@@ -151,12 +151,16 @@ export function SessionExplorerPane({
             sx={{
               alignItems: "center",
               px: 2,
-              py: 5
-            }}>
+              py: 5,
+            }}
+          >
             <CircularProgress size={22} />
-            <Typography variant="body2" sx={{
-              color: "text.secondary"
-            }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("sessionExplorer.loading")}
             </Typography>
           </Stack>
@@ -171,8 +175,9 @@ export function SessionExplorerPane({
               alignItems: "center",
               px: 2.5,
               py: 6,
-              textAlign: "center"
-            }}>
+              textAlign: "center",
+            }}
+          >
             <Box
               sx={{
                 alignItems: "center",
@@ -204,18 +209,23 @@ export function SessionExplorerPane({
                 variant="body2"
                 sx={{
                   color: "text.secondary",
-                  maxWidth: 320
-                }}>
+                  maxWidth: 320,
+                }}
+              >
                 {t("sessionExplorer.emptyDescription")}
               </Typography>
             </Stack>
             <Typography
-              sx={[{
-                color: "text.secondary"
-              }, (theme) => ({
-                fontFamily: theme.typography.fontFamily,
-                fontSize: getWorkbenchFontSize(theme, 12.5),
-              })]}>
+              sx={[
+                {
+                  color: "text.secondary",
+                },
+                (theme) => ({
+                  fontFamily: theme.typography.fontFamily,
+                  fontSize: getWorkbenchFontSize(theme, 12.5),
+                }),
+              ]}
+            >
               {t("sessionExplorer.emptyTip")}
             </Typography>
           </Stack>

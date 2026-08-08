@@ -18,7 +18,10 @@ import {
 
 import type { ApiCollection, ApiCollectionItem } from "@aiproxy/shared-types";
 
-import { countTreeNodes, filterCollectionTree } from "@/features/collections/collection-tree.helpers";
+import {
+  countTreeNodes,
+  filterCollectionTree,
+} from "@/features/collections/collection-tree.helpers";
 import { APPEND_SORT_ORDER } from "@/features/collections/collections-layout.helpers";
 import { parseDndId } from "@/features/collections/components/CollectionTreeNodeView";
 import {
@@ -54,11 +57,7 @@ type MoveCollectionMutation = UseMutationResult<
 
 type UpsertItemMutation = UseMutationResult<ApiCollectionItem, Error, CollectionSaveInput>;
 
-type DeleteItemMutation = UseMutationResult<
-  void,
-  Error,
-  { id: string; collectionId: string }
->;
+type DeleteItemMutation = UseMutationResult<void, Error, { id: string; collectionId: string }>;
 
 type MoveItemMutation = UseMutationResult<
   void,
@@ -126,7 +125,9 @@ export interface UseCollectionTreeReturn {
   handleDeleteItem: (item: CollectionEditorItem) => void;
 
   // State setters (for dialogs)
-  setTreeMenuState: (state: { mouseX: number; mouseY: number; target: RenameTarget } | null) => void;
+  setTreeMenuState: (
+    state: { mouseX: number; mouseY: number; target: RenameTarget } | null,
+  ) => void;
   setRenameName: (name: string) => void;
   setMoveError: (error: string | null) => void;
 }

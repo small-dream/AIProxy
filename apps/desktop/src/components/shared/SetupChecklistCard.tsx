@@ -58,14 +58,20 @@ export function SetupChecklistCard() {
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack spacing={1.5}>
         <Stack spacing={0.25}>
-          <Typography variant="subtitle1" sx={{
-            fontWeight: 600
-          }}>
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontWeight: 600,
+            }}
+          >
             {t("setupChecklist.title")}
           </Typography>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("setupChecklist.subtitle")}
           </Typography>
         </Stack>
@@ -82,9 +88,14 @@ export function SetupChecklistCard() {
             const color = done ? "success.main" : current ? "primary.main" : "text.disabled";
 
             return (
-              <Stack key={step} direction="row" spacing={1} sx={{
-                alignItems: "center"
-              }}>
+              <Stack
+                key={step}
+                direction="row"
+                spacing={1}
+                sx={{
+                  alignItems: "center",
+                }}
+              >
                 <Icon sx={{ fontSize: 20, color }} />
                 <Typography
                   variant="body2"
@@ -102,7 +113,12 @@ export function SetupChecklistCard() {
           <Alert
             severity="warning"
             action={
-              <Button color="inherit" size="small" variant="outlined" onClick={requestOpenPortDialog}>
+              <Button
+                color="inherit"
+                size="small"
+                variant="outlined"
+                onClick={requestOpenPortDialog}
+              >
                 {t("setupChecklist.changePort")}
               </Button>
             }
@@ -136,7 +152,10 @@ export function SetupChecklistCard() {
               variant="outlined"
               size="small"
               onClick={() =>
-                acknowledgeManualProxy(startDefaults.port ?? DEFAULT_PROXY_PORT, startDefaults.workspaceId)
+                acknowledgeManualProxy(
+                  startDefaults.port ?? DEFAULT_PROXY_PORT,
+                  startDefaults.workspaceId,
+                )
               }
             >
               {t("setupChecklist.manualProxyConfigured")}

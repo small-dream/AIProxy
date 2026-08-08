@@ -1,4 +1,8 @@
-import { DEFAULT_WORKSPACE_ID, type CertificateStatus, type ProxyStatus } from "@aiproxy/shared-types";
+import {
+  DEFAULT_WORKSPACE_ID,
+  type CertificateStatus,
+  type ProxyStatus,
+} from "@aiproxy/shared-types";
 
 // Ordered setup checklist. The first incomplete step becomes `nextAction`.
 export type SetupStepKey =
@@ -110,7 +114,5 @@ export type SetupWizardGateInput = {
 // auto-reshows; a later regression (cert deleted, proxy stopped) is handled by
 // the persistent checklist instead of re-nagging the user with a modal.
 export function shouldShowSetupWizard(input: SetupWizardGateInput): boolean {
-  return (
-    !input.setupWizardCompleted && !input.setupWizardDismissedAt && !input.captureReady
-  );
+  return !input.setupWizardCompleted && !input.setupWizardDismissedAt && !input.captureReady;
 }

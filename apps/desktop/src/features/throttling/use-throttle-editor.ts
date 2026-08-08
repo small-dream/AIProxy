@@ -167,8 +167,7 @@ export function useThrottleEditor() {
     [profiles],
   );
   const activeRuleCount = useMemo(
-    () =>
-      rules.filter((rule) => rule.enabled && enabledProfileIds.has(rule.profileId)).length,
+    () => rules.filter((rule) => rule.enabled && enabledProfileIds.has(rule.profileId)).length,
     [rules, enabledProfileIds],
   );
   // Memoize the derived error/label values so child components receiving them
@@ -248,10 +247,7 @@ export function useThrottleEditor() {
         // one the user temporarily enabled. If the user manually activated a
         // different profile in the meantime (setActiveMutation.mutate(other)),
         // the timer must not silently disable their new choice.
-        if (
-          temporaryProfileId !== undefined &&
-          activeProfileIdRef.current !== temporaryProfileId
-        ) {
+        if (temporaryProfileId !== undefined && activeProfileIdRef.current !== temporaryProfileId) {
           setTemporaryUntil(null);
           return;
         }

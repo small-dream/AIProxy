@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { SessionSummary } from "@aiproxy/shared-types";
-import { useSessionContainerFilterStore, useSessionContainerStore } from "./session-container.store";
+import {
+  useSessionContainerFilterStore,
+  useSessionContainerStore,
+} from "./session-container.store";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -276,7 +279,9 @@ describe("SessionContainerStore", () => {
 
       const summaries: SessionSummary[] = [];
       for (let i = 0; i < 500; i++) {
-        summaries.push(buildSummary(`session-${i}`, { host: `host-${i % 10}.example.com`, durationMs: i }));
+        summaries.push(
+          buildSummary(`session-${i}`, { host: `host-${i % 10}.example.com`, durationMs: i }),
+        );
       }
 
       store.getState().seedSessions(summaries);

@@ -75,9 +75,7 @@ export function EditableKeyValueTable({
     const current = updated[index];
     if (!current) return;
     updated[index] =
-      field === "name"
-        ? { ...current, name: newValue }
-        : { ...current, value: newValue };
+      field === "name" ? { ...current, name: newValue } : { ...current, value: newValue };
     emit(updated);
   }
 
@@ -101,8 +99,9 @@ export function EditableKeyValueTable({
           sx={{
             color: "text.secondary",
             px: 1,
-            py: 1.25
-          }}>
+            py: 1.25,
+          }}
+        >
           {t("common.empty.noData")}
         </Typography>
       ) : (
@@ -131,8 +130,9 @@ export function EditableKeyValueTable({
                   fontWeight: 600,
                   letterSpacing: 0,
                   minWidth: 0,
-                  px: 1
-                }}>
+                  px: 1,
+                }}
+              >
                 {label}
               </Typography>
             ))}

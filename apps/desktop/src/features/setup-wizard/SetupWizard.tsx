@@ -20,7 +20,12 @@ import {
   useLaunchCertificateInstaller,
 } from "@/features/certificate-center/use-certificate-status";
 import { useProxyStartDefaults } from "@/features/proxy-status/use-proxy-start-defaults";
-import { useEnableSystemProxy, useProxyStatus, useStartProxy, useStopProxy } from "@/features/proxy-status/use-proxy-status";
+import {
+  useEnableSystemProxy,
+  useProxyStatus,
+  useStartProxy,
+  useStopProxy,
+} from "@/features/proxy-status/use-proxy-status";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 
@@ -69,7 +74,9 @@ export function SetupWizard() {
   const [open, setOpen] = useState(false);
   const [activeStep, setActiveStep] = useState<WizardStep>("welcome");
   // Last action error rendered as page-level guidance inside the current step.
-  const [actionError, setActionError] = useState<{ error: unknown; context: ActionContext } | null>(null);
+  const [actionError, setActionError] = useState<{ error: unknown; context: ActionContext } | null>(
+    null,
+  );
   // Becomes true when the verify-trust step polls for too long without trust,
   // surfacing recovery actions (back / reopen installer / open certificates).
   const [verifyTrustStuck, setVerifyTrustStuck] = useState(false);
@@ -264,14 +271,19 @@ export function SetupWizard() {
       fullWidth
       slotProps={{ paper: { sx: { maxHeight: "85vh" } } }}
     >
-      <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pr: 1 }}>
+      <DialogTitle
+        sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pr: 1 }}
+      >
         <Stack spacing={0.25}>
           <Typography variant="h6" component="span">
             {t("setupWizard.title")}
           </Typography>
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("setupWizard.subtitle")} · {stepIndex + 1}/{STEP_ORDER.length}
           </Typography>
         </Stack>

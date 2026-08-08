@@ -74,8 +74,9 @@ export function RequestCompareControls({
         useFlexGap
         sx={{
           alignItems: "center",
-          flexWrap: "wrap"
-        }}>
+          flexWrap: "wrap",
+        }}
+      >
         <Chip
           icon={<CompareArrowsRoundedIcon />}
           label={

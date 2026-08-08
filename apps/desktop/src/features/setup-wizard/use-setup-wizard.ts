@@ -36,14 +36,10 @@ export function useSetupWizard(): {
 
   const setupWizardCompleted = useAppPreferencesStore((s) => s.setupWizardCompleted);
   const setupWizardDismissedAt = useAppPreferencesStore((s) => s.setupWizardDismissedAt);
-  const manualProxyAcknowledgedFor = useAppPreferencesStore(
-    (s) => s.manualProxyAcknowledgedFor,
-  );
+  const manualProxyAcknowledgedFor = useAppPreferencesStore((s) => s.manualProxyAcknowledgedFor);
   const markSetupWizardCompleted = useAppPreferencesStore((s) => s.markSetupWizardCompleted);
   const dismissSetupWizard = useAppPreferencesStore((s) => s.dismissSetupWizard);
-  const acknowledgeManualProxyInStore = useAppPreferencesStore(
-    (s) => s.acknowledgeManualProxy,
-  );
+  const acknowledgeManualProxyInStore = useAppPreferencesStore((s) => s.acknowledgeManualProxy);
 
   const progress = computeSetupProgress(certStatus, proxyStatus, manualProxyAcknowledgedFor);
 

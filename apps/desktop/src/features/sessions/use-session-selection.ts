@@ -46,9 +46,9 @@ export function useSessionSelection({
 
   const isSelectedSessionLocallyTimedOut = Boolean(
     selectedRawSession &&
-      selectedRawSession.statusCode <= 0 &&
-      selectedSession &&
-      (selectedSession.statusCode > 0 || locallyTimedOutSessionIds.has(selectedRawSession.id)),
+    selectedRawSession.statusCode <= 0 &&
+    selectedSession &&
+    (selectedSession.statusCode > 0 || locallyTimedOutSessionIds.has(selectedRawSession.id)),
   );
 
   const handleSelectedSessionChange = useCallback(

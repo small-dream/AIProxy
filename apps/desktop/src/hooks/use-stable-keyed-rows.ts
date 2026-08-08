@@ -79,21 +79,18 @@ export function useStableKeyedRows<T extends KeyedRowValue>(
     setRows(items.map((item) => ({ ...item, id: crypto.randomUUID() })));
   }, [items]);
 
-  const update = useCallback(
-    (index: number, field: "name" | "value", value: string) => {
-      setRows((prev) => {
-        const current = prev[index];
-        if (!current) return prev;
-        const next = [...prev];
-        next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
-        const stripped = stripIds(next);
-        lastEmittedRef.current = stripped;
-        onChangeRef.current(stripped);
-        return next;
-      });
-    },
-    [],
-  );
+  const update = useCallback((index: number, field: "name" | "value", value: string) => {
+    setRows((prev) => {
+      const current = prev[index];
+      if (!current) return prev;
+      const next = [...prev];
+      next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
+      const stripped = stripIds(next);
+      lastEmittedRef.current = stripped;
+      onChangeRef.current(stripped);
+      return next;
+    });
+  }, []);
 
   const remove = useCallback((index: number) => {
     setRows((prev) => {

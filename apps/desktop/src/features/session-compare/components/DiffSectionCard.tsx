@@ -1,15 +1,6 @@
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Divider,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, Chip, Divider, Paper, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import type { SessionDiffPayload } from "@aiproxy/shared-types";
@@ -56,22 +47,34 @@ export function DiffSectionCard({
       <Stack
         direction={{ sm: "row", xs: "column" }}
         spacing={1}
-        sx={[{
-          alignItems: { sm: "center", xs: "flex-start" },
-          justifyContent: "space-between"
-        }, (theme) => ({
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.045),
-          borderBottom: 1,
-          borderColor: "divider",
-          px: 1.25,
-          py: 1,
-        })]}>
+        sx={[
+          {
+            alignItems: { sm: "center", xs: "flex-start" },
+            justifyContent: "space-between",
+          },
+          (theme) => ({
+            bgcolor: alpha(
+              theme.palette.primary.main,
+              theme.palette.mode === "dark" ? 0.12 : 0.045,
+            ),
+            borderBottom: 1,
+            borderColor: "divider",
+            px: 1.25,
+            py: 1,
+          }),
+        ]}
+      >
         <Typography variant="body2" sx={{ fontWeight: 750 }}>
           {section.title}
         </Typography>
-        <Stack direction="row" spacing={0.75} useFlexGap sx={{
-          flexWrap: "wrap"
-        }}>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          useFlexGap
+          sx={{
+            flexWrap: "wrap",
+          }}
+        >
           <Chip size="small" color="success" label={`+${section.added}`} variant="outlined" />
           <Chip size="small" color="error" label={`-${section.removed}`} variant="outlined" />
           <Chip size="small" color="warning" label={`~${section.changed}`} variant="outlined" />
@@ -85,8 +88,9 @@ export function DiffSectionCard({
             sx={{
               color: "text.secondary",
               px: 1.25,
-              py: 1
-            }}>
+              py: 1,
+            }}
+          >
             {section.note}
           </Typography>
         ) : null}
@@ -115,8 +119,9 @@ export function DiffSectionCard({
             sx={{
               color: "text.secondary",
               px: 1.25,
-              py: 1
-            }}>
+              py: 1,
+            }}
+          >
             {t("comparePage.noVisibleChanges")}
           </Typography>
         ) : (
@@ -139,8 +144,9 @@ export function DiffSectionCard({
                 spacing={0.75}
                 sx={{
                   alignItems: "center",
-                  minWidth: 0
-                }}>
+                  minWidth: 0,
+                }}
+              >
                 <Chip size="small" label={entry.kind} />
                 <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono }} noWrap>
                   {entry.path}

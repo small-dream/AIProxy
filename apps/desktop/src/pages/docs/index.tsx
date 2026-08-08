@@ -20,7 +20,11 @@ import { useSearchParams } from "react-router-dom";
 import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer";
 import { getDocContent } from "@/features/docs/docs-content";
 import { docsEntries, docsGroupTitleKey } from "@/features/docs/docs-manifest";
-import { groupDocsEntries, resolveDocLink, resolveInitialSlug } from "@/features/docs/docs-navigation";
+import {
+  groupDocsEntries,
+  resolveDocLink,
+  resolveInitialSlug,
+} from "@/features/docs/docs-navigation";
 import { useI18n } from "@/i18n";
 
 export function DocsPage() {
@@ -70,25 +74,26 @@ export function DocsPage() {
         spacing={1}
         sx={{
           alignItems: "center",
-          flexShrink: 0
-        }}>
+          flexShrink: 0,
+        }}
+      >
         <MenuBookRoundedIcon sx={{ color: "primary.main", fontSize: 28 }} />
         <Stack spacing={0.25}>
           <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
             {t("docsPage.title")}
           </Typography>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("docsPage.subtitle")}
           </Typography>
         </Stack>
       </Stack>
       {/* Narrow-screen guide selector (replaces the sidebar below the md breakpoint) */}
-      <FormControl
-        size="small"
-        sx={{ display: { xs: "flex", md: "none" }, flexShrink: 0 }}
-      >
+      <FormControl size="small" sx={{ display: { xs: "flex", md: "none" }, flexShrink: 0 }}>
         <InputLabel>{t("docsPage.tocSelectLabel")}</InputLabel>
         <Select
           label={t("docsPage.tocSelectLabel")}

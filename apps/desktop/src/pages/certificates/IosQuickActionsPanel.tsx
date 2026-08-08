@@ -127,7 +127,7 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
           sx={{
-            alignItems: { xs: "stretch", md: "center" }
+            alignItems: { xs: "stretch", md: "center" },
           }}
         >
           <FormControl
@@ -188,9 +188,12 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
         </Stack>
 
         {simulatorsQuery.isLoading ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.iosSimulatorLoading")}
           </Typography>
         ) : null}
@@ -198,9 +201,12 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
         {!simulatorsQuery.isLoading &&
         !simulatorsQuery.isError &&
         (simulators?.length ?? 0) === 0 ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.iosSimulatorNoDevices")}
           </Typography>
         ) : null}
@@ -209,17 +215,23 @@ export function IosQuickActionsPanel({ hasCert }: Props) {
             the panel quiet with a neutral prompt instead of a red error. A
             manual refresh surfaces the real error. */}
         {simulatorsQuery.isError && !userRefreshed ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.iosSimulatorScanHint")}
           </Typography>
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.iosSimulatorInstallUnavailable")}
           </Typography>
         ) : null}

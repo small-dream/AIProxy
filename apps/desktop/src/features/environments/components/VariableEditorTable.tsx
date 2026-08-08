@@ -73,8 +73,9 @@ export function VariableEditorTable({
           sx={{
             color: "text.secondary",
             px: 1,
-            py: 1.25
-          }}>
+            py: 1.25,
+          }}
+        >
           {t("common.empty.noData")}
         </Typography>
       ) : (
@@ -103,8 +104,9 @@ export function VariableEditorTable({
                   fontWeight: 600,
                   letterSpacing: 0,
                   minWidth: 0,
-                  px: 1
-                }}>
+                  px: 1,
+                }}
+              >
                 {label}
               </Typography>
             ))}

@@ -62,9 +62,9 @@ export function EnvironmentManagerDialog({
   // M28: in-app confirmation state for environment deletion. Replaces the
   // native `window.confirm`, which rendered a browser-style dialog with
   // buttons that ignored the app's i18n locale and MUI styling.
-  const [confirmDeleteEnv, setConfirmDeleteEnv] = useState<
-    { id: string; name: string } | null
-  >(null);
+  const [confirmDeleteEnv, setConfirmDeleteEnv] = useState<{ id: string; name: string } | null>(
+    null,
+  );
 
   const globalSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // M24: keep a ref to the latest local global vars so the unmount cleanup can
@@ -164,24 +164,21 @@ export function EnvironmentManagerDialog({
     };
   }, [flushGlobalVars]);
 
-  const debouncedSaveGlobalVars = useCallback(
-    (variables: VariableRow[]) => {
-      if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
-      globalSaveTimeoutRef.current = setTimeout(() => {
-        globalSaveTimeoutRef.current = null;
-        mutateGlobalVarsRef.current(
-          variables.map((v, i) => ({
-            id: v.id,
-            key: v.key,
-            value: v.value,
-            enabled: v.enabled,
-            sortOrder: i,
-          })),
-        );
-      }, 500);
-    },
-    [],
-  );
+  const debouncedSaveGlobalVars = useCallback((variables: VariableRow[]) => {
+    if (globalSaveTimeoutRef.current) clearTimeout(globalSaveTimeoutRef.current);
+    globalSaveTimeoutRef.current = setTimeout(() => {
+      globalSaveTimeoutRef.current = null;
+      mutateGlobalVarsRef.current(
+        variables.map((v, i) => ({
+          id: v.id,
+          key: v.key,
+          value: v.value,
+          enabled: v.enabled,
+          sortOrder: i,
+        })),
+      );
+    }, 500);
+  }, []);
 
   function handleCreateEnvironment() {
     const name = newEnvName.trim();
@@ -219,7 +216,6 @@ export function EnvironmentManagerDialog({
       },
     });
   }
-
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -297,18 +293,18 @@ export function EnvironmentManagerDialog({
                     </IconButton>
                   </Stack>
                 ))}
-                {(environmentsQuery.data ?? []).length === 0 &&
-                  !environmentsQuery.isError && (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: "text.secondary",
-                        p: 1,
-                        display: "block"
-                      }}>
-                      {t("common.empty.noData")}
-                    </Typography>
-                  )}
+                {(environmentsQuery.data ?? []).length === 0 && !environmentsQuery.isError && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      p: 1,
+                      display: "block",
+                    }}
+                  >
+                    {t("common.empty.noData")}
+                  </Typography>
+                )}
               </Box>
               <Box sx={{ pt: 1, borderTop: 1, borderColor: "divider" }}>
                 {isAddingEnv ? (
@@ -387,9 +383,12 @@ export function EnvironmentManagerDialog({
                     justifyContent: "center",
                   }}
                 >
-                  <Typography variant="body2" sx={{
-                    color: "text.secondary"
-                  }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: "text.secondary",
+                    }}
+                  >
                     {t("common.empty.noData")}
                   </Typography>
                 </Box>
@@ -449,14 +448,8 @@ export function EnvironmentManagerDialog({
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setConfirmDeleteEnv(null)}>
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            color="error"
-            onClick={confirmDeleteEnvironment}
-            variant="contained"
-          >
+          <Button onClick={() => setConfirmDeleteEnv(null)}>{t("common.actions.cancel")}</Button>
+          <Button color="error" onClick={confirmDeleteEnvironment} variant="contained">
             {t("common.actions.delete")}
           </Button>
         </DialogActions>

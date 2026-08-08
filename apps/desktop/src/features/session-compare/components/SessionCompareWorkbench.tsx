@@ -1,18 +1,13 @@
-import {
-  Alert,
-  Box,
-  Chip,
-  Divider,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Chip, Divider, Paper, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { ReactNode } from "react";
 
 import type { SessionComparePayload } from "@aiproxy/shared-types";
 
-import { SEQUENCE_PREVIEW_LIMIT, SESSION_TABLE_LIMIT } from "@/features/session-compare/use-session-compare";
+import {
+  SEQUENCE_PREVIEW_LIMIT,
+  SESSION_TABLE_LIMIT,
+} from "@/features/session-compare/use-session-compare";
 import { useI18n, type TranslationKey, type TranslationParams } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -39,10 +34,26 @@ export function SessionCompareWorkbench({
         <MetricGrid
           t={t}
           rows={[
-            [t("comparePage.metrics.requests"), payload.overview.left.requestCount, payload.overview.right.requestCount],
-            [t("comparePage.metrics.success"), payload.overview.left.successCount, payload.overview.right.successCount],
-            [t("comparePage.metrics.failures"), payload.overview.left.failureCount, payload.overview.right.failureCount],
-            [t("comparePage.domains"), payload.overview.left.domainCount, payload.overview.right.domainCount],
+            [
+              t("comparePage.metrics.requests"),
+              payload.overview.left.requestCount,
+              payload.overview.right.requestCount,
+            ],
+            [
+              t("comparePage.metrics.success"),
+              payload.overview.left.successCount,
+              payload.overview.right.successCount,
+            ],
+            [
+              t("comparePage.metrics.failures"),
+              payload.overview.left.failureCount,
+              payload.overview.right.failureCount,
+            ],
+            [
+              t("comparePage.domains"),
+              payload.overview.left.domainCount,
+              payload.overview.right.domainCount,
+            ],
             [
               t("comparePage.avgDuration"),
               `${payload.overview.left.durationMs.average} ms`,
@@ -146,9 +157,14 @@ function SequenceSummary({ payload }: { payload: SessionComparePayload }) {
 
   return (
     <Stack spacing={1}>
-      <Stack direction="row" spacing={0.75} useFlexGap sx={{
-        flexWrap: "wrap"
-      }}>
+      <Stack
+        direction="row"
+        spacing={0.75}
+        useFlexGap
+        sx={{
+          flexWrap: "wrap",
+        }}
+      >
         <Chip
           size="small"
           color="success"
@@ -232,7 +248,13 @@ function BehaviorSection({ children, title }: { children: ReactNode; title: stri
   );
 }
 
-function MetricGrid({ rows, t }: { rows: Array<[string, string | number, string | number]>; t: (key: TranslationKey, params?: TranslationParams) => string }) {
+function MetricGrid({
+  rows,
+  t,
+}: {
+  rows: Array<[string, string | number, string | number]>;
+  t: (key: TranslationKey, params?: TranslationParams) => string;
+}) {
   return (
     <Box
       sx={{
@@ -241,19 +263,28 @@ function MetricGrid({ rows, t }: { rows: Array<[string, string | number, string 
         gridTemplateColumns: { md: "180px minmax(0, 1fr) minmax(0, 1fr)", xs: "1fr" },
       }}
     >
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {t("comparePage.metricGrid.metric")}
       </Typography>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {t("comparePage.metricGrid.left")}
       </Typography>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {t("comparePage.metricGrid.right")}
       </Typography>
       {rows.map(([label, left, right]) => (
@@ -278,9 +309,12 @@ function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] })
 
   if (rows.length === 0) {
     return (
-      <Typography variant="body2" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {t("comparePage.noVisibleChanges")}
       </Typography>
     );
@@ -303,8 +337,9 @@ function CompareRows({ columns, rows }: { columns: string[]; rows: string[][] })
             variant="caption"
             sx={{
               color: "text.secondary",
-              fontWeight: 700
-            }}>
+              fontWeight: 700,
+            }}
+          >
             {column}
           </Typography>
         ))}

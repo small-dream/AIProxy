@@ -77,8 +77,9 @@ function OverviewCard({
             color: "text.secondary",
             fontSize: 12,
             fontWeight: 600,
-            mb: 0.25
-          }}>
+            mb: 0.25,
+          }}
+        >
           {label}
         </Typography>
         <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.3 }}>{value}</Typography>
@@ -234,8 +235,9 @@ function RequestRankingRow({
           sx={{
             color: "text.secondary",
             fontFamily: "monospace",
-            fontSize: 12
-          }}>
+            fontSize: 12,
+          }}
+        >
           {[urlSummary.host, urlSummary.secondary].filter(Boolean).join("  ")}
         </Typography>
       </Box>
@@ -332,14 +334,16 @@ export function InsightsPage() {
           alignItems: "center",
           justifyContent: "center",
           height: "100%",
-          minHeight: 240
-        }}>
+          minHeight: 240,
+        }}
+      >
         <CircularProgress size={24} />
         <Typography
           sx={{
             color: "text.secondary",
-            fontSize: 13
-          }}>
+            fontSize: 13,
+          }}
+        >
           {t("insightsPage.states.loading")}
         </Typography>
       </Stack>
@@ -353,13 +357,15 @@ export function InsightsPage() {
           alignItems: "center",
           justifyContent: "center",
           height: "100%",
-          minHeight: 240
-        }}>
+          minHeight: 240,
+        }}
+      >
         <Typography
           sx={{
             color: "text.secondary",
-            fontSize: 13
-          }}>
+            fontSize: 13,
+          }}
+        >
           {t("insightsPage.states.noData")}
         </Typography>
       </Stack>
@@ -465,8 +471,9 @@ export function InsightsPage() {
             color: "text.secondary",
             flex: "0 0 auto",
             fontSize: 12,
-            fontWeight: 600
-          }}>
+            fontWeight: 600,
+          }}
+        >
           {t("insightsPage.scope.current", { count: formatNumber(ins.data.totalRequests) })}
         </Typography>
       </Stack>
@@ -498,13 +505,15 @@ export function InsightsPage() {
             sx={{
               alignItems: "center",
               justifyContent: "center",
-              minHeight: 180
-            }}>
+              minHeight: 180,
+            }}
+          >
             <Typography
               sx={{
                 color: "text.secondary",
-                fontSize: 13
-              }}>
+                fontSize: 13,
+              }}
+            >
               {t("insightsPage.states.noFilteredData")}
             </Typography>
           </Stack>
@@ -678,13 +687,13 @@ export function InsightsPage() {
                   <SectionTitle>{t("insightsPage.statusCodes.title")}</SectionTitle>
                   <Stack spacing={0.25}>
                     {ins.data.byStatusCode.map((entry) => (
-                        <DistributionItem
-                          key={entry.statusCode}
-                          label={String(entry.statusCode)}
-                          count={entry.count}
-                          maxCount={ins.data.byStatusCode[0]?.count ?? 0}
-                        />
-                      ))}
+                      <DistributionItem
+                        key={entry.statusCode}
+                        label={String(entry.statusCode)}
+                        count={entry.count}
+                        maxCount={ins.data.byStatusCode[0]?.count ?? 0}
+                      />
+                    ))}
                   </Stack>
                 </Box>
               )}
@@ -694,13 +703,13 @@ export function InsightsPage() {
                   <SectionTitle>{t("insightsPage.methods.title")}</SectionTitle>
                   <Stack spacing={0.25}>
                     {ins.data.byMethod.map((entry) => (
-                        <DistributionItem
-                          key={entry.method}
-                          label={entry.method}
-                          count={entry.count}
-                          maxCount={ins.data.byMethod[0]?.count ?? 0}
-                        />
-                      ))}
+                      <DistributionItem
+                        key={entry.method}
+                        label={entry.method}
+                        count={entry.count}
+                        maxCount={ins.data.byMethod[0]?.count ?? 0}
+                      />
+                    ))}
                   </Stack>
                 </Box>
               )}

@@ -70,9 +70,7 @@ describe("MapRulesPanel — newly-created rule selection (M10)", () => {
     // field is cleared (new empty draft) instead of snapping back to "Rule A".
     expect(screen.queryByDisplayValue("Rule A")).not.toBeInTheDocument();
     // The editor should now show an empty rule-name input (the new draft).
-    const nameField = screen.getByLabelText(
-      /rulesPage\.editor\.ruleName/i,
-    ) as HTMLInputElement;
+    const nameField = screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement;
     expect(nameField.value).toBe("");
   });
 
@@ -90,9 +88,7 @@ describe("MapRulesPanel — newly-created rule selection (M10)", () => {
 
     // The editor must reflect the new draft — the name input renders empty and
     // is editable, proving the draft was not reset by the auto-select effect.
-    const nameField = screen.getByLabelText(
-      /rulesPage\.editor\.ruleName/i,
-    ) as HTMLInputElement;
+    const nameField = screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement;
     expect(nameField.value).toBe("");
 
     // And editing the new draft must stick (not be clobbered by the effect).

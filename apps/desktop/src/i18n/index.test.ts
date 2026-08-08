@@ -37,11 +37,7 @@ function collectKeyPaths(node: unknown, prefix = ""): string[] {
 
   return entries.flatMap(([key, value]) => {
     const path = prefix ? `${prefix}.${key}` : key;
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value)
-    ) {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
       return collectKeyPaths(value, path);
     }
     return [path];
@@ -56,4 +52,3 @@ describe("message catalog key parity (H14)", () => {
     expect(enKeys).toEqual(zhKeys);
   });
 });
-

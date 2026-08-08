@@ -7,10 +7,7 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import {
-  readStorageValue,
-  writeStorageValue,
-} from "@/features/sessions/session-ui.helpers";
+import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
 import type { SessionContainer } from "@/features/sessions/session-containers.helpers";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";

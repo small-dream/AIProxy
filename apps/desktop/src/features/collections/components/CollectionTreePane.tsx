@@ -26,7 +26,10 @@ import { EmptyPaneState, LoadingState } from "@/features/collections/components/
 import { PaneHeader } from "@/features/collections/components/PaneHeader";
 import { SearchInput } from "@/features/collections/components/SearchInput";
 import { WorkbenchPane } from "@/features/collections/components/WorkbenchPane";
-import type { CollectionEditorItem, RenameTarget } from "@/features/collections/components/tree-types";
+import type {
+  CollectionEditorItem,
+  RenameTarget,
+} from "@/features/collections/components/tree-types";
 import type { CollectionTreeNode } from "@/features/collections/use-collections";
 import type { DropPosition } from "@/features/collections/components/dnd-helpers";
 import type { TranslationKey, TranslationParams } from "@/i18n";
@@ -194,10 +197,7 @@ export function CollectionTreePane({
           spacing={0.75}
           sx={(theme) => ({
             alignItems: "center",
-            bgcolor: alpha(
-              theme.palette.primary.main,
-              theme.palette.mode === "dark" ? 0.1 : 0.06,
-            ),
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06),
             border: 1,
             borderColor: alpha(
               theme.palette.primary.main,

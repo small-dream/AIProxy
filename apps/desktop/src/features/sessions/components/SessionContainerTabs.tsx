@@ -258,8 +258,9 @@ function SessionContainerTabsImpl({
           justifyContent: "space-between",
           minHeight: 42,
           px: 0.75,
-          py: 0.5
-        }}>
+          py: 0.5,
+        }}
+      >
         <Box
           sx={{
             alignItems: "center",
@@ -294,8 +295,9 @@ function SessionContainerTabsImpl({
 
               "&::-webkit-scrollbar": {
                 display: "none",
-              }
-            }}>
+              },
+            }}
+          >
             {containers.map((container) => (
               <ButtonBase
                 key={container.id}

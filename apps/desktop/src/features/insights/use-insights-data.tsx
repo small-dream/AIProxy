@@ -210,7 +210,11 @@ export function useInsightsData() {
   // Keep the previous result while the debounced sessionIds/filter keys change,
   // so the page does not flip back into a loading state every time a fresh
   // query is issued (e.g. when activeSessionIds settles after the 5s debounce).
-  const { data: backendData, isLoading, isPlaceholderData } = useQuery({
+  const {
+    data: backendData,
+    isLoading,
+    isPlaceholderData,
+  } = useQuery({
     queryKey: ["insights", debouncedSessionIds, debouncedDomain, hostExact, excludedHosts],
     queryFn: () => invokeGetInsights(input),
     enabled: debouncedSessionIds.length > 0,

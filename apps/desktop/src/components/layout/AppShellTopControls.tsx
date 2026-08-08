@@ -54,39 +54,43 @@ export function AppShellTopControls({
       <Stack
         direction="row"
         spacing={variant === "floating" ? 1.25 : 0.75}
-        sx={[{
-          alignItems: "center"
-        }, (theme) => ({
-          ...(variant === "floating"
-            ? {
-                backdropFilter: "blur(18px)",
-                bgcolor: alpha(
-                  theme.palette.background.paper,
-                  theme.palette.mode === "dark" ? 0.68 : 0.76,
-                ),
-                border: "1px solid",
-                borderColor: alpha(
-                  theme.palette.divider,
-                  theme.palette.mode === "dark" ? 0.58 : 0.78,
-                ),
-                borderRadius: 999,
-                boxShadow:
-                  theme.palette.mode === "dark"
-                    ? "0 8px 22px rgba(0, 0, 0, 0.20)"
-                    : "0 8px 22px rgba(15, 23, 42, 0.06)",
-                px: 0.4,
-                py: 0.25,
-              }
-            : {
-                bgcolor: "transparent",
-                borderRadius: 1,
-                px: 0,
-                py: 0,
-              }),
-          flexWrap: "wrap",
-          justifyContent: "center",
-          rowGap: 0.5,
-        })]}>
+        sx={[
+          {
+            alignItems: "center",
+          },
+          (theme) => ({
+            ...(variant === "floating"
+              ? {
+                  backdropFilter: "blur(18px)",
+                  bgcolor: alpha(
+                    theme.palette.background.paper,
+                    theme.palette.mode === "dark" ? 0.68 : 0.76,
+                  ),
+                  border: "1px solid",
+                  borderColor: alpha(
+                    theme.palette.divider,
+                    theme.palette.mode === "dark" ? 0.58 : 0.78,
+                  ),
+                  borderRadius: 999,
+                  boxShadow:
+                    theme.palette.mode === "dark"
+                      ? "0 8px 22px rgba(0, 0, 0, 0.20)"
+                      : "0 8px 22px rgba(15, 23, 42, 0.06)",
+                  px: 0.4,
+                  py: 0.25,
+                }
+              : {
+                  bgcolor: "transparent",
+                  borderRadius: 1,
+                  px: 0,
+                  py: 0,
+                }),
+            flexWrap: "wrap",
+            justifyContent: "center",
+            rowGap: 0.5,
+          }),
+        ]}
+      >
         {proxyRunning ? (
           <TopBarActionButton
             disabled={isProxyBusy}

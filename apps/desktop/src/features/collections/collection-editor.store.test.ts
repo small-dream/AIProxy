@@ -6,20 +6,22 @@ import { useCollectionEditorStore } from "./collection-editor.store";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildItem(overrides: Partial<{
-  id: string;
-  collectionId: string;
-  name: string;
-  description: string;
-  method: string;
-  url: string;
-  headers: HeaderEntry[];
-  body: string;
-  bodyType: string;
-  rawLanguage: string;
-  formData: HeaderEntry[];
-  urlEncoded: HeaderEntry[];
-}> = {}) {
+function buildItem(
+  overrides: Partial<{
+    id: string;
+    collectionId: string;
+    name: string;
+    description: string;
+    method: string;
+    url: string;
+    headers: HeaderEntry[];
+    body: string;
+    bodyType: string;
+    rawLanguage: string;
+    formData: HeaderEntry[];
+    urlEncoded: HeaderEntry[];
+  }> = {},
+) {
   return {
     id: overrides.id ?? "item-1",
     collectionId: overrides.collectionId ?? "col-1",
@@ -100,9 +102,9 @@ describe("useCollectionEditorStore", () => {
       const headers: HeaderEntry[] = [{ name: "Authorization", value: "Bearer abc" }];
       const formData: HeaderEntry[] = [{ name: "file", value: "data" }];
 
-      useCollectionEditorStore.getState().loadFromItem(
-        buildItem({ headers, bodyType: "formdata", formData }),
-      );
+      useCollectionEditorStore
+        .getState()
+        .loadFromItem(buildItem({ headers, bodyType: "formdata", formData }));
 
       const state = useCollectionEditorStore.getState();
       expect(state.headers).toEqual(headers);

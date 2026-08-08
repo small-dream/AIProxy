@@ -112,9 +112,10 @@ export function CollectionsPage() {
     () => readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
   );
   const [requestTab, setRequestTab] = useState<"headers" | "body" | "query">("headers");
-  const [responseTab, setResponseTab] = useState<
-    import("@/features/compose/components/ComposeResponseSection").ComposeResponseTab
-  >("overview");
+  const [responseTab, setResponseTab] =
+    useState<import("@/features/compose/components/ComposeResponseSection").ComposeResponseTab>(
+      "overview",
+    );
 
   // --- Environment ---
 
@@ -573,7 +574,12 @@ export function CollectionsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog fullWidth maxWidth="xs" open={Boolean(treeHook.renameTarget)} onClose={treeHook.handleRenameCancel}>
+      <Dialog
+        fullWidth
+        maxWidth="xs"
+        open={Boolean(treeHook.renameTarget)}
+        onClose={treeHook.handleRenameCancel}
+      >
         <DialogTitle>{t("collectionsPage.rename")}</DialogTitle>
         <DialogContent>
           <TextField
@@ -594,7 +600,11 @@ export function CollectionsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={treeHook.handleRenameCancel}>{t("common.actions.cancel")}</Button>
-          <Button disabled={!treeHook.renameName.trim()} onClick={treeHook.handleRenameSubmit} variant="contained">
+          <Button
+            disabled={!treeHook.renameName.trim()}
+            onClick={treeHook.handleRenameSubmit}
+            variant="contained"
+          >
             {t("collectionsPage.rename")}
           </Button>
         </DialogActions>

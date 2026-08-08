@@ -52,8 +52,9 @@ export function useSessionImportExport({
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportDialogInitialScope, setExportDialogInitialScope] =
     useState<SessionExportDialogScope>();
-  const [exportDialogHostScope, setExportDialogHostScope] =
-    useState<SessionExportHostScope | null>(null);
+  const [exportDialogHostScope, setExportDialogHostScope] = useState<SessionExportHostScope | null>(
+    null,
+  );
   const [importSnackbarMessage, setImportSnackbarMessage] = useState<string | null>(null);
 
   const handleExportSession = useCallback(
@@ -113,9 +114,7 @@ export function useSessionImportExport({
 
       onImportComplete(details);
 
-      setImportSnackbarMessage(
-        t("sessionsImport.messages.importedHar", { count: details.length }),
-      );
+      setImportSnackbarMessage(t("sessionsImport.messages.importedHar", { count: details.length }));
     },
     [queryClient, t, onImportComplete],
   );

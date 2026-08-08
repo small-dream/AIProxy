@@ -40,9 +40,7 @@ export function useSessionRepeat({
         onFailure: (pendingSessionId) => {
           store.getState().removeSummary(pendingSessionId);
           updateContainer((c: SessionContainer) =>
-            c.selectedSessionId === pendingSessionId
-              ? { ...c, selectedSessionId: session.id }
-              : c,
+            c.selectedSessionId === pendingSessionId ? { ...c, selectedSessionId: session.id } : c,
           );
         },
         onPending: (summary) => {

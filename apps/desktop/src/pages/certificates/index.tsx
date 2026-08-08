@@ -35,9 +35,7 @@ export function CertificatesPage() {
   const requestedPanel = searchParams.get("panel");
   const initialTab = requestedTab === "desktop" || requestedTab === "mobile" ? requestedTab : null;
   const initialPanel: MobileQuickActionsPanel | null =
-    requestedPanel === "ios" ||
-    requestedPanel === "android" ||
-    requestedPanel === "harmony"
+    requestedPanel === "ios" || requestedPanel === "android" || requestedPanel === "harmony"
       ? requestedPanel
       : null;
 

@@ -111,7 +111,12 @@ describe("computeSetupProgress", () => {
   it("treats a matching manual proxy ack as satisfying the routing step", () => {
     const progress = computeSetupProgress(
       certStatus({ certPath: "/path/to/ca.pem", trusted: true }),
-      proxyStatus({ running: true, systemProxyEnabled: false, port: 8888, activeWorkspaceId: "ws-1" }),
+      proxyStatus({
+        running: true,
+        systemProxyEnabled: false,
+        port: 8888,
+        activeWorkspaceId: "ws-1",
+      }),
       ack({ port: 8888, workspaceId: "ws-1" }),
     );
 
@@ -123,7 +128,12 @@ describe("computeSetupProgress", () => {
   it("invalidates the manual ack when the proxy port changes", () => {
     const progress = computeSetupProgress(
       certStatus({ certPath: "/path/to/ca.pem", trusted: true }),
-      proxyStatus({ running: true, systemProxyEnabled: false, port: 9999, activeWorkspaceId: "ws-1" }),
+      proxyStatus({
+        running: true,
+        systemProxyEnabled: false,
+        port: 9999,
+        activeWorkspaceId: "ws-1",
+      }),
       ack({ port: 8888, workspaceId: "ws-1" }),
     );
 
@@ -135,7 +145,12 @@ describe("computeSetupProgress", () => {
   it("invalidates the manual ack when the workspace changes", () => {
     const progress = computeSetupProgress(
       certStatus({ certPath: "/path/to/ca.pem", trusted: true }),
-      proxyStatus({ running: true, systemProxyEnabled: false, port: 8888, activeWorkspaceId: "ws-2" }),
+      proxyStatus({
+        running: true,
+        systemProxyEnabled: false,
+        port: 8888,
+        activeWorkspaceId: "ws-2",
+      }),
       ack({ port: 8888, workspaceId: "ws-1" }),
     );
 
@@ -230,4 +245,3 @@ describe("shouldShowSetupWizard", () => {
     ).toBe(false);
   });
 });
-

@@ -8,10 +8,7 @@ import {
   buildSessionHostGroups,
   filterSessionsByHostKeyword,
 } from "@/features/sessions/session-explorer.helpers";
-import {
-  readStorageValue,
-  readStoredHosts,
-} from "@/features/sessions/session-ui.helpers";
+import { readStorageValue, readStoredHosts } from "@/features/sessions/session-ui.helpers";
 import type { SessionContainer } from "@/features/sessions/session-containers.helpers";
 
 export const FOCUSED_HOSTS_STORAGE_KEY = "aiproxy.sessions.focusedHosts";

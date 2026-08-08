@@ -101,8 +101,7 @@ export function AppProviders({ children }: PropsWithChildren) {
             if (query.meta?.suppressGlobalErrorNotification) return;
             if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
 
-            const message =
-              coerceAppError(error).message || "Query failed";
+            const message = coerceAppError(error).message || "Query failed";
             useNotificationStore.getState().push(message);
           },
         }),

@@ -56,33 +56,47 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={1}
-        sx={[{
-          alignItems: { xs: "flex-start", sm: "center" },
-          justifyContent: "space-between"
-        }, (theme) => ({
-          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.055),
-          borderBottom: 1,
-          borderColor: "divider",
-          px: 1.5,
-          py: 1,
-        })]}>
+        sx={[
+          {
+            alignItems: { xs: "flex-start", sm: "center" },
+            justifyContent: "space-between",
+          },
+          (theme) => ({
+            bgcolor: alpha(
+              theme.palette.primary.main,
+              theme.palette.mode === "dark" ? 0.12 : 0.055,
+            ),
+            borderBottom: 1,
+            borderColor: "divider",
+            px: 1.5,
+            py: 1,
+          }),
+        ]}
+      >
         <Stack
           direction="row"
           spacing={1}
           sx={{
             alignItems: "center",
-            minWidth: 0
-          }}>
+            minWidth: 0,
+          }}
+        >
           <RuleRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-          <Box sx={{
-            minWidth: 0
-          }}>
+          <Box
+            sx={{
+              minWidth: 0,
+            }}
+          >
             <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
               {title}
             </Typography>
-            <Typography variant="caption" noWrap sx={{
-              color: "text.secondary"
-            }}>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {trace.ruleId}
             </Typography>
           </Box>
@@ -93,8 +107,9 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
           useFlexGap
           sx={{
             alignItems: "center",
-            flexWrap: "wrap"
-          }}>
+            flexWrap: "wrap",
+          }}
+        >
           <Chip size="small" label={trace.rewriteType} />
           <Chip size="small" label={trace.stage} variant="outlined" />
           <Chip
@@ -108,9 +123,12 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
       </Stack>
       <Stack spacing={1} sx={{ p: 1.5 }}>
         {trace.entries.length === 0 ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("automationTab.noChanges")}
           </Typography>
         ) : (
@@ -133,8 +151,9 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
                   useFlexGap
                   sx={{
                     alignItems: "center",
-                    flexWrap: "wrap"
-                  }}>
+                    flexWrap: "wrap",
+                  }}
+                >
                   <DifferenceRoundedIcon sx={{ color: "text.secondary", fontSize: 16 }} />
                   <Typography variant="body2" sx={{ fontWeight: 700 }}>
                     {entry.kind}
@@ -143,9 +162,12 @@ function RewriteTraceCard({ trace }: { trace: RewriteSessionTrace }) {
                     <Chip size="small" label={entry.key} sx={{ height: 20, fontSize: 11 }} />
                   ) : null}
                   {entry.message ? (
-                    <Typography variant="caption" sx={{
-                      color: "text.secondary"
-                    }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                      }}
+                    >
                       {entry.message}
                     </Typography>
                   ) : null}
@@ -177,8 +199,9 @@ function DiffValue({ label, value }: { label: string; value: string | undefined 
         variant="caption"
         sx={{
           color: "text.secondary",
-          fontWeight: 700
-        }}>
+          fontWeight: 700,
+        }}
+      >
         {label}
       </Typography>
       <Typography
@@ -214,15 +237,17 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
           spacing={1}
           sx={{
             alignItems: "center",
-            justifyContent: "space-between"
-          }}>
+            justifyContent: "space-between",
+          }}
+        >
           <Stack
             direction="row"
             spacing={1}
             sx={{
               alignItems: "center",
-              minWidth: 0
-            }}>
+              minWidth: 0,
+            }}
+          >
             <CodeRoundedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
             <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
               {trace.ruleId}
@@ -234,8 +259,9 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
             useFlexGap
             sx={{
               alignItems: "center",
-              flexWrap: "wrap"
-            }}>
+              flexWrap: "wrap",
+            }}
+          >
             <Chip size="small" label={trace.stage} />
             <Chip
               size="small"
@@ -252,9 +278,12 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
         <Stack spacing={0.75}>
           {trace.entries.map((entry) => (
             <Stack key={`${trace.ruleId}-${trace.stage}-${entry.sequence}`} spacing={0.35}>
-              <Typography variant="caption" sx={{
-                color: "text.secondary"
-              }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: "text.secondary",
+                }}
+              >
                 {entry.kind}
                 {entry.level ? ` - ${entry.level}` : ""}
                 {entry.key ? ` - ${entry.key}` : ""}
@@ -295,25 +324,33 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
           spacing={1}
           sx={{
             alignItems: "center",
-            justifyContent: "space-between"
-          }}>
+            justifyContent: "space-between",
+          }}
+        >
           <Stack
             direction="row"
             spacing={1}
             sx={{
               alignItems: "center",
-              minWidth: 0
-            }}>
+              minWidth: 0,
+            }}
+          >
             <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
-            <Box sx={{
-              minWidth: 0
-            }}>
+            <Box
+              sx={{
+                minWidth: 0,
+              }}
+            >
               <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
                 {trace.ruleName || trace.ruleId}
               </Typography>
-              <Typography variant="caption" noWrap sx={{
-                color: "text.secondary"
-              }}>
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{
+                  color: "text.secondary",
+                }}
+              >
                 {trace.ruleId}
               </Typography>
             </Box>
@@ -324,8 +361,9 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
             useFlexGap
             sx={{
               alignItems: "center",
-              flexWrap: "wrap"
-            }}>
+              flexWrap: "wrap",
+            }}
+          >
             <Chip size="small" label={trace.mode} />
             <Chip
               size="small"
@@ -339,13 +377,19 @@ function MapTraceCard({ trace }: { trace: MapSessionTrace }) {
         <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
           <DiffValue label={t("automationTab.original")} value={trace.originalUrl} />
           <DiffValue
-            label={trace.mode === "local" ? t("automationTab.localPath") : t("automationTab.mappedUrl")}
+            label={
+              trace.mode === "local" ? t("automationTab.localPath") : t("automationTab.mappedUrl")
+            }
             value={trace.localPath ?? trace.mappedUrl}
           />
         </Box>
-        <Typography variant="caption" noWrap sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="caption"
+          noWrap
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {`${trace.sourcePattern} -> ${trace.targetValue}`}
         </Typography>
       </Stack>
@@ -363,30 +407,38 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
           spacing={1}
           sx={{
             alignItems: "center",
-            justifyContent: "space-between"
-          }}>
+            justifyContent: "space-between",
+          }}
+        >
           <Stack
             direction="row"
             spacing={1}
             sx={{
               alignItems: "center",
-              minWidth: 0
-            }}>
+              minWidth: 0,
+            }}
+          >
             <SpeedRoundedIcon
               sx={{
                 color: trace.outcome === "dropped" ? "error.main" : "primary.main",
                 fontSize: 18,
               }}
             />
-            <Box sx={{
-              minWidth: 0
-            }}>
+            <Box
+              sx={{
+                minWidth: 0,
+              }}
+            >
               <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>
                 {trace.ruleName ?? trace.profileName}
               </Typography>
-              <Typography variant="caption" noWrap sx={{
-                color: "text.secondary"
-              }}>
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{
+                  color: "text.secondary",
+                }}
+              >
                 {trace.profileName}
               </Typography>
             </Box>
@@ -397,8 +449,9 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
             useFlexGap
             sx={{
               alignItems: "center",
-              flexWrap: "wrap"
-            }}>
+              flexWrap: "wrap",
+            }}
+          >
             <Chip size="small" label={trace.stage} />
             <Chip
               size="small"
@@ -421,9 +474,12 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
           <Metric label={t("automationTab.body")} value={`${trace.bodyBytes} B`} />
         </Box>
         {trace.message ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {trace.message}
           </Typography>
         ) : null}
@@ -435,9 +491,12 @@ function ThrottleTraceCard({ trace }: { trace: ThrottleSessionTrace }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <Stack spacing={0.25} sx={{ bgcolor: "action.hover", borderRadius: "6px", px: 1, py: 0.75 }}>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {label}
       </Typography>
       <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>
@@ -481,8 +540,9 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
         sx={{
           alignItems: "center",
           justifyContent: "center",
-          minHeight: 160
-        }}>
+          minHeight: 160,
+        }}
+      >
         <CircularProgress size={22} />
       </Stack>
     );
@@ -508,9 +568,12 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     mapTraces.length === 0
   ) {
     return (
-      <Typography variant="body2" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {t("automationTab.emptyDescription")}
       </Typography>
     );
@@ -520,9 +583,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
     <Stack spacing={2}>
       {throttleTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <SpeedRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">{t("automationTab.throttling")}</Typography>
             <Chip size="small" label={throttleTraces.length} sx={{ height: 20 }} />
@@ -537,9 +604,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
       ) : null}
       {mapTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <AltRouteRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">{t("automationTab.map")}</Typography>
             <Chip size="small" label={mapTraces.length} sx={{ height: 20 }} />
@@ -551,9 +622,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
       ) : null}
       {rewriteTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <RuleRoundedIcon sx={{ color: "primary.main", fontSize: 18 }} />
             <Typography variant="subtitle2">{t("automationTab.rewrite")}</Typography>
             <Chip size="small" label={rewriteTraces.length} sx={{ height: 20 }} />
@@ -568,9 +643,13 @@ export function SessionInspectorAutomationPane({ sessionId }: { sessionId: strin
       ) : null}
       {scriptTraces.length > 0 ? (
         <Stack spacing={1.25}>
-          <Stack direction="row" spacing={0.75} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <CodeRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
             <Typography variant="subtitle2">{t("automationTab.script")}</Typography>
             <Chip size="small" label={scriptTraces.length} sx={{ height: 20 }} />

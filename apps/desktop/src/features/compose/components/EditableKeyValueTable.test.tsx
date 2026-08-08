@@ -114,7 +114,10 @@ describe("EditableKeyValueTable", () => {
     const emitted = onChange.mock.calls.at(-1)![0];
     // Every emitted entry must be a plain { name, value } — no `id` field,
     // so the shared HeaderEntry contract is preserved.
-    expect(emitted).toEqual([{ name: "X", value: "1" }, { name: "", value: "" }]);
+    expect(emitted).toEqual([
+      { name: "X", value: "1" },
+      { name: "", value: "" },
+    ]);
     for (const entry of emitted) {
       expect(Object.keys(entry).sort()).toEqual(["name", "value"]);
     }

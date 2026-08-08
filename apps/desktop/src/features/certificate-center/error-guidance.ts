@@ -2,11 +2,7 @@ import { coerceAppError } from "@aiproxy/shared-types";
 
 // Which wizard/action the error originated from. Drives the fallback class when
 // the error code/message alone is ambiguous (e.g. a generic INTERNAL_ERROR).
-export type CertificateErrorContext =
-  | "generate"
-  | "install"
-  | "startProxy"
-  | "enableSystemProxy";
+export type CertificateErrorContext = "generate" | "install" | "startProxy" | "enableSystemProxy";
 
 // Stable classification. The wizard's page-level CertificateErrorGuidance UI maps
 // each class to localized reason/steps/retry copy, keeping i18n out of this pure layer.

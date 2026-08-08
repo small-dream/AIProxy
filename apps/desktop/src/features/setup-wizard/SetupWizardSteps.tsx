@@ -1,13 +1,5 @@
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import {
-  Alert,
-  AlertTitle,
-  Box,
-  Button,
-  CircularProgress,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Alert, AlertTitle, Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 
 import { useI18n, type TranslationKey } from "@/i18n";
 
@@ -65,9 +57,12 @@ function StepHeader({ title, body }: { title: string; body?: string }) {
     <Stack spacing={0.75}>
       <Typography variant="h6">{title}</Typography>
       {body && (
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {body}
         </Typography>
       )}
@@ -85,7 +80,11 @@ function SuccessBanner({ children }: { children: React.ReactNode }) {
 
 function ActionRow({ children }: { children: React.ReactNode }) {
   return (
-    <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "center" }}>
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{ justifyContent: "space-between", alignItems: "center" }}
+    >
       {children}
     </Stack>
   );
@@ -149,7 +148,10 @@ export function SetupWizardStepContent(props: Props) {
     case "generate":
       return (
         <Stack spacing={2}>
-          <StepHeader title={t("setupWizard.generate.title")} body={t("setupWizard.generate.body")} />
+          <StepHeader
+            title={t("setupWizard.generate.title")}
+            body={t("setupWizard.generate.body")}
+          />
           {certGenerated ? (
             <SuccessBanner>{t("setupWizard.generate.success")}</SuccessBanner>
           ) : null}
@@ -160,8 +162,15 @@ export function SetupWizardStepContent(props: Props) {
                 {t("setupWizard.actions.next")}
               </Button>
             ) : (
-              <Button variant="contained" onClick={onGenerate} disabled={generating} startIcon={generating ? <CircularProgress size={16} color="inherit" /> : undefined}>
-                {generating ? t("setupWizard.generate.generating") : t("setupWizard.generate.action")}
+              <Button
+                variant="contained"
+                onClick={onGenerate}
+                disabled={generating}
+                startIcon={generating ? <CircularProgress size={16} color="inherit" /> : undefined}
+              >
+                {generating
+                  ? t("setupWizard.generate.generating")
+                  : t("setupWizard.generate.action")}
               </Button>
             )}
           </ActionRow>
@@ -180,9 +189,13 @@ export function SetupWizardStepContent(props: Props) {
                 variant="outlined"
                 onClick={onOpenInstaller}
                 disabled={openingInstaller}
-                startIcon={openingInstaller ? <CircularProgress size={16} color="inherit" /> : undefined}
+                startIcon={
+                  openingInstaller ? <CircularProgress size={16} color="inherit" /> : undefined
+                }
               >
-                {openingInstaller ? t("setupWizard.install.opening") : t("setupWizard.install.action")}
+                {openingInstaller
+                  ? t("setupWizard.install.opening")
+                  : t("setupWizard.install.action")}
               </Button>
               <Button variant="contained" onClick={onInstalled}>
                 {t("setupWizard.install.installed")}
@@ -213,8 +226,9 @@ export function SetupWizardStepContent(props: Props) {
                 useFlexGap
                 sx={{
                   flexWrap: "wrap",
-                  mt: 1
-                }}>
+                  mt: 1,
+                }}
+              >
                 <Button size="small" variant="outlined" color="inherit" onClick={onBack}>
                   {t("setupWizard.verify.backToInstall")}
                 </Button>
@@ -245,8 +259,13 @@ export function SetupWizardStepContent(props: Props) {
     case "startProxy":
       return (
         <Stack spacing={2}>
-          <StepHeader title={t("setupWizard.startProxy.title")} body={t("setupWizard.startProxy.body")} />
-          {proxyRunning ? <SuccessBanner>{t("setupWizard.startProxy.running")}</SuccessBanner> : null}
+          <StepHeader
+            title={t("setupWizard.startProxy.title")}
+            body={t("setupWizard.startProxy.body")}
+          />
+          {proxyRunning ? (
+            <SuccessBanner>{t("setupWizard.startProxy.running")}</SuccessBanner>
+          ) : null}
           <ActionRow>
             <BackButton label={t("setupWizard.actions.back")} onClick={onBack} />
             {proxyRunning ? (
@@ -254,8 +273,17 @@ export function SetupWizardStepContent(props: Props) {
                 {t("setupWizard.actions.next")}
               </Button>
             ) : (
-              <Button variant="contained" onClick={onStartProxy} disabled={startingProxy} startIcon={startingProxy ? <CircularProgress size={16} color="inherit" /> : undefined}>
-                {startingProxy ? t("setupWizard.startProxy.starting") : t("setupWizard.startProxy.action")}
+              <Button
+                variant="contained"
+                onClick={onStartProxy}
+                disabled={startingProxy}
+                startIcon={
+                  startingProxy ? <CircularProgress size={16} color="inherit" /> : undefined
+                }
+              >
+                {startingProxy
+                  ? t("setupWizard.startProxy.starting")
+                  : t("setupWizard.startProxy.action")}
               </Button>
             )}
           </ActionRow>
@@ -287,7 +315,7 @@ export function SetupWizardStepContent(props: Props) {
               // No "Next" while SSL is off: the user must enable it to proceed
               // (or go back / skip via the title-bar close). Avoids a silent
               // downgrade to dismiss at the finish step.
-              (<Button
+              <Button
                 variant="contained"
                 onClick={onEnableSsl}
                 disabled={enablingSsl}
@@ -296,7 +324,7 @@ export function SetupWizardStepContent(props: Props) {
                 {enablingSsl
                   ? t("setupWizard.sslDecryption.enabling")
                   : t("setupWizard.sslDecryption.action")}
-              </Button>)
+              </Button>
             )}
           </ActionRow>
         </Stack>
@@ -306,7 +334,9 @@ export function SetupWizardStepContent(props: Props) {
       return (
         <Stack spacing={2}>
           <StepHeader title={t("setupWizard.routing.title")} body={t("setupWizard.routing.body")} />
-          {proxySatisfied ? <SuccessBanner>{t("setupWizard.routing.systemOn")}</SuccessBanner> : null}
+          {proxySatisfied ? (
+            <SuccessBanner>{t("setupWizard.routing.systemOn")}</SuccessBanner>
+          ) : null}
           <ActionRow>
             <BackButton label={t("setupWizard.actions.back")} onClick={onBack} />
             {proxySatisfied ? (
@@ -318,8 +348,17 @@ export function SetupWizardStepContent(props: Props) {
                 <Button variant="text" color="inherit" onClick={onManualProxy}>
                   {t("setupWizard.routing.manual")}
                 </Button>
-                <Button variant="contained" onClick={onEnableSystemProxy} disabled={enablingSystem} startIcon={enablingSystem ? <CircularProgress size={16} color="inherit" /> : undefined}>
-                  {enablingSystem ? t("setupWizard.routing.enabling") : t("setupWizard.routing.enableSystem")}
+                <Button
+                  variant="contained"
+                  onClick={onEnableSystemProxy}
+                  disabled={enablingSystem}
+                  startIcon={
+                    enablingSystem ? <CircularProgress size={16} color="inherit" /> : undefined
+                  }
+                >
+                  {enablingSystem
+                    ? t("setupWizard.routing.enabling")
+                    : t("setupWizard.routing.enableSystem")}
                 </Button>
               </Stack>
             )}
@@ -330,7 +369,10 @@ export function SetupWizardStepContent(props: Props) {
     case "verifyTraffic":
       return (
         <Stack spacing={2}>
-          <StepHeader title={t("setupWizard.verifyTraffic.title")} body={t("setupWizard.verifyTraffic.body")} />
+          <StepHeader
+            title={t("setupWizard.verifyTraffic.title")}
+            body={t("setupWizard.verifyTraffic.body")}
+          />
           {hasFirstTraffic ? (
             <SuccessBanner>{t("setupWizard.verifyTraffic.success")}</SuccessBanner>
           ) : (
@@ -367,7 +409,10 @@ export function SetupWizardStepContent(props: Props) {
     case "complete":
       return (
         <Stack spacing={2}>
-          <StepHeader title={t("setupWizard.complete.title")} body={t("setupWizard.complete.body")} />
+          <StepHeader
+            title={t("setupWizard.complete.title")}
+            body={t("setupWizard.complete.body")}
+          />
           <Alert severity="info">
             {t("setupWizard.complete.mobileInvite")}
             <Box sx={{ mt: 1 }}>

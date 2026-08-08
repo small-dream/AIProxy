@@ -5,13 +5,7 @@ import { Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
@@ -118,11 +112,8 @@ export function SessionsPage() {
   // Order matters: timeout hook produces displayActiveSessions which
   // the filter hook consumes for its ignore/throttle/domain pipelines.
 
-  const {
-    locallyTimedOutSessionIds,
-    displayActiveSessions,
-    markSessionLocallyTimedOut,
-  } = usePendingSessionTimeout({ activeSessions });
+  const { locallyTimedOutSessionIds, displayActiveSessions, markSessionLocallyTimedOut } =
+    usePendingSessionTimeout({ activeSessions });
 
   const {
     focusedHosts,
@@ -526,7 +517,11 @@ export function SessionsPage() {
           onClick={() => setShowOnlyThrottled((value) => !value)}
           disabled={activeSessions.length === 0}
           icon={<SpeedRoundedIcon />}
-          label={showOnlyThrottled ? t("sessionsPage.filterAllSessions") : t("sessionsPage.filterThrottled")}
+          label={
+            showOnlyThrottled
+              ? t("sessionsPage.filterAllSessions")
+              : t("sessionsPage.filterThrottled")
+          }
         />
         <TopBarActionButton
           onClick={handleClearActiveContainer}
@@ -811,4 +806,3 @@ function getOperationErrorMessage(error: unknown, fallbackMessage: string): stri
 
   return coercedError.message || fallbackMessage;
 }
-

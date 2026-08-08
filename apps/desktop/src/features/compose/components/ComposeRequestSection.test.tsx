@@ -45,9 +45,7 @@ function ExternallyDrivenEditor({ url }: { url: string }) {
 function getValueInputs(): HTMLInputElement[] {
   // Each row has a name input then a value input, in DOM order. Value inputs are
   // the odd-indexed textboxes (1, 3, 5, ...).
-  return screen
-    .getAllByRole("textbox")
-    .filter((_, i) => i % 2 === 1) as HTMLInputElement[];
+  return screen.getAllByRole("textbox").filter((_, i) => i % 2 === 1) as HTMLInputElement[];
 }
 
 describe("QueryParamsEditor — focus retention (H12)", () => {
@@ -86,9 +84,7 @@ describe("QueryParamsEditor — focus retention (H12)", () => {
   });
 
   it("still reflects external URL changes (a saved request loaded)", () => {
-    const { rerender } = render(
-      <ExternallyDrivenEditor url="https://example.com/api?foo=bar" />,
-    );
+    const { rerender } = render(<ExternallyDrivenEditor url="https://example.com/api?foo=bar" />);
     expect(getValueInputs()[0]!.value).toBe("bar");
 
     // Simulate the parent loading a different saved request — the URL prop

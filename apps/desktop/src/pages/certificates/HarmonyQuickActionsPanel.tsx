@@ -35,12 +35,7 @@ function formatHdcDeviceLabel(device: { serial: string; state: string; model?: s
   return `${primaryLabel} (${device.serial}) - ${device.state}`;
 }
 
-export function HarmonyQuickActionsPanel({
-  hasCert,
-  localIp,
-  proxyPort,
-  proxyRunning,
-}: Props) {
+export function HarmonyQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRunning }: Props) {
   const { t, tList } = useI18n();
   const [selectedDeviceSerial, setSelectedDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
@@ -65,8 +60,7 @@ export function HarmonyQuickActionsPanel({
   const proxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
 
   const effectiveSelectedDeviceSerial =
-    selectedDeviceSerial &&
-    hdcDevices?.some((device) => device.serial === selectedDeviceSerial)
+    selectedDeviceSerial && hdcDevices?.some((device) => device.serial === selectedDeviceSerial)
       ? selectedDeviceSerial
       : ((hdcDevices?.find((device) => device.state === "Connected") ?? hdcDevices?.[0])?.serial ??
         "");
@@ -109,8 +103,9 @@ export function HarmonyQuickActionsPanel({
                 variant="body2"
                 sx={{
                   fontWeight: 500,
-                  mt: 0.5
-                }}>
+                  mt: 0.5,
+                }}
+              >
                 {t("certificatesPage.mobile.hdcManualProxyTitle")}
               </Typography>
               <Typography variant="body2">
@@ -145,7 +140,7 @@ export function HarmonyQuickActionsPanel({
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
           sx={{
-            alignItems: { xs: "stretch", md: "center" }
+            alignItems: { xs: "stretch", md: "center" },
           }}
         >
           <FormControl
@@ -211,9 +206,12 @@ export function HarmonyQuickActionsPanel({
         </Button>
 
         {hdcDevicesQuery.isLoading ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.hdcLoadingDevices")}
           </Typography>
         ) : null}
@@ -221,9 +219,12 @@ export function HarmonyQuickActionsPanel({
         {!hdcDevicesQuery.isLoading &&
         !hdcDevicesQuery.isError &&
         (hdcDevices?.length ?? 0) === 0 ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.hdcNoDevices")}
           </Typography>
         ) : null}
@@ -232,9 +233,12 @@ export function HarmonyQuickActionsPanel({
             with a neutral prompt instead of a red error. A manual refresh
             surfaces the real error. */}
         {hdcDevicesQuery.isError && !userRefreshed ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.hdcScanHint")}
           </Typography>
         ) : null}
@@ -246,9 +250,12 @@ export function HarmonyQuickActionsPanel({
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.hdcInstallUnavailable")}
           </Typography>
         ) : null}

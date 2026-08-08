@@ -27,9 +27,13 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
       description={t("certificatesPage.mobile.sectionDescription")}
     >
       <Stack spacing={1.1}>
-        <Stack direction="row" spacing={2} sx={{
-          alignItems: "center"
-        }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{
+            alignItems: "center",
+          }}
+        >
           <Typography variant="body2" sx={{ minWidth: 120 }}>
             {t("certificatesPage.mobile.localIp")}
           </Typography>
@@ -44,9 +48,13 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
           )}
         </Stack>
 
-        <Stack direction="row" spacing={2} sx={{
-          alignItems: "center"
-        }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{
+            alignItems: "center",
+          }}
+        >
           <Typography variant="body2" sx={{ minWidth: 120 }}>
             {t("certificatesPage.mobile.proxyPort")}
           </Typography>
@@ -55,16 +63,24 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
           </Typography>
         </Stack>
 
-        <Stack direction="row" spacing={2} sx={{
-          alignItems: "center"
-        }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{
+            alignItems: "center",
+          }}
+        >
           <Typography variant="body2" sx={{ minWidth: 120 }}>
             {t("certificatesPage.mobile.wifiProxy")}
           </Typography>
           {proxyAddress ? (
-            <Stack direction="row" spacing={1} sx={{
-              alignItems: "center"
-            }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{
+                alignItems: "center",
+              }}
+            >
               <Typography
                 variant="body2"
                 sx={{ fontFamily: fontFamilies.mono, fontWeight: 600, color: "primary.main" }}

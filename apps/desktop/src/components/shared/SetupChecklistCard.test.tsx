@@ -37,7 +37,10 @@ vi.mock("@/features/proxy-status/use-proxy-status", () => ({
 
 vi.mock("@/features/proxy-status/proxy-start.store", () => ({
   useProxyStartStore: (
-    selector: (s: { portInUse: typeof state.portInUse; requestOpenPortDialog: () => void }) => unknown,
+    selector: (s: {
+      portInUse: typeof state.portInUse;
+      requestOpenPortDialog: () => void;
+    }) => unknown,
   ) => selector({ portInUse: state.portInUse, requestOpenPortDialog: state.requestOpenPortDialog }),
 }));
 
@@ -46,9 +49,8 @@ vi.mock("@/features/proxy-status/use-proxy-start-defaults", () => ({
 }));
 
 vi.mock("@/app/store/app-preferences.store", () => ({
-  useAppPreferencesStore: (
-    selector: (s: { resetSetupWizardState: () => void }) => unknown,
-  ) => selector({ resetSetupWizardState: vi.fn() }),
+  useAppPreferencesStore: (selector: (s: { resetSetupWizardState: () => void }) => unknown) =>
+    selector({ resetSetupWizardState: vi.fn() }),
 }));
 
 function renderCard() {

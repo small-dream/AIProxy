@@ -185,9 +185,13 @@ function OverviewTreeHeader({
     >
       <OverviewGridRow
         label={
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             {expanded ? (
               <ExpandMoreRoundedIcon sx={{ color: "text.disabled", fontSize: 17 }} />
             ) : (

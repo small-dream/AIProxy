@@ -258,8 +258,9 @@ export const SessionInspectorResponsePane = forwardRef<
         height: "100%",
         overflow: "hidden",
         position: "relative",
-        width: "100%"
-      }}>
+        width: "100%",
+      }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -312,9 +313,13 @@ export const SessionInspectorResponsePane = forwardRef<
         {responseMeta ? <Box sx={{ flex: "0 0 auto", mr: 0.5 }}>{responseMeta}</Box> : null}
 
         {isSearchable ? (
-          <Stack direction="row" spacing={0.25} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.25}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <Tooltip
               arrow
               title={
@@ -542,9 +547,12 @@ function ResponseTabContent({
     if (isResponseRawLoading && detail?.rawResponseDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -567,9 +575,12 @@ function ResponseTabContent({
     if (isResponseBodyPending) {
       return (
         <InspectorScrollArea>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -603,9 +614,12 @@ function ResponseTabContent({
     if (isResponseBodyPending) {
       return (
         <InspectorScrollArea>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -652,15 +666,21 @@ function ResponseTabContent({
 
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {bodyDescription ?? t("common.tech.noBodyCaptured")}
       </Typography>
       {isResponseBodyPending ? (
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("inspector.workspace.loading")}
         </Typography>
       ) : (

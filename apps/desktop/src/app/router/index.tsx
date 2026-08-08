@@ -43,8 +43,9 @@ function LazyRouteFallback() {
         alignItems: "center",
         justifyContent: "center",
         minHeight: 240,
-        width: "100%"
-      }}>
+        width: "100%",
+      }}
+    >
       <CircularProgress size={24} />
     </Stack>
   );

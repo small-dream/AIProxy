@@ -128,11 +128,7 @@ describe("computeInsightsFromSummaries", () => {
       unscoped,
     );
 
-    expect(result.byHost.map((host) => host.host)).toEqual([
-      "alpha.com",
-      "mango.com",
-      "zebra.com",
-    ]);
+    expect(result.byHost.map((host) => host.host)).toEqual(["alpha.com", "mango.com", "zebra.com"]);
   });
 
   it("breaks byStatusCode / byMethod ties by key asc", () => {

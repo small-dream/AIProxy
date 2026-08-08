@@ -46,8 +46,9 @@ export function QrCodePanel({ certDownloadUrl, proxyAddress, sslEnabled, hasCert
                 color: "text.secondary",
                 fontFamily: fontFamilies.mono,
                 wordBreak: "break-all",
-                mt: 1
-              }}>
+                mt: 1,
+              }}
+            >
               {certDownloadUrl}
             </Typography>
           </Box>

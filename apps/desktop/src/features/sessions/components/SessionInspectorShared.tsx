@@ -181,8 +181,9 @@ export function InspectorSummaryBar({
         sx={{
           alignItems: "center",
           justifyContent: "space-between",
-          minWidth: 0
-        }}>
+          minWidth: 0,
+        }}
+      >
         <Stack
           direction="row"
           spacing={1}
@@ -190,8 +191,9 @@ export function InspectorSummaryBar({
             alignItems: "center",
             flex: "1 1 0",
             minWidth: 0,
-            overflow: "hidden"
-          }}>
+            overflow: "hidden",
+          }}
+        >
           <Tooltip arrow title={summaryTitle}>
             <Typography
               sx={{
@@ -215,8 +217,9 @@ export function InspectorSummaryBar({
             spacing={0.75}
             sx={{
               alignItems: "center",
-              flexShrink: 0
-            }}>
+              flexShrink: 0,
+            }}
+          >
             <Chip color="warning" label={durationLabel} size="small" variant="outlined" />
             {isMediaResponse ? null : (
               <Chip
@@ -240,8 +243,9 @@ export function InspectorSummaryBar({
           spacing={0.5}
           sx={{
             alignItems: "center",
-            flex: "0 0 auto"
-          }}>
+            flex: "0 0 auto",
+          }}
+        >
           {onRepeat ? (
             <Tooltip arrow title={t("inspector.summary.repeatInCompose")}>
               <IconButton
@@ -303,8 +307,9 @@ export function InspectorSummaryBar({
             lineHeight: 1.45,
             minWidth: 0,
             overflow: "hidden",
-            whiteSpace: "nowrap"
-          }}>
+            whiteSpace: "nowrap",
+          }}
+        >
           {displayHost ? (
             <Box
               component="span"
@@ -348,9 +353,12 @@ export function InspectorDefinitionList({
 
   if (items.length === 0) {
     return (
-      <Typography variant="body2" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {emptyMessage ?? t("common.empty.noData")}
       </Typography>
     );
@@ -370,8 +378,9 @@ export function InspectorDefinitionList({
             sx={{
               ...inspectorKeyTypographySx,
               flex: "0 0 180px",
-              pr: 1
-            }}>
+              pr: 1,
+            }}
+          >
             {label}
           </Typography>
           <Typography
@@ -427,8 +436,9 @@ export function InspectorFlatTable({
                 fontWeight: 500,
                 lineHeight: 1.25,
                 px: 0.75,
-                py: 0.375
-              }}>
+                py: 0.375,
+              }}
+            >
               {header}
             </Typography>
           ))}
@@ -540,8 +550,9 @@ export function EllipsizedCell({
         sx={{
           alignItems: "center",
           minWidth: 0,
-          width: "100%"
-        }}>
+          width: "100%",
+        }}
+      >
         <Tooltip arrow enterDelay={350} placement="top-start" title={isOverflowing ? text : ""}>
           <Typography
             ref={textRef}
@@ -676,9 +687,12 @@ export function InspectorKeyValueTable({
             {title}
           </Typography>
         ) : null}
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {emptyMessage ?? t("common.empty.noData")}
         </Typography>
       </Stack>

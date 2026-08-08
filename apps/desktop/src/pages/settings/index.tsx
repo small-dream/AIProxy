@@ -200,21 +200,20 @@ function ProxySettingsSection() {
       description={t("proxyPresets.description")}
     >
       <Stack spacing={1.5}>
-        {isWorkspacesError && (
-          <Alert severity="error">{t("common.errors.generic")}</Alert>
-        )}
+        {isWorkspacesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
         <Stack
           direction={{ md: "row", xs: "column" }}
           spacing={1.5}
           sx={{
             alignItems: { md: "center", xs: "stretch" },
-            justifyContent: "space-between"
-          }}>
+            justifyContent: "space-between",
+          }}
+        >
           <Stack
             direction={{ sm: "row", xs: "column" }}
             spacing={1.5}
             sx={{
-              alignItems: { sm: "center", xs: "stretch" }
+              alignItems: { sm: "center", xs: "stretch" },
             }}
           >
             <TextField
@@ -247,9 +246,12 @@ function ProxySettingsSection() {
                 />
               }
               label={
-                <Typography variant="body2" sx={{
-                  color: "text.secondary"
-                }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                  }}
+                >
                   {t("proxyPresets.sslEnabled")}
                 </Typography>
               }
@@ -270,9 +272,12 @@ function ProxySettingsSection() {
               label={
                 <Box>
                   <Typography variant="body2">{t("proxyPresets.http2Enabled")}</Typography>
-                  <Typography variant="caption" sx={{
-                    color: "text.secondary"
-                  }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                    }}
+                  >
                     {t("proxyPresets.http2EnabledDescription")}
                   </Typography>
                 </Box>
@@ -316,9 +321,7 @@ function ProxySettingsSection() {
             }
             label={
               <Box>
-                <Typography variant="body2">
-                  {t("proxyPresets.verifyUpstreamTls")}
-                </Typography>
+                <Typography variant="body2">{t("proxyPresets.verifyUpstreamTls")}</Typography>
                 <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {t("proxyPresets.verifyUpstreamTlsDescription")}
                 </Typography>
@@ -343,11 +346,21 @@ function ProxySettingsSection() {
         </Stack>
 
         {draft.verifyUpstreamTls ? (
-          <Alert severity="success" variant="outlined" icon={<CheckCircleRoundedIcon />} sx={compactAlertSx}>
+          <Alert
+            severity="success"
+            variant="outlined"
+            icon={<CheckCircleRoundedIcon />}
+            sx={compactAlertSx}
+          >
             {t("proxyPresets.verifyUpstreamTlsEnabledHint")}
           </Alert>
         ) : (
-          <Alert severity="warning" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
+          <Alert
+            severity="warning"
+            variant="outlined"
+            icon={<InfoRoundedIcon />}
+            sx={compactAlertSx}
+          >
             {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
           </Alert>
         )}
@@ -469,7 +482,7 @@ function UpdatesSection() {
           direction={{ sm: "row", xs: "column" }}
           spacing={1.5}
           sx={{
-            alignItems: { sm: "center", xs: "stretch" }
+            alignItems: { sm: "center", xs: "stretch" },
           }}
         >
           <Button
@@ -513,9 +526,12 @@ function UpdatesSection() {
         ) : null}
 
         {progressText ? (
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {progressText}
           </Typography>
         ) : null}
@@ -689,7 +705,7 @@ function AiModelSettingsSection() {
           direction={{ sm: "row", xs: "column" }}
           spacing={1}
           sx={{
-            alignItems: { sm: "center", xs: "stretch" }
+            alignItems: { sm: "center", xs: "stretch" },
           }}
         >
           <Button
@@ -778,9 +794,12 @@ function AboutSection() {
 function BuildInfoField({ label, value }: { label: string; value: string }) {
   return (
     <Stack spacing={0.5}>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {label}
       </Typography>
       <Typography
@@ -844,9 +863,12 @@ export function SettingsPage() {
         <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
           {t("settingsPage.title")}
         </Typography>
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("settingsPage.description")}
         </Typography>
       </Stack>

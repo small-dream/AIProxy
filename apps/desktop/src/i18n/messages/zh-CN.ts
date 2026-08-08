@@ -251,12 +251,10 @@ export const zhCNMessages: Messages = {
     stoppedHint: "保存后的设置会在下次启动代理时生效。",
     title: "代理设置",
     verifyUpstreamTls: "校验上游 TLS",
-    verifyUpstreamTlsDescription:
-      "在新的 HTTPS/WSS 连接上依据系统根证书校验上游服务器证书。",
+    verifyUpstreamTlsDescription: "在新的 HTTPS/WSS 连接上依据系统根证书校验上游服务器证书。",
     tlsVerifyHosts: "TLS 校验主机白名单",
     tlsVerifyHostsPlaceholder: "每行一个主机名（例如 example.com）",
-    verifyUpstreamTlsEnabledHint:
-      "上游 TLS 校验已开启：新的连接会拒绝无效或自签名的上游证书。",
+    verifyUpstreamTlsEnabledHint: "上游 TLS 校验已开启：新的连接会拒绝无效或自签名的上游证书。",
     verifyUpstreamTlsDisabledHint:
       "上游 TLS 校验已关闭（不安全）：代理会接受任意上游证书。如需更安全地拦截可信上游，请开启此项。",
   },
@@ -748,7 +746,8 @@ export const zhCNMessages: Messages = {
         "通过 USB 连接一台鸿蒙 HarmonyOS NEXT 设备或启动鸿蒙模拟器，并确保 hdc 能识别目标。AIProxy 会把根证书推送到目标设备，并尝试打开系统设置以便你手动完成安装。",
       hdcInstallHint:
         "这不是静默安装。HarmonyOS NEXT 需要你在系统证书管理界面继续操作，选择从存储设备安装；如果文件选择器看不到推送路径，请用二维码/浏览器下载证书后安装。",
-      hdcInstallRequirements: "要求本机 PATH 中可用 hdc（来自 HarmonyOS SDK / DevEco Studio），并且所选设备处于“Connected”状态。",
+      hdcInstallRequirements:
+        "要求本机 PATH 中可用 hdc（来自 HarmonyOS SDK / DevEco Studio），并且所选设备处于“Connected”状态。",
       hdcInstallUnavailable: "请先生成根证书，之后才能使用 hdc 推送。",
       hdcInstalling: "正在通过 hdc 推送...",
       hdcLoadingDevices: "正在检测 hdc 设备...",
@@ -761,7 +760,8 @@ export const zhCNMessages: Messages = {
       hdcManualProxyBody:
         "HarmonyOS NEXT 没有官方 hdc 全局 HTTP 代理命令。真机请在 Wi-Fi 网络里手动配置代理；模拟器请在模拟器系统网络设置里配置，地址见下方。",
       hdcManualProxyTitle: "Wi-Fi 代理（手动）",
-      hdcNoDevices: "暂未发现 hdc 设备。请连接鸿蒙 HarmonyOS NEXT 设备，在开发者选项里开启 HDC 调试后再刷新。",
+      hdcNoDevices:
+        "暂未发现 hdc 设备。请连接鸿蒙 HarmonyOS NEXT 设备，在开发者选项里开启 HDC 调试后再刷新。",
       hdcProxyAddressHint: "请在设备 Wi-Fi 代理设置里填入此代理地址：{{proxyAddress}}",
       hdcQuickActionsInfoTitle: "鸿蒙快捷操作说明",
       hdcRefreshDevices: "刷新设备",

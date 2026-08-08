@@ -44,8 +44,9 @@ export function FieldGroup({ title, children }: { title: string; children: React
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: 0,
-          textTransform: "uppercase"
-        }}>
+          textTransform: "uppercase",
+        }}
+      >
         {title}
       </Typography>
       {children}
@@ -78,8 +79,9 @@ export function InlineSwitch({
         borderColor: "divider",
         borderRadius: "8px",
         minHeight: 36,
-        px: 1
-      }}>
+        px: 1,
+      }}
+    >
       <Typography variant="body2" sx={{ fontSize: 13 }}>
         {label}
       </Typography>
@@ -173,9 +175,14 @@ export function ManagedRulesWorkbench(props: {
               height: 36,
             }}
           />
-          <Stack direction="row" spacing={0.75} useFlexGap sx={{
-            flexWrap: "wrap"
-          }}>
+          <Stack
+            direction="row"
+            spacing={0.75}
+            useFlexGap
+            sx={{
+              flexWrap: "wrap",
+            }}
+          >
             {createActions}
           </Stack>
         </Stack>
@@ -291,8 +298,9 @@ export function ManagedRuleList(props: {
                 spacing={1}
                 sx={{
                   justifyContent: "space-between",
-                  alignItems: "center"
-                }}>
+                  alignItems: "center",
+                }}
+              >
                 <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
                   {item.name}
                 </Typography>
@@ -301,8 +309,9 @@ export function ManagedRuleList(props: {
                   spacing={0.5}
                   sx={{
                     alignItems: "center",
-                    flexShrink: 0
-                  }}>
+                    flexShrink: 0,
+                  }}
+                >
                   {!item.enabled && (
                     <Chip
                       size="small"
@@ -331,8 +340,9 @@ export function ManagedRuleList(props: {
                 component="p"
                 sx={{
                   color: "text.secondary",
-                  mt: 0.35
-                }}>
+                  mt: 0.35,
+                }}
+              >
                 {item.subtitle}
               </Typography>
             }

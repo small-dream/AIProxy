@@ -14,12 +14,7 @@ export interface DocsEntry {
   order: number;
 }
 
-export const docsGroupOrder: DocsGroup[] = [
-  "getting-started",
-  "capture",
-  "rules",
-  "advanced",
-];
+export const docsGroupOrder: DocsGroup[] = ["getting-started", "capture", "rules", "advanced"];
 
 export const docsGroupTitleKey: Record<DocsGroup, TranslationKey> = {
   "getting-started": "docsPage.groups.gettingStarted",

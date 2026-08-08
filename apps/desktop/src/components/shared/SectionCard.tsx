@@ -42,17 +42,24 @@ export function SectionCard({
           },
         }}
       >
-        <Stack direction="row" spacing={2} sx={{
-          justifyContent: "space-between"
-        }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{
+            justifyContent: "space-between",
+          }}
+        >
           <Stack spacing={compact ? 0.25 : 0.5}>
             <Typography variant="h6" sx={compact ? { fontSize: 17, lineHeight: 1.25 } : undefined}>
               {title}
             </Typography>
             {description ? (
-              <Typography variant="body2" sx={{
-                color: "text.secondary"
-              }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "text.secondary",
+                }}
+              >
                 {description}
               </Typography>
             ) : null}

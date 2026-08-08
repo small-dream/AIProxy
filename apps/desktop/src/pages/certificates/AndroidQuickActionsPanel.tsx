@@ -42,12 +42,7 @@ function formatAdbDeviceLabel(device: {
   return `${primaryLabel} (${device.serial}) - ${device.state}`;
 }
 
-export function AndroidQuickActionsPanel({
-  hasCert,
-  localIp,
-  proxyPort,
-  proxyRunning,
-}: Props) {
+export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRunning }: Props) {
   const { t } = useI18n();
   const [selectedAdbDeviceSerial, setSelectedAdbDeviceSerial] = useState("");
   const [showInfo, setShowInfo] = useState(false);
@@ -178,7 +173,7 @@ export function AndroidQuickActionsPanel({
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
           sx={{
-            alignItems: { xs: "stretch", md: "center" }
+            alignItems: { xs: "stretch", md: "center" },
           }}
         >
           <FormControl
@@ -273,9 +268,12 @@ export function AndroidQuickActionsPanel({
         </Stack>
 
         {adbDevicesQuery.isLoading ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.adbLoadingDevices")}
           </Typography>
         ) : null}
@@ -283,9 +281,12 @@ export function AndroidQuickActionsPanel({
         {!adbDevicesQuery.isLoading &&
         !adbDevicesQuery.isError &&
         (adbDevices?.length ?? 0) === 0 ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.adbNoDevices")}
           </Typography>
         ) : null}
@@ -294,9 +295,12 @@ export function AndroidQuickActionsPanel({
             with a neutral prompt instead of a red error. A manual refresh
             surfaces the real error. */}
         {adbDevicesQuery.isError && !userRefreshed ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.adbScanHint")}
           </Typography>
         ) : null}
@@ -308,17 +312,23 @@ export function AndroidQuickActionsPanel({
         ) : null}
 
         {!hasCert ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("certificatesPage.mobile.adbInstallUnavailable")}
           </Typography>
         ) : null}
 
         {proxySetupBlockedReason ? (
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {proxySetupBlockedReason}
           </Typography>
         ) : null}

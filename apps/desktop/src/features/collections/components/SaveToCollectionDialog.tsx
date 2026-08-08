@@ -70,8 +70,9 @@ export function SaveToCollectionDialog({
           variant="caption"
           sx={{
             color: "text.secondary",
-            mb: 1
-          }}>
+            mb: 1,
+          }}
+        >
           {t("collectionsPage.selectCollection")}
         </Typography>
         <List
@@ -101,8 +102,9 @@ export function SaveToCollectionDialog({
               variant="caption"
               sx={{
                 color: "text.secondary",
-                p: 2
-              }}>
+                p: 2,
+              }}
+            >
               {t("collectionsPage.emptyCollections")}
             </Typography>
           )}

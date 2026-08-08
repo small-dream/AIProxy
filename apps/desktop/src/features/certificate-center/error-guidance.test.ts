@@ -65,10 +65,7 @@ describe("mapCertificateError", () => {
   });
 
   it("falls back to installerFailed for an unknown error in the install context", () => {
-    const guidance = mapCertificateError(
-      appError("INTERNAL_ERROR", "something broke"),
-      "install",
-    );
+    const guidance = mapCertificateError(appError("INTERNAL_ERROR", "something broke"), "install");
 
     expect(guidance.errorClass).toBe("installerFailed");
     expect(guidance.canRetry).toBe(true);

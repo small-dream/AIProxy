@@ -46,9 +46,7 @@ describe("useEnvVarsSaveManager (H8 flush-on-switch)", () => {
 
     // Flushing on switch must have saved env A's pending edit immediately.
     expect(save).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ environmentId: "envA" }),
-    );
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "envA" }));
     const saved = save.mock.calls[0]![0] as {
       environmentId: string;
       variables: Array<{ key: string }>;
@@ -73,9 +71,7 @@ describe("useEnvVarsSaveManager (H8 flush-on-switch)", () => {
 
   it("fires the debounced save after the timer when the env is not switched", () => {
     const save = vi.fn();
-    const { result } = renderHook(() =>
-      useEnvVarsSaveManager({ selectedEnvId: "envA", save }),
-    );
+    const { result } = renderHook(() => useEnvVarsSaveManager({ selectedEnvId: "envA", save }));
 
     act(() => {
       result.current.scheduleSave([row("K", "V1")]);
@@ -86,9 +82,7 @@ describe("useEnvVarsSaveManager (H8 flush-on-switch)", () => {
       vi.advanceTimersByTime(500);
     });
     expect(save).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ environmentId: "envA" }),
-    );
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "envA" }));
   });
 
   it("does not double-save (flush then expired timer must not fire again)", () => {

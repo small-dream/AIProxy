@@ -320,9 +320,12 @@ export const SessionInspectorWorkspace = forwardRef<
       >
         <Box sx={{ maxWidth: 460, p: 4 }}>
           <Typography variant="h6">{t("inspector.workspace.emptyTitle")}</Typography>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.emptyDescription")}
           </Typography>
         </Box>
@@ -355,9 +358,12 @@ export const SessionInspectorWorkspace = forwardRef<
       ) : null}
       {isDetailLoading && !detail ? (
         <Box sx={{ p: 2 }}>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </Box>

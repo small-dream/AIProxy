@@ -14,9 +14,7 @@ export function generateCurlCommand(
   options?: { platform?: CurlPlatform },
 ): string {
   const platform = options?.platform ?? detectBrowserPlatform();
-  return platform === "windows"
-    ? generateWindowsCurl(params)
-    : generatePosixCurl(params);
+  return platform === "windows" ? generateWindowsCurl(params) : generatePosixCurl(params);
 }
 
 /**
@@ -81,7 +79,9 @@ function generateWindowsCurl({
 
   for (const header of headers) {
     if (!header.name.trim()) continue;
-    parts.push(`-H "${escapeForDoubleQuotes(header.name)}: ${escapeForDoubleQuotes(header.value)}"`);
+    parts.push(
+      `-H "${escapeForDoubleQuotes(header.name)}: ${escapeForDoubleQuotes(header.value)}"`,
+    );
   }
 
   if (body) {

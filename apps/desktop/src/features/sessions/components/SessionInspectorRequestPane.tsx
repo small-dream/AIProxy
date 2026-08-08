@@ -106,8 +106,9 @@ export const SessionInspectorRequestPane = forwardRef<
         height: "100%",
         overflow: "hidden",
         position: "relative",
-        width: "100%"
-      }}>
+        width: "100%",
+      }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -275,9 +276,12 @@ function RequestTabContent({
     ) {
       return (
         <InspectorScrollArea>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -318,9 +322,12 @@ function RequestTabContent({
     if (isRequestRawLoading && detail?.rawRequestDeferred) {
       return (
         <InspectorScrollArea>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.workspace.loading")}
           </Typography>
         </InspectorScrollArea>
@@ -342,9 +349,12 @@ function RequestTabContent({
   return (
     <Stack spacing={1} sx={{ flex: 1, minHeight: 0 }}>
       {isRequestBodyLoading && detail?.requestBody?.textDeferred ? (
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("inspector.workspace.loading")}
         </Typography>
       ) : (
@@ -373,9 +383,12 @@ function MultipartFormTable({
 
   if (entries.length === 0) {
     return (
-      <Typography variant="body2" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {emptyMessage}
       </Typography>
     );

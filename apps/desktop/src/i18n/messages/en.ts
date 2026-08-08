@@ -795,7 +795,8 @@ export const enMessages = {
       hdcManualProxyTitle: "Wi-Fi Proxy (manual)",
       hdcNoDevices:
         "No hdc devices found yet. Connect a HarmonyOS NEXT device, enable HDC debugging in Developer options, then refresh.",
-      hdcProxyAddressHint: "Enter this proxy address in the device Wi-Fi proxy settings: {{proxyAddress}}",
+      hdcProxyAddressHint:
+        "Enter this proxy address in the device Wi-Fi proxy settings: {{proxyAddress}}",
       hdcQuickActionsInfoTitle: "HarmonyOS Quick Action Notes",
       hdcRefreshDevices: "Refresh Devices",
       hdcRefreshingDevices: "Refreshing...",
@@ -1638,9 +1639,9 @@ export const enMessages = {
       opening: "Opening...",
       installed: "I've installed it — verify trust",
       macosHint:
-        "On macOS, add it to the System keychain, then set \"Always Trust\" and enter your administrator password.",
+        'On macOS, add it to the System keychain, then set "Always Trust" and enter your administrator password.',
       windowsHint:
-        "On Windows, place it in the \"Trusted Root Certification Authorities\" store for Local Machine.",
+        'On Windows, place it in the "Trusted Root Certification Authorities" store for Local Machine.',
       linuxHint:
         "On Linux, copy it into the system CA directory and run sudo update-ca-certificates.",
     },

@@ -3,13 +3,7 @@ import FilterAltOffRoundedIcon from "@mui/icons-material/FilterAltOffRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import {
-  Divider,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
-} from "@mui/material";
+import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
 import {

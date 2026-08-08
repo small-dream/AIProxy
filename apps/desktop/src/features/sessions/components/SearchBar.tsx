@@ -94,8 +94,9 @@ export function SearchBar({
         minHeight: 38,
         px: 0.75,
         py: 0.5,
-        width: "fit-content"
-      }}>
+        width: "fit-content",
+      }}
+    >
       <OutlinedInput
         autoFocus
         endAdornment={
@@ -118,13 +119,17 @@ export function SearchBar({
                 sx={buildOptionButtonSx(options.caseSensitive)}
               >
                 <Typography
-                  sx={[{
-                    fontWeight: 600
-                  }, (theme) => ({
-                    fontSize: getWorkbenchFontSize(theme, 11),
-                    letterSpacing: 0,
-                    lineHeight: 1,
-                  })]}>
+                  sx={[
+                    {
+                      fontWeight: 600,
+                    },
+                    (theme) => ({
+                      fontSize: getWorkbenchFontSize(theme, 11),
+                      letterSpacing: 0,
+                      lineHeight: 1,
+                    }),
+                  ]}
+                >
                   Aa
                 </Typography>
               </IconButton>
@@ -140,13 +145,17 @@ export function SearchBar({
                   sx={buildOptionButtonSx(options.wholeWord, options.useRegex)}
                 >
                   <Typography
-                    sx={[{
-                      fontWeight: 600
-                    }, (theme) => ({
-                      fontSize: getWorkbenchFontSize(theme, 11),
-                      letterSpacing: 0,
-                      lineHeight: 1,
-                    })]}>
+                    sx={[
+                      {
+                        fontWeight: 600,
+                      },
+                      (theme) => ({
+                        fontSize: getWorkbenchFontSize(theme, 11),
+                        letterSpacing: 0,
+                        lineHeight: 1,
+                      }),
+                    ]}
+                  >
                     ab
                   </Typography>
                 </IconButton>

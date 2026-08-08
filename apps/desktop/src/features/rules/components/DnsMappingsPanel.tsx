@@ -105,156 +105,163 @@ export function DnsMappingsPanel() {
   return (
     <>
       {isRulesError && (
-        <Alert severity="error" sx={{ mb: 1 }}>{t("common.errors.generic")}</Alert>
+        <Alert severity="error" sx={{ mb: 1 }}>
+          {t("common.errors.generic")}
+        </Alert>
       )}
       <ManagedRulesWorkbench
-      searchPlaceholder={t("rulesPage.dns.searchPlaceholder")}
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      createActions={
-        <Button
-          size="small"
-          variant="outlined"
-          disabled={isRulesError}
-          startIcon={<AddRoundedIcon />}
-          onClick={handleCreateRule}
-        >
-          {t("rulesPage.dns.createRule")}
-        </Button>
-      }
-      list={
-        <ManagedRuleList
-          emptyDescription={t("rulesPage.dns.emptyDescription")}
-          items={filteredRules.map((rule) => ({
-            id: rule.id,
-            active: rule.id === selectedRuleId,
-            enabled: rule.enabled,
-            name: rule.name || t("rulesPage.untitledRule"),
-            subtitle: `${rule.hostPattern || "*"} → ${rule.targetIp || t("rulesPage.notConfigured")}`,
-            chipLabel: `${rule.priority}`,
-            onClick: () => selectRule(rule),
-          }))}
-        />
-      }
-      editor={
-        <Stack spacing={2}>
-          {/* Top bar */}
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={1.25}
-            sx={{
-              alignItems: { xs: "stretch", md: "center" },
-              borderBottom: 1,
-              borderColor: "divider",
-              pb: 1.5
-            }}>
-            <TextField
-              size="small"
-              label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              sx={{ flex: 1 }}
-            />
+        searchPlaceholder={t("rulesPage.dns.searchPlaceholder")}
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        createActions={
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={isRulesError}
+            startIcon={<AddRoundedIcon />}
+            onClick={handleCreateRule}
+          >
+            {t("rulesPage.dns.createRule")}
+          </Button>
+        }
+        list={
+          <ManagedRuleList
+            emptyDescription={t("rulesPage.dns.emptyDescription")}
+            items={filteredRules.map((rule) => ({
+              id: rule.id,
+              active: rule.id === selectedRuleId,
+              enabled: rule.enabled,
+              name: rule.name || t("rulesPage.untitledRule"),
+              subtitle: `${rule.hostPattern || "*"} → ${rule.targetIp || t("rulesPage.notConfigured")}`,
+              chipLabel: `${rule.priority}`,
+              onClick: () => selectRule(rule),
+            }))}
+          />
+        }
+        editor={
+          <Stack spacing={2}>
+            {/* Top bar */}
             <Stack
-              direction="row"
-              spacing={0.75}
+              direction={{ xs: "column", md: "row" }}
+              spacing={1.25}
               sx={{
-                alignItems: "center",
-                border: 1,
+                alignItems: { xs: "stretch", md: "center" },
+                borderBottom: 1,
                 borderColor: "divider",
-                borderRadius: "8px",
-                minHeight: 40,
-                px: 1
-              }}>
-              <Typography variant="caption" sx={{
-                color: "text.secondary"
-              }}>
-                {t("rulesPage.editor.enabled")}
-              </Typography>
-              <Switch
+                pb: 1.5,
+              }}
+            >
+              <TextField
                 size="small"
-                checked={draft.enabled}
-                onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+                label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                sx={{ flex: 1 }}
               />
-            </Stack>
-            <TextField
-              size="small"
-              type="number"
-              label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-              value={priorityText}
-              onChange={(e) => {
-                setPriorityText(e.target.value);
-                const parsed = Number(e.target.value);
-                if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
-                  setDraft({ ...draft, priority: parsed });
-                }
-              }}
-              onBlur={() => {
-                const parsed = Number(priorityText);
-                const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-                setPriorityText(String(next));
-                if (draft.priority !== next) setDraft({ ...draft, priority: next });
-              }}
-              sx={{ width: { xs: "100%", md: 136 } }}
-            />
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<DeleteRoundedIcon />}
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending || isRulesError}
-            >
-              {t("common.actions.remove")}
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<SaveRoundedIcon />}
-              onClick={handleSave}
-              disabled={saveMutation.isPending || isRulesError}
-            >
-              {t("rulesPage.editor.saveRule")}
-            </Button>
-          </Stack>
-
-          {/* Validation */}
-          {validationAttempted && errors.length > 0 && (
-            <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-              <Stack spacing={0.25}>
-                {errors.map((err) => (
-                  <Typography key={err} variant="body2">
-                    {err}
-                  </Typography>
-                ))}
+              <Stack
+                direction="row"
+                spacing={0.75}
+                sx={{
+                  alignItems: "center",
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: "8px",
+                  minHeight: 40,
+                  px: 1,
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                  }}
+                >
+                  {t("rulesPage.editor.enabled")}
+                </Typography>
+                <Switch
+                  size="small"
+                  checked={draft.enabled}
+                  onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+                />
               </Stack>
-            </Alert>
-          )}
+              <TextField
+                size="small"
+                type="number"
+                label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
+                value={priorityText}
+                onChange={(e) => {
+                  setPriorityText(e.target.value);
+                  const parsed = Number(e.target.value);
+                  if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
+                    setDraft({ ...draft, priority: parsed });
+                  }
+                }}
+                onBlur={() => {
+                  const parsed = Number(priorityText);
+                  const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
+                  setPriorityText(String(next));
+                  if (draft.priority !== next) setDraft({ ...draft, priority: next });
+                }}
+                sx={{ width: { xs: "100%", md: 136 } }}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteRoundedIcon />}
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending || isRulesError}
+              >
+                {t("common.actions.remove")}
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<SaveRoundedIcon />}
+                onClick={handleSave}
+                disabled={saveMutation.isPending || isRulesError}
+              >
+                {t("rulesPage.editor.saveRule")}
+              </Button>
+            </Stack>
 
-          {/* DNS mapping config */}
-          <RuleSection>
-            <FieldGroup title={t("rulesPage.dns.title")}>
-              <TextField
-                size="small"
-                label={formatRuleFieldLabel(t("rulesPage.dns.hostPattern"), "required", t)}
-                value={draft.hostPattern}
-                onChange={(e) => setDraft({ ...draft, hostPattern: e.target.value })}
-                placeholder={t("rulesPage.dns.hostPatternExample")}
-                fullWidth
-              />
-              <TextField
-                size="small"
-                label={formatRuleFieldLabel(t("rulesPage.dns.targetIp"), "required", t)}
-                value={draft.targetIp}
-                onChange={(e) => setDraft({ ...draft, targetIp: e.target.value })}
-                placeholder={t("rulesPage.dns.targetIpExample")}
-                fullWidth
-              />
-            </FieldGroup>
-          </RuleSection>
-        </Stack>
-      }
-    />
+            {/* Validation */}
+            {validationAttempted && errors.length > 0 && (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+                <Stack spacing={0.25}>
+                  {errors.map((err) => (
+                    <Typography key={err} variant="body2">
+                      {err}
+                    </Typography>
+                  ))}
+                </Stack>
+              </Alert>
+            )}
+
+            {/* DNS mapping config */}
+            <RuleSection>
+              <FieldGroup title={t("rulesPage.dns.title")}>
+                <TextField
+                  size="small"
+                  label={formatRuleFieldLabel(t("rulesPage.dns.hostPattern"), "required", t)}
+                  value={draft.hostPattern}
+                  onChange={(e) => setDraft({ ...draft, hostPattern: e.target.value })}
+                  placeholder={t("rulesPage.dns.hostPatternExample")}
+                  fullWidth
+                />
+                <TextField
+                  size="small"
+                  label={formatRuleFieldLabel(t("rulesPage.dns.targetIp"), "required", t)}
+                  value={draft.targetIp}
+                  onChange={(e) => setDraft({ ...draft, targetIp: e.target.value })}
+                  placeholder={t("rulesPage.dns.targetIpExample")}
+                  fullWidth
+                />
+              </FieldGroup>
+            </RuleSection>
+          </Stack>
+        }
+      />
     </>
   );
 }

@@ -189,7 +189,16 @@ export function useSessionCompare() {
     summaryMutation.reset();
     setExpandedBodySections(new Set());
     setExpandedEntrySections(new Set());
-  }, [compareMode, effectiveDomainFilter, includeBodyForAi, leftId, leftScopeId, rightId, rightScopeId, summaryMutation]);
+  }, [
+    compareMode,
+    effectiveDomainFilter,
+    includeBodyForAi,
+    leftId,
+    leftScopeId,
+    rightId,
+    rightScopeId,
+    summaryMutation,
+  ]);
 
   // --- Diff payloads ---
 

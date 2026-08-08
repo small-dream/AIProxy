@@ -43,7 +43,7 @@ export function ThrottlingPage() {
             direction={{ xs: "column", lg: "row" }}
             spacing={1.25}
             sx={{
-              alignItems: { xs: "stretch", lg: "center" }
+              alignItems: { xs: "stretch", lg: "center" },
             }}
           >
             <Stack
@@ -52,17 +52,25 @@ export function ThrottlingPage() {
               sx={{
                 alignItems: "center",
                 flex: 1,
-                minWidth: 0
-              }}>
+                minWidth: 0,
+              }}
+            >
               <Box
-                sx={{ color: ed.activeProfile ? "success.main" : "text.secondary", display: "flex" }}
+                sx={{
+                  color: ed.activeProfile ? "success.main" : "text.secondary",
+                  display: "flex",
+                }}
               >
                 <WifiTetheringRoundedIcon fontSize="small" />
               </Box>
               <Stack sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={0.75} sx={{
-                  alignItems: "center"
-                }}>
+                <Stack
+                  direction="row"
+                  spacing={0.75}
+                  sx={{
+                    alignItems: "center",
+                  }}
+                >
                   <Typography variant="subtitle2" sx={{ fontWeight: 750 }} noWrap>
                     {t("throttlingPage.title")}
                   </Typography>
@@ -81,9 +89,13 @@ export function ThrottlingPage() {
                     />
                   ) : null}
                 </Stack>
-                <Typography variant="caption" noWrap sx={{
-                  color: "text.secondary"
-                }}>
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{
+                    color: "text.secondary",
+                  }}
+                >
                   {ed.activeStatusLabel}{" "}
                   {t("throttlingPage.activeStatusScope", {
                     activeRuleCount: ed.activeRuleCount,
@@ -100,8 +112,9 @@ export function ThrottlingPage() {
               useFlexGap
               sx={{
                 alignItems: "center",
-                flexWrap: "wrap"
-              }}>
+                flexWrap: "wrap",
+              }}
+            >
               <StatusPill
                 icon={<RuleRoundedIcon />}
                 label={t("throttlingPage.stats.hits")}
@@ -168,8 +181,9 @@ export function ThrottlingPage() {
               borderBottom: 1,
               borderColor: "divider",
               px: 1.25,
-              py: 1
-            }}>
+              py: 1,
+            }}
+          >
             <ToggleButtonGroup
               exclusive
               size="small"
@@ -185,17 +199,22 @@ export function ThrottlingPage() {
           <Box sx={{ minHeight: 0, overflow: "auto", p: 1 }}>
             {ed.mode === "profiles" ? (
               <Stack spacing={1}>
-                <Stack direction="row" spacing={1} sx={{
-                  alignItems: "center"
-                }}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    alignItems: "center",
+                  }}
+                >
                   <Typography
                     variant="caption"
                     sx={{
                       color: "text.secondary",
                       flex: 1,
                       fontWeight: 700,
-                      textTransform: "uppercase"
-                    }}>
+                      textTransform: "uppercase",
+                    }}
+                  >
                     {t("throttlingPage.presetsTitle")}
                   </Typography>
                   <Button size="small" startIcon={<AddRoundedIcon />} onClick={ed.handleNewProfile}>
@@ -215,8 +234,9 @@ export function ThrottlingPage() {
                   sx={{
                     color: "text.secondary",
                     fontWeight: 700,
-                    textTransform: "uppercase"
-                  }}>
+                    textTransform: "uppercase",
+                  }}
+                >
                   {t("throttlingPage.customTitle")}
                 </Typography>
                 {ed.customProfiles.length === 0 ? (
@@ -233,17 +253,22 @@ export function ThrottlingPage() {
               </Stack>
             ) : (
               <Stack spacing={1}>
-                <Stack direction="row" spacing={1} sx={{
-                  alignItems: "center"
-                }}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    alignItems: "center",
+                  }}
+                >
                   <Typography
                     variant="caption"
                     sx={{
                       color: "text.secondary",
                       flex: 1,
                       fontWeight: 700,
-                      textTransform: "uppercase"
-                    }}>
+                      textTransform: "uppercase",
+                    }}
+                  >
                     {t("throttlingPage.rulesTitle")}
                   </Typography>
                   <Button
@@ -346,7 +371,15 @@ export function ThrottlingPage() {
   );
 }
 
-function StatusPill({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function StatusPill({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <Stack
       direction="row"
@@ -358,12 +391,16 @@ function StatusPill({ icon, label, value }: { icon: React.ReactNode; label: stri
         borderColor: "divider",
         borderRadius: "8px",
         minHeight: 30,
-        px: 1
-      }}>
+        px: 1,
+      }}
+    >
       <Box sx={{ color: "text.secondary", display: "flex", "& svg": { fontSize: 16 } }}>{icon}</Box>
-      <Typography variant="caption" sx={{
-        color: "text.secondary"
-      }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+        }}
+      >
         {label}
       </Typography>
       <Typography sx={{ fontFamily: fontFamilies.mono, fontSize: 12.5, fontWeight: 700 }}>
@@ -419,9 +456,13 @@ function ProfileList(props: {
           </Box>
           <ListItemText
             primary={
-              <Stack direction="row" spacing={0.5} sx={{
-                alignItems: "center"
-              }}>
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  alignItems: "center",
+                }}
+              >
                 <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
                   {profile.name}
                 </Typography>
@@ -435,7 +476,12 @@ function ProfileList(props: {
                 ) : null}
               </Stack>
             }
-            secondary={t("throttlingPage.profileSummary", { latency: profile.latencyMs, download: profile.downloadKbps, upload: profile.uploadKbps, loss: profile.packetLossRatio })}
+            secondary={t("throttlingPage.profileSummary", {
+              latency: profile.latencyMs,
+              download: profile.downloadKbps,
+              upload: profile.uploadKbps,
+              loss: profile.packetLossRatio,
+            })}
             slotProps={{ secondary: { noWrap: true, sx: { fontSize: 11.5 } } }}
           />
           <Button
@@ -465,8 +511,9 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
         borderColor: "divider",
         borderRadius: "8px",
         px: 1.25,
-        py: 1.5
-      }}>
+        py: 1.5,
+      }}
+    >
       {children}
     </Typography>
   );

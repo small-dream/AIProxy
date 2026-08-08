@@ -97,16 +97,14 @@ describe("ScriptRulesPanel — selection sync guard (M22/M25)", () => {
     const { rerender } = render(<ScriptRulesPanel />);
 
     // The rule is selected and its name populates the editor.
-    const nameField = screen.getByLabelText(
-      /rulesPage\.editor\.ruleName/i,
-    ) as HTMLInputElement;
+    const nameField = screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement;
     expect(nameField.value).toBe("Original");
 
     // User edits the draft in place.
     fireEvent.change(nameField, { target: { value: "My In-Progress Edit" } });
-    expect(
-      (screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value,
-    ).toBe("My In-Progress Edit");
+    expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value).toBe(
+      "My In-Progress Edit",
+    );
 
     // Simulate a TanStack Query refetch: same data, but a NEW array identity
     // (the real query hook returns a fresh array on every refetch).
@@ -115,8 +113,8 @@ describe("ScriptRulesPanel — selection sync guard (M22/M25)", () => {
 
     // The in-progress edit MUST survive — the selection effect must not
     // re-sync the draft from the server value.
-    expect(
-      (screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value,
-    ).toBe("My In-Progress Edit");
+    expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value).toBe(
+      "My In-Progress Edit",
+    );
   });
 });

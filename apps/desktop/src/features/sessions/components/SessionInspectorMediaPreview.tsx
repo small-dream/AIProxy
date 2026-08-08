@@ -214,9 +214,12 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
   if ((isLoading && isDeferred) || isSvgWithoutText) {
     return (
       <InspectorScrollArea>
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("inspector.response.preview.loading")}
         </Typography>
       </InspectorScrollArea>
@@ -267,9 +270,12 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
         {mediaKind === "audio" && (
           <Box sx={{ p: 2 }}>
             <audio controls onError={handleMediaError} src={dataUri} style={{ width: "100%" }}>
-              <Typography variant="body2" sx={{
-                color: "text.secondary"
-              }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "text.secondary",
+                }}
+              >
                 {t("inspector.response.preview.unsupportedFormat")}
               </Typography>
             </audio>
@@ -290,9 +296,12 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
               margin: "0 auto",
             }}
           >
-            <Typography variant="body2" sx={{
-              color: "text.secondary"
-            }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("inspector.response.preview.unsupportedFormat")}
             </Typography>
           </Box>
@@ -300,24 +309,33 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
       </Box>
       <Stack direction="row" spacing={2} sx={{ px: 1, pb: 0.5 }}>
         {imageDimensions && (
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("inspector.response.preview.dimensions")}: {imageDimensions.width} x{" "}
             {imageDimensions.height}
           </Typography>
         )}
         {body.sizeBytes > 0 && (
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {body.sizeBytes} bytes
           </Typography>
         )}
         {body.truncated && (
-          <Typography variant="caption" sx={{
-            color: "warning.main"
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "warning.main",
+            }}
+          >
             {t("inspector.response.preview.truncated")}
           </Typography>
         )}

@@ -6,7 +6,10 @@ export function countTreeNodes(nodes: CollectionTreeNode[]): number {
 }
 
 /** Filter the collection tree by a search query, keeping parent nodes with matching children. */
-export function filterCollectionTree(nodes: CollectionTreeNode[], query: string): CollectionTreeNode[] {
+export function filterCollectionTree(
+  nodes: CollectionTreeNode[],
+  query: string,
+): CollectionTreeNode[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return nodes;
 

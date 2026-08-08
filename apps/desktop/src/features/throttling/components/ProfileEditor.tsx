@@ -2,16 +2,7 @@ import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
 import CloudUploadRoundedIcon from "@mui/icons-material/CloudUploadRounded";
 import SignalCellularAltRoundedIcon from "@mui/icons-material/SignalCellularAltRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
-import {
-  Alert,
-  Box,
-  Button,
-  Slider,
-  Stack,
-  Switch,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, Slider, Stack, Switch, TextField, Typography } from "@mui/material";
 import { useEffect, useState, type ReactNode } from "react";
 
 import type { ThrottleProfile } from "@aiproxy/shared-types";
@@ -59,11 +50,15 @@ export function ProfileEditor(props: {
             border: 1,
             borderColor: "divider",
             borderRadius: "8px",
-            px: 1.25
-          }}>
-          <Typography variant="caption" sx={{
-            color: "text.secondary"
-          }}>
+            px: 1.25,
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("throttlingPage.fields.enableImmediately")}
           </Typography>
           <Switch
@@ -126,9 +121,13 @@ export function ProfileEditor(props: {
           onChange={(value) => onChange({ ...draft, uploadKbps: value })}
         />
       </Box>
-      <Stack direction="row" spacing={1} sx={{
-        justifyContent: "flex-end"
-      }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          justifyContent: "flex-end",
+        }}
+      >
         <Button variant="outlined" onClick={onSave} disabled={!canSave}>
           {t("throttlingPage.saveProfile")}
         </Button>
@@ -193,9 +192,13 @@ export function ThrottleParameter(props: {
         p: 1.35,
       }}
     >
-      <Stack direction="row" spacing={1} sx={{
-        alignItems: "center"
-      }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+        }}
+      >
         <Box sx={{ color: "primary.main", display: "flex", "& svg": { fontSize: 18 } }}>{icon}</Box>
         <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>
           {label}
@@ -204,8 +207,9 @@ export function ThrottleParameter(props: {
           sx={{
             color: "text.secondary",
             fontFamily: fontFamilies.mono,
-            fontSize: 12
-          }}>
+            fontSize: 12,
+          }}
+        >
           {value} {unit}
         </Typography>
       </Stack>

@@ -12,8 +12,9 @@ export function LoadingState() {
       sx={{
         alignItems: "center",
         justifyContent: "center",
-        minHeight: 140
-      }}>
+        minHeight: 140,
+      }}
+    >
       <CircularProgress size={22} />
     </Stack>
   );
@@ -38,8 +39,9 @@ export function EmptyPaneState({
         justifyContent: "center",
         minHeight: 180,
         px: 2,
-        textAlign: "center"
-      }}>
+        textAlign: "center",
+      }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -59,8 +61,9 @@ export function EmptyPaneState({
         sx={{
           color: "text.secondary",
           fontSize: 12.5,
-          lineHeight: 1.45
-        }}>
+          lineHeight: 1.45,
+        }}
+      >
         {title}
       </Typography>
       {actionLabel && onAction ? (
@@ -89,8 +92,9 @@ export function EmptyWorkspace({
         justifyContent: "center",
         flex: 1,
         px: 4,
-        textAlign: "center"
-      }}>
+        textAlign: "center",
+      }}
+    >
       <Box
         sx={(theme) => ({
           alignItems: "center",
@@ -120,8 +124,9 @@ export function EmptyWorkspace({
         sx={{
           color: "text.secondary",
           fontSize: 13,
-          maxWidth: 420
-        }}>
+          maxWidth: 420,
+        }}
+      >
         {collectionSelected
           ? t("collectionsPage.createRequestHint")
           : t("collectionsPage.selectCollectionHint")}

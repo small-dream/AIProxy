@@ -96,9 +96,7 @@ describe("SearchableCodeBlock", () => {
       />,
     );
 
-    expect(
-      container.querySelector(`mark[data-match-index="${targetIndex}"]`),
-    ).toBeInTheDocument();
+    expect(container.querySelector(`mark[data-match-index="${targetIndex}"]`)).toBeInTheDocument();
   });
 
   it("reuses full-text matches for non-virtualized JSON highlighting", () => {

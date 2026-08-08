@@ -73,12 +73,16 @@ export function ComposeResponseSection({
           sx={{
             alignItems: "center",
             justifyContent: "center",
-            flex: 1
-          }}>
+            flex: 1,
+          }}
+        >
           <CircularProgress size={32} />
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("composePage.sendingRequest")}
           </Typography>
         </Stack>
@@ -114,14 +118,18 @@ export function ComposeResponseSection({
             pl: 2,
             pr: 0.5,
             py: 2,
-            textAlign: "center"
-          }}>
+            textAlign: "center",
+          }}
+        >
           <Typography sx={{ fontWeight: 600 }} variant="body2">
             {t("composePage.responsePreviewTitle")}
           </Typography>
-          <Typography variant="body2" sx={{
-            color: "text.secondary"
-          }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+            }}
+          >
             {t("composePage.configureHint")}
           </Typography>
         </Stack>

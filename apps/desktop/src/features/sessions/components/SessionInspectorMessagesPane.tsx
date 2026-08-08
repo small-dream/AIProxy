@@ -268,16 +268,23 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
           justifyContent: "center",
           flex: 1,
           gap: 1,
-          py: 4
-        }}>
-        <Typography variant="body1" sx={{
-          color: "text.secondary"
-        }}>
+          py: 4,
+        }}
+      >
+        <Typography
+          variant="body1"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("websocket.emptyTitle")}
         </Typography>
-        <Typography variant="body2" sx={{
-          color: "text.secondary"
-        }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+          }}
+        >
           {t("websocket.emptyDescription")}
         </Typography>
       </Stack>
@@ -327,14 +334,18 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             spacing={0.5}
             sx={{
               alignItems: "center",
-              cursor: "default"
-            }}>
+              cursor: "default",
+            }}
+          >
             <FiberManualRecordRoundedIcon
               sx={{ fontSize: 12, color: isActive ? "success.main" : "action.disabled" }}
             />
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {isActive ? t("websocket.connectionActive") : t("websocket.connectionClosed")}
             </Typography>
           </Stack>
@@ -393,8 +404,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
               sx={{
                 color: "text.secondary",
                 pt: 2,
-                textAlign: "center"
-              }}>
+                textAlign: "center",
+              }}
+            >
               {t("websocket.selectMessage")}
             </Typography>
           )}
@@ -412,14 +424,21 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             bgcolor: alpha(theme.palette.background.default, 0.5),
           }}
         >
-          <Typography variant="caption" sx={{
-            fontWeight: 500
-          }}>
+          <Typography
+            variant="caption"
+            sx={{
+              fontWeight: 500,
+            }}
+          >
             {t("websocket.composeTitle")}
           </Typography>
-          <Stack direction="row" spacing={1} sx={{
-            alignItems: "center"
-          }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: "center",
+            }}
+          >
             <ToggleButtonGroup
               size="small"
               value={composeDirection}
@@ -481,9 +500,13 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
             onChange={(e) => setComposePayload(e.target.value)}
             sx={{ "& .MuiInputBase-input": { fontSize: 13, fontFamily: "monospace" } }}
           />
-          <Stack direction="row" spacing={1} sx={{
-            justifyContent: "flex-end"
-          }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              justifyContent: "flex-end",
+            }}
+          >
             <Button
               size="small"
               onClick={() => setComposeOpen(false)}
@@ -567,15 +590,17 @@ function MessageRowImpl({
             : isSent
               ? alpha(theme.palette.primary.main, 0.1)
               : "action.hover",
-        }
-      }}>
+        },
+      }}
+    >
       <Typography
         variant="caption"
         sx={{
           color: "text.secondary",
           minWidth: 52,
-          fontVariantNumeric: "tabular-nums"
-        }}>
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {formatTimestamp(message.timestamp)}
       </Typography>
       <Chip
@@ -600,8 +625,9 @@ function MessageRowImpl({
         variant="caption"
         sx={{
           color: "text.secondary",
-          fontVariantNumeric: "tabular-nums"
-        }}>
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {formatBytes(message.payloadSize)}
       </Typography>
       {canReplay && (
@@ -678,19 +704,32 @@ function MessageDetail({
             color: "text.secondary",
             mb: 0.75,
             display: "block",
-            fontWeight: 500
-          }}>
+            fontWeight: 500,
+          }}
+        >
           {t("websocket.frameDetails")}
         </Typography>
-        <Stack direction="row" spacing={2} useFlexGap sx={{
-          flexWrap: "wrap"
-        }}>
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          useFlexGap
+          sx={{
+            flexWrap: "wrap",
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("websocket.direction")}:
             </Typography>
             <Chip
@@ -701,12 +740,19 @@ function MessageDetail({
               sx={{ height: 20, fontSize: 11 }}
             />
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("websocket.opcode")}:
             </Typography>
             <Chip
@@ -716,48 +762,76 @@ function MessageDetail({
               sx={{ height: 20, fontSize: 11 }}
             />
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("websocket.fin")}:
             </Typography>
-            <Typography variant="caption" sx={{
-              fontWeight: 500
-            }}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 500,
+              }}
+            >
               {message.fin ? "true" : "false"}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("websocket.timestamp")}:
             </Typography>
             <Typography
               variant="caption"
               sx={{
                 fontFamily: "monospace",
-                fontVariantNumeric: "tabular-nums"
-              }}>
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
               {new Date(message.timestamp).toLocaleString()}
             </Typography>
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{
-            alignItems: "center"
-          }}>
-            <Typography variant="caption" sx={{
-              color: "text.secondary"
-            }}>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{
+              alignItems: "center",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
               {t("websocket.payloadSize")}:
             </Typography>
-            <Typography variant="caption" sx={{
-              fontWeight: 500
-            }}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 500,
+              }}
+            >
               {formatBytes(message.payloadSize)}
             </Typography>
           </Stack>
@@ -769,8 +843,9 @@ function MessageDetail({
         spacing={1}
         sx={{
           alignItems: "center",
-          justifyContent: "space-between"
-        }}>
+          justifyContent: "space-between",
+        }}
+      >
         <ToggleButtonGroup
           size="small"
           value={format}
@@ -828,8 +903,9 @@ function MessageDetail({
             sx={{
               color: "text.secondary",
               p: 2,
-              textAlign: "center"
-            }}>
+              textAlign: "center",
+            }}
+          >
             {t("websocket.binaryHexUnavailable", { size: formatBytes(message.payloadSize) })}
           </Typography>
         ) : format === "json" && canJson ? (

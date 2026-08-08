@@ -80,8 +80,9 @@ export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined
 
           fontStyle: "italic",
           lineHeight: 1.45,
-          py: 0.5
-        }}>
+          py: 0.5,
+        }}
+      >
         {t("inspector.waterfall.unavailable")}
       </Typography>
     );
@@ -97,9 +98,13 @@ export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined
 
   return (
     <Stack spacing={0.5}>
-      <Stack direction="row" spacing={1} sx={{
-        alignItems: "center"
-      }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+        }}
+      >
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <WaterfallBar phases={phases} scale={scale} />
         </Box>
@@ -195,9 +200,14 @@ function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
       }}
     >
       {phases.map((phase) => (
-        <Stack key={phase.labelKey} direction="row" spacing={0.5} sx={{
-          alignItems: "center"
-        }}>
+        <Stack
+          key={phase.labelKey}
+          direction="row"
+          spacing={0.5}
+          sx={{
+            alignItems: "center",
+          }}
+        >
           <Box
             sx={{
               bgcolor: phase.color,
@@ -215,8 +225,9 @@ function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
                 return `${scale * 10.5}px`;
               },
 
-              lineHeight: 1.25
-            }}>
+              lineHeight: 1.25,
+            }}
+          >
             {t(phase.labelKey)}
           </Typography>
         </Stack>

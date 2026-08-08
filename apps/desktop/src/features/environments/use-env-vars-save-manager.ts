@@ -49,10 +49,7 @@ function toSaveVariables(variables: VariableRow[]) {
   }));
 }
 
-export function useEnvVarsSaveManager({
-  selectedEnvId,
-  save,
-}: UseEnvVarsSaveManagerArgs) {
+export function useEnvVarsSaveManager({ selectedEnvId, save }: UseEnvVarsSaveManagerArgs) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest pending snapshot so an env switch can flush the previous env.
   const pendingSaveRef = useRef<PendingSave | null>(null);

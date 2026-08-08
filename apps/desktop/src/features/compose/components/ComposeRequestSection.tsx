@@ -227,8 +227,9 @@ export function ComposeRequestSection({
                     color: "text.secondary",
                     fontSize: 13,
                     px: 1,
-                    py: 2
-                  }}>
+                    py: 2,
+                  }}
+                >
                   {t("composePage.noBody")}
                 </Typography>
               )}

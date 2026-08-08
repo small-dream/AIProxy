@@ -134,9 +134,21 @@ export function MarkdownRenderer({
         {label}
       </Box>
     ),
-    ul: ({ children: label }) => <Box component="ul" sx={listSx}>{label}</Box>,
-    ol: ({ children: label }) => <Box component="ol" sx={listSx}>{label}</Box>,
-    li: ({ children: label }) => <Box component="li" sx={{ mb: 0.25 }}>{label}</Box>,
+    ul: ({ children: label }) => (
+      <Box component="ul" sx={listSx}>
+        {label}
+      </Box>
+    ),
+    ol: ({ children: label }) => (
+      <Box component="ol" sx={listSx}>
+        {label}
+      </Box>
+    ),
+    li: ({ children: label }) => (
+      <Box component="li" sx={{ mb: 0.25 }}>
+        {label}
+      </Box>
+    ),
     a: ({ href, id, children: label }) => {
       const linkSx = {
         fontSize: scale.body,
@@ -255,10 +267,7 @@ export function MarkdownRenderer({
   };
 
   return (
-    <ReactMarkdown
-      components={components}
-      rehypePlugins={allowHtml ? [rehypeRaw] : undefined}
-    >
+    <ReactMarkdown components={components} rehypePlugins={allowHtml ? [rehypeRaw] : undefined}>
       {children}
     </ReactMarkdown>
   );

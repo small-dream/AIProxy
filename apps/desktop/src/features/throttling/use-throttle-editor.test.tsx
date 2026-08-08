@@ -58,8 +58,7 @@ vi.mock("./use-throttle-profiles", () => ({
 // level — stub it so renderHook doesn't need a router provider.
 const mockLocation = { pathname: "/throttling", search: "", hash: "", state: null, key: "test" };
 vi.mock("react-router-dom", async () => {
-  const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
     ...actual,
     useLocation: () => mockLocation,
@@ -118,7 +117,9 @@ beforeEach(() => {
 
 describe("useThrottleEditor draft sync (H1/H2)", () => {
   it("does not overwrite an edited rule draft when rules refetch with a new array identity (H1)", () => {
-    const { result, rerender } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+    const { result, rerender } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
 
     // Pick r1 explicitly so a draft exists.
     const r1 = rulesState.current[0]!;

@@ -30,9 +30,7 @@ export function buildMultipartBody(entries: HeaderEntry[], boundary: string): st
     // break out of the Content-Disposition header, inject an extra part, or
     // forge the closing boundary (RFC 2388 / M16). Quotes become %22 per the
     // spec; CR/LF are stripped to prevent header/frame injection.
-    const safeName = entry.name
-      .replace(/"/g, "%22")
-      .replace(/[\r\n]/g, "");
+    const safeName = entry.name.replace(/"/g, "%22").replace(/[\r\n]/g, "");
     parts.push(
       `--${boundary}\r\nContent-Disposition: form-data; name="${safeName}"\r\n\r\n${entry.value}`,
     );
