@@ -166,9 +166,6 @@ fn is_trusted_macos(_cert_path: &Path) -> bool {
 
 #[cfg(target_os = "linux")]
 fn is_trusted_linux(cert_path: &Path) -> bool {
-    use base64::Engine;
-    use sha1::{Digest, Sha1};
-
     let cert_pem = match std::fs::read_to_string(cert_path) {
         Ok(p) => p,
         Err(_) => return false,
