@@ -94,13 +94,10 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
 
       - name: Bundle
-        run: ${{ matrix.bundle-command }}
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Disable macOS automatic codesign discovery when no Apple certificate is
-          # configured, so unsigned builds succeed (users open via right-click → Open).
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CERTIFICATE == '' && 'false' || 'true' }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -109,6 +106,22 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          BUNDLE_COMMAND: ${{ matrix.bundle-command }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          # On macOS, if no Apple certificate is configured, disable codesign
+          # auto-discovery and clear the cert env vars so Tauri doesn't try
+          # to import an empty keychain certificate.
+          if [[ "$PLATFORM" == "macos" && -z "$APPLE_CERTIFICATE" ]]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            unset APPLE_CERTIFICATE
+            unset APPLE_CERTIFICATE_PASSWORD
+            unset APPLE_SIGNING_IDENTITY
+            unset APPLE_API_ISSUER
+            unset APPLE_API_KEY
+            unset APPLE_API_KEY_PATH
+          fi
+          eval "$BUNDLE_COMMAND"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
