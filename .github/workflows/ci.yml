@@ -68,6 +68,9 @@ jobs:
       - name: Test frontend
         run: pnpm test
 
+      - name: Build frontend
+        run: pnpm --filter @aiproxy/desktop build
+
       - name: Check Rust formatting
         run: cargo fmt --check --all
 

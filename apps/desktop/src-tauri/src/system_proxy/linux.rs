@@ -149,7 +149,7 @@ pub fn restore_system_proxy(snapshot: &LinuxSystemProxySnapshot) -> Result<(), S
 
 fn capture_gnome_snapshot() -> Result<GnomeProxySnapshot, String> {
     Ok(GnomeProxySnapshot {
-        mode: gsettings_get("mode"),
+        mode: gsettings_get_value("mode"),
         http_host: gsettings_get_optional("http", "host"),
         http_port: gsettings_get_optional_u32("http", "port"),
         https_host: gsettings_get_optional("https", "host"),
@@ -217,7 +217,8 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
             errors.push(format!("restore https port: {e}"));
         }
     }
-    if let Err(e) = gsettings_set_ignore_hosts(&snapshot.ignore_hosts) {
+    let ignore_refs: Vec<&str> = snapshot.ignore_hosts.iter().map(String::as_str).collect();
+    if let Err(e) = gsettings_set_ignore_hosts(&ignore_refs) {
         errors.push(format!("restore ignore-hosts: {e}"));
     }
 
@@ -349,6 +350,24 @@ fn gsettings_set(child_schema: &str, key: &str, value: &str) -> Result<(), Strin
     }
 
     Ok(())
+}
+
+fn gsettings_get_value(key: &str) -> String {
+    let output = Command::new("gsettings")
+        .args(["get", GSETTINGS_PROXY_SCHEMA, key])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            // Strip surrounding single quotes from gsettings output.
+            val.strip_prefix('\'')
+                .and_then(|v| v.strip_suffix('\''))
+                .map(str::to_string)
+                .unwrap_or(val)
+        }
+        _ => "'none'".to_string(),
+    }
 }
 
 fn gsettings_set_value(key: &str, value: &str) -> Result<(), String> {
