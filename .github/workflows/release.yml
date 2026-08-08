@@ -276,6 +276,11 @@ jobs:
             cat release-artifacts/signing-*/*.md
           } > release-notes.md
 
+      - name: Collect installers
+        run: |
+          find release-artifacts/aiproxy-* -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) -exec cp {} . \;
+          ls -lh *.dmg *.msi *.exe *.AppImage *.deb *.rpm 2>/dev/null || echo "No installers found!"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -283,5 +288,10 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-test') || contains(github.ref_name, '-beta') }}
           body_path: release-notes.md
           files: |
-            release-artifacts/aiproxy-*/*
+            *.dmg
+            *.msi
+            *.exe
+            *.AppImage
+            *.deb
+            *.rpm
             latest.json
