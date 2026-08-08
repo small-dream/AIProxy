@@ -22,17 +22,17 @@ Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polishe
 
 ## 📸 Screenshots
 
-### Traffic Inspector (Dark Theme)
+### Traffic Inspector
 The three-pane session workspace — domain-grouped traffic explorer on the left, request/response inspector with JSON syntax highlighting on the right.
 
 <img src="./docs/screenshots/1.jpg" alt="AIProxy Sessions — Traffic Inspector (Dark)" width="800">
 
-### Traffic Inspector (Light Theme)
+### Traffic Inspector
 The same three-pane session workspace in the light theme — request/response inspector with query parameters and JSON syntax highlighting.
 
 <img src="./docs/screenshots/2.jpg" alt="AIProxy Sessions — Traffic Inspector (Light)" width="800">
 
-### Traffic Insights (Light Theme)
+### Traffic Insights
 Aggregate analytics dashboard with overview cards, per-host breakdown table, and status code / method distributions.
 
 <img src="./docs/screenshots/3.jpg" alt="AIProxy Insights — Analytics Dashboard (Light)" width="800">
