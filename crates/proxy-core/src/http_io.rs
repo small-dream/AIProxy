@@ -1048,10 +1048,7 @@ mod tests {
             },
         ];
         let map = build_upstream_headers_from_entries(&entries).unwrap();
-        let leaked: Vec<_> = map
-            .keys()
-            .filter(|k| k.as_str().starts_with(':'))
-            .collect();
+        let leaked: Vec<_> = map.keys().filter(|k| k.as_str().starts_with(':')).collect();
         assert!(
             leaked.is_empty(),
             "pseudo-headers leaked into outgoing map: {leaked:?}"
