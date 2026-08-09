@@ -668,7 +668,7 @@ function SessionLeafNodeImpl({
             <Typography
               sx={(theme) => ({
                 ...getSessionTreeTextSx(theme),
-                color: selected ? "text.primary" : "text.secondary",
+                color: theme.palette.text.primary,
                 flex: "0 0 auto",
                 whiteSpace: "nowrap",
               })}
@@ -681,6 +681,7 @@ function SessionLeafNodeImpl({
             <Typography
               sx={(theme) => ({
                 ...getSessionTreeTextSx(theme),
+                color: theme.palette.text.primary,
                 flex: "0 0 auto",
                 whiteSpace: "nowrap",
               })}
