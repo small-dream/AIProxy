@@ -12,6 +12,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   Stack,
   Switch,
   TextField,
@@ -378,41 +379,29 @@ function ProxySettingsSection() {
   );
 }
 
-type UpdateFeedback = {
-  message: string;
-  severity: "error" | "info" | "success" | "warning";
-};
-
-function UpdatesSection() {
+export function UpdatesSection() {
   const { t } = useI18n();
   const [isChecking, setIsChecking] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdateInfo | null>(null);
   const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
-  const [feedback, setFeedback] = useState<UpdateFeedback>({
-    message: t("settingsPage.updatesIdle"),
-    severity: "info",
-  });
+  const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(
+    null,
+  );
 
   const handleCheck = useCallback(async () => {
     setIsChecking(true);
     setProgress(null);
-    setFeedback({ message: t("settingsPage.updatesChecking"), severity: "info" });
 
     try {
       const update = await checkForAppUpdate();
       setAvailableUpdate(update);
-      setFeedback(
-        update
-          ? {
-              message: t("settingsPage.updatesAvailable", { version: update.version }),
-              severity: "success",
-            }
-          : { message: t("settingsPage.updatesNone"), severity: "success" },
-      );
+      if (!update) {
+        setToast({ message: t("settingsPage.updatesNone"), severity: "success" });
+      }
     } catch (error) {
       const normalizedError = coerceAppError(error);
-      setFeedback({
+      setToast({
         message: normalizedError.message.trim() || t("common.errors.generic"),
         severity: "error",
       });
@@ -423,14 +412,13 @@ function UpdatesSection() {
 
   async function handleInstall() {
     setIsInstalling(true);
-    setFeedback({ message: t("settingsPage.updatesInstalling"), severity: "info" });
 
     try {
       await installPendingAppUpdate((nextProgress) => setProgress(nextProgress));
-      setFeedback({ message: t("settingsPage.updatesRestarting"), severity: "success" });
+      setToast({ message: t("settingsPage.updatesRestarting"), severity: "success" });
     } catch (error) {
       const normalizedError = coerceAppError(error);
-      setFeedback({
+      setToast({
         message: normalizedError.message.trim() || t("common.errors.generic"),
         severity: "error",
       });
@@ -498,10 +486,6 @@ function UpdatesSection() {
           </Button>
         </Stack>
 
-        <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
-          {feedback.message}
-        </Alert>
-
         {availableUpdate ? (
           <Alert severity="info" variant="outlined" sx={compactAlertSx}>
             {t("settingsPage.updatesAvailableDetail", {
@@ -512,15 +496,23 @@ function UpdatesSection() {
         ) : null}
 
         {progressText ? (
-          <Typography
-            variant="caption"
-            sx={{
-              color: "text.secondary",
-            }}
-          >
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
             {progressText}
           </Typography>
         ) : null}
+
+        <Snackbar
+          open={toast !== null}
+          autoHideDuration={3000}
+          onClose={() => setToast(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        >
+          {toast ? (
+            <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)}>
+              {toast.message}
+            </Alert>
+          ) : undefined}
+        </Snackbar>
       </Stack>
     </SectionCard>
   );
