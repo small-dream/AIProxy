@@ -24,6 +24,7 @@
   - **OFF 时**:在描述下方显示一行 warning 色 caption(复用 `verifyUpstreamTlsDisabledHint` 文案,可适当精简),提醒"不安全"。
   - **ON 时**:不显示额外提示(Switch 已表明开启 + 白名单输入框出现);`verifyUpstreamTlsEnabledHint` 不再渲染(i18n key 保留不删,避免牵连)。
 - i18n keys 复用现有(`verifyUpstreamTls` / `verifyUpstreamTlsDescription` / `tlsVerifyHosts` / `tlsVerifyHostsPlaceholder` / `verifyUpstreamTlsDisabledHint`)。
+- **附带修复(focus 时提示文字与边框重叠)**:当前 `tlsVerifyHosts` TextField(`outlined` 默认 + `multiline` + `label` + `size="small"`,套 `compactFieldSx`)在获取焦点时,floating label / placeholder 与顶部边框重叠。根因:`compactFieldSx` 的 `& .MuiInputBase-root: { minHeight: 38 }` 对带 floating label 的 multiline outlined 输入过小,挤压了 label notch 与输入内容区。重构时一并修复——白名单输入框改用**外部 `Typography` 标题 + 纯 placeholder**(去掉 `label`/floating label,从根上规避 notch 重叠),且不再套 `compactFieldSx` 的 `minHeight`,改为 multiline 自然高度 + 充足上下 padding(placeholder 不贴边框)。实现后本地 dev 目视确认 focus/blur 两态。
 
 ### 2. 更新状态提示(Snackbar toast)
 
