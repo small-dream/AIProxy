@@ -22,18 +22,22 @@ jobs:
             bundle-command: pnpm desktop:bundle:macos
             artifact-glob: |
               target/release/bundle/macos/*.app.tar.gz
+              target/release/bundle/macos/*.app.tar.gz.sig
               target/release/bundle/dmg/*.dmg
           - platform: windows
             os: windows-latest
             bundle-command: pnpm desktop:bundle:windows
             artifact-glob: |
               target/release/bundle/msi/*.msi
+              target/release/bundle/msi/*.msi.sig
               target/release/bundle/nsis/*.exe
+              target/release/bundle/nsis/*.exe.sig
           - platform: linux
             os: ubuntu-latest
             bundle-command: pnpm desktop:bundle:linux
             artifact-glob: |
               target/release/bundle/appimage/*.AppImage
+              target/release/bundle/appimage/*.AppImage.sig
               target/release/bundle/deb/*.deb
               target/release/bundle/rpm/*.rpm
 
@@ -282,7 +286,7 @@ jobs:
             echo
             echo "## Download"
             echo
-            echo "Pre-built installers are available below. This is an early release — builds are currently unsigned."
+            echo "Pre-built installers are available below. Installer signing depends on platform certificates; updater artifacts are published only when the TAURI signing key is configured."
             echo
             echo "- **Windows**: \`.msi\` or \`.exe\` installer"
             echo "- **macOS**: \`.dmg\` (unsigned) — Gatekeeper shows a \"damaged\" warning after a browser download; clear it with \`xattr -cr /Applications/AIProxy.app\` (right-click → Open no longer bypasses this on recent macOS)"
@@ -295,8 +299,8 @@ jobs:
 
       - name: Collect installers
         run: |
-          find release-artifacts/aiproxy-* -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) -exec cp {} . \;
-          ls -lh *.dmg *.msi *.exe *.AppImage *.deb *.rpm 2>/dev/null || echo "No installers found!"
+          find release-artifacts/aiproxy-* -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.sig" \) -exec cp {} . \;
+          ls -lh *.dmg *.msi *.exe *.AppImage *.deb *.rpm *.sig 2>/dev/null || echo "No installers found!"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -311,4 +315,5 @@ jobs:
             *.AppImage
             *.deb
             *.rpm
+            *.sig
             latest.json
