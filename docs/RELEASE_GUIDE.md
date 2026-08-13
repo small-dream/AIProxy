@@ -67,7 +67,7 @@ pnpm --filter @aiproxy/desktop typecheck
 - 当前仓库脚本不支持跨平台打包
 - 必须在对应原生宿主机上执行发布构建
 - updater artifacts 需要配置 `TAURI_SIGNING_PRIVATE_KEY`；未配置时 Release 仅产出普通安装包（无 `.sig` / `latest.json`，自动更新不可用，发布流程不受阻塞）
-- 配置私钥后，Release workflow 自动设置 `AIPROXY_UPDATER_ARTIFACTS=1`，构建产出 updater artifacts 并生成 `latest.json`，无需再改代码
+- 配置私钥后，Release workflow 自动设置 `AIPROXY_UPDATER_ARTIFACTS=true`，构建产出 updater artifacts 并生成 `latest.json`，无需再改代码
 - updater endpoint 固定为 `https://github.com/small-dream/AIProxy/releases/latest/download/latest.json`
 
 统一打包命令：
@@ -287,7 +287,7 @@ Release workflow 的默认发布仓库为：
 
 - `small-dream/AIProxy`
 
-updater artifacts 为**条件性开启**：`release.yml` 检测到 `TAURI_SIGNING_PRIVATE_KEY` 已配置时，自动设置 `AIPROXY_UPDATER_ARTIFACTS=1`，`scripts/desktop.mjs` 据此在 `tauri build` 时注入 `--config {"bundle":{"createUpdaterArtifacts":true}}`；未配置时照常发布普通安装包，不会阻塞发版。
+updater artifacts 为**条件性开启**：`release.yml` 检测到 `TAURI_SIGNING_PRIVATE_KEY` 已配置时，自动设置 `AIPROXY_UPDATER_ARTIFACTS=true`，`scripts/desktop.mjs` 据此在 `tauri build` 时注入 `--config {"bundle":{"createUpdaterArtifacts":true}}`；未配置时照常发布普通安装包，不会阻塞发版。
 
 正式发布前必须配置：
 

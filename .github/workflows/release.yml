@@ -102,7 +102,11 @@ jobs:
           # signing step fails hard, so keep it off and ship plain
           # installers (no `.sig`, no `latest.json`, auto-update disabled)
           # until the key is available.
-          AIPROXY_UPDATER_ARTIFACTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && '1' || '0' }}
+          #
+          # Note: `&&`/`||` in expressions yield booleans, not operands, and
+          # `'0'` is truthy, so a `&& '1' || '0'` chain ALWAYS evaluates to
+          # true. Use a plain boolean comparison instead ("true"/"false").
+          AIPROXY_UPDATER_ARTIFACTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -127,6 +131,12 @@ jobs:
             unset APPLE_API_ISSUER
             unset APPLE_API_KEY
             unset APPLE_API_KEY_PATH
+          fi
+          echo "AIPROXY_UPDATER_ARTIFACTS=${AIPROXY_UPDATER_ARTIFACTS:-<unset>}"
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY: configured"
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY: NOT configured"
           fi
           eval "$BUNDLE_COMMAND"
 

@@ -259,7 +259,7 @@ function printUsage() {
 /**
  * Returns the extra Tauri CLI args that enable updater artifacts
  * (`.sig` signatures and, on macOS, the `.app.tar.gz` archive) when the
- * release pipeline opts in via `AIPROXY_UPDATER_ARTIFACTS=1` — set only
+ * release pipeline opts in via `AIPROXY_UPDATER_ARTIFACTS=true` — set only
  * when `TAURI_SIGNING_PRIVATE_KEY` is configured.
  *
  * `tauri.conf.json` keeps `bundle.createUpdaterArtifacts` at `false` so
@@ -270,11 +270,11 @@ function printUsage() {
  * injected by `tauriConfigArgs()`.
  */
 function updaterArtifactsConfigArgs() {
-  if (process.env.AIPROXY_UPDATER_ARTIFACTS !== "1") {
+  if (process.env.AIPROXY_UPDATER_ARTIFACTS !== "true") {
     return [];
   }
   console.log(
-    "[aiproxy-scripts] AIPROXY_UPDATER_ARTIFACTS=1 → enabling bundle.createUpdaterArtifacts",
+    "[aiproxy-scripts] AIPROXY_UPDATER_ARTIFACTS=true → enabling bundle.createUpdaterArtifacts",
   );
   return ["--config", JSON.stringify({ bundle: { createUpdaterArtifacts: true } })];
 }
