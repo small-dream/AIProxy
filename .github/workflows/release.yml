@@ -299,8 +299,10 @@ jobs:
 
       - name: Collect installers
         run: |
-          find release-artifacts/aiproxy-* -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.sig" \) -exec cp {} . \;
-          ls -lh *.dmg *.msi *.exe *.AppImage *.deb *.rpm *.sig 2>/dev/null || echo "No installers found!"
+          # `*.app.tar.gz` is the macOS updater package referenced by latest.json;
+          # without it published, macOS auto-update 404s even with a valid signature.
+          find release-artifacts/aiproxy-* -type f \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.sig" \) -exec cp {} . \;
+          ls -lh *.dmg *.app.tar.gz *.msi *.exe *.AppImage *.deb *.rpm *.sig 2>/dev/null || echo "No installers found!"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -310,6 +312,7 @@ jobs:
           body_path: release-notes.md
           files: |
             *.dmg
+            *.app.tar.gz
             *.msi
             *.exe
             *.AppImage
