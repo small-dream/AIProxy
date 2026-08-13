@@ -96,6 +96,13 @@ jobs:
       - name: Bundle
         shell: bash
         env:
+          # AIPROXY_UPDATER_ARTIFACTS flips `bundle.createUpdaterArtifacts`
+          # on through scripts/desktop.mjs, but only when a signing key is
+          # configured. Without TAURI_SIGNING_PRIVATE_KEY the `tauri build`
+          # signing step fails hard, so keep it off and ship plain
+          # installers (no `.sig`, no `latest.json`, auto-update disabled)
+          # until the key is available.
+          AIPROXY_UPDATER_ARTIFACTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && '1' || '0' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}

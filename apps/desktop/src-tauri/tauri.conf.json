@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AIProxy",
   "mainBinaryName": "AIProxy",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.aiproxy.desktop",
   "build": {
     "beforeDevCommand": "pnpm --dir ../.. --filter @aiproxy/desktop dev",
@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5RDI0MDA0N0M1OEQ0RgpSV1JQamNWSEFDU2RBWFRxR2NmR21ab1d4S1l4YkEwREVMb3loTmk0ajdvMmZDbjExTklBbjE3Rgo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1RjczRjk1Njc4MUJCMkMKUldRc3U0Rm5sVC8zOVg2UUsxRG5QSVJ1eVlVbzRQQzFmbjZ0SXdybURxbHkxL1dPVm1pLzJKTVEK",
       "endpoints": [
         "https://github.com/small-dream/AIProxy/releases/latest/download/latest.json"
       ],

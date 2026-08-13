@@ -115,7 +115,7 @@ function createSteps(action) {
       label: "Building desktop frontend bundle",
     },
     {
-      args: ["tauri", "build", ...tauriConfigArgs()],
+      args: ["tauri", "build", ...tauriConfigArgs(), ...updaterArtifactsConfigArgs()],
       command: resolveCommand("cargo"),
       cwd: tauriDir,
       label: "Building platform bundle with Tauri",
@@ -254,6 +254,29 @@ function printUsage() {
       "  node scripts/desktop.mjs bundle --platform macos",
     ].join("\n"),
   );
+}
+
+/**
+ * Returns the extra Tauri CLI args that enable updater artifacts
+ * (`.sig` signatures and, on macOS, the `.app.tar.gz` archive) when the
+ * release pipeline opts in via `AIPROXY_UPDATER_ARTIFACTS=1` — set only
+ * when `TAURI_SIGNING_PRIVATE_KEY` is configured.
+ *
+ * `tauri.conf.json` keeps `bundle.createUpdaterArtifacts` at `false` so
+ * local builds without a signing key keep working: `tauri build` fails
+ * hard when updater signing is requested but no private key is present.
+ * The Tauri CLI accepts repeated `--config` values and merges them in
+ * order, so this does not clash with the macOS `bundleVersion` override
+ * injected by `tauriConfigArgs()`.
+ */
+function updaterArtifactsConfigArgs() {
+  if (process.env.AIPROXY_UPDATER_ARTIFACTS !== "1") {
+    return [];
+  }
+  console.log(
+    "[aiproxy-scripts] AIPROXY_UPDATER_ARTIFACTS=1 → enabling bundle.createUpdaterArtifacts",
+  );
+  return ["--config", JSON.stringify({ bundle: { createUpdaterArtifacts: true } })];
 }
 
 /**
