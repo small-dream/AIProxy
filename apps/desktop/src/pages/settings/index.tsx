@@ -301,69 +301,55 @@ function ProxySettingsSection() {
         {/* H3: upstream TLS certificate verification opt-out. Off by default
             (the debug proxy accepts any upstream cert). Turning it on makes
             new HTTPS/WSS connections verify against the OS root store. */}
-        <Stack
-          direction={{ md: "row", xs: "column" }}
-          spacing={1.5}
+        <Box
           sx={{
-            alignItems: { md: "flex-start", xs: "stretch" },
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 2,
           }}
         >
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={draft.verifyUpstreamTls}
-                onChange={(event) => {
-                  setDraft({ ...draft, verifyUpstreamTls: event.target.checked });
-                  setFeedback(null);
-                }}
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body2">{t("proxyPresets.verifyUpstreamTls")}</Typography>
-                <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                  {t("proxyPresets.verifyUpstreamTlsDescription")}
-                </Typography>
-              </Box>
-            }
-            sx={{ ml: 0 }}
-          />
-          <TextField
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body2">{t("proxyPresets.verifyUpstreamTls")}</Typography>
+            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+              {t("proxyPresets.verifyUpstreamTlsDescription")}
+            </Typography>
+            {!draft.verifyUpstreamTls ? (
+              <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "warning.main" }}>
+                {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
+              </Typography>
+            ) : null}
+          </Box>
+          <Switch
             size="small"
-            multiline
-            minRows={2}
-            maxRows={4}
-            label={t("proxyPresets.tlsVerifyHosts")}
-            placeholder={t("proxyPresets.tlsVerifyHostsPlaceholder")}
-            value={draft.tlsVerifyHostsText}
+            checked={draft.verifyUpstreamTls}
             onChange={(event) => {
-              setDraft({ ...draft, tlsVerifyHostsText: event.target.value });
+              setDraft({ ...draft, verifyUpstreamTls: event.target.checked });
               setFeedback(null);
             }}
-            sx={{ ...compactFieldSx, flex: 1, minWidth: { md: 280, xs: "100%" } }}
           />
-        </Stack>
+        </Box>
 
         {draft.verifyUpstreamTls ? (
-          <Alert
-            severity="success"
-            variant="outlined"
-            icon={<CheckCircleRoundedIcon />}
-            sx={compactAlertSx}
-          >
-            {t("proxyPresets.verifyUpstreamTlsEnabledHint")}
-          </Alert>
-        ) : (
-          <Alert
-            severity="warning"
-            variant="outlined"
-            icon={<InfoRoundedIcon />}
-            sx={compactAlertSx}
-          >
-            {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
-          </Alert>
-        )}
+          <Box>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("proxyPresets.tlsVerifyHosts")}
+            </Typography>
+            <TextField
+              size="small"
+              multiline
+              minRows={2}
+              maxRows={4}
+              placeholder={t("proxyPresets.tlsVerifyHostsPlaceholder")}
+              value={draft.tlsVerifyHostsText}
+              onChange={(event) => {
+                setDraft({ ...draft, tlsVerifyHostsText: event.target.value });
+                setFeedback(null);
+              }}
+              sx={{ display: "block", mt: 0.5 }}
+            />
+          </Box>
+        ) : null}
 
         <Alert
           severity="info"
