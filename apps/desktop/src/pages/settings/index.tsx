@@ -316,7 +316,10 @@ function ProxySettingsSection() {
               {t("proxyPresets.verifyUpstreamTlsDescription")}
             </Typography>
             {!draft.verifyUpstreamTls ? (
-              <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "warning.main" }}>
+              <Typography
+                variant="caption"
+                sx={{ display: "block", mt: 0.5, color: "warning.main" }}
+              >
                 {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
               </Typography>
             ) : null}
