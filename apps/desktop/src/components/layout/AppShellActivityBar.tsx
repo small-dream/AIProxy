@@ -10,6 +10,7 @@ import {
 } from "@mui/material";
 import { NavLink } from "react-router-dom";
 
+import { useAppShellStore } from "@/app/store/app-shell.store";
 import { navigationItems } from "@/features/navigation/navigation-items";
 import { useI18n } from "@/i18n";
 
@@ -31,6 +32,8 @@ export function AppShellActivityBar({
   topLayoutHeight,
 }: AppShellActivityBarProps) {
   const { t } = useI18n();
+  const availableUpdate = useAppShellStore((s) => s.availableUpdate);
+  const setUpdateDialogOpen = useAppShellStore((s) => s.setUpdateDialogOpen);
   const workspaceNavigationItems = navigationItems.filter((item) => item.group === "workspace");
   const manageNavigationItems = navigationItems.filter((item) => item.group === "manage");
   const settingsItem = manageNavigationItems.find((item) => item.to === "/settings");
@@ -38,7 +41,7 @@ export function AppShellActivityBar({
 
   function renderNavigationIcon(
     item: (typeof navigationItems)[number],
-    options?: { badgeContent?: number },
+    options?: { badgeContent?: number; showDot?: boolean; onClick?: () => void },
   ) {
     const selected =
       item.to === "/" ? locationPathname === "/" : locationPathname.startsWith(item.to);
@@ -49,6 +52,14 @@ export function AppShellActivityBar({
           component={NavLink}
           selected={selected}
           to={item.to}
+          onClick={
+            options?.onClick
+              ? (event) => {
+                  event.preventDefault();
+                  options.onClick?.();
+                }
+              : undefined
+          }
           sx={{
             alignItems: "center",
             borderRadius: 1.5,
@@ -120,6 +131,20 @@ export function AppShellActivityBar({
                 {options.badgeContent > 9 ? "9+" : options.badgeContent}
               </Box>
             ) : null}
+            {options?.showDot ? (
+              <Box
+                sx={{
+                  bgcolor: "error.main",
+                  borderRadius: 999,
+                  border: `2px solid ${ACTIVITY_BAR_BG}`,
+                  height: 8,
+                  position: "absolute",
+                  right: -2,
+                  top: 2,
+                  width: 8,
+                }}
+              />
+            ) : null}
           </ListItemIcon>
         </ListItemButton>
       </Tooltip>
@@ -171,7 +196,15 @@ export function AppShellActivityBar({
           <>
             <Divider sx={{ borderColor: ACTIVITY_BAR_DIVIDER, mx: 1.5, my: 0.75 }} />
             <List disablePadding sx={{ pb: 0.75, width: "100%" }}>
-              {renderNavigationIcon(settingsItem)}
+              {renderNavigationIcon(
+                settingsItem,
+                availableUpdate
+                  ? {
+                      showDot: true,
+                      onClick: () => setUpdateDialogOpen(true),
+                    }
+                  : undefined,
+              )}
             </List>
           </>
         ) : null}
