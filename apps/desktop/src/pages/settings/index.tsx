@@ -387,8 +387,8 @@ export function UpdatesSection() {
   const [justCheckedNone, setJustCheckedNone] = useState(false);
 
   async function handleCheck() {
-    await checkForUpdateAndStore();
-    if (useAppShellStore.getState().availableUpdate === null) {
+    const ok = await checkForUpdateAndStore();
+    if (ok && useAppShellStore.getState().availableUpdate === null) {
       setJustCheckedNone(true);
     }
   }

@@ -26,7 +26,7 @@ describe("UpdatesSection", () => {
   });
 
   it("shows 'up to date' toast after a manual check finds nothing", async () => {
-    vi.mocked(checkForUpdateAndStore).mockResolvedValue();
+    vi.mocked(checkForUpdateAndStore).mockResolvedValue(true);
 
     render(<UpdatesSection />, { wrapper: AppProviders });
 
@@ -40,6 +40,7 @@ describe("UpdatesSection", () => {
       useAppShellStore.setState({
         availableUpdate: { version: "9.9.9", currentVersion: "0.1.5" } as AppUpdateInfo,
       });
+      return true;
     });
 
     render(<UpdatesSection />, { wrapper: AppProviders });
@@ -49,5 +50,6 @@ describe("UpdatesSection", () => {
     await waitFor(() => {
       expect(screen.getByText(/9\.9\.9/i)).toBeInTheDocument();
     });
+    expect(screen.queryByText(/is up to date/i)).not.toBeInTheDocument();
   });
 });

@@ -6,13 +6,17 @@ import { checkForAppUpdate, installPendingAppUpdate } from "@/services/updater/a
 /**
  * Check for an update and write the result into the shell store. Silent on
  * failure: a network/registry error just leaves availableUpdate null and logs.
+ * Returns true when the check completed (update found or not), false when it
+ * failed. Never rethrows — startup callers rely on silent failure.
  */
-export async function checkForUpdateAndStore(): Promise<void> {
+export async function checkForUpdateAndStore(): Promise<boolean> {
   const store = useAppShellStore.getState();
   store.setUpdateChecking(true);
+  let ok = false;
   try {
     const info = await checkForAppUpdate();
     store.setAvailableUpdate(info);
+    ok = true;
   } catch (error) {
     // Non-fatal: the app works without update info.
     console.warn("[updater] check failed:", coerceAppError(error).message);
@@ -20,6 +24,7 @@ export async function checkForUpdateAndStore(): Promise<void> {
   } finally {
     store.setUpdateChecking(false);
   }
+  return ok;
 }
 
 /**
