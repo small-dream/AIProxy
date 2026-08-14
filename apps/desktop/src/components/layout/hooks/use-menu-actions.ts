@@ -2,7 +2,9 @@ import { useEffect, useRef } from "react";
 import type { NavigateFunction } from "react-router-dom";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
+import { useAppShellStore } from "@/app/store/app-shell.store";
 import type { SessionsMenuAction } from "@/features/sessions/session-menu-actions";
+import { checkForUpdateAndStore } from "@/features/updater/update-status";
 import type { ProxyStatus } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { onMenuEvent } from "@/services/events";
@@ -176,12 +178,12 @@ export function useMenuActions(deps: MenuHandlerDeps) {
           state: { menuActionAt: Date.now() },
         });
         break;
-      case "check_for_updates":
-        h.navigate("/settings");
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("aiproxy-check-for-updates"));
-        }, 0);
+      case "check_for_updates": {
+        const store = useAppShellStore.getState();
+        store.setUpdateDialogOpen(true);
+        void checkForUpdateAndStore();
         break;
+      }
       case "import_har":
         navigateToSessionsMenuAction({
           kind: "import-har",
