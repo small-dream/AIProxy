@@ -4425,3 +4425,66 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
         "ws relay must terminate after Close even without peer closeback (within grace window)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// H2 forbidden request headers (RFC 9113 §8.2.2 / §8.3.1)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn h2_forbidden_headers_cover_host_and_connection_specific_names() {
+    use crate::upstream::is_h2_forbidden_request_header;
+
+    // `Host` is superseded by `:authority`; forwarding it makes strict servers
+    // (Google's endpoints) reject the stream with PROTOCOL_ERROR.
+    assert!(is_h2_forbidden_request_header("host"));
+    assert!(is_h2_forbidden_request_header("Host"));
+    assert!(is_h2_forbidden_request_header("HOST"));
+
+    // Connection-specific headers are banned outright on h2.
+    for name in [
+        "connection",
+        "Connection",
+        "keep-alive",
+        "Keep-Alive",
+        "proxy-connection",
+        "Proxy-Connection",
+        "transfer-encoding",
+        "Transfer-Encoding",
+        "upgrade",
+        "Upgrade",
+        "te",
+        "TE",
+    ] {
+        assert!(
+            is_h2_forbidden_request_header(name),
+            "{name} must not be forwarded on an h2 request"
+        );
+    }
+}
+
+#[test]
+fn h2_forbidden_headers_do_not_over_match_ordinary_headers() {
+    use crate::upstream::is_h2_forbidden_request_header;
+
+    // Ordinary headers must survive — especially ones whose names merely
+    // contain or resemble a forbidden token.
+    for name in [
+        "content-type",
+        "content-length",
+        "authorization",
+        "user-agent",
+        "accept",
+        "cookie",
+        "host-override",
+        "x-host",
+        "x-forwarded-host",
+        "content-encoding",
+        "tea",
+        "",
+    ] {
+        assert!(
+            !is_h2_forbidden_request_header(name),
+            "{name} is a legitimate h2 header and must be forwarded"
+        );
+    }
+}

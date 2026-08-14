@@ -76,6 +76,30 @@ impl Drop for ConnDriverAbortOnDrop {
     }
 }
 
+/// Header names that must never be forwarded on an HTTP/2 request.
+///
+/// `host` is superseded by the `:authority` pseudo-header (RFC 9113 §8.3.1);
+/// the rest are connection-specific and explicitly banned (§8.2.2). A strict
+/// server answers a stream carrying any of them with PROTOCOL_ERROR rather
+/// than ignoring them, so they have to be dropped when a request captured from
+/// an h1 client is replayed onto an h2 upstream connection.
+pub(crate) fn is_h2_forbidden_request_header(name: &str) -> bool {
+    // `te` is conditionally legal (only `te: trailers`), but the captured
+    // value is not worth re-validating here — dropping it is always safe.
+    const FORBIDDEN: [&str; 7] = [
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "transfer-encoding",
+        "upgrade",
+        "te",
+    ];
+    FORBIDDEN
+        .iter()
+        .any(|forbidden| name.eq_ignore_ascii_case(forbidden))
+}
+
 // ---------------------------------------------------------------------------
 // Upstream request forwarding & response handling
 // ---------------------------------------------------------------------------
@@ -190,19 +214,26 @@ pub(crate) async fn forward_request(
         // branch below still uses the shared `http_req_builder` since it sends
         // exactly once.
         let build_h2_req = || -> Result<http::Request<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, ProxyError> {
+            // H2 carries the target in the `:authority` pseudo-header, which
+            // hyper derives from the URI — so the URI must be absolute here,
+            // unlike the origin-form request-target the h1 branch uses.
             let mut builder = http::Request::builder()
                 .method(request.method.clone())
-                .uri(&request_target);
+                .uri(request.url.as_str());
             for (name, value) in &request.headers {
+                // RFC 9113 §8.2.1/§8.3.1: an h2 request must not carry `Host`
+                // (it is replaced by `:authority`) nor any connection-specific
+                // header. Strict servers reject the whole stream with
+                // PROTOCOL_ERROR when they appear — Google's endpoints do,
+                // while others silently tolerate them, which is why this only
+                // surfaced on some hosts.
+                if is_h2_forbidden_request_header(name.as_str()) {
+                    continue;
+                }
                 if let Ok(v) = value.to_str() {
                     builder = builder.header(name.as_str(), v);
                 }
             }
-            let host_header = match request.url.port() {
-                Some(port) => format!("{}:{port}", request.host),
-                None => request.host.clone(),
-            };
-            builder = builder.header("host", &host_header);
             if request.body.is_empty() {
                 builder
                     .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
