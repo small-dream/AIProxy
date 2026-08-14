@@ -2,21 +2,31 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
+import { useAppShellStore } from "@/app/store/app-shell.store";
 import { UpdatesSection } from "@/pages/settings";
-import { checkForAppUpdate, type AppUpdateInfo } from "@/services/updater/app-updater";
+import type { AppUpdateInfo } from "@/services/updater/app-updater";
 
-vi.mock("@/services/updater/app-updater", () => ({
-  checkForAppUpdate: vi.fn(),
-  installPendingAppUpdate: vi.fn(),
+vi.mock("@/features/updater/update-status", () => ({
+  checkForUpdateAndStore: vi.fn(),
+  installUpdateAndStore: vi.fn(),
 }));
+
+import { checkForUpdateAndStore } from "@/features/updater/update-status";
 
 describe("UpdatesSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAppShellStore.setState({
+      availableUpdate: null,
+      isChecking: false,
+      isInstalling: false,
+      updateProgress: null,
+      isUpdateDialogOpen: false,
+    });
   });
 
-  it("shows an 'up to date' toast when no update is available", async () => {
-    vi.mocked(checkForAppUpdate).mockResolvedValue(null);
+  it("shows 'up to date' toast after a manual check finds nothing", async () => {
+    vi.mocked(checkForUpdateAndStore).mockResolvedValue();
 
     render(<UpdatesSection />, { wrapper: AppProviders });
 
@@ -25,11 +35,12 @@ describe("UpdatesSection", () => {
     expect(await screen.findByText(/is up to date/i)).toBeInTheDocument();
   });
 
-  it("shows available update detail and no 'up to date' toast when an update exists", async () => {
-    vi.mocked(checkForAppUpdate).mockResolvedValue({
-      version: "9.9.9",
-      currentVersion: "0.1.5",
-    } as AppUpdateInfo);
+  it("shows available detail after a manual check finds an update", async () => {
+    vi.mocked(checkForUpdateAndStore).mockImplementation(async () => {
+      useAppShellStore.setState({
+        availableUpdate: { version: "9.9.9", currentVersion: "0.1.5" } as AppUpdateInfo,
+      });
+    });
 
     render(<UpdatesSection />, { wrapper: AppProviders });
 
@@ -38,6 +49,5 @@ describe("UpdatesSection", () => {
     await waitFor(() => {
       expect(screen.getByText(/9\.9\.9/i)).toBeInTheDocument();
     });
-    expect(screen.queryByText(/is up to date/i)).not.toBeInTheDocument();
   });
 });

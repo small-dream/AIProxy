@@ -26,19 +26,15 @@ import {
   type SaveAiSettingsInput,
   type Workspace,
 } from "@aiproxy/shared-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
+import { useAppShellStore } from "@/app/store/app-shell.store";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useProxyStatus, useStartProxy } from "@/features/proxy-status/use-proxy-status";
+import { checkForUpdateAndStore, installUpdateAndStore } from "@/features/updater/update-status";
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
-import {
-  checkForAppUpdate,
-  installPendingAppUpdate,
-  type AppUpdateInfo,
-  type AppUpdateProgress,
-} from "@/services/updater/app-updater";
 import {
   getAiSettings,
   getAppBuildInfo,
@@ -384,67 +380,32 @@ function ProxySettingsSection() {
 
 export function UpdatesSection() {
   const { t } = useI18n();
-  const [isChecking, setIsChecking] = useState(false);
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [availableUpdate, setAvailableUpdate] = useState<AppUpdateInfo | null>(null);
-  const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
-  const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(
-    null,
-  );
+  const availableUpdate = useAppShellStore((s) => s.availableUpdate);
+  const isChecking = useAppShellStore((s) => s.isChecking);
+  const isInstalling = useAppShellStore((s) => s.isInstalling);
+  const updateProgress = useAppShellStore((s) => s.updateProgress);
+  const [justCheckedNone, setJustCheckedNone] = useState(false);
 
-  const handleCheck = useCallback(async () => {
-    setIsChecking(true);
-    setProgress(null);
-
-    try {
-      const update = await checkForAppUpdate();
-      setAvailableUpdate(update);
-      if (!update) {
-        setToast({ message: t("settingsPage.updatesNone"), severity: "success" });
-      }
-    } catch (error) {
-      const normalizedError = coerceAppError(error);
-      setToast({
-        message: normalizedError.message.trim() || t("common.errors.generic"),
-        severity: "error",
-      });
-    } finally {
-      setIsChecking(false);
-    }
-  }, [t]);
-
-  async function handleInstall() {
-    setIsInstalling(true);
-
-    try {
-      await installPendingAppUpdate((nextProgress) => setProgress(nextProgress));
-      setToast({ message: t("settingsPage.updatesRestarting"), severity: "success" });
-    } catch (error) {
-      const normalizedError = coerceAppError(error);
-      setToast({
-        message: normalizedError.message.trim() || t("common.errors.generic"),
-        severity: "error",
-      });
-      setIsInstalling(false);
+  async function handleCheck() {
+    await checkForUpdateAndStore();
+    if (useAppShellStore.getState().availableUpdate === null) {
+      setJustCheckedNone(true);
     }
   }
 
-  useEffect(() => {
-    function handleMenuCheckForUpdates() {
-      void handleCheck();
+  async function handleInstall() {
+    try {
+      await installUpdateAndStore();
+    } catch {
+      // helper logs + resets isInstalling
     }
-
-    window.addEventListener("aiproxy-check-for-updates", handleMenuCheckForUpdates);
-    return () => {
-      window.removeEventListener("aiproxy-check-for-updates", handleMenuCheckForUpdates);
-    };
-  }, [handleCheck]);
+  }
 
   const progressText =
-    progress && progress.contentLength
+    updateProgress && updateProgress.contentLength
       ? t("settingsPage.updatesProgress", {
-          downloaded: Math.round(progress.downloaded / 1024).toString(),
-          total: Math.round(progress.contentLength / 1024).toString(),
+          downloaded: Math.round(updateProgress.downloaded / 1024).toString(),
+          total: Math.round(updateProgress.contentLength / 1024).toString(),
         })
       : null;
 
@@ -505,16 +466,14 @@ export function UpdatesSection() {
         ) : null}
 
         <Snackbar
-          open={toast !== null}
+          open={justCheckedNone}
           autoHideDuration={3000}
-          onClose={() => setToast(null)}
+          onClose={() => setJustCheckedNone(false)}
           anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
-          {toast ? (
-            <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)}>
-              {toast.message}
-            </Alert>
-          ) : undefined}
+          <Alert severity="success" variant="filled" onClose={() => setJustCheckedNone(false)}>
+            {t("settingsPage.updatesNone")}
+          </Alert>
         </Snackbar>
       </Stack>
     </SectionCard>
