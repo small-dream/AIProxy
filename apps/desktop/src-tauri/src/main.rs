@@ -145,6 +145,13 @@ pub fn run() {
                     verify_upstream_tls: ws.verify_upstream_tls,
                     tls_verify_hosts: serde_json::to_string(&ws.tls_verify_hosts)
                         .unwrap_or_else(|_| "[]".to_string()),
+                    // A freshly seeded workspace has no upstream proxy; empty
+                    // string is the "never configured" sentinel.
+                    upstream_proxy: ws
+                        .upstream_proxy
+                        .as_ref()
+                        .and_then(|settings| serde_json::to_string(settings).ok())
+                        .unwrap_or_default(),
                     storage_path: ws.storage_path.clone(),
                     created_at: ws.created_at.clone(),
                     updated_at: ws.updated_at.clone(),
@@ -178,6 +185,7 @@ pub fn run() {
             commands::get_insights,
             commands::start_proxy,
             commands::stop_proxy,
+            commands::test_upstream_proxy,
             commands::enable_system_proxy,
             commands::disable_system_proxy,
             commands::get_port_occupant,

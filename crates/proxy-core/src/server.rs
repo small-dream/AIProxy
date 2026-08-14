@@ -31,7 +31,7 @@ pub async fn start_proxy_server(
     config: ProxyConfig,
     managers: ProxyManagers,
 ) -> Result<StartedProxyServer, String> {
-    config.runtime.validate().map_err(str::to_string)?;
+    config.runtime.validate()?;
 
     let bind_addr: &str = DEFAULT_BIND_ADDRESS;
     let listener = TcpListener::bind((bind_addr, config.runtime.port))
@@ -233,6 +233,9 @@ async fn handle_connection(
     // per connection.
     let verify_upstream_tls = config.runtime.verify_upstream_tls;
     let tls_verify_hosts = Arc::clone(&config.runtime.tls_verify_hosts);
+    // Upstream (chained) proxy for this proxy instance, or None for direct
+    // egress. Fixed for the server's lifetime — changing it restarts the proxy.
+    let upstream_proxy = config.runtime.upstream_proxy.clone();
 
     // Header-only probe — reads until \r\n\r\n, returns (request, consumed, leftover).
     // consumed = full header bytes up to and including \r\n\r\n.
@@ -333,6 +336,7 @@ async fn handle_connection(
                     port,
                     &dns_manager,
                     &active_workspace_id,
+                    upstream_proxy,
                 )
                 .await
                 .map_err(ProxyError::from);
@@ -367,6 +371,7 @@ async fn handle_connection(
                     upstream_pool,
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
+                    upstream_proxy,
                 )
                 .await;
             }
@@ -391,6 +396,7 @@ async fn handle_connection(
         upstream_pool,
         verify_upstream_tls,
         tls_verify_hosts,
+        upstream_proxy,
     });
 
     let service = HttpProxyService { ctx };
@@ -745,5 +751,8 @@ pub async fn send_direct_request(
         timing_source: Some("compose".to_string()),
         trailers: None,
         h2_stream_id: None,
+        // `send_direct_request` is the Compose/API-client path: it dials the
+        // target itself and never consults the workspace's upstream proxy.
+        via_upstream_proxy: None,
     })
 }

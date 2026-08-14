@@ -1454,6 +1454,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            upstream_proxy: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -1747,6 +1748,7 @@ mod tests {
                 timing: None,
                 trailers: None,
                 h2_stream_id: None,
+                via_upstream_proxy: None,
             },
         )
         .unwrap();
@@ -1860,6 +1862,7 @@ mod tests {
                 timing: None,
                 trailers: None,
                 h2_stream_id: None,
+                via_upstream_proxy: None,
             },
         )
         .unwrap();

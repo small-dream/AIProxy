@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS session_details (
     timing             TEXT,
     trailers           TEXT DEFAULT NULL,
     h2_stream_id       INTEGER DEFAULT NULL,
+    via_upstream_proxy INTEGER DEFAULT NULL,
     FOREIGN KEY (session_summary_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
 -- M7: every sibling child table of session_summaries has an index on its FK
@@ -418,6 +419,26 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "workspaces",
         "tls_verify_hosts",
         "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    // Upstream (chained) proxy settings, stored as a single JSON object rather
+    // than one column per field: the settings are an internally-consistent unit
+    // that is always read and written together, and a JSON column lets the
+    // shape evolve without another ALTER TABLE. An empty string means "never
+    // configured", which is distinct from a configured-but-disabled object.
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "upstream_proxy",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    // Per-session record of whether the upstream connection was tunneled
+    // through the upstream proxy. NULL = unknown (sessions captured before this
+    // column existed, or synthesized responses that never dialed out).
+    migrate_add_column(
+        conn,
+        "session_details",
+        "via_upstream_proxy",
+        "INTEGER DEFAULT NULL",
     )?;
 
     // M30: enforce the "at most one enabled throttle profile per workspace"

@@ -17,6 +17,71 @@ pub struct StopProxyInput {
     pub workspace_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestUpstreamProxyInput {
+    /// The settings to test. Sent from the Settings form rather than read from
+    /// the workspace, so the user can verify a configuration before saving it.
+    pub settings: aiproxy_proxy_core::UpstreamProxySettings,
+    /// Host to open a tunnel to. Defaults to a well-known reachable target.
+    pub probe_host: Option<String>,
+    pub probe_port: Option<u16>,
+}
+
+/// Verify an upstream proxy configuration by opening a real tunnel through it.
+///
+/// Runs against the supplied settings regardless of their `enabled` flag: the
+/// point is to validate the configuration before turning it on.
+#[tauri::command]
+pub async fn test_upstream_proxy(
+    input: TestUpstreamProxyInput,
+) -> Result<aiproxy_proxy_core::UpstreamProxyProbeResult, String> {
+    let (default_host, default_port) = aiproxy_proxy_core::DEFAULT_PROBE_TARGET;
+    let probe_host = input
+        .probe_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_host)
+        .to_string();
+    let probe_port = input.probe_port.unwrap_or(default_port);
+
+    // Force `enabled` so a user can test a configuration they have not switched
+    // on yet — otherwise `to_runtime_config` would return None and there would
+    // be nothing to probe.
+    let settings = aiproxy_proxy_core::UpstreamProxySettings {
+        enabled: true,
+        ..input.settings
+    };
+    let config = settings
+        .to_runtime_config()
+        .ok_or_else(|| "upstream proxy settings are incomplete".to_string())?;
+
+    tracing::info!(
+        component = "desktop.commands",
+        event = "test_upstream_proxy_requested",
+        protocol = %config.protocol.as_str(),
+        proxy_host = %config.host,
+        proxy_port = config.port,
+        probe_host = %probe_host,
+        probe_port,
+        "test_upstream_proxy_requested"
+    );
+
+    let result = aiproxy_proxy_core::probe_upstream_proxy(&config, &probe_host, probe_port).await;
+
+    tracing::info!(
+        component = "desktop.commands",
+        event = "test_upstream_proxy_completed",
+        success = result.success,
+        elapsed_ms = result.elapsed_ms,
+        error = %result.error.as_deref().unwrap_or(""),
+        "test_upstream_proxy_completed"
+    );
+
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn start_proxy(
     input: StartProxyInput,
@@ -106,9 +171,11 @@ async fn start_proxy_impl(
         // resolved from the workspace below and passed to start_proxy_server.
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        // Same as the verify flag: the real upstream proxy is resolved from the
+        // workspace below. Pre-validation here only covers the port.
+        upstream_proxy: None,
     }
-    .validate()
-    .map_err(|message| message.to_string())?;
+    .validate()?;
 
     tracing::info!(
         component = "desktop.commands",
@@ -176,11 +243,51 @@ async fn start_proxy_impl(
     // against the OS root store when the user opts in OR the host is on the
     // allowlist. Falls back to off/empty (NoOp verifier) if the workspace
     // can't be loaded — preserving the historical default.
-    let (verify_upstream_tls, tls_verify_hosts) = state
-        .read_workspace_manager()
-        .load(&input.workspace_id)
-        .map(|ws| (ws.verify_upstream_tls, ws.tls_verify_hosts))
-        .unwrap_or_else(|| (false, Vec::new()));
+    let workspace_for_config = state.read_workspace_manager().load(&input.workspace_id);
+    let (verify_upstream_tls, tls_verify_hosts) = workspace_for_config
+        .as_ref()
+        .map(|ws| (ws.verify_upstream_tls, ws.tls_verify_hosts.clone()))
+        .unwrap_or((false, Vec::new()));
+
+    // Resolve the per-workspace upstream (chained) proxy. `to_runtime_config`
+    // returns None when the settings exist but are disabled, so a disabled
+    // chain is indistinguishable from "never configured" at runtime.
+    //
+    // An invalid configuration fails the start instead of silently falling back
+    // to direct egress: the user routed traffic through this proxy on purpose,
+    // and quietly bypassing it would leak the traffic they meant to contain.
+    let upstream_proxy = match workspace_for_config
+        .as_ref()
+        .and_then(|ws| ws.upstream_proxy.as_ref())
+        .and_then(|settings| settings.to_runtime_config())
+    {
+        Some(config) => {
+            config.validate().map_err(|message| {
+                tracing::error!(
+                    component = "desktop.commands",
+                    event = "upstream_proxy_config_invalid",
+                    workspace_id = %input.workspace_id,
+                    error = %message,
+                    "upstream_proxy_config_invalid"
+                );
+                message
+            })?;
+            tracing::info!(
+                component = "desktop.commands",
+                event = "upstream_proxy_configured",
+                workspace_id = %input.workspace_id,
+                protocol = %config.protocol.as_str(),
+                proxy_host = %config.host,
+                proxy_port = config.port,
+                authenticated = config.username.is_some(),
+                bypass_len = config.bypass.len(),
+                "upstream_proxy_configured"
+            );
+            Some(std::sync::Arc::new(config))
+        }
+        None => None,
+    };
+
     if verify_upstream_tls || !tls_verify_hosts.is_empty() {
         tracing::info!(
             component = "desktop.commands",
@@ -200,6 +307,7 @@ async fn start_proxy_impl(
                 http2_enabled,
                 verify_upstream_tls,
                 tls_verify_hosts: std::sync::Arc::from(tls_verify_hosts),
+                upstream_proxy,
             },
             workspace_id: Some(input.workspace_id.clone()),
             event_emitter,

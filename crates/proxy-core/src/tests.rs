@@ -34,6 +34,7 @@ fn validates_a_non_zero_port() {
         http2_enabled: None,
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        upstream_proxy: None,
     };
 
     let actual = config.validate();
@@ -49,11 +50,15 @@ fn rejects_zero_as_a_port() {
         http2_enabled: None,
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        upstream_proxy: None,
     };
 
     let actual = config.validate();
 
-    assert_eq!(actual, Err("proxy port must be greater than zero"));
+    assert_eq!(
+        actual,
+        Err("proxy port must be greater than zero".to_string())
+    );
 }
 
 #[test]
@@ -197,6 +202,7 @@ fn applies_breakpoint_response_status_edits() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
     response
         .response_headers
@@ -233,6 +239,7 @@ fn applies_breakpoint_response_body_edits_as_plain_body() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
     response
         .response_headers
@@ -375,6 +382,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
         timing_source: None,
         trailers: None,
         h2_stream_id: None,
+        via_upstream_proxy: None,
     };
 
     let actual = serde_json::to_value(&detail).unwrap();
@@ -595,6 +603,7 @@ fn applies_response_body_rewrite_as_plain_body() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
     response
         .response_headers
@@ -681,6 +690,7 @@ fn m3_response_body_rewrite_noop_preserves_integrity_headers() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
     response
         .response_headers
@@ -1110,6 +1120,7 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
 
     let traces = apply_response_rewrite_rules(
@@ -1277,6 +1288,7 @@ fn applies_response_body_rewrite_to_json_array_fields() {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        via_upstream_proxy: None,
     };
 
     let traces = apply_response_rewrite_rules(
@@ -2168,6 +2180,7 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2248,6 +2261,7 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2342,6 +2356,7 @@ async fn h1_conn_driver_is_aborted_after_request_timeout() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2445,6 +2460,7 @@ async fn forwards_large_http_responses_without_truncating_the_client_body() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2692,6 +2708,7 @@ fn build_test_session_detail() -> ProxySessionDetail {
         timing_source: None,
         trailers: None,
         h2_stream_id: None,
+        via_upstream_proxy: None,
     }
 }
 
@@ -2839,6 +2856,7 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2904,6 +2922,7 @@ async fn request_body_over_limit_returns_413_and_records_session() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3007,6 +3026,7 @@ async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3087,6 +3107,7 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3238,6 +3259,7 @@ async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3349,6 +3371,7 @@ async fn ws_upgrade_non_101_chunked_body_decoded() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3478,6 +3501,7 @@ async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3609,6 +3633,7 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3717,6 +3742,7 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: Some("default".to_string()),
             event_emitter: None,
@@ -3941,6 +3967,7 @@ async fn blind_tunnel_returns_502_when_upstream_unreachable() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3991,6 +4018,7 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4096,6 +4124,7 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4207,6 +4236,7 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4349,6 +4379,7 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4424,6 +4455,402 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
         closed,
         "ws relay must terminate after Close even without peer closeback (within grace window)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Upstream (chained) proxy — end-to-end through a real proxy server
+// ---------------------------------------------------------------------------
+
+/// Spawn a minimal HTTP CONNECT proxy on an ephemeral port.
+///
+/// Accepts one connection, reads the CONNECT head, records the requested
+/// authority, then splices the tunnel to the real target. Returns the bound
+/// port plus a handle to the recorded authority so a test can assert what the
+/// chain actually asked for.
+async fn spawn_mock_connect_proxy() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let observed: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let observed_for_task = Arc::clone(&observed);
+
+    tokio::spawn(async move {
+        let (mut client, _) = listener.accept().await.unwrap();
+
+        // Read the CONNECT head one byte at a time so no tunnel payload is
+        // swallowed, mirroring what a real proxy must do.
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            if client.read_exact(&mut byte).await.is_err() {
+                return;
+            }
+            head.push(byte[0]);
+        }
+        let head_text = String::from_utf8_lossy(&head).into_owned();
+        let authority = head_text
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .map(str::to_string);
+        *observed_for_task.lock().unwrap() = authority.clone();
+
+        let Some(authority) = authority else { return };
+        let Ok(mut upstream) = TcpStream::connect(&*authority).await else {
+            let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+            return;
+        };
+
+        if client
+            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .await
+            .is_err()
+        {
+            return;
+        }
+
+        let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+    });
+
+    (port, observed)
+}
+
+fn upstream_proxy_runtime_config(
+    proxy_port: u16,
+    upstream_proxy: Option<std::sync::Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+) -> ProxyRuntimeConfig {
+    ProxyRuntimeConfig {
+        port: proxy_port,
+        ssl_enabled: false,
+        http2_enabled: None,
+        verify_upstream_tls: false,
+        tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        upstream_proxy,
+    }
+}
+
+fn http_upstream_proxy(host: &str, port: u16, bypass: Vec<String>) -> crate::UpstreamProxyConfig {
+    crate::UpstreamProxyConfig {
+        protocol: crate::UpstreamProxyProtocol::Http,
+        host: host.to_string(),
+        port,
+        username: None,
+        password: None,
+        bypass: std::sync::Arc::from(bypass),
+    }
+}
+
+/// The core acceptance case: a plain HTTP request through AIProxy must reach
+/// the origin *via* the configured upstream proxy, and the session detail must
+/// say so.
+#[tokio::test]
+async fn plain_http_request_is_tunneled_through_the_upstream_proxy() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nCHAINED")
+            .await
+            .unwrap();
+    });
+
+    let (mock_proxy_port, observed_authority) = spawn_mock_connect_proxy().await;
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: upstream_proxy_runtime_config(
+                proxy_port,
+                Some(std::sync::Arc::new(http_upstream_proxy(
+                    "127.0.0.1",
+                    mock_proxy_port,
+                    Vec::new(),
+                ))),
+            ),
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/hello");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    client_stream.read_to_string(&mut response).await.unwrap();
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(2), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+
+    assert!(response.contains("HTTP/1.1 200 OK"), "got: {response}");
+    assert!(
+        response.contains("CHAINED"),
+        "the origin body must arrive through the chain, got: {response}"
+    );
+    assert_eq!(session.summary.status_code, 200);
+    assert_eq!(
+        session.via_upstream_proxy,
+        Some(true),
+        "the session must record that it went through the upstream proxy"
+    );
+
+    let authority = observed_authority.lock().unwrap().clone();
+    assert_eq!(
+        authority,
+        Some(format!("127.0.0.1:{upstream_port}")),
+        "the upstream proxy must receive a CONNECT for the real target"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+/// A host on the bypass list must be dialed directly, and the session must be
+/// labelled as direct rather than proxied.
+#[tokio::test]
+async fn bypassed_host_skips_the_upstream_proxy_and_is_labelled_direct() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nDIRECT")
+            .await
+            .unwrap();
+    });
+
+    // Point the chain at a closed port: if the bypass fails to apply, the
+    // request errors instead of succeeding.
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: upstream_proxy_runtime_config(
+                proxy_port,
+                Some(std::sync::Arc::new(http_upstream_proxy(
+                    "127.0.0.1",
+                    1,
+                    vec!["127.0.0.1".to_string()],
+                ))),
+            ),
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/hello");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    client_stream.read_to_string(&mut response).await.unwrap();
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(2), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+
+    assert!(response.contains("DIRECT"), "got: {response}");
+    assert_eq!(
+        session.via_upstream_proxy,
+        Some(false),
+        "a bypassed host must be labelled as a direct connection"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+/// A CONNECT blind tunnel (SSL interception off) must also traverse the chain.
+#[tokio::test]
+async fn connect_blind_tunnel_is_relayed_through_the_upstream_proxy() {
+    // The "origin" just greets whoever connects, so the test can prove bytes
+    // flowed end-to-end through both hops.
+    let origin_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let origin_port = origin_listener.local_addr().unwrap().port();
+    let origin_task = tokio::spawn(async move {
+        let (mut stream, _) = origin_listener.accept().await.unwrap();
+        stream.write_all(b"ORIGIN-HELLO").await.unwrap();
+    });
+
+    let (mock_proxy_port, observed_authority) = spawn_mock_connect_proxy().await;
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            // ssl_enabled = false and no TLS manager -> blind relay path.
+            runtime: upstream_proxy_runtime_config(
+                proxy_port,
+                Some(std::sync::Arc::new(http_upstream_proxy(
+                    "127.0.0.1",
+                    mock_proxy_port,
+                    Vec::new(),
+                ))),
+            ),
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let connect_request = format!(
+        "CONNECT 127.0.0.1:{origin_port} HTTP/1.1\r\nHost: 127.0.0.1:{origin_port}\r\n\r\n"
+    );
+    client.write_all(connect_request.as_bytes()).await.unwrap();
+
+    let mut buffer = vec![0u8; 256];
+    let read = timeout(Duration::from_secs(2), client.read(&mut buffer))
+        .await
+        .expect("timed out reading the CONNECT response")
+        .unwrap();
+    let response = String::from_utf8_lossy(&buffer[..read]).into_owned();
+    assert!(
+        response.contains("200 Connection Established"),
+        "the tunnel must be established through the chain, got: {response}"
+    );
+
+    // Read the origin greeting that flowed back through both hops.
+    let mut greeting = vec![0u8; 12];
+    timeout(Duration::from_secs(2), client.read_exact(&mut greeting))
+        .await
+        .expect("timed out reading the origin greeting")
+        .unwrap();
+    assert_eq!(&greeting, b"ORIGIN-HELLO");
+
+    let authority = observed_authority.lock().unwrap().clone();
+    assert_eq!(
+        authority,
+        Some(format!("127.0.0.1:{origin_port}")),
+        "the blind tunnel must be opened via the upstream proxy"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    origin_task.await.unwrap();
+}
+
+/// A dead upstream proxy must surface as an error, never as a silent direct
+/// connection — that would leak traffic the user routed through the chain.
+#[tokio::test]
+async fn dead_upstream_proxy_fails_the_request_instead_of_bypassing_it() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    // The origin is alive and would answer a direct connection — so if the
+    // request somehow succeeds, the chain was bypassed.
+    let origin_task = tokio::spawn(async move {
+        if let Ok((mut stream, _)) = upstream_listener.accept().await {
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer).await;
+            let _ = stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nLEAKED",
+                )
+                .await;
+        }
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: upstream_proxy_runtime_config(
+                proxy_port,
+                // Port 1 on loopback is reliably closed.
+                Some(std::sync::Arc::new(http_upstream_proxy(
+                    "127.0.0.1",
+                    1,
+                    Vec::new(),
+                ))),
+            ),
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/hello");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    client_stream.read_to_string(&mut response).await.unwrap();
+
+    assert!(
+        !response.contains("LEAKED"),
+        "traffic must never reach the origin directly when the chain is down, got: {response}"
+    );
+    assert!(
+        response.contains("502") || response.contains("504"),
+        "a dead upstream proxy should surface as a gateway error, got: {response}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    origin_task.abort();
 }
 
 // ---------------------------------------------------------------------------

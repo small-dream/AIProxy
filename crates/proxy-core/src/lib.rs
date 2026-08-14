@@ -94,6 +94,7 @@ mod timing_connector;
 mod types;
 mod upstream;
 mod upstream_pool;
+mod upstream_proxy;
 pub mod ws;
 mod ws_upgrade;
 
@@ -124,6 +125,10 @@ pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,
     ProxyProtocolMetadata, ProxyRuntimeConfig, ProxyServerHandle, ProxySessionDetail,
     ProxySessionSummary, ProxyTimingBreakdown, StartedProxyServer, TlsManager,
+};
+pub use upstream_proxy::{
+    bypass_matches, default_bypass_patterns, probe_upstream_proxy, UpstreamProxyConfig,
+    UpstreamProxyProbeResult, UpstreamProxyProtocol, UpstreamProxySettings, DEFAULT_PROBE_TARGET,
 };
 pub use ws::{
     global_ws_registry, WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest,

@@ -21,6 +21,11 @@ pub struct WorkspaceData {
     /// array over the wire); the DB column stores it as a JSON-encoded string,
     /// and the converter (de)serializes between the two.
     pub tls_verify_hosts: Vec<String>,
+    /// Upstream (chained) proxy settings, or `None` when never configured.
+    /// The DB column stores this as a JSON string; the converter (de)serializes
+    /// between the two, mirroring `tls_verify_hosts`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -45,6 +50,7 @@ impl WorkspaceManager {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
+            upstream_proxy: None,
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -95,6 +101,7 @@ impl WorkspaceManager {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
+            upstream_proxy: None,
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -138,6 +145,7 @@ impl WorkspaceManager {
         http2_enabled: Option<bool>,
         verify_upstream_tls: Option<bool>,
         tls_verify_hosts: Option<Vec<String>>,
+        upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
     ) -> Result<WorkspaceData, String> {
         let mut workspaces = self
             .workspaces
@@ -166,6 +174,9 @@ impl WorkspaceManager {
         }
         if let Some(hosts) = tls_verify_hosts {
             workspace.tls_verify_hosts = hosts;
+        }
+        if let Some(settings) = upstream_proxy {
+            workspace.upstream_proxy = Some(settings);
         }
 
         workspace.updated_at = chrono::Utc::now().to_rfc3339();

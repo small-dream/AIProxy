@@ -211,6 +211,9 @@ fn build_upstream_session_detail(
     detail.rewrite_traces = rewrite_traces;
     detail.script_traces = script_traces;
     detail.throttle_traces = throttle_traces;
+    // Carries through as None for synthesized responses (mock / Map Local /
+    // script override), which never made a routing decision.
+    detail.via_upstream_proxy = upstream_response.via_upstream_proxy;
     if set_timing_source {
         detail.timing_source = Some("proxy".to_string());
     }
@@ -777,6 +780,7 @@ async fn stage_forward_upstream(
                     Some(ctx.upstream_pool.clone()),
                     ctx.verify_upstream_tls,
                     Arc::clone(&ctx.tls_verify_hosts),
+                    ctx.upstream_proxy.clone(),
                 ),
             )
             .await
@@ -2005,6 +2009,7 @@ mod tests {
             event_emitter: None,
             upstream_pool: pool,
             verify_upstream_tls: false,
+            upstream_proxy: None,
             tls_verify_hosts: Arc::from(Vec::<String>::new()),
         }
     }
@@ -2161,6 +2166,7 @@ mod tests {
             event_emitter: None,
             upstream_pool: pool,
             verify_upstream_tls: false,
+            upstream_proxy: None,
             tls_verify_hosts: Arc::from(Vec::<String>::new()),
         };
 

@@ -82,6 +82,13 @@ export type SessionDetail = {
   timingSource?: "proxy" | "compose" | "har-import" | undefined;
   trailers?: HeaderEntry[]; // HTTP/2 response trailers
   h2StreamId?: number; // HTTP/2 stream ID for debugging
+  /**
+   * Whether this request's upstream connection was tunneled through the
+   * configured upstream (chained) proxy. Undefined when the routing decision
+   * is unknown — a mocked/Map Local/script response that never dialed out, or
+   * a session captured before this field existed.
+   */
+  viaUpstreamProxy?: boolean;
 };
 
 export type SessionDetailContentRequest = {
@@ -333,6 +340,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     timing?: TimingBreakdown | null;
     trailers?: HeaderEntry[] | null;
     h2StreamId?: number | null;
+    viaUpstreamProxy?: boolean | null;
   };
 
   return (
@@ -375,6 +383,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
       candidate.trailers === null ||
       (Array.isArray(candidate.trailers) && candidate.trailers.every(isHeaderEntry))) &&
     isNullableNumber(candidate.h2StreamId) &&
+    isNullableBoolean(candidate.viaUpstreamProxy) &&
     isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
     isNullableBoolean(candidate.rawRequestDeferred) &&
@@ -417,6 +426,7 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       scriptTraces?: ScriptSessionTrace[] | null;
       trailers?: HeaderEntry[] | null;
       h2StreamId?: number | null;
+      viaUpstreamProxy?: boolean | null;
     };
 
     return {
@@ -485,6 +495,9 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.h2StreamId !== null && candidate.h2StreamId !== undefined
         ? { h2StreamId: candidate.h2StreamId }
+        : {}),
+      ...(candidate.viaUpstreamProxy !== null && candidate.viaUpstreamProxy !== undefined
+        ? { viaUpstreamProxy: candidate.viaUpstreamProxy }
         : {}),
     };
   }

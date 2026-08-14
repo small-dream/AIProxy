@@ -68,4 +68,8 @@ pub(crate) struct ConnectionContext {
     /// don't clone the list. The connector checks `contains(host)` per
     /// connection and ORs it with `verify_upstream_tls`.
     pub tls_verify_hosts: Arc<[String]>,
+    /// Upstream (chained) proxy for outbound connections made on behalf of this
+    /// connection, or `None` for direct egress. Fixed for the connection's
+    /// lifetime; changing the workspace setting restarts the proxy.
+    pub upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 }

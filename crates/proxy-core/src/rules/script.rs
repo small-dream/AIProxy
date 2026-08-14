@@ -203,6 +203,9 @@ fn upstream_response_from_override(
         })?,
         tls_ms: None,
         waiting_ms: 0,
+        // A script-synthesized response never reaches the network, so there is
+        // no routing decision to report.
+        via_upstream_proxy: None,
     })
 }
 
@@ -421,6 +424,7 @@ mod tests {
             status_code: StatusCode::OK,
             tls_ms: None,
             waiting_ms: 0,
+            via_upstream_proxy: None,
         };
 
         // Script returns the (decoded) plain body and echoes the original

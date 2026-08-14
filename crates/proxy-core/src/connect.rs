@@ -12,33 +12,45 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     port: u16,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<(), String> {
     // Resolve DNS override FIRST (must happen before connecting upstream),
     // then connect the upstream BEFORE telling the client the tunnel is up.
     // If the upstream is unreachable we reply 502 Bad Gateway so the client
     // gets real feedback instead of a fake 200 followed by a dead tunnel (M4).
-    let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
-        Some(ip) => {
-            tracing::info!(
-                event = "dns_override_applied",
-                host = %host,
-                override_ip = %ip,
-                "dns_override_applied"
-            );
-            ip.to_string()
-        }
-        None => host.to_string(),
-    };
-    // Bound the upstream TCP connect so a slow/unreachable target cannot hold
-    // a connection permit indefinitely (H4). On timeout we reply 504 Gateway
-    // Timeout, matching the connect-failure path established in M4.
+    //
+    // The override is passed to the dialer rather than pre-substituted into the
+    // host, so that when an upstream proxy is in play the hostname still
+    // reaches it verbatim (its routing rules need the domain, not an IP).
+    let dns_override_ip = resolve_dns_override(dns_manager, workspace_id, host);
+    if let Some(ip) = &dns_override_ip {
+        tracing::info!(
+            event = "dns_override_applied",
+            host = %host,
+            override_ip = %ip,
+            "dns_override_applied"
+        );
+    }
+    // Bound the upstream connect so a slow/unreachable target — or a stalled
+    // upstream proxy handshake — cannot hold a connection permit indefinitely
+    // (H4). On timeout we reply 504 Gateway Timeout, matching the
+    // connect-failure path established in M4.
     let connect_result = timeout(
         connect_tunnel_connect_timeout(),
-        TcpStream::connect((&*connect_host, port)),
+        crate::upstream_proxy::dial_target(upstream_proxy.as_deref(), host, port, dns_override_ip),
     )
     .await;
     let upstream = match connect_result {
-        Ok(Ok(s)) => s,
+        Ok(Ok((stream, route))) => {
+            tracing::debug!(
+                event = "connect_tunnel_upstream_connected",
+                host = %host,
+                port = port,
+                via_upstream_proxy = matches!(route, crate::upstream_proxy::DialRoute::UpstreamProxy),
+                "connect_tunnel_upstream_connected"
+            );
+            stream
+        }
         Ok(Err(e)) => {
             tracing::warn!(
                 event = "connect_tunnel_upstream_failed",
@@ -155,11 +167,14 @@ enum RelayOutcome {
 /// Idle-reset bidirectional relay over split halves, preserving TCP half-close.
 ///
 /// See the comment block in `tunnel_blind_relay` for the full design rationale.
-async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
-    client_stream: S,
-    upstream: TcpStream,
-    idle: Duration,
-) -> RelayOutcome {
+async fn idle_reset_relay<S, U>(client_stream: S, upstream: U, idle: Duration) -> RelayOutcome
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    // Generic over the upstream too: it is a direct TCP stream when dialing the
+    // origin, or a proxy-tunneled (possibly TLS-wrapped) stream when an
+    // upstream proxy is configured.
+    U: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut client_read, mut client_write) = tokio::io::split(client_stream);
     let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream);
 
@@ -338,6 +353,8 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     // H3: per-host allowlist that forces verification even when the global
     // flag is off.
     tls_verify_hosts: Arc<[String]>,
+    // Upstream (chained) proxy for outbound connections, or None for direct.
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<(), ProxyError> {
     // Send 200 Connection Established
     stream
@@ -421,6 +438,7 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         upstream_pool,
         verify_upstream_tls,
         tls_verify_hosts,
+        upstream_proxy,
     });
     let service = HttpProxyService { ctx };
 

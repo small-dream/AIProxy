@@ -142,10 +142,10 @@ fn ws_needs_tls(url: &url::Url, mode: &ConnectionMode) -> bool {
 /// On handshake failure returns `Err(message)` so the caller can emit a 502
 /// session (mirroring the original inline behavior).
 async fn connect_ws_upstream_tls(
-    tcp: tokio::net::TcpStream,
+    tcp: crate::upstream_proxy::DialedStream,
     request: &ParsedProxyRequest,
     ctx: &ConnectionContext,
-) -> Result<TlsOrPlain<tokio::net::TcpStream>, String> {
+) -> Result<TlsOrPlain<crate::upstream_proxy::DialedStream>, String> {
     // H3: select the verifying vs dangerous client config based on the
     // effective verify decision for THIS host: verify when the global
     // switch is on OR the host is on the per-host allowlist. WSS has no
@@ -204,33 +204,38 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         .port()
         .unwrap_or(ws_default_port(&request.url, &ctx.mode));
 
-    // Resolve DNS override.
-    let connect_host =
-        match crate::resolve_dns_override(&ctx.dns_manager, &ctx.workspace_id, &request.host) {
-            Some(ip) => {
-                tracing::info!(
-                    event = "dns_override_ws",
-                    host = %request.host,
-                    override_ip = %ip,
-                    "dns_override_ws"
-                );
-                ip.to_string()
-            }
-            None => request.host.clone(),
-        };
-    let connect_host_port = format!("{connect_host}:{port}");
+    // Resolve DNS override. Handed to the dialer rather than substituted into
+    // the host, so an upstream proxy still receives the hostname verbatim.
+    let dns_override_ip =
+        crate::resolve_dns_override(&ctx.dns_manager, &ctx.workspace_id, &request.host);
+    if let Some(ip) = &dns_override_ip {
+        tracing::info!(
+            event = "dns_override_ws",
+            host = %request.host,
+            override_ip = %ip,
+            "dns_override_ws"
+        );
+    }
+    let connect_host_port = format!("{}:{}", request.host, port);
 
     tracing::debug!(
         event = "ws_hyper_connecting_upstream",
         request_id = %request_id,
-        host_port = %format!("{}:{}", request.host, port),
+        host_port = %connect_host_port,
         "ws_hyper_connecting_upstream"
     );
 
-    // Connect upstream — TCP, optionally TLS for wss://.
-    // On failure, send a 502 session and return Ok(502) — not Err/499.
-    let ws_tcp = match TcpStream::connect(&*connect_host_port).await {
-        Ok(s) => s,
+    // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS for
+    // wss://. On failure, send a 502 session and return Ok(502) — not Err/499.
+    let ws_tcp = match crate::upstream_proxy::dial_target(
+        ctx.upstream_proxy.as_deref(),
+        &request.host,
+        port,
+        dns_override_ip,
+    )
+    .await
+    {
+        Ok((stream, _route)) => stream,
         Err(e) => {
             let error = format!("WebSocket upstream connect to {connect_host_port}: {e}");
             return Ok(send_ws_upstream_error_session(
@@ -665,7 +670,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 /// never receive the refusal. On idle timeout or byte ceiling the body
 /// collected so far is returned, preserving the upstream refusal status.
 async fn read_full_response_body(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     leftover: Vec<u8>,
     framing: BodyFraming,
 ) -> Result<bytes::Bytes, String> {
@@ -682,7 +687,7 @@ async fn read_full_response_body(
 /// by the idle timeout and `total` is capped at `MAX_CAPTURED_BODY_BYTES` to
 /// avoid unbounded memory on an absurd/malicious Content-Length.
 async fn read_length_delimited_body(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     mut body: Vec<u8>,
     total: usize,
 ) -> Result<bytes::Bytes, String> {
@@ -718,7 +723,7 @@ async fn read_length_delimited_body(
 /// HTTP/1.1 keep-alive peer that never sends EOF. The byte ceiling guards
 /// against an unbounded body.
 async fn read_until_close_body(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     mut body: Vec<u8>,
 ) -> Result<bytes::Bytes, String> {
     let mut chunk = [0u8; READ_BUFFER_BYTES];
@@ -750,7 +755,7 @@ async fn read_until_close_body(
 /// and the total decoded size is capped at `MAX_CAPTURED_BODY_BYTES`.
 /// `leftover` may already contain part of the first chunk.
 async fn read_chunked_body(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     leftover: Vec<u8>,
 ) -> Result<bytes::Bytes, String> {
     let mut buf = leftover;
@@ -820,7 +825,7 @@ async fn read_chunked_body(
 /// ceiling; surfacing the timeout as a hard error dropped the partial refusal
 /// body and synthesized a 502.
 async fn refill_stream(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     buf: &mut Vec<u8>,
     pos: &mut usize,
 ) -> Result<bool, String> {
@@ -854,7 +859,7 @@ async fn refill_stream(
 /// satisfied, so the caller can treat it as end of body. Returns `Ok(true)`
 /// once `need` bytes are buffered. Returns `Err` only on a genuine I/O error.
 async fn ensure_bytes(
-    upstream: &mut TlsOrPlain<tokio::net::TcpStream>,
+    upstream: &mut TlsOrPlain<crate::upstream_proxy::DialedStream>,
     buf: &mut Vec<u8>,
     pos: &mut usize,
     need: usize,

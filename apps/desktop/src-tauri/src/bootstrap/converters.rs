@@ -25,6 +25,26 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
     // degrades to an empty list rather than poisoning the workspace.
     let tls_verify_hosts: Vec<String> =
         serde_json::from_str(&row.tls_verify_hosts).unwrap_or_default();
+    // The upstream proxy column is an empty string for workspaces that never
+    // configured one. A malformed payload degrades to "not configured" (and is
+    // logged) rather than poisoning the whole workspace load — the user can
+    // re-enter the settings, but losing the workspace would be unrecoverable.
+    let upstream_proxy = if row.upstream_proxy.trim().is_empty() {
+        None
+    } else {
+        match serde_json::from_str(&row.upstream_proxy) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                tracing::warn!(
+                    event = "workspace_upstream_proxy_decode_failed",
+                    workspace_id = %row.id,
+                    error = %error,
+                    "workspace_upstream_proxy_decode_failed"
+                );
+                None
+            }
+        }
+    };
     WorkspaceData {
         id: row.id,
         name: row.name,
@@ -34,6 +54,7 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
         system_proxy_enabled: row.system_proxy_enabled,
         verify_upstream_tls: row.verify_upstream_tls,
         tls_verify_hosts,
+        upstream_proxy,
         storage_path: row.storage_path,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -258,6 +279,7 @@ pub(crate) fn detail_row_to_proxy(
         timing_source,
         trailers,
         h2_stream_id: row.h2_stream_id,
+        via_upstream_proxy: row.via_upstream_proxy,
     }
 }
 
@@ -368,6 +390,7 @@ pub(crate) fn proxy_detail_to_row(
             .as_ref()
             .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
         h2_stream_id: detail.h2_stream_id,
+        via_upstream_proxy: detail.via_upstream_proxy,
     }
 }
 

@@ -264,6 +264,42 @@ export const enMessages = {
     verifyUpstreamTlsDisabledHint:
       "Upstream TLS verification is OFF (insecure): the proxy accepts any upstream certificate. Turn this on for safer interception of trusted upstreams.",
   },
+  upstreamProxy: {
+    title: "Upstream Proxy",
+    description:
+      "Forward captured traffic through another proxy instead of connecting directly — for example, so a phone can reach the internet via a rule-based proxy on this machine.",
+    enabled: "Route through an upstream proxy",
+    enabledDescription:
+      "AIProxy keeps intercepting and decrypting; the upstream proxy performs the actual egress.",
+    protocol: "Protocol",
+    protocolHttp: "HTTP (CONNECT)",
+    protocolHttps: "HTTPS (TLS to proxy)",
+    protocolSocks5: "SOCKS5",
+    host: "Proxy Host",
+    hostValidation: "Proxy host is required.",
+    port: "Proxy Port",
+    portValidation: "Port must be between 1 and 65535.",
+    username: "Username",
+    password: "Password",
+    credentialsOptional: "Optional",
+    passwordNeedsUsername: "Enter a username first.",
+    bypass: "Bypass List",
+    bypassPlaceholder: "One pattern per line (e.g. localhost, *.example.com, 192.168.0.0/16)",
+    bypassDescription:
+      "Hosts matched here connect directly. Supports exact hostnames, *.example.com suffixes, and CIDR ranges (literal IP targets only).",
+    test: "Test Connection",
+    testing: "Testing...",
+    testSuccess: "Tunnel to {{target}} opened successfully in {{elapsed}} ms.",
+    testFailure: "Connection test failed: {{error}}",
+    save: "Save",
+    saving: "Saving...",
+    saveSuccess: "Upstream proxy settings saved.",
+    saveAndApplySuccess: "Upstream proxy settings saved and the proxy was restarted to apply them.",
+    noFallbackHint:
+      "If the upstream proxy is unreachable, requests fail instead of falling back to a direct connection — traffic is never silently routed around it.",
+    credentialStorageHint:
+      "The proxy password is stored in plain text in this workspace's local database.",
+  },
   composePage: {
     bodyPlaceholder: "Request body (JSON, plain text, etc.)",
     configureHint: "Configure a request and click Send to see the response here.",
@@ -1214,6 +1250,8 @@ export const enMessages = {
       overview: {
         cancelled: "Cancelled",
         complete: "Complete",
+        routeDirect: "Direct",
+        routeUpstreamProxy: "Via upstream proxy",
         fields: {
           clientAddress: "Client Address",
           clientConnection: "Client Connection",
@@ -1228,6 +1266,7 @@ export const enMessages = {
           latency: "Latency",
           queryString: "Query String",
           remoteAddress: "Remote Address",
+          route: "Route",
           request: "Request",
           requestBody: "Request Body",
           requestEndTime: "Request End Time",

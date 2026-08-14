@@ -9,6 +9,11 @@ use tokio::sync::{watch, RwLock};
 use crate::timing_connector::ConnectionTiming;
 
 /// Key used to look up pooled connections.
+///
+/// No upstream-proxy dimension is needed: the proxy configuration is fixed for
+/// the lifetime of a proxy server (changing it restarts the server, which drops
+/// the pool), and the bypass decision is a pure function of the host — which is
+/// already part of this key.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct UpstreamKey {
     pub host: String,
@@ -56,6 +61,7 @@ impl UpstreamConnectionPool {
         dns_override_ip: Option<IpAddr>,
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
+        upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
     ) -> Result<
         Option<(
             hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
@@ -133,13 +139,20 @@ impl UpstreamConnectionPool {
                     dns_override_ip,
                     verify_upstream_tls,
                     tls_verify_hosts,
+                    upstream_proxy,
                 ))
                 .await;
             }
             PendingAction::Connect(tx) => {
                 // We are the connector. Perform the connection outside any lock.
                 let connect_result = self
-                    .do_connect(key, dns_override_ip, verify_upstream_tls, tls_verify_hosts)
+                    .do_connect(
+                        key,
+                        dns_override_ip,
+                        verify_upstream_tls,
+                        tls_verify_hosts,
+                        upstream_proxy,
+                    )
                     .await;
 
                 match connect_result {
@@ -178,6 +191,7 @@ impl UpstreamConnectionPool {
         dns_override_ip: Option<IpAddr>,
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
+        upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
     ) -> Result<
         Option<(
             hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
@@ -189,6 +203,7 @@ impl UpstreamConnectionPool {
             dns_override_ip,
             verify_upstream_tls,
             tls_verify_hosts,
+            upstream_proxy,
         );
         let uri: http::Uri = format!("https://{}:{}", key.host, key.port)
             .parse()

@@ -114,6 +114,24 @@ type Workspace = {
   // H3: hostnames always TLS-verified even when verifyUpstreamTls is false.
   // Optional; defaults to []. The DB column stores a JSON-encoded array.
   tlsVerifyHosts?: string[];
+  // 上游（链式）代理设置。可选：从未配置过的 workspace 不带该字段。
+  // DB 列 `upstream_proxy` 以 JSON 字符串存储，空串表示从未配置。
+  upstreamProxy?: UpstreamProxySettings;
+};
+
+type UpstreamProxyProtocol = "http" | "https" | "socks5";
+
+type UpstreamProxySettings = {
+  // 为 false 时保留配置但全部直连，便于临时关闭而不丢失设置
+  enabled: boolean;
+  protocol: UpstreamProxyProtocol;
+  host: string;
+  port: number;
+  username?: string | null;
+  password?: string | null;
+  // 绕行规则：精确域名、`*.example.com` / `.example.com` 后缀、CIDR 网段
+  // （CIDR 仅对 IP 字面量目标生效）
+  bypass: string[];
 };
 ```
 
@@ -221,6 +239,9 @@ type SessionDetail = {
   timingSource?: "proxy" | "compose" | "har-import";
   trailers?: HeaderEntry[];     // HTTP/2 response trailers
   h2StreamId?: number;          // HTTP/2 stream ID (debugging)
+  // 该请求的上游连接是否经由上游代理。undefined = 无路由决策可报告
+  // （mock / Map Local / script 合成响应，或该字段存在之前抓的会话）
+  viaUpstreamProxy?: boolean;
 };
 
 type SessionDetailContentRequest = {
@@ -767,6 +788,9 @@ type UpdateWorkspaceInput = {
   // the backend serializes it to the JSON-encoded DB column. Omit to leave
   // unchanged.
   tlsVerifyHosts?: string[];
+  // 上游（链式）代理设置。省略表示不变；传入 `enabled: false` 表示保留
+  // 配置但改为直连。下次 start_proxy / 重启时生效。
+  upstreamProxy?: UpstreamProxySettings;
 };
 ```
 
@@ -777,6 +801,43 @@ type UpdateWorkspaceOutput = Workspace;
 ```
 
 > **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
+
+### `test_upstream_proxy` — 已实现
+
+对给定的上游代理配置发起一次真实握手，用于在保存前验证配置。
+
+请求：
+
+```ts
+type TestUpstreamProxyInput = {
+  // 直接来自设置表单，而不是读取 workspace，因此可以先验证再保存。
+  // 无论 settings.enabled 为何都会执行探测。
+  settings: UpstreamProxySettings;
+  probeHost?: string;  // 默认 www.apple.com
+  probePort?: number;  // 默认 443
+};
+```
+
+响应：
+
+```ts
+type UpstreamProxyProbeResult = {
+  success: boolean;
+  elapsedMs: number;      // TCP 连接 + 代理 TLS（如有）+ 协议握手总耗时
+  error?: string | null;  // 失败原因，成功时为空
+  probeTarget: string;    // 回显探测目标，形如 "www.apple.com:443"
+};
+```
+
+> **说明**：探测会**忽略绕行列表** —— 用户测的是代理本身，若探测目标恰好命中绕行规则而变成直连并报成功，会掩盖真实的配置错误。
+
+> **上游代理行为说明**：
+>
+> - 三个出站连接点（CONNECT 盲转发、HTTP/MITM 转发、WebSocket 上游）统一经由 `dial_target` 拨号，因此四类流量行为一致。
+> - **无自动回退**：上游代理不可用时请求直接失败，不会退化为直连——静默绕过会泄漏用户明确要求经由代理的流量。
+> - **域名交给代理解析**：未配置 DNS 覆盖时，目标以主机名形式传给上游代理（SOCKS5 `ATYP=domain` / CONNECT authority），使 Clash 等规则代理的域名分流生效；配置了 DNS 覆盖时覆盖 IP 优先，作为显式用户指令。
+> - `https` 协议下到代理那一跳的证书**始终**依据系统根证书校验，与 workspace 的 `verifyUpstreamTls` 无关——后者管的是被拦截目标的证书，而代理凭据要经过这一跳传输。
+> - 配置在代理服务器生命周期内固定，修改后需重启代理生效（保存时若代理在运行会自动重启）。
 
 ## 6.3 Session Commands
 

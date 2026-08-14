@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 use std::time::Instant;
 
 use crate::stream::TlsOrPlain;
+use crate::upstream_proxy::{dial_target, DialRoute, DialedStream, UpstreamProxyConfig};
 use http::uri::Scheme;
 use http::Uri;
 use rustls::pki_types::ServerName;
@@ -22,6 +23,10 @@ pub struct ConnectionTiming {
     pub tls_ms: Option<u128>,
     /// The ALPN protocol negotiated during TLS handshake (e.g. "h2", "http/1.1").
     pub alpn_protocol: Option<String>,
+    /// Whether this connection was tunneled through the configured upstream
+    /// proxy. Surfaced in session details so a user can tell at a glance
+    /// whether a request took the chained route or went out directly.
+    pub via_upstream_proxy: bool,
 }
 
 /// A timing-aware connector for hyper's legacy client.
@@ -53,6 +58,8 @@ pub struct TimingConnector {
     verifying_tls_connector: Arc<std::sync::OnceLock<TlsConnector>>,
     verify_upstream_tls: bool,
     tls_verify_hosts: Arc<[String]>,
+    /// Upstream (chained) proxy to tunnel through, when configured.
+    upstream_proxy: Option<Arc<UpstreamProxyConfig>>,
 }
 
 impl TimingConnector {
@@ -60,6 +67,7 @@ impl TimingConnector {
         dns_override_ip: Option<IpAddr>,
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
+        upstream_proxy: Option<Arc<UpstreamProxyConfig>>,
     ) -> Self {
         let alpn = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         // Dangerous connector is OnceLock-cached in tls-manager and cheap to
@@ -76,6 +84,7 @@ impl TimingConnector {
             verifying_tls_connector: Arc::new(std::sync::OnceLock::new()),
             verify_upstream_tls,
             tls_verify_hosts,
+            upstream_proxy,
         }
     }
 
@@ -100,7 +109,7 @@ pub(crate) fn host_in_allowlist(allowlist: &[String], host: &str) -> bool {
 }
 
 impl Service<Uri> for TimingConnector {
-    type Response = (TlsOrPlain<TcpStream>, ConnectionTiming);
+    type Response = (TlsOrPlain<DialedStream>, ConnectionTiming);
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -118,6 +127,7 @@ impl Service<Uri> for TimingConnector {
         let verify = self.should_verify(&host_for_decision);
         let dangerous_tls_connector = Arc::clone(&self.dangerous_tls_connector);
         let verifying_tls_connector = Arc::clone(&self.verifying_tls_connector);
+        let upstream_proxy = self.upstream_proxy.clone();
 
         Box::pin(async move {
             let host = host_for_decision;
@@ -130,19 +140,47 @@ impl Service<Uri> for TimingConnector {
                 Some("https") | Some("wss")
             );
 
-            // Phase 1: DNS resolution (or skip if override provided)
-            let (dns_ms, socket_addr) = if let Some(ip) = dns_override_ip {
-                (0, SocketAddr::new(ip, port))
-            } else {
-                let started = Instant::now();
-                let addr = resolve_host(&host, port).await?;
-                (started.elapsed().as_millis(), addr)
-            };
+            // Phases 1+2: resolve and connect.
+            //
+            // The two branches differ in *who* resolves DNS. A direct
+            // connection resolves locally, so we can report a real `dns_ms`.
+            // A proxied connection deliberately does not: the hostname has to
+            // reach the upstream proxy intact for its routing rules to match,
+            // so resolution happens on the proxy side and `dns_ms` stays 0.
+            // `connect_ms` then covers the whole negotiation (TCP to the proxy
+            // + any proxy-hop TLS + the CONNECT/SOCKS5 handshake).
+            let proxy_handles_this_host = upstream_proxy
+                .as_ref()
+                .is_some_and(|proxy| !proxy.should_bypass(&host));
 
-            // Phase 2: TCP connect
-            let tcp_started = Instant::now();
-            let tcp_stream = TcpStream::connect(socket_addr).await?;
-            let connect_ms = tcp_started.elapsed().as_millis();
+            let (dns_ms, connect_ms, dialed, via_upstream_proxy) = if proxy_handles_this_host {
+                let started = Instant::now();
+                let (stream, route) =
+                    dial_target(upstream_proxy.as_deref(), &host, port, dns_override_ip).await?;
+                (
+                    0,
+                    started.elapsed().as_millis(),
+                    stream,
+                    route == DialRoute::UpstreamProxy,
+                )
+            } else {
+                let (dns_ms, socket_addr) = if let Some(ip) = dns_override_ip {
+                    (0, SocketAddr::new(ip, port))
+                } else {
+                    let started = Instant::now();
+                    let addr = resolve_host(&host, port).await?;
+                    (started.elapsed().as_millis(), addr)
+                };
+
+                let tcp_started = Instant::now();
+                let tcp_stream = TcpStream::connect(socket_addr).await?;
+                (
+                    dns_ms,
+                    tcp_started.elapsed().as_millis(),
+                    TlsOrPlain::Plain(tcp_stream),
+                    false,
+                )
+            };
 
             // Phase 3: TLS handshake (HTTPS only). The connector is selected
             // here — lazily building the verifying one only when this is an
@@ -167,7 +205,7 @@ impl Service<Uri> for TimingConnector {
                 let server_name = ServerName::try_from(host.clone()).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS")
                 })?;
-                let tls_stream = tls_connector.connect(server_name, tcp_stream).await?;
+                let tls_stream = tls_connector.connect(server_name, dialed).await?;
                 let tls_ms = tls_started.elapsed().as_millis();
                 let alpn = tls_stream
                     .get_ref()
@@ -176,7 +214,7 @@ impl Service<Uri> for TimingConnector {
                     .map(|s| String::from_utf8_lossy(s).into_owned());
                 (TlsOrPlain::Tls(Box::new(tls_stream)), Some(tls_ms), alpn)
             } else {
-                (TlsOrPlain::Plain(tcp_stream), None, None)
+                (TlsOrPlain::Plain(dialed), None, None)
             };
 
             let timing = ConnectionTiming {
@@ -184,6 +222,7 @@ impl Service<Uri> for TimingConnector {
                 connect_ms,
                 tls_ms,
                 alpn_protocol,
+                via_upstream_proxy,
             };
 
             Ok((timing_stream, timing))
@@ -200,8 +239,14 @@ pub fn create_timing_connector(
     dns_override_ip: Option<IpAddr>,
     verify_upstream_tls: bool,
     tls_verify_hosts: Arc<[String]>,
+    upstream_proxy: Option<Arc<UpstreamProxyConfig>>,
 ) -> TimingConnector {
-    TimingConnector::new(dns_override_ip, verify_upstream_tls, tls_verify_hosts)
+    TimingConnector::new(
+        dns_override_ip,
+        verify_upstream_tls,
+        tls_verify_hosts,
+        upstream_proxy,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +355,7 @@ mod tests {
             Some(IpAddr::V4([127, 0, 0, 1].into())),
             false,
             empty_allowlist(),
+            None,
         );
         let uri: Uri = format!("https://127.0.0.1:{port}/").parse().unwrap();
         let result = Service::call(&mut connector, uri).await;
@@ -327,6 +373,7 @@ mod tests {
             Some(IpAddr::V4([127, 0, 0, 1].into())),
             true,
             empty_allowlist(),
+            None,
         );
         let uri: Uri = format!("https://127.0.0.1:{port}/").parse().unwrap();
         let result = Service::call(&mut connector, uri).await;
@@ -349,6 +396,7 @@ mod tests {
             Some(IpAddr::V4([127, 0, 0, 1].into())),
             false, // global verify OFF
             allowlist,
+            None,
         );
         let uri: Uri = format!("https://127.0.0.1:{port}/").parse().unwrap();
         let result = Service::call(&mut connector, uri).await;
@@ -366,8 +414,12 @@ mod tests {
         let port = spawn_self_signed_tls_upstream().await;
         // Allowlist some OTHER host; 127.0.0.1 is not listed.
         let allowlist: Arc<[String]> = Arc::from(vec!["example.com".to_string()]);
-        let mut connector =
-            TimingConnector::new(Some(IpAddr::V4([127, 0, 0, 1].into())), false, allowlist);
+        let mut connector = TimingConnector::new(
+            Some(IpAddr::V4([127, 0, 0, 1].into())),
+            false,
+            allowlist,
+            None,
+        );
         let uri: Uri = format!("https://127.0.0.1:{port}/").parse().unwrap();
         let result = Service::call(&mut connector, uri).await;
         assert!(

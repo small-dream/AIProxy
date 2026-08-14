@@ -47,6 +47,9 @@ pub struct SessionDetailRow {
     pub timing: Option<String>,            // nullable JSON
     pub trailers: Option<String>,          // nullable JSON
     pub h2_stream_id: Option<u32>,
+    /// Whether the upstream connection for this session was tunneled through
+    /// the configured upstream proxy. NULL when unknown/not applicable.
+    pub via_upstream_proxy: Option<bool>,
 }
 
 fn u128_to_i64_saturating(value: u128) -> i64 {
@@ -149,7 +152,7 @@ pub fn upsert_session(
                     request_headers=?5, response_headers=?6, raw_request=?7, raw_response=?8,
                     client_address=?9, server_ip=?10, tls_cipher_suite=?11, tls_protocol=?12,
                     request_body_ref=?13, response_body_ref=?14, timing=?15,
-                    trailers=?16, h2_stream_id=?17
+                    trailers=?16, h2_stream_id=?17, via_upstream_proxy=?18
              WHERE id=?1",
             params![
                 detail.id,
@@ -169,6 +172,7 @@ pub fn upsert_session(
                 detail.timing,
                 detail.trailers,
                 detail.h2_stream_id,
+                detail.via_upstream_proxy,
             ],
         )
         .map_err(|e| DbError::query("update session detail", e))?;
@@ -180,8 +184,8 @@ pub fn upsert_session(
                  request_headers, response_headers, raw_request, raw_response,
                  client_address, server_ip, tls_cipher_suite, tls_protocol,
                  request_body_ref, response_body_ref, timing,
-                 trailers, h2_stream_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                 trailers, h2_stream_id, via_upstream_proxy)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 detail.id,
                 detail.session_summary_id,
@@ -200,6 +204,7 @@ pub fn upsert_session(
                 detail.timing,
                 detail.trailers,
                 detail.h2_stream_id,
+                detail.via_upstream_proxy,
             ],
         )
         .map_err(|e| DbError::query("insert session detail", e))?;
@@ -268,7 +273,7 @@ pub fn load_session_detail(
                 request_headers, response_headers, raw_request, raw_response,
                 client_address, server_ip, tls_cipher_suite, tls_protocol,
                 request_body_ref, response_body_ref, timing,
-                trailers, h2_stream_id
+                trailers, h2_stream_id, via_upstream_proxy
          FROM session_details WHERE session_summary_id=?1",
         params![id],
         |row| {
@@ -290,6 +295,7 @@ pub fn load_session_detail(
                 timing: row.get(14)?,
                 trailers: row.get(15)?,
                 h2_stream_id: row.get::<_, Option<i64>>(16)?.map(|v| v as u32),
+                via_upstream_proxy: row.get::<_, Option<i64>>(17)?.map(|v| v != 0),
             })
         },
     );
@@ -573,6 +579,7 @@ mod tests {
             timing: Some("{\"totalMs\":100}".into()),
             trailers: None,
             h2_stream_id: None,
+            via_upstream_proxy: None,
         }
     }
 

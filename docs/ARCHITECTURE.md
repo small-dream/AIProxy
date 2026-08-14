@@ -216,6 +216,7 @@ CSP 策略：
 - `upstream.rs`：上游 HTTP 请求转发模块，负责 hyper upstream request、response body 读取、捕获体限制和大 body spool helper。
 - `connect.rs`：CONNECT 处理模块，负责 blind TCP relay、MITM TLS accept、CONNECT/WSS 相关 response head 读取。
 - `connection.rs`：`ConnectionContext` 结构体 + `ConnectionMode` enum，定义纯 HTTP / MITM 两条路径的连接级共享状态。
+- `upstream_proxy.rs`：上游（链式）代理模块。所有出站连接统一经由 `dial_target()` 拨号，返回一条「能到达目标」的字节流；未配置或命中绕行规则时直连，否则按 HTTP CONNECT / HTTPS（先与代理做 TLS 再 CONNECT）/ SOCKS5（RFC 1928 + 1929 认证）协商隧道。三个出站点（`connect.rs` 盲转发、`timing_connector.rs` HTTP/MITM 转发、`ws_upgrade.rs` WebSocket 上游）共用该抽象，因此 TLS 拦截、h1/h2 选择、timing 采集与连接池均无需感知代理链。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
 - `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
@@ -978,6 +979,7 @@ project-root/
 - `context.rs`：跨请求共享的 proxy runtime context
 - `http_io.rs`：HTTP header/body I/O、prefixed stream、body limit 工具
 - `upstream_pool.rs`：HTTP/2 上游连接池与空闲连接清理
+- `upstream_proxy.rs`：上游（链式）代理的协议握手、绕行匹配、统一拨号入口与连通性探测
 - `rules/`：规则类型、manager、pattern、rewrite/map/script/throttle/json path 逻辑
 - `error.rs`：代理核心结构化错误
 - `types.rs`：跨平台共享类型与 IP 探测入口；平台特定实现通过 `#[cfg]` 分别委托给 `types_unix.rs`（libc getifaddrs）和 `types_windows.rs`（PowerShell Get-NetIPAddress）

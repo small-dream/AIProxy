@@ -116,6 +116,8 @@ pub(crate) async fn forward_request(
     // H3: per-host allowlist that forces verification even when
     // verify_upstream_tls is false.
     tls_verify_hosts: Arc<[String]>,
+    // Upstream (chained) proxy to tunnel this request through, when configured.
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<UpstreamResponse, ProxyError> {
     use http_body_util::BodyExt;
 
@@ -156,6 +158,7 @@ pub(crate) async fn forward_request(
                     dns_override_ip,
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
+                    upstream_proxy.clone(),
                 )
                 .await?,
             )
@@ -207,6 +210,12 @@ pub(crate) async fn forward_request(
             connect_ms: 0,
             tls_ms: None,
             alpn_protocol: Some("h2".to_string()),
+            // A reused pooled connection carries no fresh timing, but it was
+            // established under the same routing decision this request would
+            // make, so report the route rather than defaulting to "direct".
+            via_upstream_proxy: upstream_proxy
+                .as_ref()
+                .is_some_and(|proxy| !proxy.should_bypass(&request.host)),
         });
 
         // Factory that rebuilds the h2 request from scratch each call, so it can
@@ -314,6 +323,7 @@ pub(crate) async fn forward_request(
                         dns_override_ip,
                         verify_upstream_tls,
                         Arc::clone(&tls_verify_hosts),
+                        upstream_proxy.clone(),
                     )
                 }) {
                     Some(fut) => fut.await.map_err(|e| {
@@ -378,6 +388,7 @@ pub(crate) async fn forward_request(
             dns_override_ip,
             verify_upstream_tls,
             Arc::clone(&tls_verify_hosts),
+            upstream_proxy.clone(),
         );
         let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
             ProxyError::UpstreamError(format!(
@@ -565,6 +576,7 @@ async fn build_upstream_response_from_hyper(
         status_code,
         tls_ms: connection_timing.tls_ms,
         waiting_ms,
+        via_upstream_proxy: Some(connection_timing.via_upstream_proxy),
     })
 }
 

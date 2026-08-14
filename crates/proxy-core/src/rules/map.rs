@@ -91,6 +91,9 @@ fn build_local_file_response(path: &Path) -> Result<UpstreamResponse, String> {
         status_code: StatusCode::OK,
         tls_ms: None,
         waiting_ms: 0,
+        // Served from a local file — no upstream connection was made, so there
+        // is no routing decision to report.
+        via_upstream_proxy: None,
     })
 }
 

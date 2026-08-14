@@ -840,6 +840,9 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
         tls_ms: None,
         waiting_ms: 0,
+        // A breakpoint mock never reaches the network, so there is no routing
+        // decision to report.
+        via_upstream_proxy: None,
     }
 }
 

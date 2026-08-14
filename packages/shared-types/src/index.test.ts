@@ -10,12 +10,15 @@ import {
   isProxyStatus,
   isPortOccupant,
   isSessionSummary,
+  isUpstreamProxyProtocol,
+  isUpstreamProxySettings,
   normalizeStartProxyInput,
   parseSessionDetail,
   parseSessionSummary,
   parseSessionSummaries,
   parseProxyStatus,
   parsePortOccupant,
+  parseUpstreamProxyProbeResult,
 } from "./index";
 
 describe("isAppError", () => {
@@ -694,6 +697,7 @@ describe("parseSessionDetail", () => {
       ],
       trailers: [{ name: "x-trailer", value: "test" }],
       h2StreamId: 7,
+      viaUpstreamProxy: true,
     };
 
     const parsed = parseSessionDetail(payload);
@@ -702,9 +706,119 @@ describe("parseSessionDetail", () => {
     expect(parsed.scriptTraces).toEqual(payload.scriptTraces);
     expect(parsed.trailers).toEqual(payload.trailers);
     expect(parsed.h2StreamId).toBe(payload.h2StreamId);
+    expect(parsed.viaUpstreamProxy).toBe(true);
+  });
+
+  it("distinguishes a direct route from an unknown one", () => {
+    const base = {
+      cookies: [],
+      id: "session-1",
+      queryParams: [],
+      requestHeaders: [],
+      responseHeaders: [],
+      summary: {
+        durationMs: 42,
+        finishedAt: "2026-04-11T16:00:01.000Z",
+        host: "example.com",
+        id: "session-1",
+        method: "GET",
+        path: "/hello",
+        protocol: "http",
+        sizeBytes: 512,
+        startedAt: "2026-04-11T16:00:00.000Z",
+        statusCode: 200,
+        url: "http://example.com/hello",
+      },
+    };
+
+    // An explicit `false` means "dialed directly" and must survive parsing —
+    // collapsing it to undefined would render as "unknown" in the inspector.
+    expect(parseSessionDetail({ ...base, viaUpstreamProxy: false }).viaUpstreamProxy).toBe(false);
+    // Absent/null means the routing decision is genuinely unknown.
+    expect(parseSessionDetail(base).viaUpstreamProxy).toBeUndefined();
+    expect(
+      parseSessionDetail({ ...base, viaUpstreamProxy: null }).viaUpstreamProxy,
+    ).toBeUndefined();
   });
 
   it("throws when the payload is invalid", () => {
     expect(() => parseSessionDetail({ id: "session-1" })).toThrow();
+  });
+});
+
+describe("upstream proxy contract", () => {
+  const validSettings = {
+    enabled: true,
+    protocol: "socks5",
+    host: "127.0.0.1",
+    port: 7891,
+    username: "alice",
+    password: "s3cret",
+    bypass: ["localhost", "*.internal"],
+  };
+
+  it("accepts every supported protocol and rejects others", () => {
+    expect(isUpstreamProxyProtocol("http")).toBe(true);
+    expect(isUpstreamProxyProtocol("https")).toBe(true);
+    expect(isUpstreamProxyProtocol("socks5")).toBe(true);
+    // socks4 is deliberately unsupported.
+    expect(isUpstreamProxyProtocol("socks4")).toBe(false);
+    expect(isUpstreamProxyProtocol("")).toBe(false);
+    expect(isUpstreamProxyProtocol(undefined)).toBe(false);
+  });
+
+  it("validates a complete settings object", () => {
+    expect(isUpstreamProxySettings(validSettings)).toBe(true);
+  });
+
+  it("accepts settings without credentials", () => {
+    expect(
+      isUpstreamProxySettings({
+        enabled: false,
+        protocol: "http",
+        host: "127.0.0.1",
+        port: 7890,
+        bypass: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects settings with a malformed protocol or bypass list", () => {
+    expect(isUpstreamProxySettings({ ...validSettings, protocol: "socks4" })).toBe(false);
+    expect(isUpstreamProxySettings({ ...validSettings, bypass: "localhost" })).toBe(false);
+    expect(isUpstreamProxySettings({ ...validSettings, bypass: [1, 2] })).toBe(false);
+    expect(isUpstreamProxySettings({ ...validSettings, port: "7890" })).toBe(false);
+    expect(isUpstreamProxySettings(null)).toBe(false);
+  });
+
+  it("parses a successful probe result", () => {
+    const parsed = parseUpstreamProxyProbeResult({
+      success: true,
+      elapsedMs: 42,
+      probeTarget: "www.apple.com:443",
+      error: null,
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.elapsedMs).toBe(42);
+    expect(parsed.probeTarget).toBe("www.apple.com:443");
+    // A null error is dropped rather than surfaced as a falsy message.
+    expect(parsed.error).toBeUndefined();
+  });
+
+  it("parses a failed probe result and keeps the error", () => {
+    const parsed = parseUpstreamProxyProbeResult({
+      success: false,
+      elapsedMs: 7,
+      probeTarget: "www.apple.com:443",
+      error: "connection refused",
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toBe("connection refused");
+  });
+
+  it("throws when the probe payload is invalid", () => {
+    expect(() => parseUpstreamProxyProbeResult({ success: true })).toThrow();
   });
 });
