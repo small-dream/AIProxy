@@ -16,11 +16,13 @@ export async function checkForUpdateAndStore(): Promise<boolean> {
   try {
     const info = await checkForAppUpdate();
     store.setAvailableUpdate(info);
+    store.setLastCheckFailed(false);
     ok = true;
   } catch (error) {
     // Non-fatal: the app works without update info.
     console.warn("[updater] check failed:", coerceAppError(error).message);
     store.setAvailableUpdate(null);
+    store.setLastCheckFailed(true);
   } finally {
     store.setUpdateChecking(false);
   }

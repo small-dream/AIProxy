@@ -8,6 +8,7 @@ describe("useAppShellStore update slice", () => {
       availableUpdate: null,
       isChecking: false,
       isInstalling: false,
+      lastCheckFailed: false,
       updateProgress: null,
       isUpdateDialogOpen: false,
     });

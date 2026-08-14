@@ -1,16 +1,24 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import { useAppShellStore } from "@/app/store/app-shell.store";
 import { UpdateDialog } from "@/features/updater/UpdateDialog";
 
+vi.mock("@/features/updater/update-status", () => ({
+  installUpdateAndStore: vi.fn(),
+}));
+
+import { installUpdateAndStore } from "@/features/updater/update-status";
+
 describe("UpdateDialog", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useAppShellStore.setState({
       availableUpdate: null,
       isChecking: false,
       isInstalling: false,
+      lastCheckFailed: false,
       updateProgress: null,
       isUpdateDialogOpen: false,
     });
@@ -47,5 +55,15 @@ describe("UpdateDialog", () => {
 
     const { container } = render(<UpdateDialog />, { wrapper: AppProviders });
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("invokes install when Update now is clicked", () => {
+    useAppShellStore.setState({
+      availableUpdate: { version: "9.9.9", currentVersion: "0.1.6" },
+      isUpdateDialogOpen: true,
+    });
+    render(<UpdateDialog />, { wrapper: AppProviders });
+    fireEvent.click(screen.getByRole("button", { name: /update now/i }));
+    expect(installUpdateAndStore).toHaveBeenCalledTimes(1);
   });
 });

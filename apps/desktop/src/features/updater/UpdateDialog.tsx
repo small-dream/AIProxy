@@ -18,6 +18,7 @@ export function UpdateDialog() {
   const availableUpdate = useAppShellStore((s) => s.availableUpdate);
   const isChecking = useAppShellStore((s) => s.isChecking);
   const isInstalling = useAppShellStore((s) => s.isInstalling);
+  const lastCheckFailed = useAppShellStore((s) => s.lastCheckFailed);
   const updateProgress = useAppShellStore((s) => s.updateProgress);
   const isOpen = useAppShellStore((s) => s.isUpdateDialogOpen);
   const setUpdateDialogOpen = useAppShellStore((s) => s.setUpdateDialogOpen);
@@ -36,9 +37,11 @@ export function UpdateDialog() {
 
   const title = isChecking
     ? t("settingsPage.updatesChecking")
-    : availableUpdate
-      ? t("settingsPage.updateDialogTitle", { version: availableUpdate.version })
-      : t("settingsPage.updateDialogNoUpdate");
+    : lastCheckFailed && !availableUpdate
+      ? t("settingsPage.updateDialogCheckFailed")
+      : availableUpdate
+        ? t("settingsPage.updateDialogTitle", { version: availableUpdate.version })
+        : t("settingsPage.updateDialogNoUpdate");
 
   async function handleUpdate() {
     try {
@@ -60,6 +63,12 @@ export function UpdateDialog() {
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         {isChecking ? <CircularProgress size={24} /> : null}
+        {isInstalling ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+            <CircularProgress size={16} />
+            <Typography variant="body2">{t("settingsPage.updatesInstalling")}</Typography>
+          </Box>
+        ) : null}
         {availableUpdate?.body ? (
           <Box sx={{ mt: isChecking ? 2 : 0 }}>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>

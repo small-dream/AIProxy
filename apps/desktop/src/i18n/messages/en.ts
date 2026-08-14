@@ -230,6 +230,7 @@ export const enMessages = {
     updatesProgress: "Downloaded {{downloaded}} KB of {{total}} KB.",
     updatesRestarting: "Update installed. Restarting AIProxy...",
     updateDialogChangelog: "What's new",
+    updateDialogCheckFailed: "Could not check for updates. Check your connection and try again.",
     updateDialogLater: "Later",
     updateDialogNoUpdate: "AIProxy is up to date.",
     updateDialogTitle: "New version {{version}} is available",

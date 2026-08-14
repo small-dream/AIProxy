@@ -227,6 +227,7 @@ export const zhCNMessages: Messages = {
     updatesProgress: "已下载 {{downloaded}} KB / {{total}} KB。",
     updatesRestarting: "更新已安装，正在重启 AIProxy...",
     updateDialogChangelog: "更新内容",
+    updateDialogCheckFailed: "检查更新失败，请检查网络后重试。",
     updateDialogLater: "稍后",
     updateDialogNoUpdate: "AIProxy 已是最新版本。",
     updateDialogTitle: "发现新版本 {{version}}",

@@ -384,12 +384,19 @@ export function UpdatesSection() {
   const isChecking = useAppShellStore((s) => s.isChecking);
   const isInstalling = useAppShellStore((s) => s.isInstalling);
   const updateProgress = useAppShellStore((s) => s.updateProgress);
-  const [justCheckedNone, setJustCheckedNone] = useState(false);
+  const [checkToast, setCheckToast] = useState<{
+    message: string;
+    severity: "success" | "error";
+  } | null>(null);
 
   async function handleCheck() {
     const ok = await checkForUpdateAndStore();
-    if (ok && useAppShellStore.getState().availableUpdate === null) {
-      setJustCheckedNone(true);
+    if (!ok) {
+      setCheckToast({ message: t("common.errors.generic"), severity: "error" });
+      return;
+    }
+    if (useAppShellStore.getState().availableUpdate === null) {
+      setCheckToast({ message: t("settingsPage.updatesNone"), severity: "success" });
     }
   }
 
@@ -466,13 +473,17 @@ export function UpdatesSection() {
         ) : null}
 
         <Snackbar
-          open={justCheckedNone}
+          open={checkToast !== null}
           autoHideDuration={3000}
-          onClose={() => setJustCheckedNone(false)}
+          onClose={() => setCheckToast(null)}
           anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
-          <Alert severity="success" variant="filled" onClose={() => setJustCheckedNone(false)}>
-            {t("settingsPage.updatesNone")}
+          <Alert
+            severity={checkToast?.severity ?? "success"}
+            variant="filled"
+            onClose={() => setCheckToast(null)}
+          >
+            {checkToast?.message}
           </Alert>
         </Snackbar>
       </Stack>
