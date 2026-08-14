@@ -40,6 +40,45 @@ export type UpstreamProxyProbeResult = {
   probeTarget: string;
 };
 
+/**
+ * Per-host TLS interception policy for a workspace.
+ *
+ * A client that pins a certificate rejects ours by design, and a rejected
+ * handshake tears the connection down — so intercepting such a host does not
+ * merely fail to decrypt, it breaks the app. Excluding the host relays it blind
+ * instead, trading visibility for the app continuing to work.
+ */
+export type SslProxyingSettings = {
+  /**
+   * Hosts to intercept. Empty means "intercept everything not excluded", which
+   * is the behavior of workspaces created before this setting existed.
+   */
+  include: string[];
+  /** Hosts never intercepted, regardless of `include`. */
+  exclude: string[];
+};
+
+export function isSslProxyingSettings(value: unknown): value is SslProxyingSettings {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<SslProxyingSettings>;
+
+  return (
+    Array.isArray(candidate.include) &&
+    candidate.include.every((entry) => typeof entry === "string") &&
+    Array.isArray(candidate.exclude) &&
+    candidate.exclude.every((entry) => typeof entry === "string")
+  );
+}
+
+export function parseSslProxyingExclusions(value: unknown): string[] {
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    return value;
+  }
+
+  throw coerceAppError(value);
+}
+
 export function isUpstreamProxyProtocol(value: unknown): value is UpstreamProxyProtocol {
   return (
     typeof value === "string" &&
@@ -110,6 +149,12 @@ export type Workspace = {
    * proxy start/restart.
    */
   upstreamProxy?: UpstreamProxySettings;
+  /**
+   * Per-host SSL proxying policy. Optional: workspaces that never configured
+   * one omit the field entirely and fall back to the recommended exclusions.
+   * Changes take effect on the next proxy start/restart.
+   */
+  sslProxying?: SslProxyingSettings;
   storagePath: string;
   createdAt: string;
   updatedAt: string;

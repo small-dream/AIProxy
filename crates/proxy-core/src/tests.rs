@@ -35,6 +35,7 @@ fn validates_a_non_zero_port() {
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
         upstream_proxy: None,
+        ssl_proxying: None,
     };
 
     let actual = config.validate();
@@ -51,6 +52,7 @@ fn rejects_zero_as_a_port() {
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
         upstream_proxy: None,
+        ssl_proxying: None,
     };
 
     let actual = config.validate();
@@ -2181,6 +2183,7 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2262,6 +2265,7 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2357,6 +2361,7 @@ async fn h1_conn_driver_is_aborted_after_request_timeout() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2461,6 +2466,7 @@ async fn forwards_large_http_responses_without_truncating_the_client_body() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2857,6 +2863,7 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -2923,6 +2930,7 @@ async fn request_body_over_limit_returns_413_and_records_session() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3027,6 +3035,7 @@ async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3108,6 +3117,7 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3260,6 +3270,7 @@ async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3372,6 +3383,7 @@ async fn ws_upgrade_non_101_chunked_body_decoded() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3502,6 +3514,7 @@ async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3634,6 +3647,7 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -3743,6 +3757,7 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: Some("default".to_string()),
             event_emitter: None,
@@ -3968,6 +3983,7 @@ async fn blind_tunnel_returns_502_when_upstream_unreachable() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4019,6 +4035,7 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4125,6 +4142,7 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4237,6 +4255,7 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4380,6 +4399,7 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
                 upstream_proxy: None,
+                ssl_proxying: None,
             },
             workspace_id: None,
             event_emitter: None,
@@ -4525,6 +4545,7 @@ fn upstream_proxy_runtime_config(
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
         upstream_proxy,
+        ssl_proxying: None,
     }
 }
 
@@ -4719,7 +4740,7 @@ async fn connect_blind_tunnel_is_relayed_through_the_upstream_proxy() {
 
     let (mock_proxy_port, observed_authority) = spawn_mock_connect_proxy().await;
     let proxy_port = allocate_unused_port();
-    let mut started_proxy: StartedProxyServer = start_proxy_server(
+    let started_proxy: StartedProxyServer = start_proxy_server(
         ProxyConfig {
             // ssl_enabled = false and no TLS manager -> blind relay path.
             runtime: upstream_proxy_runtime_config(
@@ -4803,7 +4824,7 @@ async fn dead_upstream_proxy_fails_the_request_instead_of_bypassing_it() {
     });
 
     let proxy_port = allocate_unused_port();
-    let mut started_proxy: StartedProxyServer = start_proxy_server(
+    let started_proxy: StartedProxyServer = start_proxy_server(
         ProxyConfig {
             runtime: upstream_proxy_runtime_config(
                 proxy_port,
@@ -4914,4 +4935,161 @@ fn h2_forbidden_headers_do_not_over_match_ordinary_headers() {
             "{name} is a legitimate h2 header and must be forwarded"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// SSL proxying policy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ssl_proxying_intercepts_everything_when_unconfigured() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // Two empty lists must behave exactly like the pre-feature proxy, or
+    // enabling the setting would silently stop capturing traffic.
+    let policy = SslProxyingSettings {
+        include: Vec::new(),
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    for host in ["example.com", "api.example.com", "127.0.0.1", "[::1]"] {
+        assert!(
+            policy.should_intercept(host),
+            "{host} should be intercepted"
+        );
+    }
+}
+
+#[test]
+fn ssl_proxying_exclude_wins_over_include() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // The exclude list is the escape hatch a user reaches for when an app
+    // breaks; a broad include pattern must not be able to defeat it.
+    let policy = SslProxyingSettings {
+        include: vec!["*".to_string()],
+        exclude: vec!["*.pinned.com".to_string()],
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("example.com"));
+    assert!(!policy.should_intercept("api.pinned.com"));
+    assert!(
+        !policy.should_intercept("pinned.com"),
+        "suffix covers the apex"
+    );
+}
+
+#[test]
+fn ssl_proxying_include_list_switches_to_allowlist_mode() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    let policy = SslProxyingSettings {
+        include: vec!["*.example.com".to_string(), "single.test".to_string()],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.example.com"));
+    assert!(policy.should_intercept("example.com"));
+    assert!(policy.should_intercept("single.test"));
+    // Anything not listed is relayed blind once an include list exists.
+    assert!(!policy.should_intercept("other.com"));
+    assert!(!policy.should_intercept("sub.single.test"));
+}
+
+#[test]
+fn ssl_proxying_defaults_exclude_known_pinning_hosts() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    let policy = SslProxyingSettings::default().to_runtime_config();
+
+    assert!(
+        policy.include.is_empty(),
+        "default must not be an allowlist"
+    );
+    for host in [
+        "api22-normal-c-alisg.tiktokv.com",
+        "mssdk22-normal-alisg.tiktokv.com",
+        "gateway.icloud.com.cn",
+        "apps.apple.com",
+        "amp-api-edge.apps.apple.com",
+    ] {
+        assert!(
+            !policy.should_intercept(host),
+            "{host} pins its certificate and must be excluded by default"
+        );
+    }
+    // Ordinary hosts still get captured out of the box.
+    assert!(policy.should_intercept("example.com"));
+    assert!(policy.should_intercept("www.apple.com"));
+}
+
+#[test]
+fn ssl_proxying_normalizes_blank_pattern_entries() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // A textarea round-trip leaves blank lines and stray whitespace behind; a
+    // blank pattern must not become a match-everything rule.
+    let policy = SslProxyingSettings {
+        include: Vec::new(),
+        exclude: vec![
+            "  ".to_string(),
+            String::new(),
+            "  *.example.com  ".to_string(),
+        ],
+    }
+    .to_runtime_config();
+
+    assert_eq!(policy.exclude.len(), 1);
+    assert!(!policy.should_intercept("api.example.com"));
+    assert!(policy.should_intercept("unrelated.com"));
+}
+
+// ---------------------------------------------------------------------------
+// Client handshake rejection classification
+// ---------------------------------------------------------------------------
+
+#[test]
+fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
+    use crate::connect::{classify_client_handshake_error, ClientHandshakeRejection};
+
+    fn as_io(error: rustls::Error) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+    }
+
+    // An untrusted root is a setup problem the user can fix, so it must stay
+    // distinguishable from a client that simply pins.
+    assert_eq!(
+        classify_client_handshake_error(&as_io(rustls::Error::AlertReceived(
+            rustls::AlertDescription::UnknownCA
+        ))),
+        ClientHandshakeRejection::UntrustedRoot
+    );
+
+    for alert in [
+        rustls::AlertDescription::CertificateUnknown,
+        rustls::AlertDescription::BadCertificate,
+        rustls::AlertDescription::AccessDenied,
+    ] {
+        assert_eq!(
+            classify_client_handshake_error(&as_io(rustls::Error::AlertReceived(alert))),
+            ClientHandshakeRejection::Pinned,
+            "{alert:?} means the chain verified but the cert was refused anyway"
+        );
+    }
+
+    // A protocol failure is neither, and a plain I/O error carries no rustls
+    // error to downcast to.
+    assert_eq!(
+        classify_client_handshake_error(&as_io(rustls::Error::AlertReceived(
+            rustls::AlertDescription::HandshakeFailure
+        ))),
+        ClientHandshakeRejection::Other
+    );
+    assert_eq!(
+        classify_client_handshake_error(&std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
+        ClientHandshakeRejection::Other
+    );
 }

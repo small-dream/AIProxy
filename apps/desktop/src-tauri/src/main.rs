@@ -152,6 +152,13 @@ pub fn run() {
                         .as_ref()
                         .and_then(|settings| serde_json::to_string(settings).ok())
                         .unwrap_or_default(),
+                    // Likewise unconfigured, which resolves to the recommended
+                    // exclusions rather than to an empty policy.
+                    ssl_proxying: ws
+                        .ssl_proxying
+                        .as_ref()
+                        .and_then(|settings| serde_json::to_string(settings).ok())
+                        .unwrap_or_default(),
                     storage_path: ws.storage_path.clone(),
                     created_at: ws.created_at.clone(),
                     updated_at: ws.updated_at.clone(),
@@ -186,6 +193,7 @@ pub fn run() {
             commands::start_proxy,
             commands::stop_proxy,
             commands::test_upstream_proxy,
+            commands::default_ssl_proxying_exclusions,
             commands::enable_system_proxy,
             commands::disable_system_proxy,
             commands::get_port_occupant,

@@ -251,6 +251,7 @@ flowchart LR
 - 支持显示代理状态、证书状态、系统代理状态
 - 支持 HTTP / HTTPS / WebSocket 捕获
 - 支持上游（链式）代理：将抓包流量经由 HTTP CONNECT / HTTPS / SOCKS5 上游代理出网，适配「手机连 AIProxy 抓包、由本机规则代理负责实际出网」的场景；提供绕行列表与连通性测试，会话详情标注每条请求是直连还是经由上游代理
+- 支持逐域名的 SSL 代理策略（对标 Charles SSL Proxying Settings）：include / exclude 两级列表决定哪些域名解密，未解密的域名仍正常盲转发。默认解密全部并预置一份已知使用证书绑定的域名排除表，使 TikTok、iCloud 等 App 在开启抓包时仍可正常使用
 
 ### 9.2 会话列表
 

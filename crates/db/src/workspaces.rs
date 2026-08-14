@@ -29,6 +29,10 @@ pub struct WorkspaceRow {
     /// the workspace has never configured one. Stored as a single JSON object
     /// because the fields are always read and written together.
     pub upstream_proxy: String,
+    /// JSON-encoded per-host SSL proxying policy, or an empty string when the
+    /// workspace has never configured one — which resolves to the built-in
+    /// defaults rather than to two empty lists.
+    pub ssl_proxying: String,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -47,7 +51,8 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
             "UPDATE workspaces
                 SET name=?2, proxy_port=?3, ssl_enabled=?4, http2_enabled=?5,
                     system_proxy_enabled=?6, verify_upstream_tls=?7, tls_verify_hosts=?8,
-                    upstream_proxy=?9, storage_path=?10, created_at=?11, updated_at=?12
+                    upstream_proxy=?9, ssl_proxying=?10, storage_path=?11, created_at=?12,
+                    updated_at=?13
              WHERE id=?1",
             params![
                 ws.id,
@@ -59,6 +64,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.verify_upstream_tls as i32,
                 ws.tls_verify_hosts,
                 ws.upstream_proxy,
+                ws.ssl_proxying,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -70,9 +76,9 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
         conn.execute(
             "INSERT INTO workspaces
                 (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                 verify_upstream_tls, tls_verify_hosts, upstream_proxy, storage_path,
-                 created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 verify_upstream_tls, tls_verify_hosts, upstream_proxy, ssl_proxying,
+                 storage_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 ws.id,
                 ws.name,
@@ -83,6 +89,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.verify_upstream_tls as i32,
                 ws.tls_verify_hosts,
                 ws.upstream_proxy,
+                ws.ssl_proxying,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -105,6 +112,7 @@ pub fn update_workspace(
     verify_upstream_tls: Option<bool>,
     tls_verify_hosts: Option<&str>,
     upstream_proxy: Option<&str>,
+    ssl_proxying: Option<&str>,
     updated_at: &str,
 ) -> Result<(), DbError> {
     let existing = load_workspace(conn, id)?.ok_or_else(|| DbError::not_found("workspace", id))?;
@@ -116,11 +124,13 @@ pub fn update_workspace(
     let verify_upstream_tls = verify_upstream_tls.unwrap_or(existing.verify_upstream_tls);
     let tls_verify_hosts = tls_verify_hosts.unwrap_or(&existing.tls_verify_hosts);
     let upstream_proxy = upstream_proxy.unwrap_or(&existing.upstream_proxy);
+    let ssl_proxying = ssl_proxying.unwrap_or(&existing.ssl_proxying);
 
     conn.execute(
         "UPDATE workspaces SET name=?1, proxy_port=?2, ssl_enabled=?3, http2_enabled=?4,
-            verify_upstream_tls=?5, tls_verify_hosts=?6, upstream_proxy=?7, updated_at=?8
-         WHERE id=?9",
+            verify_upstream_tls=?5, tls_verify_hosts=?6, upstream_proxy=?7, ssl_proxying=?8,
+            updated_at=?9
+         WHERE id=?10",
         params![
             name,
             proxy_port,
@@ -129,6 +139,7 @@ pub fn update_workspace(
             verify_upstream_tls as i32,
             tls_verify_hosts,
             upstream_proxy,
+            ssl_proxying,
             updated_at,
             id,
         ],
@@ -162,8 +173,8 @@ pub fn set_workspace_system_proxy_enabled(
 pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
         "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                verify_upstream_tls, tls_verify_hosts, upstream_proxy, storage_path,
-                created_at, updated_at
+                verify_upstream_tls, tls_verify_hosts, upstream_proxy, ssl_proxying,
+                storage_path, created_at, updated_at
          FROM workspaces WHERE id=?1",
         params![id],
         row_to_workspace,
@@ -183,8 +194,8 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbErr
     let mut stmt = conn
         .prepare(
             "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                    verify_upstream_tls, tls_verify_hosts, upstream_proxy, storage_path,
-                    created_at, updated_at
+                    verify_upstream_tls, tls_verify_hosts, upstream_proxy, ssl_proxying,
+                    storage_path, created_at, updated_at
              FROM workspaces ORDER BY created_at",
         )
         .map_err(|e| DbError::query("prepare load workspaces", e))?;
@@ -223,6 +234,7 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         verify_upstream_tls: row.get::<_, i32>("verify_upstream_tls")? != 0,
         tls_verify_hosts: row.get("tls_verify_hosts")?,
         upstream_proxy: row.get("upstream_proxy")?,
+        ssl_proxying: row.get("ssl_proxying")?,
         storage_path: row.get("storage_path")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -279,6 +291,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: String::new(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -305,6 +318,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: String::new(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -320,6 +334,7 @@ mod tests {
             Some(false),
             Some(true),
             Some(r#"["example.com"]"#),
+            None,
             None,
             "2026-01-02T00:00:00Z",
         )
@@ -399,6 +414,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: settings.into(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -415,6 +431,81 @@ mod tests {
     }
 
     #[test]
+    fn ssl_proxying_json_round_trips() {
+        let conn = test_conn();
+        let settings = r#"{"include":["*.example.com"],"exclude":["*.tiktokv.com"]}"#;
+        let ws = WorkspaceRow {
+            id: "ws-ssl".into(),
+            name: "SslProxying".into(),
+            proxy_port: 8888,
+            ssl_enabled: true,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
+            upstream_proxy: String::new(),
+            ssl_proxying: settings.into(),
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_workspace(&conn, &ws).unwrap();
+
+        let loaded = load_workspace(&conn, "ws-ssl").unwrap().unwrap();
+        assert_eq!(loaded.ssl_proxying, settings);
+
+        // A re-save (UPDATE branch) must preserve it too.
+        upsert_workspace(&conn, &ws).unwrap();
+        let reloaded = load_workspace(&conn, "ws-ssl").unwrap().unwrap();
+        assert_eq!(reloaded.ssl_proxying, settings);
+    }
+
+    #[test]
+    fn update_preserves_ssl_proxying_when_not_provided() {
+        let conn = test_conn();
+        let settings = r#"{"include":[],"exclude":["*.pinned.com"]}"#;
+        let ws = WorkspaceRow {
+            id: "ws-ssl-keep".into(),
+            name: "Keep".into(),
+            proxy_port: 8888,
+            ssl_enabled: true,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
+            upstream_proxy: String::new(),
+            ssl_proxying: settings.into(),
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_workspace(&conn, &ws).unwrap();
+
+        // Renaming the workspace must not silently wipe the policy.
+        update_workspace(
+            &conn,
+            "ws-ssl-keep",
+            Some("Renamed"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "2026-01-02T00:00:00Z",
+        )
+        .unwrap();
+
+        let loaded = load_workspace(&conn, "ws-ssl-keep").unwrap().unwrap();
+        assert_eq!(loaded.name, "Renamed");
+        assert_eq!(
+            loaded.ssl_proxying, settings,
+            "ssl_proxying should survive an unrelated update"
+        );
+    }
+
+    #[test]
     fn update_preserves_upstream_proxy_when_not_provided() {
         let conn = test_conn();
         let settings = r#"{"enabled":true,"protocol":"http","host":"127.0.0.1","port":7890,"username":null,"password":null,"bypass":[]}"#;
@@ -428,6 +519,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: settings.into(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -439,6 +531,7 @@ mod tests {
             &conn,
             "ws-keep",
             Some("Renamed"),
+            None,
             None,
             None,
             None,
@@ -470,6 +563,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: String::new(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -481,6 +575,7 @@ mod tests {
             &conn,
             "ws-p",
             Some("Updated"),
+            None,
             None,
             None,
             None,
@@ -516,6 +611,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: String::new(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -569,6 +665,7 @@ mod tests {
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
             upstream_proxy: String::new(),
+            ssl_proxying: String::new(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

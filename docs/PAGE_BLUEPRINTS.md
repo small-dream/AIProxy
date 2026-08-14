@@ -797,6 +797,12 @@ type CertificatesPageState = {
 │ Bypass List (multiline)                                                     │
 │ Probe Result / No-Fallback Hint / Credential Storage Hint                   │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│ [SSL Proxying]                      (Restore Recommended) (Save)            │
+│ Mode Hint (all-except-excluded / include-list)                              │
+│ Include (multiline)                                                         │
+│ Exclude (multiline)                                                         │
+│ Pinning Hint / SSL-Disabled Hint                                            │
+├──────────────────────────────────────────────────────────────────────────────┤
 │ [Language & Region]                                                         │
 │ Display Language: [Follow System v]                                         │
 │ Info Hint                                                                   │
@@ -924,6 +930,44 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `UpstreamProxySection`
 | Rust 领域 | `crates/proxy-core/src/upstream_proxy.rs` | 协议握手、绕行匹配、`dial_target`、连通性探测 |
 | 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.upstream_proxy` JSON 列；`session_details.via_upstream_proxy` |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `upstreamProxy.*`、`inspector.request.overview.route*` 文案键 |
+
+## 9.5 SSL Proxying（逐域名解密策略）— 已实现
+
+### 功能目标
+
+决定哪些域名的 TLS 需要解密。对标 Charles 的 SSL Proxying Settings。
+
+解决的问题：拦截是全局开关时，使用证书绑定（SSL Pinning）的 App 会拒绝 AIProxy 的证书，而**握手失败会直接断开连接**——结果不是「抓不到这个 App 的包」，而是「这个 App 在开着 AIProxy 时完全不能用」。Charles 默认不解密任何域名，所以不会出现这个问题；把域名排除后走盲转发即可获得同样的效果。
+
+### 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` 组件。
+
+### 关键设计约束
+
+- **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
+- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
+- **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
+- **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
+- **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
+- **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
+- **握手失败按原因分级**：客户端因绑定拒绝证书记为 `debug`（预期行为，且无法通过配置解决），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
+
+### 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
+| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
+| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
+| Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
+| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `sslProxying.*` 文案键 |
 
 ## 8.5 Compare Page — `已实现发布硬化版`
 

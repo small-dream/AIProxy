@@ -746,6 +746,7 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 外观偏好：`Follow System / Light / Dark`
 - 代理预设：列表选择、创建、编辑、应用
 - 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
+- SSL 代理：逐域名的 include / exclude 解密策略，含「恢复推荐列表」与证书绑定说明
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -780,7 +781,7 @@ Settings Page
 
 当前实现说明：
 
-- 当前桌面端先落地 `Proxy Presets`、`Upstream Proxy`、`Language & Region` 与 `Appearance` 四个设置区块
+- 当前桌面端先落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`Language & Region` 与 `Appearance` 五个设置区块
 - 后续如扩展左侧设置导航，需保持当前字段归属不变
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口

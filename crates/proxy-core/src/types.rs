@@ -25,6 +25,14 @@ pub struct ProxyRuntimeConfig {
     /// Shared behind an `Arc` because this config is cloned onto every
     /// connection and request path.
     pub upstream_proxy: Option<std::sync::Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    /// Which hosts get their TLS intercepted. `None` intercepts everything,
+    /// preserving the behavior from before this setting existed; a host the
+    /// policy rejects is relayed blind so a certificate-pinning client keeps
+    /// working instead of having its connection torn down.
+    ///
+    /// Only consulted when `ssl_enabled` is true — with interception off there
+    /// is nothing to scope.
+    pub ssl_proxying: Option<std::sync::Arc<crate::ssl_proxying::SslProxyingConfig>>,
 }
 
 impl ProxyRuntimeConfig {

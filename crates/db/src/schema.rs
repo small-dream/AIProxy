@@ -440,6 +440,18 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "via_upstream_proxy",
         "INTEGER DEFAULT NULL",
     )?;
+    // Per-host SSL proxying policy (include / exclude pattern lists), stored as
+    // JSON for the same reasons as `upstream_proxy` above. An empty string
+    // means "never configured", which resolves to the built-in defaults rather
+    // than to two empty lists — an existing workspace should pick up the
+    // recommended exclusions instead of silently intercepting hosts that can
+    // only break.
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "ssl_proxying",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
 
     // M30: enforce the "at most one enabled throttle profile per workspace"
     // invariant at the storage layer with a partial UNIQUE index. First

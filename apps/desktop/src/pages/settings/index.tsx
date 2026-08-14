@@ -2,6 +2,7 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import NetworkCheckRoundedIcon from "@mui/icons-material/NetworkCheckRounded";
+import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
@@ -25,6 +26,7 @@ import {
   DEFAULT_PROXY_PORT,
   DEFAULT_WORKSPACE_ID,
   type SaveAiSettingsInput,
+  type SslProxyingSettings,
   type UpstreamProxyProbeResult,
   type UpstreamProxyProtocol,
   type UpstreamProxySettings,
@@ -46,6 +48,7 @@ import {
 import {
   getAiSettings,
   getAppBuildInfo,
+  loadDefaultSslProxyingExclusions,
   saveAiSettings,
   testAiConnection,
   testUpstreamProxy,
@@ -779,6 +782,219 @@ function createUpstreamProxyDraftSettings(): UpstreamProxySettings {
   return upstreamProxyDraftToSettings(createUpstreamProxyDraft());
 }
 
+/** Stable identity for "no patterns", so it can be used as an effect dependency. */
+const EMPTY_PATTERNS: string[] = [];
+
+function createSslProxyingDraft(
+  workspace?: Workspace | null,
+  fallbackExclude: string[] = EMPTY_PATTERNS,
+) {
+  const settings = workspace?.sslProxying;
+  return {
+    includeText: (settings?.include ?? []).join("\n"),
+    // A workspace that never configured a policy shows the recommended
+    // exclusions, matching what the backend would actually apply.
+    excludeText: (settings?.exclude ?? fallbackExclude).join("\n"),
+  };
+}
+
+type SslProxyingDraft = ReturnType<typeof createSslProxyingDraft>;
+
+function sslProxyingDraftToSettings(draft: SslProxyingDraft): SslProxyingSettings {
+  return {
+    include: parseBypassPatterns(draft.includeText),
+    exclude: parseBypassPatterns(draft.excludeText),
+  };
+}
+
+function sslProxyingSettingsKey(settings: SslProxyingSettings): string {
+  return JSON.stringify([settings.include, settings.exclude]);
+}
+
+function SslProxyingSection() {
+  const { t } = useI18n();
+  const { data: workspaces = [], isError: isWorkspacesError } = useWorkspaces();
+  const { data: proxyStatus } = useProxyStatus();
+  const updateWorkspaceMutation = useUpdateWorkspace();
+  const startProxyMutation = useStartProxy();
+  const workspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
+  const currentWorkspace = useMemo(
+    () =>
+      workspaces.find((workspace) => workspace.id === workspaceId) ??
+      workspaces.find((workspace) => workspace.id === DEFAULT_WORKSPACE_ID) ??
+      null,
+    [workspaceId, workspaces],
+  );
+
+  // Served by the backend so the recommended list has one source of truth.
+  const { data } = useQuery({
+    queryKey: ["ssl-proxying", "default-exclusions"],
+    queryFn: loadDefaultSslProxyingExclusions,
+    staleTime: Infinity,
+  });
+  // Fall back to a module-level constant rather than a fresh `[]`: this value
+  // is an effect dependency, and a new array identity on every render would
+  // re-run the effect, call setDraft, and render again without end.
+  const recommendedExclusions = data ?? EMPTY_PATTERNS;
+
+  const [draft, setDraft] = useState(createSslProxyingDraft());
+  const [feedback, setFeedback] = useState<{
+    severity: "error" | "success";
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setDraft(createSslProxyingDraft(currentWorkspace, recommendedExclusions));
+    setFeedback(null);
+  }, [currentWorkspace, recommendedExclusions]);
+
+  function patchDraft(patch: Partial<SslProxyingDraft>) {
+    setDraft((previous) => ({ ...previous, ...patch }));
+    setFeedback(null);
+  }
+
+  const currentSettings = useMemo(() => sslProxyingDraftToSettings(draft), [draft]);
+  const savedSettings = currentWorkspace?.sslProxying;
+  const hasChanges = savedSettings
+    ? sslProxyingSettingsKey(savedSettings) !== sslProxyingSettingsKey(currentSettings)
+    : sslProxyingSettingsKey({ include: [], exclude: recommendedExclusions }) !==
+      sslProxyingSettingsKey(currentSettings);
+
+  // Interception has to be on for the policy to mean anything; saying so is
+  // better than letting the user tune a list that is currently inert.
+  const isSslDisabled = currentWorkspace ? !currentWorkspace.sslEnabled : false;
+  const isAllowlistMode = currentSettings.include.length > 0;
+
+  async function handleSave() {
+    if (isWorkspacesError || !currentWorkspace) return;
+
+    setFeedback(null);
+
+    try {
+      await updateWorkspaceMutation.mutateAsync({
+        sslProxying: currentSettings,
+        workspaceId: currentWorkspace.id,
+      });
+
+      // The policy is captured when the server starts, so a running proxy has
+      // to be restarted before the change takes effect.
+      if (proxyStatus?.running) {
+        await startProxyMutation.mutateAsync({
+          enableSsl: currentWorkspace.sslEnabled,
+          enableHttp2: currentWorkspace.http2Enabled ?? true,
+          port: currentWorkspace.proxyPort,
+          workspaceId: currentWorkspace.id,
+        });
+      }
+
+      setFeedback({
+        message: proxyStatus?.running
+          ? t("sslProxying.saveAndApplySuccess")
+          : t("sslProxying.saveSuccess"),
+        severity: "success",
+      });
+    } catch (error) {
+      const normalizedError = coerceAppError(error);
+      setFeedback({
+        message: normalizedError.message.trim() || t("common.errors.generic"),
+        severity: "error",
+      });
+    }
+  }
+
+  const isBusy = updateWorkspaceMutation.isPending || startProxyMutation.isPending;
+
+  return (
+    <SectionCard compact title={t("sslProxying.title")} description={t("sslProxying.description")}>
+      <Stack spacing={1.5}>
+        {isWorkspacesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
+
+        {isSslDisabled && (
+          <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
+            {t("sslProxying.sslDisabledHint")}
+          </Alert>
+        )}
+
+        <Stack
+          direction={{ md: "row", xs: "column" }}
+          spacing={1.5}
+          sx={{
+            alignItems: { md: "center", xs: "stretch" },
+            justifyContent: "space-between",
+          }}
+        >
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {isAllowlistMode
+              ? t("sslProxying.modeIncludeList")
+              : t("sslProxying.modeAllExceptExcluded")}
+          </Typography>
+
+          <Stack direction="row" spacing={1}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RestartAltRoundedIcon />}
+              onClick={() =>
+                patchDraft({ excludeText: recommendedExclusions.join("\n") })
+              }
+              disabled={isBusy || recommendedExclusions.length === 0}
+              sx={{ minHeight: 34, px: 1.75 }}
+            >
+              {t("sslProxying.restoreRecommended")}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<SaveRoundedIcon />}
+              onClick={() => void handleSave()}
+              disabled={!currentWorkspace || isBusy || !hasChanges || isWorkspacesError}
+              sx={{ minHeight: 34, px: 1.75 }}
+            >
+              {isBusy ? t("sslProxying.saving") : t("sslProxying.save")}
+            </Button>
+          </Stack>
+        </Stack>
+
+        <TextField
+          size="small"
+          multiline
+          minRows={2}
+          maxRows={6}
+          label={t("sslProxying.include")}
+          placeholder={t("sslProxying.includePlaceholder")}
+          helperText={t("sslProxying.includeDescription")}
+          value={draft.includeText}
+          onChange={(event) => patchDraft({ includeText: event.target.value })}
+          sx={{ ...compactFieldSx, width: "100%" }}
+        />
+
+        <TextField
+          size="small"
+          multiline
+          minRows={3}
+          maxRows={10}
+          label={t("sslProxying.exclude")}
+          placeholder={t("sslProxying.excludePlaceholder")}
+          helperText={t("sslProxying.excludeDescription")}
+          value={draft.excludeText}
+          onChange={(event) => patchDraft({ excludeText: event.target.value })}
+          sx={{ ...compactFieldSx, width: "100%" }}
+        />
+
+        <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
+          {t("sslProxying.pinningHint")}
+        </Alert>
+
+        {feedback && (
+          <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
+            {feedback.message}
+          </Alert>
+        )}
+      </Stack>
+    </SectionCard>
+  );
+}
+
 export function UpdatesSection() {
   const { t } = useI18n();
   const [isChecking, setIsChecking] = useState(false);
@@ -1252,6 +1468,7 @@ export function SettingsPage() {
       </Stack>
       <ProxySettingsSection />
       <UpstreamProxySection />
+      <SslProxyingSection />
       <AiModelSettingsSection />
       <UpdatesSection />
       <AboutSection />

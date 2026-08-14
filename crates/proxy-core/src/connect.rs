@@ -5,6 +5,53 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
 // ---------------------------------------------------------------------------
 
+/// Why a client refused the certificate we presented.
+///
+/// The distinction matters for log severity: one case is a configuration
+/// problem the user can fix, the other is a client working exactly as designed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientHandshakeRejection {
+    /// The client could not build a trust chain to our root CA — the
+    /// certificate is not installed, or not trusted for TLS on the device.
+    /// Actionable, so it stays visible in the log.
+    UntrustedRoot,
+    /// The client built the chain fine but rejected the certificate anyway,
+    /// which is what certificate pinning looks like from this side. Expected
+    /// for pinned hosts and not worth a warning per connection.
+    Pinned,
+    /// Anything else: a protocol-level failure, a truncated handshake, I/O.
+    Other,
+}
+
+/// Classify a failed `TlsAcceptor::accept`.
+///
+/// The alert code is the useful signal and it is only available on the
+/// underlying `rustls::Error`, so downcast rather than matching the formatted
+/// string — the `Display` text is not a stable interface.
+pub(crate) fn classify_client_handshake_error(error: &std::io::Error) -> ClientHandshakeRejection {
+    let Some(rustls_error) = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    else {
+        return ClientHandshakeRejection::Other;
+    };
+
+    match rustls_error {
+        rustls::Error::AlertReceived(alert) => match alert {
+            // RFC 8446 §6.2: sent when the chain does not reach a trust anchor.
+            rustls::AlertDescription::UnknownCA => ClientHandshakeRejection::UntrustedRoot,
+            // "Chain verified, certificate still unacceptable" — the alert a
+            // pinning implementation sends. `BadCertificate` and `AccessDenied`
+            // show up from stricter stacks for the same reason.
+            rustls::AlertDescription::CertificateUnknown
+            | rustls::AlertDescription::BadCertificate
+            | rustls::AlertDescription::AccessDenied => ClientHandshakeRejection::Pinned,
+            _ => ClientHandshakeRejection::Other,
+        },
+        _ => ClientHandshakeRejection::Other,
+    }
+}
+
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
 pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     mut client_stream: S,
@@ -367,13 +414,45 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     let tls_stream = match tls_acceptor.accept(stream).await {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(
-                event = "tls_handshake_failed",
-                host = %host,
-                port = port,
-                error = %error,
-                "tls_handshake_failed"
-            );
+            match classify_client_handshake_error(&error) {
+                // The client is pinning. Nothing is wrong with our setup and
+                // nothing the user can change will make it succeed, so a
+                // warning per connection is pure noise — the actionable advice
+                // is to add the host to the SSL proxying exclude list, which
+                // the message says once, at debug level.
+                ClientHandshakeRejection::Pinned => {
+                    tracing::debug!(
+                        event = "tls_handshake_rejected_by_client",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "client rejected our certificate despite trusting the root CA \
+                         (certificate pinning); exclude this host from SSL proxying to \
+                         let it connect"
+                    );
+                }
+                // This one IS fixable: the root CA is missing or not trusted on
+                // the device. Keep it prominent.
+                ClientHandshakeRejection::UntrustedRoot => {
+                    tracing::warn!(
+                        event = "tls_handshake_untrusted_root",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "client does not trust the AIProxy root CA; install it and enable \
+                         full trust for it on the device"
+                    );
+                }
+                ClientHandshakeRejection::Other => {
+                    tracing::warn!(
+                        event = "tls_handshake_failed",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "tls_handshake_failed"
+                    );
+                }
+            }
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake failed for {host}:{port}: {error}"
             )));

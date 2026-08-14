@@ -63,6 +63,11 @@ pub async fn create_workspace(
                 .as_ref()
                 .and_then(|settings| serde_json::to_string(settings).ok())
                 .unwrap_or_default(),
+            ssl_proxying: workspace_for_db
+                .ssl_proxying
+                .as_ref()
+                .and_then(|settings| serde_json::to_string(settings).ok())
+                .unwrap_or_default(),
             storage_path: workspace_for_db.storage_path.clone(),
             created_at: workspace_for_db.created_at.clone(),
             updated_at: workspace_for_db.updated_at.clone(),
@@ -163,6 +168,9 @@ pub struct UpdateWorkspaceInput {
     /// the user can toggle the chain off without retyping the configuration.
     /// Takes effect on the next proxy start/restart.
     pub upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
+    /// Per-host SSL proxying policy. None ⇒ leave unchanged. Takes effect on
+    /// the next proxy start/restart.
+    pub ssl_proxying: Option<aiproxy_proxy_core::SslProxyingSettings>,
 }
 
 #[tauri::command]
@@ -192,6 +200,7 @@ pub async fn update_workspace(
         input.verify_upstream_tls,
         input.tls_verify_hosts.clone(),
         input.upstream_proxy.clone(),
+        input.ssl_proxying.clone(),
     )?;
 
     // Persist to DB on the blocking pool. The DB column stores tls_verify_hosts
@@ -209,6 +218,10 @@ pub async fn update_workspace(
         .upstream_proxy
         .as_ref()
         .map(|settings| serde_json::to_string(settings).unwrap_or_default());
+    let ssl_proxying_json = input
+        .ssl_proxying
+        .as_ref()
+        .map(|settings| serde_json::to_string(settings).unwrap_or_default());
 
     let app_state = Arc::clone(state.inner());
     let updated_at = workspace.updated_at.clone();
@@ -224,6 +237,7 @@ pub async fn update_workspace(
             input.verify_upstream_tls,
             tls_verify_hosts_json.as_deref(),
             upstream_proxy_json.as_deref(),
+            ssl_proxying_json.as_deref(),
             &updated_at,
         ) {
             tracing::error!(
@@ -264,6 +278,7 @@ pub async fn update_workspace(
                     Some(previous.verify_upstream_tls),
                     Some(previous.tls_verify_hosts.clone()),
                     previous.upstream_proxy.clone(),
+                    previous.ssl_proxying.clone(),
                 );
             }
             Err(error)

@@ -2,9 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   coerceAppError,
+  parseSslProxyingExclusions,
   parseUpstreamProxyProbeResult,
   parseWorkspace,
   parseWorkspaces,
+  type SslProxyingSettings,
   type UpstreamProxyProbeResult,
   type UpstreamProxySettings,
   type Workspace,
@@ -157,6 +159,11 @@ export async function updateWorkspace(input: {
    * Takes effect on the next proxy start/restart.
    */
   upstreamProxy?: UpstreamProxySettings;
+  /**
+   * Per-host SSL proxying policy. Omit to leave unchanged. Takes effect on the
+   * next proxy start/restart.
+   */
+  sslProxying?: SslProxyingSettings;
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug(
@@ -175,6 +182,7 @@ export async function updateWorkspace(input: {
       // mock stays consistent with the persisted workspace shape.
       tlsVerifyHosts: input.tlsVerifyHosts ?? [],
       ...(input.upstreamProxy ? { upstreamProxy: input.upstreamProxy } : {}),
+      ...(input.sslProxying ? { sslProxying: input.sslProxying } : {}),
     });
   }
 
@@ -237,6 +245,25 @@ export async function testUpstreamProxy(input: {
     return result;
   } catch (error) {
     reportCommandFailure("test_upstream_proxy", error);
+    throw coerceAppError(error);
+  }
+}
+
+/**
+ * The built-in SSL proxying exclusions, so the settings form can offer to
+ * restore them. Served by the backend so the list has a single source of truth.
+ */
+export async function loadDefaultSslProxyingExclusions(): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "default_ssl_proxying_exclusions_bypassed_non_tauri_runtime");
+    return [];
+  }
+
+  try {
+    const payload = await invoke<unknown>("default_ssl_proxying_exclusions");
+    return parseSslProxyingExclusions(payload);
+  } catch (error) {
+    reportCommandFailure("default_ssl_proxying_exclusions", error);
     throw coerceAppError(error);
   }
 }

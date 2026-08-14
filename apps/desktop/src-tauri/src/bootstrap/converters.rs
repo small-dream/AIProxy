@@ -45,6 +45,25 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
             }
         }
     };
+    // Same empty-string-means-unconfigured convention as the upstream proxy
+    // column. `None` here resolves to the built-in defaults at start time, so an
+    // existing workspace picks up the recommended exclusions.
+    let ssl_proxying = if row.ssl_proxying.trim().is_empty() {
+        None
+    } else {
+        match serde_json::from_str(&row.ssl_proxying) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                tracing::warn!(
+                    event = "workspace_ssl_proxying_decode_failed",
+                    workspace_id = %row.id,
+                    error = %error,
+                    "workspace_ssl_proxying_decode_failed"
+                );
+                None
+            }
+        }
+    };
     WorkspaceData {
         id: row.id,
         name: row.name,
@@ -55,6 +74,7 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
         verify_upstream_tls: row.verify_upstream_tls,
         tls_verify_hosts,
         upstream_proxy,
+        ssl_proxying,
         storage_path: row.storage_path,
         created_at: row.created_at,
         updated_at: row.updated_at,

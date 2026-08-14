@@ -264,6 +264,30 @@ export const enMessages = {
     verifyUpstreamTlsDisabledHint:
       "Upstream TLS verification is OFF (insecure): the proxy accepts any upstream certificate. Turn this on for safer interception of trusted upstreams.",
   },
+  sslProxying: {
+    title: "SSL Proxying",
+    description:
+      "Choose which hosts get decrypted. A host that is not proxied is still relayed, just without visibility into its traffic.",
+    modeAllExceptExcluded: "Decrypting everything except the excluded hosts.",
+    modeIncludeList: "Decrypting only the hosts listed under Include.",
+    include: "Include",
+    includePlaceholder: "One pattern per line — leave empty to decrypt everything",
+    includeDescription:
+      "Leave empty to decrypt every host that is not excluded. Add patterns to decrypt only those hosts and relay the rest untouched.",
+    exclude: "Exclude",
+    excludePlaceholder: "One pattern per line (e.g. *.example.com, 192.168.0.0/16)",
+    excludeDescription:
+      "Never decrypted, even when matched by Include. Supports exact hostnames, *.example.com suffixes, and CIDR ranges (literal IP targets only).",
+    restoreRecommended: "Restore Recommended",
+    save: "Save",
+    saving: "Saving...",
+    saveSuccess: "SSL proxying settings saved.",
+    saveAndApplySuccess: "SSL proxying settings saved and the proxy was restarted to apply them.",
+    sslDisabledHint:
+      "SSL interception is off for this workspace, so nothing is decrypted and this policy has no effect yet.",
+    pinningHint:
+      "Apps that pin a certificate reject AIProxy's by design, and the rejected handshake drops the connection — which breaks the app rather than merely hiding its traffic. Excluding those hosts keeps them working.",
+  },
   upstreamProxy: {
     title: "Upstream Proxy",
     description:

@@ -85,10 +85,12 @@ mod connect;
 mod connection;
 mod context;
 mod error;
+mod host_pattern;
 mod http_io;
 mod http_proxy;
 mod rules;
 mod server;
+mod ssl_proxying;
 mod stream;
 mod timing_connector;
 mod types;
@@ -120,6 +122,7 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, start_proxy_server};
+pub use ssl_proxying::{default_ssl_proxying_exclusions, SslProxyingConfig, SslProxyingSettings};
 pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,

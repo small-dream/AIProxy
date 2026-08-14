@@ -28,6 +28,17 @@ pub struct TestUpstreamProxyInput {
     pub probe_port: Option<u16>,
 }
 
+/// The built-in SSL proxying exclusions, so the Settings page can offer to
+/// restore them.
+///
+/// Served from the backend rather than duplicated in the frontend to keep one
+/// source of truth: a host added to the Rust list would otherwise silently fail
+/// to appear behind the "restore recommended" button.
+#[tauri::command]
+pub fn default_ssl_proxying_exclusions() -> Vec<String> {
+    aiproxy_proxy_core::default_ssl_proxying_exclusions()
+}
+
 /// Verify an upstream proxy configuration by opening a real tunnel through it.
 ///
 /// Runs against the supplied settings regardless of their `enabled` flag: the
@@ -174,6 +185,7 @@ async fn start_proxy_impl(
         // Same as the verify flag: the real upstream proxy is resolved from the
         // workspace below. Pre-validation here only covers the port.
         upstream_proxy: None,
+        ssl_proxying: None,
     }
     .validate()?;
 
@@ -288,6 +300,31 @@ async fn start_proxy_impl(
         None => None,
     };
 
+    // Resolve the per-host SSL proxying policy. Only meaningful with
+    // interception on, so skip it entirely when SSL is off — otherwise the log
+    // would claim a policy is in effect while nothing is being decrypted.
+    let ssl_proxying = if enable_ssl {
+        let settings = workspace_for_config
+            .as_ref()
+            .and_then(|ws| ws.ssl_proxying.clone())
+            .unwrap_or_default();
+        let config = settings.to_runtime_config();
+        tracing::info!(
+            component = "desktop.commands",
+            event = "ssl_proxying_configured",
+            workspace_id = %input.workspace_id,
+            include_len = config.include.len(),
+            exclude_len = config.exclude.len(),
+            // An empty include list means "everything not excluded", which is a
+            // materially different posture from an allowlist.
+            mode = if config.include.is_empty() { "all_except_excluded" } else { "include_list" },
+            "ssl_proxying_configured"
+        );
+        Some(std::sync::Arc::new(config))
+    } else {
+        None
+    };
+
     if verify_upstream_tls || !tls_verify_hosts.is_empty() {
         tracing::info!(
             component = "desktop.commands",
@@ -308,6 +345,7 @@ async fn start_proxy_impl(
                 verify_upstream_tls,
                 tls_verify_hosts: std::sync::Arc::from(tls_verify_hosts),
                 upstream_proxy,
+                ssl_proxying,
             },
             workspace_id: Some(input.workspace_id.clone()),
             event_emitter,

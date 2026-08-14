@@ -11,6 +11,8 @@ import {
   isPortOccupant,
   isSessionSummary,
   isUpstreamProxyProtocol,
+  isSslProxyingSettings,
+  parseSslProxyingExclusions,
   isUpstreamProxySettings,
   normalizeStartProxyInput,
   parseSessionDetail,
@@ -820,5 +822,36 @@ describe("upstream proxy contract", () => {
 
   it("throws when the probe payload is invalid", () => {
     expect(() => parseUpstreamProxyProbeResult({ success: true })).toThrow();
+  });
+});
+
+describe("SslProxyingSettings", () => {
+  it("validates a complete settings object", () => {
+    expect(isSslProxyingSettings({ include: ["*.example.com"], exclude: ["*.pinned.com"] })).toBe(
+      true,
+    );
+  });
+
+  it("accepts two empty lists, which means intercept everything", () => {
+    expect(isSslProxyingSettings({ include: [], exclude: [] })).toBe(true);
+  });
+
+  it("rejects malformed or missing pattern lists", () => {
+    expect(isSslProxyingSettings({ include: ["ok"] })).toBe(false);
+    expect(isSslProxyingSettings({ exclude: ["ok"] })).toBe(false);
+    expect(isSslProxyingSettings({ include: "*.example.com", exclude: [] })).toBe(false);
+    expect(isSslProxyingSettings({ include: [], exclude: [1, 2] })).toBe(false);
+    expect(isSslProxyingSettings(null)).toBe(false);
+    expect(isSslProxyingSettings(undefined)).toBe(false);
+  });
+
+  it("parses the recommended exclusion list and rejects non-string payloads", () => {
+    expect(parseSslProxyingExclusions(["*.tiktokv.com", "*.icloud.com"])).toEqual([
+      "*.tiktokv.com",
+      "*.icloud.com",
+    ]);
+    expect(parseSslProxyingExclusions([])).toEqual([]);
+    expect(() => parseSslProxyingExclusions([1, 2])).toThrow();
+    expect(() => parseSslProxyingExclusions("*.example.com")).toThrow();
   });
 });
