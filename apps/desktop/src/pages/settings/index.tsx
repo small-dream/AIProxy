@@ -508,7 +508,7 @@ export function UpdatesSection() {
           open={toast !== null}
           autoHideDuration={3000}
           onClose={() => setToast(null)}
-          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
           {toast ? (
             <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)}>
