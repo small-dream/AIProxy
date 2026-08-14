@@ -26,6 +26,8 @@ import { SetupWizard } from "@/features/setup-wizard/SetupWizard";
 import { useI18n } from "@/i18n";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useNotificationStore } from "@/services/notification.store";
+import { UpdateDialog } from "@/features/updater/UpdateDialog";
+import { checkForUpdateAndStore } from "@/features/updater/update-status";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
 
@@ -130,6 +132,10 @@ export function AppShell() {
         // Keep the default title bar if the platform does not accept overlay mode.
       });
   }, [macosTitlebarEnabled]);
+
+  useEffect(() => {
+    void checkForUpdateAndStore();
+  }, []);
 
   return (
     <Box
@@ -262,6 +268,8 @@ export function AppShell() {
       />
 
       <SetupWizard />
+
+      <UpdateDialog />
 
       <Snackbar
         key={menuSnackbarMessage ?? activeNotification?.id ?? "snackbar"}
