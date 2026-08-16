@@ -1112,10 +1112,14 @@ export const zhCNMessages: Messages = {
     runningWithPort: "代理运行中 :{{port}}",
   },
   sessionExplorer: {
+    clearAllFocusedHosts: "清除全部聚焦 host",
+    clearAllIgnoredHosts: "清除全部忽略 host",
     emptyDescription: "启动代理后，再打开网页或应用请求。捕获到的流量会实时显示在这里。",
     emptyTip: "提示：在启用 SSL 拦截前，先用明文 HTTP 验证抓包链路通常最快。",
     emptyTitle: "还没有捕获到会话。",
     filterPlaceholder: "过滤",
+    focusedHostsSummary: "已聚焦 {{count}} 个 host",
+    ignoredHostsSummary: "已忽略 {{count}} 个 host",
     loading: "正在加载已捕获的会话...",
     pending: "等待中",
     resourceKinds: {

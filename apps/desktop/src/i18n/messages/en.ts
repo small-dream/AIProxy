@@ -1168,12 +1168,16 @@ export const enMessages = {
     runningWithPort: "Proxy Running :{{port}}",
   },
   sessionExplorer: {
+    clearAllFocusedHosts: "Clear all focused hosts",
+    clearAllIgnoredHosts: "Clear all ignored hosts",
     emptyDescription:
       "Start the proxy, then open a page or app request. Captured traffic will appear here in real time.",
     emptyTip:
       "Tip: plain HTTP is the fastest way to verify capture before turning on SSL interception.",
     emptyTitle: "No captured sessions yet.",
     filterPlaceholder: "Filter",
+    focusedHostsSummary: "Focused ({{count}})",
+    ignoredHostsSummary: "Ignored ({{count}})",
     loading: "Loading captured sessions...",
     pending: "Pending",
     resourceKinds: {

@@ -423,7 +423,7 @@ Sessions Page
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
 - `Focus` 与 `Ignore` 属于视图状态，但**持久化到 localStorage**（`aiproxy.sessions.focusedHosts` / `ignoredHosts`）：高频抓包的固定 domain 不应每次重新设置；持久化 + 数据滤除意味着取消入口必须在被过滤数据之外（见下条 chips）
-- 生效中的 `Focus` / `Ignore` / `Throttled` 过滤必须在会话列表上方以**可移除 chips** 呈现(`SessionFilterChips`):每个 focused/ignored host 一枚 chip(点 × 移除),throttled 过滤一枚总开关 chip;被 ignore 的 host 已从数据中滤除,右键菜单不可达,chips 行是其唯一可靠的取消入口;无过滤时不渲染该行。
+- 生效中的 `Focus` / `Ignore` / `Throttled` 过滤必须在会话列表上方以**单行可移除 chips** 呈现(`SessionFilterChips`)：每个 focused/ignored host 一枚 chip（点 × 移除），throttled 过滤一枚总开关 chip；同一类别超过 3 个 host 时聚合成一枚总 chip（如"已忽略 7 个 host"），点击弹出菜单可逐项移除或"全部清除"；被 ignore 的 host 已从数据中滤除，右键菜单不可达，chips 行是其唯一可靠的取消入口；无过滤时不渲染该行，chips 行绝对不换行增长。
 - `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `Rules Page`，后续可升级为深链到具体 tab
 
 ### 会话树节点建议

@@ -78,4 +78,52 @@ describe("SessionFilterChips (P0-3)", () => {
 
     expect(props.onDisableThrottledOnly).toHaveBeenCalledTimes(1);
   });
+
+  it("collapses more than 3 ignored hosts into one summary chip with a popover", () => {
+    const { props } = renderChips({
+      ignoredHosts: new Set(["a.example.com", "b.example.com", "c.example.com", "d.example.com"]),
+    });
+
+    expect(screen.queryByText("a.example.com")).not.toBeInTheDocument();
+    expect(screen.getByText("sessionExplorer.ignoredHostsSummary")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("sessionExplorer.ignoredHostsSummary"));
+
+    expect(screen.getByText("b.example.com")).toBeInTheDocument();
+    expect(screen.getByText("sessionExplorer.clearAllIgnoredHosts")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("sessionExplorer.stopIgnoringHost:b.example.com"));
+    expect(props.onStopIgnoringHost).toHaveBeenCalledWith("b.example.com");
+    expect(props.onStopIgnoringHost).toHaveBeenCalledTimes(1);
+  });
+
+  it("clear-all in the ignored popover removes every ignored host", () => {
+    const { props } = renderChips({
+      ignoredHosts: new Set(["a.example.com", "b.example.com", "c.example.com", "d.example.com"]),
+    });
+
+    fireEvent.click(screen.getByText("sessionExplorer.ignoredHostsSummary"));
+    fireEvent.click(screen.getByText("sessionExplorer.clearAllIgnoredHosts"));
+
+    expect(props.onStopIgnoringHost).toHaveBeenCalledTimes(4);
+    for (const host of ["a.example.com", "b.example.com", "c.example.com", "d.example.com"]) {
+      expect(props.onStopIgnoringHost).toHaveBeenCalledWith(host);
+    }
+  });
+
+  it("collapses more than 3 focused hosts into one summary chip with a popover", () => {
+    const { props } = renderChips({
+      focusedHosts: new Set(["a.example.com", "b.example.com", "c.example.com", "d.example.com"]),
+    });
+
+    expect(screen.queryByText("a.example.com")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("sessionExplorer.focusedHostsSummary"));
+
+    expect(screen.getByText("c.example.com")).toBeInTheDocument();
+    expect(screen.getByText("sessionExplorer.clearAllFocusedHosts")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("sessionExplorer.unfocusHost:c.example.com"));
+    expect(props.onUnfocusHost).toHaveBeenCalledWith("c.example.com");
+  });
 });
