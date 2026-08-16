@@ -24,7 +24,9 @@ type SessionsWorkspacePanelProps = {
   errorMessage: string | undefined;
   expandedHosts: string[];
   explorerWidth: number;
+  focusedHosts: ReadonlySet<string>;
   groups: SessionHostGroup[];
+  ignoredHosts: ReadonlySet<string>;
   inspectorSplitRatio: number;
   isDetailLoading: boolean;
   isLoading: boolean;
@@ -34,6 +36,7 @@ type SessionsWorkspacePanelProps = {
   onContextMenuSession: (session: SessionSummary, event: React.MouseEvent) => void;
   onCopyCurl: (() => void) | undefined;
   onCopyUrl: (() => void) | undefined;
+  onDisableThrottledOnly: () => void;
   onDomainFilterChange: (value: string) => void;
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRepeat: (() => void) | undefined;
@@ -43,7 +46,9 @@ type SessionsWorkspacePanelProps = {
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
   onSelectContainer: (containerId: string) => void;
   onSelectSession: (sessionId: string) => void;
+  onStopIgnoringHost: (host: string) => void;
   onToggleHost: (host: string) => void;
+  onUnfocusHost: (host: string) => void;
   requestCollapsed: boolean;
   requestTab: RequestInspectorTab;
   responseTab: ResponseInspectorTab;
@@ -52,6 +57,7 @@ type SessionsWorkspacePanelProps = {
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
   selectedSessionId: string | undefined;
+  showOnlyThrottled: boolean;
   workspaceRef: RefObject<WorkspaceHandle | null>;
 };
 
@@ -63,7 +69,9 @@ export function SessionsWorkspacePanel({
   errorMessage,
   expandedHosts,
   explorerWidth,
+  focusedHosts,
   groups,
+  ignoredHosts,
   inspectorSplitRatio,
   isDetailLoading,
   isLoading,
@@ -73,6 +81,7 @@ export function SessionsWorkspacePanel({
   onContextMenuSession,
   onCopyCurl,
   onCopyUrl,
+  onDisableThrottledOnly,
   onDomainFilterChange,
   onInspectorResizeStart,
   onRepeat,
@@ -82,7 +91,9 @@ export function SessionsWorkspacePanel({
   onResponseTabChange,
   onSelectContainer,
   onSelectSession,
+  onStopIgnoringHost,
   onToggleHost,
+  onUnfocusHost,
   requestCollapsed,
   requestTab,
   responseTab,
@@ -91,6 +102,7 @@ export function SessionsWorkspacePanel({
   selectedSession,
   selectedSessionDetail,
   selectedSessionId,
+  showOnlyThrottled,
   workspaceRef,
 }: SessionsWorkspacePanelProps) {
   return (
@@ -154,14 +166,20 @@ export function SessionsWorkspacePanel({
               domainFilterValue={domainFilterValue}
               errorMessage={errorMessage}
               expandedHosts={expandedHosts}
+              focusedHosts={focusedHosts}
               groups={groups}
+              ignoredHosts={ignoredHosts}
               isLoading={isLoading}
+              onDisableThrottledOnly={onDisableThrottledOnly}
               onDomainFilterChange={onDomainFilterChange}
               onContextMenuHost={onContextMenuHost}
               onContextMenuSession={onContextMenuSession}
               onSelectSession={onSelectSession}
+              onStopIgnoringHost={onStopIgnoringHost}
               onToggleHost={onToggleHost}
+              onUnfocusHost={onUnfocusHost}
               selectedSessionId={selectedSessionId}
+              showOnlyThrottled={showOnlyThrottled}
             />
           </Box>
 

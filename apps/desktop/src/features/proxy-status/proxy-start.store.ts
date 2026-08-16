@@ -19,9 +19,10 @@ interface ProxyStartState {
   // One-shot request to open the port-change dialog. Consumed by useProxyLifecycle.
   openPortDialogRequested: boolean;
   // True while the app is auto-starting the proxy on launch. First-run guidance
-  // (checklist/wizard) reads this to stay hidden until startProxy +
-  // enableSystemProxy finish — captureReady is transiently false during the
-  // auto-start window and would otherwise flash the guidance every launch.
+  // (checklist/wizard) reads this to stay hidden until startProxy (and the
+  // optional system-proxy restore) finishes — captureReady is transiently false
+  // during the auto-start window and would otherwise flash the guidance every
+  // launch.
   autoStartInProgress: boolean;
   setPortInUse: (failure: PortInUseFailure | null) => void;
   clearPortInUse: () => void;

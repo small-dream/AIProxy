@@ -17,6 +17,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { MapRule } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { createEmptyMapRule, getMapValidationErrors } from "@/features/rules/rules.helpers";
 import {
   FieldGroup,
@@ -40,6 +41,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<MapRule>(createEmptyMapRule(mode));
   const [validationAttempted, setValidationAttempted] = useState(false);
   // M22: track the last id we synced a draft FROM, so a TanStack Query refetch
@@ -138,6 +140,12 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
       setValidationAttempted(false);
       return;
     }
+    // Destructive: confirm before the persisted rule is removed.
+    setDeleteConfirmOpen(true);
+  }
+
+  function confirmDelete() {
+    if (!selectedRuleId) return;
     deleteMutation.mutate(
       { ruleId: selectedRuleId, ruleType: "map" },
       {
@@ -146,6 +154,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
           setSelectedRuleId(undefined);
           setDraft(createEmptyMapRule(mode));
           setValidationAttempted(false);
+          setDeleteConfirmOpen(false);
         },
       },
     );
@@ -393,6 +402,17 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
             </RuleSection>
           </Stack>
         }
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t("rulesPage.deleteRuleTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: draft.name.trim() || draft.sourcePattern,
+        })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        isConfirming={deleteMutation.isPending}
       />
     </>
   );

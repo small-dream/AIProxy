@@ -5,10 +5,11 @@ import { Snackbar, Stack } from "@mui/material";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SetupChecklistCard } from "@/components/shared/SetupChecklistCard";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
@@ -67,6 +68,8 @@ export function SessionsPage() {
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const { mutate: clearSessions, isPending: isClearingSessions } = useClearSessions();
+  // Destructive: clearing the active container requires confirmation.
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const { error, isLoading } = useProxyStatus();
   const {
     data: runtimeSessions = [],
@@ -336,6 +339,7 @@ export function SessionsPage() {
     handleSaveToCollectionCancel,
     handleSaveToCollectionConfirm,
     handleSnackbarClose,
+    showSnackbar,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
     handleUnfocusDomain,
@@ -500,9 +504,17 @@ export function SessionsPage() {
           requestTab: activeContainer?.requestTab ?? "headers",
           responseTab: activeContainer?.responseTab ?? "overview",
         });
+        showSnackbar(t("sessionsPage.clearSessionsDone"));
       },
     });
-  }, [clearSessions, clearStoreSessions, defaultInspectorSplitRatio, activeContainer]);
+  }, [
+    clearSessions,
+    clearStoreSessions,
+    defaultInspectorSplitRatio,
+    activeContainer,
+    showSnackbar,
+    t,
+  ]);
 
   const headerActions = useMemo(
     () => (
@@ -524,7 +536,7 @@ export function SessionsPage() {
           }
         />
         <TopBarActionButton
-          onClick={handleClearActiveContainer}
+          onClick={() => setClearConfirmOpen(true)}
           disabled={activeSessions.length === 0 || isClearingSessions}
           icon={<DeleteSweepRoundedIcon />}
           label={t("sessionsPage.containers.clearCurrent")}
@@ -539,7 +551,6 @@ export function SessionsPage() {
     ),
     [
       activeSessions.length,
-      handleClearActiveContainer,
       handleOpenExportDialog,
       isClearingSessions,
       setShowOnlyThrottled,
@@ -652,7 +663,9 @@ export function SessionsPage() {
         errorMessage={sessionsError ? sessionsErrorMessage : undefined}
         expandedHosts={activeContainer?.expandedHosts ?? []}
         explorerWidth={explorerWidth}
+        focusedHosts={focusedHosts}
         groups={hostGroups}
+        ignoredHosts={ignoredHosts}
         inspectorSplitRatio={activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio}
         isDetailLoading={isSessionDetailLoading}
         isLoading={isLoading || areSessionsLoading}
@@ -674,6 +687,7 @@ export function SessionsPage() {
               }
             : undefined
         }
+        onDisableThrottledOnly={() => setShowOnlyThrottled(false)}
         onDomainFilterChange={handleDomainFilterChange}
         onInspectorResizeStart={startInspectorResize}
         onRepeat={selectedSession ? handleRepeat : undefined}
@@ -683,7 +697,9 @@ export function SessionsPage() {
         onResponseTabChange={handleResponseTabChange}
         onSelectContainer={handleSelectContainer}
         onSelectSession={handleSelectedSessionChange}
+        onStopIgnoringHost={handleStopIgnoringDomain}
         onToggleHost={toggleHost}
+        onUnfocusHost={handleUnfocusDomain}
         requestCollapsed={activeContainer?.requestCollapsed ?? false}
         requestTab={activeContainer?.requestTab ?? "headers"}
         responseTab={activeContainer?.responseTab ?? "overview"}
@@ -692,6 +708,7 @@ export function SessionsPage() {
         selectedSession={selectedSession}
         selectedSessionDetail={selectedSessionDetail}
         selectedSessionId={selectedSessionIdValue}
+        showOnlyThrottled={showOnlyThrottled}
         workspaceRef={workspaceRef}
       />
 
@@ -776,6 +793,19 @@ export function SessionsPage() {
         onClose={() => setImportSnackbarMessage(null)}
         open={importSnackbarMessage !== null}
         message={importSnackbarMessage}
+      />
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        title={t("sessionsPage.clearSessionsTitle")}
+        message={t("sessionsPage.clearSessionsConfirm")}
+        confirmLabel={t("common.actions.clearSessions")}
+        onConfirm={() => {
+          setClearConfirmOpen(false);
+          handleClearActiveContainer();
+        }}
+        onCancel={() => setClearConfirmOpen(false)}
+        isConfirming={isClearingSessions}
       />
     </Stack>
   );

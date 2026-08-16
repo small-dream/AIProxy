@@ -27,6 +27,7 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import type {
   RewriteBodyFieldEdit,
   RewriteRule,
@@ -213,6 +214,7 @@ export function RewriteRulesPanel() {
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
   const [testInput, setTestInput] = useState<RuleTestInput>({
     method: "GET",
@@ -427,6 +429,12 @@ export function RewriteRulesPanel() {
       setSelectedRuleId(undefined);
       return;
     }
+    // Destructive: confirm before the persisted rule is removed.
+    setDeleteConfirmOpen(true);
+  }
+
+  function confirmDelete() {
+    if (!selectedRuleId) return;
     deleteMutation.mutate(
       { ruleId: selectedRuleId, ruleType: "rewrite" },
       {
@@ -434,6 +442,7 @@ export function RewriteRulesPanel() {
           lastSyncedRuleIdRef.current = undefined;
           setSelectedRuleId(undefined);
           setDraft(createEmptyRewriteRule());
+          setDeleteConfirmOpen(false);
         },
       },
     );
@@ -770,6 +779,17 @@ export function RewriteRulesPanel() {
           </Stack>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t("rulesPage.deleteRuleTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: draft.name.trim() || draft.match.urlPattern,
+        })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        isConfirming={deleteMutation.isPending}
+      />
     </>
   );
 }

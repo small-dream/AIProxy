@@ -29,6 +29,7 @@ import {
   useBreakpointRules,
   useSetBreakpointRules,
 } from "@/features/breakpoints/use-breakpoint-rules";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { formatRuleFieldLabel } from "@/features/rules/components/RulesSharedUi";
 import {
   createCatchAllRule,
@@ -43,6 +44,8 @@ export function BreakpointRulesPanel() {
   const { data: rules = [], isError: isRulesError } = useBreakpointRules();
   const setRulesMutation = useSetBreakpointRules();
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Destructive delete is confirmed first; the target rule drives the dialog copy.
+  const [deleteTarget, setDeleteTarget] = useState<BreakpointRule | null>(null);
   const [draft, setDraft] = useState<BreakpointRule>(createEmptyBreakpointRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
 
@@ -59,8 +62,14 @@ export function BreakpointRulesPanel() {
     setRulesMutation.mutate(rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
   }
 
-  function handleDelete(id: string) {
-    setRulesMutation.mutate(rules.filter((r) => r.id !== id));
+  function handleDelete(rule: BreakpointRule) {
+    setDeleteTarget(rule);
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    setRulesMutation.mutate(rules.filter((r) => r.id !== deleteTarget.id));
+    setDeleteTarget(null);
   }
 
   function handleAddCatchAll(stage: BreakpointStage) {
@@ -246,7 +255,7 @@ export function BreakpointRulesPanel() {
                 ) : (
                   rule.methods.map((m) => <Chip key={m} label={m} size="small" />)
                 )}
-                <IconButton size="small" color="error" onClick={() => handleDelete(rule.id)}>
+                <IconButton size="small" color="error" onClick={() => handleDelete(rule)}>
                   <DeleteRoundedIcon sx={{ fontSize: 18 }} />
                 </IconButton>
               </Stack>
@@ -353,6 +362,17 @@ export function BreakpointRulesPanel() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={t("rulesPage.deleteBreakpointTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: deleteTarget?.urlPattern || "*",
+        })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        isConfirming={setRulesMutation.isPending}
+      />
     </Stack>
   );
 }

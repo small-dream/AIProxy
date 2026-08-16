@@ -465,6 +465,7 @@ export function useSessionContextActions({
     handleSaveToCollectionCancel,
     handleSaveToCollectionConfirm,
     handleSnackbarClose,
+    showSnackbar,
     handleStopIgnoringDomain,
     handleStopIgnoringHost,
     handleUnfocusDomain,

@@ -28,6 +28,7 @@ import {
   getScriptValidationErrors,
   HTTP_METHODS,
 } from "@/features/rules/rules.helpers";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import {
   useDeleteManagedRule,
   useSaveScriptRule,
@@ -76,6 +77,7 @@ export function ScriptRulesPanel() {
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
   // M22/M25: track the last id we synced a draft FROM, so a TanStack Query
@@ -212,6 +214,12 @@ export function ScriptRulesPanel() {
       setValidationAttempted(false);
       return;
     }
+    // Destructive: confirm before the persisted rule is removed.
+    setDeleteConfirmOpen(true);
+  }
+
+  function confirmDelete() {
+    if (!selectedRuleId) return;
     deleteMutation.mutate(
       { ruleId: selectedRuleId, ruleType: "script" },
       {
@@ -220,6 +228,7 @@ export function ScriptRulesPanel() {
           setSelectedRuleId(undefined);
           setDraft(createEmptyScriptRule());
           setValidationAttempted(false);
+          setDeleteConfirmOpen(false);
         },
       },
     );
@@ -543,6 +552,17 @@ export function ScriptRulesPanel() {
             </RuleSection>
           </Stack>
         }
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t("rulesPage.deleteRuleTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: draft.name.trim() || draft.match.urlPattern,
+        })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        isConfirming={deleteMutation.isPending}
       />
     </>
   );

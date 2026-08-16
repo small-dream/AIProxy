@@ -8,7 +8,7 @@ import { checkForUpdateAndStore } from "@/features/updater/update-status";
 import type { ProxyStatus } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { onMenuEvent } from "@/services/events";
-import { clearSessions, showLogFile } from "@/services/commands";
+import { showLogFile } from "@/services/commands";
 
 import { getErrorMessage } from "./helpers";
 
@@ -26,6 +26,8 @@ interface MenuHandlerDeps {
   handleAdbClearProxy: () => Promise<void>;
   runWindowCommand: (menuId: string) => Promise<void>;
   onSnackbarMessage: (message: string | null) => void;
+  /** Destructive: clearing all sessions requires confirmation in the shell. */
+  onRequestClearAllSessions: () => void;
 }
 
 /**
@@ -128,7 +130,7 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         break;
       case "clear_sessions":
       case "clear_all_sessions":
-        void clearSessions();
+        h.onRequestClearAllSessions();
         break;
       case "find":
         window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));

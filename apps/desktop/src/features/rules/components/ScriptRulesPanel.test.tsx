@@ -9,6 +9,8 @@ import { ScriptRulesPanel } from "./ScriptRulesPanel";
 // holders drive hook return values so each test can seed its own state.
 const pickAndReadScriptFileMock = vi.fn();
 const rulesState: { current: ScriptRule[] } = { current: [] };
+// Module-level so the delete-confirmation tests can assert on it.
+const deleteMutateMock = vi.fn();
 
 vi.mock("@/services/commands", () => ({
   pickAndReadScriptFile: (...args: unknown[]) => pickAndReadScriptFileMock(...args),
@@ -17,7 +19,7 @@ vi.mock("@/services/commands", () => ({
 vi.mock("@/features/rules/use-rule-center", () => ({
   useScriptRules: () => ({ data: rulesState.current, isError: false }),
   useSaveScriptRule: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteManagedRule: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
 }));
 
 // Keep the test free of the i18n provider dependency. The fake `t` returns the
@@ -34,6 +36,7 @@ vi.mock("@/i18n", () => ({
 
 beforeEach(() => {
   pickAndReadScriptFileMock.mockReset();
+  deleteMutateMock.mockClear();
   rulesState.current = [];
 });
 
@@ -116,5 +119,41 @@ describe("ScriptRulesPanel — selection sync guard (M22/M25)", () => {
     expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value).toBe(
       "My In-Progress Edit",
     );
+  });
+});
+
+describe("ScriptRulesPanel — delete confirmation (P0-2)", () => {
+  it("requires confirmation before the persisted rule is deleted", () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Rule A" })];
+
+    render(<ScriptRulesPanel />);
+
+    // Clicking the editor's remove button must NOT delete immediately...
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    expect(deleteMutateMock).not.toHaveBeenCalled();
+
+    // ...but open the confirmation dialog first.
+    expect(screen.getByText("rulesPage.deleteRuleTitle")).toBeInTheDocument();
+    expect(screen.getByText("common.confirmDeleteMessage")).toBeInTheDocument();
+
+    // Confirming performs the delete with the selected rule id.
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.delete" }));
+    expect(deleteMutateMock).toHaveBeenCalledWith(
+      { ruleId: "rule-a", ruleType: "script" },
+      expect.anything(),
+    );
+  });
+
+  it("cancelling the dialog keeps the rule", () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Rule A" })];
+
+    render(<ScriptRulesPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.cancel" }));
+
+    // The rule must survive cancelling. (The dialog's exit animation never
+    // completes in jsdom, so asserting its removal is not reliable.)
+    expect(deleteMutateMock).not.toHaveBeenCalled();
   });
 });

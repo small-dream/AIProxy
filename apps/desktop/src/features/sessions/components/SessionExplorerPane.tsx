@@ -27,6 +27,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { SessionFilterChips } from "./SessionFilterChips";
 import { getWorkbenchFontSize } from "./SessionInspectorShared";
 import {
   getSessionQuerySuffix,
@@ -40,14 +41,20 @@ type SessionExplorerPaneProps = {
   domainFilterValue: string;
   errorMessage: string | undefined;
   expandedHosts: string[];
+  focusedHosts: ReadonlySet<string>;
   groups: SessionHostGroup[];
+  ignoredHosts: ReadonlySet<string>;
   isLoading: boolean;
+  onDisableThrottledOnly: () => void;
   onDomainFilterChange: (value: string) => void;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string) => void;
+  onStopIgnoringHost: (host: string) => void;
   onToggleHost: (host: string) => void;
+  onUnfocusHost: (host: string) => void;
   selectedSessionId: string | undefined;
+  showOnlyThrottled: boolean;
 };
 
 const SESSION_EXPLORER_ROW_HEIGHT = 26;
@@ -71,14 +78,20 @@ export function SessionExplorerPane({
   domainFilterValue,
   errorMessage,
   expandedHosts,
+  focusedHosts,
   groups,
+  ignoredHosts,
   isLoading,
+  onDisableThrottledOnly,
   onDomainFilterChange,
   onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
+  onStopIgnoringHost,
   onToggleHost,
+  onUnfocusHost,
   selectedSessionId,
+  showOnlyThrottled,
 }: SessionExplorerPaneProps) {
   const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -144,6 +157,15 @@ export function SessionExplorerPane({
         overflow: "hidden",
       }}
     >
+      <SessionFilterChips
+        focusedHosts={focusedHosts}
+        ignoredHosts={ignoredHosts}
+        showOnlyThrottled={showOnlyThrottled}
+        onDisableThrottledOnly={onDisableThrottledOnly}
+        onStopIgnoringHost={onStopIgnoringHost}
+        onUnfocusHost={onUnfocusHost}
+      />
+
       <Box ref={scrollContainerRef} sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}>
         {isLoading ? (
           <Stack

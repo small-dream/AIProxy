@@ -32,6 +32,7 @@ export const enMessages = {
       stopProxy: "Stop Proxy",
       switchWorkspace: "Switch Workspace",
     },
+    confirmDeleteMessage: 'Delete "{{name}}"? This action cannot be undone.',
     empty: {
       noData: "No data available.",
     },
@@ -333,6 +334,8 @@ export const enMessages = {
     breakpointRulesDescription:
       "Rules are evaluated in order. The first matching rule triggers the breakpoint.",
     breakpointRulesTitle: "Breakpoint Rules",
+    deleteBreakpointTitle: "Delete Breakpoint",
+    deleteRuleTitle: "Delete Rule",
     description: "Manage breakpoints and request/response interception rules.",
     empty: "No rules defined. Add a rule or use the quick actions above.",
     quickBreakpointDescription:
@@ -901,6 +904,10 @@ export const enMessages = {
       sessionCount: "{{count}} captured requests",
       sessionTitle: "Session {{index}}",
     },
+    clearSessionsConfirm:
+      "This permanently deletes every captured session. This action cannot be undone.",
+    clearSessionsDone: "All sessions cleared",
+    clearSessionsTitle: "Clear All Sessions",
     description:
       "Inspect captured traffic, keep the current filter context, and export exactly the slice you need.",
     detailLoadError: "Unable to load the selected session detail from the desktop runtime.",
@@ -1047,6 +1054,7 @@ export const enMessages = {
     customTitle: "Custom Profiles",
     customUntitled: "Untitled Profile",
     deleteRule: "Delete",
+    deleteRuleTitle: "Delete Rule",
     description:
       "Switch between realistic network presets or fine-tune upload, download, latency, and packet loss for a specific test case.",
     disableGlobal: "Disable Throttling",
@@ -1176,9 +1184,12 @@ export const enMessages = {
       websocket: "WebSocket",
     },
     searchPlaceholder: "Search domain or path",
+    showAllSessions: "Show all sessions",
+    stopIgnoringHost: "Stop ignoring {{host}}",
     tooltipPending: "{{method}} {{url}} · Pending",
     tooltipResolved: "{{method}} {{url}} · {{statusCode}} · {{kind}}",
     unknownHost: "<unknown>",
+    unfocusHost: "Stop focusing {{host}}",
     unfocusedGroup: "Unfocused",
   },
   inspector: {
@@ -1605,9 +1616,11 @@ export const enMessages = {
     folderName: "Folder name",
     globalVariables: "Global Variables",
     environmentVariables: "Variables",
+    deleteCollectionTitle: "Delete Collection",
     deleteEnvironment: "Delete Environment",
     deleteEnvironmentConfirm: 'Are you sure you want to delete "{{name}}"?',
     deleteEnvironmentTitle: "Delete Environment",
+    deleteItemTitle: "Delete Request",
     environmentDeleted: "Environment deleted",
     variablesSaved: "Variables saved",
     collectionCount: "{{count}} collections",

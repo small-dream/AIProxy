@@ -7,7 +7,9 @@ import {
   updateWorkspace,
 } from "@/services/commands";
 
-const WORKSPACES_KEY = ["workspaces"] as const;
+// Exported for cross-feature cache invalidation: enable/disable system proxy
+// rewrites the persisted `system_proxy_enabled` workspace field.
+export const WORKSPACES_KEY = ["workspaces"] as const;
 const PROXY_STATUS_KEY = ["proxy-status"] as const;
 
 export function useWorkspaces() {

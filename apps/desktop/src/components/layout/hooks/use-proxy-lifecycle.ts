@@ -101,9 +101,15 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       return;
     }
 
+    // Only restore the system proxy when the workspace says the user explicitly
+    // enabled it before (enable_system_proxy persists the flag). A fresh user
+    // must reach the wizard's certificate-trust steps before any takeover, so
+    // first run never hijacks system traffic with an untrusted root CA.
+    const shouldRestoreSystemProxy = currentWorkspace?.systemProxyEnabled === true;
+
     // Signal that auto-start is in flight so first-run guidance (checklist /
-    // wizard) stays hidden until startProxy + enableSystemProxy finish.
-    // captureReady is transiently false during this window.
+    // wizard) stays hidden until startProxy (and the optional system-proxy
+    // restore) finishes. captureReady is transiently false during this window.
     setAutoStartInProgress(true);
 
     let cancelled = false;
@@ -112,7 +118,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       try {
         const startedStatus = await startProxyMutation.mutateAsync(initialStartProxyInput);
 
-        if (cancelled || startedStatus.systemProxyEnabled) {
+        if (cancelled || startedStatus.systemProxyEnabled || !shouldRestoreSystemProxy) {
           return;
         }
 
@@ -140,6 +146,7 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     };
   }, [
     certificateStatus,
+    currentWorkspace,
     enableSystemProxyMutation,
     initialStartProxyInput,
     onSnackbarMessage,

@@ -46,8 +46,8 @@ export function useSetupWizard(): {
   // Suppress first-run guidance until the real status is available: while the
   // cert/proxy status is still loading (undefined → captureReady=false) and
   // while the app auto-starts the proxy on launch (captureReady stays false
-  // until startProxy + enableSystemProxy finish). Without this the checklist
-  // and wizard flash on every launch.
+  // until startProxy — and the optional system-proxy restore — finishes).
+  // Without this the checklist and wizard flash on every launch.
   const autoStartInProgress = useProxyStartStore((s) => s.autoStartInProgress);
   const guidanceSuppressed = certStatusLoading || proxyStatusLoading || autoStartInProgress;
 

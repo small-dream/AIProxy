@@ -21,7 +21,9 @@ import {
   Typography,
   alpha,
 } from "@mui/material";
+import { useState } from "react";
 
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ProfileEditor } from "@/features/throttling/components/ProfileEditor";
 import { RuleEditor } from "@/features/throttling/components/RuleEditor";
 import { formatDelay, useThrottleEditor } from "@/features/throttling/use-throttle-editor";
@@ -31,6 +33,11 @@ import { fontFamilies } from "@/themes/fonts";
 export function ThrottlingPage() {
   const { t } = useI18n();
   const ed = useThrottleEditor();
+  // Destructive delete is confirmed first; the target drives the dialog copy.
+  const [deleteRuleConfirm, setDeleteRuleConfirm] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   return (
     <Stack spacing={1} sx={{ height: "100%", minHeight: 0 }}>
@@ -360,13 +367,36 @@ export function ThrottlingPage() {
               t={t}
               onChange={ed.updateRuleDraft}
               onDuplicate={ed.duplicateRule}
-              onDelete={ed.handleDeleteRule}
+              onDelete={(id) =>
+                setDeleteRuleConfirm({
+                  id,
+                  name:
+                    ed.ruleDraft?.name.trim() ||
+                    ed.ruleDraft?.urlPattern ||
+                    t("throttlingPage.deleteRuleTitle"),
+                })
+              }
               onSave={ed.handleSaveRule}
               saving={ed.saveRulePending || ed.isRulesError}
             />
           )}
         </Paper>
       </Box>
+
+      <ConfirmDialog
+        open={deleteRuleConfirm !== null}
+        title={t("throttlingPage.deleteRuleTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: deleteRuleConfirm?.name ?? "",
+        })}
+        onConfirm={() => {
+          if (!deleteRuleConfirm) return;
+          ed.handleDeleteRule(deleteRuleConfirm.id);
+          setDeleteRuleConfirm(null);
+        }}
+        onCancel={() => setDeleteRuleConfirm(null)}
+        isConfirming={ed.deleteRulePending}
+      />
     </Stack>
   );
 }

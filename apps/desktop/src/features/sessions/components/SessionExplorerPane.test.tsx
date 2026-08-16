@@ -37,6 +37,27 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
   };
 }
 
+// Base props every render in this file shares; the filter chips row is inert
+// (renders nothing) with empty sets.
+function basePaneProps() {
+  return {
+    domainFilterValue: "",
+    errorMessage: undefined,
+    expandedHosts: [] as string[],
+    focusedHosts: new Set<string>(),
+    ignoredHosts: new Set<string>(),
+    isLoading: false,
+    onDisableThrottledOnly: () => {},
+    onDomainFilterChange: () => {},
+    onSelectSession: () => {},
+    onStopIgnoringHost: () => {},
+    onToggleHost: () => {},
+    onUnfocusHost: () => {},
+    selectedSessionId: undefined,
+    showOnlyThrottled: false,
+  };
+}
+
 describe("SessionExplorerPane", () => {
   it("renders a JSON icon for successful JSON responses", () => {
     const groups = buildSessionHostGroups([createSessionSummary({})], "");
@@ -44,15 +65,9 @@ describe("SessionExplorerPane", () => {
     render(
       <AppProviders>
         <SessionExplorerPane
-          domainFilterValue=""
-          errorMessage={undefined}
+          {...basePaneProps()}
           expandedHosts={[groups[0]!.key]}
           groups={groups}
-          isLoading={false}
-          onDomainFilterChange={() => {}}
-          onSelectSession={() => {}}
-          onToggleHost={() => {}}
-          selectedSessionId={undefined}
         />
       </AppProviders>,
     );
@@ -85,15 +100,9 @@ describe("SessionExplorerPane", () => {
     render(
       <AppProviders>
         <SessionExplorerPane
-          domainFilterValue=""
-          errorMessage={undefined}
+          {...basePaneProps()}
           expandedHosts={groups.map((group) => group.key)}
           groups={groups}
-          isLoading={false}
-          onDomainFilterChange={() => {}}
-          onSelectSession={() => {}}
-          onToggleHost={() => {}}
-          selectedSessionId={undefined}
         />
       </AppProviders>,
     );
@@ -110,15 +119,10 @@ describe("SessionExplorerPane", () => {
     render(
       <AppProviders>
         <SessionExplorerPane
+          {...basePaneProps()}
           domainFilterValue="api"
-          errorMessage={undefined}
-          expandedHosts={[]}
           groups={[]}
-          isLoading={false}
           onDomainFilterChange={handleDomainFilterChange}
-          onSelectSession={() => {}}
-          onToggleHost={() => {}}
-          selectedSessionId={undefined}
         />
       </AppProviders>,
     );

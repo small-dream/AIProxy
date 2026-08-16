@@ -424,6 +424,7 @@ Sessions Page
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
 - `Focus` 与 `Ignore` 属于当前页面的临时视图状态，不应默认持久化
+- 生效中的 `Focus` / `Ignore` / `Throttled` 过滤必须在会话列表上方以**可移除 chips** 呈现(`SessionFilterChips`):每个 focused/ignored host 一枚 chip(点 × 移除),throttled 过滤一枚总开关 chip;被 ignore 的 host 已从数据中滤除,右键菜单不可达,chips 行是其唯一可靠的取消入口;无过滤时不渲染该行。
 - `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `Rules Page`，后续可升级为深链到具体 tab
 
 ### 会话树节点建议
@@ -869,7 +870,7 @@ Settings Page
 - 成功：`Snackbar`
 - 错误：`Snackbar + 详细错误入口`
 - 长任务：状态栏 + 进度提示
-- 危险操作：`Dialog Confirm`
+- 危险操作：`Dialog Confirm` — 统一使用 `components/shared/ConfirmDialog.tsx`(受控 props;确认键 `color="error" variant="contained"`;`isConfirming` 接 mutation pending)。所有删除规则/断点/限速规则/集合/请求条目与 Clear All Sessions 入口(菜单 + Sessions 页按钮)必须先经确认;清空成功后给 `Snackbar` 反馈。
 
 ## 12. 状态设计
 
@@ -1029,6 +1030,7 @@ Insights Page
 - 常驻清单卡(`SetupChecklistCard`)挂在 Sessions 页顶部,`!captureReady` 时显示,`captureReady` 达成即消失;回退时自动重现,不重弹模态。
 - 向导顶部用 `LinearProgress` + "Step N/8" 表达进度,避免 8 步全列 Stepper 造成拥挤。
 - 常驻清单卡的主按钮随 `nextAction` 动态化:卡在"启动代理"步骤时为"启动代理"(而非固定"打开证书"),调用 `useStartProxy`;该步启动失败且为端口占用时,清单内 inline 显示端口占用 Alert 并提供"更改端口"(复用 AppShell 端口对话框,经 `proxy-start.store` 桥接)。其余步骤仍为"打开证书"。
+- **首启不自动接管系统代理**:启动 auto-start 仅拉起代理监听;系统代理只在 workspace 持久化字段 `systemProxyEnabled` 为 true(用户此前显式开启过)时恢复。新用户在信任证书之前系统流量不被劫持,由向导 routing 步引导主动开启。
 
 ### 21.2 跳过 / 完成 / 回退语义
 

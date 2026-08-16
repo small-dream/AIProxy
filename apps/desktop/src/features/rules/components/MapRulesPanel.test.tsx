@@ -9,11 +9,13 @@ import { MapRulesPanel } from "./MapRulesPanel";
 // query hook, so we drive it through a module-level mutable holder exactly the
 // way use-throttle-editor.test.tsx does.
 const rulesState: { current: MapRule[] } = { current: [] };
+// Module-level so the delete-confirmation tests can assert on it.
+const deleteMutateMock = vi.fn();
 
 vi.mock("@/features/rules/use-rule-center", () => ({
   useMapRules: () => ({ data: rulesState.current, isError: false }),
   useSaveMapRule: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteManagedRule: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
 }));
 
 // The panel imports the Tauri dialog plugin at module top level for the file
@@ -46,6 +48,7 @@ function makeRule(overrides: Partial<MapRule> = {}): MapRule {
 
 beforeEach(() => {
   rulesState.current = [];
+  deleteMutateMock.mockClear();
 });
 
 describe("MapRulesPanel — newly-created rule selection (M10)", () => {
@@ -96,5 +99,41 @@ describe("MapRulesPanel — newly-created rule selection (M10)", () => {
     expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement).value).toBe(
       "New Draft",
     );
+  });
+});
+
+describe("MapRulesPanel — delete confirmation (P0-2)", () => {
+  it("requires confirmation before the persisted rule is deleted", () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Rule A" })];
+
+    render(<MapRulesPanel mode="remote" />);
+
+    // Clicking the editor's remove button must NOT delete immediately...
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    expect(deleteMutateMock).not.toHaveBeenCalled();
+
+    // ...but open the confirmation dialog first.
+    expect(screen.getByText("rulesPage.deleteRuleTitle")).toBeInTheDocument();
+    expect(screen.getByText("common.confirmDeleteMessage")).toBeInTheDocument();
+
+    // Confirming performs the delete with the selected rule id.
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.delete" }));
+    expect(deleteMutateMock).toHaveBeenCalledWith(
+      { ruleId: "rule-a", ruleType: "map" },
+      expect.anything(),
+    );
+  });
+
+  it("cancelling the dialog keeps the rule", () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Rule A" })];
+
+    render(<MapRulesPanel mode="remote" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.cancel" }));
+
+    // The rule must survive cancelling. (The dialog's exit animation never
+    // completes in jsdom, so asserting its removal is not reliable.)
+    expect(deleteMutateMock).not.toHaveBeenCalled();
   });
 });

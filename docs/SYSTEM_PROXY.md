@@ -78,6 +78,11 @@ type EnableSystemProxyOutput = ProxyStatus;
 
 - 必须在本地代理已经启动时调用
 - 若首次接管系统代理，需先保存原始系统代理快照
+- 启用时将 workspace 的 `system_proxy_enabled` 持久化为 `true`（`disable_system_proxy` 对应写 `false`）
+
+### 前端启动恢复语义
+
+应用启动的 auto-start 只拉起代理监听，**不自动接管系统代理**：仅当 workspace 持久化字段 `systemProxyEnabled === true`（用户此前显式开启过）时才恢复接管（见 `use-proxy-lifecycle.ts`）。全新工作区默认 `false`——新用户在信任根证书之前系统流量不被劫持，由首启向导在证书信任完成后引导开启。`enable/disable_system_proxy` 改写该字段后，前端会失效 `workspaces` 查询缓存，保证下次启动读到最新值。
 
 ### `disable_system_proxy`
 

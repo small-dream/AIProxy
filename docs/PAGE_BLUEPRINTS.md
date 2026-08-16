@@ -106,6 +106,7 @@ SessionsPage
 │  └─ Export Button
 ├─ Main Split Workspace
 │  ├─ SessionExplorerPane
+│  │  ├─ SessionFilterChips（生效中的 focus / ignore / throttled 过滤 chips，点 × 移除；无过滤不渲染）
 │  │  ├─ HostRow
 │  │  ├─ SessionTreeNode
 │  │  └─ SessionLeafNode
@@ -132,6 +133,7 @@ SessionsPage
 |------|------|
 | `pages/sessions/index.tsx` | SessionsPage 主页面，组合搜索、导出、上下文菜单、详情与跳转动作 |
 | `features/sessions/components/SessionExplorerPane.tsx` | Host 树（路径分支节点统一使用 Folder Icon，不再区分展开/折叠态）、请求节点、右键入口 |
+| `features/sessions/components/SessionFilterChips.tsx` | 列表上方的可移除过滤 chips：每个 focused/ignored host 一枚（点 × 取消），throttled 过滤一枚总开关；被 ignore 的 host 从数据滤除后右键菜单不可达，此行是唯一取消入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
 | `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作与页面跳转 |
@@ -186,12 +188,17 @@ type SessionsPageState = {
 Sessions polling returns captured sessions
 -> SessionsPage filters ignored hosts
 -> SessionExplorerPane groups remaining sessions by host and path
+-> SessionFilterChips renders one removable chip per focused/ignored host
+   and a throttled-only toggle chip (renders nothing when no filter active)
 -> user searches / expands host / selects session
 -> SessionInspectorWorkspace renders selected summary and tabs
 -> user drags split handle
 -> explorer width updates and persists to localStorage
 -> user toggles request panel collapse
 -> requestCollapsed persists to localStorage
+-> user clicks "Clear Session" (header) or menu "Clear All Sessions"
+-> ConfirmDialog requires explicit confirmation
+-> clear_sessions mutation succeeds -> sessions cache cleared + Snackbar
 ```
 
 **事件批处理（M1）：** `SessionsPage` 现在直接订阅会话事件，使用 100ms 批处理缓冲区。`useSessionEvents` hook 已废弃。单次批处理刷新中，容器状态和 React Query 缓存同时更新。

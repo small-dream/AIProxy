@@ -6,6 +6,7 @@ import type { DnsMappingRule } from "@aiproxy/shared-types";
 import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import {
   createEmptyDnsMappingRule,
   getDnsMappingValidationErrors,
@@ -31,6 +32,7 @@ export function DnsMappingsPanel() {
   const deleteMutation = useDeleteManagedRule();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<DnsMappingRule>(createEmptyDnsMappingRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
   // L3: priority is committed from a local text draft so clearing the field
@@ -88,6 +90,12 @@ export function DnsMappingsPanel() {
       setValidationAttempted(false);
       return;
     }
+    // Destructive: confirm before the persisted rule is removed.
+    setDeleteConfirmOpen(true);
+  }
+
+  function confirmDelete() {
+    if (!selectedRuleId) return;
     deleteMutation.mutate(
       { ruleId: selectedRuleId, ruleType: "dns" },
       {
@@ -95,6 +103,7 @@ export function DnsMappingsPanel() {
           setSelectedRuleId(undefined);
           setDraft(createEmptyDnsMappingRule());
           setValidationAttempted(false);
+          setDeleteConfirmOpen(false);
         },
       },
     );
@@ -261,6 +270,17 @@ export function DnsMappingsPanel() {
             </RuleSection>
           </Stack>
         }
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t("rulesPage.deleteRuleTitle")}
+        message={t("common.confirmDeleteMessage", {
+          name: draft.name.trim() || draft.hostPattern,
+        })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        isConfirming={deleteMutation.isPending}
       />
     </>
   );

@@ -421,6 +421,7 @@ export function useThrottleEditor() {
     saveProfilePending: saveProfileMutation.isPending,
     setActivePending: setActiveMutation.isPending,
     saveRulePending: saveRuleMutation.isPending,
+    deleteRulePending: deleteRuleMutation.isPending,
 
     // Temporary enable
     temporaryUntil,

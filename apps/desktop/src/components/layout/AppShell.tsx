@@ -18,10 +18,12 @@ import {
   useWindowControls,
   useZoomControl,
 } from "@/components/layout/hooks";
-import { isMacPlatform, isTauriRuntime } from "@/components/layout/hooks/helpers";
+import { getErrorMessage, isMacPlatform, isTauriRuntime } from "@/components/layout/hooks/helpers";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
+import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
 import { SetupWizard } from "@/features/setup-wizard/SetupWizard";
 import { useI18n } from "@/i18n";
 import { useSessionEvents } from "@/features/sessions/use-session-events";
@@ -50,6 +52,18 @@ export function AppShell() {
 
   // --- Snackbar message shared across hooks ---
   const [menuSnackbarMessage, setMenuSnackbarMessage] = useState<string | null>(null);
+
+  // --- Clear-all-sessions confirmation (menu entry) ---
+  const [clearSessionsConfirmOpen, setClearSessionsConfirmOpen] = useState(false);
+  const clearSessionsMutation = useClearSessions();
+
+  function handleConfirmClearAllSessions() {
+    clearSessionsMutation.mutate(undefined, {
+      onSuccess: () => setMenuSnackbarMessage(t("sessionsPage.clearSessionsDone")),
+      onError: (error) =>
+        setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic"))),
+    });
+  }
 
   // --- Global notification queue (fed by reportCommandFailure etc.) ---
   const notificationQueue = useNotificationStore((s) => s.queue);
@@ -107,6 +121,7 @@ export function AppShell() {
     handleAdbClearProxy,
     runWindowCommand,
     onSnackbarMessage: setMenuSnackbarMessage,
+    onRequestClearAllSessions: () => setClearSessionsConfirmOpen(true),
   });
 
   // --- Zoom control ---
@@ -270,6 +285,19 @@ export function AppShell() {
       <SetupWizard />
 
       <UpdateDialog />
+
+      <ConfirmDialog
+        open={clearSessionsConfirmOpen}
+        title={t("sessionsPage.clearSessionsTitle")}
+        message={t("sessionsPage.clearSessionsConfirm")}
+        confirmLabel={t("common.actions.clearSessions")}
+        onConfirm={() => {
+          setClearSessionsConfirmOpen(false);
+          handleConfirmClearAllSessions();
+        }}
+        onCancel={() => setClearSessionsConfirmOpen(false)}
+        isConfirming={clearSessionsMutation.isPending}
+      />
 
       <Snackbar
         key={menuSnackbarMessage ?? activeNotification?.id ?? "snackbar"}

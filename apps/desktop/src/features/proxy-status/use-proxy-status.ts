@@ -12,6 +12,7 @@ import {
 } from "@/services/commands";
 import { logDevError, logDevInfo } from "@/services/logger/dev-logger";
 import { SESSIONS_QUERY_KEY } from "@/features/sessions/use-sessions";
+import { WORKSPACES_KEY } from "@/features/workspace-manager/use-workspaces";
 
 import { isPortInUseError, readPortFromError } from "./proxy-start.helpers";
 import { useProxyStartStore } from "./proxy-start.store";
@@ -85,6 +86,9 @@ export function useEnableSystemProxy() {
     onSuccess: (status: ProxyStatus) => {
       logDevInfo("ui.proxy_status", "enable_system_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
+      // The backend persists `system_proxy_enabled` on the workspace; refresh
+      // the cached list so the next launch knows to restore the system proxy.
+      queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
   });
 }
@@ -102,6 +106,7 @@ export function useDisableSystemProxy() {
     onSuccess: (status: ProxyStatus) => {
       logDevInfo("ui.proxy_status", "disable_system_proxy_mutation_succeeded", status);
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
+      queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
   });
 }
