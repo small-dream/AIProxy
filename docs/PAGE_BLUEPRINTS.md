@@ -793,8 +793,8 @@ type CertificatesPageState = {
 当前已实现目标：
 
 - 管理代理预设（端口、SSL）
-- 管理界面语言偏好
-- 管理界面外观偏好
+- 在「General」区统一管理语言、主题、界面字体、内容字体与字号偏好
+- 管理危险操作确认开关（Clear All Sessions 确认可关闭并在此恢复）
 - 支持 `system` 级别的自动解析与持久化
 
 ### 8.2 低保真线框
@@ -808,13 +808,17 @@ type CertificatesPageState = {
 │ Preset List                  (New Preset) (Apply) (Save)                    │
 │ Name / Port / SSL Editor                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Language & Region]                                                         │
-│ Display Language: [Follow System v]                                         │
-│ Info Hint                                                                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Appearance]                                                                │
-│ Appearance Theme: [Follow System v]                                         │
-│ Info Hint                                                                   │
+│ [General]  (macOS 风格分组行，Divider 分隔，控件右对齐)                       │
+│ Display Language                        [Follow System v]                   │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ Appearance Theme                        [Follow System v]                   │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ Interface Font                          [System Default v]                  │
+│ (custom 时追加 Custom Font 行)                                               │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ Content & Code Font                     [System Monospace v]                │
+│ ─────────────────────────────────────────────────────────────────────────── │
+│ Font Size                               [14px v]                            │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Dangerous Action Confirmations]                                            │
 │ Ask before clearing all sessions                    [========○]             │
@@ -832,18 +836,19 @@ SettingsPage
 │  ├─ PresetActions
 │  ├─ PresetEditor
 │  └─ SuccessAlert
-├─ SectionCard "Language & Region"
-│  ├─ Description
-│  ├─ LanguagePreferenceSelect
-│  └─ EffectiveLanguageAlert
-├─ SectionCard "Appearance"
-│  ├─ Description
-│  ├─ ThemePreferenceSelect
-│  └─ EffectiveThemeAlert
+├─ SectionCard "General"
+│  └─ SettingsGroup (Divider 分隔)
+│     ├─ SettingsRow LanguagePreferenceSelect
+│     ├─ SettingsRow ThemePreferenceSelect
+│     ├─ SettingsRow FontFamilyPreferenceSelect (+ custom 行)
+│     ├─ SettingsRow ContentFontPreferenceSelect (+ custom 行)
+│     └─ SettingsRow FontSizeSelect
 ├─ SectionCard "Dangerous Action Confirmations"
 │  ├─ Description
 │  └─ ClearSessionsConfirmSwitch (bound to !skipClearSessionsConfirm)
 ```
+
+**行组件约定：** `SettingsRow`（label/description 左、控件右，`stacked` 用于 TLS hosts 等宽输入）、`SettingsGroup`（Divider 分隔行列表）、`SettingsFooter`（hint 左、动作右）是 Settings 页统一的行级布局原语，各 Section 内部一律复用，不再手写行布局。
 
 ### 8.4 页面状态模型
 

@@ -188,6 +188,7 @@ export const zhCNMessages: Messages = {
     fontOptionSerif: "衬线",
     fontOptionSystem: "系统默认",
     fontSizeLabel: "字体大小",
+    generalSectionTitle: "通用",
     languageLabel: "显示语言",
     languageSectionTitle: "语言与地区",
     languageOptionEn: "English",

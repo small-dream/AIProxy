@@ -189,6 +189,7 @@ export const enMessages = {
     fontOptionSerif: "Serif",
     fontOptionSystem: "System Default",
     fontSizeLabel: "Font Size",
+    generalSectionTitle: "General",
     languageLabel: "Display Language",
     languageSectionTitle: "Language & Region",
     languageOptionEn: "English",

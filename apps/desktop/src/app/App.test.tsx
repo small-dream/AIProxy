@@ -14,13 +14,12 @@ describe("AppProviders", () => {
     );
 
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    expect(screen.getByText("Language & Region")).toBeInTheDocument();
-    expect(screen.getByText("Appearance")).toBeInTheDocument();
-    expect(screen.getAllByText("Display Language")).toHaveLength(2);
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Display Language")).toBeInTheDocument();
     expect(screen.getAllByText("Follow System")).toHaveLength(2);
-    expect(screen.getAllByText("Appearance Theme")).toHaveLength(2);
-    expect(screen.getAllByText("Interface Font")).toHaveLength(2);
-    expect(screen.getAllByText("Content & Code Font")).toHaveLength(2);
-    expect(screen.getAllByText("Font Size")).toHaveLength(2);
+    expect(screen.getByText("Appearance Theme")).toBeInTheDocument();
+    expect(screen.getByText("Interface Font")).toBeInTheDocument();
+    expect(screen.getByText("Content & Code Font")).toBeInTheDocument();
+    expect(screen.getByText("Font Size")).toBeInTheDocument();
   });
 });

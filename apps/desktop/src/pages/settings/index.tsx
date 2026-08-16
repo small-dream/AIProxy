@@ -1,15 +1,11 @@
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
   Alert,
-  Button,
   Box,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
+  Button,
+  Divider,
   MenuItem,
   Select,
   Snackbar,
@@ -26,6 +22,7 @@ import {
   type SaveAiSettingsInput,
   type Workspace,
 } from "@aiproxy/shared-types";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
@@ -95,14 +92,94 @@ const compactAlertSx = {
   },
 };
 
-const compactFieldSx = {
-  "& .MuiInputBase-root": {
-    minHeight: 38,
-  },
-  "& .MuiInputLabel-root": {
-    fontSize: 13,
-  },
+const rowControlSx = {
+  flexShrink: 0,
+  width: { sm: 320, xs: "100%" },
 };
+
+const selectControlSx = {
+  ...rowControlSx,
+  "& .MuiInputBase-root": { minHeight: 36 },
+};
+
+/**
+ * One settings row in the macOS-style grouped list: a plain-language label
+ * (plus optional description) on the left, the control pinned to the right.
+ * `stacked` drops the control onto its own line for wide inputs such as the
+ * TLS host list.
+ */
+function SettingsRow({
+  label,
+  description,
+  hint,
+  stacked = false,
+  children,
+}: {
+  label: string;
+  description?: string;
+  hint?: ReactNode;
+  stacked?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: { xs: "column", sm: stacked ? "column" : "row" },
+        alignItems: { xs: "stretch", sm: stacked ? "stretch" : "flex-start" },
+        justifyContent: "space-between",
+        gap: { xs: 1, sm: 3 },
+        py: 1.5,
+      }}
+    >
+      <Box sx={{ minWidth: 0, flex: 1, pt: { sm: stacked ? 0 : 0.25 } }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.45 }}>
+          {label}
+        </Typography>
+        {description ? (
+          <Typography
+            variant="caption"
+            sx={{ display: "block", color: "text.secondary", lineHeight: 1.5, mt: 0.25 }}
+          >
+            {description}
+          </Typography>
+        ) : null}
+        {hint}
+      </Box>
+      {children}
+    </Box>
+  );
+}
+
+/** Divider-separated list of settings rows inside a SectionCard. */
+function SettingsGroup({ children }: { children: ReactNode }) {
+  return (
+    <Stack spacing={0} divider={<Divider />}>
+      {children}
+    </Stack>
+  );
+}
+
+/** Footer row of a group: quiet hint text on the left, actions on the right. */
+function SettingsFooter({ hint, children }: { hint?: ReactNode; children: ReactNode }) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: { xs: "column", sm: "row" },
+        alignItems: { xs: "stretch", sm: "center" },
+        justifyContent: "space-between",
+        gap: 1.5,
+        py: 1.5,
+      }}
+    >
+      <Box sx={{ minWidth: 0, flex: 1 }}>{hint}</Box>
+      <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
+        {children}
+      </Stack>
+    </Box>
+  );
+}
 
 const AI_SETTINGS_QUERY_KEY = ["ai-settings"];
 const AI_DEFAULT_TEMPERATURE = 0.2;
@@ -196,93 +273,120 @@ function ProxySettingsSection() {
       title={t("proxyPresets.title")}
       description={t("proxyPresets.description")}
     >
-      <Stack spacing={1.5}>
-        {isWorkspacesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
-        <Stack
-          direction={{ md: "row", xs: "column" }}
-          spacing={1.5}
-          sx={{
-            alignItems: { md: "center", xs: "stretch" },
-            justifyContent: "space-between",
-          }}
-        >
-          <Stack
-            direction={{ sm: "row", xs: "column" }}
-            spacing={1.5}
-            sx={{
-              alignItems: { sm: "center", xs: "stretch" },
+      {isWorkspacesError && (
+        <Alert severity="error" variant="outlined" sx={{ ...compactAlertSx, mb: 1.5 }}>
+          {t("common.errors.generic")}
+        </Alert>
+      )}
+      <SettingsGroup>
+        <SettingsRow label={t("proxyPresets.proxyPort")}>
+          <TextField
+            size="small"
+            type="number"
+            hiddenLabel
+            value={draft.proxyPort}
+            onChange={(event) => {
+              setDraft({
+                ...draft,
+                proxyPort: Number(event.target.value) || DEFAULT_PROXY_PORT,
+              });
+              setFeedback(null);
             }}
-          >
+            error={portError}
+            helperText={portError ? t("proxyPresets.portValidation") : undefined}
+            slotProps={{
+              htmlInput: {
+                inputMode: "numeric",
+                min: 1,
+                max: 65535,
+                "aria-label": t("proxyPresets.proxyPort"),
+              },
+            }}
+            sx={{ flexShrink: 0, width: { sm: 140, xs: "100%" } }}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t("proxyPresets.sslEnabled")}>
+          <Switch
+            size="small"
+            checked={draft.sslEnabled}
+            onChange={(event) => {
+              setDraft({ ...draft, sslEnabled: event.target.checked });
+              setFeedback(null);
+            }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label={t("proxyPresets.http2Enabled")}
+          description={t("proxyPresets.http2EnabledDescription")}
+        >
+          <Switch
+            size="small"
+            checked={draft.http2Enabled}
+            onChange={(event) => {
+              setDraft({ ...draft, http2Enabled: event.target.checked });
+              setFeedback(null);
+            }}
+          />
+        </SettingsRow>
+
+        {/* H3: upstream TLS certificate verification opt-out. Off by default
+            (the debug proxy accepts any upstream cert). Turning it on makes
+            new HTTPS/WSS connections verify against the OS root store. */}
+        <SettingsRow
+          label={t("proxyPresets.verifyUpstreamTls")}
+          description={t("proxyPresets.verifyUpstreamTlsDescription")}
+          hint={
+            !draft.verifyUpstreamTls ? (
+              <Typography
+                variant="caption"
+                sx={{ display: "block", color: "warning.main", lineHeight: 1.5, mt: 0.5 }}
+              >
+                {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
+              </Typography>
+            ) : null
+          }
+        >
+          <Switch
+            size="small"
+            checked={draft.verifyUpstreamTls}
+            onChange={(event) => {
+              setDraft({ ...draft, verifyUpstreamTls: event.target.checked });
+              setFeedback(null);
+            }}
+          />
+        </SettingsRow>
+
+        {draft.verifyUpstreamTls ? (
+          <SettingsRow label={t("proxyPresets.tlsVerifyHosts")} stacked>
             <TextField
               size="small"
-              type="number"
-              label={t("proxyPresets.proxyPort")}
-              value={draft.proxyPort}
+              multiline
+              fullWidth
+              minRows={2}
+              maxRows={4}
+              hiddenLabel
+              placeholder={t("proxyPresets.tlsVerifyHostsPlaceholder")}
+              value={draft.tlsVerifyHostsText}
               onChange={(event) => {
-                setDraft({
-                  ...draft,
-                  proxyPort: Number(event.target.value) || DEFAULT_PROXY_PORT,
-                });
+                setDraft({ ...draft, tlsVerifyHostsText: event.target.value });
                 setFeedback(null);
               }}
-              error={portError}
-              helperText={portError ? t("proxyPresets.portValidation") : undefined}
-              slotProps={{ htmlInput: { inputMode: "numeric", min: 1, max: 65535 } }}
-              sx={{ ...compactFieldSx, width: { sm: 180, xs: "100%" } }}
+              slotProps={{
+                htmlInput: { "aria-label": t("proxyPresets.tlsVerifyHosts") },
+              }}
             />
+          </SettingsRow>
+        ) : null}
 
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={draft.sslEnabled}
-                  onChange={(event) => {
-                    setDraft({ ...draft, sslEnabled: event.target.checked });
-                    setFeedback(null);
-                  }}
-                />
-              }
-              label={
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: "text.secondary",
-                  }}
-                >
-                  {t("proxyPresets.sslEnabled")}
-                </Typography>
-              }
-              sx={{ ml: 0 }}
-            />
-
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={draft.http2Enabled}
-                  onChange={(event) => {
-                    setDraft({ ...draft, http2Enabled: event.target.checked });
-                    setFeedback(null);
-                  }}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">{t("proxyPresets.http2Enabled")}</Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                    }}
-                  >
-                    {t("proxyPresets.http2EnabledDescription")}
-                  </Typography>
-                </Box>
-              }
-              sx={{ ml: 0 }}
-            />
-          </Stack>
-
+        <SettingsFooter
+          hint={
+            <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5 }}>
+              {proxyStatus?.running ? t("proxyPresets.runningHint") : t("proxyPresets.stoppedHint")}
+            </Typography>
+          }
+        >
           <Button
             size="small"
             variant="contained"
@@ -293,87 +397,22 @@ function ProxySettingsSection() {
           >
             {isBusy ? t("proxyPresets.saving") : t("proxyPresets.save")}
           </Button>
-        </Stack>
+        </SettingsFooter>
+      </SettingsGroup>
 
-        {/* H3: upstream TLS certificate verification opt-out. Off by default
-            (the debug proxy accepts any upstream cert). Turning it on makes
-            new HTTPS/WSS connections verify against the OS root store. */}
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 2,
-          }}
-        >
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="body2">{t("proxyPresets.verifyUpstreamTls")}</Typography>
-            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-              {t("proxyPresets.verifyUpstreamTlsDescription")}
-            </Typography>
-            {!draft.verifyUpstreamTls ? (
-              <Typography
-                variant="caption"
-                sx={{ display: "block", mt: 0.5, color: "warning.main" }}
-              >
-                {t("proxyPresets.verifyUpstreamTlsDisabledHint")}
-              </Typography>
-            ) : null}
-          </Box>
-          <Switch
-            size="small"
-            checked={draft.verifyUpstreamTls}
-            onChange={(event) => {
-              setDraft({ ...draft, verifyUpstreamTls: event.target.checked });
-              setFeedback(null);
-            }}
-          />
-        </Box>
-
-        {draft.verifyUpstreamTls ? (
-          <Box>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t("proxyPresets.tlsVerifyHosts")}
-            </Typography>
-            <TextField
-              size="small"
-              multiline
-              minRows={2}
-              maxRows={4}
-              placeholder={t("proxyPresets.tlsVerifyHostsPlaceholder")}
-              value={draft.tlsVerifyHostsText}
-              onChange={(event) => {
-                setDraft({ ...draft, tlsVerifyHostsText: event.target.value });
-                setFeedback(null);
-              }}
-              sx={{ display: "block", mt: 0.5 }}
-            />
-          </Box>
-        ) : null}
-
-        <Alert
-          severity="info"
-          variant="outlined"
-          icon={<CheckCircleRoundedIcon />}
-          sx={compactAlertSx}
-        >
-          {proxyStatus?.running ? t("proxyPresets.runningHint") : t("proxyPresets.stoppedHint")}
+      {feedback && (
+        <Alert severity={feedback.severity} variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+          {feedback.message}
         </Alert>
+      )}
 
-        {feedback && (
-          <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
-            {feedback.message}
-          </Alert>
-        )}
-
-        {proxyStatus?.systemProxyRecoveryWarning ? (
-          <Alert severity="warning" variant="outlined" sx={compactAlertSx}>
-            {t("settingsPage.systemProxyRecoveryWarning", {
-              message: proxyStatus.systemProxyRecoveryWarning,
-            })}
-          </Alert>
-        ) : null}
-      </Stack>
+      {proxyStatus?.systemProxyRecoveryWarning ? (
+        <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+          {t("settingsPage.systemProxyRecoveryWarning", {
+            message: proxyStatus.systemProxyRecoveryWarning,
+          })}
+        </Alert>
+      ) : null}
     </SectionCard>
   );
 }
@@ -422,13 +461,31 @@ export function UpdatesSection() {
       title={t("settingsPage.updatesSectionTitle")}
       description={t("settingsPage.updatesDescription")}
     >
-      <Stack spacing={1.5}>
-        <Stack
-          direction={{ sm: "row", xs: "column" }}
-          spacing={1.5}
-          sx={{
-            alignItems: { sm: "center", xs: "stretch" },
-          }}
+      <SettingsGroup>
+        <SettingsFooter
+          hint={
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                sx={{ color: availableUpdate ? "text.primary" : "text.secondary" }}
+              >
+                {availableUpdate
+                  ? t("settingsPage.updatesAvailableDetail", {
+                      currentVersion: availableUpdate.currentVersion,
+                      version: availableUpdate.version,
+                    })
+                  : t("settingsPage.updatesIdle")}
+              </Typography>
+              {progressText ? (
+                <Typography
+                  variant="caption"
+                  sx={{ display: "block", color: "text.secondary", mt: 0.25 }}
+                >
+                  {progressText}
+                </Typography>
+              ) : null}
+            </Box>
+          }
         >
           <Button
             size="small"
@@ -443,50 +500,37 @@ export function UpdatesSection() {
               : t("settingsPage.updatesCheckAction")}
           </Button>
 
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<DownloadRoundedIcon />}
-            onClick={() => void handleInstall()}
-            disabled={!availableUpdate || isChecking || isInstalling}
-            sx={{ minHeight: 34, px: 1.75 }}
-          >
-            {isInstalling
-              ? t("settingsPage.updatesInstallingAction")
-              : t("settingsPage.updatesInstallAction")}
-          </Button>
-        </Stack>
+          {availableUpdate ? (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<DownloadRoundedIcon />}
+              onClick={() => void handleInstall()}
+              disabled={isChecking || isInstalling}
+              sx={{ minHeight: 34, px: 1.75 }}
+            >
+              {isInstalling
+                ? t("settingsPage.updatesInstallingAction")
+                : t("settingsPage.updatesInstallAction")}
+            </Button>
+          ) : null}
+        </SettingsFooter>
+      </SettingsGroup>
 
-        {availableUpdate ? (
-          <Alert severity="info" variant="outlined" sx={compactAlertSx}>
-            {t("settingsPage.updatesAvailableDetail", {
-              currentVersion: availableUpdate.currentVersion,
-              version: availableUpdate.version,
-            })}
-          </Alert>
-        ) : null}
-
-        {progressText ? (
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            {progressText}
-          </Typography>
-        ) : null}
-
-        <Snackbar
-          open={checkToast !== null}
-          autoHideDuration={3000}
+      <Snackbar
+        open={checkToast !== null}
+        autoHideDuration={3000}
+        onClose={() => setCheckToast(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity={checkToast?.severity ?? "success"}
+          variant="filled"
           onClose={() => setCheckToast(null)}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
-          <Alert
-            severity={checkToast?.severity ?? "success"}
-            variant="filled"
-            onClose={() => setCheckToast(null)}
-          >
-            {checkToast?.message}
-          </Alert>
-        </Snackbar>
-      </Stack>
+          {checkToast?.message}
+        </Alert>
+      </Snackbar>
     </SectionCard>
   );
 }
@@ -576,62 +620,53 @@ function AiModelSettingsSection() {
       title={t("settingsPage.aiSectionTitle")}
       description={t("settingsPage.aiSectionDescription")}
     >
-      <Stack spacing={1.5}>
-        <Box
-          sx={{
-            display: "grid",
-            gap: 1.5,
-            gridTemplateColumns: {
-              lg: "260px minmax(320px, 1fr) minmax(240px, 0.8fr)",
-              md: "minmax(240px, 0.8fr) minmax(280px, 1fr) minmax(220px, 0.8fr)",
-              xs: "1fr",
-            },
-          }}
-        >
-          <FormControl size="small" sx={compactFieldSx}>
-            <InputLabel>{t("settingsPage.aiProvider")}</InputLabel>
-            <Select
-              label={t("settingsPage.aiProvider")}
-              value={draft.provider}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  provider: event.target.value as SaveAiSettingsInput["provider"],
-                })
-              }
-            >
-              <MenuItem value="openai-compatible">OpenAI-compatible</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            label={t("settingsPage.aiBaseUrl")}
+      <SettingsGroup>
+        <SettingsRow label={t("settingsPage.aiProvider")}>
+          <Select
             size="small"
+            value={draft.provider}
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                provider: event.target.value as SaveAiSettingsInput["provider"],
+              })
+            }
+            inputProps={{ "aria-label": t("settingsPage.aiProvider") }}
+            sx={selectControlSx}
+          >
+            <MenuItem value="openai-compatible">OpenAI-compatible</MenuItem>
+          </Select>
+        </SettingsRow>
+
+        <SettingsRow label={t("settingsPage.aiBaseUrl")}>
+          <TextField
+            size="small"
+            hiddenLabel
             value={draft.baseUrl}
             error={baseUrlError}
             onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-            sx={compactFieldSx}
+            slotProps={{ htmlInput: { "aria-label": t("settingsPage.aiBaseUrl") } }}
+            sx={selectControlSx}
           />
+        </SettingsRow>
+
+        <SettingsRow label={t("settingsPage.aiModel")}>
           <TextField
-            label={t("settingsPage.aiModel")}
             size="small"
+            hiddenLabel
             value={draft.model}
             error={modelError}
             onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-            sx={compactFieldSx}
+            slotProps={{ htmlInput: { "aria-label": t("settingsPage.aiModel") } }}
+            sx={selectControlSx}
           />
-        </Box>
+        </SettingsRow>
 
-        <Box
-          sx={{
-            display: "grid",
-            gap: 1.5,
-            gridTemplateColumns: "1fr",
-          }}
-        >
+        <SettingsRow label={t("settingsPage.aiApiKey")}>
           <TextField
-            label={t("settingsPage.aiApiKey")}
-            placeholder={t("settingsPage.aiApiKeyPlaceholder")}
             size="small"
+            hiddenLabel
+            placeholder={t("settingsPage.aiApiKeyPlaceholder")}
             type={apiKeyDraftDirty ? "password" : "text"}
             value={apiKeyDraft}
             onFocus={() => {
@@ -648,31 +683,18 @@ function AiModelSettingsSection() {
               setApiKeyDraft(event.target.value);
               setApiKeyDraftDirty(true);
             }}
-            sx={compactFieldSx}
+            slotProps={{ htmlInput: { "aria-label": t("settingsPage.aiApiKey") } }}
+            sx={selectControlSx}
           />
-        </Box>
+        </SettingsRow>
 
-        <Stack
-          direction={{ sm: "row", xs: "column" }}
-          spacing={1}
-          sx={{
-            alignItems: { sm: "center", xs: "stretch" },
-          }}
-        >
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<SaveRoundedIcon />}
-            disabled={busy || modelError || baseUrlError}
-            onClick={() => handleSave(false)}
-          >
-            {saveMutation.isPending ? t("proxyPresets.saving") : t("proxyPresets.save")}
-          </Button>
+        <SettingsFooter>
           <Button
             size="small"
             variant="outlined"
             disabled={busy || !settings?.hasApiKey}
             onClick={() => handleSave(true)}
+            sx={{ minHeight: 34 }}
           >
             {t("settingsPage.aiClearKey")}
           </Button>
@@ -681,17 +703,28 @@ function AiModelSettingsSection() {
             variant="outlined"
             disabled={busy || !settings?.hasApiKey}
             onClick={() => testMutation.mutate()}
+            sx={{ minHeight: 34 }}
           >
             {testMutation.isPending ? t("settingsPage.aiTesting") : t("settingsPage.aiTest")}
           </Button>
-        </Stack>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<SaveRoundedIcon />}
+            disabled={busy || modelError || baseUrlError}
+            onClick={() => handleSave(false)}
+            sx={{ minHeight: 34, px: 1.75 }}
+          >
+            {saveMutation.isPending ? t("proxyPresets.saving") : t("proxyPresets.save")}
+          </Button>
+        </SettingsFooter>
+      </SettingsGroup>
 
-        {feedback ? (
-          <Alert severity={feedback.severity} variant="outlined" sx={compactAlertSx}>
-            {feedback.message}
-          </Alert>
-        ) : null}
-      </Stack>
+      {feedback ? (
+        <Alert severity={feedback.severity} variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+          {feedback.message}
+        </Alert>
+      ) : null}
     </SectionCard>
   );
 }
@@ -713,46 +746,19 @@ function AboutSection() {
       title={t("settingsPage.aboutSectionTitle")}
       description={t("settingsPage.aboutSectionDescription")}
     >
-      <Stack spacing={1.5}>
-        <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
-          {t("settingsPage.aboutUniqueIdentifier", {
-            identifier: versionIdentifier,
-          })}
-        </Alert>
-        <Box
-          sx={{
-            display: "grid",
-            gap: 1.5,
-            gridTemplateColumns: {
-              md: "repeat(4, minmax(160px, 1fr))",
-              xs: "1fr",
-            },
-          }}
-        >
-          <BuildInfoField label={t("settingsPage.aboutVersion")} value={version} />
-          <BuildInfoField label={t("settingsPage.aboutBuildNumber")} value={buildNumber} />
-          <BuildInfoField label={t("settingsPage.aboutCommitHash")} value={commitHash} />
-          <BuildInfoField
-            label={t("settingsPage.aboutVersionIdentifier")}
-            value={versionIdentifier}
-          />
-        </Box>
-      </Stack>
+      <SettingsGroup>
+        <BuildInfoRow label={t("settingsPage.aboutVersion")} value={version} />
+        <BuildInfoRow label={t("settingsPage.aboutBuildNumber")} value={buildNumber} />
+        <BuildInfoRow label={t("settingsPage.aboutCommitHash")} value={commitHash} />
+        <BuildInfoRow label={t("settingsPage.aboutVersionIdentifier")} value={versionIdentifier} />
+      </SettingsGroup>
     </SectionCard>
   );
 }
 
-function BuildInfoField({ label, value }: { label: string; value: string }) {
+function BuildInfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <Stack spacing={0.5}>
-      <Typography
-        variant="caption"
-        sx={{
-          color: "text.secondary",
-        }}
-      >
-        {label}
-      </Typography>
+    <SettingsRow label={label}>
       <Typography
         component="code"
         sx={{
@@ -761,14 +767,15 @@ function BuildInfoField({ label, value }: { label: string; value: string }) {
           fontFamily: "monospace",
           fontSize: 13,
           lineHeight: 1.6,
+          maxWidth: "100%",
           overflowWrap: "anywhere",
           px: 1,
-          py: 0.75,
+          py: 0.5,
         }}
       >
         {value}
       </Typography>
-    </Stack>
+    </SettingsRow>
   );
 }
 
@@ -815,7 +822,7 @@ export function SettingsPage() {
     custom: t("settingsPage.fontOptionCustom"),
   };
   return (
-    <Stack spacing={2} sx={{ maxWidth: 1180, mx: "auto", width: "100%" }}>
+    <Stack spacing={2} sx={{ maxWidth: 860, mx: "auto", width: "100%" }}>
       <Stack spacing={0.25}>
         <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
           {t("settingsPage.title")}
@@ -831,126 +838,116 @@ export function SettingsPage() {
       </Stack>
       <ProxySettingsSection />
       <AiModelSettingsSection />
-      <UpdatesSection />
-      <AboutSection />
-      <SectionCard compact title={t("settingsPage.languageSectionTitle")}>
-        <FormControl size="small" sx={{ ...compactFieldSx, width: { sm: 260, xs: "100%" } }}>
-          <InputLabel>{t("settingsPage.languageLabel")}</InputLabel>
-          <Select
-            label={t("settingsPage.languageLabel")}
-            value={preference}
-            onChange={(event) => setPreference(event.target.value as typeof preference)}
-          >
-            <MenuItem value="system">{t("settingsPage.languageOptionSystem")}</MenuItem>
-            <MenuItem value="zh-CN">{t("settingsPage.languageOptionZhCN")}</MenuItem>
-            <MenuItem value="en">{t("settingsPage.languageOptionEn")}</MenuItem>
-          </Select>
-        </FormControl>
-      </SectionCard>
-      <SectionCard compact title={t("settingsPage.themeSectionTitle")}>
-        <Stack spacing={1.5}>
-          <Box
-            sx={{
-              display: "grid",
-              gap: 1.5,
-              gridTemplateColumns: {
-                md: "repeat(4, minmax(160px, 1fr))",
-                sm: "repeat(2, minmax(180px, 1fr))",
-                xs: "1fr",
-              },
-              maxWidth: 980,
-            }}
-          >
-            <FormControl size="small" sx={compactFieldSx}>
-              <InputLabel>{t("settingsPage.themeLabel")}</InputLabel>
-              <Select
-                label={t("settingsPage.themeLabel")}
-                value={themePreference}
-                onChange={(event) =>
-                  setThemePreference(event.target.value as typeof themePreference)
-                }
-              >
-                <MenuItem value="system">{t("settingsPage.themeOptionSystem")}</MenuItem>
-                <MenuItem value="light">{t("settingsPage.themeOptionLight")}</MenuItem>
-                <MenuItem value="dark">{t("settingsPage.themeOptionDark")}</MenuItem>
-              </Select>
-            </FormControl>
+      <SectionCard compact title={t("settingsPage.generalSectionTitle")}>
+        <SettingsGroup>
+          <SettingsRow label={t("settingsPage.languageLabel")}>
+            <Select
+              size="small"
+              value={preference}
+              onChange={(event) => setPreference(event.target.value as typeof preference)}
+              inputProps={{ "aria-label": t("settingsPage.languageLabel") }}
+              sx={selectControlSx}
+            >
+              <MenuItem value="system">{t("settingsPage.languageOptionSystem")}</MenuItem>
+              <MenuItem value="zh-CN">{t("settingsPage.languageOptionZhCN")}</MenuItem>
+              <MenuItem value="en">{t("settingsPage.languageOptionEn")}</MenuItem>
+            </Select>
+          </SettingsRow>
 
-            <FormControl size="small" sx={compactFieldSx}>
-              <InputLabel>{t("settingsPage.fontLabel")}</InputLabel>
-              <Select
-                label={t("settingsPage.fontLabel")}
-                value={fontFamilyPreference}
-                onChange={(event) =>
-                  setFontFamilyPreference(event.target.value as AppFontPreference)
-                }
-              >
-                {appFontPreferences.map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {fontOptionLabels[option]}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+          <SettingsRow label={t("settingsPage.themeLabel")}>
+            <Select
+              size="small"
+              value={themePreference}
+              onChange={(event) => setThemePreference(event.target.value as typeof themePreference)}
+              inputProps={{ "aria-label": t("settingsPage.themeLabel") }}
+              sx={selectControlSx}
+            >
+              <MenuItem value="system">{t("settingsPage.themeOptionSystem")}</MenuItem>
+              <MenuItem value="light">{t("settingsPage.themeOptionLight")}</MenuItem>
+              <MenuItem value="dark">{t("settingsPage.themeOptionDark")}</MenuItem>
+            </Select>
+          </SettingsRow>
 
-            <FormControl size="small" sx={compactFieldSx}>
-              <InputLabel>{t("settingsPage.contentFontLabel")}</InputLabel>
-              <Select
-                label={t("settingsPage.contentFontLabel")}
-                value={contentFontPreference}
-                onChange={(event) =>
-                  setContentFontPreference(event.target.value as ContentFontPreference)
-                }
-              >
-                {contentFontPreferences.map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {contentFontOptionLabels[option]}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl size="small" sx={compactFieldSx}>
-              <InputLabel>{t("settingsPage.fontSizeLabel")}</InputLabel>
-              <Select
-                size="small"
-                label={t("settingsPage.fontSizeLabel")}
-                value={fontSizePreference}
-                onChange={(event) => setFontSizePreference(Number(event.target.value))}
-              >
-                {appFontSizeOptions.map((size) => (
-                  <MenuItem key={size} value={size}>
-                    {size}px
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
+          <SettingsRow label={t("settingsPage.fontLabel")}>
+            <Select
+              size="small"
+              value={fontFamilyPreference}
+              onChange={(event) => setFontFamilyPreference(event.target.value as AppFontPreference)}
+              inputProps={{ "aria-label": t("settingsPage.fontLabel") }}
+              sx={selectControlSx}
+            >
+              {appFontPreferences.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {fontOptionLabels[option]}
+                </MenuItem>
+              ))}
+            </Select>
+          </SettingsRow>
 
           {fontFamilyPreference === "custom" ? (
-            <TextField
-              fullWidth
-              label={t("settingsPage.customFontLabel")}
-              placeholder={t("settingsPage.customFontPlaceholder")}
-              size="small"
-              sx={{ ...compactFieldSx, maxWidth: 420 }}
-              value={uiCustomFontFamily}
-              onChange={(event) => setUiCustomFontFamily(event.target.value)}
-            />
+            <SettingsRow label={t("settingsPage.customFontLabel")}>
+              <TextField
+                size="small"
+                hiddenLabel
+                placeholder={t("settingsPage.customFontPlaceholder")}
+                value={uiCustomFontFamily}
+                onChange={(event) => setUiCustomFontFamily(event.target.value)}
+                slotProps={{ htmlInput: { "aria-label": t("settingsPage.customFontLabel") } }}
+                sx={selectControlSx}
+              />
+            </SettingsRow>
           ) : null}
 
-          {contentFontPreference === "custom" ? (
-            <TextField
-              fullWidth
-              label={t("settingsPage.customContentFontLabel")}
-              placeholder={t("settingsPage.customFontPlaceholder")}
+          <SettingsRow label={t("settingsPage.contentFontLabel")}>
+            <Select
               size="small"
-              sx={{ ...compactFieldSx, maxWidth: 420 }}
-              value={contentCustomFontFamily}
-              onChange={(event) => setContentCustomFontFamily(event.target.value)}
-            />
+              value={contentFontPreference}
+              onChange={(event) =>
+                setContentFontPreference(event.target.value as ContentFontPreference)
+              }
+              inputProps={{ "aria-label": t("settingsPage.contentFontLabel") }}
+              sx={selectControlSx}
+            >
+              {contentFontPreferences.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {contentFontOptionLabels[option]}
+                </MenuItem>
+              ))}
+            </Select>
+          </SettingsRow>
+
+          {contentFontPreference === "custom" ? (
+            <SettingsRow label={t("settingsPage.customContentFontLabel")}>
+              <TextField
+                size="small"
+                hiddenLabel
+                placeholder={t("settingsPage.customFontPlaceholder")}
+                value={contentCustomFontFamily}
+                onChange={(event) => setContentCustomFontFamily(event.target.value)}
+                slotProps={{
+                  htmlInput: { "aria-label": t("settingsPage.customContentFontLabel") },
+                }}
+                sx={selectControlSx}
+              />
+            </SettingsRow>
           ) : null}
-        </Stack>
+
+          <SettingsRow label={t("settingsPage.fontSizeLabel")}>
+            <Select
+              size="small"
+              value={fontSizePreference}
+              onChange={(event) => setFontSizePreference(Number(event.target.value))}
+              inputProps={{ "aria-label": t("settingsPage.fontSizeLabel") }}
+              sx={{ ...selectControlSx, width: { sm: 140, xs: "100%" } }}
+            >
+              {appFontSizeOptions.map((size) => (
+                <MenuItem key={size} value={size}>
+                  {size}px
+                </MenuItem>
+              ))}
+            </Select>
+          </SettingsRow>
+        </SettingsGroup>
       </SectionCard>
       <SectionCard
         compact
@@ -959,27 +956,21 @@ export function SettingsPage() {
       >
         {/* Re-enables the confirmation dialog after the user ticked "don't ask
             again" in the Clear All Sessions dialog. See UI_GUIDELINES §11.4. */}
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 2,
-          }}
-        >
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="body2">{t("settingsPage.clearSessionsConfirmLabel")}</Typography>
-            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
-              {t("settingsPage.clearSessionsConfirmDescription")}
-            </Typography>
-          </Box>
-          <Switch
-            size="small"
-            checked={!skipClearSessionsConfirm}
-            onChange={(event) => setSkipClearSessionsConfirm(!event.target.checked)}
-          />
-        </Box>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settingsPage.clearSessionsConfirmLabel")}
+            description={t("settingsPage.clearSessionsConfirmDescription")}
+          >
+            <Switch
+              size="small"
+              checked={!skipClearSessionsConfirm}
+              onChange={(event) => setSkipClearSessionsConfirm(!event.target.checked)}
+            />
+          </SettingsRow>
+        </SettingsGroup>
       </SectionCard>
+      <UpdatesSection />
+      <AboutSection />
     </Stack>
   );
 }
