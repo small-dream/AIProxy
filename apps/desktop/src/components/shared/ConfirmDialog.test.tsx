@@ -69,4 +69,37 @@ describe("ConfirmDialog", () => {
     expect(confirm).toBeDisabled();
     expect(cancel).toBeDisabled();
   });
+
+  it("omits the don't-ask-again checkbox by default", () => {
+    renderDialog();
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("renders the opt-out checkbox and reports toggles when a label is given", () => {
+    const onDontAskAgainChange = vi.fn();
+    renderDialog({
+      dontAskAgainLabel: "Clear sessions without asking again",
+      dontAskAgainChecked: false,
+      onDontAskAgainChange,
+    });
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Clear sessions without asking again",
+    }) as HTMLInputElement;
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(checkbox);
+    expect(onDontAskAgainChange).toHaveBeenCalledTimes(1);
+    expect(onDontAskAgainChange).toHaveBeenCalledWith(true);
+  });
+
+  it("disables the opt-out checkbox while confirming", () => {
+    renderDialog({
+      dontAskAgainLabel: "Clear sessions without asking again",
+      isConfirming: true,
+    });
+
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
 });

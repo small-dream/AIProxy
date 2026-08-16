@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SetupChecklistCard } from "@/components/shared/SetupChecklistCard";
@@ -68,8 +69,12 @@ export function SessionsPage() {
   const { setHeaderActions } = useOutletContext<AppShellOutletContext>();
   const loadFromSession = useComposeEditorStore((s) => s.loadFromSession);
   const { mutate: clearSessions, isPending: isClearingSessions } = useClearSessions();
-  // Destructive: clearing the active container requires confirmation.
+  // Destructive: clearing the active container requires confirmation unless the
+  // user opted out via the dialog checkbox (re-enablable in Settings).
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearDontAskAgain, setClearDontAskAgain] = useState(false);
+  const skipClearSessionsConfirm = useAppPreferencesStore((s) => s.skipClearSessionsConfirm);
+  const setSkipClearSessionsConfirm = useAppPreferencesStore((s) => s.setSkipClearSessionsConfirm);
   const { error, isLoading } = useProxyStatus();
   const {
     data: runtimeSessions = [],
@@ -516,6 +521,16 @@ export function SessionsPage() {
     t,
   ]);
 
+  // Honor the persisted "don't ask again" opt-out from the clear dialog.
+  const requestClearActiveContainer = useCallback(() => {
+    if (skipClearSessionsConfirm) {
+      handleClearActiveContainer();
+      return;
+    }
+    setClearDontAskAgain(false);
+    setClearConfirmOpen(true);
+  }, [skipClearSessionsConfirm, handleClearActiveContainer]);
+
   const headerActions = useMemo(
     () => (
       <Stack
@@ -536,7 +551,7 @@ export function SessionsPage() {
           }
         />
         <TopBarActionButton
-          onClick={() => setClearConfirmOpen(true)}
+          onClick={requestClearActiveContainer}
           disabled={activeSessions.length === 0 || isClearingSessions}
           icon={<DeleteSweepRoundedIcon />}
           label={t("sessionsPage.containers.clearCurrent")}
@@ -553,6 +568,7 @@ export function SessionsPage() {
       activeSessions.length,
       handleOpenExportDialog,
       isClearingSessions,
+      requestClearActiveContainer,
       setShowOnlyThrottled,
       showOnlyThrottled,
       t,
@@ -800,7 +816,13 @@ export function SessionsPage() {
         title={t("sessionsPage.clearSessionsTitle")}
         message={t("sessionsPage.clearSessionsConfirm")}
         confirmLabel={t("common.actions.clearSessions")}
+        dontAskAgainLabel={t("sessionsPage.clearSessionsDontAskAgain")}
+        dontAskAgainChecked={clearDontAskAgain}
+        onDontAskAgainChange={setClearDontAskAgain}
         onConfirm={() => {
+          if (clearDontAskAgain) {
+            setSkipClearSessionsConfirm(true);
+          }
           setClearConfirmOpen(false);
           handleClearActiveContainer();
         }}

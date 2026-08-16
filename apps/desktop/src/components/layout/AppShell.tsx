@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
@@ -55,6 +56,9 @@ export function AppShell() {
 
   // --- Clear-all-sessions confirmation (menu entry) ---
   const [clearSessionsConfirmOpen, setClearSessionsConfirmOpen] = useState(false);
+  const [clearSessionsDontAskAgain, setClearSessionsDontAskAgain] = useState(false);
+  const skipClearSessionsConfirm = useAppPreferencesStore((s) => s.skipClearSessionsConfirm);
+  const setSkipClearSessionsConfirm = useAppPreferencesStore((s) => s.setSkipClearSessionsConfirm);
   const clearSessionsMutation = useClearSessions();
 
   function handleConfirmClearAllSessions() {
@@ -63,6 +67,17 @@ export function AppShell() {
       onError: (error) =>
         setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.generic"))),
     });
+  }
+
+  // Session data is re-capturable, so users may opt out of the confirm dialog
+  // (persisted preference, re-enablable in Settings). See UI_GUIDELINES §11.4.
+  function requestClearAllSessions() {
+    if (skipClearSessionsConfirm) {
+      handleConfirmClearAllSessions();
+      return;
+    }
+    setClearSessionsDontAskAgain(false);
+    setClearSessionsConfirmOpen(true);
   }
 
   // --- Global notification queue (fed by reportCommandFailure etc.) ---
@@ -121,7 +136,7 @@ export function AppShell() {
     handleAdbClearProxy,
     runWindowCommand,
     onSnackbarMessage: setMenuSnackbarMessage,
-    onRequestClearAllSessions: () => setClearSessionsConfirmOpen(true),
+    onRequestClearAllSessions: requestClearAllSessions,
   });
 
   // --- Zoom control ---
@@ -291,7 +306,13 @@ export function AppShell() {
         title={t("sessionsPage.clearSessionsTitle")}
         message={t("sessionsPage.clearSessionsConfirm")}
         confirmLabel={t("common.actions.clearSessions")}
+        dontAskAgainLabel={t("sessionsPage.clearSessionsDontAskAgain")}
+        dontAskAgainChecked={clearSessionsDontAskAgain}
+        onDontAskAgainChange={setClearSessionsDontAskAgain}
         onConfirm={() => {
+          if (clearSessionsDontAskAgain) {
+            setSkipClearSessionsConfirm(true);
+          }
           setClearSessionsConfirmOpen(false);
           handleConfirmClearAllSessions();
         }}

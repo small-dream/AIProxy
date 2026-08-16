@@ -208,6 +208,12 @@ export const enMessages = {
     aiTest: "Test Connection",
     aiTesting: "Testing...",
     aiTimeout: "Timeout (ms)",
+    clearSessionsConfirmLabel: "Ask before clearing all sessions",
+    clearSessionsConfirmDescription:
+      "When off, Clear All Sessions from the menu or the Sessions toolbar takes effect immediately.",
+    confirmSectionTitle: "Dangerous Action Confirmations",
+    confirmSectionDescription:
+      "Control which destructive actions ask for confirmation before running.",
     systemProxyRecoveryWarning:
       "AIProxy found a pending system proxy recovery snapshot but could not restore it automatically: {{message}}",
     themeLabel: "Appearance Theme",
@@ -906,6 +912,7 @@ export const enMessages = {
     },
     clearSessionsConfirm:
       "This permanently deletes every captured session. This action cannot be undone.",
+    clearSessionsDontAskAgain: "Clear sessions without asking again",
     clearSessionsDone: "All sessions cleared",
     clearSessionsTitle: "Clear All Sessions",
     description:

@@ -422,7 +422,7 @@ Sessions Page
   - 跳转：`Breakpoints...`、`Map Rules...`
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
-- `Focus` 与 `Ignore` 属于当前页面的临时视图状态，不应默认持久化
+- `Focus` 与 `Ignore` 属于视图状态，但**持久化到 localStorage**（`aiproxy.sessions.focusedHosts` / `ignoredHosts`）：高频抓包的固定 domain 不应每次重新设置；持久化 + 数据滤除意味着取消入口必须在被过滤数据之外（见下条 chips）
 - 生效中的 `Focus` / `Ignore` / `Throttled` 过滤必须在会话列表上方以**可移除 chips** 呈现(`SessionFilterChips`):每个 focused/ignored host 一枚 chip(点 × 移除),throttled 过滤一枚总开关 chip;被 ignore 的 host 已从数据中滤除,右键菜单不可达,chips 行是其唯一可靠的取消入口;无过滤时不渲染该行。
 - `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `Rules Page`，后续可升级为深链到具体 tab
 
@@ -869,6 +869,7 @@ Settings Page
 - 错误：`Snackbar + 详细错误入口`
 - 长任务：状态栏 + 进度提示
 - 危险操作：`Dialog Confirm` — 统一使用 `components/shared/ConfirmDialog.tsx`(受控 props;确认键 `color="error" variant="contained"`;`isConfirming` 接 mutation pending)。所有删除规则/断点/限速规则/集合/请求条目与 Clear All Sessions 入口(菜单 + Sessions 页按钮)必须先经确认;清空成功后给 `Snackbar` 反馈。
+- 「不再确认」opt-out 例外：仅允许用于可再生数据的清空操作。当前唯一入口是 Clear All Sessions(会话可重新捕获)：确认框内提供 checkbox「不再确认清空会话」，勾选并确认后持久化到 `aiproxy.app-preferences` 的 `skipClearSessionsConfirm`(默认 false)，对菜单与 Sessions 页两个入口同时生效；Settings 页「危险操作确认」区提供可见开关恢复确认。不可恢复的删除(集合子树、规则、环境组等)一律禁止提供该选项——能被永久关闭的防线不是防线。
 
 ## 12. 状态设计
 

@@ -197,7 +197,9 @@ Sessions polling returns captured sessions
 -> user toggles request panel collapse
 -> requestCollapsed persists to localStorage
 -> user clicks "Clear Session" (header) or menu "Clear All Sessions"
--> ConfirmDialog requires explicit confirmation
+-> ConfirmDialog requires explicit confirmation (unless skipClearSessionsConfirm preference is on,
+   in which case clearing fires immediately; opt-out is only offered in this dialog and can be
+   re-enabled in Settings)
 -> clear_sessions mutation succeeds -> sessions cache cleared + Snackbar
 ```
 
@@ -813,6 +815,10 @@ type CertificatesPageState = {
 │ [Appearance]                                                                │
 │ Appearance Theme: [Follow System v]                                         │
 │ Info Hint                                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Dangerous Action Confirmations]                                            │
+│ Ask before clearing all sessions                    [========○]             │
+│ Info Hint                                                                   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -834,6 +840,9 @@ SettingsPage
 │  ├─ Description
 │  ├─ ThemePreferenceSelect
 │  └─ EffectiveThemeAlert
+├─ SectionCard "Dangerous Action Confirmations"
+│  ├─ Description
+│  └─ ClearSessionsConfirmSwitch (bound to !skipClearSessionsConfirm)
 ```
 
 ### 8.4 页面状态模型
@@ -848,6 +857,7 @@ type SettingsPageState = {
   preferences: {
     languagePreference: "system" | "zh-CN" | "en";
     themePreference: "system" | "light" | "dark";
+    skipClearSessionsConfirm: boolean; // "don't ask again" from the Clear All Sessions dialog
   };
   derived: {
     resolvedLocale: "zh-CN" | "en";

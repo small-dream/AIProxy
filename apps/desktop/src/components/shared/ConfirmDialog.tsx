@@ -1,9 +1,11 @@
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   Typography,
 } from "@mui/material";
 
@@ -23,6 +25,14 @@ type ConfirmDialogProps = {
   cancelLabel?: string;
   /** Drives the confirm button's pending state (e.g. mutation.isPending). */
   isConfirming?: boolean;
+  /**
+   * Optional "don't ask again" opt-out. Only provide for re-capturable data
+   * (e.g. Clear All Sessions); irreversible deletes must never offer it.
+   * See UI_GUIDELINES §11.4.
+   */
+  dontAskAgainLabel?: string;
+  dontAskAgainChecked?: boolean;
+  onDontAskAgainChange?: (checked: boolean) => void;
 };
 
 /**
@@ -33,10 +43,13 @@ type ConfirmDialogProps = {
 export function ConfirmDialog({
   cancelLabel,
   confirmLabel,
+  dontAskAgainChecked = false,
+  dontAskAgainLabel,
   isConfirming = false,
   message,
   onCancel,
   onConfirm,
+  onDontAskAgainChange,
   open,
   title,
 }: ConfirmDialogProps) {
@@ -49,6 +62,24 @@ export function ConfirmDialog({
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {message}
         </Typography>
+        {dontAskAgainLabel ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={dontAskAgainChecked}
+                disabled={isConfirming}
+                onChange={(event) => onDontAskAgainChange?.(event.target.checked)}
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {dontAskAgainLabel}
+              </Typography>
+            }
+            sx={{ mt: 1.5 }}
+          />
+        ) : null}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button disabled={isConfirming} onClick={onCancel}>

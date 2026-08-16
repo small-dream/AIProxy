@@ -774,6 +774,12 @@ function BuildInfoField({ label, value }: { label: string; value: string }) {
 
 export function SettingsPage() {
   const { preference, setPreference, t } = useI18n();
+  const skipClearSessionsConfirm = useAppPreferencesStore(
+    (state) => state.skipClearSessionsConfirm,
+  );
+  const setSkipClearSessionsConfirm = useAppPreferencesStore(
+    (state) => state.setSkipClearSessionsConfirm,
+  );
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
   const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
   const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
@@ -945,6 +951,34 @@ export function SettingsPage() {
             />
           ) : null}
         </Stack>
+      </SectionCard>
+      <SectionCard
+        compact
+        title={t("settingsPage.confirmSectionTitle")}
+        description={t("settingsPage.confirmSectionDescription")}
+      >
+        {/* Re-enables the confirmation dialog after the user ticked "don't ask
+            again" in the Clear All Sessions dialog. See UI_GUIDELINES §11.4. */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 2,
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body2">{t("settingsPage.clearSessionsConfirmLabel")}</Typography>
+            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+              {t("settingsPage.clearSessionsConfirmDescription")}
+            </Typography>
+          </Box>
+          <Switch
+            size="small"
+            checked={!skipClearSessionsConfirm}
+            onChange={(event) => setSkipClearSessionsConfirm(!event.target.checked)}
+          />
+        </Box>
       </SectionCard>
     </Stack>
   );

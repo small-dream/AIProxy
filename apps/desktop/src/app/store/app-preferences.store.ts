@@ -20,6 +20,9 @@ type AppPreferencesState = {
   uiCustomFontFamily: string;
   languagePreference: LanguagePreference;
   themePreference: ThemePreference;
+  // Dangerous-action confirm opt-out. Only Clear All Sessions may skip its
+  // confirm dialog (sessions are re-capturable data). See UI_GUIDELINES §11.4.
+  skipClearSessionsConfirm: boolean;
   // First-run setup wizard state. See features/certificate-center/setup-progress.helpers.ts
   // for the derived state machine; these three values are the only persisted bits.
   setupWizardCompleted: boolean;
@@ -30,6 +33,7 @@ type AppPreferencesState = {
   setFontFamilyPreference: (preference: AppFontPreference) => void;
   setFontSizePreference: (fontSize: number) => void;
   setLanguagePreference: (preference: LanguagePreference) => void;
+  setSkipClearSessionsConfirm: (skip: boolean) => void;
   setThemePreference: (preference: ThemePreference) => void;
   setUiCustomFontFamily: (fontFamily: string) => void;
   markSetupWizardCompleted: () => void;
@@ -71,6 +75,7 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       fontSizePreference: defaultAppFontSize,
       languagePreference: "system",
       themePreference: "system",
+      skipClearSessionsConfirm: false,
       setupWizardCompleted: false,
       setupWizardDismissedAt: undefined,
       manualProxyAcknowledgedFor: undefined,
@@ -81,6 +86,7 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       setFontSizePreference: (fontSizePreference) =>
         set({ fontSizePreference: clampAppFontSize(fontSizePreference) }),
       setLanguagePreference: (languagePreference) => set({ languagePreference }),
+      setSkipClearSessionsConfirm: (skipClearSessionsConfirm) => set({ skipClearSessionsConfirm }),
       setThemePreference: (themePreference) => set({ themePreference }),
       setUiCustomFontFamily: (uiCustomFontFamily) => set({ uiCustomFontFamily }),
       markSetupWizardCompleted: () => set({ setupWizardCompleted: true }),
