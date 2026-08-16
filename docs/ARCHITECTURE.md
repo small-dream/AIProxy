@@ -405,7 +405,7 @@ TLS 证书缓存机制：
 - `list_throttle_profiles` / `save_throttle_profile` / `set_active_throttle_profile` — `已实现`，管理全局弱网 Profile
 - `list_throttle_rules` / `save_throttle_rule` / `delete_throttle_rule` — `已实现`，管理定向弱网规则
 - `list_throttle_session_trace` / `list_throttled_session_ids` / `get_throttle_runtime_stats` — `已实现`，提供弱网可解释性与运行统计
-- `save_text_file` / `read_har_file` — `已实现`，当前导出由前端生成内容后写入下载目录，HAR 导入通过本地文件读取
+- `save_text_file` / `pick_and_read_har_file` — `已实现`，当前导出由前端生成内容后写入下载目录，HAR 导入由后端拉起文件选择器并读取（前端不接触原始路径）
 - `get_certificate_status`
 - `open_certificate_install_guide`
 - `launch_certificate_installer`
@@ -474,7 +474,7 @@ sequenceDiagram
     participant DB as SQLite
 
     U->>UI: 打开 Insights 页面
-    UI->>T: get_insights({ workspaceId })
+    UI->>T: get_insights({ sessionIds, excludedHosts?, hostExact?, hostKeyword? })
     T->>S: compute_insights()
     S->>DB: 聚合查询（host / status / method / duration）
     DB-->>S: 查询结果
@@ -509,7 +509,7 @@ erDiagram
 - `proxy_port`
 - `ssl_enabled`
 - `http2_enabled`（控制 HTTP/2 上游连接是否启用）
-- `system_proxy_enabled`（预留，当前不可通过 API 修改）
+- `system_proxy_enabled`（由 `enable_system_proxy` / `disable_system_proxy` 持久化，见 `docs/SYSTEM_PROXY.md`）
 - `storage_path`（预留，当前始终为空字符串）
 - `created_at`
 - `updated_at`
@@ -757,6 +757,7 @@ erDiagram
 - `CertificatesPage`
 - `SettingsPage`（含 Proxy Presets section）
 - `InsightsPage`（流量统计分析）
+- `DocsPage`（内置用户指南，路由 `/docs`，蓝图见 `docs/PAGE_BLUEPRINTS.md` 第 14 节）
 
 ### 页面蓝图协同规则
 
@@ -842,14 +843,17 @@ project-root/
 │     │  │  │  ├─ workspaces.ts
 │     │  │  │  ├─ sessions.ts
 │     │  │  │  ├─ compose.ts
-│     │  │  │  ├─ insights.ts
 │     │  │  │  ├─ rules.ts
 │     │  │  │  ├─ throttling.ts
 │     │  │  │  ├─ certificates.ts
 │     │  │  │  ├─ collections.ts
 │     │  │  │  ├─ environments.ts
 │     │  │  │  ├─ files.ts
-│     │  │  │  └─ ws.ts
+│     │  │  │  ├─ ws.ts
+│     │  │  │  ├─ ai.ts
+│     │  │  │  ├─ app.ts
+│     │  │  │  ├─ menu.ts
+│     │  │  │  └─ port-manager.ts
 │     │  │  └─ events/
 │     │  ├─ lib/
 │     │  ├─ types/
@@ -864,20 +868,23 @@ project-root/
 │        │  │  ├─ workspaces.rs
 │        │  │  ├─ sessions.rs
 │        │  │  ├─ compose.rs
-│        │  │  ├─ insights.rs
 │        │  │  ├─ rules.rs
 │        │  │  ├─ throttling.rs
 │        │  │  ├─ certificates.rs
 │        │  │  ├─ collections.rs
 │        │  │  ├─ environments.rs
 │        │  │  ├─ files.rs
-│        │  │  └─ ws.rs
+│        │  │  ├─ ws.rs
+│        │  │  ├─ ai.rs
+│        │  │  ├─ app.rs
+│        │  │  ├─ menu.rs
+│        │  │  └─ port_manager.rs
 │        │  ├─ system_proxy/
 │        │  │  ├─ mod.rs
 │        │  │  ├─ windows.rs
 │        │  │  ├─ macos.rs
 │        │  │  ├─ linux.rs
-│        │  │  └─ unsupported.rs (legacy, no longer compiled)
+│        │  │  └─ unsupported.rs (非三大平台时的条件编译回退实现)
 │        │  ├─ bootstrap/
 │        │  │  ├─ mod.rs
 │        │  │  ├─ repository.rs
@@ -900,13 +907,14 @@ project-root/
 │  │     ├─ workspaces.ts
 │  │     ├─ sessions.ts
 │  │     ├─ compose.ts
-│  │     ├─ insights.ts
 │  │     ├─ rules.ts
 │  │     ├─ throttling.ts
 │  │     ├─ certificates.ts
 │  │     ├─ collections.ts
 │  │     ├─ environments.ts
-│  │     └─ ws.ts
+│  │     ├─ ws.ts
+│  │     ├─ ai.ts
+│  │     └─ app.ts
 │  ├─ ui-tokens/
 │  ├─ eslint-config/
 │  └─ tsconfig/
@@ -948,7 +956,7 @@ project-root/
 
 ### 命令处理三层同构原则
 
-为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`ai / certificates / collections / compose / environments / files / insights / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
+为约束单文件复杂度并方便 AI 在三端定位同一业务域，命令处理统一按业务域（`ai / app / certificates / collections / compose / environments / files / menu / port_manager / proxy / rules / sessions / throttling / workspaces / ws`）在以下三层做一一对应的水平拆分：
 
 - Rust 命令层：`apps/desktop/src-tauri/src/commands/<domain>.rs`，`mod.rs` 仅做 `mod` 声明与 `pub use` 汇聚，不写业务实现
 - 前端命令客户端：`apps/desktop/src/services/commands/<domain>.ts`，`index.ts` 仅做 barrel re-export，`runtime.ts` 承载 `invokeCommand` 等基础设施
@@ -1078,13 +1086,11 @@ project-root/
 
 ## 17. 后续文档建议
 
-建议下一步补充以下文档：
+以下文档均已补充完成，作为对应领域的事实源：
 
-- `docs/API_SPEC.md`
-- `docs/UI_GUIDELINES.md`
-- `docs/DECISIONS/ADR-001-tauri-rust.md`
-- `docs/DECISIONS/ADR-002-session-storage.md`
-- `docs/DECISIONS/ADR-003-rule-engine.md`
+- `docs/API_SPEC.md` — Tauri 命令、事件与数据模型契约
+- `docs/UI_GUIDELINES.md` — UI 规范与交互规则
+- `docs/DECISIONS/` — 架构决策记录（ADR-001 ~ ADR-005，清单见 `docs/DECISIONS/README.md`）
 
 ## Runtime Safety Constraints
 

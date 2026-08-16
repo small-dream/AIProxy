@@ -173,7 +173,7 @@ Query Rewrite 只在请求发往上游前生效。
 原 Body：
 
 ```json
-{"user":{"name":"Jake"},"debug":true}
+{"user":{"name":"Alice"},"debug":true}
 ```
 
 改写后：

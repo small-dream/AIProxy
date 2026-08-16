@@ -4,6 +4,7 @@
 - 评审视角：产品与真实用户（开发者日常使用高频路径）
 - 评审方式：产品文档（PRD / UI_GUIDELINES / PAGE_BLUEPRINTS / ROADMAP / ARCHITECTURE）+ 前端源码全量走查（`apps/desktop/src`）+ 关键后端链路抽查（`crates`、`apps/desktop/src-tauri`）+ 界面截图
 - 路径约定：前端代码均相对 `apps/desktop/src/`；Rust 代码相对仓库根（`crates/…`、`apps/desktop/src-tauri/…`）
+- **状态（2026-08-16 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；下文 P0 描述保留评审时快照，仅作背景。P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
 
 ---
 

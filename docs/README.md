@@ -14,6 +14,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture — layers, module boundaries, responsibilities |
 | [API_SPEC.md](./API_SPEC.md) | Tauri commands, events, and data model contracts |
 | [NEXT_6_MONTH_ROADMAP.md](./NEXT_6_MONTH_ROADMAP.md) | Planned features and project direction |
+| [UI_UX_REVIEW_2026-08-16.md](./UI_UX_REVIEW_2026-08-16.md) | UI/UX review snapshot — P0 fixed, P1/P2 backlog pending |
 
 ### UI & Design
 

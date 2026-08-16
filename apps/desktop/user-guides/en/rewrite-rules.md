@@ -173,7 +173,7 @@ Fields-mode example — modifying a JSON response:
 Original body:
 
 ```json
-{"user":{"name":"Jake"},"debug":true}
+{"user":{"name":"Alice"},"debug":true}
 ```
 
 After rewrite:

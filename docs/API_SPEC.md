@@ -483,7 +483,7 @@ type DnsMappingRule = {
   note?: string;
   enabled: boolean;
   priority: number;
-  hostPattern: string;  // "*.example.com"
+  hostPattern: string;  // 子串匹配（非通配符），如 "example.com"
   targetIp: string;     // "192.168.1.100"
 };
 ```
@@ -862,6 +862,8 @@ type SaveMediaFileOutput = string; // 保存的文件路径
 - 用于媒体预览区的「另存为...」功能，将 base64 编码的媒体内容解码后写入用户通过文件对话框选择的路径
 - 前端通过 Tauri `dialog.save()` 获取目标路径，再调用此命令写入文件
 
+### `clear_sessions`
+
 请求：
 
 ```ts
@@ -873,6 +875,10 @@ type ClearSessionsInput = Record<string, never>;
 ```ts
 type ClearSessionsOutput = void;
 ```
+
+说明：
+
+- 清空当前 workspace 的全部会话（含持久化数据），UI 侧需先做危险操作确认
 
 ### `delete_sessions_except`
 
@@ -1277,7 +1283,7 @@ type DeleteRuleInput = {
 type DeleteRuleOutput = void;
 ```
 
-## 6.6 Breakpoint Runtime Commands — `已实现`
+## 6.7 Breakpoint Runtime Commands — `已实现`
 
 ### `resolve_breakpoint` — `已实现`
 
@@ -1334,7 +1340,7 @@ type ResumeBreakpointOutput = {
 };
 ```
 
-## 6.7 Throttling Commands
+## 6.8 Throttling Commands
 
 > Throttling 在当前产品中指弱网 / 链路模拟，不是 API QPS、Quota 或 429 限流。
 
@@ -1481,7 +1487,7 @@ type ListThrottledSessionIdsInput = {
 type ListThrottledSessionIdsOutput = string[];
 ```
 
-## 6.8 Certificate Commands
+## 6.9 Certificate Commands
 
 ### `get_certificate_status`
 
@@ -1756,7 +1762,7 @@ type InstallHarmonyCertificateViaHdcOutput = {
 - HarmonyOS NEXT **没有**等价于 `adb shell settings put global http_proxy` 的全局代理命令，系统代理需用户在 Wi-Fi 设置中手动配置
 - 该能力仅推送证书并尝试打开证书管理器，**不会绕过** HarmonyOS 的手动确认步骤：用户需进入「设置 → 安全与隐私 → 加密与凭据 → 从存储设备安装」，在文件选择器中进入「下载」目录选中推送的证书完成安装
 
-## 6.9 代理内建 HTTP 端点
+## 6.10 代理内建 HTTP 端点
 
 代理核心在启动时同时监听来自局域网的直连请求，提供以下内建 HTTP 端点：
 
@@ -1772,7 +1778,7 @@ type InstallHarmonyCertificateViaHdcOutput = {
 
 同 `/aiproxy-ca.crt`，为 PEM 格式证书提供备用路径。
 
-## 6.10 File Import / Export Commands
+## 6.11 File Import / Export Commands
 
 当前没有注册 `export_sessions` 后端命令。Sessions 导出由前端 `session-export.helpers.ts` 生成 Session Snapshot / HAR / cURL 文本，再通过 `save_text_file` 写入用户 Downloads 目录。
 
@@ -1794,28 +1800,32 @@ type SaveTextFileInput = {
 type SaveTextFileOutput = string; // 写入后的本地路径
 ```
 
-### `read_har_file`
+### `pick_and_read_har_file`
 
 请求：
 
 ```ts
-type ReadHarFileInput = {
-  path: string;
+type PickHarFileInput = {
+  title: string; // 本地化后的文件选择器标题
 };
 ```
 
 响应：
 
 ```ts
-type ReadHarFileOutput = string; // HAR 文件内容
+type HarFileOutput = {
+  fileName: string;  // 所选文件名（用于展示）
+  contents: string;  // HAR 文件内容
+} | null;            // 用户取消选择时返回 null
 ```
 
 约束：
 
+- 文件选择器由后端拉起，前端只传标题、不接触原始路径（与 `pick_and_read_script_file` 同一安全模型）
 - 仅接受 `.har` 扩展名
 - 读取后由前端解析并导入为本地会话快照
 
-## 6.11 Menu Locale Command
+## 6.12 Menu Locale Command
 
 ### set_menu_locale
 
@@ -2019,7 +2029,7 @@ type MenuEvent = unknown;
 - 增加插件注册与生命周期 API
 - 增加分析面板聚合查询 API
 
-## 15. Insights Commands — `已实现`
+## 11. Insights Commands — `已实现`
 
 这些命令由 `Insights` 页面调用，基于 SQLite 聚合查询提供流量统计分析。
 
@@ -2101,7 +2111,7 @@ type GetInsightsOutput = InsightsResult;
 - `largestRequests` 按响应字节数降序返回最大的请求；上限规则同 `slowRequests`；字节数并列时的次级键同 `slowRequests`
 - `InsightsResult` 包含全局统计：`totalErrors`、`avgDurationMs`、分位数 `p50` / `p95` / `p99`
 
-## 10.1 Script Rule Commands
+## 12. Script Rule Commands
 
 - `list_script_rules({ workspaceId }) -> ScriptRule[]`
 - `save_script_rule({ input: ScriptRule }) -> ScriptRule`
@@ -2116,7 +2126,7 @@ type GetInsightsOutput = InsightsResult;
 - QuickJS heap 限制为 **16MB** 每次脚本执行，超出此限制的脚本将以 `RuntimeError` 结果失败
 - 沙箱使用 QuickJS 默认分配器（rquickjs 未启用 `allocator` feature），以确保可靠的内存追踪
 
-## 11. API Collection Commands — 已实现
+## 13. API Collection Commands — 已实现
 
 这些命令由 `Collections` 页面调用，支持保存、分组、编辑和发送 HTTP 请求集合。
 
@@ -2172,7 +2182,7 @@ type ApiCollectionItem = {
 
 - `batch_execute_collection_items({ itemIds, environmentId? }) -> SessionDetail[]` — 顺序执行，自动替换环境变量
 
-## 12. Environment Commands — 已实现
+## 14. Environment Commands — 已实现
 
 这些命令支持多环境管理和变量替换。环境变量与全局变量均支持 `{{key}}` 语法，在请求发送时自动替换 URL、Headers、Body、FormData 和 URL-encoded 值。
 
@@ -2225,7 +2235,7 @@ type ApiGlobalVariable = {
 
 变量解析优先级：环境变量 > 全局变量。未匹配的 `{{key}}` 保持原样，不报错。
 
-## 13. AI Compare Commands — 已实现发布硬化版
+## 15. AI Compare Commands — 已实现发布硬化版
 
 这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。当前仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。Compare 页面生成的 diff payload 默认脱敏，并带有 Body lazy diff、截断和 binary 状态元数据。
 
@@ -2300,7 +2310,7 @@ type SessionDiffSection = {
 - 后端对序列化后的 payload 有大小上限；超过上限时返回 `AI_PAYLOAD_TOO_LARGE`，用户可关闭 Body context 或选择更小的 sessions。
 - `language` 当前为 `en | zh-CN`，用于约束模型输出语言。
 
-## 14. 实现建议
+## 16. 实现建议
 
 - 所有接口 DTO 维护在 `packages/shared-types/`，按业务域拆分文件，`index.ts` 仅做 barrel re-export
 - 用 Zod 或等价 schema 在前端做运行时校验

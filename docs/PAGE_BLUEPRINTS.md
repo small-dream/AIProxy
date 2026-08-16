@@ -333,11 +333,15 @@ UI 布局：
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: Compose                                          (Send) (Export cURL) │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ [Request Builder]                                  │ [Response Preview]       │
-│ <GET▼> [https://example.com/api..............]    │ Status • Duration • Size │
-│ [Headers] [Body] [Query]                          │ <Overview> <Headers>     │
-│ [EditableKeyValueTable / TextField]               │ <Body> <Timing>          │
-│                                                    │ [Inspector content]      │
+│ [Request Builder]                                                            │
+│ <GET▼> [https://example.com/api..............]                              │
+│ [Headers] [Body] [Query]                                                     │
+│ Body: (none | form-data | x-www-form-urlencoded | raw)  [raw 时: 语言选择▼]   │
+│       EditableKeyValueTable（键值对） / multiline TextField（raw）             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Response Preview]                                                           │
+│ Status • Duration • Size                                                     │
+│ <Overview> <Headers> <Body> …（复用 Sessions Inspector 响应标签集合）         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -347,21 +351,20 @@ UI 布局：
 ComposePage
 ├─ PageHeader (title + description)
 ├─ Toolbar (Send button + Export cURL button)
-├─ Two-column grid (8fr | 4fr)
+├─ 垂直分栏（请求在上、响应在下，各自内部滚动）
 │  ├─ SectionCard "Request Builder"
 │  │  ├─ MethodSelect (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
 │  │  ├─ UrlInput (OutlinedInput, Enter 键触发发送)
 │  │  ├─ Tabs: Headers | Body | Query
 │  │  │  ├─ Headers: EditableKeyValueTable
-│  │  │  ├─ Body: TextField multiline
+│  │  │  ├─ Body: ToggleButtonGroup (none | form-data | x-www-form-urlencoded | raw)
+│  │  │  │  ├─ none: 空态提示
+│  │  │  │  ├─ form-data / x-www-form-urlencoded: EditableKeyValueTable
+│  │  │  │  └─ raw: 语言 Select (Text/JSON/XML/HTML/JavaScript) + multiline TextField
 │  │  │  └─ Query: EditableKeyValueTable (自动从 URL 解析)
 │  └─ SectionCard "Response Preview"
 │     ├─ InspectorSummaryBar (复用 Sessions Inspector 组件)
-│     ├─ Tabs: Overview | Headers | Body | Timing
-│     │  ├─ Overview: InspectorDefinitionList
-│     │  ├─ Headers: InspectorKeyValueTable
-│     │  ├─ Body: SearchableCodeBlock
-│     │  └─ Timing: InspectorDefinitionList
+│     └─ Tabs 复用 Sessions Inspector 的响应标签集合（Overview / Headers / Body / Timing 等）
 ```
 
 ### 5.4 实现文件映射
@@ -370,9 +373,12 @@ ComposePage
 |------|------|
 | `pages/compose/index.tsx` | ComposePage 主页面 |
 | `features/compose/use-compose-request.ts` | React Query mutation，调用 `sendComposedRequest` |
-| `features/compose/compose-editor.store.ts` | Zustand store，管理 method/url/headers/body/activeTab |
+| `features/compose/compose-editor.store.ts` | Zustand store，管理 method/url/headers/body/bodyType/rawLanguage/activeTab |
+| `features/compose/types.ts` | `BodyType`（none/formdata/urlencoded/raw）、`RawLanguage` 等类型 |
 | `features/compose/curl-export.ts` | 纯函数 `generateCurlCommand()`，前端生成 cURL 命令 |
-| `features/compose/components/EditableKeyValueTable.tsx` | 可编辑键值对组件（Headers/Query 共用） |
+| `features/compose/components/ComposeRequestSection.tsx` | 请求构造区（含 body 类型切换） |
+| `features/compose/components/ComposeResponseSection.tsx` | 响应预览区（复用 Inspector） |
+| `features/compose/components/EditableKeyValueTable.tsx` | 可编辑键值对组件（Headers/Query/form-data 共用） |
 
 ### 5.5 页面状态模型
 
@@ -382,10 +388,15 @@ type ComposeEditorState = {
   method: string;           // 默认 "GET"
   url: string;
   headers: HeaderEntry[];
-  body: string;
+  body: string;             // raw 模式的文本内容
+  bodyType: BodyType;       // "none" | "formdata" | "urlencoded" | "raw"，默认 "none"
+  rawLanguage: RawLanguage; // raw 模式的语言（text/json/xml/html/javascript），默认 "json"
+  formDataEntries: HeaderEntry[];        // form-data 键值对
+  urlEncodedEntries: HeaderEntry[];      // x-www-form-urlencoded 键值对
   activeTab: "headers" | "body" | "query";
-  setMethod / setUrl / setHeaders / setBody / setActiveTab
-  loadFromSession(data)     // Repeat 按钮调用，预填数据
+  setMethod / setUrl / setHeaders / setBody / setBodyType / setRawLanguage
+  setFormDataEntries / setUrlEncodedEntries / setActiveTab
+  loadFromSession(data)     // Repeat 按钮调用，预填数据（含 bodyType 等字段）
   reset()                   // 重置为初始状态
 };
 
@@ -1153,14 +1164,14 @@ User clicks Export dropdown
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |
 | Insights | `insights` | `get_insights` (已实现) |
 
-## 11. 实现建议
+## 12. 实现建议
 
 - 先按页面蓝图搭稳定的 `layout + feature + shared component` 骨架
 - 页面级状态与服务调用放入 `features/*`
 - 页面容器只负责拼装，不承载复杂业务逻辑
 - 所有分栏页优先实现拖拽宽度记忆和空状态统一策略
 
-## 12. Setup Wizard & Setup Checklist — 首启引导
+## 13. Setup Wizard & Setup Checklist — 首启引导
 
 ### 12.1 目标
 
@@ -1206,7 +1217,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 结束占用进程并重启:端口对话框(占用场景,标题「解决端口冲突」+ `Divider` 两路径)查 `get_port_occupant` 展示 `进程名 · PID` → MUI 二次确认 → `kill_proxy_port_process`(后端 re-verify PID 防 TOCTOU,失败含 `PROCESS_CHANGED`)→ 用 `retryWhilePortInUse`(`proxy-start.helpers`)带退避重试 `start_proxy`(SIGKILL 异步、端口释放有 race,默认 5 次 × 300ms)→ 成功则关对话框 + `clearPortInUse`;失败关确认窗回端口对话框、走 snackbar 并重查占用者。
 - 命令层 `reportCommandFailure` 仅记日志;全局 snackbar 与页面级 Alert 不重复表达(引导链路内以页面级为权威)。
 
-## 13. Docs Page — 应用内文档查看器 `已实现`
+## 14. Docs Page — 应用内文档查看器 `已实现`
 
 入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`）。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览，不进入左侧主导航。
 

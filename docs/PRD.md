@@ -214,24 +214,15 @@ flowchart LR
 ### 8.1 一级导航
 
 - Sessions
-- Compose
 - Insights
-- Breakpoints
-- Rewrite Rules
-- Map Local
-- Map Remote
-- Throttling
+- Compose
+- Collections
 - Compare
+- Rules（统一承载 Breakpoints / Rewrite / Map Local / Map Remote / DNS Mapping / Script Rules）
+- Throttling
 - Certificates
 - Settings
-
-### 8.3 国际化与语言策略
-
-- 首批支持 `简体中文` 与 `English`
-- 应用首次启动默认跟随系统语言
-- 用户可在 `Settings` 中切换语言，并可恢复为“跟随系统”
-- 所有核心页面、全局壳层、证书说明、会话检查器与规则配置文案均需支持双语
-- 语言切换属于应用级偏好，不绑定代理预设
+- Docs
 
 ### 8.2 主工作台结构
 
@@ -241,6 +232,14 @@ flowchart LR
 - 主工作台左侧：按 `domain / host` 分组的树形会话浏览区，展开后展示请求项
 - 主工作台右侧：当前选中请求的详情检查器
 - 底部：代理状态栏与系统提示
+
+### 8.3 国际化与语言策略
+
+- 首批支持 `简体中文` 与 `English`
+- 应用首次启动默认跟随系统语言
+- 用户可在 `Settings` 中切换语言，并可恢复为“跟随系统”
+- 所有核心页面、全局壳层、证书说明、会话检查器与规则配置文案均需支持双语
+- 语言切换属于应用级偏好，不绑定代理预设
 
 ## 9. 功能需求明细
 
@@ -315,7 +314,7 @@ flowchart LR
 
 ### 9.7 DNS 映射 — `已实现`
 
-- 主机名模式匹配（支持通配符 `*.example.com`）
+- 主机名模式匹配（子串匹配，非通配符展开；详见用户指南 DNS Mapping）
 - 映射到自定义 IPv4 / IPv6 地址
 - 规则按 workspace 隔离
 - 优先级与启停控制

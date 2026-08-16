@@ -232,19 +232,18 @@ App Shell
 - 当前激活项突出显示
 - 支持图标 + 文本组合
 
-导航项建议：
+导航项建议（与 `docs/PRD.md` 8.1、实际路由保持一致）：
 
 - Sessions
-- Compose
 - Insights
-- Breakpoints
-- Rewrite Rules
-- Map Local
-- Map Remote
-- DNS
+- Compose
+- Collections
+- Compare
+- Rules（统一承载 Breakpoints / Rewrite Rules / Map Local / Map Remote / DNS Mapping / Script Rules）
 - Throttling
 - Certificates
 - Settings
+- Docs
 
 ## 8.4 主工作台规范
 
@@ -436,8 +435,8 @@ Sessions Page
 
 ### 详情面板标签
 
-- Request：`Overview / Query / Headers / Body / Form / Raw`
-- Response：`Overview / Preview / Headers / Text / JSON / JSON Text / Raw`
+- Request：`Query / Form / Body / Headers / Raw`
+- Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
 - `Preview` Tab 仅在响应 MIME 类型为图片（`image/*`）、音频（`audio/*`）或视频（`video/*`）时显示
 - 图片预览使用 `<img>` 渲染 data URI，支持 `object-fit: contain` 自适应容器，底部展示尺寸、MIME 类型、文件大小
 - 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件
@@ -475,21 +474,20 @@ Compose Page
 ├─ Toolbar
 │  ├─ Send Button (variant=”contained”, 含 loading spinner)
 │  └─ Export cURL Button (variant=”outlined”, 复制到剪贴板 + Snackbar 确认)
-├─ Two-Column Grid (8fr | 4fr)
+├─ 上下分栏（垂直 Stack，请求在上、响应在下，各自内部滚动）
 │  ├─ SectionCard “Request Builder”
 │  │  ├─ Method Selector (Select: GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
 │  │  ├─ URL Input (OutlinedInput, Enter 键触发发送)
 │  │  └─ Tabs: Headers | Body | Query
 │  │     ├─ Headers: EditableKeyValueTable
-│  │     ├─ Body: TextField multiline
+│  │     ├─ Body: ToggleButtonGroup (none | form-data | x-www-form-urlencoded | raw)
+│  │     │  ├─ none: 空态提示文案
+│  │     │  ├─ form-data / x-www-form-urlencoded: EditableKeyValueTable
+│  │     │  └─ raw: 语言 Select (Text / JSON / XML / HTML / JavaScript) + multiline TextField
 │  │     └─ Query: EditableKeyValueTable (自动从 URL 解析 query params)
 │  └─ SectionCard “Response Preview”
 │     ├─ InspectorSummaryBar (复用 Sessions Inspector 组件)
-│     └─ Tabs: Overview | Headers | Body | Timing
-│        ├─ Overview: InspectorDefinitionList
-│        ├─ Headers: InspectorKeyValueTable
-│        ├─ Body: SearchableCodeBlock
-│        └─ Timing: InspectorDefinitionList
+│     └─ Tabs 复用 Sessions Inspector 的响应标签集合（Overview / Headers / Body / Timing 等，见「详情面板标签」）
 └─ Snackbar (cURL 复制确认)
 ```
 
@@ -780,7 +778,7 @@ Settings Page
 
 当前实现说明：
 
-- 当前桌面端先落地 `Proxy Presets`、`Language & Region` 与 `Appearance` 三个设置区块
+- 当前桌面端已落地 `Proxy Presets`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 六个设置区块（单一滚动页面，未启用左侧设置导航；字体等外观偏好并入 `Appearance` 区块）
 - 后续如扩展左侧设置导航，需保持当前字段归属不变
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
