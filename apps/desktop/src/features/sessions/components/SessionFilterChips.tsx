@@ -69,11 +69,7 @@ function AggregatedHostsChip({
       >
         {hosts.map((host) => (
           <MenuItem key={host} disableRipple sx={{ pr: 0.5 }}>
-            <Typography
-              noWrap
-              sx={{ flex: 1, maxWidth: 320, minWidth: 0 }}
-              variant="body2"
-            >
+            <Typography noWrap sx={{ flex: 1, maxWidth: 320, minWidth: 0 }} variant="body2">
               {host}
             </Typography>
             <IconButton
