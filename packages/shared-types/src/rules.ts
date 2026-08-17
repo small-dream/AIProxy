@@ -39,6 +39,22 @@ export type BreakpointHit = {
   responseBody?: BodyReference;
 };
 
+export type BreakpointReleaseReason = "timeout" | "senderDropped";
+
+/**
+ * Frontend mirror of BREAKPOINT_WAIT_TIMEOUT in crates/proxy-core/src/lib.rs
+ * (5 minutes). The backend does not send the deadline with breakpoint-hit, so
+ * the countdown is driven by this constant; the authoritative release signal
+ * is always the `breakpoint-released` event.
+ */
+export const BREAKPOINT_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
+
+export type BreakpointReleased = {
+  sessionId: string;
+  stage: BreakpointStage;
+  reason: BreakpointReleaseReason;
+};
+
 export type BreakpointResolution = {
   sessionId: string;
   action: BreakpointActionKind;
@@ -304,6 +320,27 @@ export function parseBreakpointHit(value: unknown): BreakpointHit {
           ),
         }
       : {}),
+  };
+}
+
+export function isBreakpointReleased(value: unknown): value is BreakpointReleased {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<BreakpointReleased>;
+  return (
+    typeof candidate.sessionId === "string" &&
+    (candidate.stage === "request" || candidate.stage === "response") &&
+    (candidate.reason === "timeout" || candidate.reason === "senderDropped")
+  );
+}
+
+export function parseBreakpointReleased(value: unknown): BreakpointReleased {
+  if (!isBreakpointReleased(value)) {
+    throw coerceAppError(value);
+  }
+  return {
+    sessionId: value.sessionId,
+    stage: value.stage,
+    reason: value.reason,
   };
 }
 

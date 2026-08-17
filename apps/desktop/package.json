@@ -1,6 +1,6 @@
 {
   "name": "@aiproxy/desktop",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -27,6 +27,7 @@
     "@tanstack/react-virtual": "^3.14.3",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",

@@ -109,7 +109,8 @@ pub use aiproxy_rule_engine::{
 };
 pub use breakpoints::{
     BreakpointActionKind, BreakpointEventEmitter, BreakpointHit, BreakpointManager,
-    BreakpointResolution, BreakpointRule, BreakpointStage, MockResponse,
+    BreakpointReleaseReason, BreakpointReleased, BreakpointResolution, BreakpointRule,
+    BreakpointStage, MockResponse,
 };
 pub use context::{ProxyConfig, ProxyManagers};
 pub use error::ProxyError;

@@ -272,6 +272,11 @@ export const enMessages = {
     confirmSectionTitle: "Dangerous Action Confirmations",
     confirmSectionDescription:
       "Control which destructive actions ask for confirmation before running.",
+    notificationsSectionTitle: "Notifications",
+    notificationsSectionDescription: "System-level notifications shown outside the app window.",
+    breakpointNotificationsLabel: "Breakpoint notifications",
+    breakpointNotificationsDescription:
+      "Show a system notification when a breakpoint is hit while the app is unfocused. Falls back silently if the OS permission is denied.",
     systemProxyRecoveryWarning:
       "AIProxy found a pending system proxy recovery snapshot but could not restore it automatically: {{message}}",
     themeLabel: "Appearance Theme",
@@ -1532,6 +1537,7 @@ export const enMessages = {
     cancelMock: "Cancel Mock",
     characterCountMany: "{{count}} chars",
     characterCountOne: "{{count}} char",
+    countdownTooltip: "Auto-forwards without changes when this reaches 0:00",
     copyBody: "Copy body",
     emptyBody: "Empty body",
     expandEditor: "Expand editor",
@@ -1570,6 +1576,9 @@ export const enMessages = {
     status: "Status:",
     statusLabel: "Status",
     drop: "Drop",
+    releasedToast: "Released {{method}} {{target}} after timeout.",
+    notificationTitle: "Breakpoint hit",
+    notificationBody: "{{method}} {{target}} is waiting for your action.",
   },
   contextMenu: {
     clearOthers: "Clear Others",

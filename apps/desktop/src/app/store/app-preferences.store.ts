@@ -23,6 +23,9 @@ type AppPreferencesState = {
   // Dangerous-action confirm opt-out. Only Clear All Sessions may skip its
   // confirm dialog (sessions are re-capturable data). See UI_GUIDELINES §11.4.
   skipClearSessionsConfirm: boolean;
+  // OS-level notification when a breakpoint is hit while the app is unfocused.
+  // Degrades silently when the OS permission is denied (review §4.3).
+  breakpointSystemNotifications: boolean;
   // First-run setup wizard state. See features/certificate-center/setup-progress.helpers.ts
   // for the derived state machine; these three values are the only persisted bits.
   setupWizardCompleted: boolean;
@@ -34,6 +37,7 @@ type AppPreferencesState = {
   setFontSizePreference: (fontSize: number) => void;
   setLanguagePreference: (preference: LanguagePreference) => void;
   setSkipClearSessionsConfirm: (skip: boolean) => void;
+  setBreakpointSystemNotifications: (enabled: boolean) => void;
   setThemePreference: (preference: ThemePreference) => void;
   setUiCustomFontFamily: (fontFamily: string) => void;
   markSetupWizardCompleted: () => void;
@@ -76,6 +80,7 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       languagePreference: "system",
       themePreference: "system",
       skipClearSessionsConfirm: false,
+      breakpointSystemNotifications: true,
       setupWizardCompleted: false,
       setupWizardDismissedAt: undefined,
       manualProxyAcknowledgedFor: undefined,
@@ -87,6 +92,8 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
         set({ fontSizePreference: clampAppFontSize(fontSizePreference) }),
       setLanguagePreference: (languagePreference) => set({ languagePreference }),
       setSkipClearSessionsConfirm: (skipClearSessionsConfirm) => set({ skipClearSessionsConfirm }),
+      setBreakpointSystemNotifications: (breakpointSystemNotifications) =>
+        set({ breakpointSystemNotifications }),
       setThemePreference: (themePreference) => set({ themePreference }),
       setUiCustomFontFamily: (uiCustomFontFamily) => set({ uiCustomFontFamily }),
       markSetupWizardCompleted: () => set({ setupWizardCompleted: true }),

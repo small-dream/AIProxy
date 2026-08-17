@@ -22,7 +22,12 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import type { BreakpointRule, BreakpointStage, MatchType } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  type BreakpointRule,
+  type BreakpointStage,
+  type MatchType,
+} from "@aiproxy/shared-types";
 import { useState } from "react";
 
 import {
@@ -87,6 +92,9 @@ export function BreakpointRulesPanel() {
   const hasResponseCatchAll = rules.some(
     (r) => r.enabled && r.urlPattern === "*" && r.stage === "response" && r.methods.length === 0,
   );
+  const saveError = setRulesMutation.error
+    ? coerceAppError(setRulesMutation.error).message
+    : undefined;
   const errors: string[] = [];
   if (!draft.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
   if (draft.matchType === "regex" && draft.urlPattern.trim()) {
@@ -110,6 +118,7 @@ export function BreakpointRulesPanel() {
   return (
     <Stack spacing={2}>
       {isRulesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
+      {saveError && <Alert severity="error" variant="outlined">{saveError}</Alert>}
       <Paper
         elevation={0}
         sx={{

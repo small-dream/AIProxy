@@ -28,7 +28,12 @@ describe("useBreakpointStore", () => {
     useBreakpointStore.getState().addPendingHit(firstHit);
     useBreakpointStore.getState().addPendingHit(duplicateHit);
 
-    expect(useBreakpointStore.getState().pendingHits).toEqual([duplicateHit]);
+    expect(useBreakpointStore.getState().pendingHits).toEqual([
+      expect.objectContaining({
+        ...duplicateHit,
+        receivedAt: expect.any(Number),
+      }),
+    ]);
     expect(useBreakpointStore.getState().activeHitId).toBe("breakpoint-1");
   });
 

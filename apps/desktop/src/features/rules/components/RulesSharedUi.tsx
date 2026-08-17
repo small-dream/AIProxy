@@ -236,6 +236,9 @@ export function ManagedRuleList(props: {
     id: string;
     name: string;
     onClick: () => void;
+    /** When provided, renders an inline switch that persists immediately
+     *  (via the caller's save mutation) instead of the static OFF chip. */
+    onToggleEnabled?: (enabled: boolean) => void;
     subtitle: string;
   }>;
 }) {
@@ -312,13 +315,30 @@ export function ManagedRuleList(props: {
                     flexShrink: 0,
                   }}
                 >
-                  {!item.enabled && (
-                    <Chip
+                  {item.onToggleEnabled ? (
+                    // Review §4.1: "temporarily disable one rule" is a frequent
+                    // need — the inline switch persists the SAVED rule
+                    // immediately instead of requiring select → edit → save.
+                    // stopPropagation keeps the row click (select rule) intact.
+                    <Switch
                       size="small"
-                      label={t("rulesPage.off")}
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: 11 }}
+                      checked={item.enabled}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        item.onToggleEnabled?.(event.target.checked);
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      slotProps={{ input: { "aria-label": item.name } }}
                     />
+                  ) : (
+                    !item.enabled && (
+                      <Chip
+                        size="small"
+                        label={t("rulesPage.off")}
+                        variant="outlined"
+                        sx={{ height: 20, fontSize: 11 }}
+                      />
+                    )
                   )}
                   <Chip
                     size="small"

@@ -526,10 +526,10 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 | 文件 | 职责 |
 |------|------|
 | `features/breakpoints/breakpoint.store.ts` | Zustand store，管理 pendingHits / activeHitId / rules |
-| `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` Tauri 事件的 React hook |
+| `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` / `breakpoint-released` Tauri 事件的 React hook |
 | `features/breakpoints/use-breakpoint-rules.ts` | React Query hooks，调用 `listBreakpointRules` / `setBreakpointRules` |
 | `features/rules/use-rule-center.ts` | React Query hooks，管理 Rewrite / Mapping / Script 规则的读取、保存、删除 |
-| `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器 |
+| `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器、倒计时 chip |
 | `pages/rules/index.tsx` | Rules 页面，规则中心工作台（Tabs + 列表 + 编辑器 + 预览） |
 | `components/layout/AppShell.tsx` | 集成 BreakpointInterceptPanel 和状态栏断点计数指示器 |
 | `services/events/index.ts` | `onBreakpointHit()` Tauri 事件订阅 |
@@ -559,6 +559,10 @@ type RulesPageState = {
 };
 ```
 
+**开关语义：** 断点规则行内开关即时生效；Rewrite / Mapping / DNS / Script 列表行的开关也即时保存已保存规则版本，不是 draft 开关。编辑器顶部的 Enabled 仍属于 draft，需保存后才落盘。
+
+**脏检查：** 规则 draft 通过 `useUnsavedChangesGuard` 挂载，切换 tab、切换规则、跳路由、关窗口都要先确认丢弃修改；Collections / Throttling / Settings 相关编辑页使用同一套脏检查约定。
+
 ### 6.5 页面事件流 — `断点与规则中心首版已实现`
 
 ```text
@@ -574,11 +578,13 @@ Proxy receives request
 -> oneshot channel created, proxy task awaits
 -> "breakpoint-hit" event emitted to frontend
 -> Zustand store adds pending hit
+-> countdown chip shows remaining wait time
 -> BreakpointInterceptPanel renders with request details
 -> User edits headers/body and clicks "Forward"
 -> resolveBreakpoint({ action: "forward", modifiedRequestHeaders: [...] })
 -> Rust resolves oneshot channel, proxy task resumes with modifications
 -> pending hit removed from store
+-> if wait window expires or sender drops, "breakpoint-released" event emits and the frontend removes the hit with a warning toast
 
 规则中心事件流：
 User switches rule type
@@ -661,6 +667,8 @@ User creates a targeted throttling rule
 -> user chooses profile, stage, priority, and enabled state
 -> save persists the rule
 -> matching sessions record Throttling trace entries in Automation tab
+
+**保存失败提示：** Throttling / Rules 编辑器与列表开关路径都要显式展示 mutation error，不允许只靠按钮 loading 结束来表示失败。
 
 User wants to inspect impact
 -> Sessions page can filter to throttled sessions
@@ -800,6 +808,8 @@ type CertificatesPageState = {
 };
 ```
 
+**通知开关：** Settings 页新增 breakpoint system notifications 开关，开启时会 best-effort 请求系统权限；权限被拒绝只静默降级，不打断面板内通知链路。
+
 ## 8. Settings Page — `基础设置与代理预设已实现`
 
 ### 8.1 页面目标
@@ -862,6 +872,9 @@ SettingsPage
 ├─ SectionCard "Dangerous Action Confirmations"
 │  ├─ Description
 │  └─ ClearSessionsConfirmSwitch (bound to !skipClearSessionsConfirm)
+├─ SectionCard "Notifications"
+│  ├─ Description
+│  └─ BreakpointSystemNotificationsSwitch
 ```
 
 **行组件约定：** `SettingsRow`（label/description 左、控件右，`stacked` 用于 TLS hosts 等宽输入）、`SettingsGroup`（Divider 分隔行列表）、`SettingsFooter`（hint 左、动作右）是 Settings 页统一的行级布局原语，各 Section 内部一律复用，不再手写行布局。

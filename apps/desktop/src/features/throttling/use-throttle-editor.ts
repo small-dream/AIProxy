@@ -1,4 +1,4 @@
-import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
+import { coerceAppError, type ThrottleProfile, type ThrottleRule } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -189,6 +189,14 @@ export function useThrottleEditor() {
     [activeProfile, t],
   );
   const temporaryRemaining = temporaryUntil ? Math.max(0, temporaryUntil - temporaryNow) : 0;
+  // Surface save failures in the editor (review §4.2): a failed save used to
+  // end silently once the button's pending state cleared.
+  const profileSaveError = saveProfileMutation.error
+    ? coerceAppError(saveProfileMutation.error).message
+    : undefined;
+  const ruleSaveError = saveRuleMutation.error
+    ? coerceAppError(saveRuleMutation.error).message
+    : undefined;
 
   // Effects
   useEffect(() => {
@@ -372,6 +380,12 @@ export function useThrottleEditor() {
     setRuleDraft((current) => (current ? { ...current, ...patch } : current));
   }
 
+  // Review §4.1: a list-row toggle persists the SAVED rule (not the in-flight
+  // draft) with the flipped enabled value, so it takes effect immediately.
+  function toggleRuleEnabled(rule: ThrottleRule, enabled: boolean) {
+    saveRuleMutation.mutate({ ...rule, enabled });
+  }
+
   function handleDeleteRule(ruleId: string) {
     deleteRuleMutation.mutate(ruleId, {
       onSuccess: () => {
@@ -422,6 +436,8 @@ export function useThrottleEditor() {
     setActivePending: setActiveMutation.isPending,
     saveRulePending: saveRuleMutation.isPending,
     deleteRulePending: deleteRuleMutation.isPending,
+    profileSaveError,
+    ruleSaveError,
 
     // Temporary enable
     temporaryUntil,
@@ -436,6 +452,7 @@ export function useThrottleEditor() {
     handleNewRule,
     handleSaveRule,
     updateRuleDraft,
+    toggleRuleEnabled,
     handleDeleteRule,
     handleDisableGlobal,
     setProfileDraft,

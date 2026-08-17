@@ -14,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { MapRule, SessionSummary } from "@aiproxy/shared-types";
+import { coerceAppError, type MapRule, type SessionSummary } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -196,6 +196,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   }
 
   const errors = getMapValidationErrors(draft, t);
+  const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
   const isLocal = mode === "local";
 
   const handlePickFile = useCallback(async () => {
@@ -261,6 +262,9 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               subtitle: `${rule.sourcePattern || "*"} → ${rule.targetValue || t("rulesPage.notConfigured")}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              // Persist the SAVED rule (not the in-flight draft) so the toggle
+              // takes effect immediately (review §4.1).
+              onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
             }))}
           />
         }
@@ -361,6 +365,12 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                     </Typography>
                   ))}
                 </Stack>
+              </Alert>
+            )}
+
+            {saveError && (
+              <Alert severity="error" variant="outlined">
+                {saveError}
               </Alert>
             )}
 

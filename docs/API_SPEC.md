@@ -44,6 +44,7 @@ AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 
 - 会话创建 / 更新
 - 断点暂停
+- 断点自动释放（超时 / sender dropped）
 - 会话清空 / 批量移除
 - WebSocket 消息与连接状态变化
 
@@ -1966,6 +1967,30 @@ type BreakpointHitEvent = BreakpointHit;
 - `services/events/index.ts` 中的 `onBreakpointHit()` 订阅此事件
 - 事件载荷经过 `parseBreakpointHit()` 校验后写入 Zustand store
 - `BreakpointInterceptPanel` 组件监听 store 并渲染拦截面板
+
+### `breakpoint-released` — `已实现`
+
+```ts
+type BreakpointReleaseReason = "timeout" | "senderDropped";
+
+type BreakpointReleasedEvent = {
+  sessionId: string;
+  stage: "request" | "response";
+  reason: BreakpointReleaseReason;
+};
+```
+
+触发时机：
+
+- pending breakpoint 超过 5 分钟等待窗口时
+- breakpoint 的 oneshot 发送方被释放 / dropped 时
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onBreakpointReleased()` 订阅此事件
+- 事件载荷经过 `parseBreakpointReleased()` 校验后，从 pending hit store 中移除
+- 若匹配到对应 hit，前端推送 warning toast，提示该请求已原样放行
+- `breakpoint-hit` 事件仍是唯一创建 pending hit 的入口，`breakpoint-released` 只负责收尾
 
 ## 7.3 WebSocket 事件 — `已实现`
 

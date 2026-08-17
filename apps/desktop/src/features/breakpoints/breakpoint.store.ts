@@ -1,9 +1,19 @@
 import { create } from "zustand";
 import type { BreakpointHit, BreakpointRule } from "@aiproxy/shared-types";
 
+/**
+ * Frontend-stamped arrival time. The backend wait window starts when the
+ * breakpoint-hit event is emitted, so a countdown driven by receivedAt is
+ * best-effort (± event latency); the authoritative release signal is always
+ * the `breakpoint-released` event. A same-session replace (request → response
+ * stage of the same session) refreshes the stamp: each stage opens its own
+ * wait window.
+ */
+export type PendingBreakpointHit = BreakpointHit & { receivedAt: number };
+
 type BreakpointState = {
   rules: BreakpointRule[];
-  pendingHits: BreakpointHit[];
+  pendingHits: PendingBreakpointHit[];
   activeHitId: string | null;
 
   setRules: (rules: BreakpointRule[]) => void;
@@ -21,13 +31,14 @@ export const useBreakpointStore = create<BreakpointState>((set) => ({
 
   addPendingHit: (hit) =>
     set((state) => {
+      const stamped: PendingBreakpointHit = { ...hit, receivedAt: Date.now() };
       const existingIdx = state.pendingHits.findIndex(
         (pendingHit) => pendingHit.sessionId === hit.sessionId,
       );
       const pendingHits =
         existingIdx >= 0
-          ? state.pendingHits.map((pendingHit, idx) => (idx === existingIdx ? hit : pendingHit))
-          : [...state.pendingHits, hit];
+          ? state.pendingHits.map((pendingHit, idx) => (idx === existingIdx ? stamped : pendingHit))
+          : [...state.pendingHits, stamped];
       return {
         pendingHits,
         // Auto-select the first hit if nothing is active

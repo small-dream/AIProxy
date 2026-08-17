@@ -35,7 +35,6 @@ import { alpha, useTheme } from "@mui/material/styles";
 import {
   coerceAppError,
   type BodyReference,
-  type BreakpointHit,
   type BreakpointResolution,
   type HeaderEntry,
 } from "@aiproxy/shared-types";
@@ -66,7 +65,8 @@ import {
 } from "@/features/sessions/components/session-inspector.helpers";
 import { useSearchController } from "@/features/sessions/components/use-search-controller";
 
-import { useBreakpointStore } from "../breakpoint.store";
+import { useBreakpointStore, type PendingBreakpointHit } from "../breakpoint.store";
+import { BreakpointCountdownChip } from "./BreakpointCountdownChip";
 
 type BreakpointRequestTab = "query" | "headers" | "body";
 type BreakpointResponseTab = "status" | "headers" | "body";
@@ -1136,7 +1136,7 @@ export function BreakpointInterceptPanel() {
     null,
   );
 
-  const activeHit: BreakpointHit | undefined = useMemo(
+  const activeHit: PendingBreakpointHit | undefined = useMemo(
     () => pendingHits.find((h) => h.sessionId === activeHitId),
     [pendingHits, activeHitId],
   );
@@ -1434,6 +1434,7 @@ export function BreakpointInterceptPanel() {
           color={methodColor(activeHit.method)}
           sx={{ fontWeight: 700, fontFamily: fontFamilies.mono, fontSize: 11 }}
         />
+        <BreakpointCountdownChip receivedAt={activeHit.receivedAt} />
         {mockMode && (
           <Chip
             label={t("breakpointPanel.mockMode")}

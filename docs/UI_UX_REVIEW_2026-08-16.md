@@ -94,19 +94,19 @@
 
 ## 四、P1：规则 / 工具页系统性问题
 
-### 4.1 三种开关行为（最大的不一致）
+### 4.1 三种开关行为（最大的不一致） ✅ 已修复（2026-08-17）
 
 - 断点规则：行内 Switch 立即生效（`features/rules/components/BreakpointRulesPanel.tsx:58-60,226-230`）。
 - Rewrite/Map/DNS/Script：开关只是 draft 一部分（`MapRulesPanel.tsx:263-267`），要“选中→拨开关→保存”三步；列表条目上的 OFF chip 纯展示不可点（`RulesSharedUi.tsx:315-322`）。
 - Throttle：开关在编辑器里同样要保存（`features/throttling/components/RuleEditor.tsx:171-187`）。
 - 建议：列表条目上直接放可点的启用开关（即时生效）——“临时关一条规则”是真实高频需求。
 
-### 4.2 保存失败静默
+### 4.2 保存失败静默 ✅ 已修复（2026-08-17）
 
 - 只有 Script 面板显示 `saveMutation.error`（`ScriptRulesPanel.tsx:409-413`）；Map/Rewrite/DNS 面板保存失败时**没有任何错误提示**，按钮 loading 结束即静默失败。
 - 建议：照抄 Script 的 saveError 展示即可。
 
-### 4.3 断点 5 分钟超时是黑箱
+### 4.3 断点 5 分钟超时是黑箱 ✅ 已修复（2026-08-17）
 
 - 后端硬超时 5 分钟（`crates/proxy-core/src/lib.rs:56`），超时后**原样静默放行**（`crates/proxy-core/src/breakpoints.rs:673-698,743-759`）；前端无倒计时、无“即将自动放行”提示、超时后无通知、超时值不可配。
 - 后果：用户编辑到第 6 分钟才发现请求早被放行，编辑白做。
@@ -119,7 +119,7 @@
 - 断点面板的 body 编辑器有 JSON 高亮/搜索/全屏/Format（`BreakpointInterceptPanel.tsx:824-933`），而 Script 规则编辑器是裸 `multiline TextField`（`ScriptRulesPanel.tsx:530-542`），且没有 Rewrite 那样的规则测试器（`RewriteRuleTester`，`RewriteRulesPanel.tsx:912-1000`）——脚本写错只能等真实流量触发。
 - 建议：抽公共 `CodeEditor` 组件复用；给 Script 补“用最近会话试跑”入口。
 
-### 4.5 无脏检查
+### 4.5 无脏检查 ✅ 已修复（2026-08-17）
 
 - 全仓库无 `beforeunload`/`useBlocker`/dirty 标记。规则 draft 改一半，切 tab、选另一条规则、离开页面都静默丢弃。
 - 代码里专门防“refetch 覆盖编辑”（M22 `lastSyncedRuleIdRef`，`MapRulesPanel.tsx:44-101`），却不防“用户自己切走丢编辑”——投入错位。Collections 编辑器同样（`collection-editor.store.ts` 无 dirty 跟踪）。

@@ -2,8 +2,11 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { Alert, Button, Stack, Switch, TextField, Typography } from "@mui/material";
-import type { DnsMappingRule } from "@aiproxy/shared-types";
-import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  type DnsMappingRule,
+  DEFAULT_WORKSPACE_ID,
+} from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -110,6 +113,7 @@ export function DnsMappingsPanel() {
   }
 
   const errors = getDnsMappingValidationErrors(draft, t);
+  const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
 
   return (
     <>
@@ -144,6 +148,9 @@ export function DnsMappingsPanel() {
               subtitle: `${rule.hostPattern || "*"} → ${rule.targetIp || t("rulesPage.notConfigured")}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              // Persist the SAVED rule (not the in-flight draft) so the toggle
+              // takes effect immediately (review §4.1).
+              onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
             }))}
           />
         }
@@ -244,6 +251,12 @@ export function DnsMappingsPanel() {
                     </Typography>
                   ))}
                 </Stack>
+              </Alert>
+            )}
+
+            {saveError && (
+              <Alert severity="error" variant="outlined">
+                {saveError}
               </Alert>
             )}
 

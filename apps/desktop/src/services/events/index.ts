@@ -3,8 +3,10 @@ import {
   isWsConnectionStatusEvent,
   isWsMessage,
   parseBreakpointHit,
+  parseBreakpointReleased,
   parseSessionSummary,
   type BreakpointHit,
+  type BreakpointReleased,
   type SessionRemoveEvent,
   type SessionUpsertEvent,
   type WsConnectionStatusEvent,
@@ -50,6 +52,28 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
       // L6: a silently-swallowed breakpoint hit would leave an interception
       // stuck with no UI feedback and no log; surface it instead.
       logDevWarn("events", "breakpoint_hit_parse_failed", { error: String(error) });
+    }
+  });
+}
+
+/**
+ * Fired when a pending breakpoint is released without a user resolution
+ * (wait timeout / dropped sender): the request was forwarded unchanged and
+ * the frontend must drop the stale hit (review §4.3).
+ */
+export function onBreakpointReleased(
+  callback: (released: BreakpointReleased) => void,
+): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("breakpoint-released", (event) => {
+    try {
+      const released = parseBreakpointReleased(event.payload);
+      callback(released);
+    } catch (error) {
+      logDevWarn("events", "breakpoint_released_parse_failed", { error: String(error) });
     }
   });
 }

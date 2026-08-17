@@ -16,6 +16,7 @@ import {
   ListItemText,
   Paper,
   Stack,
+  Switch,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
@@ -328,6 +329,23 @@ export function ThrottlingPage() {
                             secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : t("throttlingPage.anyMethod")} • ${rule.stage}`}
                             slotProps={{ secondary: { noWrap: true, sx: { fontSize: 11.5 } } }}
                           />
+                          {/* Review §4.1: inline toggle persists immediately
+                              (the saved rule, not the in-flight draft). */}
+                          <Switch
+                            size="small"
+                            checked={rule.enabled}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              ed.toggleRuleEnabled(rule, event.target.checked);
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                            slotProps={{
+                              input: {
+                                "aria-label": `${t("throttlingPage.ruleFields.enabled")}: ${rule.name}`,
+                              },
+                            }}
+                            sx={{ mr: 0.5 }}
+                          />
                           <Chip
                             size="small"
                             label={rule.priority}
@@ -347,6 +365,16 @@ export function ThrottlingPage() {
           variant="outlined"
           sx={{ borderRadius: "8px", minHeight: 0, overflow: "auto", p: 1.5 }}
         >
+          {ed.mode === "profiles" && ed.profileSaveError ? (
+            <Alert severity="error" variant="outlined" sx={{ mb: 1.5 }}>
+              {ed.profileSaveError}
+            </Alert>
+          ) : null}
+          {ed.mode === "rules" && ed.ruleSaveError ? (
+            <Alert severity="error" variant="outlined" sx={{ mb: 1.5 }}>
+              {ed.ruleSaveError}
+            </Alert>
+          ) : null}
           {ed.mode === "profiles" ? (
             <ProfileEditor
               active={ed.activeProfile?.id === ed.profileDraft.id}

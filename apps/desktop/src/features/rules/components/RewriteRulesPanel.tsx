@@ -28,12 +28,13 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import type {
-  RewriteBodyFieldEdit,
-  RewriteRule,
-  RewriteRuleType,
-  RuleMatch,
-  SessionSummary,
+import {
+  coerceAppError,
+  type RewriteBodyFieldEdit,
+  type RewriteRule,
+  type RewriteRuleType,
+  type RuleMatch,
+  type SessionSummary,
 } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -453,6 +454,7 @@ export function RewriteRulesPanel() {
     ...getRewriteValidationErrors(draft, t),
     ...(invalidCombination ? [invalidCombination] : []),
   ];
+  const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
   const testResult = testRuleMatch(draft, testInput, t);
   const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
@@ -510,6 +512,9 @@ export function RewriteRulesPanel() {
               subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              // Persist the SAVED rule (not the in-flight draft) so the toggle
+              // takes effect immediately (review §4.1).
+              onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
             }))}
           />
         }
@@ -534,6 +539,12 @@ export function RewriteRulesPanel() {
                     </Typography>
                   ))}
                 </Stack>
+              </Alert>
+            )}
+
+            {saveError && (
+              <Alert severity="error" variant="outlined">
+                {saveError}
               </Alert>
             )}
 

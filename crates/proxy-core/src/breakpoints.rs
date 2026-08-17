@@ -76,6 +76,26 @@ pub struct BreakpointHit {
     pub response_body: Option<ProxyBodyReference>,
 }
 
+/// Why a pending breakpoint was released without a user resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BreakpointReleaseReason {
+    Timeout,
+    SenderDropped,
+}
+
+/// Payload pushed to the frontend when a pending breakpoint is released
+/// without a user resolution (wait timeout or dropped sender). Without this
+/// event the frontend keeps showing a hit whose request was already forwarded
+/// unchanged (review §4.3 "black box").
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakpointReleased {
+    pub session_id: String,
+    pub stage: BreakpointStage,
+    pub reason: BreakpointReleaseReason,
+}
+
 fn refresh_request_target_from_url(request: &mut ParsedProxyRequest) {
     request.path = build_request_path(&request.url);
     request.query_params = build_query_params(&request.url);
@@ -636,6 +656,32 @@ fn emit_breakpoint_event(emitter: &Option<BreakpointEventEmitter>, hit: &Breakpo
     }
 }
 
+/// Emit a breakpoint-released event so the frontend can drop the pending hit
+/// and tell the user the request was forwarded automatically.
+fn emit_breakpoint_released(
+    emitter: &Option<BreakpointEventEmitter>,
+    session_id: &str,
+    stage: BreakpointStage,
+    reason: BreakpointReleaseReason,
+) {
+    if let Some(ref emit) = emitter {
+        let released = BreakpointReleased {
+            session_id: session_id.to_string(),
+            stage,
+            reason,
+        };
+        let payload = serde_json::to_value(&released).unwrap_or_else(|e| {
+            tracing::error!(
+                event = "breakpoint_released_serialize_failed",
+                error = %e,
+                "breakpoint_released_serialize_failed"
+            );
+            serde_json::Value::Null
+        });
+        emit("breakpoint-released", payload);
+    }
+}
+
 /// Check for a request-stage breakpoint. If matched, emits the event, waits for resolution,
 /// and returns the resolution. Returns `None` if no breakpoint rule matched.
 pub(crate) async fn intercept_request_stage(
@@ -680,6 +726,12 @@ pub(crate) async fn intercept_request_stage(
             // disconnected or the breakpoint-hit emitter failed to deliver).
             // Remove the stale pending entry so the map does not grow unbounded.
             bp.remove_pending(&session_id);
+            emit_breakpoint_released(
+                event_emitter,
+                &session_id,
+                BreakpointStage::Request,
+                BreakpointReleaseReason::SenderDropped,
+            );
             tracing::warn!(
                 event = "breakpoint_request_sender_dropped",
                 session_id = %session_id,
@@ -692,6 +744,12 @@ pub(crate) async fn intercept_request_stage(
             // pending entry and forward without modification so the proxy task
             // does not hang forever holding an upstream connection.
             bp.remove_pending(&session_id);
+            emit_breakpoint_released(
+                event_emitter,
+                &session_id,
+                BreakpointStage::Request,
+                BreakpointReleaseReason::Timeout,
+            );
             tracing::warn!(
                 event = "breakpoint_request_wait_timeout",
                 session_id = %session_id,
@@ -744,6 +802,12 @@ pub(crate) async fn intercept_response_stage(
         Ok(Ok(resolution)) => Ok(Some(resolution)),
         Ok(Err(_gone)) => {
             bp.remove_pending(&session_id);
+            emit_breakpoint_released(
+                event_emitter,
+                &session_id,
+                BreakpointStage::Response,
+                BreakpointReleaseReason::SenderDropped,
+            );
             tracing::warn!(
                 event = "breakpoint_response_sender_dropped",
                 session_id = %session_id,
@@ -753,6 +817,12 @@ pub(crate) async fn intercept_response_stage(
         }
         Err(_elapsed) => {
             bp.remove_pending(&session_id);
+            emit_breakpoint_released(
+                event_emitter,
+                &session_id,
+                BreakpointStage::Response,
+                BreakpointReleaseReason::Timeout,
+            );
             tracing::warn!(
                 event = "breakpoint_response_wait_timeout",
                 session_id = %session_id,
@@ -1172,6 +1242,55 @@ mod tests {
         assert!(
             !manager.pending_contains("sess-drop"),
             "pending entry must be removed after dropped sender"
+        );
+    }
+
+    /// Review §4.3: when the wait times out, the frontend must learn the hit
+    /// was released (it would otherwise keep showing a pending panel for a
+    /// request that was already forwarded). The emitter must see
+    /// breakpoint-hit followed by breakpoint-released with a timeout reason.
+    #[tokio::test]
+    async fn emits_breakpoint_released_on_wait_timeout() {
+        let _guard =
+            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
+        let manager = Arc::new(BreakpointManager::new());
+        manager.set_rules(vec![make_rule("rule-a", true)]);
+
+        let events: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let emitter: BreakpointEventEmitter = Arc::new(move |event, payload| {
+            events_clone
+                .lock()
+                .expect("events mutex poisoned")
+                .push((event.to_string(), payload));
+        });
+
+        let mut request = make_request("sess-released");
+        let result = intercept_request_stage(&Some(manager.clone()), &Some(emitter), &mut request)
+            .await
+            .expect("intercept should not error on timeout");
+        assert!(result.is_none(), "timeout must forward without modification");
+
+        let events = events.lock().expect("events mutex poisoned");
+        assert_eq!(events.len(), 2, "expected hit then released events");
+        assert_eq!(events[0].0, "breakpoint-hit");
+        assert_eq!(events[1].0, "breakpoint-released");
+        assert_eq!(events[1].1["sessionId"], "sess-released");
+        assert_eq!(events[1].1["stage"], "request");
+        assert_eq!(events[1].1["reason"], "timeout");
+    }
+
+    /// The released payload must serialize reasons as camelCase wire values.
+    #[test]
+    fn breakpoint_release_reason_serializes_camel_case() {
+        assert_eq!(
+            serde_json::to_value(BreakpointReleaseReason::Timeout).unwrap(),
+            serde_json::json!("timeout")
+        );
+        assert_eq!(
+            serde_json::to_value(BreakpointReleaseReason::SenderDropped).unwrap(),
+            serde_json::json!("senderDropped")
         );
     }
 

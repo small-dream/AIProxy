@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.1.12"
+version = "0.1.13"
 repository = "https://github.com/small-dream/AIProxy"
 
 [profile.release]
@@ -28,4 +28,3 @@ strip = "symbols"
 # port. The binary-size win from abort is negligible for a desktop app (symbols
 # are already stripped above) and not worth losing crash-time proxy restore.
 # See docs/DECISIONS/ADR-004-panic-strategy.md.
-

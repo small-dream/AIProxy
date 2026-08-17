@@ -314,6 +314,9 @@ export function ScriptRulesPanel() {
               subtitle: `${formatRuleMatch(rule.match)} • ${rule.language.toUpperCase()}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              // Persist the SAVED rule (not the in-flight draft) so the toggle
+              // takes effect immediately (review §4.1).
+              onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
             }))}
           />
         }

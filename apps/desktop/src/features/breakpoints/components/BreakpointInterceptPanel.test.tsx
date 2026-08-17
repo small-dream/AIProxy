@@ -41,7 +41,7 @@ function createHit(overrides: Partial<BreakpointHit> = {}): BreakpointHit {
 function renderPanel(hit: BreakpointHit = createHit()) {
   useBreakpointStore.setState({
     activeHitId: hit.sessionId,
-    pendingHits: [hit],
+    pendingHits: [{ ...hit, receivedAt: Date.now() }],
     rules: [],
   });
 

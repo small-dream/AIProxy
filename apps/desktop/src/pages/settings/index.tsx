@@ -32,6 +32,7 @@ import { useProxyStatus, useStartProxy } from "@/features/proxy-status/use-proxy
 import { checkForUpdateAndStore, installUpdateAndStore } from "@/features/updater/update-status";
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
+import { ensureNotificationPermission } from "@/services/notifications/system-notifications";
 import {
   getAiSettings,
   getAppBuildInfo,
@@ -787,6 +788,12 @@ export function SettingsPage() {
   const setSkipClearSessionsConfirm = useAppPreferencesStore(
     (state) => state.setSkipClearSessionsConfirm,
   );
+  const breakpointSystemNotifications = useAppPreferencesStore(
+    (state) => state.breakpointSystemNotifications,
+  );
+  const setBreakpointSystemNotifications = useAppPreferencesStore(
+    (state) => state.setBreakpointSystemNotifications,
+  );
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
   const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
   const fontFamilyPreference = useAppPreferencesStore((state) => state.fontFamilyPreference);
@@ -965,6 +972,33 @@ export function SettingsPage() {
               size="small"
               checked={!skipClearSessionsConfirm}
               onChange={(event) => setSkipClearSessionsConfirm(!event.target.checked)}
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      </SectionCard>
+      <SectionCard
+        compact
+        title={t("settingsPage.notificationsSectionTitle")}
+        description={t("settingsPage.notificationsSectionDescription")}
+      >
+        {/* OS-level breakpoint notifications (review §4.3). Enabling runs a
+            best-effort permission request; a denial degrades silently back to
+            the in-app panel + toast channel. */}
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settingsPage.breakpointNotificationsLabel")}
+            description={t("settingsPage.breakpointNotificationsDescription")}
+          >
+            <Switch
+              size="small"
+              checked={breakpointSystemNotifications}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setBreakpointSystemNotifications(next);
+                if (next) {
+                  void ensureNotificationPermission();
+                }
+              }}
             />
           </SettingsRow>
         </SettingsGroup>
