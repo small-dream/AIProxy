@@ -118,7 +118,11 @@ export function BreakpointRulesPanel() {
   return (
     <Stack spacing={2}>
       {isRulesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
-      {saveError && <Alert severity="error" variant="outlined">{saveError}</Alert>}
+      {saveError && (
+        <Alert severity="error" variant="outlined">
+          {saveError}
+        </Alert>
+      )}
       <Paper
         elevation={0}
         sx={{

@@ -259,10 +259,7 @@ export async function testUpstreamProxy(input: {
 
 export async function loadDefaultSslProxyingExclusions(): Promise<string[]> {
   if (!isTauriRuntime()) {
-    logDevDebug(
-      "ui.commands",
-      "load_default_ssl_proxying_exclusions_bypassed_non_tauri_runtime",
-    );
+    logDevDebug("ui.commands", "load_default_ssl_proxying_exclusions_bypassed_non_tauri_runtime");
     return parseSslProxyingExclusions([
       "*.tiktokv.com",
       "*.tiktokcdn.com",

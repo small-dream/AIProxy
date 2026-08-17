@@ -2,11 +2,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { Alert, Button, Stack, Switch, TextField, Typography } from "@mui/material";
-import {
-  coerceAppError,
-  type DnsMappingRule,
-  DEFAULT_WORKSPACE_ID,
-} from "@aiproxy/shared-types";
+import { coerceAppError, type DnsMappingRule, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";

@@ -336,14 +336,12 @@ export const zhCNMessages: Messages = {
   },
   sslProxying: {
     title: "SSL 代理",
-    description:
-      "选择哪些域名需要解密。未被解密的域名仍会正常转发，只是看不到其流量内容。",
+    description: "选择哪些域名需要解密。未被解密的域名仍会正常转发，只是看不到其流量内容。",
     modeAllExceptExcluded: "当前：解密除排除列表以外的全部域名。",
     modeIncludeList: "当前：仅解密包含列表中的域名。",
     include: "包含列表",
     includePlaceholder: "每行一条规则 —— 留空表示解密全部",
-    includeDescription:
-      "留空表示解密所有未被排除的域名。填写后则只解密列出的域名，其余原样转发。",
+    includeDescription: "留空表示解密所有未被排除的域名。填写后则只解密列出的域名，其余原样转发。",
     exclude: "排除列表",
     excludePlaceholder: "每行一条规则（如 *.example.com、192.168.0.0/16）",
     excludeDescription:

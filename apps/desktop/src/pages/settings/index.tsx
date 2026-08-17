@@ -544,8 +544,7 @@ function UpstreamProxySection() {
   }
 
   const hostError = draft.enabled && draft.host.trim().length === 0;
-  const portError =
-    !Number.isInteger(draft.port) || draft.port < 1 || draft.port > 65535;
+  const portError = !Number.isInteger(draft.port) || draft.port < 1 || draft.port > 65535;
   const hasError = hostError || portError;
 
   const currentSettings = useMemo(() => upstreamProxyDraftToSettings(draft), [draft]);
@@ -665,9 +664,7 @@ function UpstreamProxySection() {
               variant="contained"
               startIcon={<SaveRoundedIcon />}
               onClick={() => void handleSave()}
-              disabled={
-                !currentWorkspace || hasError || isBusy || !hasChanges || isWorkspacesError
-              }
+              disabled={!currentWorkspace || hasError || isBusy || !hasChanges || isWorkspacesError}
               sx={{ minHeight: 34, px: 1.75 }}
             >
               {isBusy ? t("upstreamProxy.saving") : t("upstreamProxy.save")}
@@ -979,9 +976,7 @@ function SslProxyingSection() {
               size="small"
               variant="outlined"
               startIcon={<RestartAltRoundedIcon />}
-              onClick={() =>
-                patchDraft({ excludeText: recommendedExclusions.join("\n") })
-              }
+              onClick={() => patchDraft({ excludeText: recommendedExclusions.join("\n") })}
               disabled={isBusy || recommendedExclusions.length === 0}
               sx={{ minHeight: 34, px: 1.75 }}
             >

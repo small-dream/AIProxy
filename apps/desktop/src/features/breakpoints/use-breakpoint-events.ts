@@ -1,9 +1,7 @@
 import { useEffect } from "react";
 import { onBreakpointHit, onBreakpointReleased } from "@/services/events";
 import { useNotificationStore } from "@/services/notification.store";
-import {
-  sendSystemNotification,
-} from "@/services/notifications/system-notifications";
+import { sendSystemNotification } from "@/services/notifications/system-notifications";
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { useI18n } from "@/i18n";
 import { useBreakpointStore } from "./breakpoint.store";
@@ -24,10 +22,7 @@ export function useBreakpointEvents() {
       // working in another window used to sit invisible until they returned.
       // Only notify when the app is unfocused so the in-app panel stays the
       // primary channel; permission failures degrade silently.
-      if (
-        useAppPreferencesStore.getState().breakpointSystemNotifications &&
-        !document.hasFocus()
-      ) {
+      if (useAppPreferencesStore.getState().breakpointSystemNotifications && !document.hasFocus()) {
         void sendSystemNotification(
           t("breakpointPanel.notificationTitle"),
           t("breakpointPanel.notificationBody", {

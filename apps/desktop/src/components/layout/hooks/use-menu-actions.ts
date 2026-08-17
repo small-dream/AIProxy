@@ -358,15 +358,7 @@ function getEditableTextControl(element: Element | null) {
   }
 
   if (element instanceof HTMLInputElement) {
-    const editableTypes = new Set([
-      "email",
-      "number",
-      "password",
-      "search",
-      "tel",
-      "text",
-      "url",
-    ]);
+    const editableTypes = new Set(["email", "number", "password", "search", "tel", "text", "url"]);
     if (!editableTypes.has(element.type)) {
       return null;
     }
