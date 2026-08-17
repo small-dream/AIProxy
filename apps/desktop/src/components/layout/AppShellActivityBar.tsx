@@ -8,6 +8,7 @@ import {
   Stack,
   Tooltip,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { NavLink } from "react-router-dom";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
@@ -137,11 +138,12 @@ export function AppShellActivityBar({
                   bgcolor: "error.main",
                   borderRadius: 999,
                   border: `2px solid ${ACTIVITY_BAR_BG}`,
-                  height: 8,
+                  boxShadow: (theme) => `0 0 0 1.5px ${alpha(theme.palette.error.main, 0.35)}`,
+                  height: 12,
                   position: "absolute",
-                  right: -2,
-                  top: 2,
-                  width: 8,
+                  right: -3,
+                  top: 0,
+                  width: 12,
                 }}
               />
             ) : null}
