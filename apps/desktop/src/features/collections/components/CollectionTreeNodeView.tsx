@@ -16,11 +16,17 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import type { CollectionTreeNode } from "@/features/collections/use-collections";
+import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "@/features/sessions/components/context-menu.styles";
 import type { TranslationKey } from "@/i18n";
 
 import type { DropPosition } from "./dnd-helpers";
@@ -97,6 +103,7 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
   const draggable = useDraggable({ id: dndId });
   const droppable = useDroppable({ id: dndId });
   const [addMenuAnchor, setAddMenuAnchor] = useState<HTMLElement | null>(null);
+  const theme = useTheme();
 
   const isExpanded = isFolderExpanded(node.id);
   const selected = node.id === selectedCollectionId;
@@ -227,28 +234,35 @@ export function CollectionTreeNodeView(props: CollectionTreeNodeViewProps) {
             open={Boolean(addMenuAnchor)}
             onClose={() => setAddMenuAnchor(null)}
             onClick={(e) => e.stopPropagation()}
+            slotProps={buildContextMenuSlotProps(168)}
           >
             <MenuItem
               onClick={() => {
                 setAddMenuAnchor(null);
                 onNewRequest(node.id);
               }}
+              sx={getContextMenuItemSx(theme)}
             >
-              <ListItemIcon>
+              <ListItemIcon sx={getContextMenuIconSx(theme)}>
                 <NoteAddRoundedIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>{t("collectionsPage.newRequest")}</ListItemText>
+              <ListItemText {...contextMenuItemTextProps}>
+                {t("collectionsPage.newRequest")}
+              </ListItemText>
             </MenuItem>
             <MenuItem
               onClick={() => {
                 setAddMenuAnchor(null);
                 onAddChild(node.id);
               }}
+              sx={getContextMenuItemSx(theme)}
             >
-              <ListItemIcon>
+              <ListItemIcon sx={getContextMenuIconSx(theme)}>
                 <CreateNewFolderRoundedIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>{t("collectionsPage.newFolder")}</ListItemText>
+              <ListItemText {...contextMenuItemTextProps}>
+                {t("collectionsPage.newFolder")}
+              </ListItemText>
             </MenuItem>
           </Menu>
           <Tooltip title={t("collectionsPage.deleteCollection")}>

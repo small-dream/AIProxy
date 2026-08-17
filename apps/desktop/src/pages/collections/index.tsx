@@ -1,3 +1,4 @@
+import DriveFileRenameOutlineRoundedIcon from "@mui/icons-material/DriveFileRenameOutlineRounded";
 import {
   Box,
   Button,
@@ -5,12 +6,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Snackbar,
   TextField,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import {
   useCallback,
   useEffect,
@@ -67,11 +70,18 @@ import {
   DEFAULT_REQUEST_SPLIT_RATIO,
   clampInspectorSplitRatio,
 } from "@/features/sessions/components/session-inspector.helpers";
+import {
+  buildContextMenuSlotProps,
+  contextMenuItemTextProps,
+  getContextMenuIconSx,
+  getContextMenuItemSx,
+} from "@/features/sessions/components/context-menu.styles";
 import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
 import { useI18n } from "@/i18n";
 
 export function CollectionsPage() {
   const { t } = useI18n();
+  const theme = useTheme();
 
   // --- Data queries ---
 
@@ -544,8 +554,14 @@ export function CollectionsPage() {
         anchorReference="anchorPosition"
         onClose={treeHook.handleTreeMenuClose}
         open={Boolean(treeHook.treeMenuState)}
+        slotProps={buildContextMenuSlotProps(160)}
       >
-        <MenuItem onClick={treeHook.handleBeginRename}>{t("collectionsPage.rename")}</MenuItem>
+        <MenuItem onClick={treeHook.handleBeginRename} sx={getContextMenuItemSx(theme)}>
+          <ListItemIcon sx={getContextMenuIconSx(theme)}>
+            <DriveFileRenameOutlineRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText {...contextMenuItemTextProps}>{t("collectionsPage.rename")}</ListItemText>
+        </MenuItem>
       </Menu>
 
       <Dialog
