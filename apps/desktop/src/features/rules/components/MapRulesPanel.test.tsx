@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MapRule } from "@aiproxy/shared-types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,18 @@ vi.mock("@/features/rules/use-rule-center", () => ({
 // the bare import pulls in @tauri-apps/api/core which has no jsdom runtime, so
 // stub the plugin to keep the test hermetic.
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+
+// The panel reads location state for the "Map Local from session" seed flow;
+// the tests exercise the panel in isolation without a router. The state holder
+// lets the seed test drive what useLocation returns.
+const routerState = vi.hoisted(() => ({ current: null as unknown }));
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock("react-router-dom", () => ({
+  useLocation: () => ({ pathname: "/rules", state: routerState.current }),
+  // Stable reference: the seed effect depends on `navigate`, and a fresh
+  // function identity per render would re-trigger it forever.
+  useNavigate: () => navigateMock,
+}));
 
 // Keep the test free of the i18n provider dependency.
 vi.mock("@/i18n", () => ({
@@ -49,6 +61,31 @@ function makeRule(overrides: Partial<MapRule> = {}): MapRule {
 beforeEach(() => {
   rulesState.current = [];
   deleteMutateMock.mockClear();
+  routerState.current = null;
+});
+
+describe("MapRulesPanel — Map Local seed from a captured request", () => {
+  it("pre-fills source pattern and name from the mapLocalSeed", async () => {
+    routerState.current = {
+      mapLocalSeed: {
+        host: "api.example.com",
+        method: "GET",
+        path: "/users",
+        url: "https://api.example.com/users",
+      },
+    };
+
+    render(<MapRulesPanel mode="local" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/rulesPage\.mapEditor\.sourcePattern/)).toHaveValue(
+        "api.example.com/users",
+      );
+    });
+    expect(screen.getByLabelText(/rulesPage\.editor\.ruleName/)).toHaveValue(
+      "Map Local api.example.com",
+    );
+  });
 });
 
 describe("MapRulesPanel — newly-created rule selection (M10)", () => {

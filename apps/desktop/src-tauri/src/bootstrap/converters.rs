@@ -25,6 +25,8 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
     // degrades to an empty list rather than poisoning the workspace.
     let tls_verify_hosts: Vec<String> =
         serde_json::from_str(&row.tls_verify_hosts).unwrap_or_default();
+    let ssl_blind_hosts: Vec<String> =
+        serde_json::from_str(&row.ssl_blind_hosts).unwrap_or_default();
     WorkspaceData {
         id: row.id,
         name: row.name,
@@ -34,6 +36,7 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
         system_proxy_enabled: row.system_proxy_enabled,
         verify_upstream_tls: row.verify_upstream_tls,
         tls_verify_hosts,
+        ssl_blind_hosts,
         storage_path: row.storage_path,
         created_at: row.created_at,
         updated_at: row.updated_at,

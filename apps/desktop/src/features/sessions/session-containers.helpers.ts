@@ -7,7 +7,6 @@ import {
 } from "./components/session-inspector.helpers";
 
 export type SessionContainer = {
-  domainFilterValue: string;
   expandedHosts: string[];
   id: string;
   inspectorSplitRatio: number;
@@ -365,7 +364,6 @@ function createSessionContainer({
   selectedSessionId,
 }: CreateSessionContainerOptions): SessionContainer {
   return {
-    domainFilterValue: "",
     expandedHosts,
     id: `session-container-${labelNumber}`,
     inspectorSplitRatio,

@@ -25,6 +25,10 @@ pub struct WorkspaceRow {
     /// when `verify_upstream_tls` is false (a "verify these hosts regardless"
     /// allowlist). Stored as a JSON string to mirror other list columns.
     pub tls_verify_hosts: String,
+    /// Hostnames for which SSL decryption is disabled while the workspace
+    /// keeps `ssl_enabled` on (privacy / certificate-pinning escape hatch).
+    /// JSON-encoded array of hostnames, mirroring `tls_verify_hosts`.
+    pub ssl_blind_hosts: String,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -43,7 +47,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
             "UPDATE workspaces
                 SET name=?2, proxy_port=?3, ssl_enabled=?4, http2_enabled=?5,
                     system_proxy_enabled=?6, verify_upstream_tls=?7, tls_verify_hosts=?8,
-                    storage_path=?9, created_at=?10, updated_at=?11
+                    ssl_blind_hosts=?9, storage_path=?10, created_at=?11, updated_at=?12
              WHERE id=?1",
             params![
                 ws.id,
@@ -54,6 +58,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.system_proxy_enabled as i32,
                 ws.verify_upstream_tls as i32,
                 ws.tls_verify_hosts,
+                ws.ssl_blind_hosts,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -65,8 +70,9 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
         conn.execute(
             "INSERT INTO workspaces
                 (id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                 verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 verify_upstream_tls, tls_verify_hosts, ssl_blind_hosts, storage_path,
+                 created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 ws.id,
                 ws.name,
@@ -76,6 +82,7 @@ pub fn upsert_workspace(conn: &Connection, ws: &WorkspaceRow) -> Result<(), DbEr
                 ws.system_proxy_enabled as i32,
                 ws.verify_upstream_tls as i32,
                 ws.tls_verify_hosts,
+                ws.ssl_blind_hosts,
                 ws.storage_path,
                 ws.created_at,
                 ws.updated_at,
@@ -97,6 +104,7 @@ pub fn update_workspace(
     http2_enabled: Option<bool>,
     verify_upstream_tls: Option<bool>,
     tls_verify_hosts: Option<&str>,
+    ssl_blind_hosts: Option<&str>,
     updated_at: &str,
 ) -> Result<(), DbError> {
     let existing = load_workspace(conn, id)?.ok_or_else(|| DbError::not_found("workspace", id))?;
@@ -107,10 +115,12 @@ pub fn update_workspace(
     let http2_enabled = http2_enabled.unwrap_or(existing.http2_enabled);
     let verify_upstream_tls = verify_upstream_tls.unwrap_or(existing.verify_upstream_tls);
     let tls_verify_hosts = tls_verify_hosts.unwrap_or(&existing.tls_verify_hosts);
+    let ssl_blind_hosts = ssl_blind_hosts.unwrap_or(&existing.ssl_blind_hosts);
 
     conn.execute(
         "UPDATE workspaces SET name=?1, proxy_port=?2, ssl_enabled=?3, http2_enabled=?4,
-            verify_upstream_tls=?5, tls_verify_hosts=?6, updated_at=?7 WHERE id=?8",
+            verify_upstream_tls=?5, tls_verify_hosts=?6, ssl_blind_hosts=?7, updated_at=?8
+            WHERE id=?9",
         params![
             name,
             proxy_port,
@@ -118,6 +128,7 @@ pub fn update_workspace(
             http2_enabled as i32,
             verify_upstream_tls as i32,
             tls_verify_hosts,
+            ssl_blind_hosts,
             updated_at,
             id,
         ],
@@ -151,7 +162,8 @@ pub fn set_workspace_system_proxy_enabled(
 pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
         "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at
+                verify_upstream_tls, tls_verify_hosts, ssl_blind_hosts, storage_path,
+                created_at, updated_at
          FROM workspaces WHERE id=?1",
         params![id],
         row_to_workspace,
@@ -171,7 +183,8 @@ pub fn load_all_workspaces(conn: &Connection) -> Result<Vec<WorkspaceRow>, DbErr
     let mut stmt = conn
         .prepare(
             "SELECT id, name, proxy_port, ssl_enabled, http2_enabled, system_proxy_enabled,
-                    verify_upstream_tls, tls_verify_hosts, storage_path, created_at, updated_at
+                    verify_upstream_tls, tls_verify_hosts, ssl_blind_hosts, storage_path,
+                    created_at, updated_at
              FROM workspaces ORDER BY created_at",
         )
         .map_err(|e| DbError::query("prepare load workspaces", e))?;
@@ -209,6 +222,7 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         system_proxy_enabled: row.get::<_, i32>("system_proxy_enabled")? != 0,
         verify_upstream_tls: row.get::<_, i32>("verify_upstream_tls")? != 0,
         tls_verify_hosts: row.get("tls_verify_hosts")?,
+        ssl_blind_hosts: row.get("ssl_blind_hosts")?,
         storage_path: row.get("storage_path")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -264,6 +278,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -289,6 +304,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -304,6 +320,7 @@ mod tests {
             Some(false),
             Some(true),
             Some(r#"["example.com"]"#),
+            Some(r#"["pinned.example.com"]"#),
             "2026-01-02T00:00:00Z",
         )
         .unwrap();
@@ -320,6 +337,10 @@ mod tests {
         assert_eq!(
             loaded.tls_verify_hosts, r#"["example.com"]"#,
             "tls_verify_hosts should round-trip"
+        );
+        assert_eq!(
+            loaded.ssl_blind_hosts, r#"["pinned.example.com"]"#,
+            "ssl_blind_hosts should round-trip"
         );
     }
 
@@ -376,6 +397,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -387,6 +409,7 @@ mod tests {
             &conn,
             "ws-p",
             Some("Updated"),
+            None,
             None,
             None,
             None,
@@ -420,6 +443,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
@@ -472,6 +496,7 @@ mod tests {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
             storage_path: String::new(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

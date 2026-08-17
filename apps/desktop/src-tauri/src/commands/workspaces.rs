@@ -55,6 +55,8 @@ pub async fn create_workspace(
             // column the DB row expects.
             tls_verify_hosts: serde_json::to_string(&workspace_for_db.tls_verify_hosts)
                 .unwrap_or_else(|_| "[]".to_string()),
+            ssl_blind_hosts: serde_json::to_string(&workspace_for_db.ssl_blind_hosts)
+                .unwrap_or_else(|_| "[]".to_string()),
             storage_path: workspace_for_db.storage_path.clone(),
             created_at: workspace_for_db.created_at.clone(),
             updated_at: workspace_for_db.updated_at.clone(),
@@ -150,6 +152,11 @@ pub struct UpdateWorkspaceInput {
     /// `Workspace.tlsVerifyHosts` frontend contract); the command serializes
     /// it to the JSON-encoded TEXT column.
     pub tls_verify_hosts: Option<Vec<String>>,
+    /// Hostnames for which SSL decryption is disabled while the workspace
+    /// `ssl_enabled` switch stays on (privacy / certificate-pinning escape
+    /// hatch). None ⇒ leave unchanged. Array form matching
+    /// `Workspace.sslBlindHosts`.
+    pub ssl_blind_hosts: Option<Vec<String>>,
 }
 
 #[tauri::command]
@@ -178,6 +185,7 @@ pub async fn update_workspace(
         input.http2_enabled,
         input.verify_upstream_tls,
         input.tls_verify_hosts.clone(),
+        input.ssl_blind_hosts.clone(),
     )?;
 
     // Persist to DB on the blocking pool. The DB column stores tls_verify_hosts
@@ -186,6 +194,10 @@ pub async fn update_workspace(
     // `update` above and the rollback below stay on the async task.
     let tls_verify_hosts_json = input
         .tls_verify_hosts
+        .as_ref()
+        .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
+    let ssl_blind_hosts_json = input
+        .ssl_blind_hosts
         .as_ref()
         .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
 
@@ -202,6 +214,7 @@ pub async fn update_workspace(
             input.http2_enabled,
             input.verify_upstream_tls,
             tls_verify_hosts_json.as_deref(),
+            ssl_blind_hosts_json.as_deref(),
             &updated_at,
         ) {
             tracing::error!(
@@ -241,6 +254,7 @@ pub async fn update_workspace(
                     Some(previous.http2_enabled),
                     Some(previous.verify_upstream_tls),
                     Some(previous.tls_verify_hosts.clone()),
+                    Some(previous.ssl_blind_hosts.clone()),
                 );
             }
             Err(error)

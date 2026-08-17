@@ -25,6 +25,7 @@ export interface SessionImportExportState {
   exportDialogHostScope: SessionExportHostScope | null;
   importSnackbarMessage: string | null;
   handleExportSession: (session: SessionSummary) => void;
+  handleExportSessions: (sessions: SessionSummary[]) => void;
   handleExportHost: (host: string) => void;
   handleImportSessions: (details: SessionDetail[]) => void;
   handleImportHarPickerOpen: () => Promise<void>;
@@ -68,6 +69,19 @@ export function useSessionImportExport({
           error instanceof Error ? error.message : t("common.errors.unexpected"),
         );
       });
+    },
+    [queryClient, t],
+  );
+
+  const handleExportSessions = useCallback(
+    (sessions: SessionSummary[]) => {
+      void exportSessionsAsHar(queryClient, sessions, buildHarExportFilename("sessions")).catch(
+        (error) => {
+          setImportSnackbarMessage(
+            error instanceof Error ? error.message : t("common.errors.unexpected"),
+          );
+        },
+      );
     },
     [queryClient, t],
   );
@@ -142,6 +156,7 @@ export function useSessionImportExport({
     exportDialogHostScope,
     importSnackbarMessage,
     handleExportSession,
+    handleExportSessions,
     handleExportHost,
     handleImportSessions,
     handleImportHarPickerOpen,

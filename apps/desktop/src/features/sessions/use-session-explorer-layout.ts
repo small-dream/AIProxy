@@ -29,7 +29,7 @@ export interface SessionExplorerLayoutState {
   startInspectorResize: (event: ReactPointerEvent<HTMLDivElement>) => void;
   handleInspectorSplitRatioChange: (ratio: number) => void;
   handleRequestCollapsedChange: (collapsed: boolean) => void;
-  handleDomainFilterChange: (value: string) => void;
+  handleSearchValueChange: (value: string) => void;
   handleRequestTabChange: (tab: RequestInspectorTab) => void;
   handleResponseTabChange: (tab: ResponseInspectorTab) => void;
 }
@@ -80,11 +80,11 @@ export function useSessionExplorerLayout({
     [updateContainer],
   );
 
-  const handleDomainFilterChange = useCallback(
+  const handleSearchValueChange = useCallback(
     (value: string) => {
       updateContainer((container: SessionContainer) => ({
         ...container,
-        domainFilterValue: value,
+        searchValue: value,
       }));
     },
     [updateContainer],
@@ -213,7 +213,7 @@ export function useSessionExplorerLayout({
     startInspectorResize,
     handleInspectorSplitRatioChange,
     handleRequestCollapsedChange,
-    handleDomainFilterChange,
+    handleSearchValueChange,
     handleRequestTabChange,
     handleResponseTabChange,
   };

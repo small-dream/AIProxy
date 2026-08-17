@@ -18,6 +18,7 @@ const MOCK_WORKSPACE: Omit<Workspace, "id" | "name" | "createdAt" | "updatedAt">
   systemProxyEnabled: false,
   verifyUpstreamTls: false,
   tlsVerifyHosts: [],
+  sslBlindHosts: [],
   storagePath: "",
 };
 
@@ -130,6 +131,12 @@ export async function updateWorkspace(input: {
    * serializes it to the JSON-encoded DB column. Omit to leave unchanged.
    */
   tlsVerifyHosts?: string[];
+  /**
+   * Hostnames for which SSL decryption is disabled while the workspace-level
+   * switch stays on (privacy / certificate-pinning escape hatch). Array form;
+   * omit to leave unchanged.
+   */
+  sslBlindHosts?: string[];
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "update_workspace_bypassed_non_tauri_runtime", input);
@@ -143,6 +150,7 @@ export async function updateWorkspace(input: {
       // H3: reflect the saved allowlist in the browser/dev fallback so the
       // mock stays consistent with the persisted workspace shape.
       tlsVerifyHosts: input.tlsVerifyHosts ?? [],
+      sslBlindHosts: input.sslBlindHosts ?? [],
     });
   }
 

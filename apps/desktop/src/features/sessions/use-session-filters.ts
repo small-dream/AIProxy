@@ -4,15 +4,12 @@ import type { SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { listThrottledSessionIds } from "@/services/commands";
-import {
-  buildSessionHostGroups,
-  filterSessionsByHostKeyword,
-} from "@/features/sessions/session-explorer.helpers";
+import { buildSessionHostGroups } from "@/features/sessions/session-explorer.helpers";
 import { readStorageValue, readStoredHosts } from "@/features/sessions/session-ui.helpers";
 import type { SessionContainer } from "@/features/sessions/session-containers.helpers";
 
 export const FOCUSED_HOSTS_STORAGE_KEY = "aiproxy.sessions.focusedHosts";
-const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
+export const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 const COMPARE_BASE_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.compareBaseSessionId";
 
 function readFocusedHostsFromStorage(): Set<string> {
@@ -38,8 +35,6 @@ export interface UseSessionFiltersParams {
   displayActiveSessions: SessionSummary[];
   /** The parent's `updateContainer` callback for applying filter changes. */
   updateContainer: (updater: (container: SessionContainer) => SessionContainer) => void;
-  /** The container's domain filter value. */
-  domainFilterValue: string;
   /** The container's search value. */
   searchValue: string;
 }
@@ -47,7 +42,6 @@ export interface UseSessionFiltersParams {
 export function useSessionFilters({
   displayActiveSessions,
   updateContainer,
-  domainFilterValue,
   searchValue,
 }: UseSessionFiltersParams): SessionFiltersState {
   const { t } = useI18n();
@@ -84,19 +78,14 @@ export function useSessionFilters({
     return filteredByIgnoreSessions.filter((session) => throttledSessionIdSet.has(session.id));
   }, [filteredByIgnoreSessions, showOnlyThrottled, throttledSessionIdSet]);
 
-  const domainFilteredSessions = useMemo(
-    () => filterSessionsByHostKeyword(filteredByThrottleSessions, domainFilterValue),
-    [domainFilterValue, filteredByThrottleSessions],
-  );
-
   const hostGroups = useMemo(
     () =>
-      buildSessionHostGroups(domainFilteredSessions, searchValue, {
+      buildSessionHostGroups(filteredByThrottleSessions, searchValue, {
         focusedHosts,
         unfocusedLabel: t("sessionExplorer.unfocusedGroup"),
         unknownHostLabel: t("sessionExplorer.unknownHost"),
       }),
-    [searchValue, domainFilteredSessions, focusedHosts, t],
+    [searchValue, filteredByThrottleSessions, focusedHosts, t],
   );
 
   const visibleSessions = useMemo(

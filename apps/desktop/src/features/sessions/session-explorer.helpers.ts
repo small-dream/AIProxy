@@ -112,21 +112,6 @@ export function buildSessionHostGroups(
   ];
 }
 
-export function filterSessionsByHostKeyword(
-  sessions: SessionSummary[],
-  hostKeyword: string,
-): SessionSummary[] {
-  const normalizedKeyword = hostKeyword.trim().toLowerCase();
-
-  if (normalizedKeyword.length === 0) {
-    return sessions;
-  }
-
-  return sessions.filter((session) =>
-    normalizeHost(session.host).toLowerCase().includes(normalizedKeyword),
-  );
-}
-
 export function reconcileExpandedKeys(
   expandedKeys: string[],
   groups: SessionHostGroup[],
@@ -154,6 +139,45 @@ export function reconcileExpandedKeys(
   }
 
   return reconciledKeys;
+}
+
+/**
+ * Session ids in the exact visual order of the explorer tree: host groups in
+ * list order, then their path-branch leaves depth-first, skipping collapsed
+ * hosts and branches. This is the single source of truth for both keyboard
+ * navigation and Shift+click range selection so both follow what the user
+ * actually sees (capture order and tree order differ once paths are grouped).
+ */
+export function collectVisibleSessionIds(
+  groups: SessionHostGroup[],
+  expandedKeys: Iterable<string>,
+): string[] {
+  const expanded = new Set(expandedKeys);
+  const ids: string[] = [];
+
+  const appendNode = (groupKey: string, node: SessionPathNode) => {
+    if (node.kind === "leaf") {
+      ids.push(node.session.id);
+      return;
+    }
+
+    if (expanded.has(`${groupKey}::${node.pathKey}`)) {
+      for (const child of node.children) {
+        appendNode(groupKey, child);
+      }
+    }
+  };
+
+  for (const group of groups) {
+    if (!expanded.has(group.key)) {
+      continue;
+    }
+    for (const node of group.tree) {
+      appendNode(group.key, node);
+    }
+  }
+
+  return ids;
 }
 
 export function getSessionLeafLabel(session: SessionSummary): string {

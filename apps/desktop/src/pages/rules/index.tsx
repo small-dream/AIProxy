@@ -1,6 +1,7 @@
 import { Box, Paper, Stack, Tab, Tabs } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
 import { MappingRulesPanel } from "@/features/rules/components/MappingRulesPanel";
@@ -11,7 +12,17 @@ import { useI18n } from "@/i18n";
 
 export function RulesPage() {
   const { t } = useI18n();
+  const location = useLocation();
   const [tab, setTab] = useState<RulesTabValue>("rewrite");
+
+  // The sessions page routes here with a mapLocalSeed for the "Map Local this
+  // request" flow; land on the mapping tab so the pre-filled draft is visible.
+  useEffect(() => {
+    const state = location.state as { mapLocalSeed?: unknown } | null;
+    if (state?.mapLocalSeed) {
+      setTab("mapping");
+    }
+  }, [location.state]);
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>

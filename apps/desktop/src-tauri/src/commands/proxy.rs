@@ -106,6 +106,7 @@ async fn start_proxy_impl(
         // resolved from the workspace below and passed to start_proxy_server.
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
     }
     .validate()
     .map_err(|message| message.to_string())?;
@@ -171,16 +172,27 @@ async fn start_proxy_impl(
 
     let dns_manager = state.read_dns_manager();
 
-    // H3: resolve the per-workspace upstream TLS verification setting + the
-    // per-host allowlist so new upstream HTTPS/WSS connections verify certs
-    // against the OS root store when the user opts in OR the host is on the
-    // allowlist. Falls back to off/empty (NoOp verifier) if the workspace
-    // can't be loaded — preserving the historical default.
-    let (verify_upstream_tls, tls_verify_hosts) = state
-        .read_workspace_manager()
-        .load(&input.workspace_id)
-        .map(|ws| (ws.verify_upstream_tls, ws.tls_verify_hosts))
+    // Load the workspace once and derive both the upstream-TLS-verification
+    // config and the per-host SSL-decryption opt-out list from it. Falls back
+    // to off/empty (historical defaults) if the workspace can't be loaded.
+    let loaded_workspace = state.read_workspace_manager().load(&input.workspace_id);
+    let (verify_upstream_tls, tls_verify_hosts) = loaded_workspace
+        .as_ref()
+        .map(|ws| (ws.verify_upstream_tls, ws.tls_verify_hosts.clone()))
         .unwrap_or_else(|| (false, Vec::new()));
+    // Per-host SSL-decryption opt-out list. Trim + de-duplicate defensively
+    // (the workspace UI maintains a set); the CONNECT handler compares
+    // case-insensitively via host_in_allowlist, so no lowercasing is needed.
+    let ssl_blind_hosts: Vec<String> = loaded_workspace
+        .map(|ws| {
+            let mut seen = std::collections::HashSet::new();
+            ws.ssl_blind_hosts
+                .into_iter()
+                .map(|host| host.trim().to_string())
+                .filter(|host| !host.is_empty() && seen.insert(host.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
     if verify_upstream_tls || !tls_verify_hosts.is_empty() {
         tracing::info!(
             component = "desktop.commands",
@@ -200,6 +212,7 @@ async fn start_proxy_impl(
                 http2_enabled,
                 verify_upstream_tls,
                 tls_verify_hosts: std::sync::Arc::from(tls_verify_hosts),
+                ssl_blind_hosts: std::sync::Arc::from(ssl_blind_hosts),
             },
             workspace_id: Some(input.workspace_id.clone()),
             event_emitter,

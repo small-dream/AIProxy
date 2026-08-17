@@ -14,8 +14,9 @@ import {
   Typography,
 } from "@mui/material";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { MapRule } from "@aiproxy/shared-types";
+import type { MapRule, SessionSummary } from "@aiproxy/shared-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { createEmptyMapRule, getMapValidationErrors } from "@/features/rules/rules.helpers";
@@ -34,8 +35,25 @@ import {
 } from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
 
+type MapLocalSeed = Pick<SessionSummary, "host" | "method" | "path" | "url">;
+type RulesLocationState = { mapLocalSeed?: MapLocalSeed } | null;
+
+function createSeededMapRule(seed: MapLocalSeed, mode: MapRule["mode"]): MapRule {
+  const rule = createEmptyMapRule(mode);
+  const pattern =
+    seed.host && seed.path ? `${seed.host}${seed.path === "/" ? "" : seed.path}` : seed.url;
+
+  return {
+    ...rule,
+    name: `Map Local ${seed.host || "request"}`,
+    sourcePattern: pattern || seed.url,
+  };
+}
+
 export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const { t } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { data: rules = [], isError: isRulesError } = useMapRules(mode);
   const saveMutation = useSaveMapRule();
   const deleteMutation = useDeleteManagedRule();
@@ -52,6 +70,23 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
   // ProfileEditor.
   const [priorityText, setPriorityText] = useState(String(draft.priority));
+
+  // M-rules: when the user triggers "Map Local" from a captured request, the
+  // sessions page navigates here with a mapLocalSeed; pre-fill the draft with
+  // the request's host+path so the user only picks the local file. Only local
+  // mode consumes the seed (remote/DNS mode ignores it).
+  useEffect(() => {
+    const state = location.state as RulesLocationState;
+    if (!state?.mapLocalSeed || mode !== "local") return;
+
+    const seededRule = createSeededMapRule(state.mapLocalSeed, mode);
+    lastSyncedRuleIdRef.current = seededRule.id;
+    setSelectedRuleId(seededRule.id);
+    setDraft(seededRule);
+    setValidationAttempted(false);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, mode, navigate]);
+
   useEffect(() => {
     if (draft.priority !== Number(priorityText)) {
       setPriorityText(String(draft.priority));

@@ -107,6 +107,7 @@ SessionsPage
 ├─ Main Split Workspace
 │  ├─ SessionExplorerPane
 │  │  ├─ SessionFilterChips（生效中的 focus / ignore / throttled 过滤 chips，点 × 移除；无过滤不渲染）
+│  │  ├─ MultiSelectBatchBar（多选后出现：Export / Save responses / Delete / Clear）
 │  │  ├─ HostRow
 │  │  ├─ SessionTreeNode
 │  │  └─ SessionLeafNode
@@ -136,7 +137,7 @@ SessionsPage
 | `features/sessions/components/SessionFilterChips.tsx` | 列表上方的单行可移除过滤 chips：每个 focused/ignored host 一枚（点 × 取消），同一类别超过 3 个 host 时聚合为"Focus/Ignored (N)"总 chip（菜单内可逐项移除/全部清除），throttled 过滤一枚总开关；被 ignore 的 host 从数据滤除后右键菜单不可达，此行是唯一取消入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
-| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作与页面跳转 |
+| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作（含按 host 停用/启用 SSL 解密）、规则跳转（含 Map Local 直达） |
 | `features/sessions/components/SessionExportDialog.tsx` | Selected / Filtered / All 导出范围与格式选择 |
 
 ### 4.5 页面状态模型
@@ -205,7 +206,11 @@ Sessions polling returns captured sessions
 
 **事件批处理（M1）：** `SessionsPage` 现在直接订阅会话事件，使用 100ms 批处理缓冲区。`useSessionEvents` hook 已废弃。单次批处理刷新中，容器状态和 React Query 缓存同时更新。
 
-**搜索/筛选防抖（M1）：** SessionExplorer 域过滤器和 WS Messages 搜索输入均使用 `useDebouncedValue` hook（150ms 延迟），避免高频输入触发不必要的重新渲染或查询。
+**搜索/筛选防抖（M1）：** SessionExplorer 全字段搜索输入和 WS Messages 搜索输入均使用 `useDebouncedValue` hook（150ms 延迟），避免高频输入触发不必要的重新渲染或查询。全字段搜索词随会话容器存储（`searchValue`），切换容器各自保留。
+
+**键盘与多选（P1）：** 会话树支持 `↑/↓`、`Home/End`、`Esc`；`⌘/Ctrl+点击` 多选、`Shift+点击` 范围选择（按树可见顺序，`collectVisibleSessionIds` 与键盘导航共用同一顺序源）；多选批量条支持导出 / 保存响应 / 删除（删除需确认）。
+
+**SSL 按 host 解密（P1）：** 右键菜单可对会话 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。
 
 ### 4.7 上下文菜单事件流
 
@@ -222,7 +227,10 @@ User right clicks a session leaf node
    clear all other sessions
    focus or unfocus host
    ignore or stop ignoring host
-   go to Rules page
+   disable / enable SSL decryption for host (updates Workspace.sslBlindHosts,
+     restarts the proxy when running)
+   create rewrite rule / map local rule (seeds Rules page with request fields)
+   go to Breakpoints / Rules page
 -> actions that need body/raw payload fetch detail on demand
 -> copy actions show Snackbar feedback
 -> menu closes after action

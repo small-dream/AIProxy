@@ -4,7 +4,7 @@
 - 评审视角：产品与真实用户（开发者日常使用高频路径）
 - 评审方式：产品文档（PRD / UI_GUIDELINES / PAGE_BLUEPRINTS / ROADMAP / ARCHITECTURE）+ 前端源码全量走查（`apps/desktop/src`）+ 关键后端链路抽查（`crates`、`apps/desktop/src-tauri`）+ 界面截图
 - 路径约定：前端代码均相对 `apps/desktop/src/`；Rust 代码相对仓库根（`crates/…`、`apps/desktop/src-tauri/…`）
-- **状态（2026-08-16 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；下文 P0 描述保留评审时快照，仅作背景。P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
+- **状态（2026-08-17 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；§3.3 / §3.4 / §3.5 已于 2026-08-17 修复（见各节标注）。下文已修条目的描述保留评审时快照，仅作背景。其余 P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
 
 ---
 
@@ -25,13 +25,13 @@
 
 ## 二、P0：高危问题（建议立即处理）
 
-### P0-1 首启自动接管系统代理 + SSL 解密默认开，信任证书之前“全网挂掉”
+### P0-1 首启自动接管系统代理 + SSL 解密默认开，信任证书之前“全网挂掉” ✅ 已修复（`b8df3b53`，2026-08-16）
 
 - 证据：`components/layout/hooks/use-proxy-lifecycle.ts:98-135` 启动时无条件 `startProxy + enableSystemProxy`；`apps/desktop/src-tauri/src/workspace.rs:43` 工作区默认 `ssl_enabled: true`。
 - 后果：新用户还没走到向导第 3 步（信任证书），全系统 HTTPS 流量就已被一个未受信任的 CA 接管——浏览器对所有网站报证书错误，且 UI 不解释原因。向导 routing 步（`features/setup-wizard/SetupWizardSteps.tsx:333-367`）声称“开启系统代理”是用户要做的事，实际上早就自动开了。
 - 建议：首启顺序改为「证书信任完成 → 才提示开启系统代理」；至少在向导完成前不要自动 `enableSystemProxy`；或接管时弹一次性提示“完成证书信任前浏览器可能报证书错误”。
 
-### P0-2 危险操作零确认、零撤销
+### P0-2 危险操作零确认、零撤销 ✅ 已修复（`b8df3b53`，2026-08-16）
 
 - 删除 Collection **整棵子树（含所有请求）**：hover 即现删除按钮，一次误点直接消失。`features/collections/use-collection-tree.ts:334-341`、`features/collections/components/CollectionTreeNodeView.tsx:254-265`。
 - 全部规则面板删除规则直接 mutate（五处）：`features/rules/components/MapRulesPanel.tsx:132-152`、`RewriteRulesPanel.tsx:422-440`、`DnsMappingsPanel.tsx:83-101`、`ScriptRulesPanel.tsx:206-226`、`features/throttling/use-throttle-editor.ts:375-383`。
@@ -39,7 +39,7 @@
 - 对照：`docs/UI_GUIDELINES.md` §11.4 明确要求“危险操作 → Dialog Confirm”，且删除环境变量组已有现成确认对话框（`features/environments/components/EnvironmentManagerDialog.tsx:434-456`）——模式存在，只是没铺开。
 - 建议：统一一个 `ConfirmDialog` 组件铺到所有删除/清空入口；Collection 删除最好带 undo（Snackbar + undo）。
 
-### P0-3 “忽略 host”是功能死胡同
+### P0-3 “忽略 host”是功能死胡同 ✅ 已修复（`b8df3b53`，2026-08-16）
 
 - 证据：被忽略的 host 直接从数据里滤掉（`features/sessions/use-session-filters.ts:73-78`），而“停止忽略”入口只在该 host 的右键菜单（`features/sessions/components/DomainContextMenu.tsx:104-132`）——host 已不可见，永远右键不到。
 - 后果：用户忽略一个 host 后，没有任何地方查看/清空忽略列表。focused hosts 同样无集中管理入口（但因其可见，可逐个取消）。
@@ -65,24 +65,30 @@
 - 现在只有 host→路径树（Structure 视图），没有 Charles Sequence / Proxyman List 的按时间平铺列表。PRD §9.2 已承认“预留切换扩展位”。
 - 抓包的第一心智是“按时间流看发生了什么”。建议树/列表双视图切换，列表支持列排序与多选。
 
-### 3.3 键盘操作几乎为零
+### 3.3 键盘操作几乎为零 ✅ 已修复（2026-08-17）
 
 - 全 sessions feature 没有任何 `ArrowUp/ArrowDown` 处理——没有方向键切会话、没有 Tab 切请求/响应、没有标签快捷键。
 - 无多选：选中态是单个 `selectedSessionId`（`features/sessions/use-session-selection.ts:37-45`、`session-container.store.ts:129`），因此无法批量导出/删除/保存响应。
 - 现有键盘行为仅三个：页面级 Cmd/Ctrl+F 唤起检查器搜索（`pages/sessions/index.tsx:291-300`）、SearchBar 内 Enter/Esc（`SearchBar.tsx:190-203`）。
 - 建议：至少补 方向键导航 + Cmd/Ctrl 多选 + 批量操作；tooltips 加快捷键后缀。
 
-### 3.4 全字段搜索写好了但不可达（死代码）
+> **修复（2026-08-17）**：列表容器支持 `↑/↓` 逐条导航、`Home/End` 跳首尾、`Esc` 取消多选；`⌘/Ctrl+点击` 切换多选、`Shift+点击` 范围选择（按树可见顺序，`collectVisibleSessionIds` 为键盘导航与范围选择共用顺序源）；多选后顶部批量条支持 导出 HAR / 保存响应（按实际写入数计数）/ 删除（带确认）/ 清除；叶子 tooltip 追加快捷键提示。**未含**：Tab 切请求/响应面板及其余快捷键（仍为待办）。
+
+### 3.4 全字段搜索写好了但不可达（死代码） ✅ 已修复（2026-08-17）
 
 - `features/sessions/session-explorer.helpers.ts:379-399` 的 `matchesKeyword` 覆盖 host/path/url/method/statusCode/mimeType/httpVersion/协议，经 `useSessionFilters.searchValue` 传入（`use-session-filters.ts:94`）——但 `searchValue` 全库无 setter（仅初始化为 `""`，`session-containers.helpers.ts:311,376`）。
 - 现在的 Filter 输入框只做 host 子串匹配（`session-explorer.helpers.ts:115-128`），不支持正则、不支持方法/状态码/content-type 维度。
 - 建议：接上现有输入框即可激活全字段搜索，成本极低；再补方法/状态码过滤 chips（DevTools 风格）。
 
-### 3.5 右键菜单缺口（对标产品第一梯队功能）
+> **修复（2026-08-17）**：搜索输入框经防抖直接写入容器 `searchValue`，`matchesKeyword` 全字段匹配真正生效（输入 `404` / `json` / `GET` 即可按状态码 / MIME / 方法过滤）；原 host 子串过滤链路（`filterSessionsByHostKeyword`）已整体移除，避免与全字段命中做 AND 遮蔽。（曾随本条实现 DevTools 风格方法 / 状态码过滤 chips，经实际使用评估为冗余——与全字段搜索维度重叠——已于同日移除。）**未含**：正则搜索。
+
+### 3.5 右键菜单缺口（对标产品第一梯队功能） ✅ 已修复（2026-08-17）
 
 - **“对此 host 启用/停用 SSL 解密”**：SSL 只有 workspace 级全局 `sslEnabled` 布尔（`features/workspace-manager/use-workspaces.ts:25,52`），无法选择性解密。选择性解密既是隐私合规也是规避证书固定失败的手段。
 - **“Map Local 该请求”**：能力在 Rules 页存在，但从流量没有直达入口（`SessionContextMenu.tsx` 全文无 map 项），只能去 Rules 页手填。
 - **断点挂起无内联标记**：会话页只有一行跳转 `/rules` 的链接（`pages/sessions/index.tsx:395-401`），列表上没有“此请求正被断点挂起”的标记。
+
+> **修复（2026-08-17）**：右键新增「对此 host 停用/启用 SSL 解密」——写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理对列表内 host 的 CONNECT 直接盲通（`is_ssl_blind_tunnel`，复用 `host_in_allowlist` 比较），代理运行中修改后自动重启生效；右键新增「Map Local…」直达 Rules 页 Mapping tab 并以 `mapLocalSeed` 预填 host/path；被断点挂起的会话行内联 `PauseCircle` 标记 + tooltip“被断点挂起”。
 
 ---
 
@@ -209,7 +215,7 @@
 4. 文档编号冲突：UI Guidelines 仍是 Draft v1.0，且存在两个 §9.4（Rules Page / Throttling Page）；PAGE_BLUEPRINTS 存在两个 §11（“页面与模块映射”/“实现建议”）。需统一清理。
 5. Roadmap M1–M3 均标注“2026-05-25 完成”（roadmap 生成次日）——状态标记可信度存疑，评审以仓库实现为准。
 6. **文档明示的能力空缺（有据可查）**：HTTP/3/QUIC（Roadmap 明确“不做”，`NEXT_6_MONTH_ROADMAP.md:251,290`）；证书锁定场景为客户端策略限制、无绕过方案（PRD §12:413）；扁平列表视图为预留扩展位（PRD §9.2:261）。
-7. **评审对标差距（文档未提及，属本评审观点而非文档承诺）**：上游代理/代理链、SOCKS 代理、反向代理模式、Block/Allow List、SSL 解密按 host 白名单、Repeat Advanced——这些能力文档既未规划也未排除，建议在 PRD/Roadmap 中明确“做或不做”。（注：API_SPEC 的 `tlsVerifyHosts` 白名单属于上游 TLS 校验维度，不是解密白名单。）
+7. **评审对标差距（文档未提及，属本评审观点而非文档承诺）**：上游代理/代理链、SOCKS 代理、反向代理模式、Block/Allow List、SSL 解密按 host 白名单（✅ 2026-08-17 已实现为 `Workspace.sslBlindHosts` 盲解列表，见 §3.5，API_SPEC 已同步）、Repeat Advanced——这些能力文档既未规划也未排除，建议在 PRD/Roadmap 中明确“做或不做”。（注：API_SPEC 的 `tlsVerifyHosts` 白名单属于上游 TLS 校验维度，不是解密白名单。）
 
 ---
 
@@ -231,11 +237,11 @@
 
 | 优先级 | 内容 | 理由 |
 |---|---|---|
-| **P0** | 首启代理/SSL 接管顺序（P0-1）；删除/清空统一确认 + Collection 删除 undo（P0-2）；忽略 host 管理 chips（P0-3） | 直接造成新用户流失和数据丢失 |
-| **P1-效率** | 会话行加 状态/耗时/大小/时间 列 + host 计数；方向键 + 多选；接通全字段搜索 `searchValue` | 日用频次最高，改动集中收益大 |
+| **P0** | ~~首启代理/SSL 接管顺序（P0-1）；删除/清空统一确认 + Collection 删除 undo（P0-2）；忽略 host 管理 chips（P0-3）~~（✅ 2026-08-16 已全部完成，`b8df3b53`） | 直接造成新用户流失和数据丢失 |
+| **P1-效率** | 会话行加 状态/耗时/大小/时间 列 + host 计数（待办）；~~方向键 + 多选；接通全字段搜索 `searchValue`~~（✅ 2026-08-17 完成，见 §3.3 / §3.4） | 日用频次最高，改动集中收益大 |
 | **P1-防呆** | 规则开关行内即时生效；Map/Rewrite/DNS 保存失败提示；编辑器脏检查；断点超时倒计时与通知 | 低成本、高确定性修复 |
 | **P1-内容** | 挂回 MITM 风险说明死代码；证书移除入口；排障指南 guideUrl 断链；移动端 IP 选择；移动端验证闭环 | 写好的内容接上即可 |
-| **P2** | 扁平列表视图（Sequence/List）；SSL 按 host 白名单；cURL 导入；Compose↔Collection 收敛（环境变量/保存/附件）；Windows 菜单 i18n；toast 体系统一；状态栏吞吐 | 结构性改进，排进 roadmap（部分与 M4–M6 重合，建议调整优先级） |
+| **P2** | 扁平列表视图（Sequence/List）；~~SSL 按 host 白名单~~（✅ 2026-08-17 完成，见 §3.5）；cURL 导入；Compose↔Collection 收敛（环境变量/保存/附件）；Windows 菜单 i18n；toast 体系统一；状态栏吞吐 | 结构性改进，排进 roadmap（部分与 M4–M6 重合，建议调整优先级） |
 | **文档** | 同步 PRD/UI_GUIDELINES/PAGE_BLUEPRINTS 的导航与 Rules tab 清单；补 Script Rules 页面规范 | 消除“三处三个版本”的协作噪音 |
 
 ---

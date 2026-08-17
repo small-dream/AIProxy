@@ -1,5 +1,19 @@
 use super::*;
 
+/// Decide whether a CONNECT tunnel must be relayed blindly (no TLS
+/// termination): either SSL interception is unavailable (no TLS manager) or
+/// the target host is on the per-host blind list. Hostnames are compared
+/// case-insensitively (whitespace-trimmed) against the workspace list.
+pub(crate) fn is_ssl_blind_tunnel(
+    tls_present: bool,
+    host: &str,
+    ssl_blind_hosts: &[String],
+) -> bool {
+    // Reuse the shared case-insensitive, whitespace-trimmed host comparison
+    // (same helper as the upstream-TLS-verification allowlist).
+    !tls_present || crate::timing_connector::host_in_allowlist(ssl_blind_hosts, host)
+}
+
 static DIRECT_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 fn direct_http_client() -> Result<Client, String> {
@@ -314,6 +328,11 @@ async fn handle_connection(
         // Replay ONLY leftover (TLS ClientHello bytes) into the stream.
         // TLS acceptor must NOT see the CONNECT request header.
         let prefixed = OwnedPrefixedStream::new(leftover, stream);
+        let host_is_ssl_blind = is_ssl_blind_tunnel(
+            tls_manager.is_some(),
+            &host,
+            &config.runtime.ssl_blind_hosts,
+        );
 
         match tls_manager {
             None => {
@@ -326,7 +345,30 @@ async fn handle_connection(
                     "connect_tunneling_without_mitm"
                 );
 
-                // No TLS manager — blind tunnel (no decryption)
+                // No TLS manager — blind tunnel (no decryption).
+                return crate::connect::tunnel_blind_relay(
+                    prefixed,
+                    &host,
+                    port,
+                    &dns_manager,
+                    &active_workspace_id,
+                )
+                .await
+                .map_err(ProxyError::from);
+            }
+            Some(_) if host_is_ssl_blind => {
+                tracing::info!(
+                    event = "connect_tunneling_without_mitm",
+                    request_id = %request.request_id,
+                    client_addr = %client_addr,
+                    host = %host,
+                    port = port,
+                    ssl_blind_host = true,
+                    "connect_tunneling_without_mitm"
+                );
+
+                // The host opted out of SSL decryption (per-host blind list) —
+                // relay the tunnel without TLS termination.
                 return crate::connect::tunnel_blind_relay(
                     prefixed,
                     &host,

@@ -57,6 +57,8 @@ export function useUpdateWorkspace() {
       verifyUpstreamTls?: boolean;
       /** H3: hostnames always TLS-verified (array form). */
       tlsVerifyHosts?: string[];
+      /** Hostnames for which SSL decryption is disabled (privacy / pinning). */
+      sslBlindHosts?: string[];
     }) => updateWorkspace(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });

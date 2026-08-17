@@ -20,7 +20,6 @@ type SessionsWorkspacePanelProps = {
     labelNumber: number;
   }>;
   detailErrorMessage: string | undefined;
-  domainFilterValue: string;
   errorMessage: string | undefined;
   expandedHosts: string[];
   explorerWidth: number;
@@ -30,34 +29,41 @@ type SessionsWorkspacePanelProps = {
   inspectorSplitRatio: number;
   isDetailLoading: boolean;
   isLoading: boolean;
+  multiSelectedSessionIds: ReadonlySet<string>;
   onAddContainer: () => void;
   onCloseContainer: (containerId: string) => void;
+  onClearMultiSelection: () => void;
   onContextMenuHost: (host: string, event: React.MouseEvent) => void;
   onContextMenuSession: (session: SessionSummary, event: React.MouseEvent) => void;
   onCopyCurl: (() => void) | undefined;
   onCopyUrl: (() => void) | undefined;
+  onDeleteSelected: () => void;
   onDisableThrottledOnly: () => void;
-  onDomainFilterChange: (value: string) => void;
+  onExportSelected: () => void;
   onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRepeat: (() => void) | undefined;
   onRequestCollapsedChange: (collapsed: boolean) => void;
   onRequestTabChange: (tab: RequestInspectorTab) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onResponseTabChange: (tab: ResponseInspectorTab) => void;
+  onSaveSelectedResponses: () => void;
+  onSearchValueChange: (value: string) => void;
   onSelectContainer: (containerId: string) => void;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string, options?: { additive?: boolean; range?: boolean }) => void;
   onStopIgnoringHost: (host: string) => void;
   onToggleHost: (host: string) => void;
   onUnfocusHost: (host: string) => void;
   requestCollapsed: boolean;
   requestTab: RequestInspectorTab;
   responseTab: ResponseInspectorTab;
+  searchValue: string;
   sessionSelectionNonce: number;
   runtimeErrorMessage: string | undefined;
   selectedSession: SessionSummary | undefined;
   selectedSessionDetail: SessionDetail | undefined;
   selectedSessionId: string | undefined;
   showOnlyThrottled: boolean;
+  visibleSessionOrder: string[];
   workspaceRef: RefObject<WorkspaceHandle | null>;
 };
 
@@ -65,7 +71,6 @@ export function SessionsWorkspacePanel({
   activeContainerId,
   containerTabs,
   detailErrorMessage,
-  domainFilterValue,
   errorMessage,
   expandedHosts,
   explorerWidth,
@@ -75,20 +80,25 @@ export function SessionsWorkspacePanel({
   inspectorSplitRatio,
   isDetailLoading,
   isLoading,
+  multiSelectedSessionIds,
   onAddContainer,
   onCloseContainer,
+  onClearMultiSelection,
   onContextMenuHost,
   onContextMenuSession,
   onCopyCurl,
   onCopyUrl,
+  onDeleteSelected,
   onDisableThrottledOnly,
-  onDomainFilterChange,
+  onExportSelected,
   onInspectorResizeStart,
   onRepeat,
   onRequestCollapsedChange,
   onRequestTabChange,
   onResizeStart,
   onResponseTabChange,
+  onSaveSelectedResponses,
+  onSearchValueChange,
   onSelectContainer,
   onSelectSession,
   onStopIgnoringHost,
@@ -97,12 +107,14 @@ export function SessionsWorkspacePanel({
   requestCollapsed,
   requestTab,
   responseTab,
+  searchValue,
   sessionSelectionNonce,
   runtimeErrorMessage,
   selectedSession,
   selectedSessionDetail,
   selectedSessionId,
   showOnlyThrottled,
+  visibleSessionOrder,
   workspaceRef,
 }: SessionsWorkspacePanelProps) {
   return (
@@ -163,23 +175,29 @@ export function SessionsWorkspacePanel({
             />
 
             <SessionExplorerPane
-              domainFilterValue={domainFilterValue}
               errorMessage={errorMessage}
               expandedHosts={expandedHosts}
               focusedHosts={focusedHosts}
               groups={groups}
               ignoredHosts={ignoredHosts}
               isLoading={isLoading}
+              multiSelectedSessionIds={multiSelectedSessionIds}
+              onClearMultiSelection={onClearMultiSelection}
               onDisableThrottledOnly={onDisableThrottledOnly}
-              onDomainFilterChange={onDomainFilterChange}
+              onDeleteSelected={onDeleteSelected}
+              onExportSelected={onExportSelected}
               onContextMenuHost={onContextMenuHost}
               onContextMenuSession={onContextMenuSession}
+              onSaveSelectedResponses={onSaveSelectedResponses}
               onSelectSession={onSelectSession}
+              onSearchValueChange={onSearchValueChange}
               onStopIgnoringHost={onStopIgnoringHost}
               onToggleHost={onToggleHost}
               onUnfocusHost={onUnfocusHost}
+              searchValue={searchValue}
               selectedSessionId={selectedSessionId}
               showOnlyThrottled={showOnlyThrottled}
+              visibleSessionOrder={visibleSessionOrder}
             />
           </Box>
 

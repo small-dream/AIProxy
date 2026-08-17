@@ -1,4 +1,4 @@
-import { coerceAppError, isAppError } from "@aiproxy/shared-types";
+import { coerceAppError, isAppError, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Snackbar, Stack } from "@mui/material";
@@ -13,8 +13,9 @@ import type { AppShellOutletContext } from "@/components/layout/app-shell.types"
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SetupChecklistCard } from "@/components/shared/SetupChecklistCard";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
-import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
+import { useProxyStatus, useStartProxy } from "@/features/proxy-status/use-proxy-status";
 import { useClearSessions } from "@/features/proxy-status/use-proxy-status";
+import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
@@ -56,7 +57,10 @@ import {
   setFocusedHosts as syncFocusedHosts,
 } from "@/services/commands";
 import { logDevWarn } from "@/services/logger/dev-logger";
-import { reconcileExpandedKeys } from "@/features/sessions/session-explorer.helpers";
+import {
+  collectVisibleSessionIds,
+  reconcileExpandedKeys,
+} from "@/features/sessions/session-explorer.helpers";
 
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 const COMPARE_BASE_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.compareBaseSessionId";
@@ -73,9 +77,13 @@ export function SessionsPage() {
   // user opted out via the dialog checkbox (re-enablable in Settings).
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearDontAskAgain, setClearDontAskAgain] = useState(false);
+  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
   const skipClearSessionsConfirm = useAppPreferencesStore((s) => s.skipClearSessionsConfirm);
   const setSkipClearSessionsConfirm = useAppPreferencesStore((s) => s.setSkipClearSessionsConfirm);
-  const { error, isLoading } = useProxyStatus();
+  const { data: proxyStatus, error, isLoading } = useProxyStatus();
+  const { data: workspaces = [] } = useWorkspaces();
+  const updateWorkspaceMutation = useUpdateWorkspace();
+  const startProxyMutation = useStartProxy();
   const {
     data: runtimeSessions = [],
     error: sessionsError,
@@ -97,6 +105,7 @@ export function SessionsPage() {
     selectContainer,
     updateActiveContainer: updateContainer,
     clearOtherSessions,
+    removeSummary: removeSummaryFromStore,
     clearSessions: clearStoreSessions,
   } = store();
 
@@ -106,6 +115,15 @@ export function SessionsPage() {
   const workspaceRef = useRef<WorkspaceHandle>(null);
 
   const activeContainer = containers.find((c) => c.id === activeContainerId) ?? containers[0];
+  const currentWorkspace = useMemo(
+    () =>
+      workspaces.find(
+        (workspace) => workspace.id === (proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID),
+      ) ??
+      workspaces.find((workspace) => workspace.id === DEFAULT_WORKSPACE_ID) ??
+      null,
+    [proxyStatus?.activeWorkspaceId, workspaces],
+  );
 
   // Active sessions from the container
   const activeSessions = useMemo(
@@ -138,19 +156,28 @@ export function SessionsPage() {
   } = useSessionFilters({
     displayActiveSessions,
     updateContainer,
-    domainFilterValue: activeContainer?.domainFilterValue ?? "",
     searchValue: activeContainer?.searchValue ?? "",
   });
+
+  // Visual tree order of the currently visible leaves — the single source of
+  // truth for keyboard navigation and Shift+click range selection.
+  const visibleSessionOrder = useMemo(
+    () => collectVisibleSessionIds(hostGroups, activeContainer?.expandedHosts ?? []),
+    [activeContainer?.expandedHosts, hostGroups],
+  );
 
   const {
     selectedSession,
     selectedRawSession,
     isSelectedSessionLocallyTimedOut,
     sessionSelectionNonce,
+    multiSelectedSessionIds,
     handleSelectedSessionChange,
+    clearMultiSelection,
     bumpSelectionNonce,
   } = useSessionSelection({
     visibleSessions,
+    visibleSessionOrder,
     activeSessions,
     selectedSessionId: activeContainer?.selectedSessionId,
     locallyTimedOutSessionIds,
@@ -163,7 +190,7 @@ export function SessionsPage() {
     startExplorerResize,
     startInspectorResize,
     handleRequestCollapsedChange,
-    handleDomainFilterChange,
+    handleSearchValueChange,
     handleRequestTabChange,
     handleResponseTabChange,
   } = useSessionExplorerLayout({
@@ -372,6 +399,7 @@ export function SessionsPage() {
     exportDialogHostScope,
     importSnackbarMessage,
     handleExportSession,
+    handleExportSessions,
     handleExportHost,
     handleImportHarPickerOpen,
     handleOpenExportDialog,
@@ -401,6 +429,55 @@ export function SessionsPage() {
     [clearOtherSessions],
   );
 
+  // Sessions visible in the current filtered tree that are part of the
+  // multi-selection (Cmd/Ctrl+click). Shared by the batch action bar.
+  const selectedMultiSessions = useMemo(
+    () => visibleSessions.filter((session) => multiSelectedSessionIds.has(session.id)),
+    [multiSelectedSessionIds, visibleSessions],
+  );
+
+  const handleExportSelected = useCallback(() => {
+    if (selectedMultiSessions.length === 0) return;
+    handleExportSessions(selectedMultiSessions);
+  }, [handleExportSessions, selectedMultiSessions]);
+
+  const handleSaveSelectedResponses = useCallback(async () => {
+    if (selectedMultiSessions.length === 0) return;
+
+    let savedCount = 0;
+    for (const session of selectedMultiSessions) {
+      try {
+        if (await handleSaveResponse(session)) {
+          savedCount += 1;
+        }
+      } catch {
+        // A failed download (e.g. detail load error) is skipped; sessions
+        // without a captured response body return false and are not counted.
+      }
+    }
+    showSnackbar(t("sessionsPage.batchSaveResponsesDone", { count: savedCount }));
+  }, [handleSaveResponse, selectedMultiSessions, showSnackbar, t]);
+
+  const handleRequestDeleteSelected = useCallback(() => {
+    if (selectedMultiSessions.length === 0) return;
+    setBatchDeleteConfirmOpen(true);
+  }, [selectedMultiSessions.length]);
+
+  const handleConfirmDeleteSelected = useCallback(() => {
+    const count = selectedMultiSessions.length;
+    if (count === 0) {
+      setBatchDeleteConfirmOpen(false);
+      return;
+    }
+
+    for (const session of selectedMultiSessions) {
+      removeSummaryFromStore(session.id);
+    }
+    clearMultiSelection();
+    setBatchDeleteConfirmOpen(false);
+    showSnackbar(t("sessionsPage.batchDeleteDone", { count }));
+  }, [clearMultiSelection, removeSummaryFromStore, selectedMultiSessions, showSnackbar, t]);
+
   const handleGoToBreakpoints = useCallback(() => {
     navigate("/rules");
   }, [navigate]);
@@ -423,6 +500,63 @@ export function SessionsPage() {
       });
     },
     [navigate],
+  );
+
+  const handleCreateMapLocal = useCallback(
+    (session: SessionSummary) => {
+      navigate("/rules", {
+        state: {
+          mapLocalSeed: {
+            host: session.host,
+            method: session.method,
+            path: session.path,
+            url: session.url,
+          },
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const handleToggleSslDecrypt = useCallback(
+    async (session: SessionSummary) => {
+      if (!currentWorkspace || !session.host) return;
+
+      const host = session.host;
+      const currentList = currentWorkspace.sslBlindHosts ?? [];
+      const isDisabling = !currentList.includes(host);
+      const nextList = isDisabling
+        ? [...currentList, host]
+        : currentList.filter((candidate) => candidate !== host);
+
+      try {
+        await updateWorkspaceMutation.mutateAsync({
+          workspaceId: currentWorkspace.id,
+          sslBlindHosts: nextList,
+        });
+
+        // Applying the new per-host setting requires a proxy restart so fresh
+        // CONNECT tunnels pick up the updated blind list (same pattern as the
+        // global SSL toggle on the settings page).
+        if (proxyStatus?.running) {
+          await startProxyMutation.mutateAsync({
+            enableHttp2: proxyStatus.http2Enabled ?? true,
+            enableSsl: proxyStatus.sslEnabled,
+            port: proxyStatus.port,
+            workspaceId: currentWorkspace.id,
+          });
+        }
+
+        showSnackbar(
+          t(isDisabling ? "sessionsPage.sslDecryptDisabled" : "sessionsPage.sslDecryptEnabled", {
+            host,
+          }),
+        );
+      } catch {
+        showSnackbar(t("sessionsPage.sslDecryptToggleFailed"));
+      }
+    },
+    [currentWorkspace, proxyStatus, showSnackbar, startProxyMutation, t, updateWorkspaceMutation],
   );
 
   const handleCreateThrottleRule = useCallback(
@@ -616,7 +750,7 @@ export function SessionsPage() {
 
     updateContainer((container) => ({
       ...container,
-      domainFilterValue: hostFilterAction.host,
+      searchValue: hostFilterAction.host,
       expandedHosts: container.expandedHosts.includes(hostFilterAction.host)
         ? container.expandedHosts
         : [...container.expandedHosts, hostFilterAction.host],
@@ -675,7 +809,6 @@ export function SessionsPage() {
             ? getOperationErrorMessage(sessionDetailError, t("sessionsPage.detailLoadError"))
             : undefined
         }
-        domainFilterValue={activeContainer?.domainFilterValue ?? ""}
         errorMessage={sessionsError ? sessionsErrorMessage : undefined}
         expandedHosts={activeContainer?.expandedHosts ?? []}
         explorerWidth={explorerWidth}
@@ -685,8 +818,10 @@ export function SessionsPage() {
         inspectorSplitRatio={activeContainer?.inspectorSplitRatio ?? defaultInspectorSplitRatio}
         isDetailLoading={isSessionDetailLoading}
         isLoading={isLoading || areSessionsLoading}
+        multiSelectedSessionIds={multiSelectedSessionIds}
         onAddContainer={handleAddContainer}
         onCloseContainer={handleCloseContainer}
+        onClearMultiSelection={clearMultiSelection}
         onContextMenuHost={handleHostContextMenu}
         onContextMenuSession={handleContextMenu}
         onCopyCurl={
@@ -703,14 +838,17 @@ export function SessionsPage() {
               }
             : undefined
         }
+        onDeleteSelected={handleRequestDeleteSelected}
         onDisableThrottledOnly={() => setShowOnlyThrottled(false)}
-        onDomainFilterChange={handleDomainFilterChange}
+        onExportSelected={handleExportSelected}
         onInspectorResizeStart={startInspectorResize}
         onRepeat={selectedSession ? handleRepeat : undefined}
         onRequestCollapsedChange={handleRequestCollapsedChange}
         onRequestTabChange={handleRequestTabChange}
         onResizeStart={startExplorerResize}
         onResponseTabChange={handleResponseTabChange}
+        onSaveSelectedResponses={handleSaveSelectedResponses}
+        onSearchValueChange={handleSearchValueChange}
         onSelectContainer={handleSelectContainer}
         onSelectSession={handleSelectedSessionChange}
         onStopIgnoringHost={handleStopIgnoringDomain}
@@ -719,12 +857,14 @@ export function SessionsPage() {
         requestCollapsed={activeContainer?.requestCollapsed ?? false}
         requestTab={activeContainer?.requestTab ?? "headers"}
         responseTab={activeContainer?.responseTab ?? "overview"}
+        searchValue={activeContainer?.searchValue ?? ""}
         sessionSelectionNonce={sessionSelectionNonce}
         runtimeErrorMessage={error ? t("sessionsPage.runtimeError") : undefined}
         selectedSession={selectedSession}
         selectedSessionDetail={selectedSessionDetail}
         selectedSessionId={selectedSessionIdValue}
         showOnlyThrottled={showOnlyThrottled}
+        visibleSessionOrder={visibleSessionOrder}
         workspaceRef={workspaceRef}
       />
 
@@ -747,6 +887,11 @@ export function SessionsPage() {
         anchorPosition={contextMenuAnchor}
         isHostFocused={contextMenuSession ? focusedHosts.has(contextMenuSession.host) : false}
         isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
+        isHostSslDecryptDisabled={
+          contextMenuSession
+            ? (currentWorkspace?.sslBlindHosts ?? []).includes(contextMenuSession.host)
+            : false
+        }
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
@@ -755,6 +900,7 @@ export function SessionsPage() {
         onCopyRequest={handleCopyRequest}
         onCopyResponse={handleCopyResponse}
         onCopyUrl={handleCopyUrl}
+        onCreateMapLocal={handleCreateMapLocal}
         onCreateRewrite={handleCreateRewrite}
         onCreateThrottleRule={handleCreateThrottleRule}
         onExportSession={handleExportSession}
@@ -767,6 +913,7 @@ export function SessionsPage() {
         onSaveToCollection={handleSaveToCollection}
         onSetCompareBase={handleSetCompareBase}
         onStopIgnoringHost={handleStopIgnoringHost}
+        onToggleSslDecrypt={handleToggleSslDecrypt}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
       />
@@ -828,6 +975,15 @@ export function SessionsPage() {
         }}
         onCancel={() => setClearConfirmOpen(false)}
         isConfirming={isClearingSessions}
+      />
+
+      <ConfirmDialog
+        open={batchDeleteConfirmOpen}
+        title={t("sessionsPage.batchDeleteTitle")}
+        message={t("sessionsPage.batchDeleteConfirm", { count: selectedMultiSessions.length })}
+        confirmLabel={t("sessionsPage.batchDelete")}
+        onConfirm={handleConfirmDeleteSelected}
+        onCancel={() => setBatchDeleteConfirmOpen(false)}
       />
     </Stack>
   );

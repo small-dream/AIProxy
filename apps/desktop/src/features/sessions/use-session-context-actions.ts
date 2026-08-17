@@ -217,20 +217,21 @@ export function useSessionContextActions({
   );
 
   const handleSaveResponse = useCallback(
-    async (session: SessionSummary) => {
+    async (session: SessionSummary): Promise<boolean> => {
       const detail = await ensureSessionDetailContent(queryClient, session.id, {
         includeResponseBodyText: true,
       });
       const bodyText = getBodyText(detail?.responseBody);
 
       if (!bodyText) {
-        return;
+        return false;
       }
 
       const mimeType = detail?.responseBody?.mimeType ?? "application/octet-stream";
       const extension = guessExtension(mimeType);
       const filename = `${session.host.replace(/[^a-zA-Z0-9.-]/g, "_")}-${session.id.slice(0, 8)}.${extension}`;
       await downloadTextFile(filename, bodyText, mimeType);
+      return true;
     },
     [queryClient],
   );

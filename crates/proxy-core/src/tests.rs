@@ -3,6 +3,7 @@ use super::rules::{
     apply_request_rewrite_rules, apply_response_rewrite_rules, ThrottleRuleData,
     ThrottleRuntimeSelection,
 };
+use super::server::is_ssl_blind_tunnel;
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
@@ -34,6 +35,7 @@ fn validates_a_non_zero_port() {
         http2_enabled: None,
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
     };
 
     let actual = config.validate();
@@ -49,11 +51,25 @@ fn rejects_zero_as_a_port() {
         http2_enabled: None,
         verify_upstream_tls: false,
         tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+        ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
     };
 
     let actual = config.validate();
 
     assert_eq!(actual, Err("proxy port must be greater than zero"));
+}
+
+#[test]
+fn ssl_blind_hosts_force_blind_tunnel_case_insensitively() {
+    let blind_hosts = vec!["api.example.com".to_string()];
+
+    // Host in the blind list → blind even when TLS interception is available.
+    assert!(is_ssl_blind_tunnel(true, "API.Example.com", &blind_hosts));
+    assert!(is_ssl_blind_tunnel(true, "api.example.com", &blind_hosts));
+    // Host not in the list → MITM when TLS is available.
+    assert!(!is_ssl_blind_tunnel(true, "api.other.com", &blind_hosts));
+    // No TLS manager → always blind, regardless of the list.
+    assert!(is_ssl_blind_tunnel(false, "api.example.com", &[]));
 }
 
 #[test]
@@ -2168,6 +2184,7 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -2248,6 +2265,7 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -2342,6 +2360,7 @@ async fn h1_conn_driver_is_aborted_after_request_timeout() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -2445,6 +2464,7 @@ async fn forwards_large_http_responses_without_truncating_the_client_body() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -2839,6 +2859,7 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -2904,6 +2925,7 @@ async fn request_body_over_limit_returns_413_and_records_session() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3007,6 +3029,7 @@ async fn ws_upgrade_non_101_response_no_registry_no_duplicate_session() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3087,6 +3110,7 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3238,6 +3262,7 @@ async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3349,6 +3374,7 @@ async fn ws_upgrade_non_101_chunked_body_decoded() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3478,6 +3504,7 @@ async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3609,6 +3636,7 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3717,6 +3745,7 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: Some("default".to_string()),
             event_emitter: None,
@@ -3941,6 +3970,7 @@ async fn blind_tunnel_returns_502_when_upstream_unreachable() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -3991,6 +4021,7 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -4096,6 +4127,7 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -4207,6 +4239,7 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,
@@ -4349,6 +4382,7 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
                 http2_enabled: None,
                 verify_upstream_tls: false,
                 tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
             },
             workspace_id: None,
             event_emitter: None,

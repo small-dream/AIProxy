@@ -8,6 +8,9 @@ import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
+import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
@@ -30,6 +33,7 @@ type SessionContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
   isHostFocused: boolean;
   isHostIgnored: boolean;
+  isHostSslDecryptDisabled: boolean;
   session: SessionSummary | null;
   onClose: () => void;
   onClearOthers: (session: SessionSummary) => void;
@@ -40,6 +44,7 @@ type SessionContextMenuProps = {
   onCopyResponse: (session: SessionSummary) => void;
   onCopyUrl: (session: SessionSummary) => void;
   onCreateRewrite: (session: SessionSummary) => void;
+  onCreateMapLocal: (session: SessionSummary) => void;
   onCreateThrottleRule: (session: SessionSummary) => void;
   onExportSession: (session: SessionSummary) => void;
   onFocusHost: (session: SessionSummary) => void;
@@ -51,6 +56,7 @@ type SessionContextMenuProps = {
   onSaveToCollection: (session: SessionSummary) => void;
   onSetCompareBase: (session: SessionSummary) => void;
   onStopIgnoringHost: (session: SessionSummary) => void;
+  onToggleSslDecrypt: (session: SessionSummary) => void;
   onUnfocusHost: (session: SessionSummary) => void;
 };
 
@@ -58,6 +64,7 @@ export function SessionContextMenu({
   anchorPosition,
   isHostFocused,
   isHostIgnored,
+  isHostSslDecryptDisabled,
   session,
   onClose,
   onClearOthers,
@@ -68,6 +75,7 @@ export function SessionContextMenu({
   onCopyResponse,
   onCopyUrl,
   onCreateRewrite,
+  onCreateMapLocal,
   onCreateThrottleRule,
   onExportSession,
   onFocusHost,
@@ -79,6 +87,7 @@ export function SessionContextMenu({
   onSaveToCollection,
   onSetCompareBase,
   onStopIgnoringHost,
+  onToggleSslDecrypt,
   onUnfocusHost,
 }: SessionContextMenuProps) {
   const { t } = useI18n();
@@ -243,11 +252,35 @@ export function SessionContextMenu({
 
       <Divider sx={dividerSx} />
 
+      <MenuItem onClick={handleClick(onToggleSslDecrypt)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          {isHostSslDecryptDisabled ? (
+            <LockOpenRoundedIcon fontSize="small" />
+          ) : (
+            <LockRoundedIcon fontSize="small" />
+          )}
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {isHostSslDecryptDisabled
+            ? t("contextMenu.sslDecryptEnable")
+            : t("contextMenu.sslDecryptDisable")}
+        </ListItemText>
+      </MenuItem>
+
+      <Divider sx={dividerSx} />
+
       <MenuItem onClick={handleClick(onCreateRewrite)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
           <AltRouteRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.createRewrite")}</ListItemText>
+      </MenuItem>
+
+      <MenuItem onClick={handleClick(onCreateMapLocal)} sx={menuItemSx}>
+        <ListItemIcon sx={iconSx}>
+          <FolderOpenRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.mapLocal")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCreateThrottleRule)} sx={menuItemSx}>

@@ -43,7 +43,38 @@ vi.mock("@/features/compose/use-compose-request", () => ({
 
 vi.mock("@/features/proxy-status/use-proxy-status", () => ({
   useClearSessions: () => ({ isPending: false, mutate: vi.fn() }),
-  useProxyStatus: () => ({ error: null, isLoading: false }),
+  useProxyStatus: () => ({
+    data: {
+      activeWorkspaceId: "default",
+      http2Enabled: true,
+      port: 8888,
+      running: false,
+      sslEnabled: true,
+    },
+    error: null,
+    isLoading: false,
+  }),
+  useStartProxy: () => ({ mutateAsync: vi.fn() }),
+}));
+
+vi.mock("@/features/workspace-manager/use-workspaces", () => ({
+  useWorkspaces: () => ({
+    data: [
+      {
+        createdAt: "2026-01-01T00:00:00Z",
+        http2Enabled: true,
+        id: "default",
+        name: "Default",
+        proxyPort: 8888,
+        sslBlindHosts: [],
+        sslEnabled: true,
+        storagePath: "",
+        systemProxyEnabled: false,
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  }),
+  useUpdateWorkspace: () => ({ mutateAsync: vi.fn() }),
 }));
 
 vi.mock("@/features/sessions/use-session-context-actions", () => ({
@@ -111,22 +142,22 @@ vi.mock("@/components/shared/SetupChecklistCard", () => ({
 
 vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
   SessionsWorkspacePanel: ({
-    domainFilterValue,
     expandedHosts,
     groups,
     inspectorSplitRatio,
     onInspectorResizeStart,
     onSelectSession,
     onToggleHost,
+    searchValue,
     selectedSessionId,
   }: {
-    domainFilterValue: string;
     expandedHosts: string[];
     groups: unknown[];
     inspectorSplitRatio: number;
     onInspectorResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
     onSelectSession: (sessionId: string) => void;
     onToggleHost: (host: string) => void;
+    searchValue: string;
     selectedSessionId: string | undefined;
   }) => {
     const gridRef = useRef<HTMLDivElement | null>(null);
@@ -135,7 +166,7 @@ vi.mock("@/features/sessions/components/SessionsWorkspacePanel", () => ({
     return (
       <div>
         <div data-testid="expanded-hosts">{expandedHosts.join("|")}</div>
-        <div data-testid="domain-filter-value">{domainFilterValue}</div>
+        <div data-testid="search-value">{searchValue}</div>
         <div data-testid="group-count">{String(groups.length)}</div>
         <div data-testid="inspector-ratio">{String(inspectorSplitRatio)}</div>
         <div data-testid="selected-session-id">{selectedSessionId ?? "none"}</div>
@@ -355,7 +386,7 @@ describe("SessionsPage inspector split ratio", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("domain-filter-value")).toHaveTextContent("api.example.com");
+      expect(screen.getByTestId("search-value")).toHaveTextContent("api.example.com");
       expect(screen.getByTestId("expanded-hosts")).toHaveTextContent("api.example.com");
     });
   });

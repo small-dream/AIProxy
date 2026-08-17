@@ -145,6 +145,8 @@ pub fn run() {
                     verify_upstream_tls: ws.verify_upstream_tls,
                     tls_verify_hosts: serde_json::to_string(&ws.tls_verify_hosts)
                         .unwrap_or_else(|_| "[]".to_string()),
+                    ssl_blind_hosts: serde_json::to_string(&ws.ssl_blind_hosts)
+                        .unwrap_or_else(|_| "[]".to_string()),
                     storage_path: ws.storage_path.clone(),
                     created_at: ws.created_at.clone(),
                     updated_at: ws.updated_at.clone(),

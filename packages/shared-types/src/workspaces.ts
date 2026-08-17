@@ -20,6 +20,13 @@ export type Workspace = {
    * compatibility (defaults to an empty array).
    */
   tlsVerifyHosts?: string[];
+  /**
+   * Hostnames for which SSL decryption (MITM) is disabled while the
+   * workspace-level `sslEnabled` stays on. These hosts are tunneled blindly,
+   * which is both a privacy control and a workaround for certificate pinning.
+   * Optional for backward compatibility (defaults to an empty array).
+   */
+  sslBlindHosts?: string[];
   storagePath: string;
   createdAt: string;
   updatedAt: string;

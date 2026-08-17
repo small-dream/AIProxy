@@ -376,9 +376,17 @@ Sessions Page
 - 默认按 `domain / host` 分组
 - 组节点展开后展示请求项
 - 每条请求项需能直接看到 `method / path / status / duration`
-- 支持键盘上下切换选中项
+- 支持键盘导航：`↑/↓` 切换会话（按树可见顺序，折叠的 host/分支不可达）、`Home/End` 跳首尾、`Esc` 取消多选
+- 支持多选：`⌘/Ctrl+点击` 切换成员、`Shift+点击` 按树可见顺序范围选择；多选行用 secondary 色与单选区分
+- 多选后列表顶部出现批量操作条：`Export`（批量导出 HAR）、`Save responses`（按实际写入数计数）、`Delete`（需确认）、`Clear`
+- 叶子 tooltip 追加快捷键提示；被断点挂起的会话行显示暂停标记（`PauseCircle` + tooltip）
 - 会话叶子节点支持右键打开 `SessionContextMenu`
 - Host 被聚焦时，其他 Host 以降透明度形式退场，而不是完全隐藏
+
+#### `Session Filter Input`（全字段搜索）
+
+- 列表底部输入框同时是**全字段搜索**入口：匹配 host / path / url / method / statusCode / mimeType / httpVersion / 协议（`matchesKeyword`），例如输入 `404` 或 `json` 即可过滤到对应状态码 / MIME 的请求
+- 输入经 150ms 防抖写入容器 `searchValue`；不再与 host 子串过滤串联，避免遮蔽全字段命中
 
 #### `Split Resize Handle`
 
@@ -418,8 +426,8 @@ Sessions Page
   - 媒体预览（音频/视频）：`Save As...`、`Copy URL`、`Open in Browser`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
-  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
-  - 跳转：`Breakpoints...`、`Map Rules...`
+  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`、`Disable / Enable SSL Decryption for Host`（写 `Workspace.sslBlindHosts` 并重启代理生效）
+  - 跳转：`Breakpoints...`、`Map Rules...`、`Map Local…`（携带请求的 host/method/path/url 预填 Mapping 规则）
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
 - `Focus` 与 `Ignore` 属于视图状态，但**持久化到 localStorage**（`aiproxy.sessions.focusedHosts` / `ignoredHosts`）：高频抓包的固定 domain 不应每次重新设置；持久化 + 数据滤除意味着取消入口必须在被过滤数据之外（见下条 chips）

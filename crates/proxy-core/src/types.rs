@@ -18,6 +18,12 @@ pub struct ProxyRuntimeConfig {
     /// regardless"). The effective verify decision per connection is
     /// `verify_upstream_tls || tls_verify_hosts.contains(host)`.
     pub tls_verify_hosts: std::sync::Arc<[String]>,
+    /// Hostnames for which SSL interception (MITM) is disabled even while the
+    /// workspace-level `ssl_enabled` switch is on. CONNECT tunnels to these
+    /// hosts are relayed blindly (no TLS termination, no capture of the
+    /// decrypted body) — a privacy control and an escape hatch for hosts whose
+    /// clients pin their certificates. Hostnames are stored lowercase.
+    pub ssl_blind_hosts: std::sync::Arc<[String]>,
 }
 
 impl ProxyRuntimeConfig {

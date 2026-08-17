@@ -114,6 +114,10 @@ type Workspace = {
   // H3: hostnames always TLS-verified even when verifyUpstreamTls is false.
   // Optional; defaults to []. The DB column stores a JSON-encoded array.
   tlsVerifyHosts?: string[];
+  // Per-host SSL-decryption opt-out: hostnames that are tunneled blindly
+  // (no MITM) even while sslEnabled stays on. Optional; defaults to [].
+  // The DB column stores a JSON-encoded array.
+  sslBlindHosts?: string[];
 };
 ```
 
@@ -767,6 +771,10 @@ type UpdateWorkspaceInput = {
   // the backend serializes it to the JSON-encoded DB column. Omit to leave
   // unchanged.
   tlsVerifyHosts?: string[];
+  // Hostnames for which SSL decryption is disabled while the workspace
+  // sslEnabled switch stays on (privacy / certificate-pinning escape hatch).
+  // Array form (matches Workspace.sslBlindHosts); omit to leave unchanged.
+  sslBlindHosts?: string[];
 };
 ```
 
@@ -777,6 +785,8 @@ type UpdateWorkspaceOutput = Workspace;
 ```
 
 > **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
+
+> **SSL 按 host 解密开关**：`sslBlindHosts` 内的 host 在 CONNECT 阶段直接盲通（不终止 TLS、不捕获解密后的明文），即使 workspace 级 `sslEnabled` 保持开启——既是隐私合规控制，也是绕过证书固定（pinning）的手段。匹配为大小写不敏感、去空白（复用 `host_in_allowlist`）。修改通过 `update_workspace` 持久化，代理运行时在 `start_proxy` / 重启后按新列表解析生效。
 
 ## 6.3 Session Commands
 

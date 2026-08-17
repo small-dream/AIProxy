@@ -6,6 +6,7 @@ import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
+import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
@@ -27,6 +28,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { TranslationKey } from "@/i18n";
 import { useI18n } from "@/i18n";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { SessionFilterChips } from "./SessionFilterChips";
 import { getWorkbenchFontSize } from "./SessionInspectorShared";
 import {
@@ -38,27 +40,78 @@ import {
 } from "../session-explorer.helpers";
 
 type SessionExplorerPaneProps = {
-  domainFilterValue: string;
   errorMessage: string | undefined;
   expandedHosts: string[];
   focusedHosts: ReadonlySet<string>;
   groups: SessionHostGroup[];
   ignoredHosts: ReadonlySet<string>;
   isLoading: boolean;
+  multiSelectedSessionIds: ReadonlySet<string>;
+  onClearMultiSelection: () => void;
   onDisableThrottledOnly: () => void;
-  onDomainFilterChange: (value: string) => void;
+  onDeleteSelected: () => void;
+  onExportSelected: () => void;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
-  onSelectSession: (sessionId: string) => void;
+  onSaveSelectedResponses: () => void;
+  onSelectSession: (sessionId: string, options?: { additive?: boolean; range?: boolean }) => void;
+  onSearchValueChange: (value: string) => void;
   onStopIgnoringHost: (host: string) => void;
   onToggleHost: (host: string) => void;
   onUnfocusHost: (host: string) => void;
+  searchValue: string;
   selectedSessionId: string | undefined;
   showOnlyThrottled: boolean;
+  visibleSessionOrder: string[];
 };
 
 const SESSION_EXPLORER_ROW_HEIGHT = 26;
 const SESSION_EXPLORER_OVERSCAN = 12;
+
+function BatchActionButton({
+  destructive = false,
+  label,
+  onClick,
+}: {
+  destructive?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Box
+      aria-label={label}
+      component="button"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      sx={(theme) => ({
+        bgcolor: destructive
+          ? alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.18 : 0.08)
+          : "transparent",
+        border: "1px solid",
+        borderColor: destructive ? alpha(theme.palette.error.main, 0.45) : theme.palette.divider,
+        borderRadius: 1,
+        color: destructive ? "error.main" : "text.secondary",
+        cursor: "pointer",
+        flex: "0 0 auto",
+        fontFamily: theme.typography.fontFamily,
+        fontSize: 12,
+        fontWeight: 600,
+        lineHeight: 1,
+        px: 0.75,
+        py: 0.5,
+        "&:hover": {
+          bgcolor: destructive
+            ? alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.28 : 0.14)
+            : "action.hover",
+          color: destructive ? "error.main" : "text.primary",
+        },
+      })}
+    >
+      {label}
+    </Box>
+  );
+}
 
 type SessionExplorerVisibleRow =
   | { kind: "host"; group: SessionHostGroup }
@@ -75,37 +128,49 @@ function getSessionTreeTextSx(theme: Theme) {
 }
 
 export function SessionExplorerPane({
-  domainFilterValue,
   errorMessage,
   expandedHosts,
   focusedHosts,
   groups,
   ignoredHosts,
   isLoading,
+  multiSelectedSessionIds,
+  onClearMultiSelection,
   onDisableThrottledOnly,
-  onDomainFilterChange,
+  onDeleteSelected,
+  onExportSelected,
   onContextMenuHost,
   onContextMenuSession,
+  onSaveSelectedResponses,
   onSelectSession,
+  onSearchValueChange,
   onStopIgnoringHost,
   onToggleHost,
   onUnfocusHost,
+  searchValue,
   selectedSessionId,
   showOnlyThrottled,
+  visibleSessionOrder,
 }: SessionExplorerPaneProps) {
   const { t } = useI18n();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [localFilterValue, setLocalFilterValue] = useState(domainFilterValue);
+  const [localFilterValue, setLocalFilterValue] = useState(searchValue);
   const debouncedFilterValue = useDebouncedValue(localFilterValue, 150);
+  const pendingBreakpointHits = useBreakpointStore((s) => s.pendingHits);
+
+  const pendingBreakpointSessionIds = useMemo(
+    () => new Set(pendingBreakpointHits.map((hit) => hit.sessionId)),
+    [pendingBreakpointHits],
+  );
 
   // Re-sync when the parent prop changes (e.g. switching to a different container tab).
   useEffect(() => {
-    setLocalFilterValue(domainFilterValue);
-  }, [domainFilterValue]);
+    setLocalFilterValue(searchValue);
+  }, [searchValue]);
 
   useEffect(() => {
-    onDomainFilterChange(debouncedFilterValue);
-  }, [debouncedFilterValue, onDomainFilterChange]);
+    onSearchValueChange(debouncedFilterValue);
+  }, [debouncedFilterValue, onSearchValueChange]);
 
   const expandedHostSet = useMemo(() => new Set(expandedHosts), [expandedHosts]);
 
@@ -140,6 +205,71 @@ export function SessionExplorerPane({
     overscan: SESSION_EXPLORER_OVERSCAN,
   });
 
+  const navigateWithKeyboard = useMemo(
+    () => (direction: "up" | "down" | "home" | "end") => {
+      if (visibleSessionOrder.length === 0) return;
+
+      const currentIndex = visibleSessionOrder.indexOf(selectedSessionId ?? "");
+      let nextIndex: number;
+
+      if (direction === "home") {
+        nextIndex = 0;
+      } else if (direction === "end") {
+        nextIndex = visibleSessionOrder.length - 1;
+      } else if (currentIndex === -1) {
+        nextIndex = 0;
+      } else if (direction === "down") {
+        nextIndex = Math.min(currentIndex + 1, visibleSessionOrder.length - 1);
+      } else {
+        nextIndex = Math.max(currentIndex - 1, 0);
+      }
+
+      const nextSessionId = visibleSessionOrder[nextIndex];
+      if (!nextSessionId || nextSessionId === selectedSessionId) return;
+
+      onSelectSession(nextSessionId);
+      window.requestAnimationFrame(() => {
+        const element = scrollContainerRef.current?.querySelector<HTMLElement>(
+          `[data-session-id="${typeof CSS !== "undefined" && CSS.escape ? CSS.escape(nextSessionId) : nextSessionId}"]`,
+        );
+        element?.scrollIntoView?.({ block: "nearest" });
+      });
+    },
+    [onSelectSession, selectedSessionId, visibleSessionOrder],
+  );
+
+  const handleExplorerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    const target = event.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      navigateWithKeyboard(event.key === "ArrowDown" ? "down" : "up");
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      navigateWithKeyboard("home");
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      navigateWithKeyboard("end");
+      return;
+    }
+
+    if (event.key === "Escape" && multiSelectedSessionIds.size > 0) {
+      event.preventDefault();
+      onClearMultiSelection();
+    }
+  };
+
   return (
     <Box
       sx={{
@@ -166,7 +296,62 @@ export function SessionExplorerPane({
         onUnfocusHost={onUnfocusHost}
       />
 
-      <Box ref={scrollContainerRef} sx={{ flex: 1, minHeight: 0, overflow: "auto", py: 0.5 }}>
+      {multiSelectedSessionIds.size > 0 ? (
+        <Box
+          sx={(theme) => ({
+            alignItems: "center",
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.06),
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            display: "flex",
+            gap: 0.75,
+            px: 1,
+            py: 0.5,
+          })}
+        >
+          <Typography
+            noWrap
+            sx={{
+              color: "text.secondary",
+              flex: 1,
+              fontSize: 12.5,
+              fontWeight: 600,
+              minWidth: 0,
+            }}
+            variant="body2"
+          >
+            {t("sessionExplorer.batchSelected", { count: multiSelectedSessionIds.size })}
+          </Typography>
+          <BatchActionButton label={t("sessionExplorer.batchExport")} onClick={onExportSelected} />
+          <BatchActionButton
+            label={t("sessionExplorer.batchSaveResponses")}
+            onClick={onSaveSelectedResponses}
+          />
+          <BatchActionButton
+            destructive
+            label={t("sessionExplorer.batchDelete")}
+            onClick={onDeleteSelected}
+          />
+          <BatchActionButton
+            label={t("sessionExplorer.batchClear")}
+            onClick={onClearMultiSelection}
+          />
+        </Box>
+      ) : null}
+
+      <Box
+        ref={scrollContainerRef}
+        onKeyDown={handleExplorerKeyDown}
+        role="listbox"
+        tabIndex={0}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          outline: "none",
+          overflow: "auto",
+          py: 0.5,
+        }}
+      >
         {isLoading ? (
           <Stack
             spacing={1.25}
@@ -295,6 +480,7 @@ export function SessionExplorerPane({
               return (
                 <Box
                   key={virtualItem.key}
+                  data-session-id={row.node.kind === "leaf" ? row.node.session.id : undefined}
                   data-index={virtualItem.index}
                   style={{
                     position: "absolute",
@@ -312,11 +498,13 @@ export function SessionExplorerPane({
                     }
                     getResourceTooltip={(resourceKind) => getResourceTooltipLabel(resourceKind, t)}
                     groupKey={row.groupKey}
+                    multiSelectedSessionIds={multiSelectedSessionIds}
                     node={row.node}
                     onContextMenuHost={onContextMenuHost}
                     onContextMenuSession={onContextMenuSession}
                     onSelectSession={onSelectSession}
                     onToggleHost={onToggleHost}
+                    pendingBreakpointSessionIds={pendingBreakpointSessionIds}
                     selectedSessionId={selectedSessionId}
                   />
                 </Box>
@@ -496,11 +684,13 @@ type SessionTreeFlatNodeProps = {
   expanded: boolean;
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
   groupKey: string;
+  multiSelectedSessionIds: ReadonlySet<string>;
   node: SessionPathNode;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string, options?: { additive?: boolean; range?: boolean }) => void;
   onToggleHost: (key: string) => void;
+  pendingBreakpointSessionIds: ReadonlySet<string>;
   selectedSessionId: string | undefined;
 };
 
@@ -509,11 +699,13 @@ function SessionTreeFlatNode({
   expanded,
   getResourceTooltip,
   groupKey,
+  multiSelectedSessionIds,
   node,
   onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
   onToggleHost,
+  pendingBreakpointSessionIds,
   selectedSessionId,
 }: SessionTreeFlatNodeProps) {
   if (node.kind === "leaf") {
@@ -522,7 +714,16 @@ function SessionTreeFlatNode({
         depth={depth}
         getResourceTooltip={getResourceTooltip}
         leafLabel={node.segmentLabel}
-        onClick={() => onSelectSession(node.session.id)}
+        isMultiSelected={multiSelectedSessionIds.has(node.session.id)}
+        isPendingBreakpoint={pendingBreakpointSessionIds.has(node.session.id)}
+        onClick={(event) => {
+          const additive = event.metaKey || event.ctrlKey;
+          const range = event.shiftKey;
+          onSelectSession(node.session.id, {
+            additive,
+            range,
+          });
+        }}
         onContextMenu={
           onContextMenuSession
             ? (e) => {
@@ -593,8 +794,10 @@ function SessionTreeFlatNode({
 type SessionLeafNodeProps = {
   depth: number;
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string;
+  isMultiSelected: boolean;
+  isPendingBreakpoint: boolean;
   leafLabel: string;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent) => void;
   onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   selected: boolean;
   session: SessionSummary;
@@ -605,6 +808,8 @@ const HostRow = memo(HostRowImpl);
 function SessionLeafNodeImpl({
   depth,
   getResourceTooltip,
+  isMultiSelected,
+  isPendingBreakpoint,
   leafLabel,
   onClick,
   onContextMenu,
@@ -615,6 +820,8 @@ function SessionLeafNodeImpl({
   const resourceKind = getSessionResourceKind(session);
   const querySuffix = getSessionQuerySuffix(session);
   const showLeafLabel = leafLabel.length > 0;
+  const isSingleSelected = selected && !isMultiSelected;
+  const isMultiOnly = isMultiSelected && !selected;
 
   return (
     <ListItemButton
@@ -639,6 +846,46 @@ function SessionLeafNodeImpl({
           bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.24 : 0.12),
           color: "text.primary",
         },
+        ...(isMultiSelected && !isSingleSelected
+          ? {
+              bgcolor: alpha(
+                theme.palette.secondary.main,
+                theme.palette.mode === "dark" ? 0.22 : 0.14,
+              ),
+              "&::before": {
+                bgcolor: "secondary.main",
+                borderRadius: 999,
+                content: '""',
+                height: 16,
+                left: 2,
+                position: "absolute",
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 3,
+              },
+              "&:hover": {
+                bgcolor: alpha(
+                  theme.palette.secondary.main,
+                  theme.palette.mode === "dark" ? 0.3 : 0.2,
+                ),
+              },
+            }
+          : {}),
+        ...(isMultiOnly
+          ? {
+              "&::before": {
+                bgcolor: "secondary.main",
+                borderRadius: 999,
+                content: '""',
+                height: 16,
+                left: 2,
+                position: "absolute",
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 3,
+              },
+            }
+          : {}),
         "&.Mui-selected::before": {
           bgcolor: "primary.main",
           borderRadius: 999,
@@ -658,7 +905,7 @@ function SessionLeafNodeImpl({
       <Tooltip
         arrow
         placement="top"
-        title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t)}
+        title={buildLeafTooltip(session, resourceKind, getResourceTooltip, t, isPendingBreakpoint)}
       >
         <Box
           sx={(theme) => ({
@@ -711,6 +958,22 @@ function SessionLeafNodeImpl({
             >
               {querySuffix}
             </Typography>
+          ) : null}
+          {isPendingBreakpoint ? (
+            <Tooltip arrow title={t("sessionExplorer.breakpointPending")}>
+              <Box
+                aria-label={t("sessionExplorer.breakpointPending")}
+                component="span"
+                sx={{
+                  alignItems: "center",
+                  color: "warning.main",
+                  display: "inline-flex",
+                  ml: 0.5,
+                }}
+              >
+                <PauseCircleRoundedIcon sx={{ fontSize: 15 }} />
+              </Box>
+            </Tooltip>
           ) : null}
         </Box>
       </Box>
@@ -767,19 +1030,29 @@ function buildLeafTooltip(
   resourceKind: SessionExplorerResourceKind,
   getResourceTooltip: (resourceKind: SessionExplorerResourceKind) => string,
   t: (key: TranslationKey, params?: Record<string, number | string>) => string,
+  isPendingBreakpoint = false,
 ): string {
   const kindLabel = getResourceTooltip(resourceKind);
+  let detail: string;
 
   if (session.statusCode <= 0) {
-    return t("sessionExplorer.tooltipPending", { method: session.method, url: session.url });
+    detail = t("sessionExplorer.tooltipPending", { method: session.method, url: session.url });
+  } else {
+    detail = t("sessionExplorer.tooltipResolved", {
+      kind: kindLabel,
+      method: session.method,
+      statusCode: session.statusCode,
+      url: session.url,
+    });
   }
 
-  return t("sessionExplorer.tooltipResolved", {
-    kind: kindLabel,
-    method: session.method,
-    statusCode: session.statusCode,
-    url: session.url,
-  });
+  const hints: string[] = [];
+  if (isPendingBreakpoint) {
+    hints.push(t("sessionExplorer.breakpointPending"));
+  }
+  hints.push(t("sessionExplorer.tooltipShortcuts"));
+
+  return `${detail}\n${hints.join("\n")}`;
 }
 
 function getResourceTooltipLabel(

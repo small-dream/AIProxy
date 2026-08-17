@@ -21,6 +21,10 @@ pub struct WorkspaceData {
     /// array over the wire); the DB column stores it as a JSON-encoded string,
     /// and the converter (de)serializes between the two.
     pub tls_verify_hosts: Vec<String>,
+    /// Hostnames for which SSL decryption is disabled while `ssl_enabled`
+    /// stays on (privacy / certificate-pinning escape hatch). IPC-facing array
+    /// form, persisted as a JSON-encoded TEXT column in the DB.
+    pub ssl_blind_hosts: Vec<String>,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -45,6 +49,7 @@ impl WorkspaceManager {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
+            ssl_blind_hosts: Vec::new(),
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -95,6 +100,7 @@ impl WorkspaceManager {
             system_proxy_enabled: false,
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
+            ssl_blind_hosts: Vec::new(),
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -138,6 +144,7 @@ impl WorkspaceManager {
         http2_enabled: Option<bool>,
         verify_upstream_tls: Option<bool>,
         tls_verify_hosts: Option<Vec<String>>,
+        ssl_blind_hosts: Option<Vec<String>>,
     ) -> Result<WorkspaceData, String> {
         let mut workspaces = self
             .workspaces
@@ -166,6 +173,9 @@ impl WorkspaceManager {
         }
         if let Some(hosts) = tls_verify_hosts {
             workspace.tls_verify_hosts = hosts;
+        }
+        if let Some(hosts) = ssl_blind_hosts {
+            workspace.ssl_blind_hosts = hosts;
         }
 
         workspace.updated_at = chrono::Utc::now().to_rfc3339();

@@ -419,6 +419,16 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "tls_verify_hosts",
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
+    // Per-host SSL-decryption opt-out list (JSON array of hostnames stored as
+    // TEXT). Hosts in this list are tunneled blindly even when the workspace
+    // keeps `ssl_enabled` on — a privacy control and a workaround for
+    // certificate-pinning clients. Defaults to the empty list.
+    migrate_add_column(
+        conn,
+        "workspaces",
+        "ssl_blind_hosts",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
 
     // M30: enforce the "at most one enabled throttle profile per workspace"
     // invariant at the storage layer with a partial UNIQUE index. First

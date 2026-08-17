@@ -37,24 +37,29 @@ function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummar
   };
 }
 
-// Base props every render in this file shares; the filter chips row is inert
-// (renders nothing) with empty sets.
+// Base props every render in this file shares.
 function basePaneProps() {
   return {
-    domainFilterValue: "",
     errorMessage: undefined,
     expandedHosts: [] as string[],
     focusedHosts: new Set<string>(),
     ignoredHosts: new Set<string>(),
     isLoading: false,
+    multiSelectedSessionIds: new Set<string>(),
+    onClearMultiSelection: () => {},
     onDisableThrottledOnly: () => {},
-    onDomainFilterChange: () => {},
+    onDeleteSelected: () => {},
+    onExportSelected: () => {},
+    onSaveSelectedResponses: () => {},
     onSelectSession: () => {},
+    onSearchValueChange: () => {},
     onStopIgnoringHost: () => {},
     onToggleHost: () => {},
     onUnfocusHost: () => {},
+    searchValue: "",
     selectedSessionId: undefined,
     showOnlyThrottled: false,
+    visibleSessionOrder: [] as string[],
   };
 }
 
@@ -112,22 +117,22 @@ describe("SessionExplorerPane", () => {
     expect(screen.getByTestId("aggregate-host-icon")).toBeInTheDocument();
   });
 
-  it("renders the bottom domain filter and forwards changes", () => {
+  it("renders the bottom search filter and forwards changes to the full-field search", () => {
     vi.useFakeTimers();
-    const handleDomainFilterChange = vi.fn();
+    const handleSearchValueChange = vi.fn();
 
     render(
       <AppProviders>
         <SessionExplorerPane
           {...basePaneProps()}
-          domainFilterValue="api"
           groups={[]}
-          onDomainFilterChange={handleDomainFilterChange}
+          onSearchValueChange={handleSearchValueChange}
+          searchValue="api"
         />
       </AppProviders>,
     );
 
-    const input = screen.getByPlaceholderText("Filter");
+    const input = screen.getByPlaceholderText(/Search URL/);
     expect(input).toHaveValue("api");
 
     fireEvent.change(input, { target: { value: "assets" } });
@@ -135,7 +140,75 @@ describe("SessionExplorerPane", () => {
       vi.advanceTimersByTime(200);
     });
 
-    expect(handleDomainFilterChange).toHaveBeenCalledWith("assets");
+    expect(handleSearchValueChange).toHaveBeenCalledWith("assets");
+  });
+
+  it("navigates sessions with ArrowDown/ArrowUp in visual tree order", () => {
+    const handleSelectSession = vi.fn();
+    const groups = buildSessionHostGroups(
+      [
+        createSessionSummary({ id: "session-1" }),
+        createSessionSummary({
+          id: "session-2",
+          path: "/posts",
+          url: "http://api.example.com/posts",
+        }),
+      ],
+      "",
+    );
+
+    const { rerender } = render(
+      <AppProviders>
+        <SessionExplorerPane
+          {...basePaneProps()}
+          expandedHosts={[groups[0]!.key]}
+          groups={groups}
+          onSelectSession={handleSelectSession}
+          visibleSessionOrder={["session-1", "session-2"]}
+        />
+      </AppProviders>,
+    );
+
+    const list = screen.getByRole("listbox");
+
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    expect(handleSelectSession).toHaveBeenLastCalledWith("session-1");
+
+    // The container applies the selection on the next render (as in the real
+    // app); re-render with the updated single selection before the next arrow.
+    rerender(
+      <AppProviders>
+        <SessionExplorerPane
+          {...basePaneProps()}
+          expandedHosts={[groups[0]!.key]}
+          groups={groups}
+          onSelectSession={handleSelectSession}
+          selectedSessionId="session-1"
+          visibleSessionOrder={["session-1", "session-2"]}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    expect(handleSelectSession).toHaveBeenLastCalledWith("session-2");
+
+    // Move the selection to the last item, then ArrowUp must go back to the
+    // first visual item.
+    rerender(
+      <AppProviders>
+        <SessionExplorerPane
+          {...basePaneProps()}
+          expandedHosts={[groups[0]!.key]}
+          groups={groups}
+          onSelectSession={handleSelectSession}
+          selectedSessionId="session-2"
+          visibleSessionOrder={["session-1", "session-2"]}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.keyDown(list, { key: "ArrowUp" });
+    expect(handleSelectSession).toHaveBeenLastCalledWith("session-1");
   });
 
   afterEach(() => {
