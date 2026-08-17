@@ -32,6 +32,7 @@ tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["sync"] }
 dirs = "6"
 mime_guess = "2"
+percent-encoding = "2"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"

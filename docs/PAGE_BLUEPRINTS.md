@@ -125,6 +125,9 @@ SessionsPage
 │           └─ Compose Panel（方向/操作码/内容/发送）
 ├─ SessionExportDialog
 ├─ SessionContextMenu
+├─ DomainContextMenu
+├─ SessionFolderContextMenu
+├─ SaveResponseFilesDialog
 └─ Snackbar
 ```
 
@@ -138,6 +141,10 @@ SessionsPage
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
 | `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作（含按 host 停用/启用 SSL 解密）、规则跳转（含 Map Local 直达） |
+| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore |
+| `features/sessions/components/SessionFolderContextMenu.tsx` | URL 路径目录节点右键菜单，当前承载「保存所有文件」 |
+| `features/sessions/components/SaveResponseFilesDialog.tsx` | 保存抓包文件的策略对话框（同名冲突：只保留最后一次 / 全部保留），无冲突时不出现 |
+| `features/sessions/session-save-files.helpers.ts` | 可保存会话过滤（排除 WebSocket）与同名冲突检测 |
 | `features/sessions/components/SessionExportDialog.tsx` | Selected / Filtered / All 导出范围与格式选择 |
 
 ### 4.5 页面状态模型
@@ -236,6 +243,27 @@ User right clicks a session leaf node
 -> menu closes after action
 ```
 
+**保存目录下所有抓包文件事件流：**
+
+```text
+User right clicks a folder node (URL path branch) or a host node
+-> SessionsPage stores pointer anchorPosition + folder target
+   folder target = { label, sessions: collectBranchSessions(node) }
+   host target   = { label: host, sessions: visibleSessions filtered by host }
+-> SessionFolderContextMenu / DomainContextMenu opens at cursor position
+-> "Save All Files..." branches on hasSaveTargetConflicts(saveableSessions):
+   no collision -> skip the dialog, keepAll is equivalent to latestOnly
+   collision    -> SaveResponseFilesDialog asks for a conflict strategy
+-> invoke save_response_files({ sessionIds, conflictStrategy, title })
+   -> backend opens the OS directory picker (renderer never supplies a path)
+   -> backend rebuilds the full URL path below the host, which is never
+      itself a directory
+   -> backend sanitizes every segment
+   -> backend writes raw response bytes, no base64 across IPC
+-> null result (picker cancelled) keeps the dialog open
+-> otherwise dialog closes and Snackbar reports saved / skipped counts
+```
+
 **Code Block 右键菜单事件流：**
 
 ```text
@@ -254,7 +282,10 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 - Inspector Response Overview Tab 内嵌 `WaterfallChart` 组件，展示 timing 水平堆叠条形图（dns / connect / tls / request_send / waiting / response_read / total），各阶段使用不同颜色区分并支持 Tooltip 显示具体耗时。WaterfallChart 根据 `timingSource` 自动调整展示粒度：`"proxy"` 显示全部 7 个阶段，`"compose"` 仅显示已采集的阶段，`"har-import"` 取决于导入数据。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
-- 右键菜单只挂在会话叶子节点 / 代码块视图，不作用于 Host 分组节点。
+- 会话树的三类节点各有一套右键菜单：叶子节点 → `SessionContextMenu`，host 节点 → `DomainContextMenu`，URL 路径目录节点 → `SessionFolderContextMenu`；三者共用同一套锚点状态，打开任一菜单会关闭另外两个。
+- 「保存所有文件」的落盘范围覆盖所选节点的整个子树；WebSocket 会话、无响应体的请求，以及仅存在于渲染层的 HAR 导入会话不会落盘，计入 Snackbar 的跳过数。
+- 落盘层级为去掉域名后的**完整 URL 路径**：右键 `assets` 得到 `所选目录/assets/...`。右键哪一层结果一致，同一站点多次保存到同一目录会自然合并。
+- 策略对话框只在存在同名冲突时出现；每个请求都落到不同文件时直接拉起目录选择器，少一次无意义的确认。
 - `Focus Host` 会把其他 Host 降低透明度；`Ignore Host` 会直接从当前列表中过滤对应 Host。
 - Host 聚焦 / 忽略仅保留在当前页面内存状态，刷新页面后不会持久化。
 - `Breakpoints...` 与 `Map Rules...` 当前都跳转到 `/rules`，尚未做规则页 tab 深链。

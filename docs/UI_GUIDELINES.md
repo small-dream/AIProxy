@@ -383,6 +383,8 @@ Sessions Page
 - 多选后列表顶部出现批量操作条：`Export`（批量导出 HAR）、`Save responses`（按实际写入数计数）、`Delete`（需确认）、`Clear`
 - 叶子 tooltip 追加快捷键提示；被断点挂起的会话行显示暂停标记（`PauseCircle` + tooltip）
 - 会话叶子节点支持右键打开 `SessionContextMenu`
+- Host 分组节点与 host 分支支持右键打开 `DomainContextMenu`
+- URL 路径分支节点（树中的「目录」）支持右键打开 `SessionFolderContextMenu`
 - Host 被聚焦时，其他 Host 以降透明度形式退场，而不是完全隐藏
 
 #### `Session Filter Input`（全字段搜索）
@@ -419,6 +421,26 @@ Sessions Page
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
 - 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
 - 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
+
+#### `Session Folder Context Menu`
+
+- 触发方式：右键会话树中的 URL 路径分支节点（即树里的「目录」）
+- 定位方式：与其他上下文菜单一致，以鼠标指针位置为锚点弹出
+- 提供 `Save All Files...`：把该目录下（含所有子目录）每个请求的响应体保存为文件
+- 落盘层级为**去掉域名后的完整 URL 路径**：右键 `assets` 得到 `所选目录/assets/...`，右键哪一层结果一致，便于多次保存合并到同一目录
+- 目录下没有可保存请求时该项置灰，而不是隐藏
+- Host 节点的 `DomainContextMenu` 提供同一入口，置于 `Export Host` 之上
+
+#### `Save Response Files Dialog`
+
+- 仅在**存在同名冲突**时出现：若所选目录下每个请求都落到不同文件，策略无意义，直接跳过对话框拉起目录选择器
+- 冲突判定以 `host + URL 路径（去 query）` 为键，与后端推导路径的依据一致；宁可误报（多弹一次框）也不漏报（替用户默默选策略）
+- 由目录 / host 右键的 `Save All Files...` 打开，确认后才由后端拉起系统目录选择器
+- 顶部以 `Alert` 呈现「即将保存 N 个请求」，N 已排除 WebSocket 会话
+- 单选组决定同一文件被多次抓到时的取舍：默认「只保留最后一次请求」，另一项为「保存所有请求」（重名加序号）
+- 底部以 caption 说明目录层级还原规则与跳过策略，避免用户对落盘结果产生误解
+- 用户在系统目录选择器中取消时对话框保持打开，不丢失已选策略
+- 保存结果通过页面级 Snackbar 汇总「已保存 N 个 / 跳过 M 个」
 
 - 当前动作组：
   - 复制：`Copy URL`、`Copy Request`、`Copy Response`
@@ -823,7 +845,9 @@ Settings Page
 - `SessionTable`
 - `SessionInspector`
 - `SessionContextMenu`
+- `SessionFolderContextMenu`
 - `SessionExportDialog`
+- `SaveResponseFilesDialog`
 - `HeaderEditor`
 - `KeyValueEditor`
 - `BodyEditor`
@@ -863,7 +887,7 @@ Settings Page
 
 - 单击：选中会话
 - 双击：展开或进入专注视图
-- 右键：上下文菜单，仅作用于会话叶子节点
+- 右键：上下文菜单，会话叶子节点、host 节点与路径目录节点各有一套，同一时刻只允许一个打开
 - 支持列排序
 - 支持键盘上下移动
 

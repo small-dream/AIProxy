@@ -11,7 +11,10 @@ import type {
   RequestInspectorTab,
   ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import type { SessionHostGroup } from "@/features/sessions/session-explorer.helpers";
+import type {
+  SessionHostGroup,
+  SessionPathBranch,
+} from "@/features/sessions/session-explorer.helpers";
 
 type SessionsWorkspacePanelProps = {
   activeContainerId: string;
@@ -33,6 +36,7 @@ type SessionsWorkspacePanelProps = {
   onAddContainer: () => void;
   onCloseContainer: (containerId: string) => void;
   onClearMultiSelection: () => void;
+  onContextMenuFolder: (node: SessionPathBranch, event: React.MouseEvent) => void;
   onContextMenuHost: (host: string, event: React.MouseEvent) => void;
   onContextMenuSession: (session: SessionSummary, event: React.MouseEvent) => void;
   onCopyCurl: (() => void) | undefined;
@@ -84,6 +88,7 @@ export function SessionsWorkspacePanel({
   onAddContainer,
   onCloseContainer,
   onClearMultiSelection,
+  onContextMenuFolder,
   onContextMenuHost,
   onContextMenuSession,
   onCopyCurl,
@@ -186,6 +191,7 @@ export function SessionsWorkspacePanel({
               onDisableThrottledOnly={onDisableThrottledOnly}
               onDeleteSelected={onDeleteSelected}
               onExportSelected={onExportSelected}
+              onContextMenuFolder={onContextMenuFolder}
               onContextMenuHost={onContextMenuHost}
               onContextMenuSession={onContextMenuSession}
               onSaveSelectedResponses={onSaveSelectedResponses}

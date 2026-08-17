@@ -1881,6 +1881,46 @@ type HarFileOutput = {
 - 仅接受 `.har` 扩展名
 - 读取后由前端解析并导入为本地会话快照
 
+### `save_response_files`
+
+请求：
+
+```ts
+type SaveResponseFilesInput = {
+  sessionIds: string[];
+  conflictStrategy: "latestOnly" | "keepAll";
+  title: string; // 本地化后的目录选择器标题
+};
+```
+
+响应：
+
+```ts
+type SaveResponseFilesOutput = {
+  directory: string;    // 用户选中的目标目录（canonical 路径）
+  savedCount: number;
+  skippedCount: number; // 无响应体 / WebSocket / 后端已无此 id / 被 latestOnly 淘汰
+  failedCount: number;  // 读取或写入失败
+} | null;               // 用户取消目录选择时返回 null
+```
+
+说明：
+
+- 用于会话树目录节点（host 分支与 path 分支）右键的「保存所有文件」，把选中目录下每个请求的响应体按 URL 路径层级还原写入用户选择的目录
+- **host 不作为目录**：用户已经指定了落盘位置，再套一层 `example.com/` 只是噪音
+- host 以下的 URL 路径**完整保留**：右键 `assets` 确实会得到一个 `assets/` 文件夹；右键哪一层结果都一样，因此同一站点多次保存到同一目录可以自然合并
+- 目录层级、文件名、扩展名、去重序号全部由后端从 `ProxySessionSummary.url` 与 `responseMimeType` 推导，前端不参与路径构造
+- 响应体在 Rust 侧从 `ProxyBodyReference::read_bytes()` 直接写盘，不经过 base64 与 IPC，二进制文件字节保真
+
+约束：
+
+- 目录选择器由后端拉起，前端只传标题、不接触任何路径（与 `pick_and_read_har_file` 同一 H3 安全模型）
+- URL 每一段都经过清洗：拒绝 `..`/`.`、路径分隔符与控制字符，规避 Windows 保留设备名与尾部点/空格，超长段截断并保留扩展名
+- 目录深度上限 24 层、单次导出上限 20000 个请求；写入前对解析后的目录再次校验仍位于所选根目录内，防止destination 内既有符号链接改写落点
+- URL 已带扩展名时原样保留，无扩展名时按响应 MIME 推导；未知二进制类型落 `bin`（不同于前端面向文本的 `guessExtension` 默认 `txt`）
+- query string 不参与路径推导，因此 `?page=1` 与 `?page=2` 会落到同一文件，由 `conflictStrategy` 决定取舍：`latestOnly` 按 `startedAt` 保留最新一次，`keepAll` 以 ` (n)` 后缀全部保留
+- WebSocket 会话、无响应体的请求，以及仅存在于渲染层的导入会话（HAR 导入）计入 `skippedCount`
+
 ## 6.12 Menu Locale Command
 
 ### set_menu_locale

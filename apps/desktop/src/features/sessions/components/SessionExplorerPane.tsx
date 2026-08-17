@@ -36,6 +36,7 @@ import {
   getSessionResourceKind,
   type SessionExplorerResourceKind,
   type SessionHostGroup,
+  type SessionPathBranch,
   type SessionPathNode,
 } from "../session-explorer.helpers";
 
@@ -51,6 +52,7 @@ type SessionExplorerPaneProps = {
   onDisableThrottledOnly: () => void;
   onDeleteSelected: () => void;
   onExportSelected: () => void;
+  onContextMenuFolder?: ((node: SessionPathBranch, event: React.MouseEvent) => void) | undefined;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSaveSelectedResponses: () => void;
@@ -139,6 +141,7 @@ export function SessionExplorerPane({
   onDisableThrottledOnly,
   onDeleteSelected,
   onExportSelected,
+  onContextMenuFolder,
   onContextMenuHost,
   onContextMenuSession,
   onSaveSelectedResponses,
@@ -500,6 +503,7 @@ export function SessionExplorerPane({
                     groupKey={row.groupKey}
                     multiSelectedSessionIds={multiSelectedSessionIds}
                     node={row.node}
+                    onContextMenuFolder={onContextMenuFolder}
                     onContextMenuHost={onContextMenuHost}
                     onContextMenuSession={onContextMenuSession}
                     onSelectSession={onSelectSession}
@@ -686,6 +690,7 @@ type SessionTreeFlatNodeProps = {
   groupKey: string;
   multiSelectedSessionIds: ReadonlySet<string>;
   node: SessionPathNode;
+  onContextMenuFolder?: ((node: SessionPathBranch, event: React.MouseEvent) => void) | undefined;
   onContextMenuHost?: ((host: string, event: React.MouseEvent) => void) | undefined;
   onContextMenuSession?: ((session: SessionSummary, event: React.MouseEvent) => void) | undefined;
   onSelectSession: (sessionId: string, options?: { additive?: boolean; range?: boolean }) => void;
@@ -701,6 +706,7 @@ function SessionTreeFlatNode({
   groupKey,
   multiSelectedSessionIds,
   node,
+  onContextMenuFolder,
   onContextMenuHost,
   onContextMenuSession,
   onSelectSession,
@@ -740,19 +746,25 @@ function SessionTreeFlatNode({
 
   const expandedKey = `${groupKey}::${node.pathKey}`;
   const branchHost = node.branchType === "host" ? node.host : undefined;
+  // Host branches keep the host-scoped menu (focus/ignore/export); path
+  // branches — the "folders" of the tree — get the folder menu instead.
+  const handleBranchContextMenu = branchHost
+    ? (event: React.MouseEvent) => {
+        event.preventDefault();
+        onContextMenuHost?.(branchHost, event);
+      }
+    : onContextMenuFolder
+      ? (event: React.MouseEvent) => {
+          event.preventDefault();
+          onContextMenuFolder(node, event);
+        }
+      : undefined;
 
   return (
     <ListItemButton
       dense
       onClick={() => onToggleHost(expandedKey)}
-      onContextMenu={
-        branchHost
-          ? (event) => {
-              event.preventDefault();
-              onContextMenuHost?.(branchHost, event);
-            }
-          : undefined
-      }
+      onContextMenu={handleBranchContextMenu}
       sx={{
         borderRadius: 1,
         minHeight: 24,

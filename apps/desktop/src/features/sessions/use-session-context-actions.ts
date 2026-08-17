@@ -8,6 +8,7 @@ import { downloadTextFile } from "@/lib/download";
 import { saveSessionToCollection, sendComposedRequest } from "@/services/commands";
 
 import { getRawMessageText } from "@/features/sessions/components/session-inspector.helpers";
+import type { SaveResponseFilesTarget } from "@/features/sessions/components/SaveResponseFilesDialog";
 import type { BodyType, RawLanguage } from "@/features/compose/types";
 import { buildComposeLoadInput } from "@/features/sessions/session-compose.helpers";
 import {
@@ -61,6 +62,13 @@ export function useSessionContextActions({
     top: number;
   }>();
   const [contextMenuHost, setContextMenuHost] = useState<string | null>(null);
+  const [folderContextMenuAnchor, setFolderContextMenuAnchor] = useState<{
+    left: number;
+    top: number;
+  }>();
+  const [folderContextTarget, setFolderContextTarget] = useState<SaveResponseFilesTarget | null>(
+    null,
+  );
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
 
   // Save-to-collection dialog state
@@ -68,10 +76,14 @@ export function useSessionContextActions({
     null,
   );
 
+  // Only one of the three tree context menus may be open at a time, so each
+  // opener clears the other two.
   const handleContextMenu = useCallback((session: SessionSummary, event: ReactMouseEvent) => {
     event.preventDefault();
     setDomainContextMenuAnchor(undefined);
     setContextMenuHost(null);
+    setFolderContextMenuAnchor(undefined);
+    setFolderContextTarget(null);
     setContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
     setContextMenuSession(session);
   }, []);
@@ -85,6 +97,8 @@ export function useSessionContextActions({
     event.preventDefault();
     setContextMenuAnchor(undefined);
     setContextMenuSession(null);
+    setFolderContextMenuAnchor(undefined);
+    setFolderContextTarget(null);
     setDomainContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
     setContextMenuHost(host);
   }, []);
@@ -92,6 +106,24 @@ export function useSessionContextActions({
   const handleHostContextMenuClose = useCallback(() => {
     setDomainContextMenuAnchor(undefined);
     setContextMenuHost(null);
+  }, []);
+
+  const handleFolderContextMenu = useCallback(
+    (target: SaveResponseFilesTarget, event: ReactMouseEvent) => {
+      event.preventDefault();
+      setContextMenuAnchor(undefined);
+      setContextMenuSession(null);
+      setDomainContextMenuAnchor(undefined);
+      setContextMenuHost(null);
+      setFolderContextMenuAnchor({ left: event.clientX - 2, top: event.clientY - 4 });
+      setFolderContextTarget(target);
+    },
+    [],
+  );
+
+  const handleFolderContextMenuClose = useCallback(() => {
+    setFolderContextMenuAnchor(undefined);
+    setFolderContextTarget(null);
   }, []);
 
   const handleSnackbarClose = useCallback(() => {
@@ -447,6 +479,8 @@ export function useSessionContextActions({
     contextMenuHost,
     contextMenuSession,
     domainContextMenuAnchor,
+    folderContextMenuAnchor,
+    folderContextTarget,
     handleCompose,
     handleContextMenu,
     handleContextMenuClose,
@@ -456,6 +490,8 @@ export function useSessionContextActions({
     handleCopyUrl,
     handleFocusDomain,
     handleFocusHost,
+    handleFolderContextMenu,
+    handleFolderContextMenuClose,
     handleHostContextMenu,
     handleHostContextMenuClose,
     handleIgnoreDomain,

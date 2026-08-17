@@ -54,6 +54,7 @@ dependencies = [
  "chrono",
  "dirs",
  "mime_guess",
+ "percent-encoding",
  "reqwest 0.12.28",
  "rust-i18n",
  "serde",

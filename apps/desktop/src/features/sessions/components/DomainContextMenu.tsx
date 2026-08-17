@@ -1,6 +1,7 @@
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
+import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -23,6 +24,7 @@ type DomainContextMenuProps = {
   onExportHost: (host: string) => void;
   onFocusHost: (host: string) => void;
   onIgnoreHost: (host: string) => void;
+  onSaveHostFiles: (host: string) => void;
   onStopIgnoringHost: (host: string) => void;
   onUnfocusHost: (host: string) => void;
 };
@@ -36,6 +38,7 @@ export function DomainContextMenu({
   onExportHost,
   onFocusHost,
   onIgnoreHost,
+  onSaveHostFiles,
   onStopIgnoringHost,
   onUnfocusHost,
 }: DomainContextMenuProps) {
@@ -58,6 +61,21 @@ export function DomainContextMenu({
       open={anchorPosition !== undefined}
       slotProps={buildContextMenuSlotProps(180)}
     >
+      <MenuItem
+        onClick={() => {
+          onSaveHostFiles(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <SaveAltRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("contextMenu.saveResponseFiles")}
+        </ListItemText>
+      </MenuItem>
+
       <MenuItem
         onClick={() => {
           onExportHost(host);

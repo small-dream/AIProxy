@@ -35,3 +35,56 @@ export async function pickAndReadHarFile(title: string): Promise<HarFileContents
     throw coerceAppError(error);
   }
 }
+
+/** How to resolve several captured requests that map to the same target file. */
+export type ResponseFileConflictStrategy = "latestOnly" | "keepAll";
+
+/** Summary of a completed `save_response_files` run. */
+export interface SaveResponseFilesResult {
+  directory: string;
+  savedCount: number;
+  /** Requests with nothing to save: WebSocket streams, empty bodies, or — under
+   *  `latestOnly` — captures superseded by a newer one for the same path. */
+  skippedCount: number;
+  failedCount: number;
+}
+
+export interface SaveResponseFilesInput {
+  sessionIds: string[];
+  conflictStrategy: ResponseFileConflictStrategy;
+  /** Localized directory-picker title. */
+  title: string;
+}
+
+/**
+ * Save the captured response body of every given session as a file, rebuilding
+ * the full URL path layout under a directory the user picks. The host is not
+ * recreated as a directory — the user already chose where the files go.
+ *
+ * Mirrors the H3 model of `pickAndReadHarFile`: the backend owns the directory
+ * picker and derives every path itself, so the renderer never supplies a
+ * filesystem location. Bodies are written from the Rust side directly, so
+ * binary payloads never round-trip through base64 over IPC.
+ *
+ * Returns `null` when the user cancels the picker.
+ */
+export async function saveResponseFiles(
+  input: SaveResponseFilesInput,
+): Promise<SaveResponseFilesResult | null> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Saving captured files requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    const payload = await invoke<SaveResponseFilesResult | null>("save_response_files", {
+      input,
+    });
+    return payload ?? null;
+  } catch (error) {
+    reportCommandFailure("save_response_files", error, input.title);
+    throw coerceAppError(error);
+  }
+}

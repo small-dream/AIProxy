@@ -1158,6 +1158,27 @@ export const enMessages = {
     summary: "Ready to export {{count}} session(s) as {{format}}.",
     title: "Export Sessions",
   },
+  sessionsSaveFiles: {
+    chooseDirectory: "Choose Folder and Save",
+    conflict: {
+      keepAll: "Save every request",
+      keepAllDescription: "Colliding names get a suffix, e.g. login.json, login (1).json.",
+      latestOnly: "Keep only the last request",
+      latestOnlyDescription:
+        "When the same file was captured several times, save only the newest response.",
+    },
+    conflictTitle: "When the same file was requested more than once",
+    layoutHint:
+      "Folders mirror the URL path below the host; a missing extension is derived from the response type. WebSocket sessions and requests without a response body are skipped.",
+    messages: {
+      nothingSaved: "There was nothing to save.",
+      saved: "Saved {{count}} files to {{directory}}.",
+      savedPartial: "Saved {{count}} files to {{directory}}, skipped {{skipped}}.",
+    },
+    pickerTitle: "Choose a folder to save the captured files",
+    summary: "About to save {{count}} requests under “{{label}}”.",
+    title: "Save Captured Files",
+  },
   sessionsImport: {
     description:
       "Load a HAR archive into the Sessions workspace so we can inspect and re-export captured traffic.",
@@ -1604,6 +1625,7 @@ export const enMessages = {
     repeatFailed: "Repeat request failed",
     repeatSucceeded: "Request repeated",
     saveResponse: "Save Response...",
+    saveResponseFiles: "Save All Files...",
     setCompareBase: "Set as Compare Base",
     sslDecryptDisable: "Disable SSL Decryption for Host",
     sslDecryptEnable: "Enable SSL Decryption for Host",

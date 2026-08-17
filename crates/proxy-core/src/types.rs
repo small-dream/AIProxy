@@ -344,6 +344,14 @@ impl ProxyBodyReference {
             }
     }
 
+    /// Read the body as raw bytes, loading it from disk when the payload was
+    /// spilled to the body store. Exposed publicly so exporters can write the
+    /// captured payload verbatim instead of round-tripping through base64 or
+    /// lossy UTF-8 rendering, which would corrupt binary responses.
+    pub fn read_bytes(&self) -> Result<Vec<u8>, String> {
+        self.load_bytes()
+    }
+
     fn load_bytes(&self) -> Result<Vec<u8>, String> {
         match &self.storage {
             ProxyBodyStorage::InMemory(bytes) => Ok(bytes.to_vec()),

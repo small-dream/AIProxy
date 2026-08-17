@@ -19,7 +19,12 @@ import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
 import { DomainContextMenu } from "@/features/sessions/components/DomainContextMenu";
 import { SessionContextMenu } from "@/features/sessions/components/SessionContextMenu";
+import { SessionFolderContextMenu } from "@/features/sessions/components/SessionFolderContextMenu";
 import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
+import {
+  SaveResponseFilesDialog,
+  type SaveResponseFilesTarget,
+} from "@/features/sessions/components/SaveResponseFilesDialog";
 import { SessionExportDialog } from "@/features/sessions/components/SessionExportDialog";
 import type { WorkspaceHandle } from "@/features/sessions/components/SessionInspectorWorkspace";
 import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
@@ -58,9 +63,16 @@ import {
 } from "@/services/commands";
 import { logDevWarn } from "@/services/logger/dev-logger";
 import {
+  collectBranchSessions,
   collectVisibleSessionIds,
   reconcileExpandedKeys,
+  type SessionPathBranch,
 } from "@/features/sessions/session-explorer.helpers";
+import {
+  getSaveableSessions,
+  hasSaveTargetConflicts,
+} from "@/features/sessions/session-save-files.helpers";
+import { saveResponseFiles, type SaveResponseFilesResult } from "@/services/commands";
 
 const IGNORED_HOSTS_STORAGE_KEY = "aiproxy.sessions.ignoredHosts";
 const COMPARE_BASE_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.compareBaseSessionId";
@@ -359,8 +371,12 @@ export function SessionsPage() {
     handleCopyRequest,
     handleCopyResponse,
     handleCopyUrl,
+    folderContextMenuAnchor,
+    folderContextTarget,
     handleFocusDomain,
     handleFocusHost,
+    handleFolderContextMenu,
+    handleFolderContextMenuClose,
     handleHostContextMenu,
     handleHostContextMenuClose,
     handleIgnoreDomain,
@@ -477,6 +493,93 @@ export function SessionsPage() {
     setBatchDeleteConfirmOpen(false);
     showSnackbar(t("sessionsPage.batchDeleteDone", { count }));
   }, [clearMultiSelection, removeSummaryFromStore, selectedMultiSessions, showSnackbar, t]);
+
+  // ═══ save captured files (tree folder → directory) ══════════════
+
+  const [saveFilesTarget, setSaveFilesTarget] = useState<SaveResponseFilesTarget | null>(null);
+
+  const handleContextMenuFolder = useCallback(
+    (node: SessionPathBranch, event: React.MouseEvent) => {
+      handleFolderContextMenu(
+        { label: node.segmentLabel, sessions: collectBranchSessions(node) },
+        event,
+      );
+    },
+    [handleFolderContextMenu],
+  );
+
+  const handleSaveFilesCompleted = useCallback(
+    (result: SaveResponseFilesResult) => {
+      setSaveFilesTarget(null);
+
+      if (result.savedCount === 0) {
+        showSnackbar(t("sessionsSaveFiles.messages.nothingSaved"));
+        return;
+      }
+
+      showSnackbar(
+        result.skippedCount > 0 || result.failedCount > 0
+          ? t("sessionsSaveFiles.messages.savedPartial", {
+              count: result.savedCount,
+              directory: result.directory,
+              skipped: result.skippedCount + result.failedCount,
+            })
+          : t("sessionsSaveFiles.messages.saved", {
+              count: result.savedCount,
+              directory: result.directory,
+            }),
+      );
+    },
+    [showSnackbar, t],
+  );
+
+  /**
+   * Entry point for both folder and host "Save All Files...". The conflict
+   * strategy only matters when two requests would land on the same file, so
+   * when nothing collides the dialog is skipped and the OS directory picker
+   * opens straight away.
+   */
+  const handleRequestSaveFiles = useCallback(
+    (target: SaveResponseFilesTarget) => {
+      const saveableSessions = getSaveableSessions(target.sessions);
+
+      if (saveableSessions.length === 0) {
+        showSnackbar(t("sessionsSaveFiles.messages.nothingSaved"));
+        return;
+      }
+
+      if (hasSaveTargetConflicts(saveableSessions)) {
+        setSaveFilesTarget(target);
+        return;
+      }
+
+      // No collisions, so keepAll and latestOnly are equivalent here.
+      void saveResponseFiles({
+        sessionIds: saveableSessions.map((session) => session.id),
+        conflictStrategy: "keepAll",
+        title: t("sessionsSaveFiles.pickerTitle"),
+      })
+        .then((result) => {
+          if (result) {
+            handleSaveFilesCompleted(result);
+          }
+        })
+        .catch((error: unknown) => {
+          showSnackbar(error instanceof Error ? error.message : t("common.errors.unexpected"));
+        });
+    },
+    [handleSaveFilesCompleted, showSnackbar, t],
+  );
+
+  const handleSaveHostFiles = useCallback(
+    (host: string) => {
+      handleRequestSaveFiles({
+        label: host,
+        sessions: visibleSessions.filter((session) => session.host === host),
+      });
+    },
+    [handleRequestSaveFiles, visibleSessions],
+  );
 
   const handleGoToBreakpoints = useCallback(() => {
     navigate("/rules");
@@ -822,6 +925,7 @@ export function SessionsPage() {
         onAddContainer={handleAddContainer}
         onCloseContainer={handleCloseContainer}
         onClearMultiSelection={clearMultiSelection}
+        onContextMenuFolder={handleContextMenuFolder}
         onContextMenuHost={handleHostContextMenu}
         onContextMenuSession={handleContextMenu}
         onCopyCurl={
@@ -929,6 +1033,31 @@ export function SessionsPage() {
         onConfirm={handleSaveToCollectionConfirm}
       />
 
+      <SessionFolderContextMenu
+        anchorPosition={folderContextMenuAnchor}
+        onClose={handleFolderContextMenuClose}
+        onSaveFiles={() => {
+          if (folderContextTarget) {
+            handleRequestSaveFiles(folderContextTarget);
+          }
+        }}
+        target={
+          folderContextTarget
+            ? {
+                label: folderContextTarget.label,
+                sessionCount: folderContextTarget.sessions.length,
+              }
+            : null
+        }
+      />
+
+      <SaveResponseFilesDialog
+        onClose={() => setSaveFilesTarget(null)}
+        onCompleted={handleSaveFilesCompleted}
+        open={saveFilesTarget !== null}
+        target={saveFilesTarget}
+      />
+
       <DomainContextMenu
         anchorPosition={domainContextMenuAnchor}
         host={contextMenuHost}
@@ -938,6 +1067,7 @@ export function SessionsPage() {
         onExportHost={handleExportHost}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}
+        onSaveHostFiles={handleSaveHostFiles}
         onStopIgnoringHost={handleStopIgnoringDomain}
         onUnfocusHost={handleUnfocusDomain}
       />

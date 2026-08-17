@@ -1110,6 +1110,26 @@ export const zhCNMessages: Messages = {
     summary: "准备把 {{count}} 条会话导出为 {{format}}。",
     title: "导出会话",
   },
+  sessionsSaveFiles: {
+    chooseDirectory: "选择目录并保存",
+    conflict: {
+      keepAll: "保存所有请求",
+      keepAllDescription: "重名文件自动加序号，例如 login.json、login (1).json。",
+      latestOnly: "只保留最后一次请求",
+      latestOnlyDescription: "同一个文件被抓到多次时，只保存最新的那次响应。",
+    },
+    conflictTitle: "同一个文件被多次请求时",
+    layoutHint:
+      "按域名以下的 URL 路径还原目录层级，不额外创建域名目录；URL 没有扩展名时按响应类型补全。WebSocket 会话和没有响应内容的请求会自动跳过。",
+    messages: {
+      nothingSaved: "没有可保存的文件。",
+      saved: "已保存 {{count}} 个文件到 {{directory}}。",
+      savedPartial: "已保存 {{count}} 个文件到 {{directory}}，跳过 {{skipped}} 个。",
+    },
+    pickerTitle: "选择保存抓包文件的目录",
+    summary: "准备保存「{{label}}」下的 {{count}} 个请求。",
+    title: "保存抓包文件",
+  },
   sessionsImport: {
     description: "把 HAR 文件导入到会话工作区里，方便继续查看、筛选和再次导出。",
     invalidFileType: "请选择 .har 文件。",
@@ -1538,6 +1558,7 @@ export const zhCNMessages: Messages = {
     repeatFailed: "重复请求失败",
     repeatSucceeded: "已重复请求",
     saveResponse: "保存响应...",
+    saveResponseFiles: "保存所有文件...",
     setCompareBase: "设为对比基准",
     sslDecryptDisable: "对此 host 停用 SSL 解密",
     sslDecryptEnable: "对此 host 启用 SSL 解密",
