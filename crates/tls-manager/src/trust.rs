@@ -614,7 +614,10 @@ fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
 
     // Anchor removal: scan both source dirs, delete matching files.
     let anchor_result = (|| -> Result<(), String> {
-        for dir in ["/usr/local/share/ca-certificates/", "/etc/pki/ca-trust/source/anchors/"] {
+        for dir in [
+            "/usr/local/share/ca-certificates/",
+            "/etc/pki/ca-trust/source/anchors/",
+        ] {
             let entries = match std::fs::read_dir(dir) {
                 Ok(entries) => entries,
                 // A missing dir simply holds no anchors.
@@ -635,8 +638,9 @@ fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
                         .iter()
                         .any(|fp| target_fingerprints.contains(fp))
                     {
-                        std::fs::remove_file(&path)
-                            .map_err(|error| format!("failed to remove {}: {error}", path.to_string_lossy()))?;
+                        std::fs::remove_file(&path).map_err(|error| {
+                            format!("failed to remove {}: {error}", path.to_string_lossy())
+                        })?;
                         tracing::info!(
                             event = "linux_anchor_removed",
                             path = %path.to_string_lossy(),
@@ -658,8 +662,14 @@ fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
             "/usr/bin/update-ca-trust",
             "/usr/sbin/update-ca-trust",
         ];
-        let Some(tool) = candidates.iter().find(|path| std::path::Path::new(path).exists()) else {
-            return Err("no CA store update tool found (update-ca-certificates / update-ca-trust)".to_string());
+        let Some(tool) = candidates
+            .iter()
+            .find(|path| std::path::Path::new(path).exists())
+        else {
+            return Err(
+                "no CA store update tool found (update-ca-certificates / update-ca-trust)"
+                    .to_string(),
+            );
         };
         let output = Command::new(tool)
             .output()
@@ -776,7 +786,10 @@ mod tests {
             vec![trust_store::WINDOWS_CURRENT_USER_ROOT.to_string()]
         );
         assert_eq!(report.failed.len(), 1);
-        assert_eq!(report.failed[0].store, trust_store::WINDOWS_LOCAL_MACHINE_ROOT);
+        assert_eq!(
+            report.failed[0].store,
+            trust_store::WINDOWS_LOCAL_MACHINE_ROOT
+        );
         assert_eq!(report.failed[0].error, "access denied");
     }
 

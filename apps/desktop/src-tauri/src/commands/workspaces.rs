@@ -57,6 +57,19 @@ pub async fn create_workspace(
                 .unwrap_or_else(|_| "[]".to_string()),
             ssl_blind_hosts: serde_json::to_string(&workspace_for_db.ssl_blind_hosts)
                 .unwrap_or_else(|_| "[]".to_string()),
+            // Empty string = never configured, which is what a fresh workspace
+            // is. Serialization cannot realistically fail for this shape, but
+            // degrade to "not configured" rather than aborting the create.
+            upstream_proxy: workspace_for_db
+                .upstream_proxy
+                .as_ref()
+                .and_then(|settings| serde_json::to_string(settings).ok())
+                .unwrap_or_default(),
+            ssl_proxying: workspace_for_db
+                .ssl_proxying
+                .as_ref()
+                .and_then(|settings| serde_json::to_string(settings).ok())
+                .unwrap_or_default(),
             storage_path: workspace_for_db.storage_path.clone(),
             created_at: workspace_for_db.created_at.clone(),
             updated_at: workspace_for_db.updated_at.clone(),
@@ -157,6 +170,14 @@ pub struct UpdateWorkspaceInput {
     /// hatch). None ⇒ leave unchanged. Array form matching
     /// `Workspace.sslBlindHosts`.
     pub ssl_blind_hosts: Option<Vec<String>>,
+    /// Upstream (chained) proxy settings. None ⇒ leave unchanged. Sending a
+    /// value with `enabled: false` keeps the settings but routes directly, so
+    /// the user can toggle the chain off without retyping the configuration.
+    /// Takes effect on the next proxy start/restart.
+    pub upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
+    /// Per-host SSL proxying policy. None ⇒ leave unchanged. Takes effect on
+    /// the next proxy start/restart.
+    pub ssl_proxying: Option<aiproxy_proxy_core::SslProxyingSettings>,
 }
 
 #[tauri::command]
@@ -186,6 +207,8 @@ pub async fn update_workspace(
         input.verify_upstream_tls,
         input.tls_verify_hosts.clone(),
         input.ssl_blind_hosts.clone(),
+        input.upstream_proxy.clone(),
+        input.ssl_proxying.clone(),
     )?;
 
     // Persist to DB on the blocking pool. The DB column stores tls_verify_hosts
@@ -200,6 +223,17 @@ pub async fn update_workspace(
         .ssl_blind_hosts
         .as_ref()
         .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
+    // `None` here means "field not present in this update", which the DB layer
+    // reads as "keep the stored value" — distinct from an explicitly disabled
+    // configuration, which serializes to a JSON object with `enabled: false`.
+    let upstream_proxy_json = input
+        .upstream_proxy
+        .as_ref()
+        .map(|settings| serde_json::to_string(settings).unwrap_or_default());
+    let ssl_proxying_json = input
+        .ssl_proxying
+        .as_ref()
+        .map(|settings| serde_json::to_string(settings).unwrap_or_default());
 
     let app_state = Arc::clone(state.inner());
     let updated_at = workspace.updated_at.clone();
@@ -215,6 +249,8 @@ pub async fn update_workspace(
             input.verify_upstream_tls,
             tls_verify_hosts_json.as_deref(),
             ssl_blind_hosts_json.as_deref(),
+            upstream_proxy_json.as_deref(),
+            ssl_proxying_json.as_deref(),
             &updated_at,
         ) {
             tracing::error!(
@@ -255,6 +291,8 @@ pub async fn update_workspace(
                     Some(previous.verify_upstream_tls),
                     Some(previous.tls_verify_hosts.clone()),
                     Some(previous.ssl_blind_hosts.clone()),
+                    previous.upstream_proxy.clone(),
+                    previous.ssl_proxying.clone(),
                 );
             }
             Err(error)

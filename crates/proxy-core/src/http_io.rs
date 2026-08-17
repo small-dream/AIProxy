@@ -401,6 +401,9 @@ pub(crate) fn build_session_detail(
         timing_source: None,
         trailers: None,
         h2_stream_id: None,
+        // Set by the forwarding path once an upstream connection actually
+        // happened; stays None for pending/synthesized sessions.
+        via_upstream_proxy: None,
     }
 }
 
@@ -465,6 +468,9 @@ pub(crate) fn build_pending_session_detail(
         timing_source: None,
         trailers: None,
         h2_stream_id: None,
+        // Set by the forwarding path once an upstream connection actually
+        // happened; stays None for pending/synthesized sessions.
+        via_upstream_proxy: None,
     }
 }
 

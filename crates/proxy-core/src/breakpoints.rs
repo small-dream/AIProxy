@@ -910,6 +910,9 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         status_code: StatusCode::from_u16(mock.status_code).unwrap_or(StatusCode::OK),
         tls_ms: None,
         waiting_ms: 0,
+        // A breakpoint mock never reaches the network, so there is no routing
+        // decision to report.
+        via_upstream_proxy: None,
     }
 }
 
@@ -1270,7 +1273,10 @@ mod tests {
         let result = intercept_request_stage(&Some(manager.clone()), &Some(emitter), &mut request)
             .await
             .expect("intercept should not error on timeout");
-        assert!(result.is_none(), "timeout must forward without modification");
+        assert!(
+            result.is_none(),
+            "timeout must forward without modification"
+        );
 
         let events = events.lock().expect("events mutex poisoned");
         assert_eq!(events.len(), 2, "expected hit then released events");

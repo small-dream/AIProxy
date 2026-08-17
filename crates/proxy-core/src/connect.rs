@@ -5,6 +5,53 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
 // ---------------------------------------------------------------------------
 
+/// Why a client refused the certificate we presented.
+///
+/// The distinction matters for log severity: one case is a configuration
+/// problem the user can fix, the other is a client working exactly as designed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientHandshakeRejection {
+    /// The client could not build a trust chain to our root CA — the
+    /// certificate is not installed, or not trusted for TLS on the device.
+    /// Actionable, so it stays visible in the log.
+    UntrustedRoot,
+    /// The client built the chain fine but rejected the certificate anyway,
+    /// which is what certificate pinning looks like from this side. Expected
+    /// for pinned hosts and not worth a warning per connection.
+    Pinned,
+    /// Anything else: a protocol-level failure, a truncated handshake, I/O.
+    Other,
+}
+
+/// Classify a failed `TlsAcceptor::accept`.
+///
+/// The alert code is the useful signal and it is only available on the
+/// underlying `rustls::Error`, so downcast rather than matching the formatted
+/// string — the `Display` text is not a stable interface.
+pub(crate) fn classify_client_handshake_error(error: &std::io::Error) -> ClientHandshakeRejection {
+    let Some(rustls_error) = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    else {
+        return ClientHandshakeRejection::Other;
+    };
+
+    match rustls_error {
+        rustls::Error::AlertReceived(alert) => match alert {
+            // RFC 8446 §6.2: sent when the chain does not reach a trust anchor.
+            rustls::AlertDescription::UnknownCA => ClientHandshakeRejection::UntrustedRoot,
+            // "Chain verified, certificate still unacceptable" — the alert a
+            // pinning implementation sends. `BadCertificate` and `AccessDenied`
+            // show up from stricter stacks for the same reason.
+            rustls::AlertDescription::CertificateUnknown
+            | rustls::AlertDescription::BadCertificate
+            | rustls::AlertDescription::AccessDenied => ClientHandshakeRejection::Pinned,
+            _ => ClientHandshakeRejection::Other,
+        },
+        _ => ClientHandshakeRejection::Other,
+    }
+}
+
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
 pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     mut client_stream: S,
@@ -12,33 +59,45 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     port: u16,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<(), String> {
     // Resolve DNS override FIRST (must happen before connecting upstream),
     // then connect the upstream BEFORE telling the client the tunnel is up.
     // If the upstream is unreachable we reply 502 Bad Gateway so the client
     // gets real feedback instead of a fake 200 followed by a dead tunnel (M4).
-    let connect_host = match resolve_dns_override(dns_manager, workspace_id, host) {
-        Some(ip) => {
-            tracing::info!(
-                event = "dns_override_applied",
-                host = %host,
-                override_ip = %ip,
-                "dns_override_applied"
-            );
-            ip.to_string()
-        }
-        None => host.to_string(),
-    };
-    // Bound the upstream TCP connect so a slow/unreachable target cannot hold
-    // a connection permit indefinitely (H4). On timeout we reply 504 Gateway
-    // Timeout, matching the connect-failure path established in M4.
+    //
+    // The override is passed to the dialer rather than pre-substituted into the
+    // host, so that when an upstream proxy is in play the hostname still
+    // reaches it verbatim (its routing rules need the domain, not an IP).
+    let dns_override_ip = resolve_dns_override(dns_manager, workspace_id, host);
+    if let Some(ip) = &dns_override_ip {
+        tracing::info!(
+            event = "dns_override_applied",
+            host = %host,
+            override_ip = %ip,
+            "dns_override_applied"
+        );
+    }
+    // Bound the upstream connect so a slow/unreachable target — or a stalled
+    // upstream proxy handshake — cannot hold a connection permit indefinitely
+    // (H4). On timeout we reply 504 Gateway Timeout, matching the
+    // connect-failure path established in M4.
     let connect_result = timeout(
         connect_tunnel_connect_timeout(),
-        TcpStream::connect((&*connect_host, port)),
+        crate::upstream_proxy::dial_target(upstream_proxy.as_deref(), host, port, dns_override_ip),
     )
     .await;
     let upstream = match connect_result {
-        Ok(Ok(s)) => s,
+        Ok(Ok((stream, route))) => {
+            tracing::debug!(
+                event = "connect_tunnel_upstream_connected",
+                host = %host,
+                port = port,
+                via_upstream_proxy = matches!(route, crate::upstream_proxy::DialRoute::UpstreamProxy),
+                "connect_tunnel_upstream_connected"
+            );
+            stream
+        }
         Ok(Err(e)) => {
             tracing::warn!(
                 event = "connect_tunnel_upstream_failed",
@@ -155,11 +214,14 @@ enum RelayOutcome {
 /// Idle-reset bidirectional relay over split halves, preserving TCP half-close.
 ///
 /// See the comment block in `tunnel_blind_relay` for the full design rationale.
-async fn idle_reset_relay<S: AsyncRead + AsyncWrite + Unpin>(
-    client_stream: S,
-    upstream: TcpStream,
-    idle: Duration,
-) -> RelayOutcome {
+async fn idle_reset_relay<S, U>(client_stream: S, upstream: U, idle: Duration) -> RelayOutcome
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    // Generic over the upstream too: it is a direct TCP stream when dialing the
+    // origin, or a proxy-tunneled (possibly TLS-wrapped) stream when an
+    // upstream proxy is configured.
+    U: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut client_read, mut client_write) = tokio::io::split(client_stream);
     let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream);
 
@@ -338,6 +400,8 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     // H3: per-host allowlist that forces verification even when the global
     // flag is off.
     tls_verify_hosts: Arc<[String]>,
+    // Upstream (chained) proxy for outbound connections, or None for direct.
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<(), ProxyError> {
     // Send 200 Connection Established
     stream
@@ -350,13 +414,45 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     let tls_stream = match tls_acceptor.accept(stream).await {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(
-                event = "tls_handshake_failed",
-                host = %host,
-                port = port,
-                error = %error,
-                "tls_handshake_failed"
-            );
+            match classify_client_handshake_error(&error) {
+                // The client is pinning. Nothing is wrong with our setup and
+                // nothing the user can change will make it succeed, so a
+                // warning per connection is pure noise — the actionable advice
+                // is to add the host to the SSL proxying exclude list, which
+                // the message says once, at debug level.
+                ClientHandshakeRejection::Pinned => {
+                    tracing::debug!(
+                        event = "tls_handshake_rejected_by_client",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "client rejected our certificate despite trusting the root CA \
+                         (certificate pinning); exclude this host from SSL proxying to \
+                         let it connect"
+                    );
+                }
+                // This one IS fixable: the root CA is missing or not trusted on
+                // the device. Keep it prominent.
+                ClientHandshakeRejection::UntrustedRoot => {
+                    tracing::warn!(
+                        event = "tls_handshake_untrusted_root",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "client does not trust the AIProxy root CA; install it and enable \
+                         full trust for it on the device"
+                    );
+                }
+                ClientHandshakeRejection::Other => {
+                    tracing::warn!(
+                        event = "tls_handshake_failed",
+                        host = %host,
+                        port = port,
+                        error = %error,
+                        "tls_handshake_failed"
+                    );
+                }
+            }
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake failed for {host}:{port}: {error}"
             )));
@@ -421,6 +517,7 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         upstream_pool,
         verify_upstream_tls,
         tls_verify_hosts,
+        upstream_proxy,
     });
     let service = HttpProxyService { ctx };
 

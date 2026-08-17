@@ -597,11 +597,18 @@ async fn remove_certificate_trust_impl(
         .active_workspace_id
         .clone()
         .unwrap_or_else(|| "default".to_string());
-    if let Err(error) =
-        state
-            .read_workspace_manager()
-            .update(&workspace_id, None, None, Some(false), None, None, None, None)
-    {
+    if let Err(error) = state.read_workspace_manager().update(
+        &workspace_id,
+        None,
+        None,
+        Some(false),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ) {
         tracing::warn!(
             component = "desktop.commands",
             event = "remove_certificate_trust_workspace_update_failed",

@@ -76,6 +76,30 @@ impl Drop for ConnDriverAbortOnDrop {
     }
 }
 
+/// Header names that must never be forwarded on an HTTP/2 request.
+///
+/// `host` is superseded by the `:authority` pseudo-header (RFC 9113 §8.3.1);
+/// the rest are connection-specific and explicitly banned (§8.2.2). A strict
+/// server answers a stream carrying any of them with PROTOCOL_ERROR rather
+/// than ignoring them, so they have to be dropped when a request captured from
+/// an h1 client is replayed onto an h2 upstream connection.
+pub(crate) fn is_h2_forbidden_request_header(name: &str) -> bool {
+    // `te` is conditionally legal (only `te: trailers`), but the captured
+    // value is not worth re-validating here — dropping it is always safe.
+    const FORBIDDEN: [&str; 7] = [
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "transfer-encoding",
+        "upgrade",
+        "te",
+    ];
+    FORBIDDEN
+        .iter()
+        .any(|forbidden| name.eq_ignore_ascii_case(forbidden))
+}
+
 // ---------------------------------------------------------------------------
 // Upstream request forwarding & response handling
 // ---------------------------------------------------------------------------
@@ -92,6 +116,8 @@ pub(crate) async fn forward_request(
     // H3: per-host allowlist that forces verification even when
     // verify_upstream_tls is false.
     tls_verify_hosts: Arc<[String]>,
+    // Upstream (chained) proxy to tunnel this request through, when configured.
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
 ) -> Result<UpstreamResponse, ProxyError> {
     use http_body_util::BodyExt;
 
@@ -132,6 +158,7 @@ pub(crate) async fn forward_request(
                     dns_override_ip,
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
+                    upstream_proxy.clone(),
                 )
                 .await?,
             )
@@ -183,6 +210,12 @@ pub(crate) async fn forward_request(
             connect_ms: 0,
             tls_ms: None,
             alpn_protocol: Some("h2".to_string()),
+            // A reused pooled connection carries no fresh timing, but it was
+            // established under the same routing decision this request would
+            // make, so report the route rather than defaulting to "direct".
+            via_upstream_proxy: upstream_proxy
+                .as_ref()
+                .is_some_and(|proxy| !proxy.should_bypass(&request.host)),
         });
 
         // Factory that rebuilds the h2 request from scratch each call, so it can
@@ -190,19 +223,26 @@ pub(crate) async fn forward_request(
         // branch below still uses the shared `http_req_builder` since it sends
         // exactly once.
         let build_h2_req = || -> Result<http::Request<http_body_util::combinators::BoxBody<bytes::Bytes, String>>, ProxyError> {
+            // H2 carries the target in the `:authority` pseudo-header, which
+            // hyper derives from the URI — so the URI must be absolute here,
+            // unlike the origin-form request-target the h1 branch uses.
             let mut builder = http::Request::builder()
                 .method(request.method.clone())
-                .uri(&request_target);
+                .uri(request.url.as_str());
             for (name, value) in &request.headers {
+                // RFC 9113 §8.2.1/§8.3.1: an h2 request must not carry `Host`
+                // (it is replaced by `:authority`) nor any connection-specific
+                // header. Strict servers reject the whole stream with
+                // PROTOCOL_ERROR when they appear — Google's endpoints do,
+                // while others silently tolerate them, which is why this only
+                // surfaced on some hosts.
+                if is_h2_forbidden_request_header(name.as_str()) {
+                    continue;
+                }
                 if let Ok(v) = value.to_str() {
                     builder = builder.header(name.as_str(), v);
                 }
             }
-            let host_header = match request.url.port() {
-                Some(port) => format!("{}:{port}", request.host),
-                None => request.host.clone(),
-            };
-            builder = builder.header("host", &host_header);
             if request.body.is_empty() {
                 builder
                     .body::<http_body_util::combinators::BoxBody<bytes::Bytes, String>>(
@@ -283,6 +323,7 @@ pub(crate) async fn forward_request(
                         dns_override_ip,
                         verify_upstream_tls,
                         Arc::clone(&tls_verify_hosts),
+                        upstream_proxy.clone(),
                     )
                 }) {
                     Some(fut) => fut.await.map_err(|e| {
@@ -347,6 +388,7 @@ pub(crate) async fn forward_request(
             dns_override_ip,
             verify_upstream_tls,
             Arc::clone(&tls_verify_hosts),
+            upstream_proxy.clone(),
         );
         let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
             ProxyError::UpstreamError(format!(
@@ -534,6 +576,7 @@ async fn build_upstream_response_from_hyper(
         status_code,
         tls_ms: connection_timing.tls_ms,
         waiting_ms,
+        via_upstream_proxy: Some(connection_timing.via_upstream_proxy),
     })
 }
 

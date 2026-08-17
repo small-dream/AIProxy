@@ -685,6 +685,7 @@ mod tests {
             timing_source: None,
             trailers: None,
             h2_stream_id: None,
+            via_upstream_proxy: None,
         }
     }
 }

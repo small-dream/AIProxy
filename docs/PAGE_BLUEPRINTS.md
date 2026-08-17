@@ -280,6 +280,7 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 ### 4.8 当前实现说明
 
 - Inspector Response Overview Tab 内嵌 `WaterfallChart` 组件，展示 timing 水平堆叠条形图（dns / connect / tls / request_send / waiting / response_read / total），各阶段使用不同颜色区分并支持 Tooltip 显示具体耗时。WaterfallChart 根据 `timingSource` 自动调整展示粒度：`"proxy"` 显示全部 7 个阶段，`"compose"` 仅显示已采集的阶段，`"har-import"` 取决于导入数据。
+- Inspector Request Overview 的 General 分组包含 `Route`（出网路径）行，取值为 `Direct`（直连）/ `Via upstream proxy`（经上游代理）/ `N/A`。`N/A` 对应 `viaUpstreamProxy` 为空的情况——mock / Map Local / script 合成响应根本没有出网，以及该字段存在之前抓的历史会话；这类会话不显示为 `Direct`，否则会被误读成「上游代理被绕过了」。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
 - 会话树的三类节点各有一套右键菜单：叶子节点 → `SessionContextMenu`，host 节点 → `DomainContextMenu`，URL 路径目录节点 → `SessionFolderContextMenu`；三者共用同一套锚点状态，打开任一菜单会关闭另外两个。
@@ -850,6 +851,8 @@ type CertificatesPageState = {
 当前已实现目标：
 
 - 管理代理预设（端口、SSL）
+- 配置上游（链式）代理
+- 配置逐域名 SSL proxying / blind tunneling 策略
 - 在「General」区统一管理语言、主题、界面字体、内容字体与字号偏好
 - 管理危险操作确认开关（Clear All Sessions 确认可关闭并在此恢复）
 - 支持 `system` 级别的自动解析与持久化
@@ -864,6 +867,19 @@ type CertificatesPageState = {
 │ [Proxy Presets]                                                             │
 │ Preset List                  (New Preset) (Apply) (Save)                    │
 │ Name / Port / SSL Editor                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Upstream Proxy]                          (Test Connection) (Save)          │
+│ Route through an upstream proxy  [ Toggle ]                                 │
+│ Protocol [HTTP v]  Host [__________]  Port [_____]                          │
+│ Username [__________]  Password [__________]                                │
+│ Bypass List (multiline)                                                     │
+│ Probe Result / No-Fallback Hint / Credential Storage Hint                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [SSL Proxying]                      (Restore Recommended) (Save)            │
+│ Mode Hint (all-except-excluded / include-list)                              │
+│ Include (multiline)                                                         │
+│ Exclude (multiline)                                                         │
+│ Pinning Hint / SSL-Disabled Hint                                            │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [General]  (macOS 风格分组行，Divider 分隔，控件右对齐)                       │
 │ Display Language                        [Follow System v]                   │
@@ -893,6 +909,18 @@ SettingsPage
 │  ├─ PresetActions
 │  ├─ PresetEditor
 │  └─ SuccessAlert
+├─ UpstreamProxySection
+│  ├─ EnableToggle
+│  ├─ ProtocolSelect / HostField / PortField
+│  ├─ CredentialFields
+│  ├─ BypassTextarea
+│  ├─ TestConnectionButton
+│  └─ ProbeResultAlert / NoFallbackAlert / CredentialStorageAlert
+├─ SslProxyingSection
+│  ├─ IncludeTextarea
+│  ├─ ExcludeTextarea
+│  ├─ RestoreRecommendedButton
+│  └─ PinningHint / SslDisabledHint
 ├─ SectionCard "General"
 │  └─ SettingsGroup (Divider 分隔)
 │     ├─ SettingsRow LanguagePreferenceSelect
@@ -918,6 +946,21 @@ type SettingsPageState = {
     activePresetId?: string;
     selectedPresetId?: string | null;
     isCreatingPreset: boolean;
+  };
+  upstreamProxy: {
+    // 表单草稿；bypass 以换行分隔文本编辑，保存时解析为数组
+    draft: {
+      enabled: boolean;
+      protocol: "http" | "https" | "socks5";
+      host: string;
+      port: number;
+      username: string;
+      password: string;
+      bypassText: string;
+    };
+    // 一次性连通性探测结果，任何字段变更都会清空
+    testResult: UpstreamProxyProbeResult | null;
+    isTesting: boolean;
   };
   preferences: {
     languagePreference: "system" | "zh-CN" | "en";
@@ -955,6 +998,75 @@ Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件
 | Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_workspaces`, `create_workspace`, `load_workspace`, `update_workspace` |
 | Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
+
+## 9.4 Upstream Proxy（上游代理）— 已实现
+
+### 功能目标
+
+把抓包流量转发给另一个代理，而不是直接连接目标。典型场景：手机把代理指向 AIProxy 做抓包，实际出网由本机的规则代理（Clash / Surge / mitmproxy / Charles）按分流规则完成。
+
+### 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的独立 `UpstreamProxySection` 组件。
+
+### 关键设计约束
+
+- **统一拨号**：Rust 侧三个出站点（CONNECT 盲转发、HTTP/MITM 转发、WebSocket 上游）共用 `upstream_proxy::dial_target()`，所以四类流量的路由行为完全一致。
+- **不回退直连**：上游代理不可用时请求失败。静默绕过会把用户明确要求经由代理的流量泄漏出去。
+- **域名交给上游解析**：默认以主机名形式把目标交给代理（SOCKS5 `ATYP=domain` / CONNECT authority），否则 Clash 的域名分流规则无法匹配。存在 DNS 覆盖时覆盖 IP 优先。
+- **重启才生效**：配置在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
+- **测试忽略绕行列表**：`test_upstream_proxy` 探测的是代理本身，绕行命中不应被报成「连接成功」。
+
+### 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `UpstreamProxySection` | 配置表单 + 连通性测试 + 保存/重启 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`upstreamProxy` 入参） |
+| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `testUpstreamProxy`；日志脱敏密码 |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `UpstreamProxySettings`, `UpstreamProxyProtocol`, `UpstreamProxyProbeResult` 及其校验/解析函数 |
+| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `test_upstream_proxy`；`start_proxy` 中解析 workspace 配置 |
+| Rust 领域 | `crates/proxy-core/src/upstream_proxy.rs` | 协议握手、绕行匹配、`dial_target`、连通性探测 |
+| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.upstream_proxy` JSON 列；`session_details.via_upstream_proxy` |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `upstreamProxy.*`、`inspector.request.overview.route*` 文案键 |
+
+## 9.5 SSL Proxying（逐域名解密策略）— 已实现
+
+### 功能目标
+
+决定哪些域名的 TLS 需要解密。对标 Charles 的 SSL Proxying Settings。
+
+解决的问题：拦截是全局开关时，使用证书绑定（SSL Pinning）的 App 会拒绝 AIProxy 的证书，而**握手失败会直接断开连接**——结果不是「抓不到这个 App 的包」，而是「这个 App 在开着 AIProxy 时完全不能用」。Charles 默认不解密任何域名，所以不会出现这个问题；把域名排除后走盲转发即可获得同样的效果。
+
+### 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` 组件。
+
+### 关键设计约束
+
+- **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
+- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
+- **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
+- **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
+- **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
+- **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
+- **握手失败按原因分级**：客户端因绑定拒绝证书记为 `debug`（预期行为，且无法通过配置解决），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
+
+### 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
+| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
+| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
+| Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
+| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `sslProxying.*` 文案键 |
 
 ## 8.5 Compare Page — `已实现发布硬化版`
 
@@ -1236,7 +1348,7 @@ User clicks Export dropdown
 | Compare | `session-compare`, `ai` | `get_ai_settings`, `save_ai_settings`, `test_ai_connection`, `summarize_session_diff` |
 | Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
-| Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现) |
+| Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现), `test_upstream_proxy` (已实现) |
 | Insights | `insights` | `get_insights` (已实现) |
 
 ## 12. 实现建议

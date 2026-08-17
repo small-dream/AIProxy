@@ -482,6 +482,10 @@ function buildOverviewSections({
             t("inspector.request.overview.fields.remoteAddress"),
             buildRemoteAddress(session.url, session.host, detail?.serverIp),
           ],
+          [
+            t("inspector.request.overview.fields.route"),
+            formatRouteValue(detail?.viaUpstreamProxy, t("common.states.na"), t),
+          ],
           [t("common.labels.protocol"), formatSessionProtocol(session)],
           [t("inspector.request.overview.fields.tags"), t("common.states.na")],
           [
@@ -1012,6 +1016,28 @@ function formatBooleanValue(
   }
 
   return value ? t("inspector.request.overview.yes") : t("inspector.request.overview.no");
+}
+
+/**
+ * Describe how this request reached the network.
+ *
+ * `undefined` means there was no routing decision to report — a mocked /
+ * Map Local / script response never dialed out, and sessions captured before
+ * this field existed carry no value either. Those show as N/A rather than
+ * "direct", which would wrongly suggest the upstream proxy had been skipped.
+ */
+function formatRouteValue(
+  viaUpstreamProxy: boolean | undefined,
+  na: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (viaUpstreamProxy == null) {
+    return na;
+  }
+
+  return viaUpstreamProxy
+    ? t("inspector.request.overview.routeUpstreamProxy")
+    : t("inspector.request.overview.routeDirect");
 }
 
 function formatSslValue(

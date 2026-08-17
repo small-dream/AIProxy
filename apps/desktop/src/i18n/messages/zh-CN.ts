@@ -334,6 +334,63 @@ export const zhCNMessages: Messages = {
     verifyUpstreamTlsDisabledHint:
       "上游 TLS 校验已关闭（不安全）：代理会接受任意上游证书。如需更安全地拦截可信上游，请开启此项。",
   },
+  sslProxying: {
+    title: "SSL 代理",
+    description:
+      "选择哪些域名需要解密。未被解密的域名仍会正常转发，只是看不到其流量内容。",
+    modeAllExceptExcluded: "当前：解密除排除列表以外的全部域名。",
+    modeIncludeList: "当前：仅解密包含列表中的域名。",
+    include: "包含列表",
+    includePlaceholder: "每行一条规则 —— 留空表示解密全部",
+    includeDescription:
+      "留空表示解密所有未被排除的域名。填写后则只解密列出的域名，其余原样转发。",
+    exclude: "排除列表",
+    excludePlaceholder: "每行一条规则（如 *.example.com、192.168.0.0/16）",
+    excludeDescription:
+      "始终不解密，即使命中包含列表也一样。支持精确域名、*.example.com 后缀通配，以及 CIDR 网段（仅对 IP 字面量目标生效）。",
+    restoreRecommended: "恢复推荐列表",
+    save: "保存",
+    saving: "保存中…",
+    saveSuccess: "SSL 代理设置已保存。",
+    saveAndApplySuccess: "SSL 代理设置已保存，并已重启代理使其生效。",
+    sslDisabledHint: "当前工作区未开启 SSL 拦截，不会解密任何流量，此策略暂不生效。",
+    pinningHint:
+      "使用证书绑定（SSL Pinning）的 App 会主动拒绝 AIProxy 的证书，而握手失败会直接断开连接 —— 结果不只是看不到流量，而是 App 本身无法使用。把这些域名加入排除列表即可让它们恢复正常。",
+  },
+  upstreamProxy: {
+    title: "上游代理",
+    description:
+      "将抓包流量转发给另一个代理，而不是直接连接目标 —— 例如让手机通过本机的规则代理访问网络。",
+    enabled: "经由上游代理转发",
+    enabledDescription: "AIProxy 仍然负责拦截和解密，实际出网由上游代理完成。",
+    protocol: "协议",
+    protocolHttp: "HTTP（CONNECT）",
+    protocolHttps: "HTTPS（到代理的连接走 TLS）",
+    protocolSocks5: "SOCKS5",
+    host: "代理地址",
+    hostValidation: "请填写代理地址。",
+    port: "代理端口",
+    portValidation: "端口必须在 1 到 65535 之间。",
+    username: "用户名",
+    password: "密码",
+    credentialsOptional: "可选",
+    passwordNeedsUsername: "请先填写用户名。",
+    bypass: "绕行列表",
+    bypassPlaceholder: "每行一条规则（如 localhost、*.example.com、192.168.0.0/16）",
+    bypassDescription:
+      "命中的主机将直连。支持精确域名、*.example.com 后缀通配，以及 CIDR 网段（仅对 IP 字面量目标生效）。",
+    test: "测试连接",
+    testing: "测试中…",
+    testSuccess: "已成功建立到 {{target}} 的隧道，耗时 {{elapsed}} 毫秒。",
+    testFailure: "连接测试失败：{{error}}",
+    save: "保存",
+    saving: "保存中…",
+    saveSuccess: "上游代理设置已保存。",
+    saveAndApplySuccess: "上游代理设置已保存，并已重启代理使其生效。",
+    noFallbackHint:
+      "上游代理不可用时请求会直接失败，不会回退到直连 —— 流量不会在你不知情的情况下绕过它。",
+    credentialStorageHint: "代理密码以明文形式保存在该工作区的本地数据库中。",
+  },
   composePage: {
     bodyPlaceholder: "请求 Body（JSON、纯文本等）",
     configureHint: "配置请求后点击发送，即可在这里查看响应。",
@@ -1326,6 +1383,8 @@ export const zhCNMessages: Messages = {
       overview: {
         cancelled: "已取消",
         complete: "完成",
+        routeDirect: "直连",
+        routeUpstreamProxy: "经上游代理",
         fields: {
           clientAddress: "客户端地址",
           clientConnection: "客户端连接",
@@ -1340,6 +1399,7 @@ export const zhCNMessages: Messages = {
           latency: "延迟",
           queryString: "Query String",
           remoteAddress: "远端地址",
+          route: "出网路径",
           request: "请求",
           requestBody: "请求 Body",
           requestEndTime: "请求结束时间",

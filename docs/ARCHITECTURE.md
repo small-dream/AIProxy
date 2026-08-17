@@ -216,6 +216,9 @@ CSP 策略：
 - `upstream.rs`：上游 HTTP 请求转发模块，负责 hyper upstream request、response body 读取、捕获体限制和大 body spool helper。
 - `connect.rs`：CONNECT 处理模块，负责 blind TCP relay、MITM TLS accept、CONNECT/WSS 相关 response head 读取。
 - `connection.rs`：`ConnectionContext` 结构体 + `ConnectionMode` enum，定义纯 HTTP / MITM 两条路径的连接级共享状态。
+- `upstream_proxy.rs`：上游（链式）代理模块。所有出站连接统一经由 `dial_target()` 拨号，返回一条「能到达目标」的字节流；未配置或命中绕行规则时直连，否则按 HTTP CONNECT / HTTPS（先与代理做 TLS 再 CONNECT）/ SOCKS5（RFC 1928 + 1929 认证）协商隧道。三个出站点（`connect.rs` 盲转发、`timing_connector.rs` HTTP/MITM 转发、`ws_upgrade.rs` WebSocket 上游）共用该抽象，因此 TLS 拦截、h1/h2 选择、timing 采集与连接池均无需感知代理链。
+- `ssl_proxying.rs`：逐域名的 SSL 代理（TLS 解密）策略。`server.rs` 在处理 CONNECT 时调用 `should_intercept()` 决定该连接走 MITM 还是盲转发：`exclude` 优先于 `include`，`include` 为空表示「解密所有未被排除的域名」。这是为证书绑定（SSL Pinning）客户端准备的——它们会拒绝我们的证书，而握手失败会直接断开连接，因此拦截这类域名不只是抓不到明文，而是会让 App 不可用；排除后走盲转发即可保持其正常工作。
+- `host_pattern.rs`：域名模式匹配的共用实现（精确域名 / `*.example.com` 后缀 / CIDR / `*`），由上游代理绕行列表与 SSL 代理 include/exclude 列表共同使用。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
 - `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
@@ -986,6 +989,9 @@ project-root/
 - `context.rs`：跨请求共享的 proxy runtime context
 - `http_io.rs`：HTTP header/body I/O、prefixed stream、body limit 工具
 - `upstream_pool.rs`：HTTP/2 上游连接池与空闲连接清理
+- `upstream_proxy.rs`：上游（链式）代理的协议握手、绕行匹配、统一拨号入口与连通性探测
+- `ssl_proxying.rs`：逐域名 TLS 解密策略与内置推荐排除表
+- `host_pattern.rs`：域名模式匹配共用实现（绕行列表与 SSL 代理列表共用）
 - `rules/`：规则类型、manager、pattern、rewrite/map/script/throttle/json path 逻辑
 - `error.rs`：代理核心结构化错误
 - `types.rs`：跨平台共享类型与 IP 探测入口；平台特定实现通过 `#[cfg]` 分别委托给 `types_unix.rs`（libc getifaddrs）和 `types_windows.rs`（PowerShell Get-NetIPAddress）

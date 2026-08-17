@@ -24,12 +24,32 @@ pub struct ProxyRuntimeConfig {
     /// decrypted body) — a privacy control and an escape hatch for hosts whose
     /// clients pin their certificates. Hostnames are stored lowercase.
     pub ssl_blind_hosts: std::sync::Arc<[String]>,
+    /// Upstream (chained) proxy. When set, outbound connections are tunneled
+    /// through it instead of dialed directly — AIProxy keeps intercepting and
+    /// the configured proxy performs the actual egress. `None` = direct.
+    ///
+    /// Shared behind an `Arc` because this config is cloned onto every
+    /// connection and request path.
+    pub upstream_proxy: Option<std::sync::Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    /// Which hosts get their TLS intercepted. `None` intercepts everything,
+    /// preserving the behavior from before this setting existed; a host the
+    /// policy rejects is relayed blind so a certificate-pinning client keeps
+    /// working instead of having its connection torn down.
+    ///
+    /// Only consulted when `ssl_enabled` is true — with interception off there
+    /// is nothing to scope.
+    pub ssl_proxying: Option<std::sync::Arc<crate::ssl_proxying::SslProxyingConfig>>,
 }
 
 impl ProxyRuntimeConfig {
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), String> {
         if self.port == 0 {
-            return Err("proxy port must be greater than zero");
+            return Err("proxy port must be greater than zero".to_string());
+        }
+
+        // Fail at startup with a clear message rather than on every request.
+        if let Some(upstream_proxy) = &self.upstream_proxy {
+            upstream_proxy.validate()?;
         }
 
         Ok(())
@@ -442,6 +462,11 @@ pub struct ProxySessionDetail {
     pub timing_source: Option<String>,
     pub trailers: Option<Vec<ProxyHeaderEntry>>,
     pub h2_stream_id: Option<u32>,
+    /// Whether this request's upstream connection was tunneled through the
+    /// configured upstream (chained) proxy. `None` when the routing decision is
+    /// unknown for this session — a mocked/breakpoint response, a replayed
+    /// session, or a blind CONNECT tunnel that produced no forwarded request.
+    pub via_upstream_proxy: Option<bool>,
 }
 
 impl ProxySessionDetail {
@@ -494,7 +519,7 @@ impl Serialize for ProxySessionDetail {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ProxySessionDetail", 17)?;
+        let mut state = serializer.serialize_struct("ProxySessionDetail", 18)?;
         if let Some(client_address) = &self.client_address {
             state.serialize_field("clientAddress", client_address)?;
         }
@@ -538,6 +563,9 @@ impl Serialize for ProxySessionDetail {
         }
         if let Some(h2_stream_id) = &self.h2_stream_id {
             state.serialize_field("h2StreamId", h2_stream_id)?;
+        }
+        if let Some(via_upstream_proxy) = &self.via_upstream_proxy {
+            state.serialize_field("viaUpstreamProxy", via_upstream_proxy)?;
         }
         state.end()
     }
@@ -651,6 +679,12 @@ pub(crate) struct UpstreamResponse {
     pub(crate) status_code: StatusCode,
     pub(crate) tls_ms: Option<u128>,
     pub(crate) waiting_ms: u128,
+    /// Whether the connection used to send this request was tunneled through
+    /// the configured upstream proxy. `None` for synthesized responses (mock,
+    /// Map Local, script override) that never touched the network — reporting
+    /// those as "direct" would read as "the proxy chain was skipped" when in
+    /// fact no connection happened at all.
+    pub(crate) via_upstream_proxy: Option<bool>,
 }
 
 impl UpstreamResponse {

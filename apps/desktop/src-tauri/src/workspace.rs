@@ -25,6 +25,16 @@ pub struct WorkspaceData {
     /// stays on (privacy / certificate-pinning escape hatch). IPC-facing array
     /// form, persisted as a JSON-encoded TEXT column in the DB.
     pub ssl_blind_hosts: Vec<String>,
+    /// Upstream (chained) proxy settings, or `None` when never configured.
+    /// The DB column stores this as a JSON string; the converter (de)serializes
+    /// between the two, mirroring `tls_verify_hosts`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
+    /// Per-host SSL proxying policy, or `None` when never configured — which
+    /// resolves to the built-in defaults at proxy start rather than to two
+    /// empty lists. Stored and transported like `upstream_proxy`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssl_proxying: Option<aiproxy_proxy_core::SslProxyingSettings>,
     pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
@@ -50,6 +60,8 @@ impl WorkspaceManager {
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
             ssl_blind_hosts: Vec::new(),
+            upstream_proxy: None,
+            ssl_proxying: None,
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -101,6 +113,8 @@ impl WorkspaceManager {
             verify_upstream_tls: false,
             tls_verify_hosts: Vec::new(),
             ssl_blind_hosts: Vec::new(),
+            upstream_proxy: None,
+            ssl_proxying: None,
             storage_path: String::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -145,6 +159,8 @@ impl WorkspaceManager {
         verify_upstream_tls: Option<bool>,
         tls_verify_hosts: Option<Vec<String>>,
         ssl_blind_hosts: Option<Vec<String>>,
+        upstream_proxy: Option<aiproxy_proxy_core::UpstreamProxySettings>,
+        ssl_proxying: Option<aiproxy_proxy_core::SslProxyingSettings>,
     ) -> Result<WorkspaceData, String> {
         let mut workspaces = self
             .workspaces
@@ -176,6 +192,12 @@ impl WorkspaceManager {
         }
         if let Some(hosts) = ssl_blind_hosts {
             workspace.ssl_blind_hosts = hosts;
+        }
+        if let Some(settings) = upstream_proxy {
+            workspace.upstream_proxy = Some(settings);
+        }
+        if let Some(settings) = ssl_proxying {
+            workspace.ssl_proxying = Some(settings);
         }
 
         workspace.updated_at = chrono::Utc::now().to_rfc3339();

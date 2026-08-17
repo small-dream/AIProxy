@@ -776,6 +776,8 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 语言偏好：`Follow System / 简体中文 / English`
 - 外观偏好：`Follow System / Light / Dark`
 - 代理预设：列表选择、创建、编辑、应用
+- 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
+- SSL 代理：逐域名的 include / exclude 解密策略，含「恢复推荐列表」与证书绑定说明
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -810,10 +812,17 @@ Settings Page
 
 当前实现说明：
 
-- 当前桌面端已落地 `Proxy Presets`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 六个设置区块（单一滚动页面，未启用左侧设置导航；字体等外观偏好并入 `Appearance` 区块）
+- 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，未启用左侧设置导航；字体等外观偏好并入 `Appearance` 区块）
 - 后续如扩展左侧设置导航，需保持当前字段归属不变
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
+- `UpstreamProxySection`：上游（链式）代理配置，独立 `SectionCard`，沿用 `compactFieldSx` / `compactAlertSx` 紧凑样式。结构为启用开关 + `Test Connection` / `Save` 操作栏、协议 `Select` 与地址/端口字段、可选凭据字段（密码框在用户名为空时禁用）、换行分隔的绕行列表 `TextField`。交互约束：
+  - 任何字段变更都会清空上一次的探测结果，避免旧结论与新配置并存造成误判
+  - 探测结果以 `Alert` 呈现（成功为 success + 耗时，失败为 error + 具体原因）
+  - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
+  - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
+  - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`，提供 include / exclude 两个多行输入、恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`，空 include 表示解密全部未排除域名。
 
 ## 10. 组件规范
 

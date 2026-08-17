@@ -2,8 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   coerceAppError,
+  parseSslProxyingExclusions,
+  parseUpstreamProxyProbeResult,
   parseWorkspace,
   parseWorkspaces,
+  type SslProxyingSettings,
+  type UpstreamProxyProbeResult,
+  type UpstreamProxySettings,
   type Workspace,
 } from "@aiproxy/shared-types";
 
@@ -21,6 +26,24 @@ const MOCK_WORKSPACE: Omit<Workspace, "id" | "name" | "createdAt" | "updatedAt">
   sslBlindHosts: [],
   storagePath: "",
 };
+
+/**
+ * Strip the upstream proxy password before anything reaches the dev log.
+ * The log is written to disk and routinely pasted into bug reports, so the
+ * credential must never appear in it.
+ */
+function redactUpstreamProxy<T extends { upstreamProxy?: UpstreamProxySettings }>(
+  input: T,
+): T & { upstreamProxy?: UpstreamProxySettings } {
+  if (!input.upstreamProxy) return input;
+  return {
+    ...input,
+    upstreamProxy: {
+      ...input.upstreamProxy,
+      password: input.upstreamProxy.password ? "***" : input.upstreamProxy.password,
+    },
+  };
+}
 
 function mockWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   const now = new Date().toISOString();
@@ -137,9 +160,24 @@ export async function updateWorkspace(input: {
    * omit to leave unchanged.
    */
   sslBlindHosts?: string[];
+  /**
+   * Upstream (chained) proxy settings. Omit to leave unchanged; send a value
+   * with `enabled: false` to keep the configuration but route directly.
+   * Takes effect on the next proxy start/restart.
+   */
+  upstreamProxy?: UpstreamProxySettings;
+  /**
+   * Per-host SSL proxying policy. Omit to leave unchanged. Takes effect on
+   * the next proxy start/restart.
+   */
+  sslProxying?: SslProxyingSettings;
 }): Promise<Workspace> {
   if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "update_workspace_bypassed_non_tauri_runtime", input);
+    logDevDebug(
+      "ui.commands",
+      "update_workspace_bypassed_non_tauri_runtime",
+      redactUpstreamProxy(input),
+    );
     return mockWorkspace({
       id: input.workspaceId,
       name: input.name ?? "Default",
@@ -151,11 +189,13 @@ export async function updateWorkspace(input: {
       // mock stays consistent with the persisted workspace shape.
       tlsVerifyHosts: input.tlsVerifyHosts ?? [],
       sslBlindHosts: input.sslBlindHosts ?? [],
+      ...(input.upstreamProxy ? { upstreamProxy: input.upstreamProxy } : {}),
+      ...(input.sslProxying ? { sslProxying: input.sslProxying } : {}),
     });
   }
 
   try {
-    logDevInfo("ui.commands", "update_workspace_requested", input);
+    logDevInfo("ui.commands", "update_workspace_requested", redactUpstreamProxy(input));
     const payload = await invoke<unknown>("update_workspace", { input });
     const workspace = parseWorkspace(payload);
 
@@ -170,6 +210,86 @@ export async function updateWorkspace(input: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// API Collection commands
-// ---------------------------------------------------------------------------
+/**
+ * Verify an upstream proxy configuration by opening a real tunnel through it.
+ *
+ * Tests the supplied settings regardless of their `enabled` flag, so a user can
+ * validate a configuration before switching it on.
+ */
+export async function testUpstreamProxy(input: {
+  settings: UpstreamProxySettings;
+  probeHost?: string;
+  probePort?: number;
+}): Promise<UpstreamProxyProbeResult> {
+  if (!isTauriRuntime()) {
+    logDevDebug(
+      "ui.commands",
+      "test_upstream_proxy_bypassed_non_tauri_runtime",
+      redactUpstreamProxy({ upstreamProxy: input.settings }),
+    );
+    return {
+      success: false,
+      elapsedMs: 0,
+      error: "Upstream proxy testing requires the desktop runtime.",
+      probeTarget: `${input.probeHost ?? "www.apple.com"}:${input.probePort ?? 443}`,
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "test_upstream_proxy_requested", {
+      protocol: input.settings.protocol,
+      host: input.settings.host,
+      port: input.settings.port,
+      authenticated: Boolean(input.settings.username),
+    });
+    const payload = await invoke<unknown>("test_upstream_proxy", { input });
+    const result = parseUpstreamProxyProbeResult(payload);
+
+    logDevInfo("ui.commands", "test_upstream_proxy_succeeded", {
+      success: result.success,
+      elapsedMs: result.elapsedMs,
+    });
+
+    return result;
+  } catch (error) {
+    reportCommandFailure("test_upstream_proxy", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function loadDefaultSslProxyingExclusions(): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    logDevDebug(
+      "ui.commands",
+      "load_default_ssl_proxying_exclusions_bypassed_non_tauri_runtime",
+    );
+    return parseSslProxyingExclusions([
+      "*.tiktokv.com",
+      "*.tiktokcdn.com",
+      "*.tiktok-row.net",
+      "*.snssdk.com",
+      "*.byteoversea.com",
+      "*.icloud.com",
+      "*.icloud.com.cn",
+      "apps.apple.com",
+      "*.apps.apple.com",
+      "itunes.apple.com",
+      "*.itunes.apple.com",
+    ]);
+  }
+
+  try {
+    logDevInfo("ui.commands", "load_default_ssl_proxying_exclusions_requested");
+    const payload = await invoke<unknown>("default_ssl_proxying_exclusions");
+    const exclusions = parseSslProxyingExclusions(payload);
+
+    logDevInfo("ui.commands", "load_default_ssl_proxying_exclusions_succeeded", {
+      count: exclusions.length,
+    });
+
+    return exclusions;
+  } catch (error) {
+    reportCommandFailure("default_ssl_proxying_exclusions", error);
+    throw coerceAppError(error);
+  }
+}

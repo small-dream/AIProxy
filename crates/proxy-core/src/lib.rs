@@ -85,15 +85,18 @@ mod connect;
 mod connection;
 mod context;
 mod error;
+mod host_pattern;
 mod http_io;
 mod http_proxy;
 mod rules;
 mod server;
+mod ssl_proxying;
 mod stream;
 mod timing_connector;
 mod types;
 mod upstream;
 mod upstream_pool;
+mod upstream_proxy;
 pub mod ws;
 mod ws_upgrade;
 
@@ -120,11 +123,16 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, start_proxy_server};
+pub use ssl_proxying::{default_ssl_proxying_exclusions, SslProxyingConfig, SslProxyingSettings};
 pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,
     ProxyProtocolMetadata, ProxyRuntimeConfig, ProxyServerHandle, ProxySessionDetail,
     ProxySessionSummary, ProxyTimingBreakdown, StartedProxyServer, TlsManager,
+};
+pub use upstream_proxy::{
+    bypass_matches, default_bypass_patterns, probe_upstream_proxy, UpstreamProxyConfig,
+    UpstreamProxyProbeResult, UpstreamProxyProtocol, UpstreamProxySettings, DEFAULT_PROBE_TARGET,
 };
 pub use ws::{
     global_ws_registry, WsConnectionRegistry, WsConnectionStatus, WsDirection, WsInjectRequest,
