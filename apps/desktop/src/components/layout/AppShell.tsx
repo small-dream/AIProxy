@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Box, Snackbar } from "@mui/material";
+import { Alert, Box, Button, Snackbar } from "@mui/material";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -31,6 +31,7 @@ import { useSessionEvents } from "@/features/sessions/use-session-events";
 import { useNotificationStore } from "@/services/notification.store";
 import { UpdateDialog } from "@/features/updater/UpdateDialog";
 import { checkForUpdateAndStore } from "@/features/updater/update-status";
+import { showLogFile } from "@/services/commands";
 
 const MACOS_TITLEBAR_HEIGHT = 38;
 
@@ -85,6 +86,7 @@ export function AppShell() {
   const shiftNotification = useNotificationStore((s) => s.shift);
   const activeNotification = notificationQueue[0] ?? null;
   const snackbarMessage = menuSnackbarMessage ?? activeNotification?.message ?? null;
+  const snackbarSeverity = menuSnackbarMessage ? "info" : (activeNotification?.severity ?? "info");
 
   // --- Proxy lifecycle ---
   const {
@@ -119,6 +121,11 @@ export function AppShell() {
   const { handleAdbSetProxy, handleAdbClearProxy } = useAdbActions({
     port,
     proxyStatus,
+    onMultipleDevices: () => {
+      navigate("/certificates?tab=mobile&panel=android", {
+        state: { menuActionAt: Date.now() },
+      });
+    },
     onSnackbarMessage: setMenuSnackbarMessage,
   });
 
@@ -245,8 +252,12 @@ export function AppShell() {
             right: 0,
             top: 0,
             height: "calc(100% - 40px)",
-            width: "calc(100% - 420px)",
-            minWidth: 640,
+            width: {
+              xs: "100%",
+              sm: "min(100%, 640px)",
+              lg: "calc(100% - 420px)",
+            },
+            maxWidth: "100%",
             zIndex: (theme) => theme.zIndex.drawer,
             transition: "transform 300ms ease",
             transform: pendingBreakpointCount > 0 ? "translateX(0)" : "translateX(100%)",
@@ -324,8 +335,7 @@ export function AppShell() {
       <Snackbar
         key={menuSnackbarMessage ?? activeNotification?.id ?? "snackbar"}
         autoHideDuration={4000}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        message={snackbarMessage}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         onClose={() => {
           if (menuSnackbarMessage !== null) {
             setMenuSnackbarMessage(null);
@@ -334,12 +344,41 @@ export function AppShell() {
           }
         }}
         open={snackbarMessage !== null}
-        sx={{
-          top: "50% !important",
-          bottom: "auto !important",
-          transform: "translateY(-50%)",
-        }}
-      />
+        sx={{ mb: 4 }}
+      >
+        <Alert
+          action={
+            snackbarSeverity === "error" ? (
+              <Button
+                color="inherit"
+                onClick={() => {
+                  void showLogFile().catch((error) => {
+                    setMenuSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
+                  });
+                }}
+                size="small"
+              >
+                {t("appShell.viewLogsAction")}
+              </Button>
+            ) : undefined
+          }
+          onClose={() => {
+            if (menuSnackbarMessage !== null) {
+              setMenuSnackbarMessage(null);
+            } else if (activeNotification !== null) {
+              shiftNotification();
+            }
+          }}
+          severity={snackbarSeverity}
+          sx={{
+            alignItems: "center",
+            boxShadow: 3,
+            maxWidth: 520,
+          }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

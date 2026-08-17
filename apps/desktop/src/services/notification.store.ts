@@ -1,8 +1,11 @@
 import { create } from "zustand";
 
+export type AppNotificationSeverity = "error" | "info" | "success" | "warning";
+
 export interface AppNotification {
   id: string;
   message: string;
+  severity: AppNotificationSeverity;
 }
 
 /**
@@ -25,14 +28,14 @@ const MAX_QUEUE_SIZE = 5;
  */
 interface NotificationStore {
   queue: AppNotification[];
-  push: (message: string) => void;
+  push: (message: string, severity?: AppNotificationSeverity) => void;
   /** Remove and return the oldest notification, or undefined. */
   shift: () => AppNotification | undefined;
 }
 
 export const useNotificationStore = create<NotificationStore>((set, get) => ({
   queue: [],
-  push: (message) => {
+  push: (message, severity = "error") => {
     const id = crypto.randomUUID();
     set((s) => {
       // M19: collapse consecutive duplicate messages so a polling query that
@@ -40,10 +43,10 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       // message is compared (the Snackbar plays sequentially), so distinct
       // interleaved errors still surface.
       const last = s.queue[s.queue.length - 1];
-      if (last && last.message === message) {
+      if (last && last.message === message && last.severity === severity) {
         return { queue: s.queue };
       }
-      const nextQueue = [...s.queue, { id, message }];
+      const nextQueue = [...s.queue, { id, message, severity }];
       // Cap the queue, dropping the oldest entries beyond MAX_QUEUE_SIZE.
       if (nextQueue.length > MAX_QUEUE_SIZE) {
         nextQueue.splice(0, nextQueue.length - MAX_QUEUE_SIZE);

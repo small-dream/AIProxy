@@ -4,6 +4,7 @@ import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EditRoadRoundedIcon from "@mui/icons-material/EditRoadRounded";
 import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
+import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
@@ -66,6 +67,12 @@ export const navigationItems: NavigationItem[] = [
     icon: <DescriptionRoundedIcon />,
     labelKey: "navigation.certificates",
     to: "/certificates",
+  },
+  {
+    group: "manage",
+    icon: <MenuBookRoundedIcon />,
+    labelKey: "navigation.docs",
+    to: "/docs",
   },
   {
     group: "manage",

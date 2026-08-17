@@ -91,8 +91,17 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "goto_sessions":
         h.navigate("/");
         break;
+      case "goto_insights":
+        h.navigate("/insights");
+        break;
       case "goto_compose":
         h.navigate("/compose");
+        break;
+      case "goto_collections":
+        h.navigate("/collections");
+        break;
+      case "goto_compare":
+        h.navigate("/compare");
         break;
       case "goto_rules":
         h.navigate("/rules");
@@ -102,6 +111,9 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         break;
       case "goto_certificates":
         h.navigate("/certificates");
+        break;
+      case "goto_docs":
+        h.navigate("/docs");
         break;
       case "goto_settings":
         h.navigate("/settings");
@@ -133,10 +145,10 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         h.onRequestClearAllSessions();
         break;
       case "find":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-find"));
+        runFindCommand();
         break;
       case "refresh":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-refresh"));
+        window.location.reload();
         break;
       case "zoom_in":
         window.dispatchEvent(new CustomEvent("aiproxy-menu-zoom-in"));
@@ -211,7 +223,7 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         });
         break;
       case "shortcuts":
-        window.dispatchEvent(new CustomEvent("aiproxy-menu-shortcuts"));
+        h.navigate("/docs?doc=settings&anchor=keyboard-shortcuts");
         break;
       case "edit_undo":
       case "edit_redo":
@@ -219,7 +231,9 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "edit_copy":
       case "edit_paste":
       case "edit_select_all":
-        runDocumentEditCommand(menuId);
+        void runDocumentEditCommand(menuId).catch((error) => {
+          h.onSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
+        });
         break;
       case "window_minimize":
       case "window_toggle_maximize":
@@ -231,22 +245,208 @@ export function useMenuActions(deps: MenuHandlerDeps) {
   }
 
   function runDocumentEditCommand(menuId: string) {
-    const commandByMenuId: Record<string, string> = {
-      edit_copy: "copy",
-      edit_cut: "cut",
-      edit_paste: "paste",
-      edit_redo: "redo",
-      edit_select_all: "selectAll",
-      edit_undo: "undo",
-    };
-    const command = commandByMenuId[menuId];
+    const activeElement = document.activeElement;
+    const textControl = getEditableTextControl(activeElement);
 
-    if (command) {
-      document.execCommand(command);
+    if (menuId === "edit_select_all") {
+      if (textControl) {
+        textControl.select();
+        return Promise.resolve();
+      }
+      const editable = getContentEditableElement(activeElement);
+      if (editable) {
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+      return Promise.resolve();
     }
+
+    if (menuId === "edit_copy") {
+      return copySelection(textControl);
+    }
+
+    if (menuId === "edit_cut") {
+      return cutSelection(textControl, activeElement);
+    }
+
+    if (menuId === "edit_paste") {
+      return pasteIntoSelection(textControl, activeElement);
+    }
+
+    return Promise.resolve();
   }
+
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      const mod = event.metaKey || event.ctrlKey;
+      if (!mod || event.altKey || event.shiftKey) return;
+
+      const routeByKey: Record<string, string> = {
+        "1": "/",
+        "2": "/insights",
+        "3": "/compose",
+        "4": "/collections",
+        "5": "/compare",
+        "6": "/rules",
+        "7": "/throttling",
+        "8": "/certificates",
+        "9": "/docs",
+        ",": "/settings",
+      };
+      const route = routeByKey[event.key];
+      if (route) {
+        event.preventDefault();
+        menuHandlerRef.current.navigate(route);
+        return;
+      }
+
+      if (isEditableEventTarget(event.target)) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        handleMenuCommand("export_har");
+      } else if (event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        handleMenuCommand("clear_all_sessions");
+      }
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, []);
 
   return {
     handleMenuCommand,
   };
+}
+
+function isEditableEventTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(getEditableTextControl(target) || getContentEditableElement(target));
+}
+
+function runFindCommand() {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: !navigator.platform.toLowerCase().includes("mac"),
+      key: "f",
+      metaKey: navigator.platform.toLowerCase().includes("mac"),
+    }),
+  );
+
+  const windowWithFind = window as Window & { find?: () => boolean };
+  windowWithFind.find?.();
+}
+
+function getEditableTextControl(element: Element | null) {
+  if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+    return null;
+  }
+
+  if (element.disabled || element.readOnly) {
+    return null;
+  }
+
+  if (element instanceof HTMLInputElement) {
+    const editableTypes = new Set([
+      "email",
+      "number",
+      "password",
+      "search",
+      "tel",
+      "text",
+      "url",
+    ]);
+    if (!editableTypes.has(element.type)) {
+      return null;
+    }
+  }
+
+  return element;
+}
+
+function getContentEditableElement(element: Element | null) {
+  if (!(element instanceof HTMLElement)) {
+    return null;
+  }
+
+  const editable = element.closest<HTMLElement>("[contenteditable='true']");
+  return editable && !editable.getAttribute("aria-disabled") ? editable : null;
+}
+
+function getSelectedText(textControl: HTMLInputElement | HTMLTextAreaElement | null) {
+  if (textControl) {
+    const start = textControl.selectionStart ?? 0;
+    const end = textControl.selectionEnd ?? start;
+    return textControl.value.slice(start, end);
+  }
+
+  return window.getSelection()?.toString() ?? "";
+}
+
+async function copySelection(textControl: HTMLInputElement | HTMLTextAreaElement | null) {
+  const selectedText = getSelectedText(textControl);
+  if (selectedText) {
+    await navigator.clipboard?.writeText(selectedText);
+  }
+}
+
+async function cutSelection(
+  textControl: HTMLInputElement | HTMLTextAreaElement | null,
+  activeElement: Element | null,
+) {
+  const selectedText = getSelectedText(textControl);
+  if (!selectedText) return;
+
+  await navigator.clipboard?.writeText(selectedText);
+
+  if (textControl) {
+    textControl.setRangeText("", textControl.selectionStart ?? 0, textControl.selectionEnd ?? 0);
+    textControl.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteByCut" }));
+    return;
+  }
+
+  if (getContentEditableElement(activeElement)) {
+    window.getSelection()?.deleteFromDocument();
+  }
+}
+
+async function pasteIntoSelection(
+  textControl: HTMLInputElement | HTMLTextAreaElement | null,
+  activeElement: Element | null,
+) {
+  const text = await navigator.clipboard?.readText();
+  if (!text) return;
+
+  if (textControl) {
+    const start = textControl.selectionStart ?? textControl.value.length;
+    const end = textControl.selectionEnd ?? start;
+    textControl.setRangeText(text, start, end, "end");
+    textControl.dispatchEvent(
+      new InputEvent("input", { bubbles: true, data: text, inputType: "insertFromPaste" }),
+    );
+    return;
+  }
+
+  if (!getContentEditableElement(activeElement)) {
+    return;
+  }
+
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range) return;
+
+  range.deleteContents();
+  range.insertNode(document.createTextNode(text));
+  range.collapse(false);
 }

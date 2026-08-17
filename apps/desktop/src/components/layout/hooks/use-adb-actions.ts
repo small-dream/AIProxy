@@ -18,12 +18,18 @@ interface UseAdbActionsParams {
   port: number;
   proxyStatus: ProxyStatusLike | undefined;
   onSnackbarMessage: (message: string | null) => void;
+  onMultipleDevices: () => void;
 }
 
 /**
  * Manages ADB device proxy set/clear actions with loading state.
  */
-export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbActionsParams) {
+export function useAdbActions({
+  port,
+  proxyStatus,
+  onMultipleDevices,
+  onSnackbarMessage,
+}: UseAdbActionsParams) {
   const { t } = useI18n();
   const [adbMenuActionPending, setAdbMenuActionPending] = useState(false);
 
@@ -44,6 +50,11 @@ export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbAc
 
       if (!targetDevice) {
         throw new Error(t("certificatesPage.mobile.adbNoDevices"));
+      }
+
+      if (adbDevices.length > 1) {
+        onMultipleDevices();
+        return;
       }
 
       if (targetDevice.state !== "device") {
@@ -93,6 +104,11 @@ export function useAdbActions({ port, proxyStatus, onSnackbarMessage }: UseAdbAc
 
       if (!targetDevice) {
         throw new Error(t("certificatesPage.mobile.adbNoDevices"));
+      }
+
+      if (adbDevices.length > 1) {
+        onMultipleDevices();
+        return;
       }
 
       if (targetDevice.state !== "device") {

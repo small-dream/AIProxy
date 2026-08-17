@@ -1,15 +1,28 @@
 import { useEffect, useState } from "react";
 
+const ZOOM_STORAGE_KEY = "aiproxy.shell.zoom-level";
+
+function readInitialZoomLevel() {
+  if (typeof window === "undefined") {
+    return 1;
+  }
+  const raw = window.localStorage.getItem(ZOOM_STORAGE_KEY);
+  const value = raw ? Number.parseFloat(raw) : 1;
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(value, 0.5), 2);
+}
+
 /**
  * Manages zoom level state and listens for zoom keyboard/menu events.
  * Applies zoom to the document root element.
  */
 export function useZoomControl() {
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(readInitialZoomLevel);
 
   useEffect(() => {
     const root = document.documentElement;
     root.style.zoom = String(zoomLevel);
+    window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoomLevel));
   }, [zoomLevel]);
 
   useEffect(() => {

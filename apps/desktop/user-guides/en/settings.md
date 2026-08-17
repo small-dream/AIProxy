@@ -76,6 +76,21 @@ Switching takes **effect immediately** — no restart.
 
 All appearance settings take **effect immediately**.
 
+<a id="keyboard-shortcuts"></a>
+
+## Keyboard shortcuts
+
+Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl/Cmd + 1` … `Ctrl/Cmd + 9` | Switch between Sessions, Insights, Compose, Collections, Compare, Rules, Throttling, Certificates, and Docs |
+| `Ctrl/Cmd + ,` | Open Settings |
+| `Ctrl/Cmd + F` | Find in the active view; on Sessions this focuses inspector search |
+| `Ctrl/Cmd + +` / `Ctrl/Cmd + -` / `Ctrl/Cmd + 0` | Zoom in, zoom out, reset zoom |
+| `Ctrl/Cmd + E` | Export sessions as HAR from the Sessions workspace |
+| `Ctrl/Cmd + L` | Clear sessions, using the configured confirmation preference |
+
 ## Persistence
 
 - Proxy params (port / SSL / HTTP/2) persist with the workspace config

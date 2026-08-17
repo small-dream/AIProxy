@@ -26,6 +26,8 @@ export function useProxyStatus() {
   return useQuery({
     queryFn: getBootstrapStatus,
     queryKey: PROXY_STATUS_QUERY_KEY,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
   });
 }
 

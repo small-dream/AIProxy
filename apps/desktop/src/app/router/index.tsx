@@ -53,7 +53,7 @@ function LazyRouteFallback() {
 
 function renderLazyRoute(Component: ComponentType) {
   return (
-    <ErrorBoundary fallbackTitle="Page Error">
+    <ErrorBoundary fallbackTitleKey="errorBoundary.pageTitle">
       <Suspense fallback={<LazyRouteFallback />}>
         <Component />
       </Suspense>

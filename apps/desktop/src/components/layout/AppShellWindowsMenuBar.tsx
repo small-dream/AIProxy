@@ -1,12 +1,13 @@
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import CropSquareRoundedIcon from "@mui/icons-material/CropSquareRounded";
 import MinimizeRoundedIcon from "@mui/icons-material/MinimizeRounded";
-import { Box, Button, Divider, IconButton, Menu, MenuItem, Stack } from "@mui/material";
+import { Box, Button, Divider, IconButton, Menu, MenuItem, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { MouseEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { WINDOWS_MENU_DEFINITIONS } from "@/components/layout/app-shell-windows-menu.definitions";
+import { useI18n } from "@/i18n";
 
 export const WINDOWS_TOP_CONTROLS_HEIGHT = 40;
 
@@ -19,6 +20,7 @@ export function AppShellWindowsMenuBar({
   centerControls,
   onMenuAction,
 }: AppShellWindowsMenuBarProps) {
+  const { t } = useI18n();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -94,7 +96,7 @@ export function AppShellWindowsMenuBar({
               textTransform: "none",
             }}
           >
-            {menu.label}
+            {t(menu.labelKey)}
           </Button>
         ))}
       </Box>
@@ -142,8 +144,28 @@ export function AppShellWindowsMenuBar({
             "kind" in item ? (
               <Divider key={`${menu.id}-divider-${index}`} />
             ) : (
-              <MenuItem key={item.id} onClick={() => handleMenuItemClick(item.id)}>
-                {item.label}
+              <MenuItem
+                key={item.id}
+                disabled={item.disabled}
+                onClick={() => handleMenuItemClick(item.id)}
+                sx={{ minWidth: 238 }}
+              >
+                <Typography component="span" sx={{ fontSize: 13, flex: 1, pr: 3 }}>
+                  {t(item.labelKey)}
+                </Typography>
+                {item.accelerator ? (
+                  <Typography
+                    component="span"
+                    sx={{
+                      color: "text.secondary",
+                      fontFamily:
+                        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                      fontSize: 12,
+                    }}
+                  >
+                    {item.accelerator}
+                  </Typography>
+                ) : null}
               </MenuItem>
             ),
           )}
@@ -158,21 +180,22 @@ type WindowControlsProps = {
 };
 
 function WindowControls({ onMenuAction }: WindowControlsProps) {
+  const { t } = useI18n();
   const controls = [
     {
       icon: <MinimizeRoundedIcon />,
       id: "window_minimize",
-      label: "Minimize",
+      label: t("appShell.windowsMenu.minimize"),
     },
     {
       icon: <CropSquareRoundedIcon />,
       id: "window_toggle_maximize",
-      label: "Maximize",
+      label: t("appShell.windowsMenu.maximize"),
     },
     {
       icon: <CloseRoundedIcon />,
       id: "window_close",
-      label: "Close",
+      label: t("common.actions.close"),
     },
   ];
 
