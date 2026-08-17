@@ -494,6 +494,16 @@ impl AppState {
             .clone()
     }
 
+    /// Drop the TLS manager (certificate-removal flow). A running proxy still
+    /// holds its own `Arc<TlsManager>` captured at start time, so the caller
+    /// MUST restart it HTTP-only afterwards — otherwise it keeps signing with
+    /// the deleted root until it is stopped. Symmetric to `set_tls_manager`
+    /// swaps on generation/rotation.
+    pub fn clear_tls_manager(&self) {
+        let mut tls = self.tls_manager.lock().unwrap_or_else(|e| e.into_inner());
+        *tls = None;
+    }
+
     pub fn update_cert_status(&self, status: CertificateStateSnapshot) {
         let mut cache = self
             .cert_status_cache

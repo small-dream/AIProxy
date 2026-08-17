@@ -92,11 +92,15 @@ export const useAppPreferencesStore = create<AppPreferencesState>()(
       markSetupWizardCompleted: () => set({ setupWizardCompleted: true }),
       dismissSetupWizard: (setupWizardDismissedAt) => set({ setupWizardDismissedAt }),
       acknowledgeManualProxy: (manualProxyAcknowledgedFor) => set({ manualProxyAcknowledgedFor }),
+      // Re-arms the wizard for a fresh run WITHOUT touching the manual-proxy
+      // acknowledgement: clearing it here would silently drop the user's
+      // "I route traffic manually" confirmation (SetupChecklistCard's "open
+      // setup wizard" button is the sole caller, and manual-proxy users hit
+      // it whenever captureReady dips — e.g. a port change invalidates the ack).
       resetSetupWizardState: () =>
         set({
           setupWizardCompleted: false,
           setupWizardDismissedAt: undefined,
-          manualProxyAcknowledgedFor: undefined,
         }),
     }),
     {

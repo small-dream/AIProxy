@@ -164,6 +164,7 @@ export const enMessages = {
     statusEnableSystemProxy: "Enable the system proxy",
     systemProxyOff: "System Proxy Off",
     systemProxyOn: "System Proxy On",
+    systemProxyRecoveryWarning: "System proxy recovery failed",
     stopSystemProxyAction: "Stop System Proxy",
   },
   settingsPage: {
@@ -643,9 +644,36 @@ export const enMessages = {
       opening: "Opening...",
       regenerate: "Regenerate Root Certificate",
     },
+    remove: {
+      action: "Remove Certificate",
+      confirmMessage:
+        "Trust in this root CA will be revoked from your system trust stores and the local certificate files will be deleted (irreversible). HTTPS decryption stops; a running proxy restarts in HTTP-only mode and the system proxy is handed back. You can regenerate anytime afterwards.",
+      confirmTitle: "Remove the root certificate?",
+      errorTitle: "Removal failed",
+      manualHint: "The following stores need manual revocation — run the commands below:",
+      manualCommands: {
+        linuxAnchors:
+          "sudo rm /usr/local/share/ca-certificates/aiproxy-root-ca.crt (Fedora/RHEL: the matching file under /etc/pki/ca-trust/source/anchors/)",
+        linuxCaStore: "sudo update-ca-certificates (Fedora/RHEL: sudo update-ca-trust)",
+        macosLoginKeychain:
+          "security delete-certificate -Z <sha1-fingerprint> (searches the default keychain)",
+        macosSystemDomain: "sudo security remove-trusted-cert -d <cert-path>",
+        macosSystemKeychain:
+          "sudo security delete-certificate -Z <sha1-fingerprint> /Library/Keychains/System.keychain",
+        windowsLocalMachine:
+          "Admin PowerShell: Remove-Item -Path 'Cert:\\LocalMachine\\Root\\<thumbprint>'",
+      },
+      partialTitle: "Certificate deleted; some trust stores could not be revoked automatically",
+      systemProxyErrorHint:
+        'The system proxy could not be handed back ({{error}}). Your machine may still be routed through AIProxy and HTTPS browsing will fail — turn off "System Proxy" from the status bar or Settings manually.',
+      removing: "Removing...",
+      storeLabel: "{{store}}: {{error}}",
+      successBody:
+        "The certificate files were deleted and system trust revoked. You can regenerate anytime on this page.",
+      successTitle: "Certificate removed",
+    },
     description:
       "Prepare HTTPS decryption and platform trust flows before capturing secure traffic.",
-    guideDescription: "Steps to trust the root CA certificate on your platform.",
     guideTitle: "Installation Guide",
     mobile: {
       adbClearProxyAction: "Clear Proxy via ADB",
@@ -704,6 +732,28 @@ export const enMessages = {
       httpOnlyTitle: "HTTP Only",
       ios: "iOS",
       localIp: "Local IP:",
+      interfaceLabel:
+        "Multiple network addresses detected — switch to the one your phone can reach",
+      verify: {
+        title: "Verify phone traffic",
+        description:
+          "After installing the certificate and setting the proxy, confirm the phone's traffic reaches AIProxy here.",
+        idleBody:
+          'Click "Start checking", then open any website on the phone — a new captured request means success.',
+        proxyNotRunningHint: "The proxy is not running. Start it before verifying phone traffic.",
+        start: "Start checking",
+        listeningBody: "Listening… open any website in the phone's browser (e.g. example.com).",
+        successTitle: "Phone traffic received",
+        successBody: "{{count}} new request(s) captured — the mobile capture path works.",
+        timeoutTitle: "No traffic detected yet",
+        retry: "Check again",
+        timeoutTips: [
+          "Make sure the phone and this computer are on the same Wi-Fi / LAN without AP isolation.",
+          "Make sure the phone's proxy address matches the IP and port shown on this page.",
+          "Make sure the AIProxy root certificate is installed and trusted on the phone (needed for HTTPS sites).",
+          "Check whether the computer's firewall allows the proxy port.",
+        ],
+      },
       networkInfo: "Network Information",
       noCertQr: "Start the proxy to generate the certificate download QR code.",
       proxyConfiguration: "Proxy Configuration",
@@ -830,8 +880,8 @@ export const enMessages = {
     },
     platformSteps: {
       linux: [
-        "Copy the certificate to the system CA directory: sudo cp <cert-path> /usr/local/share/ca-certificates/aiproxy-root-ca.crt",
-        "Update the CA store: sudo update-ca-certificates",
+        "Copy the certificate to the system CA directory. Debian/Ubuntu: sudo cp <cert-path> /usr/local/share/ca-certificates/aiproxy-root-ca.crt; Fedora/RHEL: sudo cp <cert-path> /etc/pki/ca-trust/source/anchors/aiproxy-root-ca.crt",
+        "Update the CA store. Debian/Ubuntu: sudo update-ca-certificates; Fedora/RHEL: sudo update-ca-trust",
         "Restart your browser for the change to take effect.",
       ],
       macos: [
@@ -890,7 +940,6 @@ export const enMessages = {
     tabs: {
       desktop: "Desktop Certificate",
       mobile: "Mobile Setup",
-      reference: "Reference",
     },
     workflow: {
       generate: "Generate",
@@ -1673,7 +1722,7 @@ export const enMessages = {
       title: "Welcome to AIProxy",
       body: "AIProxy captures traffic between your apps and the network. To read HTTPS traffic, you'll install a local root certificate, start the proxy, then point your browser or device at it.",
       privacyNote:
-        "The root certificate is generated on this machine and never leaves it. You can remove it anytime from the Certificates page.",
+        "The root certificate is generated on this machine and never leaves it. After generating, you can revoke trust and delete it anytime from the Certificates page.",
     },
     generate: {
       title: "Generate the root certificate",
@@ -1732,6 +1781,8 @@ export const enMessages = {
       manual: "I'll configure the proxy manually",
       manualHint:
         "Choose this if you point a specific app or device at the proxy yourself. You can change this anytime.",
+      linuxDesktopHint:
+        'Note: on Linux only GNOME/KDE support automatic system-proxy takeover. If enabling fails, use "I\'ll configure the proxy manually" instead.',
     },
     verifyTraffic: {
       title: "Capture your first HTTPS request",
@@ -1759,6 +1810,8 @@ export const enMessages = {
       certNotFound: "No root certificate has been generated yet.",
       proxyNotRunning: "The proxy isn't running.",
       permissionDenied: "Permission was denied.",
+      desktopEnvUnsupported:
+        "This Linux desktop environment doesn't support automatic system-proxy takeover.",
       installerFailed: "The system certificate installer couldn't be opened.",
       generateFailed: "Generating the root certificate failed.",
       unknown: "Something went wrong.",
@@ -1772,6 +1825,10 @@ export const enMessages = {
       proxyNotRunning: ["Start the proxy, then retry."],
       permissionDenied: [
         "Grant the requested permission (administrator password or keychain access), then retry.",
+      ],
+      desktopEnvUnsupported: [
+        'Use "I\'ll configure the proxy manually" on this step and point your system proxy at the local port.',
+        "Or set the HTTP proxy manually in your desktop environment's network settings.",
       ],
       installerFailed: [
         "Open the Certificates page and install the certificate manually, then return here.",

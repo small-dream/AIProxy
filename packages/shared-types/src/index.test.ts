@@ -16,6 +16,7 @@ import {
   parseSessionSummaries,
   parseProxyStatus,
   parsePortOccupant,
+  parseRemoveCertificateTrustOutput,
 } from "./index";
 
 describe("isAppError", () => {
@@ -706,5 +707,52 @@ describe("parseSessionDetail", () => {
 
   it("throws when the payload is invalid", () => {
     expect(() => parseSessionDetail({ id: "session-1" })).toThrow();
+  });
+});
+
+describe("parseRemoveCertificateTrustOutput", () => {
+  it("parses a valid output with status and per-store report", () => {
+    const payload = {
+      status: { certPath: null, fingerprint: null, trusted: false, platform: "macos" },
+      trustRemoval: {
+        attempted: ["macos.userDomain", "macos.systemDomain"],
+        succeeded: ["macos.userDomain"],
+        failed: [{ store: "macos.systemDomain", error: "access denied" }],
+      },
+    };
+
+    const parsed = parseRemoveCertificateTrustOutput(payload);
+
+    expect(parsed.status.trusted).toBe(false);
+    expect(parsed.status.platform).toBe("macos");
+    expect(parsed.trustRemoval.succeeded).toEqual(["macos.userDomain"]);
+    expect(parsed.trustRemoval.failed).toEqual([{ store: "macos.systemDomain", error: "access denied" }]);
+  });
+
+  it("throws when the trust report shape is invalid", () => {
+    const payload = {
+      status: { trusted: false, platform: "macos" },
+      trustRemoval: { attempted: "macos.userDomain", succeeded: [], failed: [] },
+    };
+
+    expect(() => parseRemoveCertificateTrustOutput(payload)).toThrow();
+  });
+
+  it("normalizes a null systemProxyHandbackError away and keeps a string one", () => {
+    const base = {
+      status: { trusted: false, platform: "macos" },
+      trustRemoval: { attempted: [], succeeded: [], failed: [] },
+    };
+
+    expect(parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: null }))
+      .not.toHaveProperty("systemProxyHandbackError");
+    expect(
+      parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: "restore failed" })
+        .systemProxyHandbackError,
+    ).toBe("restore failed");
+    // A non-string handback error must be rejected, not coerced.
+    expect(() =>
+      parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: 42 }),
+    ).toThrow();
   });
 });

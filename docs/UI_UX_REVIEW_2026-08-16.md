@@ -4,7 +4,7 @@
 - 评审视角：产品与真实用户（开发者日常使用高频路径）
 - 评审方式：产品文档（PRD / UI_GUIDELINES / PAGE_BLUEPRINTS / ROADMAP / ARCHITECTURE）+ 前端源码全量走查（`apps/desktop/src`）+ 关键后端链路抽查（`crates`、`apps/desktop/src-tauri`）+ 界面截图
 - 路径约定：前端代码均相对 `apps/desktop/src/`；Rust 代码相对仓库根（`crates/…`、`apps/desktop/src-tauri/…`）
-- **状态（2026-08-17 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；§3.3 / §3.4 / §3.5 已于 2026-08-17 修复（见各节标注）。下文已修条目的描述保留评审时快照，仅作背景。其余 P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
+- **状态（2026-08-17 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；§3.3 / §3.4 / §3.5、以及 §五 全部（5.1–5.8）已于 2026-08-17 修复（见各节标注）。下文已修条目的描述保留评审时快照，仅作背景。其余 P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
 
 ---
 
@@ -147,43 +147,59 @@
 
 底层做得扎实：系统代理三层崩溃恢复（正常退出恢复 `apps/desktop/src-tauri/src/main.rs:303-359`、停止时恢复 `apps/desktop/src-tauri/src/commands/proxy.rs:408-415`、崩溃快照恢复 `apps/desktop/src-tauri/src/system_proxy_recovery.rs`）、7 类错误映射（`features/certificate-center/error-guidance.ts:51-86`）、ADB/hdc 快捷操作、鸿蒙完整覆盖。问题集中在**内容不可达**：
 
-### 5.1 新手最需要的 MITM 风险说明是死代码
+### 5.1 新手最需要的 MITM 风险说明是死代码 ✅ 已修复（2026-08-17）
 
 - `pages/certificates/CertificateRiskNotes.tsx`（“中间人是设计使然 / 如何撤销 / 证书锁定”三段优秀文案，`i18n/messages/zh-CN.ts:809-821`）只被 `ReferenceTab.tsx` 引用，而 ReferenceTab、PlatformGuideTabs、CertificateRiskNotes、`components/shared/ProxyStatusCard.tsx` **均未挂载到任何路由/页面**（全仓 grep 仅互相引用）。
 - 建议：挂回证书页（Reference tab 或风险说明卡）。
 
-### 5.2 “随时可移除证书”的承诺不成立
+> **修复（2026-08-17）**：`CertificateRiskNotes` 挂载到证书页 desktop tab（`PlatformTrustGuide` 之后）；死文件 `ReferenceTab.tsx`、`PlatformGuideTabs.tsx` 删除；死 key `certificatesPage.tabs.reference`、`guideDescription` 清理。`ProxyStatusCard` 属 §六.9（P2）暂保留。
+
+### 5.2 “随时可移除证书”的承诺不成立 ✅ 已修复（2026-08-17）
 
 - 向导 welcome 步声称“随时可在「证书」页移除”（`zh-CN.ts:1571`），但全应用没有移除/撤销信任入口——证书页只有生成/重新生成/安装/刷新（`DesktopCertificateTab.tsx:54-89`）。
 - 建议：补移除入口 + 各平台撤销信任指引；短期至少改文案。
 
-### 5.3 排障指南断链
+> **修复（2026-08-17）**：完整实现——新增 Tauri command `remove_certificate_trust`（撤销系统信任[逐 store 报告，提权失败给手动命令] → 删除根 CA 文件 → 工作区持久化 `ssl_enabled=false` → 交还系统代理 → 运行中代理以 HTTP-only 重启），Rust 侧新增 `tls-manager::trust::remove_cert_trust_on_platform`、`CertStorage::remove_root_cert`、`db::set_workspace_ssl_enabled`；前端证书页「移除证书」按钮 + `ConfirmDialog`（不可逆，无“不再确认”）+ 三态结果 Alert（成功/部分失败+各平台手动命令/失败）；向导 privacyNote 文案同步为真实承诺；契约 `TrustRemovalReport` 等进 `shared-types`；API_SPEC §6.9 已同步。
+
+### 5.3 排障指南断链 ✅ 已修复（2026-08-17）
 
 - `CertificateErrorGuidance` 的“打开排障指南”链接需要调用方传 `guideUrl`（`CertificateErrorGuidance.tsx:15,62-66`），唯一调用方 `SetupWizard.tsx:335` 没传——文档锚点（`#port-in-use` 等）与 `user-guides/zh-CN/certificate-setup.md` 里的真实锚点都写好了，一行参数的事。
 
-### 5.4 多网卡/VPN 用户拿到错误 IP
+> **修复（2026-08-17）**：prop 改为 `onOpenGuide` 回调（HashRouter 内 `Link href` 会甩到系统浏览器）；向导按错误类导航 `/docs?doc=certificate-setup&anchor=<锚点>`；DocsPage 支持 `?anchor=` 深链滚动（渲染后重试数帧 `getElementById().scrollIntoView()`，有 anchor 时跳过滚动复位，`?doc=` 规范化时保留 anchor）。
+
+### 5.4 多网卡/VPN 用户拿到错误 IP ✅ 已修复（2026-08-17）
 
 - 只取 `localIps[0]` 无切换（`MobileSetupTab.tsx:94`），QR 码与代理地址一起错。建议 IP 下拉可选。
 - 相关小 bug：`pages/certificates/index.tsx:196` 端口 fallback 硬编码 `8888` 而非 `DEFAULT_PROXY_PORT`。
 
-### 5.5 移动端无验证闭环
+> **修复（2026-08-17）**：新增纯函数 `resolveSelectedLocalIp`（选中地址失效时回落第一个）+ 测试；`NetworkInfoPanel` 本机 IP 行在多地址时渲染 `Select` 可切换，QR/代理地址/ADB 面板全部跟随所选 IP；端口 fallback 改用 `DEFAULT_PROXY_PORT`。
+
+### 5.5 移动端无验证闭环 ✅ 已修复（2026-08-17）
 
 - 桌面向导有 verifyTraffic（`SetupWizard.tsx:85`），手机装完证书后没有“确认手机流量已进来”的检测——手机抓包恰恰是最容易卡住的场景。
 
-### 5.6 SetupChecklistCard 的“打开设置向导”会清掉手动代理确认
+> **修复（2026-08-17）**：新增 `MobileTrafficCheckCard`（移动端 tab 右列）：点「开始检测」记录会话数基线，借既有 session 事件实时推送检测新会话，成功显示新增条数，120s 无流量给出 triage 清单（同网段/地址正确/证书已信任/防火墙）+ 重试；状态机为纯函数 `computeMobileVerifyState` + 测试。
+
+### 5.6 SetupChecklistCard 的“打开设置向导”会清掉手动代理确认 ✅ 已修复（2026-08-17）
 
 - 卡片仅在 `!captureReady` 时渲染（`components/shared/SetupChecklistCard.tsx:53-55`），已就绪用户根本看不到这张卡，不受影响。
 - 真实陷阱在按钮行为：`SetupChecklistCard.tsx:164-166` 调 `resetSetupWizardState`，该 action 除重置向导 completed/dismissed 外，还会清掉 `manualProxyAcknowledgedFor`（`app/store/app-preferences.store.ts:89-93`）。手动代理用户在 captureReady 为 false 的窗口（如端口变更导致 ack 绑定失效、自动启动进行中）点这个按钮，manual ack 被清、向导状态被重置——向导立即弹出，此前“我在用手动代理”的确认丢失。
 - 建议：`resetSetupWizardState` 不应触碰 `manualProxyAcknowledgedFor`；或存在 manual ack 时给出二次确认。
 
-### 5.7 Linux 双坑
+> **修复（2026-08-17）**：`resetSetupWizardState` 只重置 `setupWizardCompleted`/`setupWizardDismissedAt`，不再触碰 `manualProxyAcknowledgedFor`（附意图注释）。
+
+### 5.7 Linux 双坑 ✅ 已修复（2026-08-17）
 
 - 安装指引只给 Debian/Ubuntu 命令，Fedora/RHEL 变体只在离线指南里（信任检测倒是对的，`crates/tls-manager/src/trust.rs:188-197`）。
 - 非 GNOME/KDE 启用系统代理失败被归类为 `unknown`（`error-guidance.ts:70-76`），只显示“重试”——应引导改点“我将手动配置代理”；UI 也没有任何地方预告这个 Linux 限制。
 
-### 5.8 系统代理恢复失败警告位置过深
+> **修复（2026-08-17）**：`platformSteps.linux`（zh/en）与 Rust `open_certificate_install_guide` 的 Linux 步骤均补 Fedora/RHEL 目录与 `update-ca-trust`；`error-guidance` 新增 `desktopEnvUnsupported` 错误类（匹配后端固定文案，`canRetry=false`，指引改点「我将手动配置代理」）；向导 routing 步在 Linux 且未就绪时显示 info Alert 预告限制；user-guides 两语言新增 `#linux-desktop-unsupported` 锚点小节。
+
+### 5.8 系统代理恢复失败警告位置过深 ✅ 已修复（2026-08-17）
 
 - 恢复失败（用户系统代理仍指向死端口、全网断网）的警告只显示在设置页（`pages/settings/index.tsx:369-375`）。建议上状态栏或全局 Snackbar。
+
+> **修复（2026-08-17）**：状态栏新增 warning 色 StatusItem（Warning 图标 + 短标签，tooltip 显示具体原因，点击跳设置页），warning 存在时全局可见；设置页详情警告保留；`StatusItem` 增加可选 `iconColor`。
 
 ---
 
@@ -240,7 +256,7 @@
 | **P0** | ~~首启代理/SSL 接管顺序（P0-1）；删除/清空统一确认 + Collection 删除 undo（P0-2）；忽略 host 管理 chips（P0-3）~~（✅ 2026-08-16 已全部完成，`b8df3b53`） | 直接造成新用户流失和数据丢失 |
 | **P1-效率** | 会话行加 状态/耗时/大小/时间 列 + host 计数（待办）；~~方向键 + 多选；接通全字段搜索 `searchValue`~~（✅ 2026-08-17 完成，见 §3.3 / §3.4） | 日用频次最高，改动集中收益大 |
 | **P1-防呆** | 规则开关行内即时生效；Map/Rewrite/DNS 保存失败提示；编辑器脏检查；断点超时倒计时与通知 | 低成本、高确定性修复 |
-| **P1-内容** | 挂回 MITM 风险说明死代码；证书移除入口；排障指南 guideUrl 断链；移动端 IP 选择；移动端验证闭环 | 写好的内容接上即可 |
+| **P1-内容** | ~~挂回 MITM 风险说明死代码；证书移除入口；排障指南 guideUrl 断链；移动端 IP 选择；移动端验证闭环~~（✅ 2026-08-17 完成，连同 5.6–5.8 一并修复，见 §五 各节标注） | 写好的内容接上即可 |
 | **P2** | 扁平列表视图（Sequence/List）；~~SSL 按 host 白名单~~（✅ 2026-08-17 完成，见 §3.5）；cURL 导入；Compose↔Collection 收敛（环境变量/保存/附件）；Windows 菜单 i18n；toast 体系统一；状态栏吞吐 | 结构性改进，排进 roadmap（部分与 M4–M6 重合，建议调整优先级） |
 | **文档** | 同步 PRD/UI_GUIDELINES/PAGE_BLUEPRINTS 的导航与 Rules tab 清单；补 Script Rules 页面规范 | 消除“三处三个版本”的协作噪音 |
 

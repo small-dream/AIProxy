@@ -284,6 +284,30 @@ impl CertStorage {
         Ok(certified_key)
     }
 
+    /// Remove the root CA files (key, cert, installable copy) from disk and
+    /// flush the in-memory host cert cache. Backs the "remove certificate"
+    /// flow: after this, `root_cert_exists()` is false and the app is back to
+    /// the pre-generation state. Missing files are tolerated (idempotent) so a
+    /// partially-removed install can be re-removed cleanly; other IO errors
+    /// propagate. The key is deleted first — if we crash mid-removal, leaving
+    /// a cert without its key is preferable to leaving the signing key behind.
+    pub fn remove_root_cert(&self) -> Result<(), TlsManagerError> {
+        tracing::info!(
+            event = "root_cert_removal_started",
+            path = %self.root_cert_path.to_string_lossy(),
+            "root_cert_removal_started"
+        );
+        remove_file_if_present(&self.root_key_path)?;
+        remove_file_if_present(&self.root_cert_path)?;
+        remove_file_if_present(&self.root_cert_install_path)?;
+        self.clear_host_cache();
+        tracing::info!(
+            event = "root_cert_removal_succeeded",
+            "root_cert_removal_succeeded"
+        );
+        Ok(())
+    }
+
     /// Clear the in-memory host certificate cache.
     pub fn clear_host_cache(&self) {
         // Lock order: inflight BEFORE host_cache. This MUST match
@@ -327,6 +351,19 @@ impl CertStorage {
             cache.iter().map(|(k, _)| k.clone()).collect()
         };
         inflight.retain(|host, _| !cached_hosts.contains(host));
+    }
+}
+
+/// Delete `path` if it exists; a NotFound entry is treated as success so
+/// removal flows are idempotent. Any other IO error is surfaced to the caller.
+fn remove_file_if_present(path: &Path) -> Result<(), TlsManagerError> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(TlsManagerError::StorageError(format!(
+            "failed to remove {}: {e}",
+            path.to_string_lossy()
+        ))),
     }
 }
 
@@ -567,6 +604,69 @@ mod tests {
             leftovers.is_empty(),
             "no temp files should remain after atomic save, found {:?}",
             leftovers.iter().map(|e| e.file_name()).collect::<Vec<_>>()
+        );
+    }
+
+    // remove_root_cert must delete the key, cert, and installable copy, leaving
+    // the storage back in the "not generated" state.
+    #[test]
+    fn remove_root_cert_deletes_all_three_files() {
+        let storage = CertStorage::new_in_temp_dir();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        assert!(storage.root_cert_exists());
+
+        storage.remove_root_cert().unwrap();
+
+        assert!(!storage.root_key_path().exists());
+        assert!(!storage.root_cert_path().exists());
+        assert!(!storage.root_cert_install_path().exists());
+        assert!(
+            !storage.root_cert_exists(),
+            "after removal the storage must report no usable cert pair"
+        );
+    }
+
+    // Removal must be idempotent: an empty (or already-removed) cert dir is a
+    // success, so a partially-removed install can be re-removed cleanly.
+    #[test]
+    fn remove_root_cert_is_idempotent_when_files_missing() {
+        let storage = CertStorage::new_in_temp_dir();
+        std::fs::create_dir_all(storage.cert_dir()).unwrap();
+        // No files ever written; removal must still succeed.
+        storage.remove_root_cert().unwrap();
+        // And a second call after a real removal must also succeed.
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        storage.remove_root_cert().unwrap();
+        storage.remove_root_cert().unwrap();
+    }
+
+    // Removal must flush the shared host cache (same contract as a CA
+    // rotation): cached leaf certs signed by the removed root must never be
+    // re-served by any clone holding the old storage.
+    #[test]
+    fn remove_root_cert_flushes_host_cache() {
+        let storage = CertStorage::new_in_temp_dir();
+        let cloned = storage.clone();
+        let root_ca = RootCaPair::generate().unwrap();
+        storage
+            .save_root_cert(root_ca.cert_pem(), root_ca.key_pem())
+            .unwrap();
+        let _ = storage
+            .get_or_create_host_certified_key(&root_ca, "example.com")
+            .unwrap();
+        assert_eq!(storage.host_cache.lock().unwrap().len(), 1);
+
+        storage.remove_root_cert().unwrap();
+
+        assert!(
+            cloned.host_cache.lock().unwrap().is_empty(),
+            "remove_root_cert must flush the shared host cache"
         );
     }
 

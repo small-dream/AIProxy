@@ -11,6 +11,7 @@ export type CertificateErrorClass =
   | "certNotFound"
   | "proxyNotRunning"
   | "permissionDenied"
+  | "desktopEnvUnsupported"
   | "installerFailed"
   | "generateFailed"
   | "unknown";
@@ -31,6 +32,7 @@ const GUIDE_ANCHORS: Record<CertificateErrorClass, string> = {
   certNotFound: "#cert-not-found",
   proxyNotRunning: "#proxy-not-running",
   permissionDenied: "#permission-denied",
+  desktopEnvUnsupported: "#linux-desktop-unsupported",
   installerFailed: "#installer-failed",
   generateFailed: "#generate-failed",
   unknown: "#troubleshooting",
@@ -67,6 +69,11 @@ export function mapCertificateError(
     errorClass = "proxyNotRunning";
   } else if (looksLikePermissionDenied(lowerMessage)) {
     errorClass = "permissionDenied";
+  } else if (lowerMessage.includes("unsupported linux desktop environment")) {
+    // Fixed backend string from system_proxy/linux.rs detect_desktop_environment
+    // (non-GNOME/KDE). Retrying cannot help — the desktop environment did not
+    // change — so guide the user to the manual proxy path instead.
+    errorClass = "desktopEnvUnsupported";
   } else if (context === "generate") {
     errorClass = "generateFailed";
   } else if (context === "install") {
@@ -75,7 +82,9 @@ export function mapCertificateError(
     errorClass = "unknown";
   }
 
-  const canRetry = !(errorClass === "certNotFound" && context === "install");
+  const canRetry =
+    !(errorClass === "certNotFound" && context === "install") &&
+    errorClass !== "desktopEnvUnsupported";
 
   return {
     errorClass,

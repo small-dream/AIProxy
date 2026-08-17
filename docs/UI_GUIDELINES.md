@@ -310,6 +310,8 @@ Capture Workspace
 - 系统代理状态
 - 错误提示或后台任务提示
 
+系统代理恢复失败警告（`proxyStatus.systemProxyRecoveryWarning` 存在时）必须在状态栏渲染一个 warning 色 StatusItem（图标 + 短标签，tooltip 展示原因，点击跳转设置页）——恢复失败意味着整机可能断网，不允许只留在设置页。
+
 ## 9. 页面规范
 
 页面规范分两层维护：
@@ -878,6 +880,7 @@ Settings Page
 - 长任务：状态栏 + 进度提示
 - 危险操作：`Dialog Confirm` — 统一使用 `components/shared/ConfirmDialog.tsx`(受控 props;确认键 `color="error" variant="contained"`;`isConfirming` 接 mutation pending)。所有删除规则/断点/限速规则/集合/请求条目与 Clear All Sessions 入口(菜单 + Sessions 页按钮)必须先经确认;清空成功后给 `Snackbar` 反馈。
 - 「不再确认」opt-out 例外：仅允许用于可再生数据的清空操作。当前唯一入口是 Clear All Sessions(会话可重新捕获)：确认框内提供 checkbox「不再确认清空会话」，勾选并确认后持久化到 `aiproxy.app-preferences` 的 `skipClearSessionsConfirm`(默认 false)，对菜单与 Sessions 页两个入口同时生效；Settings 页「危险操作确认」区提供可见开关恢复确认。不可恢复的删除(集合子树、规则、环境组等)一律禁止提供该选项——能被永久关闭的防线不是防线。
+- 证书移除入口：证书页 toolbar 的「移除证书」按钮走 `ConfirmDialog`(不可逆操作,禁止提供「不再确认」)。移除结果按 store 报告分级反馈：全部成功给 success Alert;存在提权失败的 store 给 warning Alert 并逐条展示该平台的手动撤销命令;命令失败给 error Alert。
 
 ## 12. 状态设计
 

@@ -158,6 +158,27 @@ pub fn set_workspace_system_proxy_enabled(
     Ok(())
 }
 
+/// Persist the `ssl_enabled` toggle for a workspace.
+///
+/// Used by the certificate-removal flow: deleting the root CA makes SSL
+/// interception impossible, so the workspace flag must not keep claiming SSL
+/// is on (the next plain start would die on ERR_CERT_NOT_FOUND). Dedicated
+/// helper for the same reason as `set_workspace_system_proxy_enabled` — the
+/// wide `update_workspace` signature is not worth dragging one boolean
+/// through async command plumbing.
+pub fn set_workspace_ssl_enabled(
+    conn: &Connection,
+    id: &str,
+    enabled: bool,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE workspaces SET ssl_enabled=?1 WHERE id=?2",
+        params![enabled as i32, id],
+    )
+    .map_err(|e| DbError::query("set workspace ssl_enabled", e))?;
+    Ok(())
+}
+
 /// Load a single workspace by ID.
 pub fn load_workspace(conn: &Connection, id: &str) -> Result<Option<WorkspaceRow>, DbError> {
     conn.query_row(
@@ -528,6 +549,44 @@ mod tests {
                 .unwrap()
                 .system_proxy_enabled,
             "system_proxy_enabled must be persisted as false"
+        );
+    }
+
+    // Certificate-removal flow: set_workspace_ssl_enabled must persist the
+    // toggle so a workspace whose root CA was deleted does not claim SSL on.
+    #[test]
+    fn set_workspace_ssl_enabled_round_trips() {
+        let conn = test_conn();
+        let ws = WorkspaceRow {
+            id: "ws-ssl".into(),
+            name: "SSL".into(),
+            proxy_port: 8888,
+            ssl_enabled: true,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: "[]".into(),
+            ssl_blind_hosts: "[]".into(),
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        upsert_workspace(&conn, &ws).unwrap();
+        assert!(
+            load_workspace(&conn, "ws-ssl")
+                .unwrap()
+                .unwrap()
+                .ssl_enabled,
+            "precondition: ssl_enabled starts true"
+        );
+
+        set_workspace_ssl_enabled(&conn, "ws-ssl", false).unwrap();
+        assert!(
+            !load_workspace(&conn, "ws-ssl")
+                .unwrap()
+                .unwrap()
+                .ssl_enabled,
+            "ssl_enabled must be persisted as false"
         );
     }
 }

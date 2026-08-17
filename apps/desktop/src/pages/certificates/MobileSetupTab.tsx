@@ -1,11 +1,12 @@
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
-import { type RefObject } from "react";
+import { type RefObject, useState } from "react";
 import { Alert, AlertTitle, Box, Stack, Typography } from "@mui/material";
 
 import {
   computeMobilePreflight,
   type MobilePreflightGap,
 } from "@/features/certificate-center/mobile-preflight.helpers";
+import { resolveSelectedLocalIp } from "@/features/certificate-center/local-ip.helpers";
 import { useLocalIp } from "@/features/certificate-center/use-mobile-setup";
 import { useI18n, type TranslationKey } from "@/i18n";
 
@@ -15,6 +16,7 @@ import { IosQuickActionsPanel } from "./IosQuickActionsPanel";
 import { NetworkInfoPanel } from "./NetworkInfoPanel";
 import { QrCodePanel } from "./QrCodePanel";
 import { MobileDeviceGuide } from "./MobileDeviceGuide";
+import { MobileTrafficCheckCard } from "./MobileTrafficCheckCard";
 
 type Props = {
   proxyPort: number;
@@ -91,7 +93,10 @@ export function MobileSetupTab({
 }: Props) {
   const { t } = useI18n();
   const { data: localIps, isLoading: ipsLoading } = useLocalIp();
-  const localIp = localIps?.[0];
+  // Multi-adapter machines (VPN / virtual bridges) may rank an unreachable
+  // address first; the user can switch to one the phone can actually reach.
+  const [selectedIp, setSelectedIp] = useState<string | null>(null);
+  const localIp = resolveSelectedLocalIp(localIps, selectedIp);
   const certDownloadUrl =
     localIp && proxyRunning ? `http://${localIp}:${proxyPort}/aiproxy-ca.crt` : null;
   const proxyAddress = localIp ? `${localIp}:${proxyPort}` : null;
@@ -163,7 +168,9 @@ export function MobileSetupTab({
         <Stack spacing={1.5} sx={{ minWidth: 0 }}>
           <NetworkInfoPanel
             localIp={localIp ?? null}
+            ips={localIps}
             ipsLoading={ipsLoading}
+            onSelectIp={setSelectedIp}
             proxyPort={proxyPort}
             proxyAddress={proxyAddress}
           />
@@ -176,6 +183,8 @@ export function MobileSetupTab({
               hasCert={hasCert}
             />
           )}
+
+          <MobileTrafficCheckCard proxyRunning={proxyRunning} />
 
           <MobileDeviceGuide />
         </Stack>

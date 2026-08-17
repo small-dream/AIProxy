@@ -64,6 +64,18 @@ pub fn get_local_ip() -> Vec<String> {
 /// No-op (returns Ok) when the proxy is not running. Errors propagate so the
 /// caller can surface a notification; on error the proxy is left stopped.
 pub(crate) async fn restart_proxy_if_running(state: Arc<AppState>) -> Result<(), String> {
+    restart_proxy_with_ssl_override(state, None).await
+}
+
+/// Same restart contract as [`restart_proxy_if_running`], but `ssl_override`
+/// replaces the workspace's persisted `ssl_enabled` for the restart. The
+/// certificate-removal flow passes `Some(false)`: the root CA files are gone,
+/// so restarting with SSL on would immediately fail with ERR_CERT_NOT_FOUND
+/// (see the TLS-manager resolution in `start_proxy_impl`).
+pub(crate) async fn restart_proxy_with_ssl_override(
+    state: Arc<AppState>,
+    ssl_override: Option<bool>,
+) -> Result<(), String> {
     let status = state.read_status();
     if !status.running {
         return Ok(());
@@ -75,7 +87,7 @@ pub(crate) async fn restart_proxy_if_running(state: Arc<AppState>) -> Result<(),
     let input = StartProxyInput {
         workspace_id,
         port: Some(status.port),
-        enable_ssl: Some(status.ssl_enabled),
+        enable_ssl: ssl_override.or(Some(status.ssl_enabled)),
         enable_http2: Some(status.http2_enabled),
     };
     // start_proxy_impl shuts down any prior runtime before starting the new
@@ -571,7 +583,9 @@ async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatu
     Ok(status)
 }
 
-async fn disable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
+pub(crate) async fn disable_system_proxy_impl(
+    state: Arc<AppState>,
+) -> Result<BootstrapStatus, String> {
     // M17: serialize against concurrent enable/restart (see enable_system_proxy_impl).
     let _op_guard = state.system_proxy_op_lock().lock().await;
 

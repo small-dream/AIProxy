@@ -1530,6 +1530,51 @@ type GenerateRootCertificateInput = {
 type GenerateRootCertificateOutput = CertificateStatus;
 ```
 
+### `remove_certificate_trust`
+
+请求：无参数。端到端移除根证书：撤销系统信任 → 删除本地证书文件 → 工作区降级为 HTTP-only → 交还系统代理 → 运行中的代理以仅 HTTP 模式重启。证书文件不存在时（手动删除/半删除状态）仅跳过"平台信任撤销"（各平台撤销命令都需要证书文件定位目标），**运行态与配置清理照常执行**——运行中的代理仍持有启动时捕获的 `Arc<TlsManager>`，会继续用内存里的根 CA 签发，必须清理。
+
+响应：
+
+```ts
+type TrustRemovalFailure = {
+  store: string; // 见下方 store 枚举
+  error: string;
+};
+
+type TrustRemovalReport = {
+  attempted: string[];
+  succeeded: string[]; // 含"已移除"与"本就不存在"（幂等成功）
+  failed: TrustRemovalFailure[];
+};
+
+type RemoveCertificateTrustOutput = {
+  status: CertificateStatus; // 移除后：certPath 为空、trusted=false
+  trustRemoval: TrustRemovalReport;
+  systemProxyHandbackError?: string; // 系统代理交还失败的原因（见下方语义）
+};
+```
+
+`store` 标识（与 `tls-manager::trust::trust_store` 常量保持一致）：
+
+| store | 说明 | 自动移除是否常需提权 |
+| --- | --- | --- |
+| `windows.currentUserRoot` | Windows CurrentUser\Root | 否 |
+| `windows.localMachineRoot` | Windows LocalMachine\Root | 是（管理员） |
+| `macos.userDomain` | macOS 用户域信任设置 | 否 |
+| `macos.systemDomain` | macOS 系统域信任设置 | 是（sudo） |
+| `macos.loginKeychain` | login 钥匙串证书对象 | 否 |
+| `macos.systemKeychain` | System 钥匙串证书对象 | 是（sudo） |
+| `linux.anchors` | Debian/Fedora anchor 目录中的证书文件 | 是（sudo） |
+| `linux.caStore` | `update-ca-certificates` / `update-ca-trust` 刷新 | 是（sudo） |
+
+语义要点：
+
+- 信任撤销按 store 独立尝试，**失败不中断整体流程**——提权失败是常态（见上表），失败项由前端配对各平台手动命令展示（`certificatesPage.remove.manualCommands.*`）。
+- 顺序刚性：先撤销信任（macOS/Linux 命令需要证书文件定位目标）→ 再删文件 → 清 TLS manager → 持久化 `ssl_enabled=false` → 关系统代理 → HTTP-only 重启。
+- DB 持久化失败仅告警（M9 降级语义），不回滚移除动作。
+- 若系统代理此前已接管，会调用 `disable_system_proxy` 恢复用户原代理设置，避免移除证书后整机指向不受信任的 MITM 代理。**交还失败时**：`disable_system_proxy` 只有恢复成功才把 `system_proxy_enabled` 写回 false，因此该标志仍为 true，随后的 HTTP-only 重启尾声会重新把 OS 代理指向本代理——整机仍被劫持。此错误经 `systemProxyHandbackError` 返回，前端以 warning 提示用户从状态栏/设置手动关闭系统代理。
+
 ### `diagnose_certificate_setup`
 
 请求：无参数。聚合证书/代理环境探测,供 UI 渲染可操作的排障指引。

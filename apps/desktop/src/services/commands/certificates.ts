@@ -11,6 +11,7 @@ import {
   parseIOSSimulatorDevices,
   parseCertificateStatus,
   parseCertificateInstallGuide,
+  parseRemoveCertificateTrustOutput,
   parseSetupDiagnostic,
   type AndroidAdbDevice,
   type AndroidAdbCertificateInstallResult,
@@ -26,6 +27,7 @@ import {
   type InstallIosCertificateViaSimulatorInput,
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
+  type RemoveCertificateTrustOutput,
   type SetAndroidProxyViaAdbInput,
   type SetupDiagnostic,
 } from "@aiproxy/shared-types";
@@ -140,6 +142,32 @@ export async function launchCertificateInstaller(): Promise<void> {
     logDevInfo("ui.commands", "launch_certificate_installer_succeeded");
   } catch (error) {
     reportCommandFailure("launch_certificate_installer", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function removeCertificateTrust(): Promise<RemoveCertificateTrustOutput> {
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "remove_certificate_trust_bypassed_non_tauri_runtime");
+    return {
+      status: { trusted: false, platform: detectBrowserPlatform() },
+      trustRemoval: { attempted: [], succeeded: [], failed: [] },
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "remove_certificate_trust_requested");
+    const payload = await invoke<unknown>("remove_certificate_trust");
+    const output = parseRemoveCertificateTrustOutput(payload);
+
+    logDevInfo("ui.commands", "remove_certificate_trust_succeeded", {
+      trusted: output.status.trusted,
+      failedStores: output.trustRemoval.failed.map((failure) => failure.store),
+    });
+
+    return output;
+  } catch (error) {
+    reportCommandFailure("remove_certificate_trust", error);
     throw coerceAppError(error);
   }
 }

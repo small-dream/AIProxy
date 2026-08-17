@@ -16,7 +16,8 @@ pub(super) use aiproxy_proxy_core::{
     ThrottleRuntimeStats, TlsManager, WsConnectionStatus, WsDirection, WsOpcode,
 };
 pub(super) use aiproxy_tls_manager::{
-    detect_platform, is_cert_trusted_on_platform, CertStorage, RootCaPair,
+    detect_platform, is_cert_trusted_on_platform, remove_cert_trust_on_platform, CertStorage,
+    RootCaPair, TrustRemovalReport,
 };
 pub(super) use serde::{Deserialize, Serialize};
 pub(super) use std::{

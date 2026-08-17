@@ -6,7 +6,10 @@ pub mod trust;
 
 pub use generator::RootCaPair;
 pub use storage::CertStorage;
-pub use trust::{detect_platform, is_cert_trusted_on_platform, Platform};
+pub use trust::{
+    detect_platform, is_cert_trusted_on_platform, remove_cert_trust_on_platform, Platform,
+    TrustRemovalFailure, TrustRemovalReport,
+};
 
 use serde::Serialize;
 

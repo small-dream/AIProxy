@@ -39,6 +39,73 @@ pub fn is_cert_trusted_on_platform(cert_path: &Path, platform: Platform) -> bool
     }
 }
 
+/// Stable identifiers for the trust stores a removal attempt touches. The
+/// frontend maps these to per-store manual removal commands when an automated
+/// attempt fails (e.g. privilege denied). Keep in sync with API_SPEC.md.
+pub mod trust_store {
+    pub const WINDOWS_CURRENT_USER_ROOT: &str = "windows.currentUserRoot";
+    pub const WINDOWS_LOCAL_MACHINE_ROOT: &str = "windows.localMachineRoot";
+    pub const MACOS_USER_DOMAIN: &str = "macos.userDomain";
+    pub const MACOS_SYSTEM_DOMAIN: &str = "macos.systemDomain";
+    pub const MACOS_LOGIN_KEYCHAIN: &str = "macos.loginKeychain";
+    pub const MACOS_SYSTEM_KEYCHAIN: &str = "macos.systemKeychain";
+    pub const LINUX_ANCHORS: &str = "linux.anchors";
+    pub const LINUX_CA_STORE: &str = "linux.caStore";
+}
+
+/// A single trust-store removal failure: which store rejected the removal and
+/// why. Surfaced to the UI so it can show the manual command for that store.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustRemovalFailure {
+    pub store: String,
+    pub error: String,
+}
+
+/// Outcome of removing a certificate's trust across every store the platform
+/// checks. Removal is best-effort PER STORE: privilege failures are the common
+/// case (Windows LocalMachine Root, macOS system domain / System keychain,
+/// Linux system anchor dirs + update-ca-* all need elevation), so they are
+/// reported in `failed` instead of aborting the whole removal — the UI pairs
+/// each failure with the platform's manual command. A store that never held
+/// the certificate counts as `succeeded` (removal is idempotent).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustRemovalReport {
+    pub attempted: Vec<String>,
+    pub succeeded: Vec<String>,
+    pub failed: Vec<TrustRemovalFailure>,
+}
+
+impl TrustRemovalReport {
+    /// Record the outcome for one store. `Err` lands in `failed`; anything
+    /// else (removed or simply absent) counts as `succeeded`.
+    fn record(&mut self, store: &str, result: Result<(), String>) {
+        self.attempted.push(store.to_string());
+        match result {
+            Ok(()) => self.succeeded.push(store.to_string()),
+            Err(error) => self.failed.push(TrustRemovalFailure {
+                store: store.to_string(),
+                error,
+            }),
+        }
+    }
+}
+
+/// Remove trust for the root CA at `cert_path` from the platform's trust
+/// stores. Never fails wholesale — per-store outcomes are in the returned
+/// report. The certificate file itself is not deleted here (that is
+/// [`crate::CertStorage::remove_root_cert`]'s job); the file must still exist
+/// when this is called because several platform commands read it to identify
+/// the certificate to remove.
+pub fn remove_cert_trust_on_platform(cert_path: &Path, platform: Platform) -> TrustRemovalReport {
+    match platform {
+        Platform::Windows => remove_cert_trust_windows(cert_path),
+        Platform::Macos => remove_cert_trust_macos(cert_path),
+        Platform::Linux => remove_cert_trust_linux(cert_path),
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn is_trusted_windows(cert_path: &Path) -> bool {
     use aiproxy_sys_util::CommandExt;
@@ -143,6 +210,122 @@ fn is_trusted_windows(_cert_path: &Path) -> bool {
     false
 }
 
+/// Remove the certificate from the two Windows Root stores via PowerShell.
+/// CurrentUser\Root needs no elevation; LocalMachine\Root requires an admin
+/// token and typically fails for a normal launch — that outcome is reported,
+/// not fatal. A store that does not contain the certificate succeeds
+/// (idempotent).
+#[cfg(target_os = "windows")]
+fn remove_cert_trust_windows(cert_path: &Path) -> TrustRemovalReport {
+    use aiproxy_sys_util::CommandExt;
+    use std::process::Command;
+
+    let mut report = TrustRemovalReport::default();
+
+    let thumbprint = match certificate_sha1_thumbprint(cert_path) {
+        Ok(thumbprint) => thumbprint,
+        Err(error) => {
+            tracing::warn!(
+                event = "windows_cert_removal_thumbprint_failed",
+                path = %cert_path.to_string_lossy(),
+                error,
+                "windows_cert_removal_thumbprint_failed"
+            );
+            report.record(
+                trust_store::WINDOWS_CURRENT_USER_ROOT,
+                Err(format!("failed to read certificate thumbprint: {error}")),
+            );
+            return report;
+        }
+    };
+
+    // Per-location removal. Exit code 0 with stdout "absent" (cert not in the
+    // store) or "removed" both count as success; a non-zero exit surfaces the
+    // stderr (e.g. access denied opening LocalMachine\Root without admin).
+    let script = r#"
+param([string]$Thumbprint, [string]$Location)
+$ErrorActionPreference = 'Stop'
+$normalized = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+
+$storeLocation = [System.Enum]::Parse(
+  [System.Security.Cryptography.X509Certificates.StoreLocation],
+  $Location
+)
+$store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+  [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+  $storeLocation
+)
+try {
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+  $matches = $store.Certificates.Find(
+    [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+    $normalized,
+    $false
+  )
+  if ($matches.Count -eq 0) {
+    'absent'
+  } else {
+    foreach ($cert in $matches) {
+      $store.Remove($cert)
+    }
+    'removed'
+  }
+} finally {
+  if ($null -ne $store) {
+    $store.Close()
+  }
+}
+"#;
+
+    for (location, store_id) in [
+        ("CurrentUser", trust_store::WINDOWS_CURRENT_USER_ROOT),
+        ("LocalMachine", trust_store::WINDOWS_LOCAL_MACHINE_ROOT),
+    ] {
+        let result = match Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .arg(&thumbprint)
+            .arg(location)
+            .no_window()
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                tracing::info!(
+                    event = "windows_cert_removal_store_result",
+                    store = store_id,
+                    outcome = %stdout,
+                    "windows_cert_removal_store_result"
+                );
+                Ok(())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                tracing::warn!(
+                    event = "windows_cert_removal_store_failed",
+                    store = store_id,
+                    status = ?output.status.code(),
+                    stderr = %stderr,
+                    "windows_cert_removal_store_failed"
+                );
+                Err(if stderr.is_empty() {
+                    format!("powershell exited with {:?}", output.status.code())
+                } else {
+                    stderr
+                })
+            }
+            Err(error) => Err(format!("failed to spawn powershell: {error}")),
+        };
+        report.record(store_id, result);
+    }
+
+    report
+}
+
+#[cfg(not(target_os = "windows"))]
+fn remove_cert_trust_windows(_cert_path: &Path) -> TrustRemovalReport {
+    TrustRemovalReport::default()
+}
+
 #[cfg(target_os = "macos")]
 fn is_trusted_macos(cert_path: &Path) -> bool {
     use std::process::Command;
@@ -162,6 +345,102 @@ fn is_trusted_macos(cert_path: &Path) -> bool {
 #[cfg(not(target_os = "macos"))]
 fn is_trusted_macos(_cert_path: &Path) -> bool {
     false
+}
+
+/// Run `security <args>` and classify the outcome for the removal report.
+/// `Ok(())` means the command succeeded OR reported the target as absent
+/// (idempotent removal); a real failure becomes `Err(stderr)`.
+#[cfg(target_os = "macos")]
+fn run_security_removal(args: &[&str]) -> Result<(), String> {
+    use std::process::Command;
+
+    let output = Command::new("/usr/bin/security")
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to spawn security: {error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let lower = stderr.to_ascii_lowercase();
+    // "Absent" outcomes: the trust setting / certificate was not there to
+    // begin with. Removal is idempotent, so this is a success.
+    if lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("could not be found")
+        || lower.contains("could not find")
+    {
+        return Ok(());
+    }
+    Err(if stderr.is_empty() {
+        format!("security exited with {:?}", output.status.code())
+    } else {
+        stderr
+    })
+}
+
+/// Remove trust for the certificate on macOS:
+/// - trust settings in the user domain (`remove-trusted-cert`)
+/// - trust settings in the admin/system domain (`remove-trusted-cert -d`)
+/// - the certificate object from the login and System keychains
+///   (`delete-certificate -Z <sha1>`), which is where it lands when installed
+///   through Keychain Access per our platform guide.
+///
+/// The system-domain/System-keychain steps need elevation and commonly fail
+/// for a normal launch; those failures are reported per store.
+#[cfg(target_os = "macos")]
+fn remove_cert_trust_macos(cert_path: &Path) -> TrustRemovalReport {
+    let mut report = TrustRemovalReport::default();
+
+    let cert_arg = cert_path.to_string_lossy().to_string();
+
+    report.record(
+        trust_store::MACOS_USER_DOMAIN,
+        run_security_removal(&["remove-trusted-cert", &cert_arg]),
+    );
+    report.record(
+        trust_store::MACOS_SYSTEM_DOMAIN,
+        run_security_removal(&["remove-trusted-cert", "-d", &cert_arg]),
+    );
+
+    // delete-certificate identifies the cert by its SHA-1 hash (-Z), which is
+    // our thumbprint format (uppercase hex, no separators). The keychain
+    // argument is a FILE PATH, not a display name — a bare "login"/"System"
+    // would be resolved relative to cwd and fail. For the login keychain,
+    // omit the argument so `security` uses the default keychain search list
+    // (robust against a renamed login keychain); the System keychain needs
+    // its explicit path.
+    match certificate_sha1_thumbprint(cert_path) {
+        Ok(thumbprint) => {
+            report.record(
+                trust_store::MACOS_LOGIN_KEYCHAIN,
+                run_security_removal(&["delete-certificate", "-Z", &thumbprint]),
+            );
+            report.record(
+                trust_store::MACOS_SYSTEM_KEYCHAIN,
+                run_security_removal(&[
+                    "delete-certificate",
+                    "-Z",
+                    &thumbprint,
+                    "/Library/Keychains/System.keychain",
+                ]),
+            );
+        }
+        Err(error) => {
+            let message = format!("failed to read certificate thumbprint: {error}");
+            report.record(trust_store::MACOS_LOGIN_KEYCHAIN, Err(message.clone()));
+            report.record(trust_store::MACOS_SYSTEM_KEYCHAIN, Err(message));
+        }
+    }
+
+    report
+}
+
+#[cfg(not(target_os = "macos"))]
+fn remove_cert_trust_macos(_cert_path: &Path) -> TrustRemovalReport {
+    TrustRemovalReport::default()
 }
 
 #[cfg(target_os = "linux")]
@@ -308,7 +587,105 @@ fn is_trusted_linux(_cert_path: &Path) -> bool {
     false
 }
 
-#[cfg(any(target_os = "windows", test))]
+/// Remove the certificate's anchor files from the system CA source dirs and
+/// refresh the live CA store:
+/// - `linux.anchors`: delete any file in the Debian/Ubuntu or Fedora/RHEL
+///   anchor dir whose fingerprints match the target cert. Absent anchors
+///   count as success (idempotent). Deleting files in these dirs requires
+///   root, so this commonly fails and falls back to a manual command.
+/// - `linux.caStore`: re-run `update-ca-certificates` / `update-ca-trust` so
+///   the already-materialized `/etc/ssl/certs` entries disappear. Also needs
+///   root; failure is reported per store.
+#[cfg(target_os = "linux")]
+fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
+    use std::process::Command;
+
+    let mut report = TrustRemovalReport::default();
+
+    let target_fingerprints = match std::fs::read_to_string(cert_path) {
+        Ok(pem) => pem_sha1_fingerprints(&pem),
+        Err(error) => {
+            let message = format!("failed to read certificate: {error}");
+            report.record(trust_store::LINUX_ANCHORS, Err(message.clone()));
+            report.record(trust_store::LINUX_CA_STORE, Err(message));
+            return report;
+        }
+    };
+
+    // Anchor removal: scan both source dirs, delete matching files.
+    let anchor_result = (|| -> Result<(), String> {
+        for dir in ["/usr/local/share/ca-certificates/", "/etc/pki/ca-trust/source/anchors/"] {
+            let entries = match std::fs::read_dir(dir) {
+                Ok(entries) => entries,
+                // A missing dir simply holds no anchors.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(format!("failed to read {dir}: {error}")),
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext_lower = ext.to_string_lossy().to_ascii_lowercase();
+                    if ext_lower != "crt" && ext_lower != "pem" && ext_lower != "cer" {
+                        continue;
+                    }
+                }
+                if let Ok(other_pem) = std::fs::read_to_string(&path) {
+                    let other_fingerprints = pem_sha1_fingerprints(&other_pem);
+                    if other_fingerprints
+                        .iter()
+                        .any(|fp| target_fingerprints.contains(fp))
+                    {
+                        std::fs::remove_file(&path)
+                            .map_err(|error| format!("failed to remove {}: {error}", path.to_string_lossy()))?;
+                        tracing::info!(
+                            event = "linux_anchor_removed",
+                            path = %path.to_string_lossy(),
+                            "linux_anchor_removed"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    })();
+    report.record(trust_store::LINUX_ANCHORS, anchor_result);
+
+    // Live store refresh: pick whichever CA update tool this distro ships.
+    let ca_store_result = (|| -> Result<(), String> {
+        let candidates = [
+            "/usr/sbin/update-ca-certificates",
+            "/usr/bin/update-ca-certificates",
+            "/usr/bin/update-ca-trust",
+            "/usr/sbin/update-ca-trust",
+        ];
+        let Some(tool) = candidates.iter().find(|path| std::path::Path::new(path).exists()) else {
+            return Err("no CA store update tool found (update-ca-certificates / update-ca-trust)".to_string());
+        };
+        let output = Command::new(tool)
+            .output()
+            .map_err(|error| format!("failed to spawn {tool}: {error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if stderr.is_empty() {
+                format!("{tool} exited with {:?}", output.status.code())
+            } else {
+                stderr
+            })
+        }
+    })();
+    report.record(trust_store::LINUX_CA_STORE, ca_store_result);
+
+    report
+}
+
+#[cfg(not(target_os = "linux"))]
+fn remove_cert_trust_linux(_cert_path: &Path) -> TrustRemovalReport {
+    TrustRemovalReport::default()
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
     use base64::Engine;
     use sha1::{Digest, Sha1};
@@ -377,6 +754,61 @@ mod tests {
         assert_eq!(thumbprint.len(), 40);
         assert!(thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_eq!(thumbprint, thumbprint.to_ascii_uppercase());
+    }
+
+    // The removal report's contract: every attempted store appears exactly
+    // once in `attempted`, Ok outcomes (removed OR simply absent) land in
+    // `succeeded`, and Err outcomes carry the store id + error into `failed`.
+    // Partial failure must never abort the report — privilege failures are
+    // the expected case on several stores.
+    #[test]
+    fn trust_removal_report_records_success_and_failure_per_store() {
+        let mut report = TrustRemovalReport::default();
+        report.record(trust_store::WINDOWS_CURRENT_USER_ROOT, Ok(()));
+        report.record(
+            trust_store::WINDOWS_LOCAL_MACHINE_ROOT,
+            Err("access denied".to_string()),
+        );
+
+        assert_eq!(report.attempted.len(), 2);
+        assert_eq!(
+            report.succeeded,
+            vec![trust_store::WINDOWS_CURRENT_USER_ROOT.to_string()]
+        );
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.failed[0].store, trust_store::WINDOWS_LOCAL_MACHINE_ROOT);
+        assert_eq!(report.failed[0].error, "access denied");
+    }
+
+    // A removal attempt where every store was absent (or already removed)
+    // yields an all-success report with no failures — idempotence.
+    #[test]
+    fn trust_removal_report_all_success_when_stores_empty() {
+        let mut report = TrustRemovalReport::default();
+        report.record(trust_store::LINUX_ANCHORS, Ok(()));
+        report.record(trust_store::LINUX_CA_STORE, Ok(()));
+        assert!(report.failed.is_empty());
+        assert_eq!(report.succeeded.len(), 2);
+    }
+
+    // The report serializes camelCase for the IPC boundary (the frontend
+    // parses these exact field names).
+    #[test]
+    fn trust_removal_report_serializes_camel_case() {
+        let report = TrustRemovalReport {
+            attempted: vec![trust_store::MACOS_USER_DOMAIN.to_string()],
+            succeeded: vec![],
+            failed: vec![TrustRemovalFailure {
+                store: trust_store::MACOS_USER_DOMAIN.to_string(),
+                error: "boom".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"attempted\""));
+        assert!(json.contains("\"succeeded\""));
+        assert!(json.contains("\"failed\""));
+        assert!(json.contains("\"store\""));
+        assert!(json.contains("\"error\""));
     }
 
     // M9: a multi-certificate PEM bundle (e.g. Debian/Ubuntu

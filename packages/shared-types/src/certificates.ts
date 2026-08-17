@@ -371,6 +371,80 @@ export function normalizeGenerateRootCertificateInput(
   };
 }
 
+// Trust-removal report returned by the `remove_certificate_trust` command.
+// One entry per platform trust store the removal touched: `succeeded` covers
+// both "removed" and "was never there" (removal is idempotent), while each
+// `failed` entry pairs with per-store manual removal guidance in the UI —
+// privilege failures are expected on several stores (Windows LocalMachine
+// Root, macOS system domain / System keychain, Linux system anchor dirs).
+export type TrustRemovalFailure = {
+  store: string;
+  error: string;
+};
+
+export type TrustRemovalReport = {
+  attempted: string[];
+  succeeded: string[];
+  failed: TrustRemovalFailure[];
+};
+
+export type RemoveCertificateTrustOutput = {
+  status: CertificateStatus;
+  trustRemoval: TrustRemovalReport;
+  /** Set when handing the OS proxy back failed — the machine may still be
+   * routed through the (now untrusted) proxy; the UI must warn and point the
+   * user at manually disabling the system proxy. */
+  systemProxyHandbackError?: string;
+};
+
+export function isTrustRemovalFailure(value: unknown): value is TrustRemovalFailure {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<TrustRemovalFailure>;
+  return typeof candidate.store === "string" && typeof candidate.error === "string";
+}
+
+export function isTrustRemovalReport(value: unknown): value is TrustRemovalReport {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<TrustRemovalReport>;
+  return (
+    Array.isArray(candidate.attempted) &&
+    candidate.attempted.every((store) => typeof store === "string") &&
+    Array.isArray(candidate.succeeded) &&
+    candidate.succeeded.every((store) => typeof store === "string") &&
+    Array.isArray(candidate.failed) &&
+    candidate.failed.every(isTrustRemovalFailure)
+  );
+}
+
+export function parseRemoveCertificateTrustOutput(
+  value: unknown,
+): RemoveCertificateTrustOutput {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !isCertificateStatus((value as Partial<RemoveCertificateTrustOutput>).status) ||
+    !isTrustRemovalReport((value as Partial<RemoveCertificateTrustOutput>).trustRemoval) ||
+    !isNullableString(
+      (value as Partial<RemoveCertificateTrustOutput> & {
+        systemProxyHandbackError?: string | null;
+      }).systemProxyHandbackError,
+    )
+  ) {
+    throw coerceAppError(value);
+  }
+  const candidate = value as RemoveCertificateTrustOutput & {
+    systemProxyHandbackError?: string | null;
+  };
+  return {
+    status: parseCertificateStatus(candidate.status),
+    trustRemoval: candidate.trustRemoval,
+    ...(candidate.systemProxyHandbackError !== null &&
+    candidate.systemProxyHandbackError !== undefined
+      ? { systemProxyHandbackError: candidate.systemProxyHandbackError }
+      : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Breakpoint type guards
 // ---------------------------------------------------------------------------

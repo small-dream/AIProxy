@@ -190,6 +190,7 @@ pub fn run() {
             commands::get_certificate_status,
             commands::diagnose_certificate_setup,
             commands::generate_root_certificate,
+            commands::remove_certificate_trust,
             commands::open_certificate_install_guide,
             commands::launch_certificate_installer,
             commands::list_android_adb_devices,

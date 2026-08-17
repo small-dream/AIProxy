@@ -61,6 +61,11 @@ A trusted certificate alone is not enough. Make sure SSL decryption is on, the p
 - **Cause**: administrator permission was not granted or keychain access was denied.
 - **Fix**: re-run and enter the admin password / authorize the keychain; on Linux make sure you used `sudo`.
 
+### <a id="linux-desktop-unsupported"></a>Enabling the system proxy fails on Linux (non-GNOME/KDE)
+- **Symptom**: enabling the system proxy in the setup wizard or status bar fails with `unsupported Linux desktop environment`.
+- **Cause**: automatic system-proxy takeover supports GNOME (gsettings) and KDE (kwriteconfig5) only; other desktop environments (window-manager-only sessions, Hyprland, sway, …) have no unified system-proxy protocol.
+- **Fix**: don't retry — the desktop environment won't change. Use "I'll configure the proxy manually" in the wizard, or point your DE/browser HTTP/HTTPS proxy at `127.0.0.1:<port>` by hand.
+
 ### <a id="installer-failed"></a>System installer won't open
 - **Symptom**: clicking **Install Certificate** doesn't open the system installer, or it errors.
 - **Cause**: the system certificate installer association is broken.
@@ -87,6 +92,16 @@ Open the **Mobile** tab on the **Certificates** page. Mobile capture has a **pre
 - **HarmonyOS NEXT emulator**: hdc can detect emulator targets with `hdc list targets -v` and use the same push action, but the emulator does not need to be on the same Wi-Fi network. Configure the proxy manually in the emulator's system network settings, using a computer IP that the emulator can reach and the AIProxy port. Certificate installation still requires manual confirmation in the emulator settings. If the hdc-pushed file is not visible, open the certificate download URL in the emulator browser and install it from Downloads.
 - **iOS simulator** (macOS only): use **iOS Quick Action** to install via `xcrun simctl keychain`; afterwards still manually enable full trust in the simulator's **Settings → General → About → Certificate Trust Settings**.
 - **iOS device**: automatic install is not supported. Use the **Certificate download QR code**, open it in Safari on the phone to download, follow the system prompt to install the profile and enable it in **Certificate Trust Settings**; configure the proxy manually in the phone's Wi-Fi settings to point at your computer's IP:port. Same Wi-Fi network is a prerequisite.
+
+## Removing the certificate / revoking trust
+
+The Certificates page provides a **Remove Certificate** action: revoke system trust → delete the local certificate files → demote the workspace to HTTP-only → hand the system proxy back → restart a running proxy in HTTP-only mode. HTTPS decryption stops after removal; you can regenerate anytime.
+
+Automatic revocation needs elevation on some stores (Windows `LocalMachine\Root`, macOS system domain / System keychain, Linux system anchor dirs and `update-ca-*`). When it fails, the UI shows the manual command per store:
+
+- **Windows (admin PowerShell)**: `Remove-Item -Path 'Cert:\LocalMachine\Root\<thumbprint>'`
+- **macOS**: `sudo security remove-trusted-cert -d <cert-path>`; `security delete-certificate -Z <sha1-fingerprint>` (default keychain); `sudo security delete-certificate -Z <sha1-fingerprint> /Library/Keychains/System.keychain`
+- **Linux**: `sudo rm /usr/local/share/ca-certificates/aiproxy-root-ca.crt` (Fedora/RHEL: the matching file under `/etc/pki/ca-trust/source/anchors/`), then `sudo update-ca-certificates` (Fedora/RHEL: `sudo update-ca-trust`)
 
 ## Diagnostics
 

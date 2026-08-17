@@ -22,9 +22,11 @@ type Props = {
   loading: boolean;
   generating: boolean;
   installing: boolean;
+  removing?: boolean;
   onGenerate: () => void;
   onInstall: () => void;
   onRefresh: () => void;
+  onRemove?: () => void;
 };
 
 export function DesktopCertificateTab({
@@ -32,9 +34,11 @@ export function DesktopCertificateTab({
   loading,
   generating,
   installing,
+  removing = false,
   onGenerate,
   onInstall,
   onRefresh,
+  onRemove,
 }: Props) {
   const { t } = useI18n();
   const hasCert = !!status?.certPath;
@@ -87,6 +91,20 @@ export function DesktopCertificateTab({
             >
               {t("common.actions.refreshStatus")}
             </Button>
+            {hasCert && onRemove && (
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={onRemove}
+                disabled={loading || generating || installing || removing}
+                startIcon={removing ? <CircularProgress size={16} /> : undefined}
+              >
+                {removing
+                  ? t("certificatesPage.remove.removing")
+                  : t("certificatesPage.remove.action")}
+              </Button>
+            )}
           </Stack>
         }
       >
@@ -218,6 +236,7 @@ const DIAGNOSTIC_CHECK_KEYS: Record<string, TranslationKey> = {
   cert_present: "certificatesPage.diagnostics.checks.cert_present",
   cert_trusted: "certificatesPage.diagnostics.checks.cert_trusted",
   adb: "certificatesPage.diagnostics.checks.adb",
+  hdc: "certificatesPage.diagnostics.checks.hdc",
   ios_simulator: "certificatesPage.diagnostics.checks.ios_simulator",
 };
 

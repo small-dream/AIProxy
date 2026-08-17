@@ -265,6 +265,7 @@ export function AppShell() {
           onSystemProxyToggle={() => {
             void handleSystemProxyToggle();
           }}
+          onSystemProxyWarningClick={() => navigate("/settings")}
           pendingBreakpointCount={pendingBreakpointCount}
           port={port}
           proxyStatus={proxyStatus}

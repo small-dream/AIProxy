@@ -3,6 +3,7 @@ import LanguageRoundedIcon from "@mui/icons-material/LanguageRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
 import SettingsEthernetRoundedIcon from "@mui/icons-material/SettingsEthernetRounded";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { Box, ButtonBase, Divider, Stack, Tooltip, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import type { CertificateStatus, ProxyStatus } from "@aiproxy/shared-types";
@@ -16,6 +17,8 @@ import { defaultAppFontSize, fontFamilies } from "@/themes/fonts";
 type StatusItemProps = {
   active?: boolean;
   icon?: ReactNode;
+  /** Optional theme color override for the icon (e.g. "warning.main"). */
+  iconColor?: string;
   label: string;
   monospaced?: boolean;
   onClick?: () => void;
@@ -29,6 +32,7 @@ type AppShellStatusBarProps = {
   onPortClick: () => void;
   onRulesClick: () => void;
   onSystemProxyToggle: () => void;
+  onSystemProxyWarningClick: () => void;
   pendingBreakpointCount: number;
   port: number;
   proxyStatus: ProxyStatus | undefined;
@@ -52,6 +56,7 @@ function StatusSeparator() {
 function StatusItem({
   active = true,
   icon,
+  iconColor,
   label,
   monospaced = false,
   onClick,
@@ -78,7 +83,7 @@ function StatusItem({
         <Box
           sx={{
             alignItems: "center",
-            color: active ? "primary.main" : "text.disabled",
+            color: iconColor ?? (active ? "primary.main" : "text.disabled"),
             display: "flex",
             flexShrink: 0,
             "& > svg": {
@@ -147,6 +152,7 @@ export function AppShellStatusBar({
   onPortClick,
   onRulesClick,
   onSystemProxyToggle,
+  onSystemProxyWarningClick,
   pendingBreakpointCount,
   port,
   proxyStatus,
@@ -245,6 +251,24 @@ export function AppShellStatusBar({
           onClick={onCertificatesClick}
           title={t("appShell.openCertificatesPage")}
         />
+
+        {/* Failed system-proxy recovery leaves the OS pointed at a dead port —
+            effectively offline until addressed. That warning used to live only
+            on the settings page; surface it globally with the reason in the
+            tooltip and a jump to settings. */}
+        {proxyStatus?.systemProxyRecoveryWarning && (
+          <>
+            <StatusSeparator />
+            <StatusItem
+              active
+              icon={<WarningAmberRoundedIcon />}
+              iconColor="warning.main"
+              label={t("appShell.systemProxyRecoveryWarning")}
+              onClick={onSystemProxyWarningClick}
+              title={proxyStatus.systemProxyRecoveryWarning}
+            />
+          </>
+        )}
 
         {pendingBreakpointCount > 0 && (
           <>

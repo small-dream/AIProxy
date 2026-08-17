@@ -11,8 +11,11 @@ type Props = {
   error: unknown;
   context: CertificateErrorContext;
   onRetry?: () => void;
-  // Optional troubleshooting-guide URL; rendered as an "Open guide" link when provided.
-  guideUrl?: string;
+  // Optional in-app navigation to the troubleshooting guide; rendered as an
+  // "Open guide" action when provided. A callback (not a URL) so callers stay
+  // in control of routing — the guide lives at /docs?doc=certificate-setup
+  // inside the app, and a raw href would escape to the system browser.
+  onOpenGuide?: () => void;
 };
 
 // Page-level authoritative guidance for certificate/proxy action failures inside
@@ -24,6 +27,7 @@ const REASON_KEYS: Record<CertificateErrorClass, TranslationKey> = {
   certNotFound: "errorGuidance.reason.certNotFound",
   proxyNotRunning: "errorGuidance.reason.proxyNotRunning",
   permissionDenied: "errorGuidance.reason.permissionDenied",
+  desktopEnvUnsupported: "errorGuidance.reason.desktopEnvUnsupported",
   installerFailed: "errorGuidance.reason.installerFailed",
   generateFailed: "errorGuidance.reason.generateFailed",
   unknown: "errorGuidance.reason.unknown",
@@ -34,12 +38,13 @@ const STEP_KEYS: Record<CertificateErrorClass, TranslationKey> = {
   certNotFound: "errorGuidance.steps.certNotFound",
   proxyNotRunning: "errorGuidance.steps.proxyNotRunning",
   permissionDenied: "errorGuidance.steps.permissionDenied",
+  desktopEnvUnsupported: "errorGuidance.steps.desktopEnvUnsupported",
   installerFailed: "errorGuidance.steps.installerFailed",
   generateFailed: "errorGuidance.steps.generateFailed",
   unknown: "errorGuidance.steps.unknown",
 };
 
-export function CertificateErrorGuidance({ error, context, onRetry, guideUrl }: Props) {
+export function CertificateErrorGuidance({ error, context, onRetry, onOpenGuide }: Props) {
   const { t, tList } = useI18n();
   const guidance = mapCertificateError(error, context);
   const steps = tList(STEP_KEYS[guidance.errorClass]);
@@ -52,15 +57,15 @@ export function CertificateErrorGuidance({ error, context, onRetry, guideUrl }: 
           <li key={index}>{step}</li>
         ))}
       </Stack>
-      {(guidance.canRetry || guideUrl) && (
+      {(guidance.canRetry || onOpenGuide) && (
         <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
           {guidance.canRetry && onRetry && (
             <Button size="small" color="inherit" variant="outlined" onClick={onRetry}>
               {t("errorGuidance.actions.retry")}
             </Button>
           )}
-          {guideUrl && (
-            <Link href={guideUrl} target="_blank" rel="noreferrer" underline="hover">
+          {onOpenGuide && (
+            <Link component="button" onClick={onOpenGuide} underline="hover">
               {t("errorGuidance.actions.openGuide")}
             </Link>
           )}

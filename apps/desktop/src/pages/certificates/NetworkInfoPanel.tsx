@@ -1,4 +1,4 @@
-import { Chip, IconButton, Stack, Typography } from "@mui/material";
+import { Chip, IconButton, MenuItem, Select, Stack, Typography } from "@mui/material";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n } from "@/i18n";
@@ -6,12 +6,22 @@ import { fontFamilies } from "@/themes/fonts";
 
 type Props = {
   localIp: string | null;
+  /** Full detected address list; drives the multi-adapter switcher. */
+  ips?: readonly string[] | undefined;
   ipsLoading: boolean;
+  onSelectIp?: (ip: string) => void;
   proxyPort: number;
   proxyAddress: string | null;
 };
 
-export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress }: Props) {
+export function NetworkInfoPanel({
+  localIp,
+  ips,
+  ipsLoading,
+  onSelectIp,
+  proxyPort,
+  proxyAddress,
+}: Props) {
   const { t } = useI18n();
 
   const handleCopyProxy = () => {
@@ -19,6 +29,8 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
       navigator.clipboard.writeText(proxyAddress);
     }
   };
+
+  const canSwitchIp = !ipsLoading && !!localIp && !!ips && ips.length > 1 && !!onSelectIp;
 
   return (
     <SectionCard
@@ -39,6 +51,28 @@ export function NetworkInfoPanel({ localIp, ipsLoading, proxyPort, proxyAddress 
           </Typography>
           {ipsLoading ? (
             <Chip label={t("common.states.detecting")} size="small" />
+          ) : canSwitchIp ? (
+            <Select
+              size="small"
+              value={localIp}
+              onChange={(event) => onSelectIp(event.target.value)}
+              title={t("certificatesPage.mobile.interfaceLabel")}
+              sx={{
+                fontFamily: fontFamilies.mono,
+                fontWeight: 600,
+                minWidth: 180,
+                "& .MuiSelect-select": {
+                  fontFamily: fontFamilies.mono,
+                  fontWeight: 600,
+                },
+              }}
+            >
+              {ips.map((ip) => (
+                <MenuItem key={ip} value={ip} sx={{ fontFamily: fontFamilies.mono }}>
+                  {ip}
+                </MenuItem>
+              ))}
+            </Select>
           ) : localIp ? (
             <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono, fontWeight: 600 }}>
               {localIp}

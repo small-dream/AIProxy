@@ -7,6 +7,22 @@ pub struct GenerateRootCertificateInput {
     pub force_regenerate: Option<bool>,
 }
 
+/// Output of `remove_certificate_trust`: the refreshed certificate status
+/// (post-removal: certPath None, trusted false) plus the per-store trust
+/// revocation report. The report's `failed` entries pair with the frontend's
+/// manual-removal guidance — privilege failures are expected on several
+/// stores (Windows LocalMachine, macOS system domain, Linux system dirs).
+/// `systemProxyHandbackError` is set when handing the OS proxy back failed:
+/// the machine may still be routed through the (now untrusted) proxy and the
+/// user must disable it manually, so the UI renders it as a warning.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveCertificateTrustOutput {
+    pub status: CertificateStateSnapshot,
+    pub trust_removal: TrustRemovalReport,
+    pub system_proxy_handback_error: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AndroidAdbInstallResult {
@@ -118,6 +134,13 @@ pub async fn generate_root_certificate(
     state: State<'_, Arc<AppState>>,
 ) -> Result<CertificateStateSnapshot, String> {
     generate_root_certificate_impl(input, Arc::clone(state.inner())).await
+}
+
+#[tauri::command]
+pub async fn remove_certificate_trust(
+    state: State<'_, Arc<AppState>>,
+) -> Result<RemoveCertificateTrustOutput, String> {
+    remove_certificate_trust_impl(Arc::clone(state.inner())).await
 }
 
 #[tauri::command]
@@ -501,6 +524,156 @@ async fn generate_root_certificate_impl(
     Ok(status)
 }
 
+/// Remove the root CA end-to-end: revoke system trust, delete the files,
+/// drop the TLS manager, demote the workspace to HTTP-only, hand the system
+/// proxy back, and restart a running proxy without SSL.
+///
+/// Ordering is rigid on purpose:
+/// 1. Revoke trust FIRST — the platform commands (macOS `security`, Linux
+///    fingerprint matching) need the cert file to identify the target. When
+///    the files are already gone (manual deletion / half-removed install)
+///    only THIS step is skipped: a running proxy still holds an `Arc<TlsManager>`
+///    captured at start and can keep signing with the in-memory root CA, so
+///    the runtime/config cleanup below must always run.
+/// 2. Then delete files + clear caches + drop the manager.
+/// 3. Persist `ssl_enabled=false` BEFORE restarting, otherwise the restart
+///    resolves a TLS manager from the now-deleted files and dies on
+///    ERR_CERT_NOT_FOUND.
+/// 4. Disable the system proxy BEFORE the restart so the restart epilogue
+///    does not re-apply the OS proxy. If the hand-back FAILS the flag stays
+///    true and the restart epilogue re-applies the OS proxy pointing at this
+///    proxy — that failure is returned as `systemProxyHandbackError` so the
+///    UI can tell the user to disable it manually (status bar / Settings).
+async fn remove_certificate_trust_impl(
+    state: Arc<AppState>,
+) -> Result<RemoveCertificateTrustOutput, String> {
+    let storage = CertStorage::resolve()
+        .map_err(|e| app_error(ERR_INTERNAL, format!("failed to resolve cert storage: {e}")))?;
+
+    // (1) Best-effort per-store trust revocation. Spawns security/powershell/
+    // update-ca-* subprocesses — offload so the IPC worker is not parked.
+    // Requires the cert file to identify the target on every platform; when
+    // the files are missing, skip revocation but keep cleaning runtime state.
+    let trust_removal = if storage.root_cert_exists() {
+        let cert_path = storage.root_cert_path().to_path_buf();
+        let report = run_blocking_command("remove_certificate_trust_revoke", move || {
+            Ok(remove_cert_trust_on_platform(&cert_path, detect_platform()))
+        })
+        .await?;
+        for failure in &report.failed {
+            tracing::warn!(
+                component = "desktop.commands",
+                event = "remove_certificate_trust_store_failed",
+                store = %failure.store,
+                error = %failure.error,
+                "remove_certificate_trust_store_failed: manual removal guidance shown in UI"
+            );
+        }
+        report
+    } else {
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "remove_certificate_trust_files_missing",
+            "remove_certificate_trust_files_missing: cert files already absent; skipping platform trust revocation, still running runtime/config cleanup"
+        );
+        TrustRemovalReport::default()
+    };
+
+    // (2) Flush cached leaf certs (shared via Arc with any in-flight clones),
+    // delete the root CA files, drop the manager.
+    if let Some(previous) = state.read_tls_manager() {
+        previous.storage.clear_host_cache();
+    }
+    storage
+        .remove_root_cert()
+        .map_err(|e| app_error(ERR_INTERNAL, format!("failed to remove root CA files: {e}")))?;
+    state.clear_tls_manager();
+
+    // (3) Demote the workspace to HTTP-only. In-memory manager first, then
+    // the DB row; a DB failure only warns (M9 degraded semantics — the
+    // removal itself is done and must not roll back).
+    let workspace_id = state
+        .read_status()
+        .active_workspace_id
+        .clone()
+        .unwrap_or_else(|| "default".to_string());
+    if let Err(error) =
+        state
+            .read_workspace_manager()
+            .update(&workspace_id, None, None, Some(false), None, None, None, None)
+    {
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "remove_certificate_trust_workspace_update_failed",
+            error = %error,
+            "remove_certificate_trust_workspace_update_failed"
+        );
+    }
+    let state_for_persist = Arc::clone(&state);
+    let persist_workspace_id = workspace_id.clone();
+    if let Err(error) = run_blocking_command("remove_certificate_trust_persist", move || {
+        let conn = state_for_persist.lock_db_for_ipc()?;
+        aiproxy_db::workspaces::set_workspace_ssl_enabled(&conn, &persist_workspace_id, false)
+            .map_err(|e| app_error(ERR_INTERNAL, format!("persist ssl_enabled: {e}")))
+    })
+    .await
+    {
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "remove_certificate_trust_persist_failed",
+            error = %error,
+            "remove_certificate_trust_persist_failed: cert removed but ssl_enabled was NOT persisted; UI is degraded"
+        );
+    }
+
+    // (4) Hand the system proxy back while the proxy is still running, so the
+    // restart below sees system_proxy_enabled=false and does not re-apply it.
+    // A failed hand-back keeps the flag true (disable_system_proxy_impl only
+    // writes it back after a successful restore), so the restart epilogue will
+    // re-apply the OS proxy — the machine stays routed through a proxy whose
+    // CA was just untrusted. That is a network-level problem the user must
+    // act on, so the error is returned in the output (rendered as a warning
+    // with a manual-disable hint), not just logged.
+    let mut system_proxy_handback_error: Option<String> = None;
+    if state.read_status().system_proxy_enabled {
+        match super::proxy::disable_system_proxy_impl(Arc::clone(&state)).await {
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    component = "desktop.commands",
+                    event = "disable_system_proxy_after_cert_removal_failed",
+                    error = %error,
+                    "disable_system_proxy_after_cert_removal_failed: OS proxy may still point at AIProxy"
+                );
+                system_proxy_handback_error = Some(error);
+            }
+        }
+    }
+
+    // (5) Restart a running proxy HTTP-only — it holds an Arc to the deleted
+    // TLS manager and cannot serve interception without the root CA anyway.
+    if state.read_status().running {
+        if let Err(error) =
+            super::proxy::restart_proxy_with_ssl_override(Arc::clone(&state), Some(false)).await
+        {
+            tracing::error!(
+                component = "desktop.commands",
+                event = "restart_proxy_after_cert_removal_failed",
+                error = %error,
+                "restart_proxy_after_cert_removal_failed"
+            );
+            return Err(error);
+        }
+    }
+
+    let status = get_certificate_status_impl(state)?;
+    Ok(RemoveCertificateTrustOutput {
+        status,
+        trust_removal,
+        system_proxy_handback_error,
+    })
+}
+
 fn open_certificate_install_guide_impl(state: Arc<AppState>) -> Result<serde_json::Value, String> {
     let platform = detect_platform();
     let cert_status = get_certificate_status_impl(state)?;
@@ -524,8 +697,8 @@ fn open_certificate_install_guide_impl(state: Arc<AppState>) -> Result<serde_jso
             serde_json::json!({"order": 6, "description": "Restart your browser for the change to take effect."}),
         ],
         aiproxy_tls_manager::Platform::Linux => vec![
-            serde_json::json!({"order": 1, "description": format!("Copy the certificate to the system CA directory: sudo cp {} /usr/local/share/ca-certificates/aiproxy-root-ca.crt", cert_path)}),
-            serde_json::json!({"order": 2, "description": "Update the CA store: sudo update-ca-certificates"}),
+            serde_json::json!({"order": 1, "description": format!("Copy the certificate to the system CA directory. Debian/Ubuntu: sudo cp {} /usr/local/share/ca-certificates/aiproxy-root-ca.crt; Fedora/RHEL: sudo cp {} /etc/pki/ca-trust/source/anchors/aiproxy-root-ca.crt", cert_path, cert_path)}),
+            serde_json::json!({"order": 2, "description": "Update the CA store. Debian/Ubuntu: sudo update-ca-certificates; Fedora/RHEL: sudo update-ca-trust"}),
             serde_json::json!({"order": 3, "description": "Restart your browser for the change to take effect."}),
         ],
     };

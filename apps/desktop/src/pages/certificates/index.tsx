@@ -1,22 +1,121 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Paper, Stack, Tab, Tabs } from "@mui/material";
+import { Alert, AlertTitle, Box, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useLocation, useSearchParams } from "react-router-dom";
+import {
+  coerceAppError,
+  DEFAULT_PROXY_PORT,
+  type TrustRemovalFailure,
+} from "@aiproxy/shared-types";
 
 import {
   useCertificateStatus,
   useGenerateRootCertificate,
   useLaunchCertificateInstaller,
+  useRemoveCertificateTrust,
 } from "@/features/certificate-center/use-certificate-status";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
-import { useI18n } from "@/i18n";
+import { useI18n, type TranslationKey } from "@/i18n";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { fontFamilies } from "@/themes/fonts";
 
+import { CertificateRiskNotes } from "./CertificateRiskNotes";
 import { DesktopCertificateTab } from "./DesktopCertificateTab";
 import { PlatformTrustGuide } from "./PlatformTrustGuide";
 import { MobileSetupTab } from "./MobileSetupTab";
 
 type CertTab = "desktop" | "mobile";
 type MobileQuickActionsPanel = "ios" | "android" | "harmony";
+
+// Outcome of a completed (or failed) removal, rendered under the status card.
+type RemoveFeedback =
+  | { kind: "success" }
+  | { kind: "partial"; failed: TrustRemovalFailure[]; systemProxyError?: string }
+  | { kind: "error"; message: string };
+
+// Manual removal commands for stores where the automated attempt is expected
+// to fail without elevation (Windows LocalMachine, macOS system domain /
+// System keychain, Linux system anchor dirs + CA store refresh). Store ids
+// mirror `tls-manager::trust::trust_store`.
+const MANUAL_COMMAND_KEYS: Record<string, TranslationKey> = {
+  "windows.localMachineRoot": "certificatesPage.remove.manualCommands.windowsLocalMachine",
+  "macos.systemDomain": "certificatesPage.remove.manualCommands.macosSystemDomain",
+  "macos.loginKeychain": "certificatesPage.remove.manualCommands.macosLoginKeychain",
+  "macos.systemKeychain": "certificatesPage.remove.manualCommands.macosSystemKeychain",
+  "linux.anchors": "certificatesPage.remove.manualCommands.linuxAnchors",
+  "linux.caStore": "certificatesPage.remove.manualCommands.linuxCaStore",
+};
+
+function RemoveFeedbackAlert({
+  feedback,
+  onDismiss,
+}: {
+  feedback: RemoveFeedback;
+  onDismiss: () => void;
+}) {
+  const { t } = useI18n();
+
+  if (feedback.kind === "error") {
+    return (
+      <Alert severity="error" onClose={onDismiss}>
+        <AlertTitle>{t("certificatesPage.remove.errorTitle")}</AlertTitle>
+        {feedback.message}
+      </Alert>
+    );
+  }
+
+  if (feedback.kind === "partial") {
+    return (
+      <Alert severity="warning" onClose={onDismiss}>
+        <AlertTitle>{t("certificatesPage.remove.partialTitle")}</AlertTitle>
+        {feedback.failed.length > 0 && (
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {t("certificatesPage.remove.manualHint")}
+          </Typography>
+        )}
+        {feedback.failed.map((failure) => {
+          const commandKey = MANUAL_COMMAND_KEYS[failure.store];
+          return (
+            <Stack key={failure.store} spacing={0.25} sx={{ mb: 1 }}>
+              <Typography variant="body2">
+                {t("certificatesPage.remove.storeLabel", {
+                  store: failure.store,
+                  error: failure.error,
+                })}
+              </Typography>
+              {commandKey && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                    fontFamily: fontFamilies.mono,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {t(commandKey)}
+                </Typography>
+              )}
+            </Stack>
+          );
+        })}
+        {feedback.systemProxyError && (
+          <Typography variant="body2" sx={{ mt: feedback.failed.length > 0 ? 1 : 0 }}>
+            {t("certificatesPage.remove.systemProxyErrorHint", {
+              error: feedback.systemProxyError,
+            })}
+          </Typography>
+        )}
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert severity="success" onClose={onDismiss}>
+      <AlertTitle>{t("certificatesPage.remove.successTitle")}</AlertTitle>
+      {t("certificatesPage.remove.successBody")}
+    </Alert>
+  );
+}
 
 export function CertificatesPage() {
   const { t } = useI18n();
@@ -25,6 +124,9 @@ export function CertificatesPage() {
   const { data: status, isLoading, refetch } = useCertificateStatus();
   const generateMutation = useGenerateRootCertificate();
   const installMutation = useLaunchCertificateInstaller();
+  const removeMutation = useRemoveCertificateTrust();
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [removeFeedback, setRemoveFeedback] = useState<RemoveFeedback | null>(null);
   const { data: proxyStatus } = useProxyStatus();
   const [tab, setTab] = useState<CertTab>("desktop");
   const iosQuickActionsRef = useRef<HTMLDivElement | null>(null);
@@ -70,6 +172,7 @@ export function CertificatesPage() {
   }, [initialPanel, location.key, tab]);
 
   const handleGenerate = () => {
+    setRemoveFeedback(null);
     generateMutation.mutate(
       { forceRegenerate: Boolean(status?.certPath) },
       {
@@ -86,6 +189,41 @@ export function CertificatesPage() {
 
   const handleRefresh = () => {
     refetch();
+  };
+
+  const handleRequestRemove = () => {
+    setRemoveFeedback(null);
+    setRemoveConfirmOpen(true);
+  };
+
+  // Removal is confirmed in the dialog; the mutation revokes trust, deletes
+  // the files and restarts the proxy HTTP-only (see remove_certificate_trust).
+  // Either a per-store trust failure or a failed system-proxy hand-back makes
+  // the result "partial" — the hand-back failure leaves the machine routed
+  // through the now-untrusted proxy, so it must be surfaced, not logged away.
+  const handleRemove = () => {
+    removeMutation.mutate(undefined, {
+      onSuccess: (output) => {
+        setRemoveConfirmOpen(false);
+        const hasIssues =
+          output.trustRemoval.failed.length > 0 || !!output.systemProxyHandbackError;
+        setRemoveFeedback(
+          hasIssues
+            ? {
+                kind: "partial",
+                failed: output.trustRemoval.failed,
+                ...(output.systemProxyHandbackError
+                  ? { systemProxyError: output.systemProxyHandbackError }
+                  : {}),
+              }
+            : { kind: "success" },
+        );
+      },
+      onError: (error) => {
+        setRemoveConfirmOpen(false);
+        setRemoveFeedback({ kind: "error", message: coerceAppError(error).message });
+      },
+    });
   };
 
   return (
@@ -181,11 +319,20 @@ export function CertificatesPage() {
                 loading={isLoading}
                 generating={generateMutation.isPending}
                 installing={installMutation.isPending}
+                removing={removeMutation.isPending}
                 onGenerate={handleGenerate}
                 onInstall={handleInstall}
                 onRefresh={handleRefresh}
+                onRemove={handleRequestRemove}
               />
+              {removeFeedback && (
+                <RemoveFeedbackAlert
+                  feedback={removeFeedback}
+                  onDismiss={() => setRemoveFeedback(null)}
+                />
+              )}
               <PlatformTrustGuide currentPlatform={status?.platform ?? "windows"} />
+              <CertificateRiskNotes />
             </Stack>
           )}
 
@@ -193,7 +340,7 @@ export function CertificatesPage() {
             <MobileSetupTab
               androidQuickActionsRef={androidQuickActionsRef}
               harmonyQuickActionsRef={harmonyQuickActionsRef}
-              proxyPort={proxyStatus?.port ?? 8888}
+              proxyPort={proxyStatus?.port ?? DEFAULT_PROXY_PORT}
               proxyRunning={proxyStatus?.running ?? false}
               sslEnabled={proxyStatus?.sslEnabled ?? false}
               hasCert={!!status?.certPath}
@@ -202,6 +349,16 @@ export function CertificatesPage() {
           )}
         </Box>
       </Paper>
+
+      <ConfirmDialog
+        open={removeConfirmOpen}
+        title={t("certificatesPage.remove.confirmTitle")}
+        message={t("certificatesPage.remove.confirmMessage")}
+        confirmLabel={t("certificatesPage.remove.action")}
+        isConfirming={removeMutation.isPending}
+        onCancel={() => setRemoveConfirmOpen(false)}
+        onConfirm={handleRemove}
+      />
     </Stack>
   );
 }

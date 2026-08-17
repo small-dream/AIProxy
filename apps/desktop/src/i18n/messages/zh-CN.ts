@@ -163,6 +163,7 @@ export const zhCNMessages: Messages = {
     statusEnableSystemProxy: "启用系统代理",
     systemProxyOff: "系统代理已关闭",
     systemProxyOn: "系统代理已启用",
+    systemProxyRecoveryWarning: "系统代理恢复失败",
     stopSystemProxyAction: "停止系统代理",
   },
   settingsPage: {
@@ -618,8 +619,33 @@ export const zhCNMessages: Messages = {
       opening: "打开中...",
       regenerate: "重新生成根证书",
     },
+    remove: {
+      action: "移除证书",
+      confirmMessage:
+        "将从系统信任存储撤销对该根 CA 的信任，并删除本地证书文件（不可恢复）。HTTPS 解密将停止；运行中的代理会以仅 HTTP 模式重启，系统代理会被交还。之后可随时重新生成。",
+      confirmTitle: "移除根证书？",
+      errorTitle: "移除失败",
+      manualHint: "以下存储需要手动撤销信任，可按命令操作：",
+      manualCommands: {
+        linuxAnchors:
+          "sudo rm /usr/local/share/ca-certificates/aiproxy-root-ca.crt（Fedora/RHEL 为 /etc/pki/ca-trust/source/anchors/ 下的对应文件）",
+        linuxCaStore: "sudo update-ca-certificates（Fedora/RHEL：sudo update-ca-trust）",
+        macosLoginKeychain: "security delete-certificate -Z <SHA1指纹>（在默认钥匙串中查找）",
+        macosSystemDomain: "sudo security remove-trusted-cert -d <证书路径>",
+        macosSystemKeychain:
+          "sudo security delete-certificate -Z <SHA1指纹> /Library/Keychains/System.keychain",
+        windowsLocalMachine:
+          "管理员 PowerShell：Remove-Item -Path 'Cert:\\LocalMachine\\Root\\<指纹>'",
+      },
+      partialTitle: "证书已删除，部分信任存储未能自动撤销",
+      systemProxyErrorHint:
+        "系统代理未能自动交还（{{error}}）。你的电脑可能仍指向 AIProxy 代理，浏览器会无法正常访问 HTTPS——请点击状态栏的「系统代理」开关或到「设置」中手动关闭。",
+      removing: "移除中...",
+      storeLabel: "{{store}}：{{error}}",
+      successBody: "证书文件已删除，系统信任已撤销。需要时可随时在本页重新生成。",
+      successTitle: "已移除证书",
+    },
     description: "在抓取 HTTPS 流量之前，先完成解密准备和平台信任配置。",
-    guideDescription: "在你的平台上信任根 CA 证书的步骤说明。",
     guideTitle: "安装指南",
     mobile: {
       adbClearProxyAction: "通过 ADB 清除代理",
@@ -671,6 +697,25 @@ export const zhCNMessages: Messages = {
       httpOnlyTitle: "仅 HTTP",
       ios: "iOS",
       localIp: "本机 IP：",
+      interfaceLabel: "检测到多个网络地址，可切换到手机实际可达的那个",
+      verify: {
+        title: "验证手机流量",
+        description: "安装证书并配置代理后，在这里确认手机的流量已进入 AIProxy。",
+        idleBody: "点击「开始检测」后，在手机上打开任意网页，捕获到新请求即算成功。",
+        proxyNotRunningHint: "代理未运行，请先启动代理再验证手机流量。",
+        start: "开始检测",
+        listeningBody: "正在监听…请在手机浏览器打开任意网页（例如 example.com）。",
+        successTitle: "已收到手机流量",
+        successBody: "新捕获 {{count}} 条请求，手机抓包链路已打通。",
+        timeoutTitle: "还没有检测到流量",
+        retry: "重新检测",
+        timeoutTips: [
+          "确认手机与电脑在同一 Wi-Fi / 局域网，且没有开启「随Switch网络隔离」类功能。",
+          "确认手机代理地址填的是本页展示的 IP 与端口。",
+          "确认手机已安装并信任 AIProxy 根证书（HTTPS 站点需要）。",
+          "检查电脑防火墙是否放行了代理端口。",
+        ],
+      },
       networkInfo: "网络信息",
       noCertQr: "请先启动代理，之后才会生成证书下载二维码。",
       proxyConfiguration: "代理配置",
@@ -795,8 +840,8 @@ export const zhCNMessages: Messages = {
     },
     platformSteps: {
       linux: [
-        "将证书复制到系统 CA 目录：sudo cp <cert-path> /usr/local/share/ca-certificates/aiproxy-root-ca.crt",
-        "更新 CA 存储：sudo update-ca-certificates",
+        "将证书复制到系统 CA 目录。Debian/Ubuntu：sudo cp <cert-path> /usr/local/share/ca-certificates/aiproxy-root-ca.crt；Fedora/RHEL：sudo cp <cert-path> /etc/pki/ca-trust/source/anchors/aiproxy-root-ca.crt",
+        "更新 CA 存储。Debian/Ubuntu：sudo update-ca-certificates；Fedora/RHEL：sudo update-ca-trust",
         "重启浏览器使配置生效。",
       ],
       macos: [
@@ -855,7 +900,6 @@ export const zhCNMessages: Messages = {
     tabs: {
       desktop: "桌面证书",
       mobile: "移动端设置",
-      reference: "参考信息",
     },
     workflow: {
       generate: "生成证书",
@@ -1609,7 +1653,7 @@ export const zhCNMessages: Messages = {
     welcome: {
       title: "欢迎使用 AIProxy",
       body: "AIProxy 会抓取你的应用与网络之间的流量。要读取 HTTPS 流量,你需要安装一个本地根证书、启动代理,再让浏览器或设备走这个代理。",
-      privacyNote: "根证书在本机生成,不会离开本机。随时可在「证书」页移除。",
+      privacyNote: "根证书在本机生成,不会离开本机。生成后可随时在「证书」页撤销信任并删除。",
     },
     generate: {
       title: "生成根证书",
@@ -1662,6 +1706,8 @@ export const zhCNMessages: Messages = {
       systemOn: "系统代理已开启。",
       manual: "我将手动配置代理",
       manualHint: "如果你要自己把某个应用或设备指向代理,选这个。随时可改。",
+      linuxDesktopHint:
+        "提示：Linux 上仅 GNOME/KDE 支持自动接管系统代理。若开启失败，请改用「我将手动配置代理」。",
     },
     verifyTraffic: {
       title: "抓取第一条 HTTPS 请求",
@@ -1689,6 +1735,7 @@ export const zhCNMessages: Messages = {
       certNotFound: "还没有生成根证书。",
       proxyNotRunning: "代理未运行。",
       permissionDenied: "权限被拒绝。",
+      desktopEnvUnsupported: "此 Linux 桌面环境不支持自动接管系统代理。",
       installerFailed: "无法打开系统证书安装器。",
       generateFailed: "生成根证书失败。",
       unknown: "出现了问题。",
@@ -1698,6 +1745,10 @@ export const zhCNMessages: Messages = {
       certNotFound: ["返回上一步,先生成根证书。"],
       proxyNotRunning: ["先启动代理,再重试。"],
       permissionDenied: ["授予所请求的权限(管理员密码或钥匙串访问),再重试。"],
+      desktopEnvUnsupported: [
+        "改点本步的「我将手动配置代理」，按提示把系统代理指向本机端口。",
+        "或在桌面环境的网络设置中手动填入 HTTP 代理。",
+      ],
       installerFailed: ["打开「证书」页手动安装证书,再返回这里。"],
       generateFailed: ["重试。若持续失败,请查看开发日志。"],
       unknown: ["重试。若问题仍在,请打开排障指南。"],

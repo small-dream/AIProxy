@@ -33,21 +33,55 @@ export function DocsPage() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const rawSlug = searchParams.get("doc");
+  const anchor = searchParams.get("anchor");
   const activeSlug = useMemo(() => resolveInitialSlug(rawSlug), [rawSlug]);
   const grouped = useMemo(() => groupDocsEntries(), []);
   const content = getDocContent(activeSlug, locale);
 
-  // Normalize the URL when the ?doc= param is missing or points to an unknown guide.
+  // Normalize the URL when the ?doc= param is missing or points to an unknown
+  // guide. Preserve a ?anchor= deep link (used by e.g. the setup wizard's
+  // "open troubleshooting guide" action) through the rewrite.
   useEffect(() => {
     if (rawSlug !== activeSlug) {
-      setSearchParams({ doc: activeSlug }, { replace: true });
+      setSearchParams(anchor ? { doc: activeSlug, anchor } : { doc: activeSlug }, {
+        replace: true,
+      });
     }
-  }, [rawSlug, activeSlug, setSearchParams]);
+  }, [rawSlug, activeSlug, anchor, setSearchParams]);
 
-  // Reset the article scroll position when switching documents or language.
+  // Reset the article scroll position when switching documents or language —
+  // unless a deep-linked anchor will scroll to its own section right after.
   useEffect(() => {
+    if (anchor) {
+      return;
+    }
     viewportRef.current?.scrollTo({ top: 0 });
-  }, [activeSlug, locale]);
+  }, [activeSlug, locale, anchor]);
+
+  // Scroll a deep-linked anchor (`?anchor=<id>`) into view once the article
+  // has rendered. The markdown renders synchronously but the element must be
+  // in the DOM, so retry a few animation frames before giving up (same idea
+  // as MarkdownRenderer's in-article anchor handling).
+  useEffect(() => {
+    if (!anchor) {
+      return undefined;
+    }
+    let attempts = 0;
+    let frame = 0;
+    const tryScroll = () => {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 10) {
+        frame = window.requestAnimationFrame(tryScroll);
+      }
+    };
+    frame = window.requestAnimationFrame(tryScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [anchor, activeSlug, locale]);
 
   function handleSelect(slug: string) {
     setSearchParams({ doc: slug });

@@ -17,7 +17,9 @@ import { WORKSPACES_KEY } from "@/features/workspace-manager/use-workspaces";
 import { isPortInUseError, readPortFromError } from "./proxy-start.helpers";
 import { useProxyStartStore } from "./proxy-start.store";
 
-const PROXY_STATUS_QUERY_KEY = ["proxy-status"] as const;
+// Exported so command flows that mutate proxy state (e.g. certificate removal)
+// can invalidate the shared status cache.
+export const PROXY_STATUS_QUERY_KEY = ["proxy-status"] as const;
 const SESSION_DETAIL_QUERY_KEY = ["session-detail"] as const;
 
 export function useProxyStatus() {

@@ -337,6 +337,12 @@ export function SetupWizardStepContent(props: Props) {
           {proxySatisfied ? (
             <SuccessBanner>{t("setupWizard.routing.systemOn")}</SuccessBanner>
           ) : null}
+          {/* Set expectations up front on Linux: only GNOME/KDE support the
+              automatic takeover; anything else fails and should fall through
+              to the manual-proxy path instead of a retry loop. */}
+          {platform === "linux" && !proxySatisfied && (
+            <Alert severity="info">{t("setupWizard.routing.linuxDesktopHint")}</Alert>
+          )}
           <ActionRow>
             <BackButton label={t("setupWizard.actions.back")} onClick={onBack} />
             {proxySatisfied ? (

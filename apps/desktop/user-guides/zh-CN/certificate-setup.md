@@ -61,6 +61,11 @@ AIProxy 通过本地根证书解密 HTTPS 流量。本文说明三平台(macOS /
 - **原因**:未授予管理员权限或钥匙串访问被拒。
 - **解决**:重新执行并输入管理员密码 / 授权钥匙串;Linux 确认用了 `sudo`。
 
+### <a id="linux-desktop-unsupported"></a>Linux 上开启系统代理失败(非 GNOME/KDE)
+- **症状**:设置向导或状态栏开启系统代理时失败,提示 `unsupported Linux desktop environment`。
+- **原因**:自动接管系统代理目前仅支持 GNOME(gsettings)与 KDE(kwriteconfig5);其他桌面环境(WM 壁纸级会话、Hyprland、sway 等)没有统一的系统代理协议。
+- **解决**:不要反复重试——桌面环境不会因此改变。改用向导里的「我将手动配置代理」,或在你的桌面环境/浏览器网络设置里手动把 HTTP/HTTPS 代理指向 `127.0.0.1:<端口>`。
+
 ### <a id="installer-failed"></a>系统安装器无法打开
 - **症状**:点「安装证书」后系统安装器未弹出或报错。
 - **原因**:系统证书安装器关联异常。
@@ -87,6 +92,16 @@ AIProxy 通过本地根证书解密 HTTPS 流量。本文说明三平台(macOS /
 - **HarmonyOS NEXT 模拟器**:可通过 `hdc list targets -v` 识别并使用同一个 hdc 推送动作,但不需要“同一 Wi-Fi”。请在模拟器系统网络设置中手动配置代理,主机填当前电脑可被模拟器访问的 IP,端口填 AIProxy 代理端口。证书安装同样需要在模拟器系统设置中手动确认;如果看不到 hdc 推送文件,用模拟器浏览器打开证书下载链接安装。
 - **iOS 模拟器**(仅 macOS):用「iOS 快捷操作」通过 `xcrun simctl keychain` 安装;安装后仍需在模拟器「设置 → 通用 → 关于本机 → 证书信任设置」手动开启完全信任。
 - **iOS 真机**:不支持自动安装。用「证书下载二维码」在手机 Safari 打开下载,按系统引导安装描述文件并在「证书信任设置」启用;代理在手机 Wi-Fi 设置里手动配置指向电脑 IP:端口。同一 Wi-Fi 网络是前提。
+
+## 移除证书 / 撤销信任
+
+「证书」页提供「移除证书」按钮,流程为:撤销系统信任 → 删除本地证书文件 → 工作区降级为仅 HTTP → 交还系统代理 → 运行中的代理以仅 HTTP 模式重启。移除后 HTTPS 解密停止,可随时重新生成。
+
+部分信任存储的自动撤销需要管理员权限(Windows `LocalMachine\Root`、macOS 系统域/System 钥匙串、Linux 系统 anchor 目录与 `update-ca-*`),失败时界面会给出对应平台的手动命令:
+
+- **Windows(管理员 PowerShell)**:`Remove-Item -Path 'Cert:\LocalMachine\Root\<指纹>'`
+- **macOS**:`sudo security remove-trusted-cert -d <证书路径>`;`security delete-certificate -Z <SHA1指纹>`(默认钥匙串);`sudo security delete-certificate -Z <SHA1指纹> /Library/Keychains/System.keychain`
+- **Linux**:`sudo rm /usr/local/share/ca-certificates/aiproxy-root-ca.crt`(Fedora/RHEL 为 `/etc/pki/ca-trust/source/anchors/` 下对应文件),然后 `sudo update-ca-certificates`(Fedora/RHEL:`sudo update-ca-trust`)
 
 ## 诊断
 

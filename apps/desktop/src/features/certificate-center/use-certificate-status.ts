@@ -14,9 +14,13 @@ import {
   type InstallIosCertificateViaSimulatorInput,
   type IOSSimulatorCertificateInstallResult,
   type IOSSimulatorDevice,
+  type RemoveCertificateTrustOutput,
   type SetAndroidProxyViaAdbInput,
   type SetupDiagnostic,
 } from "@aiproxy/shared-types";
+import { PROXY_STATUS_QUERY_KEY } from "@/features/proxy-status/use-proxy-status";
+import { WORKSPACES_KEY } from "@/features/workspace-manager/use-workspaces";
+import { logDevError } from "@/services/logger/dev-logger";
 import {
   clearAndroidProxyViaAdb,
   getCertificateStatus,
@@ -28,6 +32,7 @@ import {
   listHarmonyHdcDevices,
   listIosSimulators,
   openCertificateInstallGuide,
+  removeCertificateTrust,
   setAndroidProxyViaAdb,
   launchCertificateInstaller,
   diagnoseCertificateSetup,
@@ -82,6 +87,27 @@ export function useOpenCertificateInstallGuide() {
 export function useLaunchCertificateInstaller() {
   return useMutation<void, Error, void>({
     mutationFn: () => launchCertificateInstaller(),
+  });
+}
+
+// Certificate removal revokes trust, deletes the root CA files, demotes the
+// workspace to HTTP-only and restarts a running proxy without SSL — all state
+// the cached proxy status and workspace list reflect, so both are refreshed.
+export function useRemoveCertificateTrust() {
+  const queryClient = useQueryClient();
+
+  return useMutation<RemoveCertificateTrustOutput, Error, void>({
+    mutationFn: () => removeCertificateTrust(),
+    onError: (error) => {
+      logDevError("ui.certificate_center", "remove_certificate_trust_mutation_failed", {
+        error,
+      });
+    },
+    onSuccess: (output) => {
+      queryClient.setQueryData(CERTIFICATE_STATUS_QUERY_KEY, output.status);
+      queryClient.invalidateQueries({ queryKey: PROXY_STATUS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
+    },
   });
 }
 

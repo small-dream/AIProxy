@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { CertificateErrorGuidance } from "@/components/shared/CertificateErrorGuidance";
+import { mapCertificateError } from "@/features/certificate-center/error-guidance";
 import {
   useCertificateStatus,
   useGenerateRootCertificate,
@@ -336,6 +337,13 @@ export function SetupWizard() {
               error={actionError.error}
               context={actionError.context}
               onRetry={handleRetry}
+              onOpenGuide={() => {
+                // Deep-link into the in-app guide at the section matching the
+                // error class (e.g. #port-in-use) — anchors are the <a id>
+                // elements in user-guides/certificate-setup.md.
+                const { guideAnchor } = mapCertificateError(actionError.error, actionError.context);
+                navigate(`/docs?doc=certificate-setup&anchor=${guideAnchor.replace(/^#/, "")}`);
+              }}
             />
           )}
         </Stack>
