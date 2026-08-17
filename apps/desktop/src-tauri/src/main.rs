@@ -187,6 +187,7 @@ pub fn run() {
             commands::save_text_file,
             commands::pick_and_read_har_file,
             commands::save_media_file,
+            commands::save_response_files,
             commands::get_certificate_status,
             commands::diagnose_certificate_setup,
             commands::generate_root_certificate,

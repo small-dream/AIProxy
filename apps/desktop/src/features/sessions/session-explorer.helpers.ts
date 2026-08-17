@@ -180,6 +180,25 @@ export function collectVisibleSessionIds(
   return ids;
 }
 
+/**
+ * Every session under a tree node, in tree order. Used by the folder context
+ * menu so "save all files here" covers the whole subtree, not just the node's
+ * direct children.
+ */
+export function collectBranchSessions(node: SessionPathNode): SessionSummary[] {
+  if (node.kind === "leaf") {
+    return [node.session];
+  }
+
+  const sessions: SessionSummary[] = [];
+
+  for (const child of node.children) {
+    sessions.push(...collectBranchSessions(child));
+  }
+
+  return sessions;
+}
+
 export function getSessionLeafLabel(session: SessionSummary): string {
   const { pathname } = splitSessionPath(session.path);
   const segments = pathnameSegments(pathname);

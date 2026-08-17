@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSessionHostGroups,
+  collectBranchSessions,
   getSessionResourceKind,
   matchesKeyword,
   reconcileExpandedKeys,
@@ -388,5 +389,54 @@ describe("matchesKeyword", () => {
     const session = createSessionSummary({ protocol: "h2", httpVersion: "2" });
     expect(matchesKeyword(session, "2")).toBe(true);
     expect(matchesKeyword(session, "h2")).toBe(false);
+  });
+});
+
+describe("collectBranchSessions", () => {
+  it("collects every session under a folder, including nested subfolders", () => {
+    const sessions = [
+      createSessionSummary({
+        id: "root-level",
+        path: "/static/app.js",
+        url: "http://example.com/static/app.js",
+      }),
+      createSessionSummary({
+        id: "nested-a",
+        path: "/static/img/logo.png",
+        url: "http://example.com/static/img/logo.png",
+      }),
+      createSessionSummary({
+        id: "nested-b",
+        path: "/static/img/icons/star.svg",
+        url: "http://example.com/static/img/icons/star.svg",
+      }),
+      createSessionSummary({
+        id: "outside",
+        path: "/api/users",
+        url: "http://example.com/api/users",
+      }),
+    ];
+    const [group] = buildSessionHostGroups(sessions, "");
+    const staticBranch = group?.tree.find(
+      (node) => node.kind === "branch" && node.segmentLabel === "static",
+    );
+
+    expect(staticBranch).toBeDefined();
+    // Ordering follows the tree layout, which is not part of this contract —
+    // what matters is that the whole subtree is covered and nothing outside it.
+    expect(
+      collectBranchSessions(staticBranch!)
+        .map((session) => session.id)
+        .sort(),
+    ).toEqual(["nested-a", "nested-b", "root-level"]);
+  });
+
+  it("returns the single session of a leaf node", () => {
+    const session = createSessionSummary({ id: "only", path: "/a.json" });
+    const [group] = buildSessionHostGroups([session], "");
+    const leaf = group?.tree[0];
+
+    expect(leaf?.kind).toBe("leaf");
+    expect(collectBranchSessions(leaf!)).toEqual([session]);
   });
 });

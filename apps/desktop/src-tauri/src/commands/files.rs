@@ -236,6 +236,536 @@ pub fn save_media_file(input: SaveMediaFileInput) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+// ── Save captured response bodies as files ──────────────────────────────
+//
+// Charles-style "save every captured file under this folder". The renderer
+// supplies only session ids and a conflict strategy; the backend owns the
+// directory picker (same H3 model as `pick_and_read_har_file`), derives every
+// relative path itself, and writes the raw body bytes. Nothing about the
+// destination crosses the IPC boundary as input, and no body is base64-encoded
+// through IPC, so binary payloads land byte-identical.
+
+/// Upper bound on a single export. Guards against a selection that spans the
+/// whole capture writing an unbounded number of files before the user reacts.
+const MAX_RESPONSE_FILE_EXPORT_COUNT: usize = 20_000;
+
+/// Maximum number of path segments reconstructed from a URL. Deeply nested URLs
+/// would otherwise produce directory chains that blow past Windows' MAX_PATH.
+const MAX_EXPORT_PATH_DEPTH: usize = 24;
+
+/// Maximum length of one sanitized path segment, in bytes. Long segments are
+/// truncated (extension preserved) rather than rejected.
+const MAX_EXPORT_SEGMENT_LEN: usize = 100;
+
+/// How to handle several captured requests that map to the same target file.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResponseFileConflictStrategy {
+    /// Keep only the most recent response for each target path.
+    LatestOnly,
+    /// Keep every response, disambiguating with a ` (n)` suffix.
+    KeepAll,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResponseFilesInput {
+    pub session_ids: Vec<String>,
+    pub conflict_strategy: ResponseFileConflictStrategy,
+    /// Localized directory-picker title. The only renderer-controlled string —
+    /// it never influences where anything is written.
+    pub title: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResponseFilesOutput {
+    pub directory: String,
+    pub saved_count: usize,
+    /// Requests with no response body to write: WebSocket streams, empty
+    /// bodies (204/304), and ids the backend no longer holds (e.g. sessions
+    /// imported into the renderer from a HAR file).
+    pub skipped_count: usize,
+    /// Requests whose body could not be read or written.
+    pub failed_count: usize,
+}
+
+/// Whether the summary describes a WebSocket stream rather than a single
+/// request/response file. Mirrors `isWebSocketSessionProtocol` on the frontend.
+fn is_websocket_summary(summary: &ProxySessionSummary) -> bool {
+    summary
+        .application_protocol
+        .eq_ignore_ascii_case("websocket")
+        || summary.protocol.eq_ignore_ascii_case("ws")
+        || summary.protocol.eq_ignore_ascii_case("wss")
+        || summary
+            .response_mime_type
+            .as_deref()
+            .is_some_and(|mime| mime.eq_ignore_ascii_case("websocket"))
+}
+
+/// Map a response MIME type to a file extension, used only when the URL itself
+/// carries no extension. Unlike the frontend's `guessExtension` (which targets
+/// the text-oriented single "Save response" action and falls back to `txt`),
+/// this falls back to `bin`: a bulk export writes raw bytes, so labelling an
+/// unknown binary payload `.txt` would be actively misleading.
+fn guess_response_extension(mime_type: &str) -> &'static str {
+    let mime = mime_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    match mime.as_str() {
+        "application/json" | "text/json" => return "json",
+        "text/html" => return "html",
+        "text/css" => return "css",
+        "text/plain" => return "txt",
+        "text/csv" => return "csv",
+        "text/markdown" => return "md",
+        "image/svg+xml" => return "svg",
+        "image/jpeg" => return "jpg",
+        "image/x-icon" | "image/vnd.microsoft.icon" => return "ico",
+        "application/pdf" => return "pdf",
+        "application/zip" => return "zip",
+        "application/wasm" => return "wasm",
+        "font/woff2" => return "woff2",
+        "font/woff" => return "woff",
+        "font/ttf" | "application/x-font-ttf" => return "ttf",
+        _ => {}
+    }
+
+    // Suffix/substring matches for the long tail of vendor-prefixed types
+    // (application/vnd.api+json, application/x-javascript, …).
+    if mime.ends_with("+json") || mime.contains("json") {
+        return "json";
+    }
+    if mime.contains("javascript") || mime.contains("ecmascript") {
+        return "js";
+    }
+    if mime.ends_with("+xml") || mime.contains("xml") {
+        return "xml";
+    }
+    if mime.contains("html") {
+        return "html";
+    }
+    if let Some(subtype) = mime.strip_prefix("image/") {
+        return match subtype {
+            "png" => "png",
+            "gif" => "gif",
+            "webp" => "webp",
+            "avif" => "avif",
+            "bmp" => "bmp",
+            "tiff" => "tiff",
+            _ => "bin",
+        };
+    }
+    if mime.starts_with("text/") {
+        return "txt";
+    }
+
+    "bin"
+}
+
+/// Reserved device names on Windows. A file called `con.json` is unopenable
+/// there, so such stems get an underscore prefix on every platform to keep
+/// exports portable between machines.
+const WINDOWS_RESERVED_STEMS: [&str; 22] = [
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
+/// Reduce one URL segment to something safe to use as a path component on all
+/// three platforms. Never returns a value containing a separator, a dot
+/// segment, or a reserved device name, so a sanitized segment cannot escape the
+/// export root no matter what the captured URL contained.
+fn sanitize_path_segment(segment: &str) -> String {
+    let decoded = percent_decode_segment(segment);
+    let mut sanitized = String::with_capacity(decoded.len());
+
+    for character in decoded.chars() {
+        let is_illegal = matches!(
+            character,
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+        ) || character.is_control();
+        sanitized.push(if is_illegal { '_' } else { character });
+    }
+
+    // Windows rejects trailing dots and spaces; strip them on every platform so
+    // an export copied to Windows stays readable.
+    let trimmed = sanitized.trim().trim_end_matches(['.', ' ']).to_string();
+
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return "_".to_string();
+    }
+
+    let truncated = truncate_segment(&trimmed);
+    let stem = truncated
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if WINDOWS_RESERVED_STEMS.contains(&stem.as_str()) {
+        return format!("_{truncated}");
+    }
+
+    truncated
+}
+
+/// Truncate an over-long segment on a char boundary, keeping the extension so
+/// the saved file still opens with the right application.
+fn truncate_segment(segment: &str) -> String {
+    if segment.len() <= MAX_EXPORT_SEGMENT_LEN {
+        return segment.to_string();
+    }
+
+    let extension = segment
+        .rsplit_once('.')
+        .map(|(_, ext)| ext)
+        .filter(|ext| !ext.is_empty() && ext.len() <= 16)
+        .unwrap_or_default();
+    let budget = MAX_EXPORT_SEGMENT_LEN.saturating_sub(extension.len() + 1);
+    let mut head = String::new();
+
+    for character in segment.chars() {
+        if head.len() + character.len_utf8() > budget {
+            break;
+        }
+        head.push(character);
+    }
+
+    if extension.is_empty() {
+        head
+    } else {
+        format!("{head}.{extension}")
+    }
+}
+
+/// Percent-decode a URL segment so `%E4%B8%AD` lands as a readable file name.
+/// Falls back to the raw segment when the escape sequence is not valid UTF-8.
+fn percent_decode_segment(segment: &str) -> String {
+    percent_encoding::percent_decode_str(segment)
+        .decode_utf8()
+        .map(|decoded| decoded.into_owned())
+        .unwrap_or_else(|_| segment.to_string())
+}
+
+/// Rebuild the site layout for one captured request: `dir/.../name.ext`.
+///
+/// The host is deliberately NOT a directory — the user already chose where the
+/// files go, so re-creating `example.com/` inside their pick is noise. The URL
+/// path below it is kept in full, so right-clicking `assets` really does
+/// produce an `assets/` folder, and saving different folders of the same site
+/// into one destination merges into a single coherent tree.
+///
+/// The query string is dropped, so two requests differing only by query
+/// collapse onto the same file — that is the collision the conflict strategy
+/// exists to resolve.
+fn derive_response_relative_path(url: &str, mime_type: Option<&str>) -> Option<PathBuf> {
+    let parsed = Url::parse(url).ok()?;
+
+    let all_segments: Vec<&str> = parsed
+        .path()
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+
+    // A URL ending in `/` (or a bare `/`) names a directory, not a file: every
+    // segment is a directory and the payload is saved as `index.<ext>`, the way
+    // a site would serve it. Otherwise the last segment is the file name.
+    let is_directory_url = parsed.path().ends_with('/');
+    let file_stem = if is_directory_url {
+        "index".to_string()
+    } else {
+        all_segments
+            .last()
+            .map(|segment| sanitize_path_segment(segment))
+            .unwrap_or_else(|| "index".to_string())
+    };
+
+    let directory_segments = if is_directory_url {
+        all_segments.as_slice()
+    } else {
+        // The last segment is the file name, not a directory.
+        all_segments.split_last().map_or(&[][..], |(_, rest)| rest)
+    };
+
+    let mut path = PathBuf::new();
+
+    for segment in directory_segments.iter().take(
+        // Reserve one slot for the file name itself.
+        MAX_EXPORT_PATH_DEPTH.saturating_sub(1),
+    ) {
+        path.push(sanitize_path_segment(segment));
+    }
+
+    path.push(ensure_file_extension(&file_stem, mime_type));
+
+    Some(path)
+}
+
+/// Append a MIME-derived extension when the URL segment has none. A segment
+/// that already ends in a plausible extension (`app.js`, `logo.png`) is left
+/// untouched so the export mirrors the original site.
+fn ensure_file_extension(file_name: &str, mime_type: Option<&str>) -> String {
+    let has_extension = file_name.rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty()
+            && !extension.is_empty()
+            && extension.len() <= 16
+            && extension.chars().all(|c| c.is_ascii_alphanumeric())
+    });
+
+    if has_extension {
+        return file_name.to_string();
+    }
+
+    let extension = guess_response_extension(mime_type.unwrap_or_default());
+    format!("{file_name}.{extension}")
+}
+
+/// Plan entry: which session gets written where, before any body is read.
+struct ResponseFilePlanEntry {
+    session_id: String,
+    relative_path: PathBuf,
+}
+
+/// Build the write plan from summaries alone — no body is touched here, so a
+/// selection spanning thousands of requests stays cheap until it is committed.
+/// Returns the plan plus the number of requests skipped for having nothing to
+/// save (WebSocket streams, empty responses, ids the backend no longer holds).
+fn build_response_file_plan(
+    session_ids: &[String],
+    summaries: &[ProxySessionSummary],
+    strategy: ResponseFileConflictStrategy,
+) -> (Vec<ResponseFilePlanEntry>, usize) {
+    let summaries_by_id: std::collections::HashMap<&str, &ProxySessionSummary> = summaries
+        .iter()
+        .map(|summary| (summary.id.as_str(), summary))
+        .collect();
+
+    let mut planned: Vec<(ResponseFilePlanEntry, String)> = Vec::new();
+    let mut skipped = 0usize;
+
+    for session_id in session_ids {
+        let Some(summary) = summaries_by_id.get(session_id.as_str()) else {
+            skipped += 1;
+            continue;
+        };
+
+        if is_websocket_summary(summary) {
+            skipped += 1;
+            continue;
+        }
+
+        let Some(relative_path) =
+            derive_response_relative_path(&summary.url, summary.response_mime_type.as_deref())
+        else {
+            skipped += 1;
+            continue;
+        };
+
+        planned.push((
+            ResponseFilePlanEntry {
+                session_id: session_id.clone(),
+                relative_path,
+            },
+            summary.started_at.clone(),
+        ));
+    }
+
+    if strategy == ResponseFileConflictStrategy::KeepAll {
+        return (
+            planned.into_iter().map(|(entry, _)| entry).collect(),
+            skipped,
+        );
+    }
+
+    // LatestOnly: collapse each target path down to its most recent capture.
+    // `started_at` is an ISO-8601 UTC timestamp, so lexical order is chronological;
+    // ties fall back to the later position in the selection.
+    let mut latest_by_path: std::collections::HashMap<PathBuf, (usize, String)> =
+        std::collections::HashMap::new();
+
+    for (index, (entry, started_at)) in planned.iter().enumerate() {
+        match latest_by_path.get(&entry.relative_path) {
+            Some((_, current_started_at)) if current_started_at.as_str() > started_at.as_str() => {}
+            _ => {
+                latest_by_path.insert(entry.relative_path.clone(), (index, started_at.clone()));
+            }
+        }
+    }
+
+    let kept: std::collections::HashSet<usize> =
+        latest_by_path.values().map(|(index, _)| *index).collect();
+    let dropped = planned.len() - kept.len();
+
+    (
+        planned
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| kept.contains(index))
+            .map(|(_, (entry, _))| entry)
+            .collect(),
+        skipped + dropped,
+    )
+}
+
+/// Charles-style bulk export: write the captured response body of every request
+/// under the selected tree folder into a user-chosen directory, rebuilding the
+/// `host/path` layout. Returns `None` when the user cancels the picker.
+#[tauri::command]
+pub async fn save_response_files(
+    app: tauri::AppHandle,
+    input: SaveResponseFilesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<SaveResponseFilesOutput>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    if input.session_ids.is_empty() {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "No captured requests were selected.",
+        ));
+    }
+    if input.session_ids.len() > MAX_RESPONSE_FILE_EXPORT_COUNT {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!("Cannot save more than {MAX_RESPONSE_FILE_EXPORT_COUNT} files at once."),
+        ));
+    }
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(input.title)
+        .pick_folder(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|e| app_error(ERR_INTERNAL, format!("dialog channel closed: {e}")))?
+    else {
+        return Ok(None);
+    };
+
+    let directory = match picked.into_path() {
+        Ok(path) => path,
+        Err(_) => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                "The selected destination is not a local directory.",
+            ))
+        }
+    };
+
+    let state = Arc::clone(state.inner());
+    let SaveResponseFilesInput {
+        session_ids,
+        conflict_strategy,
+        ..
+    } = input;
+
+    run_blocking_command("save_response_files", move || {
+        // Resolve the root once so every write can be verified against it.
+        // Canonicalizing also collapses any symlink the user picked, which
+        // keeps the containment check below meaningful.
+        let root = std::fs::canonicalize(&directory)
+            .map_err(|error| app_error(ERR_INVALID_INPUT, format!("open destination: {error}")))?;
+
+        let (plan, mut skipped_count) =
+            build_response_file_plan(&session_ids, &state.read_sessions(), conflict_strategy);
+
+        let mut saved_count = 0usize;
+        let mut failed_count = 0usize;
+
+        for entry in plan {
+            match write_response_file(&state, &root, &entry) {
+                Ok(true) => saved_count += 1,
+                Ok(false) => skipped_count += 1,
+                Err(error) => {
+                    failed_count += 1;
+                    tracing::warn!(
+                        component = "desktop.files",
+                        event = "save_response_file_failed",
+                        session_id = %entry.session_id,
+                        relative_path = %entry.relative_path.display(),
+                        error = %error,
+                        "save_response_file_failed"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            component = "desktop.files",
+            event = "save_response_files_completed",
+            requested = session_ids.len(),
+            saved = saved_count,
+            skipped = skipped_count,
+            failed = failed_count,
+            "save_response_files_completed"
+        );
+
+        Ok(Some(SaveResponseFilesOutput {
+            directory: root.display().to_string(),
+            saved_count,
+            skipped_count,
+            failed_count,
+        }))
+    })
+    .await
+}
+
+/// Write one planned file. `Ok(false)` means the request turned out to have no
+/// response body to save, which is a skip rather than a failure.
+fn write_response_file(
+    state: &AppState,
+    root: &Path,
+    entry: &ResponseFilePlanEntry,
+) -> Result<bool, String> {
+    let Some(detail) = state.read_session_detail(&entry.session_id)? else {
+        return Ok(false);
+    };
+    let Some(body) = detail.response_body.as_ref() else {
+        return Ok(false);
+    };
+
+    let bytes = body.read_bytes()?;
+    if bytes.is_empty() {
+        return Ok(false);
+    }
+
+    let target_directory = match entry.relative_path.parent() {
+        Some(parent) => root.join(parent),
+        None => root.to_path_buf(),
+    };
+    std::fs::create_dir_all(&target_directory)
+        .map_err(|error| format!("create export directory: {error}"))?;
+
+    // Defense in depth: every segment is sanitized, but re-verify the resolved
+    // directory still sits under the picked root so a pre-existing symlink
+    // inside the destination cannot redirect the write elsewhere.
+    let canonical_directory = std::fs::canonicalize(&target_directory)
+        .map_err(|error| format!("resolve export directory: {error}"))?;
+    if !canonical_directory.starts_with(root) {
+        return Err("export path escaped the selected directory".to_string());
+    }
+
+    let file_name = entry
+        .relative_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "derived file name is not valid UTF-8".to_string())?;
+    let target_path = next_available_export_path(&canonical_directory, file_name);
+
+    std::fs::write(&target_path, &bytes)
+        .map_err(|error| format!("write response file: {error}"))?;
+
+    Ok(true)
+}
+
 fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
     let requested_path = downloads_dir.join(file_name);
 
@@ -327,5 +857,367 @@ mod tests {
         // app_error produces a JSON string with a "code" field.
         let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(parsed["code"], serde_json::json!("INVALID_INPUT"));
+    }
+
+    // ── save_response_files ────────────────────────────────────────────
+
+    fn summary(id: &str, url: &str, mime: Option<&str>, started_at: &str) -> ProxySessionSummary {
+        ProxySessionSummary {
+            id: id.to_string(),
+            method: "GET".to_string(),
+            host: Url::parse(url)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_string))
+                .unwrap_or_default(),
+            path: "/".to_string(),
+            protocol: "https".to_string(),
+            scheme: "https".to_string(),
+            http_version: "1.1".to_string(),
+            transport_protocol: "tcp".to_string(),
+            application_protocol: "http".to_string(),
+            started_at: started_at.to_string(),
+            finished_at: started_at.to_string(),
+            duration_ms: 1,
+            size_bytes: 10,
+            status_code: 200,
+            url: url.to_string(),
+            response_mime_type: mime.map(str::to_string),
+        }
+    }
+
+    fn relative_paths(entries: &[ResponseFilePlanEntry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|entry| entry.relative_path.to_string_lossy().replace('\\', "/"))
+            .collect()
+    }
+
+    #[test]
+    fn rebuilds_url_layout_without_the_host_directory() {
+        // The user already chose the destination, so re-creating `example.com/`
+        // inside it would just be noise.
+        let path = derive_response_relative_path("https://api.example.com/v1/users.json", None)
+            .expect("path");
+        assert_eq!(path.to_string_lossy().replace('\\', "/"), "v1/users.json");
+    }
+
+    #[test]
+    fn keeps_the_full_url_path_whichever_folder_was_clicked() {
+        // Right-clicking `assets` must really produce an `assets/` folder, and
+        // the result must not depend on which level of the tree was clicked —
+        // that way several saves of one site merge into a coherent tree.
+        let path =
+            derive_response_relative_path("https://cdn.example.com/assets/img/logo.png", None)
+                .expect("path");
+        assert_eq!(
+            path.to_string_lossy().replace('\\', "/"),
+            "assets/img/logo.png"
+        );
+    }
+
+    #[test]
+    fn appends_mime_extension_only_when_url_has_none() {
+        // No extension in the URL → derived from the response MIME type.
+        let derived = derive_response_relative_path(
+            "https://api.example.com/v1/login",
+            Some("application/json"),
+        )
+        .expect("path");
+        assert_eq!(
+            derived.to_string_lossy().replace('\\', "/"),
+            "v1/login.json"
+        );
+
+        // The URL already names the file → left exactly as the site served it.
+        let untouched = derive_response_relative_path(
+            "https://cdn.example.com/static/app.js",
+            Some("text/plain"),
+        )
+        .expect("path");
+        assert_eq!(
+            untouched.to_string_lossy().replace('\\', "/"),
+            "static/app.js"
+        );
+    }
+
+    #[test]
+    fn directory_urls_and_roots_become_index_files() {
+        let directory =
+            derive_response_relative_path("https://example.com/docs/", Some("text/html"))
+                .expect("path");
+        assert_eq!(
+            directory.to_string_lossy().replace('\\', "/"),
+            "docs/index.html"
+        );
+
+        let root =
+            derive_response_relative_path("https://example.com/", Some("text/html")).expect("path");
+        assert_eq!(root.to_string_lossy().replace('\\', "/"), "index.html");
+    }
+
+    #[test]
+    fn percent_decodes_segments() {
+        let path = derive_response_relative_path(
+            "https://example.com/%E4%B8%AD%E6%96%87/a%20b.json",
+            None,
+        )
+        .expect("path");
+        assert_eq!(path.to_string_lossy().replace('\\', "/"), "中文/a b.json");
+    }
+
+    // The security-critical property: nothing a captured URL contains may
+    // produce a segment that climbs out of the export root.
+    #[test]
+    fn sanitization_never_yields_traversal_or_separators() {
+        for hostile in [
+            "..",
+            ".",
+            "../../etc",
+            "a/b",
+            "a\\b",
+            "%2e%2e",
+            "%2e%2e%2f%2e%2e",
+            "C:",
+            "",
+            "   ",
+            "...",
+        ] {
+            let sanitized = sanitize_path_segment(hostile);
+            assert!(!sanitized.is_empty(), "{hostile} produced an empty segment");
+            assert!(!sanitized.contains('/'), "{hostile} kept a forward slash");
+            assert!(!sanitized.contains('\\'), "{hostile} kept a backslash");
+            assert!(!sanitized.contains(':'), "{hostile} kept a colon");
+            assert_ne!(sanitized, ".", "{hostile} stayed a dot segment");
+            assert_ne!(sanitized, "..", "{hostile} stayed a parent segment");
+            assert_eq!(
+                std::path::Path::new(&sanitized).components().count(),
+                1,
+                "{hostile} expanded into several components"
+            );
+        }
+    }
+
+    #[test]
+    fn encoded_traversal_in_a_url_stays_inside_the_root() {
+        let path =
+            derive_response_relative_path("https://example.com/a/%2e%2e/%2e%2e/secret.txt", None)
+                .expect("path");
+        let rendered = path.to_string_lossy().replace('\\', "/");
+
+        assert!(
+            !rendered.contains(".."),
+            "traversal survived sanitization: {rendered}"
+        );
+        assert!(rendered.ends_with("secret.txt"));
+    }
+
+    #[test]
+    fn prefixes_windows_reserved_names() {
+        assert_eq!(sanitize_path_segment("CON"), "_CON");
+        assert_eq!(sanitize_path_segment("nul.json"), "_nul.json");
+        assert_eq!(sanitize_path_segment("com1.txt"), "_com1.txt");
+        // Not reserved — must stay untouched.
+        assert_eq!(sanitize_path_segment("console.js"), "console.js");
+    }
+
+    #[test]
+    fn strips_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_path_segment("report."), "report");
+        assert_eq!(sanitize_path_segment("report "), "report");
+    }
+
+    #[test]
+    fn truncates_long_segments_while_keeping_the_extension() {
+        let long_name = format!("{}.json", "a".repeat(300));
+        let sanitized = sanitize_path_segment(&long_name);
+
+        assert!(sanitized.len() <= MAX_EXPORT_SEGMENT_LEN);
+        assert!(sanitized.ends_with(".json"));
+    }
+
+    #[test]
+    fn caps_directory_depth() {
+        let deep_url = format!(
+            "https://example.com/{}/file.json",
+            vec!["seg"; 60].join("/")
+        );
+        let path = derive_response_relative_path(&deep_url, None).expect("path");
+
+        // capped directories + file name.
+        assert!(path.components().count() <= MAX_EXPORT_PATH_DEPTH);
+    }
+
+    #[test]
+    fn guesses_extensions_and_falls_back_to_bin_for_unknown_binaries() {
+        assert_eq!(guess_response_extension("application/json"), "json");
+        assert_eq!(
+            guess_response_extension("application/json; charset=utf-8"),
+            "json"
+        );
+        assert_eq!(guess_response_extension("application/vnd.api+json"), "json");
+        assert_eq!(guess_response_extension("text/html"), "html");
+        assert_eq!(guess_response_extension("application/x-javascript"), "js");
+        assert_eq!(guess_response_extension("image/png"), "png");
+        assert_eq!(guess_response_extension("image/svg+xml"), "svg");
+        assert_eq!(guess_response_extension("image/jpeg"), "jpg");
+        assert_eq!(guess_response_extension("font/woff2"), "woff2");
+        assert_eq!(guess_response_extension("text/plain"), "txt");
+        // Unlike the frontend's text-oriented guessExtension, an unknown binary
+        // payload must not be labelled .txt.
+        assert_eq!(guess_response_extension("application/octet-stream"), "bin");
+        assert_eq!(guess_response_extension(""), "bin");
+    }
+
+    #[test]
+    fn plan_skips_websocket_sessions() {
+        let mut ws = summary(
+            "ws-1",
+            "https://example.com/socket",
+            None,
+            "2026-01-01T00:00:00Z",
+        );
+        ws.application_protocol = "websocket".to_string();
+        let summaries = vec![
+            ws,
+            summary(
+                "http-1",
+                "https://example.com/a.json",
+                Some("application/json"),
+                "2026-01-01T00:00:00Z",
+            ),
+        ];
+
+        let (plan, skipped) = build_response_file_plan(
+            &["ws-1".to_string(), "http-1".to_string()],
+            &summaries,
+            ResponseFileConflictStrategy::KeepAll,
+        );
+
+        assert_eq!(relative_paths(&plan), vec!["a.json"]);
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn plan_skips_ids_the_backend_no_longer_holds() {
+        // Sessions imported into the renderer from a HAR file never reach the
+        // backend cache, so they are reported as skipped rather than failed.
+        let (plan, skipped) = build_response_file_plan(
+            &["imported-1".to_string()],
+            &[],
+            ResponseFileConflictStrategy::KeepAll,
+        );
+
+        assert!(plan.is_empty());
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn keep_all_retains_every_capture_of_the_same_path() {
+        let summaries = vec![
+            summary(
+                "s1",
+                "https://example.com/a.json",
+                None,
+                "2026-01-01T00:00:01Z",
+            ),
+            summary(
+                "s2",
+                "https://example.com/a.json",
+                None,
+                "2026-01-01T00:00:02Z",
+            ),
+        ];
+
+        let (plan, skipped) = build_response_file_plan(
+            &["s1".to_string(), "s2".to_string()],
+            &summaries,
+            ResponseFileConflictStrategy::KeepAll,
+        );
+
+        assert_eq!(plan.len(), 2);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn latest_only_keeps_the_most_recent_capture_of_each_path() {
+        let summaries = vec![
+            summary(
+                "old",
+                "https://example.com/a.json",
+                None,
+                "2026-01-01T00:00:01Z",
+            ),
+            summary(
+                "new",
+                "https://example.com/a.json",
+                None,
+                "2026-01-01T00:00:09Z",
+            ),
+            summary(
+                "other",
+                "https://example.com/b.json",
+                None,
+                "2026-01-01T00:00:05Z",
+            ),
+        ];
+
+        let (plan, skipped) = build_response_file_plan(
+            &["old".to_string(), "new".to_string(), "other".to_string()],
+            &summaries,
+            ResponseFileConflictStrategy::LatestOnly,
+        );
+
+        let mut kept: Vec<&str> = plan.iter().map(|entry| entry.session_id.as_str()).collect();
+        kept.sort_unstable();
+
+        assert_eq!(kept, vec!["new", "other"]);
+        // The superseded capture counts as skipped, not saved.
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn latest_only_treats_query_variants_as_the_same_file() {
+        // The query string is dropped from the derived path, so `?page=1` and
+        // `?page=2` collapse onto one file — that is exactly the collision the
+        // conflict strategy exists to resolve.
+        let summaries = vec![
+            summary(
+                "p1",
+                "https://example.com/list?page=1",
+                Some("application/json"),
+                "2026-01-01T00:00:01Z",
+            ),
+            summary(
+                "p2",
+                "https://example.com/list?page=2",
+                Some("application/json"),
+                "2026-01-01T00:00:02Z",
+            ),
+        ];
+
+        let (plan, skipped) = build_response_file_plan(
+            &["p1".to_string(), "p2".to_string()],
+            &summaries,
+            ResponseFileConflictStrategy::LatestOnly,
+        );
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].session_id, "p2");
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn next_available_export_path_disambiguates_keep_all_collisions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = next_available_export_path(dir.path(), "a.json");
+        std::fs::write(&first, b"1").expect("write");
+
+        let second = next_available_export_path(dir.path(), "a.json");
+
+        assert_ne!(first, second);
+        assert_eq!(
+            second.file_name().and_then(|n| n.to_str()),
+            Some("a (1).json")
+        );
     }
 }
