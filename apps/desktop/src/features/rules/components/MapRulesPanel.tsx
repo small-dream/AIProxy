@@ -19,7 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { createEmptyMapRule, getMapValidationErrors } from "@/features/rules/rules.helpers";
+import { PriorityField } from "@/features/rules/components/PriorityField";
+import {
+  createEmptyMapRule,
+  getMapValidationErrors,
+  hasRuleFieldErrors,
+  ruleFieldProps,
+} from "@/features/rules/rules.helpers";
 import {
   FieldGroup,
   formatRuleFieldLabel,
@@ -66,10 +72,6 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   // (new rules[]/filteredRules[] array identity) does NOT re-run the draft-
   // sync and clobber an in-flight edit. Mirrors `use-throttle-editor.ts`.
   const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
-  // L3: priority is committed from a local text draft so clearing the field
-  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
-  // ProfileEditor.
-  const [priorityText, setPriorityText] = useState(String(draft.priority));
 
   // M-rules: when the user triggers "Map Local" from a captured request, the
   // sessions page navigates here with a mapLocalSeed; pre-fill the draft with
@@ -86,13 +88,6 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
     setValidationAttempted(false);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, location.state, mode, navigate]);
-
-  useEffect(() => {
-    if (draft.priority !== Number(priorityText)) {
-      setPriorityText(String(draft.priority));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.priority]);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -155,7 +150,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   function handleSave() {
     if (isRulesError) return;
     setValidationAttempted(true);
-    if (errors.length > 0) return;
+    if (hasRuleFieldErrors(errors)) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
         lastSyncedRuleIdRef.current = saved.id;
@@ -286,6 +281,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                 label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                {...ruleFieldProps(errors, validationAttempted, "name")}
                 sx={{ flex: 1 }}
               />
               <Stack
@@ -314,24 +310,10 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                   onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
                 />
               </Stack>
-              <TextField
-                size="small"
-                type="number"
+              <PriorityField
+                value={draft.priority}
                 label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-                value={priorityText}
-                onChange={(e) => {
-                  setPriorityText(e.target.value);
-                  const parsed = Number(e.target.value);
-                  if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
-                    setDraft({ ...draft, priority: parsed });
-                  }
-                }}
-                onBlur={() => {
-                  const parsed = Number(priorityText);
-                  const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-                  setPriorityText(String(next));
-                  if (draft.priority !== next) setDraft({ ...draft, priority: next });
-                }}
+                onCommit={(priority) => setDraft({ ...draft, priority })}
                 sx={{ width: { xs: "100%", md: 136 } }}
               />
               <Button
@@ -355,19 +337,6 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               </Button>
             </Stack>
 
-            {/* Validation */}
-            {validationAttempted && errors.length > 0 && (
-              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-                <Stack spacing={0.25}>
-                  {errors.map((err) => (
-                    <Typography key={err} variant="body2">
-                      {err}
-                    </Typography>
-                  ))}
-                </Stack>
-              </Alert>
-            )}
-
             {saveError && (
               <Alert severity="error" variant="outlined">
                 {saveError}
@@ -386,6 +355,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                   )}
                   value={draft.sourcePattern}
                   onChange={(e) => setDraft({ ...draft, sourcePattern: e.target.value })}
+                  {...ruleFieldProps(errors, validationAttempted, "sourcePattern")}
                   placeholder={t("rulesPage.mapEditor.sourcePatternExample")}
                   fullWidth
                 />
@@ -400,6 +370,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                   )}
                   value={draft.targetValue}
                   onChange={(e) => setDraft({ ...draft, targetValue: e.target.value })}
+                  {...ruleFieldProps(errors, validationAttempted, "targetValue")}
                   placeholder={
                     isLocal
                       ? t("rulesPage.mapLocal.targetPathExample")

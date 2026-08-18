@@ -154,6 +154,23 @@ function formatJsonText(text: string) {
   }
 }
 
+// Resolve-time JSON guard: returns null when there is nothing to validate
+// (body untouched, blank, or not JSON-shaped), otherwise the outcome of a
+// strict JSON.parse. The resolve flow uses this to block forwarding broken
+// JSON the user just edited — untouched bodies pass through as-is.
+function validateJsonText(text: string | null, mimeType: string) {
+  if (text === null || !text.trim() || !isJsonBody(mimeType, text)) {
+    return null;
+  }
+
+  const result = formatJsonText(text);
+  if (result.ok) {
+    return { ok: true as const };
+  }
+
+  return { ok: false as const, message: result.message };
+}
+
 function parseUrlEncodedEntries(text: string): HeaderEntry[] {
   try {
     return Array.from(new URLSearchParams(text).entries()).map(([name, value]) => ({
@@ -1257,6 +1274,35 @@ export function BreakpointInterceptPanel() {
           setResolveError(t("breakpointPanel.invalidStatusCode"));
           return;
         }
+      }
+
+      // Block broken JSON from being forwarded. Only bodies the user actually
+      // edited are validated (null = untouched, pass through as-is); the mock
+      // body is always validated because it is fully user-authored. MIME is
+      // resolved from the current header drafts so a user-edited content-type
+      // changes how the body is judged.
+      const jsonChecks = [
+        validateJsonText(
+          editedReqBody,
+          getBodyMimeType(activeHit.requestBody, editedReqHeaders ?? activeHit.requestHeaders),
+        ),
+        validateJsonText(
+          editedRespBody,
+          getBodyMimeType(
+            activeHit.responseBody,
+            editedRespHeaders ?? activeHit.responseHeaders ?? [],
+          ),
+        ),
+        ...(action === "mock"
+          ? [validateJsonText(mockBody, getBodyMimeType(undefined, mockHeaders))]
+          : []),
+      ];
+      const brokenJson = jsonChecks.find(
+        (result): result is { ok: false; message: string } => result !== null && !result.ok,
+      );
+      if (brokenJson) {
+        setResolveError(t("breakpointPanel.invalidJson", { message: brokenJson.message }));
+        return;
       }
 
       setResolvingAction(action);

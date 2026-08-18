@@ -26,9 +26,12 @@ import {
   createEmptyScriptRule,
   formatRuleMatch,
   getScriptValidationErrors,
+  hasRuleFieldErrors,
   HTTP_METHODS,
+  ruleFieldProps,
 } from "@/features/rules/rules.helpers";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   useDeleteManagedRule,
   useSaveScriptRule,
@@ -86,16 +89,6 @@ export function ScriptRulesPanel() {
   // sync effect now fires only when the selected id actually changes. Mirrors
   // the `lastSyncedRuleIdRef` guard in `use-throttle-editor.ts`.
   const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
-  // L3: priority is committed from a local text draft so clearing the field
-  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
-  // ProfileEditor.
-  const [priorityText, setPriorityText] = useState(String(draft.priority));
-  useEffect(() => {
-    if (draft.priority !== Number(priorityText)) {
-      setPriorityText(String(draft.priority));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.priority]);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -194,7 +187,7 @@ export function ScriptRulesPanel() {
   function handleSave() {
     if (isRulesError) return;
     setValidationAttempted(true);
-    if (errors.length > 0) return;
+    if (hasRuleFieldErrors(errors)) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
         lastSyncedRuleIdRef.current = saved.id;
@@ -337,6 +330,7 @@ export function ScriptRulesPanel() {
                 label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
                 value={draft.name}
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                {...ruleFieldProps(errors, validationAttempted, "name")}
                 sx={{ flex: 1 }}
               />
               <Stack
@@ -365,24 +359,10 @@ export function ScriptRulesPanel() {
                   onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
                 />
               </Stack>
-              <TextField
-                size="small"
-                type="number"
+              <PriorityField
+                value={draft.priority}
                 label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-                value={priorityText}
-                onChange={(event) => {
-                  setPriorityText(event.target.value);
-                  const parsed = Number(event.target.value);
-                  if (Number.isFinite(parsed) && event.target.value.trim() !== "") {
-                    setDraft({ ...draft, priority: parsed });
-                  }
-                }}
-                onBlur={() => {
-                  const parsed = Number(priorityText);
-                  const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-                  setPriorityText(String(next));
-                  if (draft.priority !== next) setDraft({ ...draft, priority: next });
-                }}
+                onCommit={(priority) => setDraft({ ...draft, priority })}
                 sx={{ width: { xs: "100%", md: 136 } }}
               />
               <Button
@@ -406,18 +386,6 @@ export function ScriptRulesPanel() {
               </Button>
             </Stack>
 
-            {validationAttempted && errors.length > 0 && (
-              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-                <Stack spacing={0.25}>
-                  {errors.map((error) => (
-                    <Typography key={error} variant="body2">
-                      {error}
-                    </Typography>
-                  ))}
-                </Stack>
-              </Alert>
-            )}
-
             {saveError && (
               <Alert severity="error" variant="outlined">
                 {saveError}
@@ -436,6 +404,7 @@ export function ScriptRulesPanel() {
                       match: { ...draft.match, urlPattern: event.target.value },
                     })
                   }
+                  {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
                   placeholder={t("rulesPage.editor.urlPatternExample")}
                   fullWidth
                 />
@@ -549,6 +518,7 @@ export function ScriptRulesPanel() {
                   onChange={(event) =>
                     setDraft({ ...draft, sourceCode: event.target.value, sourceType: "inline" })
                   }
+                  {...ruleFieldProps(errors, validationAttempted, "sourceCode")}
                   sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
                 />
               </FieldGroup>

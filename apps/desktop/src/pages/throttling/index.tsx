@@ -380,16 +380,17 @@ export function ThrottlingPage() {
               active={ed.activeProfile?.id === ed.profileDraft.id}
               canSave={!ed.saveProfilePending && !ed.isProfilesError}
               draft={ed.profileDraft}
-              errors={ed.validationAttempted ? ed.profileErrors : []}
+              errors={ed.profileErrors}
               onChange={ed.setProfileDraft}
               onSave={() => ed.handleSaveProfile(false)}
               onSaveAndApply={() => ed.handleSaveProfile(true)}
               t={t}
+              validationAttempted={ed.validationAttempted}
             />
           ) : (
             <RuleEditor
               draft={ed.ruleDraft}
-              errors={ed.validationAttempted ? ed.ruleErrors : []}
+              errors={ed.ruleErrors}
               isError={ed.isRulesError}
               profiles={ed.profiles}
               t={t}
@@ -406,6 +407,7 @@ export function ThrottlingPage() {
               }
               onSave={ed.handleSaveRule}
               saving={ed.saveRulePending || ed.isRulesError}
+              validationAttempted={ed.validationAttempted}
             />
           )}
         </Paper>

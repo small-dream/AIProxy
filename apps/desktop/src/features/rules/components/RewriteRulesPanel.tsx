@@ -28,6 +28,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   coerceAppError,
   type RewriteBodyFieldEdit,
@@ -49,8 +50,11 @@ import {
   formatRuleMatch,
   getRewriteTypeLabel,
   getRewriteValidationErrors,
+  hasRuleFieldErrors,
   HTTP_METHODS,
+  ruleFieldProps,
   wildcardMatch,
+  type RuleFieldErrors,
   type TranslationFn,
 } from "@/features/rules/rules.helpers";
 import {
@@ -411,7 +415,7 @@ export function RewriteRulesPanel() {
   function handleSave() {
     if (isRulesError) return;
     setValidationAttempted(true);
-    if (errors.length > 0) return;
+    if (hasRuleFieldErrors(errors)) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
         lastSyncedRuleIdRef.current = saved.id;
@@ -450,10 +454,7 @@ export function RewriteRulesPanel() {
   }
 
   const invalidCombination = getInvalidRewriteCombination(draft, t);
-  const errors = [
-    ...getRewriteValidationErrors(draft, t),
-    ...(invalidCombination ? [invalidCombination] : []),
-  ];
+  const errors = getRewriteValidationErrors(draft, t);
   const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
   const testResult = testRuleMatch(draft, testInput, t);
   const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
@@ -523,22 +524,18 @@ export function RewriteRulesPanel() {
             <RewriteEditorHeader
               deletePending={deleteMutation.isPending}
               draft={draft}
+              errors={errors}
               isError={isRulesError}
               onChange={setDraft}
               onDelete={handleDelete}
               onSave={handleSave}
               savePending={saveMutation.isPending}
+              validationAttempted={validationAttempted}
             />
 
-            {validationAttempted && errors.length > 0 && (
+            {validationAttempted && invalidCombination && (
               <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
-                <Stack spacing={0.25}>
-                  {errors.map((err) => (
-                    <Typography key={err} variant="body2">
-                      {err}
-                    </Typography>
-                  ))}
-                </Stack>
+                <Typography variant="body2">{invalidCombination}</Typography>
               </Alert>
             )}
 
@@ -573,6 +570,7 @@ export function RewriteRulesPanel() {
                           match: { ...draft.match, urlPattern: e.target.value },
                         })
                       }
+                      {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
                       placeholder={t("rulesPage.editor.urlPatternExample")}
                       fullWidth
                     />
@@ -718,7 +716,12 @@ export function RewriteRulesPanel() {
                         {getRewriteTypeLabel("redirect", t)}
                       </ToggleButton>
                     </ToggleButtonGroup>
-                    <RewriteActionFields rule={draft} onChange={setDraft} />
+                    <RewriteActionFields
+                      errors={errors}
+                      rule={draft}
+                      onChange={setDraft}
+                      validationAttempted={validationAttempted}
+                    />
                   </FieldGroup>
                 </RuleSection>
               </Stack>
@@ -808,31 +811,25 @@ export function RewriteRulesPanel() {
 function RewriteEditorHeader({
   deletePending,
   draft,
+  errors,
   isError = false,
   onChange,
   onDelete,
   onSave,
   savePending,
+  validationAttempted,
 }: {
   deletePending: boolean;
   draft: RewriteRule;
+  errors: RuleFieldErrors;
   isError?: boolean;
   onChange: (rule: RewriteRule) => void;
   onDelete: () => void;
   onSave: () => void;
   savePending: boolean;
+  validationAttempted: boolean;
 }) {
   const { t } = useI18n();
-  // L3: priority is committed from a local text draft so clearing the field
-  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
-  // ProfileEditor.
-  const [priorityText, setPriorityText] = useState(String(draft.priority));
-  useEffect(() => {
-    if (draft.priority !== Number(priorityText)) {
-      setPriorityText(String(draft.priority));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.priority]);
 
   return (
     <Paper
@@ -864,6 +861,7 @@ function RewriteEditorHeader({
           label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
           value={draft.name}
           onChange={(e) => onChange({ ...draft, name: e.target.value })}
+          {...ruleFieldProps(errors, validationAttempted, "name")}
           sx={{ flex: 1 }}
         />
         <Stack
@@ -892,24 +890,10 @@ function RewriteEditorHeader({
             onChange={(e) => onChange({ ...draft, enabled: e.target.checked })}
           />
         </Stack>
-        <TextField
-          size="small"
-          type="number"
+        <PriorityField
+          value={draft.priority}
           label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-          value={priorityText}
-          onChange={(e) => {
-            setPriorityText(e.target.value);
-            const parsed = Number(e.target.value);
-            if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
-              onChange({ ...draft, priority: parsed });
-            }
-          }}
-          onBlur={() => {
-            const parsed = Number(priorityText);
-            const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-            setPriorityText(String(next));
-            if (draft.priority !== next) onChange({ ...draft, priority: next });
-          }}
+          onCommit={(priority) => onChange({ ...draft, priority })}
           sx={{ width: { xs: "100%", md: 136 } }}
         />
         <Tooltip title={t("common.actions.remove")}>
@@ -1030,9 +1014,14 @@ function RewriteRuleTester({
   );
 }
 
-function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rule: RewriteRule }) {
+function RewriteActionFields(props: {
+  errors: RuleFieldErrors;
+  onChange: (rule: RewriteRule) => void;
+  rule: RewriteRule;
+  validationAttempted: boolean;
+}) {
   const { t } = useI18n();
-  const { onChange, rule } = props;
+  const { errors, onChange, rule, validationAttempted } = props;
   const required = (label: string) => formatRuleFieldLabel(label, "required", t);
   const optional = (label: string) => formatRuleFieldLabel(label, "optional", t);
 
@@ -1082,6 +1071,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
           onChange={(e) =>
             onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })
           }
+          {...ruleFieldProps(errors, validationAttempted, "payload.headerName")}
           placeholder={t("rulesPage.rewrite.headerNameExample")}
         />
         {rule.payload.operation === "set" && (
@@ -1092,6 +1082,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             onChange={(e) =>
               onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })
             }
+            {...ruleFieldProps(errors, validationAttempted, "payload.value")}
             placeholder={t("rulesPage.rewrite.headerValueExample")}
           />
         )}
@@ -1126,6 +1117,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
           onChange={(e) =>
             onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })
           }
+          {...ruleFieldProps(errors, validationAttempted, "payload.paramName")}
           placeholder={t("rulesPage.rewrite.queryNameExample")}
         />
         {rule.payload.operation === "set" && (
@@ -1136,6 +1128,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             onChange={(e) =>
               onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })
             }
+            {...ruleFieldProps(errors, validationAttempted, "payload.value")}
             placeholder={t("rulesPage.rewrite.queryValueExample")}
           />
         )}
@@ -1207,12 +1200,15 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
             onChange={(e) =>
               onChange({ ...rule, payload: { ...rule.payload, text: e.target.value } })
             }
+            {...ruleFieldProps(errors, validationAttempted, "payload.text")}
             sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
           />
         ) : (
           <BodyFieldsEditor
+            errors={errors}
             fields={rule.payload.fields ?? []}
             onChange={(fields) => onChange({ ...rule, payload: { ...rule.payload, fields } })}
+            validationAttempted={validationAttempted}
           />
         )}
       </Stack>
@@ -1228,6 +1224,7 @@ function RewriteActionFields(props: { onChange: (rule: RewriteRule) => void; rul
         onChange={(e) =>
           onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })
         }
+        {...ruleFieldProps(errors, validationAttempted, "payload.targetUrl")}
         placeholder={t("rulesPage.rewrite.redirectTargetExample")}
       />
       <Stack direction="row" spacing={2}>
@@ -1279,11 +1276,15 @@ function toBodyFieldEdits(rows: BodyFieldRow[]): RewriteBodyFieldEdit[] {
 }
 
 function BodyFieldsEditor({
+  errors,
   fields,
   onChange,
+  validationAttempted,
 }: {
+  errors: RuleFieldErrors;
   fields: RewriteBodyFieldEdit[];
   onChange: (fields: RewriteBodyFieldEdit[]) => void;
+  validationAttempted: boolean;
 }) {
   const { t } = useI18n();
   const required = (label: string) => formatRuleFieldLabel(label, "required", t);
@@ -1336,6 +1337,7 @@ function BodyFieldsEditor({
             <TextField
               size="small"
               label={pathLabel}
+              {...ruleFieldProps(errors, validationAttempted, `payload.fields.${index}.path`)}
               placeholder={t("rulesPage.rewrite.bodyFieldPathExample")}
               value={field.path}
               onChange={(e) =>
@@ -1402,6 +1404,7 @@ function BodyFieldsEditor({
               disabled={field.operation === "remove" || field.valueType === "null"}
               size="small"
               label={valueLabel}
+              {...ruleFieldProps(errors, validationAttempted, `payload.fields.${index}.value`)}
               value={field.value ?? ""}
               onChange={(e) =>
                 emit(

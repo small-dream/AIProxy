@@ -3,12 +3,15 @@ import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { Alert, Button, Stack, Switch, TextField, Typography } from "@mui/material";
 import { coerceAppError, type DnsMappingRule, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   createEmptyDnsMappingRule,
   getDnsMappingValidationErrors,
+  hasRuleFieldErrors,
+  ruleFieldProps,
 } from "@/features/rules/rules.helpers";
 import {
   FieldGroup,
@@ -34,16 +37,6 @@ export function DnsMappingsPanel() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<DnsMappingRule>(createEmptyDnsMappingRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
-  // L3: priority is committed from a local text draft so clearing the field
-  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Empty
-  // input is held locally and resolves to 0 on blur. Mirrors ProfileEditor.
-  const [priorityText, setPriorityText] = useState(String(draft.priority));
-  useEffect(() => {
-    if (draft.priority !== Number(priorityText)) {
-      setPriorityText(String(draft.priority));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.priority]);
 
   const filteredRules = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -71,7 +64,7 @@ export function DnsMappingsPanel() {
   function handleSave() {
     if (isRulesError) return;
     setValidationAttempted(true);
-    if (errors.length > 0) return;
+    if (hasRuleFieldErrors(errors)) return;
     saveMutation.mutate(draft, {
       onSuccess: (saved) => {
         setSelectedRuleId(saved.id);
@@ -168,6 +161,7 @@ export function DnsMappingsPanel() {
                 label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                {...ruleFieldProps(errors, validationAttempted, "name")}
                 sx={{ flex: 1 }}
               />
               <Stack
@@ -196,24 +190,10 @@ export function DnsMappingsPanel() {
                   onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
                 />
               </Stack>
-              <TextField
-                size="small"
-                type="number"
+              <PriorityField
+                value={draft.priority}
                 label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-                value={priorityText}
-                onChange={(e) => {
-                  setPriorityText(e.target.value);
-                  const parsed = Number(e.target.value);
-                  if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
-                    setDraft({ ...draft, priority: parsed });
-                  }
-                }}
-                onBlur={() => {
-                  const parsed = Number(priorityText);
-                  const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-                  setPriorityText(String(next));
-                  if (draft.priority !== next) setDraft({ ...draft, priority: next });
-                }}
+                onCommit={(priority) => setDraft({ ...draft, priority })}
                 sx={{ width: { xs: "100%", md: 136 } }}
               />
               <Button
@@ -237,19 +217,6 @@ export function DnsMappingsPanel() {
               </Button>
             </Stack>
 
-            {/* Validation */}
-            {validationAttempted && errors.length > 0 && (
-              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
-                <Stack spacing={0.25}>
-                  {errors.map((err) => (
-                    <Typography key={err} variant="body2">
-                      {err}
-                    </Typography>
-                  ))}
-                </Stack>
-              </Alert>
-            )}
-
             {saveError && (
               <Alert severity="error" variant="outlined">
                 {saveError}
@@ -264,6 +231,7 @@ export function DnsMappingsPanel() {
                   label={formatRuleFieldLabel(t("rulesPage.dns.hostPattern"), "required", t)}
                   value={draft.hostPattern}
                   onChange={(e) => setDraft({ ...draft, hostPattern: e.target.value })}
+                  {...ruleFieldProps(errors, validationAttempted, "hostPattern")}
                   placeholder={t("rulesPage.dns.hostPatternExample")}
                   fullWidth
                 />
@@ -272,6 +240,7 @@ export function DnsMappingsPanel() {
                   label={formatRuleFieldLabel(t("rulesPage.dns.targetIp"), "required", t)}
                   value={draft.targetIp}
                   onChange={(e) => setDraft({ ...draft, targetIp: e.target.value })}
+                  {...ruleFieldProps(errors, validationAttempted, "targetIp")}
                   placeholder={t("rulesPage.dns.targetIpExample")}
                   fullWidth
                 />

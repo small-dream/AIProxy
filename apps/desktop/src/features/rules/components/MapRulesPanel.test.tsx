@@ -11,10 +11,12 @@ import { MapRulesPanel } from "./MapRulesPanel";
 const rulesState: { current: MapRule[] } = { current: [] };
 // Module-level so the delete-confirmation tests can assert on it.
 const deleteMutateMock = vi.fn();
+// Module-level so the validation test can assert the save was never called.
+const saveMutateMock = vi.fn();
 
 vi.mock("@/features/rules/use-rule-center", () => ({
   useMapRules: () => ({ data: rulesState.current, isError: false }),
-  useSaveMapRule: () => ({ mutate: vi.fn(), isPending: false }),
+  useSaveMapRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
 }));
 
@@ -61,7 +63,40 @@ function makeRule(overrides: Partial<MapRule> = {}): MapRule {
 beforeEach(() => {
   rulesState.current = [];
   deleteMutateMock.mockClear();
+  saveMutateMock.mockClear();
   routerState.current = null;
+});
+
+describe("MapRulesPanel — field-level validation (R3)", () => {
+  it("shows helperText on empty submit and does not call the save mutation", async () => {
+    render(<MapRulesPanel mode="remote" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("rulesPage.validation.ruleNameRequired")).toBeInTheDocument();
+    });
+    expect(screen.getByText("rulesPage.validation.mapSourceRequired")).toBeInTheDocument();
+    expect(screen.getByText("rulesPage.validation.remoteTargetRequired")).toBeInTheDocument();
+    expect(saveMutateMock).not.toHaveBeenCalled();
+  });
+
+  it("clears field errors once the user fixes the value", async () => {
+    render(<MapRulesPanel mode="remote" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+    await waitFor(() => {
+      expect(screen.getByText("rulesPage.validation.mapSourceRequired")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/rulesPage\.mapEditor\.sourcePattern/), {
+      target: { value: "example.com" },
+    });
+
+    expect(screen.queryByText("rulesPage.validation.mapSourceRequired")).not.toBeInTheDocument();
+    // Name is still empty, so its error persists.
+    expect(screen.getByText("rulesPage.validation.ruleNameRequired")).toBeInTheDocument();
+  });
 });
 
 describe("MapRulesPanel — Map Local seed from a captured request", () => {

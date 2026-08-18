@@ -2,10 +2,10 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import {
-  Alert,
   Box,
   Button,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -15,17 +15,16 @@ import {
   Typography,
 } from "@mui/material";
 
-import { useEffect, useState } from "react";
-
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 
-import { HTTP_METHODS } from "@/features/rules/rules.helpers";
+import { PriorityField } from "@/features/rules/components/PriorityField";
+import { HTTP_METHODS, ruleFieldProps, type RuleFieldErrors } from "@/features/rules/rules.helpers";
 import type { TranslationKey, TranslationParams } from "@/i18n";
 import { EditorHeader } from "./EditorHeader";
 
 export function RuleEditor(props: {
   draft: ThrottleRule | null;
-  errors: string[];
+  errors: RuleFieldErrors;
   isError?: boolean;
   profiles: ThrottleProfile[];
   t: (key: TranslationKey, params?: TranslationParams) => string;
@@ -34,6 +33,7 @@ export function RuleEditor(props: {
   onDelete: (ruleId: string) => void;
   onSave: () => void;
   saving: boolean;
+  validationAttempted: boolean;
 }) {
   const {
     draft,
@@ -46,19 +46,8 @@ export function RuleEditor(props: {
     onDelete,
     onSave,
     saving,
+    validationAttempted,
   } = props;
-
-  // L3: priority is committed from a local text draft so clearing the field
-  // doesn't instantly snap to 0 mid-edit (the old `Number(value) || 0`). Mirrors
-  // ProfileEditor. Declared before the early return so hooks are unconditional.
-  const draftPriority = draft?.priority ?? 0;
-  const [priorityText, setPriorityText] = useState(String(draftPriority));
-  useEffect(() => {
-    if (draftPriority !== Number(priorityText)) {
-      setPriorityText(String(draftPriority));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftPriority]);
 
   if (!draft) {
     return <EmptyHint>{t("throttlingPage.rulesSelectHint")}</EmptyHint>;
@@ -71,19 +60,18 @@ export function RuleEditor(props: {
         title={draft.name}
         subtitle={t("throttlingPage.rulesDescription")}
       />
-      {errors.length > 0 ? (
-        <Alert severity="warning" variant="outlined">
-          {errors.join(" ")}
-        </Alert>
-      ) : null}
       <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "1.2fr 0.8fr" } }}>
         <TextField
           size="small"
           label={t("throttlingPage.ruleFields.name")}
           value={draft.name}
           onChange={(event) => onChange({ name: event.target.value })}
+          {...ruleFieldProps(errors, validationAttempted, "name")}
         />
-        <FormControl size="small">
+        <FormControl
+          size="small"
+          error={ruleFieldProps(errors, validationAttempted, "profileId").error}
+        >
           <InputLabel>{t("throttlingPage.ruleFields.profile")}</InputLabel>
           <Select
             label={t("throttlingPage.ruleFields.profile")}
@@ -96,12 +84,19 @@ export function RuleEditor(props: {
               </MenuItem>
             ))}
           </Select>
+          {(() => {
+            const profileField = ruleFieldProps(errors, validationAttempted, "profileId");
+            return profileField.error ? (
+              <FormHelperText>{profileField.helperText}</FormHelperText>
+            ) : null;
+          })()}
         </FormControl>
         <TextField
           size="small"
           label={t("throttlingPage.ruleFields.urlPattern")}
           value={draft.urlPattern}
           onChange={(event) => onChange({ urlPattern: event.target.value })}
+          {...ruleFieldProps(errors, validationAttempted, "urlPattern")}
         />
         <FormControl size="small">
           <InputLabel>{t("throttlingPage.ruleFields.methods")}</InputLabel>
@@ -136,24 +131,10 @@ export function RuleEditor(props: {
             <MenuItem value="response">{t("throttlingPage.stageResponse")}</MenuItem>
           </Select>
         </FormControl>
-        <TextField
-          size="small"
+        <PriorityField
+          value={draft.priority}
+          onCommit={(priority) => onChange({ priority })}
           label={t("throttlingPage.ruleFields.priority")}
-          type="number"
-          value={priorityText}
-          onChange={(event) => {
-            setPriorityText(event.target.value);
-            const parsed = Number(event.target.value);
-            if (Number.isFinite(parsed) && event.target.value.trim() !== "") {
-              onChange({ priority: parsed });
-            }
-          }}
-          onBlur={() => {
-            const parsed = Number(priorityText);
-            const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
-            setPriorityText(String(next));
-            if (draft.priority !== next) onChange({ priority: next });
-          }}
         />
       </Box>
       <Stack

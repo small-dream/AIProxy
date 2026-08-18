@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { ThrottleProfile } from "@aiproxy/shared-types";
 
 import type { TranslationKey, TranslationParams } from "@/i18n";
+import { ruleFieldProps, type RuleFieldErrors } from "@/features/rules/rules.helpers";
 import { fontFamilies } from "@/themes/fonts";
 import { EditorHeader } from "./EditorHeader";
 
@@ -15,13 +16,27 @@ export function ProfileEditor(props: {
   active: boolean;
   canSave: boolean;
   draft: ThrottleProfile;
-  errors: string[];
+  errors: RuleFieldErrors;
   onChange: (draft: ThrottleProfile) => void;
   onSave: () => void;
   onSaveAndApply: () => void;
   t: (key: TranslationKey, params?: TranslationParams) => string;
+  validationAttempted: boolean;
 }) {
-  const { active, canSave, draft, errors, onChange, onSave, onSaveAndApply, t } = props;
+  const {
+    active,
+    canSave,
+    draft,
+    errors,
+    onChange,
+    onSave,
+    onSaveAndApply,
+    t,
+    validationAttempted,
+  } = props;
+  const parameterErrors = [errors.latencyMs, errors.bandwidth, errors.loss].filter(
+    (message): message is string => Boolean(message),
+  );
 
   return (
     <Stack spacing={1.5}>
@@ -40,6 +55,7 @@ export function ProfileEditor(props: {
           label={t("throttlingPage.fields.name")}
           value={draft.name}
           onChange={(event) => onChange({ ...draft, name: event.target.value })}
+          {...ruleFieldProps(errors, validationAttempted, "name")}
           sx={{ flex: 1 }}
         />
         <Stack
@@ -68,9 +84,9 @@ export function ProfileEditor(props: {
           />
         </Stack>
       </Stack>
-      {errors.length > 0 ? (
+      {parameterErrors.length > 0 ? (
         <Alert severity="warning" variant="outlined">
-          {errors.join(" ")}
+          {parameterErrors.join(" ")}
         </Alert>
       ) : null}
       <Box

@@ -459,6 +459,7 @@ export const zhCNMessages: Messages = {
     notConfigured: "尚未配置",
     off: "关闭",
     priority: "优先级",
+    priorityHint: "数值越大越优先；可在列表中拖拽调整顺序。",
     quickBreakpointDescription: "启用全局断点，拦截所有请求或响应。",
     quickBreakpointTitle: "快捷断点",
     requestStageOption: "请求阶段（转发前）",

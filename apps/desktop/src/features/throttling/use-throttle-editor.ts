@@ -12,6 +12,7 @@ import {
   useThrottleRuntimeStats,
 } from "@/features/throttling/use-throttle-profiles";
 import { useI18n, type TranslationKey, type TranslationParams } from "@/i18n";
+import { hasRuleFieldErrors, type RuleFieldErrors } from "@/features/rules/rules.helpers";
 
 // --- Constants ---
 
@@ -68,25 +69,26 @@ export function createRuleDraft(profileId: string, seed?: ThrottleSeed): Throttl
 export function getThrottleValidationErrors(
   profile: ThrottleProfile,
   t: (key: TranslationKey, params?: TranslationParams) => string,
-): string[] {
-  const errors: string[] = [];
-  if (!profile.name.trim()) errors.push(t("throttlingPage.validation.nameRequired"));
-  if (profile.latencyMs < 0) errors.push(t("throttlingPage.validation.latencyInvalid"));
+): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!profile.name.trim()) errors.name = t("throttlingPage.validation.nameRequired");
+  if (profile.latencyMs < 0) errors.latencyMs = t("throttlingPage.validation.latencyInvalid");
   if (profile.uploadKbps <= 0 || profile.downloadKbps <= 0)
-    errors.push(t("throttlingPage.validation.bandwidthInvalid"));
+    errors.bandwidth = t("throttlingPage.validation.bandwidthInvalid");
   if (profile.packetLossRatio < 0 || profile.packetLossRatio > 100)
-    errors.push(t("throttlingPage.validation.lossInvalid"));
+    errors.loss = t("throttlingPage.validation.lossInvalid");
   return errors;
 }
 
 export function getRuleValidationErrors(
   rule: ThrottleRule,
   t: (key: TranslationKey, params?: TranslationParams) => string,
-): string[] {
-  const errors: string[] = [];
-  if (!rule.name.trim()) errors.push(t("throttlingPage.validation.ruleNameRequired"));
-  if (!rule.profileId) errors.push(t("throttlingPage.validation.ruleProfileRequired"));
-  if (!rule.urlPattern.trim()) errors.push(t("throttlingPage.validation.ruleUrlPatternRequired"));
+): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.name.trim()) errors.name = t("throttlingPage.validation.ruleNameRequired");
+  if (!rule.profileId) errors.profileId = t("throttlingPage.validation.ruleProfileRequired");
+  if (!rule.urlPattern.trim())
+    errors.urlPattern = t("throttlingPage.validation.ruleUrlPatternRequired");
   return errors;
 }
 
@@ -178,7 +180,7 @@ export function useThrottleEditor() {
     [profileDraft, t],
   );
   const ruleErrors = useMemo(
-    () => (ruleDraft ? getRuleValidationErrors(ruleDraft, t) : []),
+    () => (ruleDraft ? getRuleValidationErrors(ruleDraft, t) : {}),
     [ruleDraft, t],
   );
   const activeStatusLabel = useMemo(
@@ -323,7 +325,7 @@ export function useThrottleEditor() {
   function handleSaveProfile(enableAfterSave = false) {
     if (isProfilesError) return;
     setValidationAttempted(true);
-    if (profileErrors.length > 0) return;
+    if (hasRuleFieldErrors(profileErrors)) return;
     saveProfileMutation.mutate(
       { ...profileDraft, enabled: enableAfterSave ? true : profileDraft.enabled },
       {
@@ -365,7 +367,7 @@ export function useThrottleEditor() {
     if (isRulesError) return;
     if (!ruleDraft) return;
     setValidationAttempted(true);
-    if (ruleErrors.length > 0) return;
+    if (hasRuleFieldErrors(ruleErrors)) return;
     saveRuleMutation.mutate(ruleDraft, {
       onSuccess: (saved) => {
         setSelectedRuleId(saved.id);

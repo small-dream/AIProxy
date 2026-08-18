@@ -203,4 +203,87 @@ describe("BreakpointInterceptPanel", () => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
   });
+
+  it("blocks Forward when the edited request body is broken JSON", async () => {
+    renderPanel(
+      createHit({
+        requestBody: {
+          inlineText: '{"ok":true}',
+          mimeType: "application/json",
+          sizeBytes: 11,
+        },
+        requestHeaders: [{ name: "Content-Type", value: "application/json" }],
+      }),
+    );
+
+    const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
+    if (!requestBodyTab) throw new Error("Request body tab not found");
+    fireEvent.click(requestBodyTab);
+    fireEvent.change(
+      screen.getAllByLabelText("Body").find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: '{"broken": ' } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+
+    await Promise.resolve();
+    expect(resolveBreakpoint).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/Invalid JSON/);
+    });
+  });
+
+  it("blocks Send Mock when the mock body is broken JSON", async () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mock Response" }));
+
+    const responsePane = screen.getByTestId("breakpoint-response-pane");
+    fireEvent.change(
+      within(responsePane)
+        .getAllByLabelText("Body")
+        .find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: "{broken" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send Mock" }));
+
+    await Promise.resolve();
+    expect(resolveBreakpoint).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/Invalid JSON/);
+    });
+  });
+
+  it("still forwards a non-JSON body the user edited", async () => {
+    renderPanel(
+      createHit({
+        requestBody: {
+          inlineText: "original",
+          mimeType: "text/plain",
+          sizeBytes: 8,
+        },
+        requestHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      }),
+    );
+
+    const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
+    if (!requestBodyTab) throw new Error("Request body tab not found");
+    fireEvent.click(requestBodyTab);
+    fireEvent.change(
+      screen.getAllByLabelText("Body").find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: "not json at all {" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+
+    await waitFor(() => {
+      expect(resolveBreakpoint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "forward",
+          sessionId: "breakpoint-1",
+        }),
+      );
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

@@ -147,89 +147,131 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
-export function getDnsMappingValidationErrors(rule: DnsMappingRule, t: TranslationFn): string[] {
-  const errors: string[] = [];
-  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
-  if (!rule.hostPattern.trim()) errors.push(t("rulesPage.validation.dnsHostPatternRequired"));
+export function getDnsMappingValidationErrors(
+  rule: DnsMappingRule,
+  t: TranslationFn,
+): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.name.trim()) errors.name = t("rulesPage.validation.ruleNameRequired");
+  if (!rule.hostPattern.trim())
+    errors.hostPattern = t("rulesPage.validation.dnsHostPatternRequired");
   if (!rule.targetIp.trim()) {
-    errors.push(t("rulesPage.validation.dnsTargetIpRequired"));
+    errors.targetIp = t("rulesPage.validation.dnsTargetIpRequired");
   } else if (!isValidIpAddress(rule.targetIp.trim())) {
-    errors.push(t("rulesPage.validation.dnsTargetIpInvalid"));
+    errors.targetIp = t("rulesPage.validation.dnsTargetIpInvalid");
   }
   return errors;
 }
 
 /* ── Validation helpers ───────────────────────────────────────────── */
 
-export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn): string[] {
-  const errors: string[] = [];
-  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
-  if (!rule.match.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
+export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.name.trim()) errors.name = t("rulesPage.validation.ruleNameRequired");
+  if (!rule.match.urlPattern.trim())
+    errors["match.urlPattern"] = t("rulesPage.validation.urlPatternRequired");
   if (rule.match.matchType === "regex" && rule.match.urlPattern.trim()) {
     try {
       new RegExp(rule.match.urlPattern.trim());
     } catch {
-      errors.push(t("rulesPage.validation.regexPatternInvalid"));
+      errors["match.urlPattern"] = t("rulesPage.validation.regexPatternInvalid");
     }
   }
 
   if (rule.rewriteType === "header") {
-    if (!rule.payload.headerName.trim()) errors.push(t("rulesPage.validation.headerNameRequired"));
+    if (!rule.payload.headerName.trim())
+      errors["payload.headerName"] = t("rulesPage.validation.headerNameRequired");
     if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
-      errors.push(t("rulesPage.validation.headerValueRequired"));
+      errors["payload.value"] = t("rulesPage.validation.headerValueRequired");
   }
   if (rule.rewriteType === "query") {
-    if (!rule.payload.paramName.trim()) errors.push(t("rulesPage.validation.queryNameRequired"));
+    if (!rule.payload.paramName.trim())
+      errors["payload.paramName"] = t("rulesPage.validation.queryNameRequired");
     if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
-      errors.push(t("rulesPage.validation.queryValueRequired"));
+      errors["payload.value"] = t("rulesPage.validation.queryValueRequired");
   }
   if (rule.rewriteType === "body") {
     const mode = rule.payload.mode ?? "replace";
     if (mode === "replace" && !(rule.payload.text ?? "").trim())
-      errors.push(t("rulesPage.validation.bodyTextRequired"));
+      errors["payload.text"] = t("rulesPage.validation.bodyTextRequired");
     if (mode === "fields") {
       const fields = rule.payload.fields ?? [];
       if (fields.length === 0 || fields.some((field) => !field.path.trim())) {
-        errors.push(t("rulesPage.validation.bodyFieldPathRequired"));
+        if (fields.length === 0) {
+          errors["payload.fields"] = t("rulesPage.validation.bodyFieldPathRequired");
+        } else {
+          fields.forEach((field, index) => {
+            if (!field.path.trim()) {
+              errors[`payload.fields.${index}.path`] = t(
+                "rulesPage.validation.bodyFieldPathRequired",
+              );
+            }
+          });
+        }
       }
-      if (
-        fields.some(
-          (field) =>
-            field.operation === "set" && field.valueType !== "null" && !(field.value ?? "").trim(),
-        )
-      ) {
-        errors.push(t("rulesPage.validation.bodyFieldValueRequired"));
-      }
+      fields.forEach((field, index) => {
+        if (
+          field.operation === "set" &&
+          field.valueType !== "null" &&
+          !(field.value ?? "").trim()
+        ) {
+          errors[`payload.fields.${index}.value`] = t(
+            "rulesPage.validation.bodyFieldValueRequired",
+          );
+        }
+      });
     }
   }
   if (rule.rewriteType === "redirect" && !rule.payload.targetUrl.trim())
-    errors.push(t("rulesPage.validation.redirectTargetRequired"));
+    errors["payload.targetUrl"] = t("rulesPage.validation.redirectTargetRequired");
 
   return errors;
 }
 
-export function getMapValidationErrors(rule: MapRule, t: TranslationFn): string[] {
-  const errors: string[] = [];
-  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
-  if (!rule.sourcePattern.trim()) errors.push(t("rulesPage.validation.mapSourceRequired"));
+export function getMapValidationErrors(rule: MapRule, t: TranslationFn): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.name.trim()) errors.name = t("rulesPage.validation.ruleNameRequired");
+  if (!rule.sourcePattern.trim())
+    errors.sourcePattern = t("rulesPage.validation.mapSourceRequired");
   if (!rule.targetValue.trim()) {
-    errors.push(
+    errors.targetValue =
       rule.mode === "local"
         ? t("rulesPage.validation.localTargetRequired")
-        : t("rulesPage.validation.remoteTargetRequired"),
-    );
+        : t("rulesPage.validation.remoteTargetRequired");
   } else if (rule.mode === "remote" && !isValidHttpUrl(rule.targetValue.trim())) {
-    errors.push(t("rulesPage.validation.remoteTargetInvalid"));
+    errors.targetValue = t("rulesPage.validation.remoteTargetInvalid");
   }
   return errors;
 }
 
-export function getScriptValidationErrors(rule: ScriptRule, t: TranslationFn): string[] {
-  const errors: string[] = [];
-  if (!rule.name.trim()) errors.push(t("rulesPage.validation.ruleNameRequired"));
-  if (!rule.match.urlPattern.trim()) errors.push(t("rulesPage.validation.urlPatternRequired"));
-  if (!rule.sourceCode.trim()) errors.push(t("rulesPage.validation.scriptSourceRequired"));
+export function getScriptValidationErrors(rule: ScriptRule, t: TranslationFn): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.name.trim()) errors.name = t("rulesPage.validation.ruleNameRequired");
+  if (!rule.match.urlPattern.trim())
+    errors["match.urlPattern"] = t("rulesPage.validation.urlPatternRequired");
+  if (!rule.sourceCode.trim()) errors.sourceCode = t("rulesPage.validation.scriptSourceRequired");
   return errors;
+}
+
+/**
+ * Field-level validation result shared by the rule editors. Each validator
+ * returns a map from a stable field key (e.g. `name`, `sourcePattern`,
+ * `match.urlPattern`, `payload.fields.2.value`) to a localized message; this
+ * helper adapts that map to MUI TextField props.
+ */
+export type RuleFieldErrors = Record<string, string>;
+
+export function ruleFieldProps(
+  errors: RuleFieldErrors,
+  attempted: boolean,
+  key: string,
+): { error: boolean; helperText?: string } {
+  const message = attempted ? errors[key] : undefined;
+  return message ? { error: true, helperText: message } : { error: false };
+}
+
+export function hasRuleFieldErrors(errors: RuleFieldErrors): boolean {
+  return Object.values(errors).some(Boolean);
 }
 
 /* ── Label / format helpers ───────────────────────────────────────── */

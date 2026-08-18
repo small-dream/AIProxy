@@ -476,6 +476,7 @@ export const enMessages = {
     notConfigured: "Not configured",
     off: "Off",
     priority: "Priority",
+    priorityHint: "Higher number = higher precedence. Drag rows in the list to reorder.",
     requestStageOption: "Request (before forwarding)",
     responseStageOption: "Response (before returning to client)",
     title: "Rules",

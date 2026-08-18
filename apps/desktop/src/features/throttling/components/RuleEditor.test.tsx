@@ -3,10 +3,13 @@ import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { AppProviders } from "@/app/providers/AppProviders";
+
 import { RuleEditor } from "./RuleEditor";
 
-// RuleEditor is fully prop-driven (the consumer passes `t`), so no i18n
-// provider is required: a passthrough `t(key)` lets assertions read keys back.
+// RuleEditor is fully prop-driven (the consumer passes `t`): a passthrough
+// `t(key)` lets assertions read keys back. The i18n provider is only needed
+// because the shared PriorityField reads its hint from rulesPage.priorityHint.
 function makeT() {
   return (key: string) => key;
 }
@@ -51,7 +54,7 @@ describe("RuleEditor methods field (H13)", () => {
       return (
         <RuleEditor
           draft={draft}
-          errors={[]}
+          errors={{}}
           profiles={[makeProfile()]}
           t={makeT()}
           onChange={(patch) => {
@@ -62,10 +65,15 @@ describe("RuleEditor methods field (H13)", () => {
           onDelete={vi.fn()}
           onSave={vi.fn()}
           saving={false}
+          validationAttempted={false}
         />
       );
     }
-    const utils = render(<Harness />);
+    const utils = render(
+      <AppProviders>
+        <Harness />
+      </AppProviders>,
+    );
     return { ...utils, onChange };
   }
 
@@ -96,17 +104,20 @@ describe("RuleEditor methods field (H13)", () => {
 
   it("renders the all-methods hint when nothing is selected", () => {
     render(
-      <RuleEditor
-        draft={makeRule({ methods: [] })}
-        errors={[]}
-        profiles={[makeProfile()]}
-        t={makeT()}
-        onChange={vi.fn()}
-        onDuplicate={vi.fn()}
-        onDelete={vi.fn()}
-        onSave={vi.fn()}
-        saving={false}
-      />,
+      <AppProviders>
+        <RuleEditor
+          draft={makeRule({ methods: [] })}
+          errors={{}}
+          profiles={[makeProfile()]}
+          t={makeT()}
+          onChange={vi.fn()}
+          onDuplicate={vi.fn()}
+          onDelete={vi.fn()}
+          onSave={vi.fn()}
+          saving={false}
+          validationAttempted={false}
+        />
+      </AppProviders>,
     );
 
     expect(screen.getByText("rulesPage.allMethods")).toBeInTheDocument();
@@ -114,17 +125,20 @@ describe("RuleEditor methods field (H13)", () => {
 
   it("renders the selected methods joined for an existing rule", () => {
     render(
-      <RuleEditor
-        draft={makeRule({ methods: ["PUT", "DELETE"] })}
-        errors={[]}
-        profiles={[makeProfile()]}
-        t={makeT()}
-        onChange={vi.fn()}
-        onDuplicate={vi.fn()}
-        onDelete={vi.fn()}
-        onSave={vi.fn()}
-        saving={false}
-      />,
+      <AppProviders>
+        <RuleEditor
+          draft={makeRule({ methods: ["PUT", "DELETE"] })}
+          errors={{}}
+          profiles={[makeProfile()]}
+          t={makeT()}
+          onChange={vi.fn()}
+          onDuplicate={vi.fn()}
+          onDelete={vi.fn()}
+          onSave={vi.fn()}
+          saving={false}
+          validationAttempted={false}
+        />
+      </AppProviders>,
     );
 
     expect(screen.getByText("PUT, DELETE")).toBeInTheDocument();
