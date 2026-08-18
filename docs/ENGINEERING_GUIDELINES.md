@@ -245,6 +245,11 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - `pnpm --filter @aiproxy/desktop lint` 可稳定通过
   - 不因规避 warning 而回退已启用的 lint 基线
 - 若后续插件发布明确支持 ESLint 10 的正式版本，应优先升级并移除该说明
+- 提交前自动格式化约束（husky + lint-staged）：
+  - 本地 pre-commit 钩子（`.husky/pre-commit`）对 `apps/desktop/src/**/*.{ts,tsx}` 自动执行 `prettier --write` 与 `eslint --fix`
+  - `packages/shared-types/src/**/*.ts` 同样受该约束保护
+  - CI 中的 `format:check` 是最终兜底，本地钩子与 CI 检查都必须保持通过
+  - 安装依赖后首次提交前需确认钩子已生效；若使用 `--no-verify` 跳过钩子，必须自行运行对应包的 `format` 脚本
 
 ### 8.4 共享类型与查询 Key
 

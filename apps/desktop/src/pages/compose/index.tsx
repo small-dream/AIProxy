@@ -185,8 +185,12 @@ export function ComposePage() {
   ]);
 
   const handleSend = useCallback(() => {
-    const { multipartEntries, textBody: encodedBody, headers: finalHeaders, url: finalUrl } =
-      encodeBody();
+    const {
+      multipartEntries,
+      textBody: encodedBody,
+      headers: finalHeaders,
+      url: finalUrl,
+    } = encodeBody();
     sendMutation.mutate({
       workspaceId: "default",
       method,
@@ -198,8 +202,12 @@ export function ComposePage() {
   }, [sendMutation, method, encodeBody]);
 
   const handleExportCurl = useCallback(() => {
-    const { multipartEntries, textBody: encodedBody, headers: finalHeaders, url: finalUrl } =
-      encodeBody();
+    const {
+      multipartEntries,
+      textBody: encodedBody,
+      headers: finalHeaders,
+      url: finalUrl,
+    } = encodeBody();
     const cmd = generateCurlCommand({
       method,
       url: finalUrl,

@@ -44,7 +44,10 @@ describe("rewrite rule normalization (D2)", () => {
     const value = {
       ...makeRewriteRuleBase(),
       actions: [
-        { rewriteType: "header", payload: { target: "request", operation: "set", headerName: "x", value: "1" } },
+        {
+          rewriteType: "header",
+          payload: { target: "request", operation: "set", headerName: "x", value: "1" },
+        },
         { rewriteType: "query", payload: { operation: "set", paramName: "p", value: "v" } },
       ],
       rewriteType: "header",
@@ -71,9 +74,7 @@ describe("rewrite rule normalization (D2)", () => {
 
     const normalized = normalizeRewriteRule(value);
     expect(normalized).not.toBeNull();
-    expect(normalized?.actions).toEqual([
-      { rewriteType: "body", payload: value.payload },
-    ]);
+    expect(normalized?.actions).toEqual([{ rewriteType: "body", payload: value.payload }]);
     expect(normalized?.rewriteType).toBe("body");
   });
 
@@ -93,7 +94,12 @@ describe("rewrite rule normalization (D2)", () => {
     const parsed = parseRewriteRules([
       {
         ...makeRewriteRuleBase(),
-        actions: [{ rewriteType: "redirect", payload: { targetUrl: "https://x", preservePath: true, preserveQuery: true } }],
+        actions: [
+          {
+            rewriteType: "redirect",
+            payload: { targetUrl: "https://x", preservePath: true, preserveQuery: true },
+          },
+        ],
         rewriteType: "redirect",
       },
       {
