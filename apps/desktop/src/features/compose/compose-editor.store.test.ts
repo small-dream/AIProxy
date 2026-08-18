@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { HeaderEntry } from "@aiproxy/shared-types";
-import { useComposeEditorStore, buildMultipartBody } from "./compose-editor.store";
+import { useComposeEditorStore } from "./compose-editor.store";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -251,41 +251,6 @@ describe("useComposeEditorStore", () => {
     it("setBodyType", () => {
       useComposeEditorStore.getState().setBodyType("formdata");
       expect(useComposeEditorStore.getState().bodyType).toBe("formdata");
-    });
-  });
-
-  // --- buildMultipartBody ---
-
-  describe("buildMultipartBody", () => {
-    it("builds multipart body with boundary", () => {
-      const entries: HeaderEntry[] = [
-        { name: "field1", value: "value1" },
-        { name: "field2", value: "value2" },
-      ];
-
-      const body = buildMultipartBody(entries, "BOUNDARY");
-
-      expect(body).toContain("--BOUNDARY");
-      expect(body).toContain('name="field1"');
-      expect(body).toContain("value1");
-      expect(body).toContain('name="field2"');
-      expect(body).toContain("value2");
-      expect(body).toContain("--BOUNDARY--");
-    });
-
-    it("skips entries with empty names", () => {
-      const entries: HeaderEntry[] = [
-        { name: "  ", value: "skipped" },
-        { name: "valid", value: "included" },
-      ];
-
-      const body = buildMultipartBody(entries, "BOUNDARY");
-      expect(body).not.toContain("skipped");
-      expect(body).toContain("included");
-    });
-
-    it("returns empty string for empty entries", () => {
-      expect(buildMultipartBody([], "BOUNDARY")).toBe("");
     });
   });
 });

@@ -1,4 +1,5 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import BookmarkAddRoundedIcon from "@mui/icons-material/BookmarkAddRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import {
   Box,
@@ -42,6 +43,9 @@ import {
 } from "@/features/compose/components/ComposeResponseSection";
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
+import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
+import { useUpsertCollectionItem } from "@/features/collections/use-collection-items";
+import { useNotificationStore } from "@/services/notification.store";
 import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 
@@ -73,6 +77,7 @@ function writeStorageValue(key: string, value: string) {
 export function ComposePage() {
   const { t } = useI18n();
   const sendMutation = useSendComposedRequest();
+  const upsertItemMutation = useUpsertCollectionItem();
 
   const environmentsQuery = useEnvironments();
   const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() =>
@@ -85,6 +90,7 @@ export function ComposePage() {
     [envVarsQuery.data, globalVarsQuery.data],
   );
   const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
   useEffect(() => {
     writeActiveEnvironmentId(activeEnvironmentId);
@@ -98,6 +104,7 @@ export function ComposePage() {
   const rawLanguage = useComposeEditorStore((s) => s.rawLanguage);
   const urlEncodedEntries = useComposeEditorStore((s) => s.urlEncodedEntries);
   const formDataEntries = useComposeEditorStore((s) => s.formDataEntries);
+  const formFiles = useComposeEditorStore((s) => s.formFiles);
   const activeTab = useComposeEditorStore((s) => s.activeTab);
   const setMethod = useComposeEditorStore((s) => s.setMethod);
   const setUrl = useComposeEditorStore((s) => s.setUrl);
@@ -107,6 +114,7 @@ export function ComposePage() {
   const setRawLanguage = useComposeEditorStore((s) => s.setRawLanguage);
   const setUrlEncodedEntries = useComposeEditorStore((s) => s.setUrlEncodedEntries);
   const setFormDataEntries = useComposeEditorStore((s) => s.setFormDataEntries);
+  const setFormFiles = useComposeEditorStore((s) => s.setFormFiles);
   const setActiveTab = useComposeEditorStore((s) => s.setActiveTab);
 
   const responseDetail = sendMutation.data;
@@ -155,34 +163,91 @@ export function ComposePage() {
         bodyType,
         rawLanguage,
         formDataEntries,
+        formFiles,
         urlEncodedEntries,
       },
       mergedVarMap,
     );
-  }, [headers, body, bodyType, rawLanguage, urlEncodedEntries, formDataEntries, mergedVarMap]);
+  }, [
+    headers,
+    body,
+    bodyType,
+    rawLanguage,
+    urlEncodedEntries,
+    formDataEntries,
+    formFiles,
+    mergedVarMap,
+  ]);
 
   const handleSend = useCallback(() => {
-    const { textBody: encodedBody, headers: finalHeaders } = encodeBody();
+    const { multipartEntries, textBody: encodedBody, headers: finalHeaders } = encodeBody();
     sendMutation.mutate({
       workspaceId: "default",
       method,
       url,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
+      ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
   }, [sendMutation, method, url, encodeBody]);
 
   const handleExportCurl = useCallback(() => {
-    const { textBody: encodedBody, headers: finalHeaders } = encodeBody();
+    const { multipartEntries, textBody: encodedBody, headers: finalHeaders } = encodeBody();
     const cmd = generateCurlCommand({
       method,
       url,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
+      ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
   }, [method, url, encodeBody]);
+
+  const handleSaveToCollection = useCallback(
+    (collectionId: string, name?: string) => {
+      upsertItemMutation.mutate(
+        {
+          collectionId,
+          name: name?.trim() || `${method} ${url}`.trim(),
+          method,
+          url,
+          headers,
+          body,
+          bodyType,
+          rawLanguage,
+          formData: formDataEntries,
+          urlEncoded: urlEncodedEntries,
+          formFiles,
+        },
+        {
+          onSuccess: () => {
+            useNotificationStore
+              .getState()
+              .push(
+                t("composePage.savedToCollection", {
+                  name: name?.trim() || `${method} ${url}`.trim(),
+                }),
+              );
+            setSaveDialogOpen(false);
+          },
+        },
+      );
+    },
+    [
+      body,
+      bodyType,
+      formDataEntries,
+      formFiles,
+      headers,
+      method,
+      rawLanguage,
+      t,
+      upsertItemMutation,
+      url,
+      urlEncodedEntries,
+    ],
+  );
 
   function startResize(event: ReactPointerEvent<HTMLDivElement>) {
     const container = gridRef.current;
@@ -314,6 +379,25 @@ export function ComposePage() {
             onEnvironmentChange={setActiveEnvironmentId}
             onManageEnvironments={() => setManageEnvDialogOpen(true)}
           />
+          <Tooltip title={t("collectionsPage.saveToCollection")}>
+            <span>
+              <IconButton
+                color="primary"
+                disabled={!url.trim()}
+                onClick={() => setSaveDialogOpen(true)}
+                size="small"
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  flex: "0 0 auto",
+                  height: 38,
+                  width: 38,
+                }}
+              >
+                <BookmarkAddRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip title={t("common.actions.send")}>
             <span>
               <Button
@@ -366,6 +450,12 @@ export function ComposePage() {
         open={manageEnvDialogOpen}
         onClose={() => setManageEnvDialogOpen(false)}
       />
+      <SaveToCollectionDialog
+        open={saveDialogOpen}
+        sessionName={`${method} ${url}`.trim() || t("composePage.untitledRequest")}
+        onCancel={() => setSaveDialogOpen(false)}
+        onConfirm={handleSaveToCollection}
+      />
 
       <Box
         ref={gridRef}
@@ -382,11 +472,13 @@ export function ComposePage() {
           body={body}
           bodyType={bodyType}
           formDataEntries={formDataEntries}
+          formFiles={formFiles}
           headers={headers}
           onActiveTabChange={setActiveTab}
           onBodyChange={setBody}
           onBodyTypeChange={setBodyType}
           onFormDataEntriesChange={setFormDataEntries}
+          onFormFilesChange={setFormFiles}
           onHeadersChange={setHeaders}
           onRawLanguageChange={setRawLanguage}
           onUrlChange={setUrl}

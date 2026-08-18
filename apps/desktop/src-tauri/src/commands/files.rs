@@ -44,6 +44,24 @@ pub struct RulesFileOutput {
     pub contents: String,
 }
 
+/// Input for [`pick_attachment_file`]: localized dialog title only.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickAttachmentFileInput {
+    pub title: String,
+}
+
+/// Output of [`pick_attachment_file`]: metadata only — the renderer never
+/// receives file contents (D1/H3). The path is canonicalized so a symlink
+/// target is resolved before the renderer stores it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentFileOutput {
+    pub file_name: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+}
+
 /// Validate that `name` is a plain file basename safe to join under the
 /// Downloads directory. Rejects path separators, `..`/`.` segments, and
 /// absolute paths so a hostile/broken caller cannot escape Downloads.
@@ -257,6 +275,65 @@ pub async fn pick_and_read_rules_file(
     Ok(Some(RulesFileOutput {
         file_name,
         contents,
+    }))
+}
+
+/// Backend-owned attachment picker (C3): returns only the picked file's name,
+/// canonicalized path, and size — the send path re-reads the file server-side
+/// (single multipart-encoding authority, D1).
+#[tauri::command]
+pub async fn pick_attachment_file(
+    app: tauri::AppHandle,
+    input: PickAttachmentFileInput,
+) -> Result<Option<AttachmentFileOutput>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(input.title)
+        .pick_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|e| app_error(ERR_INTERNAL, format!("dialog channel closed: {e}")))?
+    else {
+        return Ok(None);
+    };
+
+    let path_buf = match picked.into_path() {
+        Ok(p) => p,
+        Err(_) => {
+            return Err(app_error(
+                ERR_INVALID_INPUT,
+                "Invalid attachment file path.",
+            ))
+        }
+    };
+    let canonical = std::fs::canonicalize(&path_buf)
+        .map_err(|_| app_error(ERR_INVALID_INPUT, "Attachment file cannot be resolved."))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|_| app_error(ERR_INVALID_INPUT, "Attachment file cannot be read."))?;
+    if metadata.len() > super::multipart::MAX_MULTIPART_FILE_BYTES as u64 {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!(
+                "Attachment exceeds the {} MB limit",
+                super::multipart::MAX_MULTIPART_FILE_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("attachment")
+        .to_string();
+    Ok(Some(AttachmentFileOutput {
+        file_name,
+        file_path: canonical.display().to_string(),
+        size_bytes: metadata.len(),
     }))
 }
 

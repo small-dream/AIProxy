@@ -11,6 +11,32 @@ export type ComposedRequestInput = {
   url: string;
   headers: HeaderEntry[];
   body?: string;
+  /** Structured multipart parts for the Rust byte builder (C3/D1). */
+  multipartEntries?: MultipartEntry[];
+};
+
+export type MultipartTextPart = {
+  kind: "text";
+  name: string;
+  value: string;
+};
+
+export type MultipartFilePart = {
+  kind: "file";
+  name: string;
+  fileName: string;
+  filePath: string;
+  contentType?: string;
+};
+
+export type MultipartEntry = MultipartTextPart | MultipartFilePart;
+
+/** Renderer-side representation of an attached file (metadata only, D1). */
+export type FormFileEntry = {
+  name: string;
+  fileName: string;
+  filePath: string;
+  contentType?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -26,7 +52,19 @@ export function isComposedRequestInput(value: unknown): value is ComposedRequest
     typeof candidate.url === "string" &&
     Array.isArray(candidate.headers) &&
     candidate.headers.every(isHeaderEntry) &&
-    (candidate.body === undefined || typeof candidate.body === "string")
+    (candidate.body === undefined || typeof candidate.body === "string") &&
+    (candidate.multipartEntries === undefined ||
+      (Array.isArray(candidate.multipartEntries) &&
+        candidate.multipartEntries.every(
+          (entry) =>
+            (entry.kind === "text" &&
+              typeof entry.name === "string" &&
+              typeof entry.value === "string") ||
+            (entry.kind === "file" &&
+              typeof entry.name === "string" &&
+              typeof entry.fileName === "string" &&
+              typeof entry.filePath === "string"),
+        )))
   );
 }
 

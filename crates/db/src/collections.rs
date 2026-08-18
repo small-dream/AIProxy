@@ -35,6 +35,7 @@ pub struct CollectionItemRow {
     pub raw_language: String,
     pub form_data: String,
     pub url_encoded: String,
+    pub form_files: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -220,8 +221,8 @@ pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Re
         "INSERT OR REPLACE INTO api_collection_items
             (id, collection_id, name, description, sort_order,
              method, url, headers, body, body_type, raw_language, form_data, url_encoded,
-             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             form_files, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             item.id,
             item.collection_id,
@@ -236,6 +237,7 @@ pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Re
             item.raw_language,
             item.form_data,
             item.url_encoded,
+            item.form_files,
             item.created_at,
             item.updated_at,
         ],
@@ -252,7 +254,7 @@ pub fn list_collection_items(
         .prepare(
             "SELECT id, collection_id, name, description, sort_order,
                     method, url, headers, body, body_type, raw_language, form_data, url_encoded,
-                    created_at, updated_at
+                    form_files, created_at, updated_at
              FROM api_collection_items
              WHERE collection_id=?1
              ORDER BY sort_order, name",
@@ -275,7 +277,7 @@ pub fn get_collection_item(
     let result = conn.query_row(
         "SELECT id, collection_id, name, description, sort_order,
                 method, url, headers, body, body_type, raw_language, form_data, url_encoded,
-                created_at, updated_at
+                form_files, created_at, updated_at
          FROM api_collection_items WHERE id=?1",
         params![id],
         row_to_collection_item,
@@ -293,7 +295,7 @@ pub fn list_all_collection_items(conn: &Connection) -> Result<Vec<CollectionItem
         .prepare(
             "SELECT id, collection_id, name, description, sort_order,
                     method, url, headers, body, body_type, raw_language, form_data, url_encoded,
-                    created_at, updated_at
+                    form_files, created_at, updated_at
              FROM api_collection_items
              ORDER BY sort_order, name",
         )
@@ -573,6 +575,7 @@ fn row_to_collection_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Collectio
         raw_language: row.get("raw_language")?,
         form_data: row.get("form_data")?,
         url_encoded: row.get("url_encoded")?,
+        form_files: row.get("form_files")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -679,6 +682,7 @@ mod tests {
             raw_language: "json".into(),
             form_data: "[]".into(),
             url_encoded: "[]".into(),
+            form_files: "[]".into(),
             created_at: now(),
             updated_at: now(),
         };
@@ -725,6 +729,7 @@ mod tests {
             raw_language: "json".into(),
             form_data: "[]".into(),
             url_encoded: "[]".into(),
+            form_files: "[]".into(),
             created_at: now(),
             updated_at: now(),
         };
@@ -774,6 +779,7 @@ mod tests {
             raw_language: "json".into(),
             form_data: "[]".into(),
             url_encoded: "[]".into(),
+            form_files: "[]".into(),
             created_at: now(),
             updated_at: now(),
         };
@@ -981,6 +987,7 @@ mod tests {
                 raw_language: "json".into(),
                 form_data: "[]".into(),
                 url_encoded: "[]".into(),
+                form_files: "[]".into(),
                 created_at: now(),
                 updated_at: now(),
             };
@@ -1037,6 +1044,7 @@ mod tests {
                 raw_language: "json".into(),
                 form_data: "[]".into(),
                 url_encoded: "[]".into(),
+                form_files: "[]".into(),
                 created_at: now(),
                 updated_at: now(),
             };
@@ -1098,6 +1106,7 @@ mod tests {
                 raw_language: "json".into(),
                 form_data: "[]".into(),
                 url_encoded: "[]".into(),
+                form_files: "[]".into(),
                 created_at: now(),
                 updated_at: now(),
             };
@@ -1146,6 +1155,7 @@ mod tests {
             raw_language: "json".into(),
             form_data: "[]".into(),
             url_encoded: "[]".into(),
+            form_files: "[]".into(),
             created_at: now(),
             updated_at: now(),
         };

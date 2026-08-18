@@ -1,4 +1,14 @@
 use super::common::*;
+use super::multipart::{build_multipart_body_bytes, MultipartEntry};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionFormFile {
+    pub name: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub content_type: Option<String>,
+}
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +38,7 @@ pub struct ApiCollectionItemOutput {
     pub raw_language: String,
     pub form_data: Vec<ProxyHeaderEntry>,
     pub url_encoded: Vec<ProxyHeaderEntry>,
+    pub form_files: Vec<CollectionFormFile>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -93,54 +104,55 @@ fn build_urlencoded_body(entries: Vec<ProxyHeaderEntry>) -> Option<String> {
     Some(serializer.finish())
 }
 
-fn build_multipart_body(entries: Vec<ProxyHeaderEntry>, boundary: &str) -> Option<String> {
-    let active_entries: Vec<ProxyHeaderEntry> = entries
-        .into_iter()
-        .filter(|entry| !entry.name.trim().is_empty())
-        .collect();
-
-    if active_entries.is_empty() {
-        return None;
-    }
-
-    let mut body = String::new();
-    for entry in active_entries {
-        body.push_str("--");
-        body.push_str(boundary);
-        body.push_str("\r\nContent-Disposition: form-data; name=\"");
-        body.push_str(&entry.name);
-        body.push_str("\"\r\n\r\n");
-        body.push_str(&entry.value);
-        body.push_str("\r\n");
-    }
-    body.push_str("--");
-    body.push_str(boundary);
-    body.push_str("--");
-
-    Some(body)
-}
-
 fn build_collection_item_request(
     item: &aiproxy_db::collections::CollectionItemRow,
     vars: &std::collections::HashMap<String, String>,
-) -> Result<(String, Vec<ProxyHeaderEntry>, Option<String>), String> {
+) -> Result<(String, Vec<ProxyHeaderEntry>, Option<Vec<u8>>), String> {
     let url = substitute_vars(&item.url, vars);
     let headers_str = substitute_vars(&item.headers, vars);
     let mut headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_str).unwrap_or_default();
 
-    let body = match item.body_type.as_str() {
+    let body: Option<Vec<u8>> = match item.body_type.as_str() {
         "formdata" => {
-            let entries =
+            let text_entries =
                 substitute_header_entries(parse_collection_header_entries(&item.form_data), vars);
-            let boundary = format!("----AIProxyBoundary{}", uuid::Uuid::new_v4().simple());
-            let body = build_multipart_body(entries, &boundary);
-            if body.is_some() {
-                ensure_content_type_header(
-                    &mut headers,
-                    &format!("multipart/form-data; boundary={boundary}"),
-                );
+            let form_files: Vec<CollectionFormFile> =
+                serde_json::from_str(&item.form_files).unwrap_or_default();
+            let mut multipart_entries: Vec<MultipartEntry> = text_entries
+                .into_iter()
+                .filter(|entry| !entry.name.trim().is_empty())
+                .map(|entry| MultipartEntry::Text {
+                    name: entry.name,
+                    value: entry.value,
+                })
+                .collect();
+            multipart_entries.extend(form_files.into_iter().map(|file| MultipartEntry::File {
+                name: substitute_vars(&file.name, vars),
+                file_name: file.file_name,
+                file_path: file.file_path,
+                content_type: file.content_type,
+            }));
+            if multipart_entries.is_empty() {
+                None
+            } else {
+                let boundary = format!("----AIProxyBoundary{}", uuid::Uuid::new_v4().simple());
+                let bytes =
+                    build_multipart_body_bytes(&multipart_entries, &boundary).map_err(|error| {
+                        // D8: structured, actionable error — the item name, the
+                        // attachment file, and the fix are all in one message.
+                        format!(
+                            "Collection item '{}' has an attachment that can't be sent: {error}. Re-attach the file and save the item to fix it.",
+                            item.name
+                        )
+                    })?;
+                if bytes.is_some() {
+                    ensure_content_type_header(
+                        &mut headers,
+                        &format!("multipart/form-data; boundary={boundary}"),
+                    );
+                }
+                bytes
             }
-            body
         }
         "urlencoded" => {
             let entries =
@@ -149,14 +161,14 @@ fn build_collection_item_request(
             if body.is_some() {
                 ensure_content_type_header(&mut headers, "application/x-www-form-urlencoded");
             }
-            body
+            body.map(String::into_bytes)
         }
         "raw" => {
             let body = substitute_vars(&item.body, vars);
             if body.trim().is_empty() {
                 None
             } else {
-                Some(body)
+                Some(body.into_bytes())
             }
         }
         _ => None,
@@ -182,6 +194,7 @@ fn collection_item_output_from_row(
         raw_language: row.raw_language,
         form_data: parse_collection_header_entries(&row.form_data),
         url_encoded: parse_collection_header_entries(&row.url_encoded),
+        form_files: serde_json::from_str(&row.form_files).unwrap_or_default(),
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -213,6 +226,7 @@ pub struct UpsertApiCollectionItemInput {
     pub raw_language: String,
     pub form_data: Vec<ProxyHeaderEntry>,
     pub url_encoded: Vec<ProxyHeaderEntry>,
+    pub form_files: Vec<CollectionFormFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -399,6 +413,7 @@ pub async fn upsert_api_collection_item(
     let form_data_json = serde_json::to_string(&input.form_data).unwrap_or_else(|_| "[]".into());
     let url_encoded_json =
         serde_json::to_string(&input.url_encoded).unwrap_or_else(|_| "[]".into());
+    let form_files_json = serde_json::to_string(&input.form_files).unwrap_or_else(|_| "[]".into());
 
     let row = aiproxy_db::collections::CollectionItemRow {
         id: id.clone(),
@@ -414,6 +429,7 @@ pub async fn upsert_api_collection_item(
         raw_language: input.raw_language,
         form_data: form_data_json,
         url_encoded: url_encoded_json,
+        form_files: form_files_json,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -554,6 +570,9 @@ pub async fn save_session_to_collection(
         raw_language,
         form_data: vec![],
         url_encoded,
+        // D8 (scoped): sessions saved to collections keep multipart as raw
+        // text; attachment rebuild is intentionally out of scope.
+        form_files: vec![],
     };
 
     upsert_api_collection_item(upsert_input, state).await
@@ -617,7 +636,7 @@ pub async fn batch_execute_collection_items(
     for item in items {
         let (url, headers, body) = build_collection_item_request(&item, &env_vars)?;
 
-        match send_direct_request(item.method, url, headers, body).await {
+        match send_direct_request_bytes(item.method, url, headers, body).await {
             Ok(detail) => {
                 let session_id = detail.id.clone();
                 state.upsert_session_async(detail.clone()).await;
@@ -682,6 +701,7 @@ mod tests {
             raw_language: "json".into(),
             form_data: r#"[{"name":"file","value":"demo.txt"}]"#.into(),
             url_encoded: r#"[{"name":"page","value":"1"}]"#.into(),
+            form_files: "[]".into(),
             created_at: "2026-04-20T00:00:00Z".into(),
             updated_at: "2026-04-20T00:00:00Z".into(),
         });
@@ -725,6 +745,7 @@ mod tests {
             form_data: "[]".into(),
             url_encoded: r#"[{"name":"query","value":"{{query}}"},{"name":"","value":"ignored"}]"#
                 .into(),
+            form_files: "[]".into(),
             created_at: "2026-04-20T00:00:00Z".into(),
             updated_at: "2026-04-20T00:00:00Z".into(),
         };
@@ -741,6 +762,6 @@ mod tests {
                 is_pseudo: None,
             }]
         );
-        assert_eq!(body.as_deref(), Some("query=alice+smith"));
+        assert_eq!(body.as_deref(), Some("query=alice+smith".as_bytes()));
     }
 }

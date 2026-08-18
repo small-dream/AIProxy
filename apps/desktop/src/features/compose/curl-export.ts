@@ -1,4 +1,4 @@
-import type { HeaderEntry } from "@aiproxy/shared-types";
+import type { HeaderEntry, MultipartEntry } from "@aiproxy/shared-types";
 
 import { detectBrowserPlatform } from "@/services/commands/runtime";
 
@@ -10,6 +10,7 @@ export function generateCurlCommand(
     url: string;
     headers: HeaderEntry[];
     body?: string;
+    multipartEntries?: MultipartEntry[];
   },
   options?: { platform?: CurlPlatform },
 ): string {
@@ -26,11 +27,13 @@ function generatePosixCurl({
   url,
   headers,
   body,
+  multipartEntries,
 }: {
   method: string;
   url: string;
   headers: HeaderEntry[];
   body?: string;
+  multipartEntries?: MultipartEntry[];
 }): string {
   const parts: string[] = ["curl"];
 
@@ -38,12 +41,24 @@ function generatePosixCurl({
     parts.push(`-X ${method}`);
   }
 
+  const isMultipart = multipartEntries !== undefined && multipartEntries.length > 0;
   for (const header of headers) {
     if (!header.name.trim()) continue;
+    // curl -F generates the multipart Content-Type itself; a manually-set
+    // multipart boundary would break the request.
+    if (isMultipart && header.name.toLowerCase() === "content-type") continue;
     parts.push(`-H '${escapeSingleQuotes(header.name)}: ${escapeSingleQuotes(header.value)}'`);
   }
 
-  if (body) {
+  if (isMultipart) {
+    for (const entry of multipartEntries ?? []) {
+      if (entry.kind === "text") {
+        parts.push(`-F '${escapeSingleQuotes(entry.name)}=${escapeSingleQuotes(entry.value)}'`);
+      } else {
+        parts.push(`-F '${escapeSingleQuotes(entry.name)}=@${escapeSingleQuotes(entry.filePath)}'`);
+      }
+    }
+  } else if (body) {
     parts.push(`-d '${escapeSingleQuotes(body)}'`);
   }
 
@@ -65,11 +80,13 @@ function generateWindowsCurl({
   url,
   headers,
   body,
+  multipartEntries,
 }: {
   method: string;
   url: string;
   headers: HeaderEntry[];
   body?: string;
+  multipartEntries?: MultipartEntry[];
 }): string {
   const parts: string[] = ["curl"];
 
@@ -77,14 +94,28 @@ function generateWindowsCurl({
     parts.push(`-X ${method}`);
   }
 
+  const isMultipart = multipartEntries !== undefined && multipartEntries.length > 0;
   for (const header of headers) {
     if (!header.name.trim()) continue;
+    if (isMultipart && header.name.toLowerCase() === "content-type") continue;
     parts.push(
       `-H "${escapeForDoubleQuotes(header.name)}: ${escapeForDoubleQuotes(header.value)}"`,
     );
   }
 
-  if (body) {
+  if (isMultipart) {
+    for (const entry of multipartEntries ?? []) {
+      if (entry.kind === "text") {
+        parts.push(
+          `-F "${escapeForDoubleQuotes(entry.name)}=${escapeForDoubleQuotes(entry.value)}"`,
+        );
+      } else {
+        parts.push(
+          `-F "${escapeForDoubleQuotes(entry.name)}=@${escapeForDoubleQuotes(entry.filePath)}"`,
+        );
+      }
+    }
+  } else if (body) {
     parts.push(`-d "${escapeForDoubleQuotes(body)}"`);
   }
 

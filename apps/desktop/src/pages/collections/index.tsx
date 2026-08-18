@@ -230,11 +230,16 @@ export function CollectionsPage() {
 
   function handleSend() {
     const substitutedUrl = substituteVariables(editor.url, mergedVarMap);
-    const { textBody: encodedBody, headers: finalHeaders } = encodeComposedRequest(
+    const {
+      multipartEntries,
+      textBody: encodedBody,
+      headers: finalHeaders,
+    } = encodeComposedRequest(
       {
         headers: editor.headers,
         body: editor.body,
         bodyType: editor.bodyType,
+        formFiles: editor.formFiles,
         rawLanguage: editor.rawLanguage,
         formDataEntries: editor.formDataEntries,
         urlEncodedEntries: editor.urlEncodedEntries,
@@ -248,6 +253,7 @@ export function CollectionsPage() {
       url: substitutedUrl,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
+      ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
   }
 
@@ -261,6 +267,7 @@ export function CollectionsPage() {
         collectionId: editor.collectionId,
         description: editor.description,
         formData: editor.formDataEntries,
+        formFiles: editor.formFiles,
         headers: editor.headers,
         method: editor.method,
         name: editor.name || `${editor.method} ${editor.url}`,

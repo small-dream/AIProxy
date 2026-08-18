@@ -115,6 +115,7 @@ export async function upsertApiCollectionItem(
       rawLanguage: input.rawLanguage,
       formData: input.formData,
       urlEncoded: input.urlEncoded,
+      formFiles: input.formFiles ?? [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

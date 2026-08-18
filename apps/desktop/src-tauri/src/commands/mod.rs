@@ -7,6 +7,7 @@ mod compose;
 mod environments;
 mod files;
 mod menu;
+mod multipart;
 mod port_manager;
 mod proxy;
 mod rules;

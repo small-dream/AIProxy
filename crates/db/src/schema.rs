@@ -320,6 +320,7 @@ CREATE TABLE IF NOT EXISTS api_collection_items (
     raw_language  TEXT NOT NULL DEFAULT 'json',
     form_data     TEXT NOT NULL DEFAULT '[]',
     url_encoded   TEXT NOT NULL DEFAULT '[]',
+    form_files    TEXT NOT NULL DEFAULT '[]',
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL,
     FOREIGN KEY (collection_id) REFERENCES api_collections(id) ON DELETE CASCADE
@@ -410,6 +411,12 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "throttle_rules",
         "match_type",
         "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "api_collection_items",
+        "form_files",
+        "TEXT NOT NULL DEFAULT '[]'",
     )?;
     migrate_add_column(conn, "session_details", "trailers", "TEXT DEFAULT NULL")?;
     migrate_add_column(

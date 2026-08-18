@@ -631,6 +631,19 @@ pub async fn send_direct_request(
     headers: Vec<ProxyHeaderEntry>,
     body: Option<String>,
 ) -> Result<ProxySessionDetail, String> {
+    let body_bytes = body.map(|b| b.into_bytes());
+    send_direct_request_bytes(method, url, headers, body_bytes).await
+}
+
+/// Byte-body variant used by the multipart compose path (C3): the renderer
+/// sends structured multipart entries, Rust builds the raw multipart bytes,
+/// and the body never round-trips through a UTF-8 string.
+pub async fn send_direct_request_bytes(
+    method: String,
+    url: String,
+    headers: Vec<ProxyHeaderEntry>,
+    body: Option<Vec<u8>>,
+) -> Result<ProxySessionDetail, String> {
     let request_method = Method::from_bytes(method.as_bytes())
         .map_err(|e| format!("invalid HTTP method '{method}': {e}"))?;
     let request_url = Url::parse(&url).map_err(|e| format!("invalid URL '{url}': {e}"))?;
@@ -665,11 +678,7 @@ pub async fn send_direct_request(
         header_map.append(header_name, header_value);
     }
 
-    let body_bytes = body
-        .as_deref()
-        .filter(|b| !b.is_empty())
-        .map(|b| b.as_bytes().to_vec())
-        .unwrap_or_default();
+    let body_bytes = body.filter(|b| !b.is_empty()).unwrap_or_default();
 
     let raw_request = build_raw_http_head(&format!("{method} {path} HTTP/1.1"), &headers);
 

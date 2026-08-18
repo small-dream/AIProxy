@@ -123,7 +123,7 @@ pub use rules::{
     RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
-pub use server::{send_direct_request, start_proxy_server};
+pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
 pub use ssl_proxying::{SslProxyingConfig, SslProxyingSettings};
 pub use ssl_proxying_defaults::DEFAULT_SSL_PROXYING_EXCLUSIONS;
 pub use timing_connector::{ConnectionTiming, TimingConnector};

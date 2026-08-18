@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { HeaderEntry } from "@aiproxy/shared-types";
+import type { FormFileEntry, HeaderEntry } from "@aiproxy/shared-types";
 import { type BodyType, type RawLanguage } from "@/features/compose/types";
 
 export type CollectionEditorState = {
@@ -18,6 +18,7 @@ export type CollectionEditorState = {
   rawLanguage: RawLanguage;
   formDataEntries: HeaderEntry[];
   urlEncodedEntries: HeaderEntry[];
+  formFiles: FormFileEntry[];
 
   // Actions
   loadFromItem: (item: {
@@ -33,6 +34,7 @@ export type CollectionEditorState = {
     rawLanguage: string;
     formData: HeaderEntry[];
     urlEncoded: HeaderEntry[];
+    formFiles: FormFileEntry[];
   }) => void;
   setName: (name: string) => void;
   setDescription: (desc: string) => void;
@@ -44,6 +46,7 @@ export type CollectionEditorState = {
   setRawLanguage: (lang: RawLanguage) => void;
   setFormDataEntries: (entries: HeaderEntry[]) => void;
   setUrlEncodedEntries: (entries: HeaderEntry[]) => void;
+  setFormFiles: (files: FormFileEntry[]) => void;
   reset: () => void;
 };
 
@@ -60,6 +63,7 @@ const INITIAL: Omit<
   | "setRawLanguage"
   | "setFormDataEntries"
   | "setUrlEncodedEntries"
+  | "setFormFiles"
   | "reset"
 > = {
   itemId: null,
@@ -74,6 +78,7 @@ const INITIAL: Omit<
   rawLanguage: "json" as RawLanguage,
   formDataEntries: [],
   urlEncodedEntries: [],
+  formFiles: [],
 };
 
 function parseUrlEncodedEntries(body: string): HeaderEntry[] {
@@ -109,6 +114,7 @@ export const useCollectionEditorStore = create<CollectionEditorState>((set) => (
       rawLanguage: (fallbackRawLanguage || "json") as RawLanguage,
       formDataEntries: [...item.formData],
       urlEncodedEntries: [...fallbackUrlEncodedEntries],
+      formFiles: item.formFiles ? [...item.formFiles] : [],
     });
   },
   setName: (name) => set({ name }),
@@ -121,5 +127,6 @@ export const useCollectionEditorStore = create<CollectionEditorState>((set) => (
   setRawLanguage: (rawLanguage) => set({ rawLanguage }),
   setFormDataEntries: (formDataEntries) => set({ formDataEntries }),
   setUrlEncodedEntries: (urlEncodedEntries) => set({ urlEncodedEntries }),
+  setFormFiles: (formFiles) => set({ formFiles }),
   reset: () => set(INITIAL),
 }));

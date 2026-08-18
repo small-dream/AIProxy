@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { HeaderEntry } from "@aiproxy/shared-types";
+import type { FormFileEntry, HeaderEntry } from "@aiproxy/shared-types";
 import { useCollectionEditorStore } from "./collection-editor.store";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +20,7 @@ function buildItem(
     rawLanguage: string;
     formData: HeaderEntry[];
     urlEncoded: HeaderEntry[];
+    formFiles: FormFileEntry[];
   }> = {},
 ) {
   return {
@@ -35,6 +36,7 @@ function buildItem(
     rawLanguage: overrides.rawLanguage ?? "json",
     formData: overrides.formData ?? [],
     urlEncoded: overrides.urlEncoded ?? [],
+    formFiles: overrides.formFiles ?? [],
   };
 }
 

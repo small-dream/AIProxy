@@ -65,6 +65,37 @@ export async function pickAndReadRulesFile(title: string): Promise<RulesFileCont
   }
 }
 
+/** Output of `pick_attachment_file`: metadata only, never contents (D1). */
+export interface AttachmentFile {
+  fileName: string;
+  filePath: string;
+  sizeBytes: number;
+}
+
+/**
+ * Backend-owned attachment picker (C3). Returns the picked file's name,
+ * canonicalized path, and size; the send path re-reads the file server-side.
+ * Returns `null` when the user cancels.
+ */
+export async function pickAttachmentFile(title: string): Promise<AttachmentFile | null> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Attaching files requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    const payload = await invoke<AttachmentFile | null>("pick_attachment_file", {
+      input: { title },
+    });
+    return payload ?? null;
+  } catch (error) {
+    reportCommandFailure("pick_attachment_file", error);
+    throw coerceAppError(error);
+  }
+}
+
 /** How to resolve several captured requests that map to the same target file. */
 export type ResponseFileConflictStrategy = "latestOnly" | "keepAll";
 

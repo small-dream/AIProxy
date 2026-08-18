@@ -1,13 +1,8 @@
-import type { HeaderEntry } from "@aiproxy/shared-types";
+import type { FormFileEntry, HeaderEntry, MultipartEntry } from "@aiproxy/shared-types";
 
 import { substituteVariables } from "@/features/environments/use-environments";
 
-import {
-  buildMultipartBody,
-  FORMDATA_CONTENT_TYPE,
-  RAW_LANGUAGE_CONTENT_TYPE,
-  URLENCODED_CONTENT_TYPE,
-} from "./compose-editor.store";
+import { RAW_LANGUAGE_CONTENT_TYPE, URLENCODED_CONTENT_TYPE } from "./compose-editor.store";
 import type { BodyType, RawLanguage } from "./types";
 
 /** Append a Content-Type header if one is not already present. */
@@ -15,31 +10,6 @@ export function ensureContentType(headers: HeaderEntry[], contentType: string): 
   if (headers.some((h) => h.name.toLowerCase() === "content-type")) return headers;
   return [...headers, { name: "Content-Type", value: contentType }];
 }
-
-/** A text multipart part (used until C3 wires real file bytes). */
-export type MultipartTextEntry = {
-  kind: "text";
-  name: string;
-  value: string;
-};
-
-/** A file multipart part: the renderer never touches file contents (D1). */
-export type MultipartFileEntry = {
-  kind: "file";
-  name: string;
-  fileName: string;
-  filePath: string;
-  contentType?: string;
-};
-
-export type MultipartEntry = MultipartTextEntry | MultipartFileEntry;
-
-export type FormFileEntry = {
-  name: string;
-  fileName: string;
-  filePath: string;
-  contentType?: string;
-};
 
 export type ComposedRequestEncodingInput = {
   body: string;
@@ -62,8 +32,8 @@ export type ComposedRequestEncoding = {
  * Variable substitution is inline (url/body/header name+value/formData/
  * urlEncoded name+value); file paths are passed through untouched (D1).
  *
- * Phase 3.1 keeps multipart as plain text for behavior parity; the returned
- * `multipartEntries` drives the Rust byte builder in C3.
+ * Multipart form-data is emitted as structured `multipartEntries`; the Rust
+ * send path builds the raw bytes (D1).
  */
 export function encodeComposedRequest(
   input: ComposedRequestEncodingInput,
@@ -81,14 +51,14 @@ export function encodeComposedRequest(
     case "none":
       break;
     case "formdata": {
-      const textEntries: MultipartTextEntry[] = input.formDataEntries
+      const textEntries: MultipartEntry[] = input.formDataEntries
         .filter((entry) => substitute(entry.name).trim())
         .map((entry) => ({
           kind: "text",
           name: substitute(entry.name),
           value: substitute(entry.value),
         }));
-      const fileEntries: MultipartFileEntry[] = (input.formFiles ?? [])
+      const fileEntries: MultipartEntry[] = (input.formFiles ?? [])
         .filter((entry) => substitute(entry.name).trim())
         .map((entry) => ({
           kind: "file",
@@ -100,21 +70,6 @@ export function encodeComposedRequest(
       const entries = [...textEntries, ...fileEntries];
       if (entries.length > 0) {
         multipartEntries = entries;
-        // 3.1 parity: plain-text encoding until C3 delegates to the Rust
-        // multipart byte builder.
-        const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
-        textBody = buildMultipartBody(
-          entries.map((entry) =>
-            entry.kind === "text"
-              ? { name: entry.name, value: entry.value }
-              : { name: entry.name, value: `@${entry.filePath}` },
-          ),
-          boundary,
-        );
-        finalHeaders = ensureContentType(
-          finalHeaders,
-          `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`,
-        );
       }
       break;
     }

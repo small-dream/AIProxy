@@ -18,6 +18,7 @@ import { alpha } from "@mui/material/styles";
 import type { HeaderEntry } from "@aiproxy/shared-types";
 import { useEffect, useRef, useState } from "react";
 
+import type { FormFileEntry } from "@aiproxy/shared-types";
 import type { BodyType, RawLanguage } from "@/features/compose/types";
 import { RAW_LANGUAGES } from "@/features/compose/compose-editor.store";
 import {
@@ -27,6 +28,7 @@ import {
 import { useI18n, type TranslationKey } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 import { EditableKeyValueTable } from "./EditableKeyValueTable";
+import { MultipartEditor } from "./MultipartEditor";
 
 const BODY_TYPE_KEYS: Record<BodyType, TranslationKey> = {
   none: "composePage.bodyTypes.none",
@@ -41,11 +43,13 @@ type ComposeRequestSectionProps = {
   bodyType: BodyType;
   chromeless?: boolean;
   formDataEntries: HeaderEntry[];
+  formFiles: FormFileEntry[];
   headers: HeaderEntry[];
   onActiveTabChange: (tab: "headers" | "body" | "query") => void;
   onBodyChange: (body: string) => void;
   onBodyTypeChange: (bodyType: BodyType) => void;
   onFormDataEntriesChange: (entries: HeaderEntry[]) => void;
+  onFormFilesChange: (files: FormFileEntry[]) => void;
   onHeadersChange: (entries: HeaderEntry[]) => void;
   onRequestCollapsedChange?: (collapsed: boolean) => void;
   onRawLanguageChange: (rawLanguage: RawLanguage) => void;
@@ -63,11 +67,13 @@ export function ComposeRequestSection({
   bodyType,
   chromeless = false,
   formDataEntries,
+  formFiles,
   headers,
   onActiveTabChange,
   onBodyChange,
   onBodyTypeChange,
   onFormDataEntriesChange,
+  onFormFilesChange,
   onHeadersChange,
   onRequestCollapsedChange,
   onRawLanguageChange,
@@ -235,11 +241,11 @@ export function ComposeRequestSection({
               )}
 
               {bodyType === "formdata" && (
-                <EditableKeyValueTable
-                  items={formDataEntries}
-                  namePlaceholder={t("common.placeholders.paramName")}
-                  onChange={onFormDataEntriesChange}
-                  valuePlaceholder={t("common.placeholders.paramValue")}
+                <MultipartEditor
+                  entries={formDataEntries}
+                  files={formFiles}
+                  onEntriesChange={onFormDataEntriesChange}
+                  onFilesChange={onFormFilesChange}
                 />
               )}
 

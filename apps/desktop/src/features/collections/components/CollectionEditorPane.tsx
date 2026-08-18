@@ -267,11 +267,13 @@ export function CollectionEditorPane({
             bodyType={editor.bodyType}
             chromeless
             formDataEntries={editor.formDataEntries}
+            formFiles={editor.formFiles}
             headers={editor.headers}
             onActiveTabChange={onRequestTabChange}
             onBodyChange={editor.setBody}
             onBodyTypeChange={editor.setBodyType}
             onFormDataEntriesChange={editor.setFormDataEntries}
+            onFormFilesChange={editor.setFormFiles}
             onHeadersChange={editor.setHeaders}
             onRequestCollapsedChange={onRequestCollapsedChange}
             onRawLanguageChange={editor.setRawLanguage}

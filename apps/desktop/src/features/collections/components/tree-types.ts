@@ -1,4 +1,4 @@
-import type { HeaderEntry } from "@aiproxy/shared-types";
+import type { FormFileEntry, HeaderEntry } from "@aiproxy/shared-types";
 
 export type CollectionEditorItem = {
   body: string;
@@ -6,6 +6,7 @@ export type CollectionEditorItem = {
   collectionId: string;
   description: string;
   formData: HeaderEntry[];
+  formFiles: FormFileEntry[];
   headers: HeaderEntry[];
   id: string;
   method: string;

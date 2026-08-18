@@ -310,6 +310,7 @@ export function useCollectionTree(params: UseCollectionTreeParams): UseCollectio
         collectionId: item.collectionId,
         description: item.description,
         formData: item.formData,
+        formFiles: item.formFiles,
         headers: item.headers,
         id: item.id,
         method: item.method,

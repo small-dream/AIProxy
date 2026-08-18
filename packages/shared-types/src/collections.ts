@@ -1,4 +1,5 @@
 import { coerceAppError } from "./common";
+import type { FormFileEntry } from "./compose";
 import { type HeaderEntry, isHeaderEntry } from "./sessions";
 
 export type ApiCollection = {
@@ -25,6 +26,7 @@ export type ApiCollectionItem = {
   rawLanguage: string;
   formData: HeaderEntry[];
   urlEncoded: HeaderEntry[];
+  formFiles: FormFileEntry[];
   createdAt: string;
   updatedAt: string;
 };
@@ -42,6 +44,7 @@ export type CollectionSaveInput = {
   rawLanguage: string;
   formData: HeaderEntry[];
   urlEncoded: HeaderEntry[];
+  formFiles: FormFileEntry[];
 };
 
 export type SessionToCollectionInput = {

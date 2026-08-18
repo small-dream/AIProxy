@@ -57,7 +57,7 @@ describe("encodeComposedRequest", () => {
     ]);
   });
 
-  it("emits multipart entries and a plain-text body for formdata (3.1 parity)", () => {
+  it("emits multipart entries for formdata without a text body", () => {
     const result = encodeComposedRequest(
       input({
         bodyType: "formdata",
@@ -73,10 +73,9 @@ describe("encodeComposedRequest", () => {
       name: "field",
       value: "value",
     });
-    expect(result.textBody).toContain('name="field"');
-    expect(result.textBody).toContain("value");
-    expect(result.headers[0]?.name).toBe("Content-Type");
-    expect(result.headers[0]?.value).toContain("multipart/form-data; boundary=");
+    expect(result.textBody).toBeUndefined();
+    // The multipart Content-Type is added by the Rust send path (C3).
+    expect(result.headers).toEqual([]);
   });
 
   it("substitutes variables across headers, body, and form entries", () => {
