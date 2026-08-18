@@ -6,6 +6,7 @@ export * from "./sessions";
 export * from "./certificates";
 export * from "./compose";
 export * from "./rules";
+export * from "./rules-export";
 export * from "./throttling";
 export * from "./collections";
 export * from "./environments";

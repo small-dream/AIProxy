@@ -775,6 +775,22 @@ export const enMessages = {
       resultSuccess: "{{count}} rules updated.",
       selectedCount: "{{count}} selected",
     },
+    importExport: {
+      countLabel: "{{kind}}: {{count}}",
+      export: "Export",
+      exported: "Rules exported.",
+      import: "Import",
+      importButton: "Import {{count}} selected",
+      importDisabledHint: "Rule import requires the desktop app.",
+      imported: "Imported {{count}} rules.",
+      invalidFile: "This file is not a valid AIProxy rules export.",
+      nothingSelected: "Select at least one rule kind to import.",
+      previewHint: "Imported rules are added disabled with fresh ids — nothing is overwritten.",
+      previewTitle: "Import rules",
+      throttleProfiles: "Throttle profiles",
+      throttleRules: "Throttle rules",
+      unsupportedVersion: "This rules file was created by an unsupported version.",
+    },
   },
   certificatesPage: {
     actions: {

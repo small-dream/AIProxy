@@ -36,6 +36,35 @@ export async function pickAndReadHarFile(title: string): Promise<HarFileContents
   }
 }
 
+/** Output of `pick_and_read_rules_file`: picked file name + JSON contents. */
+export interface RulesFileContents {
+  fileName: string;
+  contents: string;
+}
+
+/**
+ * Backend-owned picker for a rules-export JSON file (R2), same trust model as
+ * `pickAndReadHarFile`. Returns `null` when the user cancels.
+ */
+export async function pickAndReadRulesFile(title: string): Promise<RulesFileContents | null> {
+  if (!isTauriRuntime()) {
+    throw {
+      code: "DESKTOP_RUNTIME_REQUIRED",
+      message: "Reading rules files requires the Tauri desktop runtime.",
+    };
+  }
+
+  try {
+    const payload = await invoke<RulesFileContents | null>("pick_and_read_rules_file", {
+      input: { title },
+    });
+    return payload ?? null;
+  } catch (error) {
+    reportCommandFailure("pick_and_read_rules_file", error);
+    throw coerceAppError(error);
+  }
+}
+
 /** How to resolve several captured requests that map to the same target file. */
 export type ResponseFileConflictStrategy = "latestOnly" | "keepAll";
 

@@ -27,6 +27,23 @@ pub struct HarFileOutput {
     pub contents: String,
 }
 
+/// Input for [`pick_and_read_rules_file`]. Same trust model as the HAR picker:
+/// the renderer supplies only a localized dialog title, never a path.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickRulesFileInput {
+    pub title: String,
+}
+
+/// Output of [`pick_and_read_rules_file`]: the rules-export file contents and
+/// the picked file name. `None` when the user cancels the dialog.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesFileOutput {
+    pub file_name: String,
+    pub contents: String,
+}
+
 /// Validate that `name` is a plain file basename safe to join under the
 /// Downloads directory. Rejects path separators, `..`/`.` segments, and
 /// absolute paths so a hostile/broken caller cannot escape Downloads.
@@ -100,6 +117,17 @@ fn is_har_extension(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_rules_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("json"))
+        .unwrap_or(false)
+}
+
+fn err_invalid_rules_file() -> String {
+    app_error(ERR_INVALID_INPUT, "Unsupported rules file path.")
+}
+
 /// H3 (mirrors the H10 fix for `read_script_source_file`): the backend owns the
 /// file dialog. The renderer supplies only a localized dialog title — never a
 /// path — and the OS file picker is driven from the Rust side via
@@ -166,6 +194,67 @@ pub async fn pick_and_read_har_file(
         .to_string();
 
     Ok(Some(HarFileOutput {
+        file_name,
+        contents,
+    }))
+}
+
+/// Backend-owned file picker for a rules-export JSON file (R2), mirroring
+/// `pick_and_read_har_file`: canonicalize + extension check + 64 MB cap.
+#[tauri::command]
+pub async fn pick_and_read_rules_file(
+    app: tauri::AppHandle,
+    input: PickRulesFileInput,
+) -> Result<Option<RulesFileOutput>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Rules JSON", &["json"])
+        .set_title(input.title)
+        .pick_file(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|e| app_error(ERR_INTERNAL, format!("dialog channel closed: {e}")))?
+    else {
+        return Ok(None);
+    };
+
+    let path_buf = match picked.into_path() {
+        Ok(p) => p,
+        Err(_) => return Err(err_invalid_rules_file()),
+    };
+
+    let canon = std::fs::canonicalize(&path_buf).map_err(|_| err_invalid_rules_file())?;
+    if !is_rules_extension(&canon) {
+        return Err(err_invalid_rules_file());
+    }
+
+    let bytes = run_blocking_command("pick_and_read_rules_file_read", move || {
+        std::fs::read(&canon).map_err(|_| err_invalid_rules_file())
+    })
+    .await?;
+    if bytes.len() > MAX_HAR_IMPORT_BYTES {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!(
+                "Rules file exceeds the {} MB limit",
+                MAX_HAR_IMPORT_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+
+    let contents = String::from_utf8(bytes).map_err(|_| err_invalid_rules_file())?;
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("rules.json")
+        .to_string();
+
+    Ok(Some(RulesFileOutput {
         file_name,
         contents,
     }))

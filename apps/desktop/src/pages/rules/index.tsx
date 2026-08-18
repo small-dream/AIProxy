@@ -7,6 +7,7 @@ import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRule
 import { MappingRulesPanel } from "@/features/rules/components/MappingRulesPanel";
 import { RewriteRulesPanel } from "@/features/rules/components/RewriteRulesPanel";
 import { ScriptRulesPanel } from "@/features/rules/components/ScriptRulesPanel";
+import { RulesImportExportButtons } from "@/features/rules/components/RulesImportExportButtons";
 import type { RulesTabValue } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 
@@ -48,7 +49,8 @@ export function RulesPage() {
         })}
         variant="outlined"
       >
-        <Box
+        <Stack
+          direction="row"
           sx={{
             bgcolor: (theme) =>
               theme.palette.mode === "dark"
@@ -56,6 +58,7 @@ export function RulesPage() {
                 : alpha(theme.palette.background.default, 0.62),
             borderBottom: 1,
             borderColor: "divider",
+            alignItems: "flex-start",
             minWidth: 0,
           }}
         >
@@ -109,7 +112,9 @@ export function RulesPage() {
             <Tab value="mapping" label={t("rulesPage.tabs.mapping")} />
             <Tab value="script" label={t("rulesPage.tabs.script")} />
           </Tabs>
-        </Box>
+          <Box sx={{ flex: 1 }} />
+          <RulesImportExportButtons />
+        </Stack>
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
           {tab === "breakpoint" && <BreakpointRulesPanel />}

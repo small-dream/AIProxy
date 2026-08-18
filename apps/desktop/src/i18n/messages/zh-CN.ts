@@ -745,6 +745,22 @@ export const zhCNMessages: Messages = {
       resultSuccess: "已更新 {{count}} 条规则。",
       selectedCount: "已选 {{count}} 条",
     },
+    importExport: {
+      countLabel: "{{kind}}：{{count}}",
+      export: "导出",
+      exported: "规则已导出。",
+      import: "导入",
+      importButton: "导入已选 {{count}} 条",
+      importDisabledHint: "规则导入需要桌面应用。",
+      imported: "已导入 {{count}} 条规则。",
+      invalidFile: "该文件不是有效的 AIProxy 规则导出文件。",
+      nothingSelected: "请至少选择一种要导入的规则类型。",
+      previewHint: "导入的规则默认禁用并使用全新 id，不会覆盖任何现有规则。",
+      previewTitle: "导入规则",
+      throttleProfiles: "限速配置",
+      throttleRules: "限速规则",
+      unsupportedVersion: "该规则文件由不支持的版本创建。",
+    },
   },
   certificatesPage: {
     actions: {

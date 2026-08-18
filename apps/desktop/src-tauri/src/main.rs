@@ -203,6 +203,7 @@ pub fn run() {
             commands::kill_proxy_port_process,
             commands::save_text_file,
             commands::pick_and_read_har_file,
+            commands::pick_and_read_rules_file,
             commands::save_media_file,
             commands::save_response_files,
             commands::get_certificate_status,
