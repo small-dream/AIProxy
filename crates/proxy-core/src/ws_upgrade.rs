@@ -136,6 +136,21 @@ fn ws_needs_tls(url: &url::Url, mode: &ConnectionMode) -> bool {
     matches!(mode, ConnectionMode::MitmHttps { .. }) || url.scheme() == "wss"
 }
 
+/// Build the TLS `ServerName` for the WebSocket upstream.
+///
+/// `request.host` keeps the brackets of an IPv6 authority
+/// (`wss://[2001:db8::5]/...` → `[2001:db8::5]`), which `ServerName` rejects —
+/// the same normalization every other outbound TLS path applies. An empty
+/// fallback is not possible here (the host came from a parsed URL), so on
+/// failure we keep the historical behavior of falling back to loopback rather
+/// than failing the whole upgrade.
+fn ws_tls_server_name(host: &str) -> tokio_rustls::rustls::pki_types::ServerName<'static> {
+    let normalized = crate::timing_connector::tls_server_name_host(host).to_owned();
+    tokio_rustls::rustls::pki_types::ServerName::try_from(normalized).unwrap_or_else(|_| {
+        tokio_rustls::rustls::pki_types::ServerName::IpAddress(std::net::Ipv4Addr::LOCALHOST.into())
+    })
+}
+
 /// Wrap an already-connected TCP stream in TLS for the WebSocket upstream
 /// (R6-1). Shared by the MITM path and the `wss://`-over-plain-proxy path.
 ///
@@ -155,12 +170,7 @@ async fn connect_ws_upstream_tls(
     let client_config =
         aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(vec![], verify);
     let tls_connector = tokio_rustls::TlsConnector::from(client_config);
-    let dns_name = tokio_rustls::rustls::pki_types::ServerName::try_from(request.host.clone())
-        .unwrap_or_else(|_| {
-            tokio_rustls::rustls::pki_types::ServerName::IpAddress(
-                std::net::Ipv4Addr::LOCALHOST.into(),
-            )
-        });
+    let dns_name = ws_tls_server_name(&request.host);
     let tls_stream = tls_connector
         .connect(dns_name, tcp)
         .await
@@ -1051,6 +1061,33 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // ws_tls_server_name (IPv6 authority hosts)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ws_tls_server_name_accepts_ipv6_authority_hosts() {
+        use tokio_rustls::rustls::pki_types::ServerName;
+
+        // `request.host` keeps the brackets of a `wss://[2001:db8::5]/...`
+        // authority; ServerName::try_from used to reject that outright (and
+        // silently fell back to a loopback ServerName).
+        let bracketed = ws_tls_server_name("[2001:db8::5]");
+        match bracketed {
+            ServerName::IpAddress(ip) => {
+                assert_eq!(std::net::IpAddr::from(ip).to_string(), "2001:db8::5");
+            }
+            other => panic!("expected an IP ServerName, got {other:?}"),
+        }
+
+        let bare = ws_tls_server_name("2001:db8::5");
+        assert!(matches!(bare, ServerName::IpAddress(_)));
+
+        let dns_name = ws_tls_server_name("api.example.com");
+        assert!(matches!(dns_name, ServerName::DnsName(_)));
+        assert_eq!(dns_name.to_str().to_ascii_lowercase(), "api.example.com");
+    }
 
     // -----------------------------------------------------------------------
     // ws_default_port / ws_needs_tls (R6-1)

@@ -204,4 +204,106 @@ impl WorkspaceManager {
 
         Ok(workspace.clone())
     }
+
+    /// Overwrite the in-memory workspace with `snapshot` in full.
+    ///
+    /// Used to roll back after a failed DB write, where the patch-style
+    /// [`WorkspaceManager::update`] cannot express the restore: `None` there
+    /// means "field not present in this update", so a previously-unconfigured
+    /// `upstream_proxy`/`ssl_proxying` (snapshot value `None`) would leave the
+    /// never-persisted edit in memory — exactly the drift the rollback exists
+    /// to prevent.
+    pub fn restore(&self, snapshot: &WorkspaceData) -> Result<(), String> {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .unwrap_or_else(|e| recover_guard(e, "workspace_list"));
+
+        let workspace = workspaces
+            .iter_mut()
+            .find(|w| w.id == snapshot.id)
+            .ok_or_else(|| format!("workspace {} not found", snapshot.id))?;
+
+        *workspace = snapshot.clone();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WorkspaceData, WorkspaceManager};
+
+    fn sample(id: &str) -> WorkspaceData {
+        WorkspaceData {
+            id: id.to_string(),
+            name: "Sample".to_string(),
+            proxy_port: 8888,
+            ssl_enabled: true,
+            http2_enabled: true,
+            system_proxy_enabled: false,
+            verify_upstream_tls: false,
+            tls_verify_hosts: Vec::new(),
+            ssl_blind_hosts: Vec::new(),
+            upstream_proxy: None,
+            ssl_proxying: None,
+            storage_path: String::new(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn restore_clears_fields_the_patch_api_cannot_clear() {
+        // A workspace that never configured an upstream proxy applies an edit
+        // in memory, then the DB write fails. The rollback must be able to put
+        // `None` back — `update` would read the snapshot's `None` as "leave
+        // unchanged" and keep the never-persisted settings in memory.
+        let manager = WorkspaceManager::new();
+        manager.set_workspaces(vec![sample("default")]);
+        let before = manager.load("default").expect("workspace");
+
+        let proxy = aiproxy_proxy_core::UpstreamProxySettings {
+            enabled: true,
+            protocol: aiproxy_proxy_core::UpstreamProxyProtocol::Http,
+            host: "127.0.0.1".to_string(),
+            port: 7890,
+            username: None,
+            password: None,
+            bypass: Vec::new(),
+        };
+        manager
+            .update(
+                "default",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(proxy),
+                None,
+            )
+            .expect("update");
+
+        assert!(manager.load("default").unwrap().upstream_proxy.is_some());
+
+        manager.restore(&before).expect("restore");
+
+        let rolled_back = manager.load("default").expect("workspace");
+        assert!(
+            rolled_back.upstream_proxy.is_none(),
+            "restore must clear the never-persisted upstream proxy"
+        );
+        assert!(
+            rolled_back.updated_at == before.updated_at,
+            "restore puts back the snapshot, including its timestamp"
+        );
+    }
+
+    #[test]
+    fn restore_reports_unknown_workspaces() {
+        let manager = WorkspaceManager::new();
+        assert!(manager.restore(&sample("missing")).is_err());
+    }
 }

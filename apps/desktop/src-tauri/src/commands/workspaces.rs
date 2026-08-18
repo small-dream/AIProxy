@@ -226,14 +226,27 @@ pub async fn update_workspace(
     // `None` here means "field not present in this update", which the DB layer
     // reads as "keep the stored value" — distinct from an explicitly disabled
     // configuration, which serializes to a JSON object with `enabled: false`.
-    let upstream_proxy_json = input
-        .upstream_proxy
-        .as_ref()
-        .map(|settings| serde_json::to_string(settings).unwrap_or_default());
-    let ssl_proxying_json = input
-        .ssl_proxying
-        .as_ref()
-        .map(|settings| serde_json::to_string(settings).unwrap_or_default());
+    // A serialization failure must surface, not silently write `""` — the
+    // empty string is the DB's "never configured" marker and would turn a
+    // failed save into a settings reset.
+    let upstream_proxy_json = match input.upstream_proxy.as_ref() {
+        Some(settings) => Some(serde_json::to_string(settings).map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("serialize upstream proxy settings: {error}"),
+            )
+        })?),
+        None => None,
+    };
+    let ssl_proxying_json = match input.ssl_proxying.as_ref() {
+        Some(settings) => Some(serde_json::to_string(settings).map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("serialize SSL proxying settings: {error}"),
+            )
+        })?),
+        None => None,
+    };
 
     let app_state = Arc::clone(state.inner());
     let updated_at = workspace.updated_at.clone();
@@ -280,20 +293,21 @@ pub async fn update_workspace(
             Ok(workspace)
         }
         Err(error) => {
-            // Restore the prior in-memory state so memory matches the DB.
+            // Restore the prior in-memory state so memory matches the DB. The
+            // snapshot overwrite (not a patch-style update) is load-bearing: a
+            // workspace that had never configured an upstream proxy / SSL
+            // policy snapshots those as `None`, and the patch API would read
+            // that as "leave unchanged", keeping the never-persisted edit.
             if let Some(previous) = before.as_ref() {
-                let _ = manager.update(
-                    &previous.id,
-                    Some(previous.name.clone()),
-                    Some(previous.proxy_port),
-                    Some(previous.ssl_enabled),
-                    Some(previous.http2_enabled),
-                    Some(previous.verify_upstream_tls),
-                    Some(previous.tls_verify_hosts.clone()),
-                    Some(previous.ssl_blind_hosts.clone()),
-                    previous.upstream_proxy.clone(),
-                    previous.ssl_proxying.clone(),
-                );
+                if let Err(restore_error) = manager.restore(previous) {
+                    tracing::error!(
+                        component = "desktop.commands",
+                        event = "update_workspace_rollback_failed",
+                        workspace_id = %previous.id,
+                        error = %restore_error,
+                        "update_workspace_rollback_failed"
+                    );
+                }
             }
             Err(error)
         }

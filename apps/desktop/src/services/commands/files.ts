@@ -31,7 +31,7 @@ export async function pickAndReadHarFile(title: string): Promise<HarFileContents
     });
     return payload ?? null;
   } catch (error) {
-    reportCommandFailure("pick_and_read_har_file", error, title);
+    reportCommandFailure("pick_and_read_har_file", error);
     throw coerceAppError(error);
   }
 }
@@ -41,12 +41,17 @@ export type ResponseFileConflictStrategy = "latestOnly" | "keepAll";
 
 /** Summary of a completed `save_response_files` run. */
 export interface SaveResponseFilesResult {
+  /** The destination as the user picked it (not the canonicalized form used
+   *  internally for containment checks, which Windows renders as `\\?\...`). */
   directory: string;
   savedCount: number;
   /** Requests with nothing to save: WebSocket streams, empty bodies, or — under
    *  `latestOnly` — captures superseded by a newer one for the same path. */
   skippedCount: number;
   failedCount: number;
+  /** Files written whose captured body was clipped by the capture-size limit —
+   *  present on disk but only a prefix of the original response. */
+  truncatedCount: number;
 }
 
 export interface SaveResponseFilesInput {
@@ -84,7 +89,7 @@ export async function saveResponseFiles(
     });
     return payload ?? null;
   } catch (error) {
-    reportCommandFailure("save_response_files", error, input.title);
+    reportCommandFailure("save_response_files", error);
     throw coerceAppError(error);
   }
 }

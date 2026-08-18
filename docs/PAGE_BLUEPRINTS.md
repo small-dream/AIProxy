@@ -252,7 +252,9 @@ User right clicks a folder node (URL path branch) or a host node
    host target   = { label: host, sessions: visibleSessions filtered by host }
 -> SessionFolderContextMenu / DomainContextMenu opens at cursor position
 -> "Save All Files..." branches on hasSaveTargetConflicts(saveableSessions):
-   no collision -> skip the dialog, keepAll is equivalent to latestOnly
+   no collision -> skip the dialog; keepAll is the safe implicit choice (if the
+                   backend's normalization still collides two paths, suffixes
+                   preserve everything — see the heuristic note in UI_GUIDELINES)
    collision    -> SaveResponseFilesDialog asks for a conflict strategy
 -> invoke save_response_files({ sessionIds, conflictStrategy, title })
    -> backend opens the OS directory picker (renderer never supplies a path)
@@ -260,6 +262,12 @@ User right clicks a folder node (URL path branch) or a host node
       itself a directory
    -> backend sanitizes every segment
    -> backend writes raw response bytes, no base64 across IPC
+      latestOnly overwrites a previous export at the same path (refusing a
+        symbolic link in the file slot); keepAll creates new files atomically
+        (create_new) and suffixes on contention
+   -> result summary separates saved / skipped / failed / truncated, and the
+      page-level snackbar words each outcome accordingly (failed is never
+      reported as skipped)
 -> null result (picker cancelled) keeps the dialog open
 -> otherwise dialog closes and Snackbar reports saved / skipped counts
 ```
@@ -1051,7 +1059,9 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 - **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
 - **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
 - **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
-- **握手失败按原因分级**：客户端因绑定拒绝证书记为 `debug`（预期行为，且无法通过配置解决），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
+- **推荐列表不可用时锁定保存**：从未配置过策略的工作区以推荐列表为草稿底稿；该列表加载失败（或尚未加载完）时保存按钮禁用并给出警示——否则会把空 exclude 列表持久化，静默丢掉对已知绑定证书域名的防护。已配置过的工作区不受影响（草稿来自已存设置）。
+- **保存成功的提示不被工作区刷新擦除**：保存后 workspace 缓存失效重取会生成同 id 的新对象，重置草稿与反馈分别依赖不同信号（内容 vs id），成功消息因此保留。
+- **握手失败按原因分级**：客户端以证书类 alert 拒绝记为 `debug`（多为证书绑定，无法通过配置解决；措辞不断言绑定——OpenSSL 系栈会把部分链校验失败也映射为 `bad_certificate`），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
 
 ### 实现文件映射
 

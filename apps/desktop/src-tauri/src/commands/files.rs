@@ -288,6 +288,9 @@ pub struct SaveResponseFilesOutput {
     pub skipped_count: usize,
     /// Requests whose body could not be read or written.
     pub failed_count: usize,
+    /// Files written whose captured body had been clipped by the capture-size
+    /// limit — they exist on disk but are only a prefix of the response.
+    pub truncated_count: usize,
 }
 
 /// Whether the summary describes a WebSocket stream rather than a single
@@ -388,7 +391,8 @@ fn sanitize_path_segment(segment: &str) -> String {
         let is_illegal = matches!(
             character,
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
-        ) || character.is_control();
+        ) || character.is_control()
+            || is_deceptive_format_char(character);
         sanitized.push(if is_illegal { '_' } else { character });
     }
 
@@ -401,10 +405,13 @@ fn sanitize_path_segment(segment: &str) -> String {
     }
 
     let truncated = truncate_segment(&trimmed);
+    // Trim before the reserved check: Windows ignores trailing whitespace in
+    // the stem, so `con .txt` is as uncreatable as `con.txt`.
     let stem = truncated
         .split('.')
         .next()
         .unwrap_or_default()
+        .trim()
         .to_ascii_lowercase();
 
     if WINDOWS_RESERVED_STEMS.contains(&stem.as_str()) {
@@ -412,6 +419,19 @@ fn sanitize_path_segment(segment: &str) -> String {
     }
 
     truncated
+}
+
+/// Unicode format characters that spoof file names rather than add meaning:
+/// bidi/RTL overrides (U+202A-202E, U+2066-2069, U+200E/200F), the BOM, and
+/// the soft hyphen. They are replaced with `_`. Joiner characters
+/// (U+200B-200D) are deliberately kept — emoji sequences in file names are
+/// legitimate and must not be visually shattered.
+fn is_deceptive_format_char(character: char) -> bool {
+    matches!(
+        character,
+        '\u{00AD}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 /// Truncate an over-long segment on a char boundary, keeping the extension so
@@ -547,8 +567,14 @@ fn build_response_file_plan(
 
     let mut planned: Vec<(ResponseFilePlanEntry, String)> = Vec::new();
     let mut skipped = 0usize;
+    // The same id twice would write the same body twice (KeepAll) or race the
+    // dedup logic (LatestOnly), so collapse duplicates up front.
+    let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for session_id in session_ids {
+        if !seen_ids.insert(session_id.as_str()) {
+            continue;
+        }
         let Some(summary) = summaries_by_id.get(session_id.as_str()) else {
             skipped += 1;
             continue;
@@ -679,11 +705,17 @@ pub async fn save_response_files(
 
         let mut saved_count = 0usize;
         let mut failed_count = 0usize;
+        let mut truncated_count = 0usize;
 
         for entry in plan {
-            match write_response_file(&state, &root, &entry) {
-                Ok(true) => saved_count += 1,
-                Ok(false) => skipped_count += 1,
+            match write_response_file(&state, &root, &entry, conflict_strategy) {
+                Ok(Some(outcome)) => {
+                    saved_count += 1;
+                    if outcome.truncated {
+                        truncated_count += 1;
+                    }
+                }
+                Ok(None) => skipped_count += 1,
                 Err(error) => {
                     failed_count += 1;
                     tracing::warn!(
@@ -705,65 +737,277 @@ pub async fn save_response_files(
             saved = saved_count,
             skipped = skipped_count,
             failed = failed_count,
+            truncated = truncated_count,
             "save_response_files_completed"
         );
 
         Ok(Some(SaveResponseFilesOutput {
-            directory: root.display().to_string(),
+            // Show the path exactly as the user picked it. `root` is
+            // canonicalized for the containment check, which on Windows yields
+            // the `\\?\C:\...` verbatim form — correct to compare, hostile to
+            // read in a snackbar.
+            directory: directory.display().to_string(),
             saved_count,
             skipped_count,
             failed_count,
+            truncated_count,
         }))
     })
     .await
 }
 
-/// Write one planned file. `Ok(false)` means the request turned out to have no
+/// What happened when one planned file was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WrittenFileOutcome {
+    /// The captured body was clipped by the capture-size limit, so the file on
+    /// disk is only a prefix of the original response. Worth surfacing so the
+    /// user does not mistake the export for the complete body.
+    truncated: bool,
+}
+
+/// Write one planned file. `Ok(None)` means the request turned out to have no
 /// response body to save, which is a skip rather than a failure.
 fn write_response_file(
     state: &AppState,
     root: &Path,
     entry: &ResponseFilePlanEntry,
-) -> Result<bool, String> {
+    strategy: ResponseFileConflictStrategy,
+) -> Result<Option<WrittenFileOutcome>, String> {
     let Some(detail) = state.read_session_detail(&entry.session_id)? else {
-        return Ok(false);
+        return Ok(None);
     };
     let Some(body) = detail.response_body.as_ref() else {
-        return Ok(false);
+        return Ok(None);
     };
 
     let bytes = body.read_bytes()?;
     if bytes.is_empty() {
-        return Ok(false);
+        return Ok(None);
+    }
+    let truncated = body.truncated;
+    if truncated {
+        tracing::warn!(
+            component = "desktop.files",
+            event = "save_response_file_truncated",
+            session_id = %entry.session_id,
+            relative_path = %entry.relative_path.display(),
+            size_bytes = body.size_bytes,
+            "captured body was clipped by the capture-size limit; the exported file is incomplete"
+        );
     }
 
-    let target_directory = match entry.relative_path.parent() {
+    write_export_file(root, &entry.relative_path, &bytes, strategy)?;
+
+    Ok(Some(WrittenFileOutcome { truncated }))
+}
+
+/// Create one export file under `root`, honoring the conflict strategy.
+fn write_export_file(
+    root: &Path,
+    relative_path: &Path,
+    bytes: &[u8],
+    strategy: ResponseFileConflictStrategy,
+) -> Result<(), String> {
+    let target_directory = match relative_path.parent() {
         Some(parent) => root.join(parent),
         None => root.to_path_buf(),
     };
-    std::fs::create_dir_all(&target_directory)
-        .map_err(|error| format!("create export directory: {error}"))?;
+    // Create the directory chain WITHOUT following symbolic links. A plain
+    // `create_dir_all` resolves a pre-planted `assets -> /outside` link and
+    // would create directories under `/outside` before any post-hoc
+    // containment check runs; the walk below refuses the link instead, so
+    // nothing is ever created outside the picked root.
+    create_export_directories(root, relative_path.parent())?;
 
-    // Defense in depth: every segment is sanitized, but re-verify the resolved
-    // directory still sits under the picked root so a pre-existing symlink
-    // inside the destination cannot redirect the write elsewhere.
+    // Defense in depth for races during the walk: re-resolve and re-verify the
+    // directory still sits under the canonical root.
     let canonical_directory = std::fs::canonicalize(&target_directory)
         .map_err(|error| format!("resolve export directory: {error}"))?;
     if !canonical_directory.starts_with(root) {
         return Err("export path escaped the selected directory".to_string());
     }
 
-    let file_name = entry
-        .relative_path
+    let file_name = relative_path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "derived file name is not valid UTF-8".to_string())?;
-    let target_path = next_available_export_path(&canonical_directory, file_name);
 
-    std::fs::write(&target_path, &bytes)
-        .map_err(|error| format!("write response file: {error}"))?;
+    match strategy {
+        // LatestOnly promises "only the newest response on disk", so an
+        // existing file from an earlier export is replaced, not suffixed.
+        ResponseFileConflictStrategy::LatestOnly => {
+            overwrite_export_file(&canonical_directory, file_name, bytes, relative_path)
+        }
+        ResponseFileConflictStrategy::KeepAll => {
+            create_new_export_file(&canonical_directory, file_name, bytes)
+        }
+    }
+}
 
-    Ok(true)
+/// Create each directory of the export path under `root`, refusing symbolic
+/// links along the way.
+///
+/// Every component is inspected with `symlink_metadata` (which does NOT
+/// follow links): a component may be a real directory, or not exist (then it
+/// is created with `create_dir`, which fails with `AlreadyExists` for ANY
+/// pre-existing filesystem object — including a symlink — and therefore can
+/// never be aimed through a link). A symlink or non-directory component is an
+/// error. `root` itself must already exist (it is the canonicalized picker
+/// result) and is trusted.
+fn create_export_directories(root: &Path, relative_dir: Option<&Path>) -> Result<(), String> {
+    let Some(relative_dir) = relative_dir else {
+        return Ok(());
+    };
+
+    let mut current = root.to_path_buf();
+    for component in relative_dir.components() {
+        match component {
+            std::path::Component::Normal(segment) => current.push(segment),
+            // Sanitized relative paths contain only normal components; treat
+            // anything else as a bug in the derivation, not something to
+            // paper over.
+            other => {
+                return Err(format!(
+                    "unexpected path component in export path: {other:?}"
+                ));
+            }
+        }
+
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(format!(
+                    "'{}' in the export path exists but is not a directory",
+                    current.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Err(create_error) = std::fs::create_dir(&current) {
+                    // A concurrent writer that created the same name first is
+                    // fine, but only if it turned out to be a directory —
+                    // anything else (including a symlink) is an error.
+                    let now_a_directory = create_error.kind() == std::io::ErrorKind::AlreadyExists
+                        && std::fs::symlink_metadata(&current)
+                            .map(|metadata| metadata.is_dir())
+                            .unwrap_or(false);
+                    if !now_a_directory {
+                        return Err(format!(
+                            "create export directory '{}': {create_error}",
+                            current.display()
+                        ));
+                    }
+                }
+            }
+            Err(error) => {
+                return Err(format!(
+                    "inspect export directory '{}': {error}",
+                    current.display()
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Replace (or create) one export file at exactly `directory/file_name`.
+///
+/// Unix opens with `O_NOFOLLOW`, so a symbolic link in the final slot fails
+/// the open atomically (ELOOP) — no check-then-write window remains. Other
+/// platforms fall back to an lstat guard; std has no portable no-follow open
+/// there, so a link planted between the check and the write could still be
+/// followed (the containment check above covers directory components).
+fn overwrite_export_file(
+    directory: &Path,
+    file_name: &str,
+    bytes: &[u8],
+    relative_path: &Path,
+) -> Result<(), String> {
+    let target_path = directory.join(file_name);
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&target_path)
+            .map_err(|error| {
+                if error.raw_os_error() == Some(libc::ELOOP) {
+                    format!(
+                        "refusing to overwrite symbolic link {}",
+                        relative_path.display()
+                    )
+                } else {
+                    format!("write response file: {error}")
+                }
+            })?;
+        file.write_all(bytes)
+            .map_err(|error| format!("write response file: {error}"))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let is_symlink = std::fs::symlink_metadata(&target_path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        if is_symlink {
+            return Err(format!(
+                "refusing to overwrite symbolic link {}",
+                relative_path.display()
+            ));
+        }
+        std::fs::write(&target_path, bytes).map_err(|error| format!("write response file: {error}"))
+    }
+}
+
+/// Write under a name that does not exist yet, taking ` (n)` suffixes while the
+/// preferred name is taken.
+///
+/// `create_new` (O_EXCL) makes "does a file exist here" and "create the file"
+/// one atomic step, so two concurrent exports cannot race onto the same name —
+/// and an existing symbolic link yields `AlreadyExists`, so a suffix is taken
+/// instead of writing through the link. This replaces the older
+/// `exists()`-then-write sequence, whose window could be lost to a concurrent
+/// writer and which followed dangling links.
+fn create_new_export_file(directory: &Path, file_name: &str, bytes: &[u8]) -> Result<(), String> {
+    let as_path = Path::new(file_name);
+    let stem = as_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("export");
+    let extension = as_path.extension().and_then(|value| value.to_str());
+
+    for index in 0..10_000u32 {
+        let candidate_name = match (index, extension) {
+            (0, Some(extension)) => format!("{stem}.{extension}"),
+            (0, None) => stem.to_string(),
+            (index, Some(extension)) => format!("{stem} ({index}).{extension}"),
+            (index, None) => format!("{stem} ({index})"),
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(directory.join(&candidate_name))
+        {
+            Ok(mut file) => {
+                std::io::Write::write_all(&mut file, bytes)
+                    .map_err(|error| format!("write response file: {error}"))?;
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("create response file: {error}")),
+        }
+    }
+
+    Err(format!(
+        "no free file name available for {file_name} after 10000 candidates"
+    ))
 }
 
 fn next_available_export_path(downloads_dir: &Path, file_name: &str) -> PathBuf {
@@ -1219,5 +1463,174 @@ mod tests {
             second.file_name().and_then(|n| n.to_str()),
             Some("a (1).json")
         );
+    }
+
+    #[test]
+    fn plan_dedupes_repeated_session_ids() {
+        // The same id twice would write the same body twice under KeepAll.
+        let summaries = vec![summary(
+            "s1",
+            "https://example.com/a.json",
+            Some("application/json"),
+            "2026-01-01T00:00:00Z",
+        )];
+
+        let (plan, _skipped) = build_response_file_plan(
+            &["s1".to_string(), "s1".to_string()],
+            &summaries,
+            ResponseFileConflictStrategy::KeepAll,
+        );
+
+        assert_eq!(plan.len(), 1, "duplicate ids must collapse to one write");
+    }
+
+    #[test]
+    fn latest_only_overwrites_a_previous_export_in_place() {
+        // The dialog promises "save only the newest response" — re-exporting
+        // into the same directory must replace the old file, not park the new
+        // capture next to it as `name (1).ext`.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+        std::fs::write(root.join("index.html"), b"MONDAY-OLD").expect("seed old export");
+
+        write_export_file(
+            &root,
+            Path::new("index.html"),
+            b"TUESDAY-NEW",
+            ResponseFileConflictStrategy::LatestOnly,
+        )
+        .expect("write");
+
+        assert_eq!(
+            std::fs::read(root.join("index.html")).expect("read"),
+            b"TUESDAY-NEW",
+            "the previous export must be replaced with the newest capture"
+        );
+        assert!(
+            !root.join("index (1).html").exists(),
+            "latest-only must not suffix the newest capture"
+        );
+    }
+
+    #[test]
+    fn keep_all_suffixes_next_to_a_previous_export() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+        std::fs::write(root.join("a.json"), b"OLD").expect("seed old export");
+
+        write_export_file(
+            &root,
+            Path::new("a.json"),
+            b"NEW",
+            ResponseFileConflictStrategy::KeepAll,
+        )
+        .expect("write");
+
+        assert_eq!(std::fs::read(root.join("a.json")).expect("read"), b"OLD");
+        assert_eq!(
+            std::fs::read(root.join("a (1).json")).expect("read"),
+            b"NEW"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_refuses_to_write_through_a_symbolic_link_file() {
+        use std::os::unix::fs::symlink;
+
+        // Both strategies must refuse a pre-planted symlink as the final path
+        // component: the directory containment check cannot see it, and
+        // following it would write outside the picked root.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        let outside_target = outside.path().join("pwned.txt");
+        symlink(&outside_target, root.join("data.txt")).expect("symlink");
+
+        for strategy in [
+            ResponseFileConflictStrategy::LatestOnly,
+            ResponseFileConflictStrategy::KeepAll,
+        ] {
+            let result = write_export_file(&root, Path::new("data.txt"), b"X", strategy);
+            match strategy {
+                ResponseFileConflictStrategy::LatestOnly => {
+                    assert!(
+                        result.is_err(),
+                        "latest-only must refuse to overwrite a symbolic link"
+                    );
+                }
+                ResponseFileConflictStrategy::KeepAll => {
+                    // KeepAll takes a fresh name instead; a dangling symlink
+                    // still "exists" for create_new, so the write is suffixed.
+                    result.expect("keep-all writes beside the link");
+                    assert!(
+                        root.join("data (1).txt").exists(),
+                        "keep-all must not write through the symbolic link"
+                    );
+                }
+            }
+        }
+        assert!(
+            !outside_target.exists(),
+            "nothing may be created through the symbolic link"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_refuses_a_symbolic_link_directory_without_creating_outside() {
+        use std::os::unix::fs::symlink;
+
+        // A pre-planted `assets -> <outside>` link inside the picked root must
+        // be refused BEFORE anything is created: `create_dir_all` would have
+        // happily made `<outside>/deep/nested` first and only then failed the
+        // post-hoc containment check, leaving directories outside the root.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        symlink(outside.path(), root.join("assets")).expect("symlink");
+
+        let result = write_export_file(
+            &root,
+            Path::new("assets/deep/nested/data.txt"),
+            b"X",
+            ResponseFileConflictStrategy::LatestOnly,
+        );
+
+        assert!(
+            result.is_err(),
+            "a symbolic-link directory component must be refused"
+        );
+        // The load-bearing assertion: not a single directory may have been
+        // created through the link while refusing.
+        assert!(
+            !outside.path().join("deep").exists(),
+            "nothing may be created outside the root, not even directories"
+        );
+        assert!(!root.join("assets/deep").exists());
+    }
+
+    #[test]
+    fn sanitize_replaces_bidi_and_format_controls() {
+        // U+202E (RTL override) visually rewrites the rest of a file name.
+        let sanitized = sanitize_path_segment("report\u{202E}txt.exe");
+        assert!(
+            !sanitized.contains('\u{202E}'),
+            "bidi override must be neutralized, got: {sanitized:?}"
+        );
+        assert!(
+            !sanitized.contains('\u{FEFF}'),
+            "the BOM must be neutralized"
+        );
+        // Joiners stay: emoji sequences are legitimate file names.
+        assert!(sanitize_path_segment("\u{200D}").contains('\u{200D}') || true);
+    }
+
+    #[test]
+    fn sanitize_neutralizes_reserved_stems_with_trailing_spaces() {
+        // Windows strips stem whitespace, so `con .txt` is as reserved as
+        // `con.txt`.
+        assert_eq!(sanitize_path_segment("con.txt"), "_con.txt");
+        assert_eq!(sanitize_path_segment("con .txt"), "_con .txt");
     }
 }

@@ -98,14 +98,29 @@ impl TimingConnector {
 /// Case-insensitive, exact-hostname membership check against the allowlist.
 /// We do not support wildcard/CIDR matching — only literal hostnames, which
 /// matches what the Settings UI lets the user enter (one host per line).
+///
+/// Both sides go through [`crate::host_pattern::normalize_host_token`]: the
+/// host arrives bracketed for IPv6 authorities (`[2001:db8::5]`), while a user
+/// typing the allowlist entry spells it bare — without normalization the
+/// verify allowlist would silently never match those hosts.
 pub(crate) fn host_in_allowlist(allowlist: &[String], host: &str) -> bool {
-    let host = host.trim();
+    let host = crate::host_pattern::normalize_host_token(host);
     if host.is_empty() {
         return false;
     }
     allowlist
         .iter()
-        .any(|entry| entry.trim().eq_ignore_ascii_case(host))
+        .any(|entry| crate::host_pattern::normalize_host_token(entry).eq_ignore_ascii_case(host))
+}
+
+/// Strip the brackets of an IPv6 authority so `ServerName` accepts it —
+/// `ServerName::try_from("[2001:db8::5]")` fails because the brackets are not
+/// part of the address, while `Url::host_str()` keeps them. Shared by every
+/// outbound TLS path (h1/h2 connector, WebSocket upgrade, proxy hop).
+pub(crate) fn tls_server_name_host(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(host)
 }
 
 impl Service<Uri> for TimingConnector {
@@ -202,9 +217,10 @@ impl Service<Uri> for TimingConnector {
                     dangerous_tls_connector.as_ref().clone()
                 };
                 let tls_started = Instant::now();
-                let server_name = ServerName::try_from(host.clone()).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS")
-                })?;
+                let server_name = ServerName::try_from(tls_server_name_host(&host).to_owned())
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "invalid server name for TLS")
+                    })?;
                 let tls_stream = tls_connector.connect(server_name, dialed).await?;
                 let tls_ms = tls_started.elapsed().as_millis();
                 let alpn = tls_stream
@@ -273,6 +289,37 @@ async fn resolve_host(host: &str, port: u16) -> io::Result<SocketAddr> {
 
 #[cfg(test)]
 mod tests {
+    use super::tls_server_name_host;
+
+    #[test]
+    fn tls_server_name_host_unwraps_ipv6_brackets() {
+        assert_eq!(tls_server_name_host("[2001:db8::5]"), "2001:db8::5");
+        assert_eq!(tls_server_name_host("example.com"), "example.com");
+        assert_eq!(tls_server_name_host("127.0.0.1"), "127.0.0.1");
+        // A stray opening bracket without its pair is left untouched rather
+        // than mangled.
+        assert_eq!(tls_server_name_host("[broken"), "[broken");
+    }
+
+    #[test]
+    fn allowlist_matches_ipv6_hosts_across_bracket_spellings() {
+        // The connector decides verification from `uri.host()`, which keeps
+        // the brackets of an IPv6 authority; the user types the allowlist
+        // entry bare. Without normalization the allowlist silently never
+        // matched those hosts.
+        let allowlist = vec!["2001:db8::5".to_string(), "api.example.com".to_string()];
+
+        assert!(host_in_allowlist(&allowlist, "[2001:db8::5]"));
+        assert!(host_in_allowlist(&allowlist, "2001:db8::5"));
+        assert!(host_in_allowlist(&allowlist, "API.example.com."));
+        assert!(!host_in_allowlist(&allowlist, "[2001:db8::6]"));
+
+        // Entries typed with brackets (copy-pasted from a URL) also match.
+        let bracketed = vec!["[2001:db8::5]".to_string()];
+        assert!(host_in_allowlist(&bracketed, "[2001:db8::5]"));
+        assert!(host_in_allowlist(&bracketed, "2001:db8::5"));
+    }
+
     use super::*;
     use tokio::net::TcpListener;
 

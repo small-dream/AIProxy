@@ -45,13 +45,23 @@ pub fn default_ssl_proxying_exclusions() -> Vec<String> {
 }
 
 /// A resolved SSL proxying policy, consulted once per CONNECT.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SslProxyingConfig {
     /// When non-empty, only matching hosts are decrypted. Empty means "decrypt
     /// everything that is not excluded".
     pub include: Arc<[String]>,
     /// Hosts never decrypted, regardless of `include`.
     pub exclude: Arc<[String]>,
+}
+
+impl Default for SslProxyingConfig {
+    /// Mirrors [`SslProxyingSettings::default`] so "unconfigured" means the
+    /// same thing at every layer — most importantly the built-in exclusions
+    /// for known-pinning hosts. A derived empty/empty default would silently
+    /// intercept those and break the apps this policy exists to protect.
+    fn default() -> Self {
+        SslProxyingSettings::default().to_runtime_config()
+    }
 }
 
 impl SslProxyingConfig {

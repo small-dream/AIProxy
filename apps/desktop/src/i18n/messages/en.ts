@@ -356,6 +356,8 @@ export const enMessages = {
     excludeDescription:
       "Never decrypted, even when matched by Include. Supports exact hostnames, *.example.com suffixes, and CIDR ranges (literal IP targets only).",
     restoreRecommended: "Restore Recommended",
+    recommendationsUnavailable:
+      "The recommended exclusions could not be loaded yet. Saving stays disabled for workspaces that have not configured SSL proxying, so the built-in protections cannot be dropped by accident.",
     save: "Save",
     saving: "Saving...",
     saveSuccess: "SSL proxying settings saved.",
@@ -1225,18 +1227,21 @@ export const enMessages = {
       keepAllDescription: "Colliding names get a suffix, e.g. login.json, login (1).json.",
       latestOnly: "Keep only the last request",
       latestOnlyDescription:
-        "When the same file was captured several times, save only the newest response.",
+        "When the same file was captured several times, save only the newest response. Saving again into the same folder replaces the previous export.",
     },
     conflictTitle: "When the same file was requested more than once",
     layoutHint:
       "Folders mirror the URL path below the host; a missing extension is derived from the response type. WebSocket sessions and requests without a response body are skipped.",
     messages: {
+      allFailed: "No files could be saved to {{directory}}.",
       nothingSaved: "There was nothing to save.",
       saved: "Saved {{count}} files to {{directory}}.",
       savedPartial: "Saved {{count}} files to {{directory}}, skipped {{skipped}}.",
+      savedWithFailures: "Saved {{count}} files to {{directory}}; {{failed}} could not be written.",
+      truncatedNote: "{{count}} file(s) are incomplete — the captured body was truncated.",
     },
     pickerTitle: "Choose a folder to save the captured files",
-    summary: "About to save {{count}} requests under “{{label}}”.",
+    summary: "About to save {{count}} request(s) under “{{label}}”.",
     title: "Save Captured Files",
   },
   sessionsImport: {

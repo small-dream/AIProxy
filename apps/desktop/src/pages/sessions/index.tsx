@@ -512,23 +512,47 @@ export function SessionsPage() {
     (result: SaveResponseFilesResult) => {
       setSaveFilesTarget(null);
 
+      // A run where nothing was written is one of two very different
+      // outcomes: every write failed (a disk/permission problem worth its own
+      // message) versus genuinely nothing to save (WebSocket/empty bodies).
       if (result.savedCount === 0) {
-        showSnackbar(t("sessionsSaveFiles.messages.nothingSaved"));
+        showSnackbar(
+          result.failedCount > 0
+            ? t("sessionsSaveFiles.messages.allFailed", { directory: result.directory })
+            : t("sessionsSaveFiles.messages.nothingSaved"),
+        );
         return;
       }
 
-      showSnackbar(
-        result.skippedCount > 0 || result.failedCount > 0
-          ? t("sessionsSaveFiles.messages.savedPartial", {
+      // Write failures are never "skipped": skipped means there was nothing to
+      // write, failed means we tried and could not.
+      let message =
+        result.failedCount > 0
+          ? t("sessionsSaveFiles.messages.savedWithFailures", {
               count: result.savedCount,
               directory: result.directory,
-              skipped: result.skippedCount + result.failedCount,
+              failed: result.failedCount,
             })
-          : t("sessionsSaveFiles.messages.saved", {
-              count: result.savedCount,
-              directory: result.directory,
-            }),
-      );
+          : result.skippedCount > 0
+            ? t("sessionsSaveFiles.messages.savedPartial", {
+                count: result.savedCount,
+                directory: result.directory,
+                skipped: result.skippedCount,
+              })
+            : t("sessionsSaveFiles.messages.saved", {
+                count: result.savedCount,
+                directory: result.directory,
+              });
+
+      if (result.truncatedCount > 0) {
+        message +=
+          " " +
+          t("sessionsSaveFiles.messages.truncatedNote", {
+            count: result.truncatedCount,
+          });
+      }
+
+      showSnackbar(message);
     },
     [showSnackbar, t],
   );
@@ -553,7 +577,9 @@ export function SessionsPage() {
         return;
       }
 
-      // No collisions, so keepAll and latestOnly are equivalent here.
+      // The precheck found no collisions. keepAll is the safe implicit choice:
+      // if the backend's normalization still collides two paths (see
+      // `hasSaveTargetConflicts`), suffixes preserve everything.
       void saveResponseFiles({
         sessionIds: saveableSessions.map((session) => session.id),
         conflictStrategy: "keepAll",
@@ -565,7 +591,9 @@ export function SessionsPage() {
           }
         })
         .catch((error: unknown) => {
-          showSnackbar(error instanceof Error ? error.message : t("common.errors.unexpected"));
+          // Command wrappers throw plain `AppError` objects (never `Error`
+          // instances); extract the message the way the rest of the app does.
+          showSnackbar(coerceAppError(error).message.trim() || t("common.errors.generic"));
         });
     },
     [handleSaveFilesCompleted, showSnackbar, t],

@@ -4360,6 +4360,147 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
     );
 }
 
+#[tokio::test]
+async fn ssl_proxying_policy_routes_excluded_connect_to_blind_relay() {
+    // Server-wiring coverage for the per-host policy: with a TLS manager
+    // present (interception available), a host the exclude list rejects must
+    // be blind-relayed — plaintext written after CONNECT comes back echoed —
+    // while a host the policy allows is handed to the TLS acceptor instead,
+    // where plaintext is NOT echoed. If the wiring regressed (policy ignored),
+    // the excluded half would fail the TLS handshake and the echo never
+    // arrives; if everything were blind-relayed, the allowed half would echo.
+    fn test_tls_manager() -> Arc<crate::types::TlsManager> {
+        let root_ca = aiproxy_tls_manager::RootCaPair::generate().unwrap();
+        let storage = Arc::new(aiproxy_tls_manager::CertStorage::new_in_temp_dir());
+        let server_config = root_ca.create_server_config(&storage, None).unwrap();
+        Arc::new(crate::types::TlsManager {
+            root_ca,
+            storage,
+            server_config,
+            http2_enabled: false,
+        })
+    }
+
+    let echo_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let echo_port = echo_listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        // Accept every incoming connection and echo whatever arrives.
+        loop {
+            let Ok((mut stream, _)) = echo_listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 64];
+                loop {
+                    match stream.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let _ = stream.write_all(&buf[..n]).await;
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: true,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: Some(Arc::new(
+                    crate::ssl_proxying::SslProxyingSettings {
+                        include: Vec::new(),
+                        exclude: vec!["127.0.0.1".to_string()],
+                    }
+                    .to_runtime_config(),
+                )),
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: Some(test_tls_manager()),
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Excluded host: blind relay. Piggyback plaintext right after the CONNECT
+    // head so the leftover-replay path carries it, then expect it echoed.
+    let mut excluded_client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    excluded_client
+        .write_all(format!("CONNECT 127.0.0.1:{echo_port} HTTP/1.1\r\n\r\nPING").as_bytes())
+        .await
+        .unwrap();
+    let mut head = vec![0u8; 4096];
+    let head_len = excluded_client.read(&mut head).await.unwrap();
+    let head_text = String::from_utf8_lossy(&head[..head_len]).to_string();
+    assert!(
+        head_text.starts_with("HTTP/1.1 200"),
+        "excluded CONNECT must still be answered with 200, got: {head_text}"
+    );
+    let mut echo = Vec::new();
+    let mut buf = [0u8; 16];
+    loop {
+        let n = timeout(Duration::from_millis(2_000), excluded_client.read(&mut buf))
+            .await
+            .expect("blind relay must echo the plaintext leftover")
+            .unwrap();
+        echo.extend_from_slice(&buf[..n]);
+        if echo.len() >= 4 {
+            break;
+        }
+    }
+    assert_eq!(
+        &echo[..4],
+        b"PING",
+        "leftover plaintext must survive the blind relay"
+    );
+    drop(excluded_client);
+
+    // Allowed host: MITM. The same plaintext now reaches the TLS acceptor, so
+    // it must NOT come back as an echo.
+    let mut allowed_client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    allowed_client
+        .write_all(format!("CONNECT localhost:{echo_port} HTTP/1.1\r\n\r\nPING").as_bytes())
+        .await
+        .unwrap();
+    let mut mitm_buf = [0u8; 16];
+    match timeout(
+        Duration::from_millis(500),
+        allowed_client.read(&mut mitm_buf),
+    )
+    .await
+    {
+        Ok(Ok(n)) => {
+            assert_ne!(
+                &mitm_buf[..n],
+                &b"PING"[..],
+                "policy-allowed host must be intercepted, not blind-relayed"
+            );
+        }
+        Ok(Err(_)) | Err(_) => {
+            // Connection closed or no data within the window — both are the
+            // MITM outcome: the TLS acceptor swallowed the plaintext.
+        }
+    }
+
+    started_proxy.server_handle.shutdown().await;
+}
+
 // ---------------------------------------------------------------------------
 // H9: WebSocket relay must terminate after Close even without peer closeback
 // ---------------------------------------------------------------------------
@@ -4972,6 +5113,39 @@ fn h2_forbidden_headers_do_not_over_match_ordinary_headers() {
     }
 }
 
+#[test]
+fn h2_request_uri_is_absolute_without_userinfo_or_fragment() {
+    use crate::upstream::h2_request_uri;
+
+    // Absolute form with the authority intact — `:authority` is derived from
+    // this URI, so origin-form here would leave the request without one.
+    let url = url::Url::parse("https://example.com/api/v1?x=1").unwrap();
+    assert_eq!(h2_request_uri(&url), "https://example.com/api/v1?x=1");
+
+    // Non-default ports must survive into the authority.
+    let url = url::Url::parse("https://example.com:8443/a").unwrap();
+    assert_eq!(h2_request_uri(&url), "https://example.com:8443/a");
+
+    // Credentials (deprecated userinfo, forbidden in `:authority` per RFC
+    // 9113 §8.3.1) and the fragment must not leak into the URI.
+    let url = url::Url::parse("https://user:pass@example.com/a?x=1#frag").unwrap();
+    assert_eq!(h2_request_uri(&url), "https://example.com/a?x=1");
+
+    // IPv6 authorities keep their brackets; `Url` drops the default port,
+    // which is semantically equivalent.
+    let url = url::Url::parse("https://[2001:db8::5]:8443/a").unwrap();
+    assert_eq!(h2_request_uri(&url), "https://[2001:db8::5]:8443/a");
+    let url = url::Url::parse("https://[2001:db8::5]/a").unwrap();
+    assert_eq!(h2_request_uri(&url), "https://[2001:db8::5]/a");
+
+    // The result must remain a URI http accepts (a regression here would
+    // otherwise surface as a send-time builder failure per request).
+    let uri: http::Uri = h2_request_uri(&url).parse().unwrap();
+    assert_eq!(uri.host(), Some("[2001:db8::5]"));
+    assert_eq!(uri.port(), None);
+    assert_eq!(uri.path(), "/a");
+}
+
 // ---------------------------------------------------------------------------
 // SSL proxying policy
 // ---------------------------------------------------------------------------
@@ -5032,6 +5206,52 @@ fn ssl_proxying_include_list_switches_to_allowlist_mode() {
     // Anything not listed is relayed blind once an include list exists.
     assert!(!policy.should_intercept("other.com"));
     assert!(!policy.should_intercept("sub.single.test"));
+}
+
+#[test]
+fn ssl_proxying_runtime_default_keeps_recommended_exclusions() {
+    // The runtime config's Default must mirror SslProxyingSettings::default(),
+    // not derive empty/empty — otherwise a caller resolving "unconfigured"
+    // through the config type silently intercepts the known-pinning hosts.
+    let policy = crate::ssl_proxying::SslProxyingConfig::default();
+    assert!(
+        policy.include.is_empty(),
+        "default must not be an allowlist"
+    );
+    assert!(
+        !policy.should_intercept("api22-normal-c-alisg.tiktokv.com"),
+        "runtime default must keep the recommended exclusions"
+    );
+    assert!(policy.should_intercept("example.com"));
+}
+
+#[test]
+fn ssl_proxying_exact_ipv6_patterns_match_bracketed_connect_hosts() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // `server.rs` derives the policy host from `Url::host_str()`, which keeps
+    // the `[...]` brackets of an IPv6 authority. An exact pattern spelled the
+    // way a user (or the defaults) would type it must still take effect.
+    let policy = SslProxyingSettings {
+        include: Vec::new(),
+        exclude: vec!["2001:db8::5".to_string()],
+    }
+    .to_runtime_config();
+
+    assert!(
+        !policy.should_intercept("[2001:db8::5]"),
+        "bracketed CONNECT host must match the bare exclude pattern"
+    );
+    assert!(policy.should_intercept("[2001:db8::6]"));
+
+    let allowlist = SslProxyingSettings {
+        include: vec!["2001:db8::5".to_string()],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(allowlist.should_intercept("[2001:db8::5]"));
+    assert!(!allowlist.should_intercept("[2001:db8::6]"));
 }
 
 #[test]
@@ -5110,8 +5330,8 @@ fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
     ] {
         assert_eq!(
             classify_client_handshake_error(&as_io(rustls::Error::AlertReceived(alert))),
-            ClientHandshakeRejection::Pinned,
-            "{alert:?} means the chain verified but the cert was refused anyway"
+            ClientHandshakeRejection::CertificateRejected,
+            "{alert:?} means the cert was refused after the handshake reached it"
         );
     }
 

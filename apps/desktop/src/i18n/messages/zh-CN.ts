@@ -347,6 +347,8 @@ export const zhCNMessages: Messages = {
     excludeDescription:
       "始终不解密，即使命中包含列表也一样。支持精确域名、*.example.com 后缀通配，以及 CIDR 网段（仅对 IP 字面量目标生效）。",
     restoreRecommended: "恢复推荐列表",
+    recommendationsUnavailable:
+      "推荐排除列表尚未加载成功。尚未配置过 SSL 代理的工作区暂不能保存，以免内置的防护列表被意外清空。",
     save: "保存",
     saving: "保存中…",
     saveSuccess: "SSL 代理设置已保存。",
@@ -1171,15 +1173,19 @@ export const zhCNMessages: Messages = {
       keepAll: "保存所有请求",
       keepAllDescription: "重名文件自动加序号，例如 login.json、login (1).json。",
       latestOnly: "只保留最后一次请求",
-      latestOnlyDescription: "同一个文件被抓到多次时，只保存最新的那次响应。",
+      latestOnlyDescription:
+        "同一个文件被抓到多次时，只保存最新的那次响应；再次保存到同一目录会覆盖上次的导出。",
     },
     conflictTitle: "同一个文件被多次请求时",
     layoutHint:
       "按域名以下的 URL 路径还原目录层级，不额外创建域名目录；URL 没有扩展名时按响应类型补全。WebSocket 会话和没有响应内容的请求会自动跳过。",
     messages: {
+      allFailed: "没有文件成功保存到 {{directory}}。",
       nothingSaved: "没有可保存的文件。",
       saved: "已保存 {{count}} 个文件到 {{directory}}。",
       savedPartial: "已保存 {{count}} 个文件到 {{directory}}，跳过 {{skipped}} 个。",
+      savedWithFailures: "已保存 {{count}} 个文件到 {{directory}}，{{failed}} 个写入失败。",
+      truncatedNote: "{{count}} 个文件不完整——捕获的响应体被截断。",
     },
     pickerTitle: "选择保存抓包文件的目录",
     summary: "准备保存「{{label}}」下的 {{count}} 个请求。",

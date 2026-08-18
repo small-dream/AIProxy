@@ -205,7 +205,15 @@ impl UpstreamConnectionPool {
             tls_verify_hosts,
             upstream_proxy,
         );
-        let uri: http::Uri = format!("https://{}:{}", key.host, key.port)
+        // IPv6 literals need their brackets in the authority. `key.host` keeps
+        // the brackets when it came from a URL authority, but guard against the
+        // bare spelling too — `https://::1:443/` is not a parseable URI.
+        let authority_host = if key.host.contains(':') && !key.host.starts_with('[') {
+            format!("[{}]", key.host)
+        } else {
+            key.host.clone()
+        };
+        let uri: http::Uri = format!("https://{authority_host}:{}", key.port)
             .parse()
             .map_err(|e| format!("invalid upstream URI for pool: {e}"))?;
 

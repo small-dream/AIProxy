@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-db"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "dirs",
  "proptest",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-desktop"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "aiproxy-db",
  "aiproxy-proxy-core",
@@ -53,6 +53,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs",
+ "libc",
  "mime_guess",
  "percent-encoding",
  "reqwest 0.12.28",
@@ -80,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-proxy-core"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "aiproxy-rule-engine",
  "aiproxy-sys-util",
@@ -120,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-rule-engine"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64 0.22.1",
  "deno_ast",
@@ -133,11 +134,11 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-sys-util"
-version = "0.1.14"
+version = "0.1.15"
 
 [[package]]
 name = "aiproxy-tls-manager"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "aiproxy-sys-util",
  "base64 0.22.1",

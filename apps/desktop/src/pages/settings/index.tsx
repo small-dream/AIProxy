@@ -533,9 +533,16 @@ function UpstreamProxySection() {
 
   useEffect(() => {
     setDraft(createUpstreamProxyDraft(currentWorkspace));
-    setFeedback(null);
     setTestResult(null);
   }, [currentWorkspace]);
+
+  // Clear feedback only when the workspace identity changes, not its content:
+  // the post-save refetch produces a new object for the same id, and wiping
+  // feedback there would erase the success message handleSave just set.
+  const feedbackResetKey = currentWorkspace?.id ?? null;
+  useEffect(() => {
+    setFeedback(null);
+  }, [feedbackResetKey]);
 
   function patchDraft(patch: Partial<UpstreamProxyDraft>) {
     setDraft((previous) => ({ ...previous, ...patch }));
@@ -869,7 +876,7 @@ function SslProxyingSection() {
   );
 
   // Served by the backend so the recommended list has one source of truth.
-  const { data } = useQuery({
+  const { data, isError: isRecommendationsError } = useQuery({
     queryKey: ["ssl-proxying", "default-exclusions"],
     queryFn: loadDefaultSslProxyingExclusions,
     staleTime: Infinity,
@@ -887,8 +894,15 @@ function SslProxyingSection() {
 
   useEffect(() => {
     setDraft(createSslProxyingDraft(currentWorkspace, recommendedExclusions));
-    setFeedback(null);
   }, [currentWorkspace, recommendedExclusions]);
+
+  // Clear feedback only when the workspace identity changes, not its content:
+  // the post-save refetch produces a new object for the same id, and wiping
+  // feedback there would erase the success message handleSave just set.
+  const feedbackResetKey = currentWorkspace?.id ?? null;
+  useEffect(() => {
+    setFeedback(null);
+  }, [feedbackResetKey, recommendedExclusions]);
 
   function patchDraft(patch: Partial<SslProxyingDraft>) {
     setDraft((previous) => ({ ...previous, ...patch }));
@@ -946,10 +960,26 @@ function SslProxyingSection() {
 
   const isBusy = updateWorkspaceMutation.isPending || startProxyMutation.isPending;
 
+  // An unconfigured workspace drafts the recommended exclusions from this
+  // query. While that list is unavailable (failed or still loading), saving
+  // would persist an empty exclude list and silently drop the protections for
+  // known-pinning hosts — block it until the list arrives. Workspaces that
+  // already saved a policy are unaffected: their draft comes from the stored
+  // settings.
+  const isUnconfigured = currentWorkspace?.sslProxying == null;
+  const recommendationsUnavailable = data == null;
+  const saveBlocked = isUnconfigured && recommendationsUnavailable;
+
   return (
     <SectionCard compact title={t("sslProxying.title")} description={t("sslProxying.description")}>
       <Stack spacing={1.5}>
         {isWorkspacesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
+
+        {(isRecommendationsError || saveBlocked) && (
+          <Alert severity="warning" variant="outlined" sx={compactAlertSx}>
+            {t("sslProxying.recommendationsUnavailable")}
+          </Alert>
+        )}
 
         {isSslDisabled && (
           <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
@@ -987,7 +1017,9 @@ function SslProxyingSection() {
               variant="contained"
               startIcon={<SaveRoundedIcon />}
               onClick={() => void handleSave()}
-              disabled={!currentWorkspace || isBusy || !hasChanges || isWorkspacesError}
+              disabled={
+                !currentWorkspace || isBusy || !hasChanges || isWorkspacesError || saveBlocked
+              }
               sx={{ minHeight: 34, px: 1.75 }}
             >
               {isBusy ? t("sslProxying.saving") : t("sslProxying.save")}

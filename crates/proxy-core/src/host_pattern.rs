@@ -12,6 +12,8 @@ use std::net::IpAddr;
 /// Supported pattern forms:
 /// - `*` — match everything.
 /// - `example.com` — exact hostname, case-insensitive.
+/// - `2001:db8::5` — exact IPv6 literal; the bracketed spelling
+///   (`[2001:db8::5]`) and a trailing FQDN dot are accepted on both sides.
 /// - `*.example.com` / `.example.com` — the domain itself and any subdomain.
 /// - `192.168.0.0/16` / `fd00::/8` — CIDR, matched only when the target is a
 ///   literal IP. Hostnames are never resolved to decide a match: doing so would
@@ -21,21 +23,15 @@ use std::net::IpAddr;
 /// An empty list never matches; callers decide what "no patterns" means for
 /// their feature.
 pub fn matches_any(patterns: &[String], host: &str) -> bool {
-    // A trailing dot is a legal FQDN spelling; normalize it away. Bracketed
-    // IPv6 literals (`[::1]`) arrive from URL authorities.
-    let host = host.trim().trim_end_matches('.');
+    let host = normalize_host_token(host);
     if host.is_empty() {
         return false;
     }
     let host_lower = host.to_ascii_lowercase();
-    let host_ip = host_lower
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<IpAddr>()
-        .ok();
+    let host_ip = host_lower.parse::<IpAddr>().ok();
 
     patterns.iter().any(|pattern| {
-        let pattern = pattern.trim();
+        let pattern = normalize_host_token(pattern);
         if pattern.is_empty() {
             return false;
         }
@@ -63,6 +59,24 @@ pub fn matches_any(patterns: &[String], host: &str) -> bool {
 
         host_lower == pattern_lower
     })
+}
+
+/// Normalize a host or pattern token before comparison: trim whitespace, strip
+/// the brackets of an IPv6 literal, and drop a trailing FQDN dot.
+///
+/// Hosts arrive bracketed from URL authorities (`http::Uri::host()` and
+/// `url::Url::host_str()` both keep `[...]`), while users and the built-in
+/// pattern lists spell IPv6 addresses bare (`::1`). Comparing the normalized
+/// form on both sides makes every spelling match; a bracketed *pattern*
+/// (`[::1]`) is accepted for symmetry with copy-pasted authorities.
+pub(crate) fn normalize_host_token(value: &str) -> &str {
+    let trimmed = value.trim();
+    let unbracketed = if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        &trimmed[1..trimmed.len() - 1]
+    } else {
+        trimmed
+    };
+    unbracketed.trim_end_matches('.')
 }
 
 /// Whether `ip` falls inside `network/prefix_len`. Mixed address families never

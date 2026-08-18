@@ -100,6 +100,28 @@ pub(crate) fn is_h2_forbidden_request_header(name: &str) -> bool {
         .any(|forbidden| name.eq_ignore_ascii_case(forbidden))
 }
 
+/// Build the absolute-form request URI for the h2 branch.
+///
+/// `:authority` is derived from this URI, so it must be absolute — but it must
+/// also exclude the deprecated userinfo component (`user:pass@`, forbidden in
+/// `:authority` by RFC 9113 §8.3.1) and the fragment, both of which
+/// `Url::as_str()` would keep. `Url` never serializes a default port, which is
+/// semantically equivalent, and `host_str()` keeps IPv6 brackets — valid in an
+/// authority.
+pub(crate) fn h2_request_uri(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    let mut uri = match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
+    };
+    uri.push_str(url.path());
+    if let Some(query) = url.query() {
+        uri.push('?');
+        uri.push_str(query);
+    }
+    uri
+}
+
 // ---------------------------------------------------------------------------
 // Upstream request forwarding & response handling
 // ---------------------------------------------------------------------------
@@ -185,11 +207,17 @@ pub(crate) async fn forward_request(
         .method(request.method.clone())
         .uri(&request_target);
 
-    // Copy request headers.
+    // Copy request headers as raw `HeaderValue`s so legal non-UTF-8 bytes
+    // (obs-text, RFC 9110 §5.5) survive the copy; a `to_str()` round-trip
+    // would silently drop such headers entirely.
     for (name, value) in &request.headers {
-        if let Ok(v) = value.to_str() {
-            http_req_builder = http_req_builder.header(name.as_str(), v);
+        if name == http::header::HOST {
+            // Re-added explicitly below so it always matches `request.host`.
+            // `Builder::header` appends, so copying the captured value here
+            // as well would send a duplicate Host header.
+            continue;
         }
+        http_req_builder = http_req_builder.header(name.clone(), value.clone());
     }
     // Ensure Host header matches the original request host.
     let host_header = match request.url.port() {
@@ -228,9 +256,9 @@ pub(crate) async fn forward_request(
             // unlike the origin-form request-target the h1 branch uses.
             let mut builder = http::Request::builder()
                 .method(request.method.clone())
-                .uri(request.url.as_str());
+                .uri(h2_request_uri(&request.url));
             for (name, value) in &request.headers {
-                // RFC 9113 §8.2.1/§8.3.1: an h2 request must not carry `Host`
+                // RFC 9113 §8.2.2/§8.3.1: an h2 request must not carry `Host`
                 // (it is replaced by `:authority`) nor any connection-specific
                 // header. Strict servers reject the whole stream with
                 // PROTOCOL_ERROR when they appear — Google's endpoints do,
@@ -239,9 +267,9 @@ pub(crate) async fn forward_request(
                 if is_h2_forbidden_request_header(name.as_str()) {
                     continue;
                 }
-                if let Ok(v) = value.to_str() {
-                    builder = builder.header(name.as_str(), v);
-                }
+                // Raw values keep legal non-UTF-8 bytes (obs-text) instead of
+                // dropping the header.
+                builder = builder.header(name.clone(), value.clone());
             }
             if request.body.is_empty() {
                 builder

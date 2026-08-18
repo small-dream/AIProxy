@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@aiproxy/shared-types";
+import { coerceAppError, type SessionSummary } from "@aiproxy/shared-types";
 import {
   Alert,
   Button,
@@ -88,7 +88,10 @@ export function SaveResponseFilesDialog({
       onCompleted(result);
       onClose();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t("common.errors.unexpected"));
+      // Command wrappers throw plain `AppError` objects (never `Error`
+      // instances), so the real message has to come through `coerceAppError` —
+      // e.g. the backend's "Cannot save more than 20000 files at once."
+      setErrorMessage(coerceAppError(error).message.trim() || t("common.errors.generic"));
     } finally {
       setIsSaving(false);
     }

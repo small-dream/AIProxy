@@ -15,10 +15,13 @@ pub(crate) enum ClientHandshakeRejection {
     /// certificate is not installed, or not trusted for TLS on the device.
     /// Actionable, so it stays visible in the log.
     UntrustedRoot,
-    /// The client built the chain fine but rejected the certificate anyway,
-    /// which is what certificate pinning looks like from this side. Expected
-    /// for pinned hosts and not worth a warning per connection.
-    Pinned,
+    /// The client rejected the certificate with a cert-specific alert.
+    /// Usually certificate pinning (nothing the user can change will make it
+    /// succeed), but be careful: OpenSSL-derived stacks also map some
+    /// chain-validation failures (invalid CA, untrusted leaf) to
+    /// `bad_certificate`, so this class must not be *reported* as pinning —
+    /// only as "certificate rejected". Not worth a warning per connection.
+    CertificateRejected,
     /// Anything else: a protocol-level failure, a truncated handshake, I/O.
     Other,
 }
@@ -42,10 +45,14 @@ pub(crate) fn classify_client_handshake_error(error: &std::io::Error) -> ClientH
             rustls::AlertDescription::UnknownCA => ClientHandshakeRejection::UntrustedRoot,
             // "Chain verified, certificate still unacceptable" — the alert a
             // pinning implementation sends. `BadCertificate` and `AccessDenied`
-            // show up from stricter stacks for the same reason.
+            // show up from stricter stacks for the same reason; OpenSSL-based
+            // stacks also use `bad_certificate` for chain failures, hence the
+            // deliberately non-committal variant name.
             rustls::AlertDescription::CertificateUnknown
             | rustls::AlertDescription::BadCertificate
-            | rustls::AlertDescription::AccessDenied => ClientHandshakeRejection::Pinned,
+            | rustls::AlertDescription::AccessDenied => {
+                ClientHandshakeRejection::CertificateRejected
+            }
             _ => ClientHandshakeRejection::Other,
         },
         _ => ClientHandshakeRejection::Other,
@@ -415,20 +422,22 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         Ok(stream) => stream,
         Err(error) => {
             match classify_client_handshake_error(&error) {
-                // The client is pinning. Nothing is wrong with our setup and
-                // nothing the user can change will make it succeed, so a
-                // warning per connection is pure noise — the actionable advice
-                // is to add the host to the SSL proxying exclude list, which
-                // the message says once, at debug level.
-                ClientHandshakeRejection::Pinned => {
+                // Most often certificate pinning, in which case nothing the
+                // user can change will make it succeed and a warning per
+                // connection is pure noise. Not asserted as pinning though:
+                // OpenSSL-derived stacks reuse `bad_certificate` for
+                // chain-validation failures, which the untrusted-root branch
+                // next to this one covers when the client sends `unknown_ca`.
+                ClientHandshakeRejection::CertificateRejected => {
                     tracing::debug!(
                         event = "tls_handshake_rejected_by_client",
                         host = %host,
                         port = port,
                         error = %error,
-                        "client rejected our certificate despite trusting the root CA \
-                         (certificate pinning); exclude this host from SSL proxying to \
-                         let it connect"
+                        "client rejected our certificate (certificate pinning, or strict \
+                         validation); exclude this host from SSL proxying to let a pinned \
+                         client connect — if captures fail broadly, verify the root CA is \
+                         installed"
                     );
                 }
                 // This one IS fixable: the root CA is missing or not trusted on

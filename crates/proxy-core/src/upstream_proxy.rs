@@ -449,16 +449,18 @@ async fn tls_wrap_proxy_hop(
     let client_config =
         aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(vec![], true);
     let connector = tokio_rustls::TlsConnector::from(client_config);
-    let server_name =
-        rustls::pki_types::ServerName::try_from(proxy.host.clone()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "upstream proxy host '{}' is not a valid TLS server name",
-                    proxy.host
-                ),
-            )
-        })?;
+    // Accept an IPv6 proxy host spelled with brackets (the settings UI takes
+    // free-form text) — `ServerName` rejects the bracketed form.
+    let server_name_host = crate::timing_connector::tls_server_name_host(&proxy.host).to_owned();
+    let server_name = rustls::pki_types::ServerName::try_from(server_name_host).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "upstream proxy host '{}' is not a valid TLS server name",
+                proxy.host
+            ),
+        )
+    })?;
     let tls_stream = connector.connect(server_name, tcp).await.map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -495,8 +497,7 @@ where
     stream.write_all(request.as_bytes()).await?;
     stream.flush().await?;
 
-    let head = read_connect_response_head(stream).await?;
-    let status = parse_status_code(&head).ok_or_else(|| {
+    let malformed_head_error = || {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
@@ -504,7 +505,28 @@ where
                 proxy.host, proxy.port
             ),
         )
-    })?;
+    };
+    let mut head = read_connect_response_head(stream).await?;
+    let mut status = parse_status_code(&head).ok_or_else(malformed_head_error)?;
+
+    // Interim 1xx responses (100/102/103) are legal before the final one —
+    // some Squid configurations send them. Keep reading until a final status
+    // arrives, with a bound so a broken proxy cannot loop forever.
+    let mut interim_responses = 0usize;
+    while (100..200).contains(&status) {
+        interim_responses += 1;
+        if interim_responses >= 10 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "upstream proxy {}:{} sent {interim_responses} interim CONNECT responses without a final one",
+                    proxy.host, proxy.port
+                ),
+            ));
+        }
+        head = read_connect_response_head(stream).await?;
+        status = parse_status_code(&head).ok_or_else(malformed_head_error)?;
+    }
 
     if !(200..300).contains(&status) {
         // 407 is by far the most common misconfiguration, so name it.
@@ -1013,6 +1035,29 @@ mod tests {
     }
 
     #[test]
+    fn bypass_exact_ipv6_matches_bracketed_authority_hosts() {
+        // Both egress callers hand the host down as it appears in the URL
+        // authority — bracketed for IPv6 (`http::Uri::host()` keeps `[...]`).
+        // A bare pattern must therefore match a bracketed host, and a
+        // copy-pasted bracketed pattern must match a bare host.
+        let patterns = vec!["2001:db8::5".to_string()];
+        assert!(bypass_matches(&patterns, "2001:db8::5"));
+        assert!(bypass_matches(&patterns, "[2001:db8::5]"));
+        let bracketed_patterns = vec!["[2001:db8::5]".to_string()];
+        assert!(bypass_matches(&bracketed_patterns, "2001:db8::5"));
+        assert!(!bypass_matches(&patterns, "2001:db8::6"));
+    }
+
+    #[test]
+    fn bypass_matches_trailing_dot_pattern_spelling() {
+        // A trailing dot is legal in a pattern too (FQDN spelling).
+        let patterns = vec!["example.com.".to_string()];
+        assert!(bypass_matches(&patterns, "example.com"));
+        assert!(bypass_matches(&patterns, "EXAMPLE.com."));
+        assert!(!bypass_matches(&patterns, "api.example.com"));
+    }
+
+    #[test]
     fn bypass_cidr_zero_prefix_matches_whole_family() {
         // /0 must not trip the shift-overflow special case.
         assert!(bypass_matches(&["0.0.0.0/0".to_string()], "8.8.8.8"));
@@ -1047,6 +1092,9 @@ mod tests {
         assert!(bypass_matches(&patterns, "localhost"));
         assert!(bypass_matches(&patterns, "127.0.0.1"));
         assert!(bypass_matches(&patterns, "::1"));
+        // The live egress paths see IPv6 authorities bracketed; the default
+        // `::1` pattern must still keep loopback off the upstream proxy.
+        assert!(bypass_matches(&patterns, "[::1]"));
         assert!(bypass_matches(&patterns, "my-mac.local"));
         assert!(!bypass_matches(&patterns, "example.com"));
     }
@@ -1231,6 +1279,34 @@ mod tests {
             &payload, b"TUNNEL-PAYLOAD",
             "handshake must leave post-head bytes in the stream"
         );
+    }
+
+    #[tokio::test]
+    async fn http_connect_skips_interim_1xx_responses() {
+        // Some Squid configurations send a 100 Continue before the final
+        // CONNECT verdict; the handshake must read past it without treating
+        // it as a rejection, and still not over-read into the tunnel.
+        let (mut client, mut server) = duplex(4096);
+        let proxy = config(UpstreamProxyProtocol::Http);
+        let target = TargetAddress::Domain("example.com".to_string());
+
+        let handshake = tokio::spawn(async move {
+            http_connect_handshake(&mut client, &proxy, &target, 443)
+                .await
+                .map(|()| client)
+        });
+
+        let mut discard = vec![0u8; 128];
+        let _ = server.read(&mut discard).await.unwrap();
+        server
+            .write_all(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\n\r\nTUNNEL")
+            .await
+            .unwrap();
+
+        let mut client = handshake.await.unwrap().unwrap();
+        let mut payload = [0u8; 6];
+        client.read_exact(&mut payload).await.unwrap();
+        assert_eq!(&payload, b"TUNNEL");
     }
 
     #[tokio::test]

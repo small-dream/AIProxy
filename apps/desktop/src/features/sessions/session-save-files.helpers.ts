@@ -15,11 +15,18 @@ export function getSaveableSessions(sessions: SessionSummary[]): SessionSummary[
  * Whether two or more requests would land on the same file, which is the only
  * situation where the conflict strategy changes the outcome.
  *
- * The key mirrors what the backend derives a path from: host plus the URL path
- * with the query string dropped. It deliberately ignores the MIME-based
- * extension, so this errs toward reporting a conflict — a false positive only
- * shows the user a dialog they could have skipped, whereas a false negative
- * would silently pick a strategy for them.
+ * This is a heuristic precheck, deliberately NOT a mirror of the backend's
+ * path derivation. The key is host plus the raw URL path with the query string
+ * dropped, so it catches the common case (same path, different query) but
+ * under-reports: the backend also collapses dot segments, percent-decodes,
+ * appends MIME-derived extensions, maps directory URLs to `index.<ext>`, and
+ * truncates over-long segments — any of which can collide two requests this
+ * check considers distinct.
+ *
+ * A miss is safe but opinionated: the strategy dialog is skipped and the save
+ * runs with `keepAll`, so no data is lost — the user just does not get to pick
+ * `latestOnly` for a collision we did not predict. Keep it that way rather
+ * than duplicating the Rust sanitization here and having the two drift.
  */
 export function hasSaveTargetConflicts(sessions: SessionSummary[]): boolean {
   const seenTargets = new Set<string>();

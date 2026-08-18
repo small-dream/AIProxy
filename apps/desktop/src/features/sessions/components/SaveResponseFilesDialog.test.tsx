@@ -108,7 +108,7 @@ describe("SaveResponseFilesDialog", () => {
 
     // Only the HTTP session is counted, so the user is not promised a file for
     // the WebSocket stream that the backend would skip anyway.
-    expect(screen.getByText(/About to save 1 requests/)).toBeInTheDocument();
+    expect(screen.getByText(/About to save 1 request\(s\)/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder and Save" }));
 
@@ -131,7 +131,13 @@ describe("SaveResponseFilesDialog", () => {
   });
 
   it("surfaces a failure without closing the dialog", async () => {
-    saveResponseFiles.mockRejectedValue(new Error("disk is full"));
+    // Production wrappers throw plain AppError objects (never `Error`
+    // instances) — mock the real shape so the extraction path is the one
+    // under test.
+    saveResponseFiles.mockRejectedValue({
+      code: "INTERNAL_ERROR",
+      message: "disk is full",
+    });
     const { onClose } = renderDialog([createSessionSummary({ id: "a" })]);
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder and Save" }));

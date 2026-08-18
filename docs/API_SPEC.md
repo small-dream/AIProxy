@@ -858,6 +858,7 @@ type UpstreamProxyProbeResult = {
 > **上游代理行为说明**：
 >
 > - 三个出站连接点（CONNECT 盲转发、HTTP/MITM 转发、WebSocket 上游）统一经由 `dial_target` 拨号，因此四类流量行为一致。
+> - **例外：Compose/Replay 直发**。`send_direct_request`（Compose 面板与请求重放）**有意直连**、不经由上游代理，对应会话的 `viaUpstreamProxy` 为 `undefined`（无路由决策可报告）而非 `false`。在链式代理工作区里重放会绕过上游代理的路由/出口选择，这是当前文档化的取舍。
 > - **无自动回退**：上游代理不可用时请求直接失败，不会退化为直连——静默绕过会泄漏用户明确要求经由代理的流量。
 > - **域名交给代理解析**：未配置 DNS 覆盖时，目标以主机名形式传给上游代理（SOCKS5 `ATYP=domain` / CONNECT authority），使 Clash 等规则代理的域名分流生效；配置了 DNS 覆盖时覆盖 IP 优先，作为显式用户指令。
 > - `https` 协议下到代理那一跳的证书**始终**依据系统根证书校验，与 workspace 的 `verifyUpstreamTls` 无关——后者管的是被拦截目标的证书，而代理凭据要经过这一跳传输。
@@ -877,7 +878,7 @@ type UpstreamProxyProbeResult = {
 >
 > - **判定顺序**：`exclude` 优先于 `include`。exclude 是用户在 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
 > - **两种模式**：`include` 为空 ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`include` 非空 ⇒ 仅解密列出的域名，其余原样盲转发。
-> - **模式匹配语法**与上游代理绕行列表一致（`crates/proxy-core/src/host_pattern.rs` 共用实现）：精确域名、`*.example.com` / `.example.com` 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、`*` 通配全部。
+> - **模式匹配语法**与上游代理绕行列表一致（`crates/proxy-core/src/host_pattern.rs` 共用实现）：精确域名、`*.example.com` / `.example.com` 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、`*` 通配全部。IPv6 字面量在规则与目标两侧都接受带/不带方括号、带/不带尾点 FQDN 点的写法并归一后比较。
 > - **未解密 ≠ 未转发**：被排除的域名走盲转发（`tunnel_blind_relay`），App 功能不受影响，只是看不到明文。这与 `ssl_enabled=false` 的全局关闭是同一条代码路径。
 > - **仅在 `ssl_enabled` 为 true 时生效**：拦截本身关闭时没有可缩放的范围，此时 `ProxyRuntimeConfig.ssl_proxying` 为 `None`。
 > - 配置在代理服务器生命周期内固定，修改后需重启代理生效（保存时若代理在运行会自动重启）。
@@ -1990,11 +1991,12 @@ type SaveResponseFilesInput = {
 
 ```ts
 type SaveResponseFilesOutput = {
-  directory: string;    // 用户选中的目标目录（canonical 路径）
+  directory: string;      // 用户选中的目标目录（按所选原样返回，非 canonical 形式）
   savedCount: number;
-  skippedCount: number; // 无响应体 / WebSocket / 后端已无此 id / 被 latestOnly 淘汰
-  failedCount: number;  // 读取或写入失败
-} | null;               // 用户取消目录选择时返回 null
+  skippedCount: number;   // 无响应体 / WebSocket / 后端已无此 id / 被 latestOnly 淘汰
+  failedCount: number;    // 读取或写入失败
+  truncatedCount: number; // 已写入但捕获体被截断上限裁剪的文件数（内容不完整）
+} | null;                 // 用户取消目录选择时返回 null
 ```
 
 说明：
@@ -2009,9 +2011,9 @@ type SaveResponseFilesOutput = {
 
 - 目录选择器由后端拉起，前端只传标题、不接触任何路径（与 `pick_and_read_har_file` 同一 H3 安全模型）
 - URL 每一段都经过清洗：拒绝 `..`/`.`、路径分隔符与控制字符，规避 Windows 保留设备名与尾部点/空格，超长段截断并保留扩展名
-- 目录深度上限 24 层、单次导出上限 20000 个请求；写入前对解析后的目录再次校验仍位于所选根目录内，防止destination 内既有符号链接改写落点
+- 目录深度上限 24 层、单次导出上限 20000 个请求；目录链**逐组件创建且不跟随符号链接**（`symlink_metadata` 检查 + `create_dir` 原子创建，预置的目录符号链接被直接拒绝，不会先在 root 外创建任何目录），写入前再对解析后的目录做一次位于所选根目录内的复核兜底竞态；最终文件组件同样受防护——`latestOnly` 在 Unix 上以 `O_NOFOLLOW` 原子打开（符号链接触发 ELOOP 计入 `failedCount`，无检查-写入窗口；其他平台退化为 lstat 检查），`keepAll` 以 `create_new` 原子创建，既有符号链接（含悬空链接）只会导致取 ` (n)` 后缀，绝不穿透
 - URL 已带扩展名时原样保留，无扩展名时按响应 MIME 推导；未知二进制类型落 `bin`（不同于前端面向文本的 `guessExtension` 默认 `txt`）
-- query string 不参与路径推导，因此 `?page=1` 与 `?page=2` 会落到同一文件，由 `conflictStrategy` 决定取舍：`latestOnly` 按 `startedAt` 保留最新一次，`keepAll` 以 ` (n)` 后缀全部保留
+- query string 不参与路径推导，因此 `?page=1` 与 `?page=2` 会落到同一文件，由 `conflictStrategy` 决定取舍：`latestOnly` 按 `startedAt` 保留最新一次，**重复导出到同一目录时覆盖该路径上的旧导出文件**；`keepAll` 以 ` (n)` 后缀全部保留
 - WebSocket 会话、无响应体的请求，以及仅存在于渲染层的导入会话（HAR 导入）计入 `skippedCount`
 
 ## 6.12 Menu Locale Command

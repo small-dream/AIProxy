@@ -42,6 +42,11 @@ rust-i18n = "4"
 sys-locale = "0.3"
 base64 = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+# O_NOFOLLOW for export writes: refuse a symbolic link in the final path
+# component atomically instead of a check-then-write race.
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 
