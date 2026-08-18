@@ -26,7 +26,7 @@ export function tokenizeCurlCommand(command: string): string[] {
   let quote: "'" | '"' | null = null;
 
   for (let index = 0; index < joined.length; index += 1) {
-    const char = joined[index];
+    const char = joined[index] ?? "";
     if (quote === "'") {
       if (char === "'") {
         // POSIX: '\'' closes, escapes a single quote, reopens.
