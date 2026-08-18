@@ -6,6 +6,7 @@ import { coerceAppError, type DnsMappingRule, DEFAULT_WORKSPACE_ID } from "@aipr
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   createEmptyDnsMappingRule,
@@ -234,6 +235,10 @@ export function DnsMappingsPanel() {
                   {...ruleFieldProps(errors, validationAttempted, "hostPattern")}
                   placeholder={t("rulesPage.dns.hostPatternExample")}
                   fullWidth
+                />
+                <MatchTypeSelect
+                  value={draft.matchType}
+                  onChange={(matchType) => setDraft({ ...draft, matchType })}
                 />
                 <TextField
                   size="small"

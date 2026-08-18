@@ -71,6 +71,8 @@ pub struct MapRule {
     pub priority: u32,
     pub source_pattern: String,
     pub target_value: String,
+    #[serde(default)]
+    pub match_type: Option<String>,
     pub workspace_id: String,
 }
 
@@ -117,6 +119,8 @@ pub struct ThrottleRuleData {
     pub profile_id: String,
     pub stage: String,
     pub url_pattern: String,
+    #[serde(default)]
+    pub match_type: Option<String>,
     pub workspace_id: String,
 }
 

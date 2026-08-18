@@ -97,6 +97,10 @@ pub async fn save_throttle_rule(
             url_pattern: row_input.url_pattern.clone(),
             methods: serde_json::to_string(&row_input.methods).unwrap_or_else(|_| "[]".to_string()),
             stage: row_input.stage.clone(),
+            match_type: row_input
+                .match_type
+                .clone()
+                .unwrap_or_else(|| "contains".to_string()),
         };
         aiproxy_db::rules::save_throttle_rule(&conn_guard, &row)
             .map_err(|error| app_error(ERR_INTERNAL, format!("save throttle rule: {error}")))?;

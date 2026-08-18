@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS map_rules (
     priority        INTEGER NOT NULL DEFAULT 0,
     source_pattern  TEXT NOT NULL,
     target_value    TEXT NOT NULL,
+    match_type      TEXT NOT NULL DEFAULT 'contains',
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
 );
 CREATE INDEX IF NOT EXISTS idx_map_rules_workspace ON map_rules(workspace_id);
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS throttle_rules (
     url_pattern       TEXT NOT NULL DEFAULT '*',
     methods           TEXT NOT NULL DEFAULT '[]',
     stage             TEXT NOT NULL DEFAULT 'both',
+    match_type        TEXT NOT NULL DEFAULT 'contains',
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
     FOREIGN KEY (profile_id) REFERENCES throttle_profiles(id)
 );
@@ -185,6 +187,7 @@ CREATE TABLE IF NOT EXISTS dns_mappings (
     priority        INTEGER NOT NULL DEFAULT 0,
     host_pattern    TEXT NOT NULL,
     target_ip       TEXT NOT NULL,
+    match_type      TEXT NOT NULL DEFAULT 'contains',
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
 );
 CREATE INDEX IF NOT EXISTS idx_dns_mappings_workspace ON dns_mappings(workspace_id);
@@ -387,6 +390,24 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     migrate_add_column(
         conn,
         "script_rules",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "map_rules",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "dns_mappings",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'contains'",
+    )?;
+    migrate_add_column(
+        conn,
+        "throttle_rules",
         "match_type",
         "TEXT NOT NULL DEFAULT 'contains'",
     )?;

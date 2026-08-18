@@ -1985,6 +1985,7 @@ fn applies_map_local_rules_by_reading_a_local_file() {
         priority: 100,
         source_pattern: "example.com".to_string(),
         target_value: file_path.display().to_string(),
+        match_type: None,
         workspace_id: "default".to_string(),
     });
 
@@ -2002,6 +2003,42 @@ fn applies_map_local_rules_by_reading_a_local_file() {
     assert_eq!(traces[0].mode, "local");
 
     let _ = fs::remove_file(file_path);
+}
+
+#[test]
+fn map_rule_honors_match_type_when_selecting_the_active_rule() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-exact".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "Exact only".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "https://api.example.com/v1/users".to_string(),
+        target_value: "https://staging.example.com/v1/users".to_string(),
+        match_type: Some("exact".to_string()),
+        workspace_id: "default".to_string(),
+    });
+
+    // Exact URL matches.
+    let mut request = build_test_request("https://api.example.com/v1/users");
+    let manager = Arc::new(manager);
+    let (response, traces) =
+        apply_map_rules(&Some(manager.clone()), "default", &mut request).unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(
+        traces[0].mapped_url.as_deref(),
+        Some("https://staging.example.com/v1/users")
+    );
+    assert!(response.is_none());
+
+    // A URL containing the pattern as a substring must NOT match under exact.
+    let mut request = build_test_request("https://api.example.com/v1/users/extra");
+    let (response, _) = apply_map_rules(&Some(manager), "default", &mut request).unwrap();
+    assert!(response.is_none());
 }
 
 #[test]
@@ -2024,6 +2061,7 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
         priority: 100,
         source_pattern: "example.com".to_string(),
         target_value: dir_path.display().to_string(),
+        match_type: None,
         workspace_id: "default".to_string(),
     });
 
@@ -2071,6 +2109,7 @@ fn m1_map_local_fails_closed_on_dangling_symlink() {
         priority: 100,
         source_pattern: "example.com".to_string(),
         target_value: link.display().to_string(),
+        match_type: None,
         workspace_id: "default".to_string(),
     });
 
@@ -2107,6 +2146,7 @@ fn m1_map_local_canonicalizes_symlink_to_real_file() {
         priority: 100,
         source_pattern: "example.com".to_string(),
         target_value: link.display().to_string(),
+        match_type: None,
         workspace_id: "default".to_string(),
     });
 
@@ -2136,6 +2176,7 @@ fn applies_map_remote_rules_by_rewriting_the_request_url() {
         source_pattern: "api.example.com".to_string(),
         target_value: "https://staging.example.com/base?target=1".to_string(),
         workspace_id: "default".to_string(),
+        match_type: None,
     });
 
     let mut request = build_test_request("http://api.example.com/v1/users?debug=true");
@@ -2205,6 +2246,7 @@ fn throttle_rule_for(profile_id: &str, enabled: bool) -> ThrottleRuleData {
         stage: "both".to_string(),
         url_pattern: "api.example.com".to_string(),
         workspace_id: "default".to_string(),
+        match_type: None,
     }
 }
 
@@ -2295,6 +2337,7 @@ fn throttle_manager_with_url_pattern(pattern: &str) -> Arc<ThrottleManager> {
         profile_id: "profile-a".to_string(),
         stage: "both".to_string(),
         url_pattern: pattern.to_string(),
+        match_type: None,
         workspace_id: "default".to_string(),
     });
     Arc::new(manager)

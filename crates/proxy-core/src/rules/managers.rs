@@ -316,6 +316,8 @@ pub struct DnsMappingRule {
     pub priority: u32,
     pub host_pattern: String,
     pub target_ip: String,
+    #[serde(default)]
+    pub match_type: Option<String>,
     pub workspace_id: String,
 }
 

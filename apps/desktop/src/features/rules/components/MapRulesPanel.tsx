@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   createEmptyMapRule,
@@ -358,6 +359,10 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                   {...ruleFieldProps(errors, validationAttempted, "sourcePattern")}
                   placeholder={t("rulesPage.mapEditor.sourcePatternExample")}
                   fullWidth
+                />
+                <MatchTypeSelect
+                  value={draft.matchType}
+                  onChange={(matchType) => setDraft({ ...draft, matchType })}
                 />
                 <TextField
                   size="small"

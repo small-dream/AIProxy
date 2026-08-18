@@ -17,6 +17,7 @@ import {
 
 import type { ThrottleProfile, ThrottleRule } from "@aiproxy/shared-types";
 
+import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import { HTTP_METHODS, ruleFieldProps, type RuleFieldErrors } from "@/features/rules/rules.helpers";
 import type { TranslationKey, TranslationParams } from "@/i18n";
@@ -97,6 +98,10 @@ export function RuleEditor(props: {
           value={draft.urlPattern}
           onChange={(event) => onChange({ urlPattern: event.target.value })}
           {...ruleFieldProps(errors, validationAttempted, "urlPattern")}
+        />
+        <MatchTypeSelect
+          value={draft.matchType}
+          onChange={(matchType) => onChange({ matchType })}
         />
         <FormControl size="small">
           <InputLabel>{t("throttlingPage.ruleFields.methods")}</InputLabel>

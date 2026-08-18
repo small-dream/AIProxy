@@ -2197,6 +2197,7 @@ mod tests {
                 stage: "response".to_string(),
                 url_pattern: "example.com".to_string(),
                 workspace_id: "test".to_string(),
+                match_type: None,
             }),
         });
 

@@ -54,7 +54,7 @@ pub(crate) fn resolve_dns_override(
         .filter(|r| {
             r.enabled
                 && r.workspace_id == workspace_id
-                && pattern_matches(&r.host_pattern, hostname, None)
+                && pattern_matches(&r.host_pattern, hostname, r.match_type.as_deref())
         })
         .max_by_key(|r| r.priority)?;
     rule.target_ip.parse().ok()
@@ -122,7 +122,13 @@ fn active_map_rule_for_request(
         .into_iter()
         .filter(|rule| rule.enabled)
         .filter(|rule| rule.workspace_id == workspace_id)
-        .filter(|rule| pattern_matches(&rule.source_pattern, request.url.as_str(), None))
+        .filter(|rule| {
+            pattern_matches(
+                &rule.source_pattern,
+                request.url.as_str(),
+                rule.match_type.as_deref(),
+            )
+        })
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
@@ -227,7 +233,13 @@ pub(crate) fn active_throttle_selection_for_request(
         // the host, the host fallback was also redundant for the default
         // "contains" match type. Dropping it aligns throttle URL matching with
         // the other rule kinds.
-        .filter(|rule| pattern_matches(&rule.url_pattern, request.url.as_str(), None))
+        .filter(|rule| {
+            pattern_matches(
+                &rule.url_pattern,
+                request.url.as_str(),
+                rule.match_type.as_deref(),
+            )
+        })
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));

@@ -71,6 +71,10 @@ export type RuleMatchStage = "request" | "response" | "either";
 
 export type MatchType = "contains" | "wildcard" | "exact" | "regex";
 
+export function isMatchType(value: unknown): value is MatchType {
+  return value === "contains" || value === "wildcard" || value === "exact" || value === "regex";
+}
+
 export type RuleMatch = {
   urlPattern: string;
   methods: string[];
@@ -155,6 +159,7 @@ export type MapRule = {
   priority: number;
   sourcePattern: string;
   targetValue: string;
+  matchType?: MatchType;
   workspaceId: string;
 };
 
@@ -182,6 +187,7 @@ export type DnsMappingRule = {
   note?: string;
   priority: number;
   targetIp: string;
+  matchType?: MatchType;
   workspaceId: string;
 };
 
@@ -542,6 +548,7 @@ export function isMapRule(value: unknown): value is MapRule {
     typeof candidate.targetValue === "string" &&
     typeof candidate.preservePath === "boolean" &&
     typeof candidate.preserveQuery === "boolean" &&
+    (candidate.matchType === undefined || isMatchType(candidate.matchType)) &&
     isNullableString(candidate.note)
   );
 }
@@ -569,6 +576,7 @@ export function isDnsMappingRule(value: unknown): value is DnsMappingRule {
     typeof candidate.name === "string" &&
     typeof candidate.hostPattern === "string" &&
     typeof candidate.targetIp === "string" &&
+    (candidate.matchType === undefined || isMatchType(candidate.matchType)) &&
     typeof candidate.priority === "number"
   );
 }

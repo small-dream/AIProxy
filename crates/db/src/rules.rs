@@ -175,6 +175,7 @@ pub struct MapRuleRow {
     pub priority: u32,
     pub source_pattern: String,
     pub target_value: String,
+    pub match_type: String,
 }
 
 /// Save (insert or update) a map rule.
@@ -188,7 +189,7 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
             "UPDATE map_rules
                 SET workspace_id=?2, mode=?3, name=?4, note=?5, enabled=?6,
                     preserve_path=?7, preserve_query=?8, priority=?9,
-                    source_pattern=?10, target_value=?11
+                    source_pattern=?10, target_value=?11, match_type=?12
              WHERE id=?1",
             params![
                 r.id,
@@ -202,6 +203,7 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
                 r.priority,
                 r.source_pattern,
                 r.target_value,
+                r.match_type,
             ],
         )
         .map_err(|e| DbError::query("update map rule", e))?;
@@ -210,8 +212,8 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
         conn.execute(
             "INSERT INTO map_rules
                 (id, workspace_id, mode, name, note, enabled, preserve_path,
-                 preserve_query, priority, source_pattern, target_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 preserve_query, priority, source_pattern, target_value, match_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 r.id,
                 r.workspace_id,
@@ -224,6 +226,7 @@ pub fn save_map_rule(conn: &Connection, r: &MapRuleRow) -> Result<(), DbError> {
                 r.priority,
                 r.source_pattern,
                 r.target_value,
+                r.match_type,
             ],
         )
         .map_err(|e| DbError::query("insert map rule", e))?;
@@ -235,7 +238,7 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
     let mut stmt = conn
         .prepare(
             "SELECT id, workspace_id, mode, name, note, enabled, preserve_path,
-                    preserve_query, priority, source_pattern, target_value
+                    preserve_query, priority, source_pattern, target_value, match_type
              FROM map_rules ORDER BY priority",
         )
         .map_err(|e| DbError::query("prepare load map rules", e))?;
@@ -254,6 +257,7 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
                 priority: row.get::<_, i32>(8)? as u32,
                 source_pattern: row.get(9)?,
                 target_value: row.get(10)?,
+                match_type: row.get(11)?,
             })
         })
         .map_err(|e| DbError::query("query map rules", e))?
@@ -566,13 +570,14 @@ pub struct ThrottleRuleRow {
     pub url_pattern: String,
     pub methods: String,
     pub stage: String,
+    pub match_type: String,
 }
 
 pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO throttle_rules
-            (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage, match_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             rule.id,
             rule.workspace_id,
@@ -584,6 +589,7 @@ pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(
             rule.url_pattern,
             rule.methods,
             rule.stage,
+            rule.match_type,
         ],
     )
     .map_err(|e| DbError::query("save throttle rule", e))?;
@@ -612,7 +618,7 @@ pub fn delete_throttle_rule(conn: &Connection, id: &str) -> Result<(), DbError> 
 pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>, DbError> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage
+            "SELECT id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage, match_type
              FROM throttle_rules ORDER BY priority DESC, name ASC",
         )
         .map_err(|e| DbError::query("prepare load throttle rules", e))?;
@@ -630,6 +636,7 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
                 url_pattern: row.get(7)?,
                 methods: row.get(8)?,
                 stage: row.get(9)?,
+                match_type: row.get(10)?,
             })
         })
         .map_err(|e| DbError::query("query throttle rules", e))?
@@ -854,13 +861,14 @@ pub struct DnsMappingRow {
     pub priority: u32,
     pub host_pattern: String,
     pub target_ip: String,
+    pub match_type: String,
 }
 
 pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR REPLACE INTO dns_mappings
-            (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip, match_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             r.id,
             r.workspace_id,
@@ -870,6 +878,7 @@ pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), DbEr
             r.priority,
             r.host_pattern,
             r.target_ip,
+            r.match_type,
         ],
     )
     .map_err(|e| DbError::query("save dns mapping", e))?;
@@ -879,7 +888,7 @@ pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), DbEr
 pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, DbError> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, workspace_id, name, note, enabled, priority, host_pattern, target_ip
+            "SELECT id, workspace_id, name, note, enabled, priority, host_pattern, target_ip, match_type
              FROM dns_mappings ORDER BY priority DESC, name",
         )
         .map_err(|e| DbError::query("prepare load dns mappings", e))?;
@@ -895,6 +904,7 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, Db
                 priority: row.get::<_, i32>(5)? as u32,
                 host_pattern: row.get(6)?,
                 target_ip: row.get(7)?,
+                match_type: row.get(8)?,
             })
         })
         .map_err(|e| DbError::query("query dns mappings", e))?
@@ -1577,6 +1587,7 @@ mod tests {
             priority: 5,
             source_pattern: "api.example.com".into(),
             target_value: "/path/to/file.json".into(),
+            match_type: "contains".into(),
         };
 
         save_map_rule(&conn, &rule).unwrap();
@@ -1693,6 +1704,7 @@ mod tests {
             url_pattern: "example.com".into(),
             methods: "[\"GET\"]".into(),
             stage: "request".into(),
+            match_type: "contains".into(),
         };
         save_throttle_rule(&conn, &rule).unwrap();
         assert_eq!(load_all_throttle_rules(&conn).unwrap().len(), 1);
@@ -1779,6 +1791,7 @@ mod tests {
             url_pattern: "example.com".into(),
             methods: "[\"GET\"]".into(),
             stage: "request".into(),
+            match_type: "contains".into(),
         };
         save_throttle_rule(&conn, &rule).unwrap();
 
@@ -1897,6 +1910,7 @@ mod tests {
                 url_pattern: "example.com".into(),
                 methods: "[\"GET\"]".into(),
                 stage: "request".into(),
+                match_type: "contains".into(),
             },
         )
         .unwrap();
@@ -1981,6 +1995,7 @@ mod tests {
             priority: 100,
             host_pattern: "api.example.com".into(),
             target_ip: "127.0.0.1".into(),
+            match_type: "contains".into(),
         };
 
         save_dns_mapping(&conn, &mapping).unwrap();

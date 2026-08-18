@@ -1,4 +1,5 @@
 import { coerceAppError, isNullableString } from "./common";
+import { isMatchType, type MatchType } from "./rules";
 
 export type ThrottleProfile = {
   downloadKbps: number;
@@ -23,6 +24,7 @@ export type ThrottleRule = {
   profileId: string;
   stage: "both" | "request" | "response";
   urlPattern: string;
+  matchType?: MatchType;
   workspaceId: string;
 };
 
@@ -83,6 +85,7 @@ export function isThrottleRule(value: unknown): value is ThrottleRule {
     typeof candidate.urlPattern === "string" &&
     Array.isArray(candidate.methods) &&
     candidate.methods.every((method) => typeof method === "string") &&
+    (candidate.matchType === undefined || isMatchType(candidate.matchType)) &&
     (candidate.stage === "both" || candidate.stage === "request" || candidate.stage === "response")
   );
 }

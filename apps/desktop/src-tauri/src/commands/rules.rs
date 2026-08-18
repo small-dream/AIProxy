@@ -464,6 +464,10 @@ pub async fn save_map_rule(
         priority: input.priority,
         source_pattern: input.source_pattern.clone(),
         target_value: input.target_value.clone(),
+        match_type: input
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
     };
 
     let state = Arc::clone(state.inner());
@@ -806,6 +810,10 @@ pub async fn save_dns_mapping(
         priority: rule.priority,
         host_pattern: rule.host_pattern.clone(),
         target_ip: rule.target_ip.clone(),
+        match_type: rule
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
     };
 
     let state = Arc::clone(state.inner());
@@ -873,6 +881,7 @@ mod tests {
             priority: 1,
             host_pattern: "example.com".to_string(),
             target_ip: target_ip.to_string(),
+            match_type: None,
             workspace_id: "ws-1".to_string(),
         }
     }

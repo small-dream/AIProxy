@@ -132,6 +132,11 @@ pub(crate) fn map_row_to_rule(row: MapRuleRow) -> MapRule {
         priority: row.priority,
         source_pattern: row.source_pattern,
         target_value: row.target_value,
+        match_type: if row.match_type.is_empty() {
+            None
+        } else {
+            Some(row.match_type)
+        },
         workspace_id: row.workspace_id,
     }
 }
@@ -162,6 +167,11 @@ pub(crate) fn throttle_row_to_rule(row: ThrottleRuleRow) -> ThrottleRuleData {
         profile_id: row.profile_id,
         stage: row.stage,
         url_pattern: row.url_pattern,
+        match_type: if row.match_type.is_empty() {
+            None
+        } else {
+            Some(row.match_type)
+        },
         workspace_id: row.workspace_id,
     }
 }
@@ -486,6 +496,11 @@ pub(crate) fn dns_mapping_row_to_rule(row: DnsMappingRow) -> DnsMappingRule {
         priority: row.priority,
         host_pattern: row.host_pattern,
         target_ip: row.target_ip,
+        match_type: if row.match_type.is_empty() {
+            None
+        } else {
+            Some(row.match_type)
+        },
         workspace_id: row.workspace_id,
     }
 }

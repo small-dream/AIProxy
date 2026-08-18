@@ -31,6 +31,7 @@ import {
   ruleFieldProps,
 } from "@/features/rules/rules.helpers";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   useDeleteManagedRule,
@@ -407,6 +408,12 @@ export function ScriptRulesPanel() {
                   {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
                   placeholder={t("rulesPage.editor.urlPatternExample")}
                   fullWidth
+                />
+                <MatchTypeSelect
+                  value={draft.match.matchType}
+                  onChange={(matchType) =>
+                    setDraft({ ...draft, match: { ...draft.match, matchType } })
+                  }
                 />
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                   <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
