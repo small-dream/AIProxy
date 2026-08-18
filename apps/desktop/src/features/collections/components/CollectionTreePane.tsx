@@ -1,25 +1,12 @@
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from "@dnd-kit/core";
 import { DndContext, pointerWithin } from "@dnd-kit/core";
 import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
-import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import CreateNewFolderRoundedIcon from "@mui/icons-material/CreateNewFolderRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
-import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import {
-  Alert,
-  Box,
-  Divider,
-  IconButton,
-  MenuItem,
-  Select,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { Box, Divider, IconButton, Tooltip } from "@mui/material";
 import type React from "react";
 
-import type { ApiCollectionItem } from "@aiproxy/shared-types";
+import type { ApiCollectionItem, ApiEnvironment } from "@aiproxy/shared-types";
 
 import { CollectionTreeNodeView } from "@/features/collections/components/CollectionTreeNodeView";
 import { EmptyPaneState, LoadingState } from "@/features/collections/components/PaneStates";
@@ -32,6 +19,7 @@ import type {
 } from "@/features/collections/components/tree-types";
 import type { CollectionTreeNode } from "@/features/collections/use-collections";
 import type { DropPosition } from "@/features/collections/components/dnd-helpers";
+import { EnvironmentSelector } from "@/features/environments/components/EnvironmentSelector";
 import type { TranslationKey, TranslationParams } from "@/i18n";
 
 export interface CollectionTreePaneProps {
@@ -56,7 +44,7 @@ export interface CollectionTreePaneProps {
 
   // Environment
   activeEnvironmentId: string | null;
-  environments: { id: string; name: string }[];
+  environments: ApiEnvironment[];
   hasEnvError: boolean;
 
   // Callbacks
@@ -192,60 +180,13 @@ export function CollectionTreePane({
 
       <Divider />
       <Box sx={{ p: 1 }}>
-        <Stack
-          direction="row"
-          spacing={0.75}
-          sx={(theme) => ({
-            alignItems: "center",
-            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06),
-            border: 1,
-            borderColor: alpha(
-              theme.palette.primary.main,
-              theme.palette.mode === "dark" ? 0.22 : 0.16,
-            ),
-            borderRadius: 1,
-            p: 0.75,
-          })}
-        >
-          <BoltRoundedIcon sx={{ color: "primary.main", flex: "0 0 auto", fontSize: 18 }} />
-          <Typography noWrap sx={{ flex: 1, fontSize: 12, fontWeight: 700, minWidth: 0 }}>
-            {t("collectionsPage.environmentSelector")}
-          </Typography>
-          <Select
-            size="small"
-            value={activeEnvironmentId ?? ""}
-            onChange={(e) => onEnvironmentChange(e.target.value || null)}
-            sx={{
-              bgcolor: "background.paper",
-              flex: "0 0 132px",
-              fontSize: 12,
-              "& .MuiSelect-select": { py: 0.75 },
-            }}
-          >
-            <MenuItem value="">
-              <em>{t("collectionsPage.noEnvironment")}</em>
-            </MenuItem>
-            {environments.map((env) => (
-              <MenuItem key={env.id} value={env.id}>
-                {env.name}
-              </MenuItem>
-            ))}
-          </Select>
-          <Tooltip title={t("collectionsPage.manageEnvironments")}>
-            <IconButton
-              size="small"
-              onClick={onManageEnvironments}
-              sx={{ color: "text.secondary", flex: "0 0 auto" }}
-            >
-              <SettingsRoundedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-        {hasEnvError && (
-          <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
-            {t("common.errors.generic")}
-          </Alert>
-        )}
+        <EnvironmentSelector
+          activeEnvironmentId={activeEnvironmentId}
+          environments={environments}
+          hasEnvError={hasEnvError}
+          onEnvironmentChange={onEnvironmentChange}
+          onManageEnvironments={onManageEnvironments}
+        />
       </Box>
     </WorkbenchPane>
   );

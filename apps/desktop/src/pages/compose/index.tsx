@@ -17,18 +17,24 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import type { HeaderEntry } from "@aiproxy/shared-types";
-
 import {
-  buildMultipartBody,
-  FORMDATA_CONTENT_TYPE,
-  RAW_LANGUAGE_CONTENT_TYPE,
-  URLENCODED_CONTENT_TYPE,
-  useComposeEditorStore,
-} from "@/features/compose/compose-editor.store";
+  readActiveEnvironmentId,
+  writeActiveEnvironmentId,
+} from "@/features/environments/active-environment";
+import { EnvironmentSelector } from "@/features/environments/components/EnvironmentSelector";
+import { EnvironmentManagerDialog } from "@/features/environments/components/EnvironmentManagerDialog";
+import {
+  buildMergedVariableMap,
+  useEnvironments,
+  useEnvironmentVariables,
+  useGlobalVariables,
+} from "@/features/environments/use-environments";
+import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
+import { encodeComposedRequest } from "@/features/compose/encode-request";
 import { ComposeRequestSection } from "@/features/compose/components/ComposeRequestSection";
 import {
   ComposeResponseSection,
@@ -67,6 +73,22 @@ function writeStorageValue(key: string, value: string) {
 export function ComposePage() {
   const { t } = useI18n();
   const sendMutation = useSendComposedRequest();
+
+  const environmentsQuery = useEnvironments();
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() =>
+    readActiveEnvironmentId(),
+  );
+  const envVarsQuery = useEnvironmentVariables(activeEnvironmentId);
+  const globalVarsQuery = useGlobalVariables();
+  const mergedVarMap = useMemo(
+    () => buildMergedVariableMap(envVarsQuery.data ?? [], globalVarsQuery.data ?? []),
+    [envVarsQuery.data, globalVarsQuery.data],
+  );
+  const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
+
+  useEffect(() => {
+    writeActiveEnvironmentId(activeEnvironmentId);
+  }, [activeEnvironmentId]);
 
   const method = useComposeEditorStore((s) => s.method);
   const url = useComposeEditorStore((s) => s.url);
@@ -125,64 +147,38 @@ export function ComposePage() {
     };
   }, []);
 
-  const encodeBody = useCallback((): { body: string | undefined; headers: HeaderEntry[] } => {
-    let encodedBody: string | undefined;
-    let finalHeaders = headers;
-
-    switch (bodyType) {
-      case "none":
-        break;
-      case "formdata": {
-        const activeEntries = formDataEntries.filter((e) => e.name.trim());
-        if (activeEntries.length > 0) {
-          const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
-          encodedBody = buildMultipartBody(activeEntries, boundary);
-          finalHeaders = ensureContentType(
-            finalHeaders,
-            `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`,
-          );
-        }
-        break;
-      }
-      case "urlencoded": {
-        const activeEntries = urlEncodedEntries.filter((e) => e.name.trim());
-        if (activeEntries.length > 0) {
-          encodedBody = activeEntries
-            .map((e) => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
-            .join("&");
-          finalHeaders = ensureContentType(finalHeaders, URLENCODED_CONTENT_TYPE);
-        }
-        break;
-      }
-      case "raw": {
-        if (body.trim()) {
-          encodedBody = body;
-          finalHeaders = ensureContentType(finalHeaders, RAW_LANGUAGE_CONTENT_TYPE[rawLanguage]);
-        }
-        break;
-      }
-    }
-    return { body: encodedBody, headers: finalHeaders };
-  }, [headers, body, bodyType, rawLanguage, urlEncodedEntries, formDataEntries]);
+  const encodeBody = useCallback(() => {
+    return encodeComposedRequest(
+      {
+        headers,
+        body,
+        bodyType,
+        rawLanguage,
+        formDataEntries,
+        urlEncodedEntries,
+      },
+      mergedVarMap,
+    );
+  }, [headers, body, bodyType, rawLanguage, urlEncodedEntries, formDataEntries, mergedVarMap]);
 
   const handleSend = useCallback(() => {
-    const { body: encodedBody, headers: finalHeaders } = encodeBody();
+    const { textBody: encodedBody, headers: finalHeaders } = encodeBody();
     sendMutation.mutate({
       workspaceId: "default",
       method,
       url,
       headers: finalHeaders,
-      ...(encodedBody ? { body: encodedBody } : {}),
+      ...(encodedBody !== undefined ? { body: encodedBody } : {}),
     });
   }, [sendMutation, method, url, encodeBody]);
 
   const handleExportCurl = useCallback(() => {
-    const { body: encodedBody, headers: finalHeaders } = encodeBody();
+    const { textBody: encodedBody, headers: finalHeaders } = encodeBody();
     const cmd = generateCurlCommand({
       method,
       url,
       headers: finalHeaders,
-      ...(encodedBody ? { body: encodedBody } : {}),
+      ...(encodedBody !== undefined ? { body: encodedBody } : {}),
     });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
@@ -310,6 +306,14 @@ export function ComposePage() {
               if (e.key === "Enter" && url.trim()) handleSend();
             }}
           />
+          <EnvironmentSelector
+            activeEnvironmentId={activeEnvironmentId}
+            compact
+            environments={environmentsQuery.data ?? []}
+            hasEnvError={environmentsQuery.isError}
+            onEnvironmentChange={setActiveEnvironmentId}
+            onManageEnvironments={() => setManageEnvDialogOpen(true)}
+          />
           <Tooltip title={t("common.actions.send")}>
             <span>
               <Button
@@ -357,6 +361,11 @@ export function ComposePage() {
           </Tooltip>
         </Stack>
       </Box>
+
+      <EnvironmentManagerDialog
+        open={manageEnvDialogOpen}
+        onClose={() => setManageEnvDialogOpen(false)}
+      />
 
       <Box
         ref={gridRef}
@@ -440,13 +449,4 @@ export function ComposePage() {
       />
     </Stack>
   );
-}
-
-function ensureContentType(
-  headers: Array<{ name: string; value: string }>,
-  contentType: string,
-): Array<{ name: string; value: string }> {
-  const hasContentType = headers.some((h) => h.name.toLowerCase() === "content-type");
-  if (hasContentType) return headers;
-  return [...headers, { name: "Content-Type", value: contentType }];
 }

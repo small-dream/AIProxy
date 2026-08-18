@@ -1865,10 +1865,6 @@ export const enMessages = {
       "Choose a collection from the library to browse saved requests or create a new one.",
     requestBuilder: "Request Builder",
     responsePreview: "Response Preview",
-    environmentSelector: "Environment",
-    activeEnvironment: "Active Environment",
-    noEnvironment: "No Environment",
-    manageEnvironments: "Manage Environments",
     newEnvironment: "New Environment",
     environmentName: "Environment name",
     variableKey: "Key",
@@ -1896,6 +1892,11 @@ export const enMessages = {
     enabled: "Enabled",
     moveFailed: "Could not move item.",
     moveCycleBlocked: "Cannot move a folder into one of its own descendants.",
+  },
+  environment: {
+    manage: "Manage Environments",
+    noEnvironment: "No Environment",
+    selector: "Environment",
   },
   setupWizard: {
     title: "Set up AIProxy",

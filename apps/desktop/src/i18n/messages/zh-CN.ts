@@ -1792,10 +1792,6 @@ export const zhCNMessages: Messages = {
     selectCollectionHint: "从左侧资源库选择集合，浏览已保存请求或创建新的请求。",
     requestBuilder: "请求构建器",
     responsePreview: "响应预览",
-    environmentSelector: "环境",
-    activeEnvironment: "当前环境",
-    noEnvironment: "无环境",
-    manageEnvironments: "管理环境",
     newEnvironment: "新建环境",
     environmentName: "环境名称",
     variableKey: "键",
@@ -1823,6 +1819,11 @@ export const zhCNMessages: Messages = {
     enabled: "启用",
     moveFailed: "无法移动该项。",
     moveCycleBlocked: "无法把文件夹移动到它自己的子级中。",
+  },
+  environment: {
+    manage: "管理环境",
+    noEnvironment: "无环境",
+    selector: "环境",
   },
   setupWizard: {
     title: "设置 AIProxy",

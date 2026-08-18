@@ -219,10 +219,10 @@ export function EnvironmentManagerDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>{t("collectionsPage.manageEnvironments")}</DialogTitle>
+      <DialogTitle sx={{ pb: 1 }}>{t("environment.manage")}</DialogTitle>
       <DialogContent sx={{ pt: 0, minHeight: 480 }}>
         <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ mb: 2 }}>
-          <Tab value="environments" label={t("collectionsPage.environmentSelector")} />
+          <Tab value="environments" label={t("environment.selector")} />
           <Tab value="globals" label={t("collectionsPage.globalVariables")} />
         </Tabs>
 
@@ -246,7 +246,7 @@ export function EnvironmentManagerDialog({
                 </Alert>
               )}
               <Typography variant="caption" sx={{ fontWeight: 600, mb: 1, px: 0.5 }}>
-                {t("collectionsPage.environmentSelector")}
+                {t("environment.selector")}
               </Typography>
               <Box sx={{ flex: 1, overflow: "auto" }}>
                 {(environmentsQuery.data ?? []).map((env) => (

@@ -25,22 +25,20 @@ import {
 
 import type { ApiCollectionItem } from "@aiproxy/shared-types";
 
-import {
-  buildMultipartBody,
-  FORMDATA_CONTENT_TYPE,
-  RAW_LANGUAGE_CONTENT_TYPE,
-  URLENCODED_CONTENT_TYPE,
-} from "@/features/compose/compose-editor.store";
+import { encodeComposedRequest } from "@/features/compose/encode-request";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { useCollectionEditorStore } from "@/features/collections/collection-editor.store";
 import {
   clampExplorerWidth,
-  ensureContentType,
   EXPLORER_WIDTH_STORAGE_KEY,
   INSPECTOR_SPLIT_RATIO_STORAGE_KEY,
   REQUEST_COLLAPSED_STORAGE_KEY,
 } from "@/features/collections/collections-layout.helpers";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import {
+  readActiveEnvironmentId,
+  writeActiveEnvironmentId,
+} from "@/features/environments/active-environment";
 import { CollectionEditorPane } from "@/features/collections/components/CollectionEditorPane";
 import { CollectionTreePane } from "@/features/collections/components/CollectionTreePane";
 import type { CollectionEditorItem } from "@/features/collections/components/tree-types";
@@ -130,11 +128,9 @@ export function CollectionsPage() {
 
   // --- Environment ---
 
-  const ACTIVE_ENV_KEY = "aiproxy.collections.activeEnvironmentId";
   const environmentsQuery = useEnvironments();
   const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return window.localStorage.getItem(ACTIVE_ENV_KEY);
+    return readActiveEnvironmentId();
   });
   const envVarsQuery = useEnvironmentVariables(activeEnvironmentId);
   const globalVarsQuery = useGlobalVariables();
@@ -183,11 +179,7 @@ export function CollectionsPage() {
   // --- Persist layout state ---
 
   useEffect(() => {
-    if (activeEnvironmentId) {
-      window.localStorage.setItem(ACTIVE_ENV_KEY, activeEnvironmentId);
-    } else {
-      window.localStorage.removeItem(ACTIVE_ENV_KEY);
-    }
+    writeActiveEnvironmentId(activeEnvironmentId);
   }, [activeEnvironmentId]);
 
   useEffect(() => {
@@ -238,65 +230,24 @@ export function CollectionsPage() {
 
   function handleSend() {
     const substitutedUrl = substituteVariables(editor.url, mergedVarMap);
-    const substitutedBody = substituteVariables(editor.body, mergedVarMap);
-
-    let finalHeaders = editor.headers.map((h) => ({
-      name: substituteVariables(h.name, mergedVarMap),
-      value: substituteVariables(h.value, mergedVarMap),
-    }));
-
-    let encodedBody: string | undefined;
-    switch (editor.bodyType) {
-      case "formdata": {
-        const active = editor.formDataEntries
-          .filter((e) => substituteVariables(e.name, mergedVarMap).trim())
-          .map((e) => ({
-            name: substituteVariables(e.name, mergedVarMap),
-            value: substituteVariables(e.value, mergedVarMap),
-          }));
-        if (active.length > 0) {
-          const boundary = `----AIProxyBoundary${Date.now().toString(16)}`;
-          encodedBody = buildMultipartBody(active, boundary);
-          finalHeaders = ensureContentType(
-            finalHeaders,
-            `${FORMDATA_CONTENT_TYPE}; boundary=${boundary}`,
-          );
-        }
-        break;
-      }
-      case "urlencoded": {
-        const active = editor.urlEncodedEntries
-          .filter((e) => substituteVariables(e.name, mergedVarMap).trim())
-          .map((e) => ({
-            name: substituteVariables(e.name, mergedVarMap),
-            value: substituteVariables(e.value, mergedVarMap),
-          }));
-        if (active.length > 0) {
-          encodedBody = active
-            .map((e) => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
-            .join("&");
-          finalHeaders = ensureContentType(finalHeaders, URLENCODED_CONTENT_TYPE);
-        }
-        break;
-      }
-      case "raw": {
-        if (substitutedBody.trim()) {
-          encodedBody = substitutedBody;
-          finalHeaders = ensureContentType(
-            finalHeaders,
-            RAW_LANGUAGE_CONTENT_TYPE[editor.rawLanguage],
-          );
-        }
-        break;
-      }
-    }
+    const { textBody: encodedBody, headers: finalHeaders } = encodeComposedRequest(
+      {
+        headers: editor.headers,
+        body: editor.body,
+        bodyType: editor.bodyType,
+        rawLanguage: editor.rawLanguage,
+        formDataEntries: editor.formDataEntries,
+        urlEncodedEntries: editor.urlEncodedEntries,
+      },
+      mergedVarMap,
+    );
 
     sendMutation.mutate({
       workspaceId: "default",
       method: editor.method,
       url: substitutedUrl,
       headers: finalHeaders,
-      ...(encodedBody ? { body: encodedBody } : {}),
+      ...(encodedBody !== undefined ? { body: encodedBody } : {}),
     });
   }
 
@@ -450,7 +401,7 @@ export function CollectionsPage() {
         collectionFilter={collectionFilter}
         dndSensors={treeHook.dndSensors}
         dropTarget={treeHook.dropTarget}
-        environments={(environmentsQuery.data ?? []) as { id: string; name: string }[]}
+        environments={environmentsQuery.data ?? []}
         filteredTree={treeHook.filteredTree}
         hasEnvError={hasEnvError}
         isCollectionsLoading={collectionsQuery.isLoading}
