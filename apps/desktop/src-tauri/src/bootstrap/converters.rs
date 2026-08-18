@@ -85,7 +85,16 @@ pub(crate) fn workspace_row_to_data(row: WorkspaceRow) -> WorkspaceData {
 }
 
 pub(crate) fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
+    let stored = serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null);
+    // D2: new rows persist `actions` as a JSON array; legacy rows persist a
+    // single action object and rely on the rewrite_type column. The proxy-core
+    // runtime expands both shapes via rewrite_actions().
+    let actions = stored
+        .as_array()
+        .filter(|actions| !actions.is_empty())
+        .cloned();
     RewriteRule {
+        actions: actions.clone(),
         id: row.id,
         enabled: row.enabled,
         name: row.name,
@@ -103,7 +112,11 @@ pub(crate) fn rewrite_row_to_rule(row: RewriteRuleRow) -> RewriteRule {
         },
         rewrite_type: row.rewrite_type,
         workspace_id: row.workspace_id,
-        payload: serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null),
+        payload: if actions.is_some() {
+            serde_json::Value::Null
+        } else {
+            stored
+        },
     }
 }
 

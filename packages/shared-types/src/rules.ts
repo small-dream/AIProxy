@@ -126,23 +126,21 @@ type RewriteRuleBase = {
   workspaceId: string;
 };
 
-export type RewriteRule =
-  | (RewriteRuleBase & {
-      payload: RewriteHeaderPayload;
-      rewriteType: "header";
-    })
-  | (RewriteRuleBase & {
-      payload: RewriteQueryPayload;
-      rewriteType: "query";
-    })
-  | (RewriteRuleBase & {
-      payload: RewriteBodyPayload;
-      rewriteType: "body";
-    })
-  | (RewriteRuleBase & {
-      payload: RewriteRedirectPayload;
-      rewriteType: "redirect";
-    });
+export type RewriteAction =
+  | { rewriteType: "header"; payload: RewriteHeaderPayload }
+  | { rewriteType: "query"; payload: RewriteQueryPayload }
+  | { rewriteType: "body"; payload: RewriteBodyPayload }
+  | { rewriteType: "redirect"; payload: RewriteRedirectPayload };
+
+/**
+ * A rewrite rule carries 1..n ordered actions. `rewriteType` is the derived
+ * type of `actions[0]` — it is persisted for DB-column / trace compatibility
+ * (D2) and the backend derives it from `actions[0]` when normalizing old rows.
+ */
+export type RewriteRule = RewriteRuleBase & {
+  actions: RewriteAction[];
+  rewriteType: RewriteRuleType;
+};
 
 export type MapRuleMode = "local" | "remote";
 
@@ -440,12 +438,31 @@ function isRewriteRedirectPayload(value: unknown): value is RewriteRedirectPaylo
   );
 }
 
-export function isRewriteRule(value: unknown): value is RewriteRule {
+function isRewriteAction(value: unknown): value is RewriteAction {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<RewriteAction>;
+
+  if (candidate.rewriteType === "header") {
+    return isRewriteHeaderPayload(candidate.payload);
+  }
+  if (candidate.rewriteType === "query") {
+    return isRewriteQueryPayload(candidate.payload);
+  }
+  if (candidate.rewriteType === "body") {
+    return isRewriteBodyPayload(candidate.payload);
+  }
+  if (candidate.rewriteType === "redirect") {
+    return isRewriteRedirectPayload(candidate.payload);
+  }
+  return false;
+}
+
+function isRewriteRuleBase(value: unknown): value is RewriteRuleBase {
   if (typeof value !== "object" || value === null) return false;
 
-  const candidate = value as Partial<RewriteRule>;
+  const candidate = value as Partial<RewriteRuleBase>;
 
-  if (
+  return !(
     typeof candidate.id !== "string" ||
     typeof candidate.workspaceId !== "string" ||
     typeof candidate.name !== "string" ||
@@ -453,27 +470,46 @@ export function isRewriteRule(value: unknown): value is RewriteRule {
     typeof candidate.priority !== "number" ||
     !isNullableString(candidate.note) ||
     !isRuleMatch(candidate.match)
-  ) {
-    return false;
+  );
+}
+
+/**
+ * Accepts both the new shape (`actions: RewriteAction[]`) and the legacy
+ * shape (`rewriteType` + `payload`). Old rows are lazily upgraded to the new
+ * contract (D2): saving always writes `actions`, but reading stays compatible
+ * with persisted legacy rules.
+ */
+export function normalizeRewriteRule(value: unknown): RewriteRule | null {
+  if (!isRewriteRuleBase(value)) return null;
+  const candidate = value as Record<string, unknown>;
+
+  const actions = candidate.actions;
+  if (Array.isArray(actions) && actions.length > 0 && actions.every(isRewriteAction)) {
+    const first = actions[0] as RewriteAction;
+    return {
+      ...(value as RewriteRuleBase),
+      actions: actions as RewriteAction[],
+      rewriteType: first.rewriteType,
+    };
   }
 
-  if (candidate.rewriteType === "header") {
-    return isRewriteHeaderPayload(candidate.payload);
-  }
+  // Legacy single-action shape.
+  const legacy = {
+    rewriteType: candidate.rewriteType,
+    payload: candidate.payload,
+  };
+  if (!isRewriteAction(legacy)) return null;
 
-  if (candidate.rewriteType === "query") {
-    return isRewriteQueryPayload(candidate.payload);
-  }
+  const action = legacy as RewriteAction;
+  return {
+    ...(value as RewriteRuleBase),
+    actions: [action],
+    rewriteType: action.rewriteType,
+  };
+}
 
-  if (candidate.rewriteType === "body") {
-    return isRewriteBodyPayload(candidate.payload);
-  }
-
-  if (candidate.rewriteType === "redirect") {
-    return isRewriteRedirectPayload(candidate.payload);
-  }
-
-  return false;
+export function isRewriteRule(value: unknown): value is RewriteRule {
+  return normalizeRewriteRule(value) !== null;
 }
 
 export function parseRewriteRules(value: unknown): RewriteRule[] {
@@ -481,11 +517,13 @@ export function parseRewriteRules(value: unknown): RewriteRule[] {
     throw coerceAppError(value);
   }
 
-  if (value.every(isRewriteRule)) {
-    return value;
+  const normalized = value
+    .map(normalizeRewriteRule)
+    .filter((rule): rule is RewriteRule => rule !== null);
+  if (normalized.length !== value.length) {
+    throw coerceAppError(value);
   }
-
-  throw coerceAppError(value);
+  return normalized;
 }
 
 export function isMapRule(value: unknown): value is MapRule {

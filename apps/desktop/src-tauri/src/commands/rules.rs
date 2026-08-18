@@ -266,7 +266,10 @@ pub async fn save_rewrite_rule(
             .clone()
             .unwrap_or_else(|| "contains".to_string()),
         rewrite_type: input.rewrite_type.clone(),
-        payload: input.payload.to_string(),
+        // D2: the DB payload column stores the ordered actions array in the
+        // new format; legacy rows (a single action object) are normalized when
+        // read back by the proxy-core rewrite_actions() expansion.
+        payload: serde_json::to_string(&input.actions).unwrap_or_else(|_| "[]".to_string()),
     };
 
     let state = Arc::clone(state.inner());

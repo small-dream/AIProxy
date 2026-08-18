@@ -12,9 +12,12 @@ import {
   isSessionSummary,
   isUpstreamProxyProtocol,
   isSslProxyingSettings,
+  isRewriteRule,
+  normalizeRewriteRule,
   parseSslProxyingExclusions,
   isUpstreamProxySettings,
   normalizeStartProxyInput,
+  parseRewriteRules,
   parseSessionDetail,
   parseSessionSummary,
   parseSessionSummaries,
@@ -23,6 +26,89 @@ import {
   parseRemoveCertificateTrustOutput,
   parseUpstreamProxyProbeResult,
 } from "./index";
+
+function makeRewriteRuleBase() {
+  return {
+    id: "rule-1",
+    workspaceId: "default",
+    name: "Rule",
+    enabled: true,
+    priority: 100,
+    note: "",
+    match: { urlPattern: "example.com", methods: [], stage: "either" },
+  };
+}
+
+describe("rewrite rule normalization (D2)", () => {
+  it("accepts the new actions shape and derives rewriteType from actions[0]", () => {
+    const value = {
+      ...makeRewriteRuleBase(),
+      actions: [
+        { rewriteType: "header", payload: { target: "request", operation: "set", headerName: "x", value: "1" } },
+        { rewriteType: "query", payload: { operation: "set", paramName: "p", value: "v" } },
+      ],
+      rewriteType: "header",
+    };
+
+    const normalized = normalizeRewriteRule(value);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.actions).toHaveLength(2);
+    expect(normalized?.rewriteType).toBe("header");
+    expect(isRewriteRule(value)).toBe(true);
+  });
+
+  it("lazily upgrades the legacy rewriteType + payload shape", () => {
+    const value = {
+      ...makeRewriteRuleBase(),
+      rewriteType: "body",
+      payload: {
+        contentType: "application/json",
+        mode: "replace",
+        target: "response",
+        text: "{}",
+      },
+    };
+
+    const normalized = normalizeRewriteRule(value);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.actions).toEqual([
+      { rewriteType: "body", payload: value.payload },
+    ]);
+    expect(normalized?.rewriteType).toBe("body");
+  });
+
+  it("rejects malformed rules in any shape", () => {
+    expect(normalizeRewriteRule({ ...makeRewriteRuleBase(), actions: [] })).toBeNull();
+    expect(
+      normalizeRewriteRule({
+        ...makeRewriteRuleBase(),
+        rewriteType: "header",
+        payload: { operation: "set" },
+      }),
+    ).toBeNull();
+    expect(normalizeRewriteRule(null)).toBeNull();
+  });
+
+  it("parseRewriteRules normalizes mixed legacy + new arrays", () => {
+    const parsed = parseRewriteRules([
+      {
+        ...makeRewriteRuleBase(),
+        actions: [{ rewriteType: "redirect", payload: { targetUrl: "https://x", preservePath: true, preserveQuery: true } }],
+        rewriteType: "redirect",
+      },
+      {
+        ...makeRewriteRuleBase(),
+        id: "rule-2",
+        rewriteType: "header",
+        payload: { target: "request", operation: "remove", headerName: "x" },
+      },
+    ]);
+
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]?.actions[0]?.rewriteType).toBe("redirect");
+    expect(parsed[1]?.actions[0]?.rewriteType).toBe("header");
+  });
+});
 
 describe("isAppError", () => {
   it("returns true for a valid app error", () => {

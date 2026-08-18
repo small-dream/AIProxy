@@ -20,6 +20,8 @@ export const enMessages = {
       exportCurl: "Export cURL",
       forward: "Forward",
       mockResponse: "Mock Response",
+      moveDown: "Move down",
+      moveUp: "Move up",
       pickFile: "Choose File",
       refreshStatus: "Refresh Status",
       remove: "Remove",
@@ -561,6 +563,10 @@ export const enMessages = {
       emptyDescription:
         "Create a rewrite rule from a quick template to start changing headers, query strings, bodies, or destinations.",
       headerTarget: "Rewrite Target",
+      addAction: "Add action",
+      actionLabel: "Action {{index}}",
+      actionsRequired: "Add at least one action.",
+      actionsSummary: "{{count}} actions",
       operation: "Operation",
       operations: {
         remove: "Remove",

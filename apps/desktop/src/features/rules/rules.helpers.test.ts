@@ -144,7 +144,7 @@ describe("script rule validation", () => {
 describe("rewrite rule validation", () => {
   const t = makeT();
 
-  it("validates the active rewrite payload only", () => {
+  it("validates each action payload under its actions.<i>.payload key", () => {
     const errors = getRewriteValidationErrors(
       {
         id: "1",
@@ -154,15 +154,24 @@ describe("rewrite rule validation", () => {
         priority: 100,
         match: { urlPattern: "example.com", methods: [], stage: "either" },
         rewriteType: "header",
-        payload: { target: "request", operation: "set", headerName: "", value: "" },
+        actions: [
+          {
+            rewriteType: "header",
+            payload: { target: "request", operation: "set", headerName: "", value: "" },
+          },
+          {
+            rewriteType: "query",
+            payload: { operation: "set", paramName: "env", value: "staging" },
+          },
+        ],
         note: "",
       },
       t,
     );
 
-    expect(errors["payload.headerName"]).toBe("rulesPage.validation.headerNameRequired");
-    expect(errors["payload.value"]).toBe("rulesPage.validation.headerValueRequired");
-    expect(errors["payload.paramName"]).toBeUndefined();
+    expect(errors["actions.0.payload.headerName"]).toBe("rulesPage.validation.headerNameRequired");
+    expect(errors["actions.0.payload.value"]).toBe("rulesPage.validation.headerValueRequired");
+    expect(errors["actions.1.payload.paramName"]).toBeUndefined();
   });
 
   it("flags per-row body field errors with their index", () => {
@@ -175,22 +184,31 @@ describe("rewrite rule validation", () => {
         priority: 100,
         match: { urlPattern: "example.com", methods: [], stage: "either" },
         rewriteType: "body",
-        payload: {
-          target: "response",
-          contentType: "application/json",
-          mode: "fields",
-          fields: [
-            { operation: "set", path: "", value: "x", valueType: "string" },
-            { operation: "set", path: "a.b", value: "", valueType: "string" },
-          ],
-        },
+        actions: [
+          {
+            rewriteType: "body",
+            payload: {
+              target: "response",
+              contentType: "application/json",
+              mode: "fields",
+              fields: [
+                { operation: "set", path: "", value: "x", valueType: "string" },
+                { operation: "set", path: "a.b", value: "", valueType: "string" },
+              ],
+            },
+          },
+        ],
         note: "",
       },
       t,
     );
 
-    expect(errors["payload.fields.0.path"]).toBe("rulesPage.validation.bodyFieldPathRequired");
-    expect(errors["payload.fields.1.value"]).toBe("rulesPage.validation.bodyFieldValueRequired");
+    expect(errors["actions.0.payload.fields.0.path"]).toBe(
+      "rulesPage.validation.bodyFieldPathRequired",
+    );
+    expect(errors["actions.0.payload.fields.1.value"]).toBe(
+      "rulesPage.validation.bodyFieldValueRequired",
+    );
   });
 
   it("flags an invalid regex on the match.urlPattern key", () => {
@@ -203,12 +221,40 @@ describe("rewrite rule validation", () => {
         priority: 100,
         match: { urlPattern: "([", methods: [], stage: "either", matchType: "regex" },
         rewriteType: "redirect",
-        payload: { targetUrl: "https://example.com", preservePath: true, preserveQuery: true },
+        actions: [
+          {
+            rewriteType: "redirect",
+            payload: {
+              targetUrl: "https://example.com",
+              preservePath: true,
+              preserveQuery: true,
+            },
+          },
+        ],
         note: "",
       },
       t,
     );
 
     expect(errors["match.urlPattern"]).toBe("rulesPage.validation.regexPatternInvalid");
+  });
+
+  it("requires at least one action", () => {
+    const errors = getRewriteValidationErrors(
+      {
+        id: "1",
+        workspaceId: "default",
+        name: "ok",
+        enabled: true,
+        priority: 100,
+        match: { urlPattern: "example.com", methods: [], stage: "either" },
+        rewriteType: "header",
+        actions: [],
+        note: "",
+      },
+      t,
+    );
+
+    expect(errors.actions).toBe("rulesPage.rewrite.actionsRequired");
   });
 });

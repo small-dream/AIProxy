@@ -1,4 +1,6 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
+import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import BugReportRoundedIcon from "@mui/icons-material/BugReportRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
@@ -14,6 +16,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -31,6 +34,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   coerceAppError,
+  type RewriteAction,
   type RewriteBodyFieldEdit,
   type RewriteRule,
   type RewriteRuleType,
@@ -46,6 +50,7 @@ import {
   useSaveRewriteRule,
 } from "@/features/rules/use-rule-center";
 import {
+  createEmptyRewriteAction,
   createEmptyRewriteRule,
   formatRuleMatch,
   getRewriteTypeLabel,
@@ -89,13 +94,8 @@ type RuleTestInput = {
   url: string;
 };
 
-type HeaderRewriteRule = Extract<RewriteRule, { rewriteType: "header" }>;
-type QueryRewriteRule = Extract<RewriteRule, { rewriteType: "query" }>;
-type BodyRewriteRule = Extract<RewriteRule, { rewriteType: "body" }>;
-type RedirectRewriteRule = Extract<RewriteRule, { rewriteType: "redirect" }>;
-
 function createSeededRule(seed: RewriteSeed): RewriteRule {
-  const rule = createEmptyRewriteRule("header") as HeaderRewriteRule;
+  const rule = createEmptyRewriteRule("header");
   const pattern =
     seed.host && seed.path ? `${seed.host}${seed.path === "/" ? "" : seed.path}` : seed.url;
 
@@ -107,12 +107,17 @@ function createSeededRule(seed: RewriteSeed): RewriteRule {
       stage: "request",
       urlPattern: pattern || seed.url,
     },
-    payload: {
-      headerName: "x-debug-mode",
-      operation: "set",
-      target: "request",
-      value: "true",
-    },
+    actions: [
+      {
+        rewriteType: "header",
+        payload: {
+          headerName: "x-debug-mode",
+          operation: "set",
+          target: "request",
+          value: "true",
+        },
+      },
+    ],
   };
 }
 
@@ -138,35 +143,41 @@ function testRuleMatch(rule: RewriteRule, input: RuleTestInput, t: TranslationFn
 function getInvalidRewriteCombination(rule: RewriteRule, t: TranslationFn) {
   if (
     rule.match.stage === "response" &&
-    (rule.rewriteType === "query" || rule.rewriteType === "redirect")
+    rule.actions.some(
+      (action) => action.rewriteType === "query" || action.rewriteType === "redirect",
+    )
   ) {
     return t("rulesPage.rewrite.invalidCombination.queryRedirectOnResponse");
   }
   if (
-    rule.rewriteType === "header" &&
     rule.match.stage === "request" &&
-    rule.payload.target === "response"
+    rule.actions.some(
+      (action) => action.rewriteType === "header" && action.payload.target === "response",
+    )
   ) {
     return t("rulesPage.rewrite.invalidCombination.headerTargetMismatchRequest");
   }
   if (
-    rule.rewriteType === "header" &&
     rule.match.stage === "response" &&
-    rule.payload.target === "request"
+    rule.actions.some(
+      (action) => action.rewriteType === "header" && action.payload.target === "request",
+    )
   ) {
     return t("rulesPage.rewrite.invalidCombination.headerTargetMismatchResponse");
   }
   if (
-    rule.rewriteType === "body" &&
     rule.match.stage === "request" &&
-    rule.payload.target === "response"
+    rule.actions.some(
+      (action) => action.rewriteType === "body" && action.payload.target === "response",
+    )
   ) {
     return t("rulesPage.rewrite.invalidCombination.bodyTargetMismatchRequest");
   }
   if (
-    rule.rewriteType === "body" &&
     rule.match.stage === "response" &&
-    rule.payload.target === "request"
+    rule.actions.some(
+      (action) => action.rewriteType === "body" && action.payload.target === "request",
+    )
   ) {
     return t("rulesPage.rewrite.invalidCombination.bodyTargetMismatchResponse");
   }
@@ -174,33 +185,37 @@ function getInvalidRewriteCombination(rule: RewriteRule, t: TranslationFn) {
 }
 
 function describeRewriteAction(rule: RewriteRule, t: TranslationFn) {
-  if (rule.rewriteType === "header") {
+  const first = rule.actions[0];
+  if (rule.actions.length > 1) {
+    return t("rulesPage.rewrite.actionsSummary", { count: rule.actions.length });
+  }
+  if (first?.rewriteType === "header") {
     return t("rulesPage.rewrite.action.header", {
-      target: rule.payload.target,
-      operation: rule.payload.operation,
-      name: rule.payload.headerName || "(name)",
+      target: first.payload.target,
+      operation: first.payload.operation,
+      name: first.payload.headerName || "(name)",
     });
   }
-  if (rule.rewriteType === "query") {
+  if (first?.rewriteType === "query") {
     return t("rulesPage.rewrite.action.query", {
-      operation: rule.payload.operation,
-      name: rule.payload.paramName || "(param)",
+      operation: first.payload.operation,
+      name: first.payload.paramName || "(param)",
     });
   }
-  if (rule.rewriteType === "body") {
-    if ((rule.payload.mode ?? "replace") === "fields") {
+  if (first?.rewriteType === "body") {
+    if ((first.payload.mode ?? "replace") === "fields") {
       return t("rulesPage.rewrite.action.bodyFields", {
-        target: rule.payload.target,
-        count: rule.payload.fields?.length ?? 0,
+        target: first.payload.target,
+        count: first.payload.fields?.length ?? 0,
       });
     }
     return t("rulesPage.rewrite.action.bodyReplace", {
-      target: rule.payload.target,
-      contentType: rule.payload.contentType,
+      target: first.payload.target,
+      contentType: first.payload.contentType,
     });
   }
   return t("rulesPage.rewrite.action.redirect", {
-    target: rule.payload.targetUrl || "(target URL)",
+    target: first?.payload.targetUrl || "(target URL)",
   });
 }
 
@@ -237,17 +252,22 @@ export function RewriteRulesPanel() {
     () => [
       {
         build: () => {
-          const rule = createEmptyRewriteRule("header") as HeaderRewriteRule;
+          const rule = createEmptyRewriteRule("header");
           return {
             ...rule,
             match: { methods: [], stage: "either", urlPattern: "*" },
             name: "Add debug header",
-            payload: {
-              headerName: "x-debug-mode",
-              operation: "set",
-              target: "request",
-              value: "true",
-            },
+            actions: [
+              {
+                rewriteType: "header",
+                payload: {
+                  headerName: "x-debug-mode",
+                  operation: "set",
+                  target: "request",
+                  value: "true",
+                },
+              },
+            ],
           };
         },
         description: "rulesPage.rewrite.templates.debugHeader.description",
@@ -257,17 +277,22 @@ export function RewriteRulesPanel() {
       },
       {
         build: () => {
-          const rule = createEmptyRewriteRule("header") as HeaderRewriteRule;
+          const rule = createEmptyRewriteRule("header");
           return {
             ...rule,
             match: { methods: [], stage: "response", urlPattern: "*" },
             name: "Disable response cache",
-            payload: {
-              headerName: "Cache-Control",
-              operation: "set",
-              target: "response",
-              value: "no-store",
-            },
+            actions: [
+              {
+                rewriteType: "header",
+                payload: {
+                  headerName: "Cache-Control",
+                  operation: "set",
+                  target: "response",
+                  value: "no-store",
+                },
+              },
+            ],
           };
         },
         description: "rulesPage.rewrite.templates.disableCache.description",
@@ -277,12 +302,17 @@ export function RewriteRulesPanel() {
       },
       {
         build: () => {
-          const rule = createEmptyRewriteRule("query") as QueryRewriteRule;
+          const rule = createEmptyRewriteRule("query");
           return {
             ...rule,
             match: { methods: [], stage: "request", urlPattern: "*" },
             name: "Route query to staging",
-            payload: { operation: "set", paramName: "env", value: "staging" },
+            actions: [
+              {
+                rewriteType: "query",
+                payload: { operation: "set", paramName: "env", value: "staging" },
+              },
+            ],
           };
         },
         description: "rulesPage.rewrite.templates.envQuery.description",
@@ -292,16 +322,21 @@ export function RewriteRulesPanel() {
       },
       {
         build: () => {
-          const rule = createEmptyRewriteRule("redirect") as RedirectRewriteRule;
+          const rule = createEmptyRewriteRule("redirect");
           return {
             ...rule,
             match: { methods: [], stage: "request", urlPattern: "api.example.com/*" },
             name: "Redirect API to staging",
-            payload: {
-              preservePath: true,
-              preserveQuery: true,
-              targetUrl: "https://staging.example.com",
-            },
+            actions: [
+              {
+                rewriteType: "redirect",
+                payload: {
+                  preservePath: true,
+                  preserveQuery: true,
+                  targetUrl: "https://staging.example.com",
+                },
+              },
+            ],
           };
         },
         description: "rulesPage.rewrite.templates.stagingRedirect.description",
@@ -311,18 +346,23 @@ export function RewriteRulesPanel() {
       },
       {
         build: () => {
-          const rule = createEmptyRewriteRule("body") as BodyRewriteRule;
+          const rule = createEmptyRewriteRule("body");
           return {
             ...rule,
             match: { methods: [], stage: "response", urlPattern: "*" },
             name: "Mock JSON response",
-            payload: {
-              contentType: "application/json",
-              fields: [],
-              mode: "replace",
-              target: "response",
-              text: '{\n  "ok": true\n}',
-            },
+            actions: [
+              {
+                rewriteType: "body",
+                payload: {
+                  contentType: "application/json",
+                  fields: [],
+                  mode: "replace",
+                  target: "response",
+                  text: '{\n  "ok": true\n}',
+                },
+              },
+            ],
           };
         },
         description: "rulesPage.rewrite.templates.mockJson.description",
@@ -690,32 +730,6 @@ export function RewriteRulesPanel() {
 
                 <RuleSection>
                   <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
-                    <ToggleButtonGroup
-                      exclusive
-                      fullWidth
-                      onChange={(_, value: RewriteRuleType | null) => {
-                        if (!value) return;
-                        const nextDraft = createEmptyRewriteRule(value);
-                        setDraft({
-                          ...nextDraft,
-                          id: draft.id,
-                          name: draft.name,
-                          enabled: draft.enabled,
-                          priority: draft.priority,
-                          match: draft.match,
-                          ...(draft.note ? { note: draft.note } : {}),
-                        });
-                      }}
-                      size="small"
-                      value={draft.rewriteType}
-                    >
-                      <ToggleButton value="header">{getRewriteTypeLabel("header", t)}</ToggleButton>
-                      <ToggleButton value="query">{getRewriteTypeLabel("query", t)}</ToggleButton>
-                      <ToggleButton value="body">{getRewriteTypeLabel("body", t)}</ToggleButton>
-                      <ToggleButton value="redirect">
-                        {getRewriteTypeLabel("redirect", t)}
-                      </ToggleButton>
-                    </ToggleButtonGroup>
                     <RewriteActionFields
                       errors={errors}
                       rule={draft}
@@ -1022,10 +1036,145 @@ function RewriteActionFields(props: {
 }) {
   const { t } = useI18n();
   const { errors, onChange, rule, validationAttempted } = props;
+
+  function updateAction(index: number, action: RewriteAction) {
+    const actions = rule.actions.map((candidate, candidateIndex) =>
+      candidateIndex === index ? action : candidate,
+    );
+    onChange({ ...rule, actions, rewriteType: actions[0]?.rewriteType ?? "header" });
+  }
+
+  function removeAction(index: number) {
+    const actions = rule.actions.filter((_, candidateIndex) => candidateIndex !== index);
+    onChange({ ...rule, actions, rewriteType: actions[0]?.rewriteType ?? "header" });
+  }
+
+  function moveAction(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= rule.actions.length) return;
+    const actions = [...rule.actions];
+    const [moving] = actions.splice(index, 1);
+    if (!moving) return;
+    actions.splice(target, 0, moving);
+    onChange({ ...rule, actions });
+  }
+
+  function addAction() {
+    onChange({
+      ...rule,
+      actions: [...rule.actions, createEmptyRewriteAction("header")],
+    });
+  }
+
+  return (
+    <Stack spacing={1.25}>
+      {rule.actions.length === 0 && (
+        <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+          {t("rulesPage.rewrite.actionsRequired")}
+        </Alert>
+      )}
+      {rule.actions.map((action, index) => (
+        <Paper
+          key={index}
+          elevation={0}
+          sx={(theme) => ({
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.06 : 0.03),
+            border: 1,
+            borderColor: "divider",
+            borderRadius: "8px",
+            p: 1.25,
+          })}
+        >
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.25 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+              {t("rulesPage.rewrite.actionLabel", { index: index + 1 })}
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 130 }}>
+              <Select
+                value={action.rewriteType}
+                onChange={(e) =>
+                  updateAction(index, createEmptyRewriteAction(e.target.value as RewriteRuleType))
+                }
+              >
+                {(["header", "query", "body", "redirect"] as const).map((type) => (
+                  <MenuItem key={type} value={type}>
+                    {getRewriteTypeLabel(type, t)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Box sx={{ flex: 1 }} />
+            <Tooltip title={t("common.actions.moveUp")}>
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={index === 0}
+                  onClick={() => moveAction(index, -1)}
+                >
+                  <ArrowUpwardRoundedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={t("common.actions.moveDown")}>
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={index === rule.actions.length - 1}
+                  onClick={() => moveAction(index, 1)}
+                >
+                  <ArrowDownwardRoundedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={t("common.actions.remove")}>
+              <span>
+                <IconButton
+                  size="small"
+                  color="error"
+                  disabled={rule.actions.length === 1}
+                  onClick={() => removeAction(index)}
+                >
+                  <DeleteRoundedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+          <RewriteActionFieldsInner
+            action={action}
+            errors={errors}
+            index={index}
+            onChange={(next) => updateAction(index, next)}
+            validationAttempted={validationAttempted}
+          />
+        </Paper>
+      ))}
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<AddRoundedIcon />}
+        onClick={addAction}
+        sx={{ alignSelf: "flex-start" }}
+      >
+        {t("rulesPage.rewrite.addAction")}
+      </Button>
+    </Stack>
+  );
+}
+
+function RewriteActionFieldsInner(props: {
+  action: RewriteAction;
+  errors: RuleFieldErrors;
+  index: number;
+  onChange: (action: RewriteAction) => void;
+  validationAttempted: boolean;
+}) {
+  const { t } = useI18n();
+  const { action, errors, index, onChange, validationAttempted } = props;
   const required = (label: string) => formatRuleFieldLabel(label, "required", t);
   const optional = (label: string) => formatRuleFieldLabel(label, "optional", t);
+  const key = (field: string) => `actions.${index}.payload.${field}`;
 
-  if (rule.rewriteType === "header") {
+  if (action.rewriteType === "header") {
     const targetLabel = required(t("rulesPage.rewrite.headerTarget"));
     const operationLabel = required(t("rulesPage.rewrite.operation"));
     return (
@@ -1035,11 +1184,14 @@ function RewriteActionFields(props: {
             <InputLabel>{targetLabel}</InputLabel>
             <Select
               label={targetLabel}
-              value={rule.payload.target}
+              value={action.payload.target}
               onChange={(e) =>
                 onChange({
-                  ...rule,
-                  payload: { ...rule.payload, target: e.target.value as "request" | "response" },
+                  ...action,
+                  payload: {
+                    ...action.payload,
+                    target: e.target.value as "request" | "response",
+                  },
                 })
               }
             >
@@ -1051,11 +1203,14 @@ function RewriteActionFields(props: {
             <InputLabel>{operationLabel}</InputLabel>
             <Select
               label={operationLabel}
-              value={rule.payload.operation}
+              value={action.payload.operation}
               onChange={(e) =>
                 onChange({
-                  ...rule,
-                  payload: { ...rule.payload, operation: e.target.value as "set" | "remove" },
+                  ...action,
+                  payload: {
+                    ...action.payload,
+                    operation: e.target.value as "set" | "remove",
+                  },
                 })
               }
             >
@@ -1067,22 +1222,25 @@ function RewriteActionFields(props: {
         <TextField
           size="small"
           label={required(t("rulesPage.rewrite.headerName"))}
-          value={rule.payload.headerName}
+          value={action.payload.headerName}
           onChange={(e) =>
-            onChange({ ...rule, payload: { ...rule.payload, headerName: e.target.value } })
+            onChange({
+              ...action,
+              payload: { ...action.payload, headerName: e.target.value },
+            })
           }
-          {...ruleFieldProps(errors, validationAttempted, "payload.headerName")}
+          {...ruleFieldProps(errors, validationAttempted, key("headerName"))}
           placeholder={t("rulesPage.rewrite.headerNameExample")}
         />
-        {rule.payload.operation === "set" && (
+        {action.payload.operation === "set" && (
           <TextField
             size="small"
             label={required(t("rulesPage.rewrite.headerValue"))}
-            value={rule.payload.value ?? ""}
+            value={action.payload.value ?? ""}
             onChange={(e) =>
-              onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })
+              onChange({ ...action, payload: { ...action.payload, value: e.target.value } })
             }
-            {...ruleFieldProps(errors, validationAttempted, "payload.value")}
+            {...ruleFieldProps(errors, validationAttempted, key("value"))}
             placeholder={t("rulesPage.rewrite.headerValueExample")}
           />
         )}
@@ -1090,7 +1248,7 @@ function RewriteActionFields(props: {
     );
   }
 
-  if (rule.rewriteType === "query") {
+  if (action.rewriteType === "query") {
     const operationLabel = required(t("rulesPage.rewrite.operation"));
     return (
       <Stack spacing={1.5}>
@@ -1098,11 +1256,14 @@ function RewriteActionFields(props: {
           <InputLabel>{operationLabel}</InputLabel>
           <Select
             label={operationLabel}
-            value={rule.payload.operation}
+            value={action.payload.operation}
             onChange={(e) =>
               onChange({
-                ...rule,
-                payload: { ...rule.payload, operation: e.target.value as "set" | "remove" },
+                ...action,
+                payload: {
+                  ...action.payload,
+                  operation: e.target.value as "set" | "remove",
+                },
               })
             }
           >
@@ -1113,22 +1274,25 @@ function RewriteActionFields(props: {
         <TextField
           size="small"
           label={required(t("rulesPage.rewrite.queryName"))}
-          value={rule.payload.paramName}
+          value={action.payload.paramName}
           onChange={(e) =>
-            onChange({ ...rule, payload: { ...rule.payload, paramName: e.target.value } })
+            onChange({
+              ...action,
+              payload: { ...action.payload, paramName: e.target.value },
+            })
           }
-          {...ruleFieldProps(errors, validationAttempted, "payload.paramName")}
+          {...ruleFieldProps(errors, validationAttempted, key("paramName"))}
           placeholder={t("rulesPage.rewrite.queryNameExample")}
         />
-        {rule.payload.operation === "set" && (
+        {action.payload.operation === "set" && (
           <TextField
             size="small"
             label={required(t("rulesPage.rewrite.queryValue"))}
-            value={rule.payload.value ?? ""}
+            value={action.payload.value ?? ""}
             onChange={(e) =>
-              onChange({ ...rule, payload: { ...rule.payload, value: e.target.value } })
+              onChange({ ...action, payload: { ...action.payload, value: e.target.value } })
             }
-            {...ruleFieldProps(errors, validationAttempted, "payload.value")}
+            {...ruleFieldProps(errors, validationAttempted, key("value"))}
             placeholder={t("rulesPage.rewrite.queryValueExample")}
           />
         )}
@@ -1136,9 +1300,9 @@ function RewriteActionFields(props: {
     );
   }
 
-  if (rule.rewriteType === "body") {
+  if (action.rewriteType === "body") {
     const targetLabel = required(t("rulesPage.rewrite.bodyTarget"));
-    const mode = rule.payload.mode ?? "replace";
+    const mode = action.payload.mode ?? "replace";
 
     return (
       <Stack spacing={1.5}>
@@ -1147,11 +1311,14 @@ function RewriteActionFields(props: {
             <InputLabel>{targetLabel}</InputLabel>
             <Select
               label={targetLabel}
-              value={rule.payload.target}
+              value={action.payload.target}
               onChange={(e) =>
                 onChange({
-                  ...rule,
-                  payload: { ...rule.payload, target: e.target.value as "request" | "response" },
+                  ...action,
+                  payload: {
+                    ...action.payload,
+                    target: e.target.value as "request" | "response",
+                  },
                 })
               }
             >
@@ -1162,9 +1329,12 @@ function RewriteActionFields(props: {
           <TextField
             size="small"
             label={optional(t("rulesPage.rewrite.contentType"))}
-            value={rule.payload.contentType}
+            value={action.payload.contentType}
             onChange={(e) =>
-              onChange({ ...rule, payload: { ...rule.payload, contentType: e.target.value } })
+              onChange({
+                ...action,
+                payload: { ...action.payload, contentType: e.target.value },
+              })
             }
           />
         </Stack>
@@ -1174,11 +1344,11 @@ function RewriteActionFields(props: {
           onChange={(_, value: "replace" | "fields" | null) => {
             if (!value) return;
             onChange({
-              ...rule,
+              ...action,
               payload: {
-                ...rule.payload,
-                fields: rule.payload.fields?.length
-                  ? rule.payload.fields
+                ...action.payload,
+                fields: action.payload.fields?.length
+                  ? action.payload.fields
                   : [{ operation: "set", path: "", value: "", valueType: "string" }],
                 mode: value,
               },
@@ -1196,18 +1366,19 @@ function RewriteActionFields(props: {
             multiline
             minRows={6}
             label={required(t("rulesPage.rewrite.bodyText"))}
-            value={rule.payload.text ?? ""}
+            value={action.payload.text ?? ""}
             onChange={(e) =>
-              onChange({ ...rule, payload: { ...rule.payload, text: e.target.value } })
+              onChange({ ...action, payload: { ...action.payload, text: e.target.value } })
             }
-            {...ruleFieldProps(errors, validationAttempted, "payload.text")}
+            {...ruleFieldProps(errors, validationAttempted, key("text"))}
             sx={{ "& .MuiInputBase-input": { fontFamily: fontFamilies.mono, fontSize: 13 } }}
           />
         ) : (
           <BodyFieldsEditor
             errors={errors}
-            fields={rule.payload.fields ?? []}
-            onChange={(fields) => onChange({ ...rule, payload: { ...rule.payload, fields } })}
+            fields={action.payload.fields ?? []}
+            keyPrefix={key("fields")}
+            onChange={(fields) => onChange({ ...action, payload: { ...action.payload, fields } })}
             validationAttempted={validationAttempted}
           />
         )}
@@ -1220,23 +1391,28 @@ function RewriteActionFields(props: {
       <TextField
         size="small"
         label={required(t("rulesPage.rewrite.redirectTarget"))}
-        value={rule.payload.targetUrl}
+        value={action.payload.targetUrl}
         onChange={(e) =>
-          onChange({ ...rule, payload: { ...rule.payload, targetUrl: e.target.value } })
+          onChange({
+            ...action,
+            payload: { ...action.payload, targetUrl: e.target.value },
+          })
         }
-        {...ruleFieldProps(errors, validationAttempted, "payload.targetUrl")}
+        {...ruleFieldProps(errors, validationAttempted, key("targetUrl"))}
         placeholder={t("rulesPage.rewrite.redirectTargetExample")}
       />
       <Stack direction="row" spacing={2}>
         <InlineSwitch
           label={t("rulesPage.rewrite.preservePath")}
-          checked={rule.payload.preservePath}
-          onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preservePath: v } })}
+          checked={action.payload.preservePath}
+          onChange={(v) => onChange({ ...action, payload: { ...action.payload, preservePath: v } })}
         />
         <InlineSwitch
           label={t("rulesPage.rewrite.preserveQuery")}
-          checked={rule.payload.preserveQuery}
-          onChange={(v) => onChange({ ...rule, payload: { ...rule.payload, preserveQuery: v } })}
+          checked={action.payload.preserveQuery}
+          onChange={(v) =>
+            onChange({ ...action, payload: { ...action.payload, preserveQuery: v } })
+          }
         />
       </Stack>
     </Stack>
@@ -1278,11 +1454,14 @@ function toBodyFieldEdits(rows: BodyFieldRow[]): RewriteBodyFieldEdit[] {
 function BodyFieldsEditor({
   errors,
   fields,
+  keyPrefix = "payload.fields",
   onChange,
   validationAttempted,
 }: {
   errors: RuleFieldErrors;
   fields: RewriteBodyFieldEdit[];
+  /** Error-key prefix, e.g. `actions.0.payload.fields` for multi-action rules. */
+  keyPrefix?: string;
   onChange: (fields: RewriteBodyFieldEdit[]) => void;
   validationAttempted: boolean;
 }) {
@@ -1337,7 +1516,7 @@ function BodyFieldsEditor({
             <TextField
               size="small"
               label={pathLabel}
-              {...ruleFieldProps(errors, validationAttempted, `payload.fields.${index}.path`)}
+              {...ruleFieldProps(errors, validationAttempted, `${keyPrefix}.${index}.path`)}
               placeholder={t("rulesPage.rewrite.bodyFieldPathExample")}
               value={field.path}
               onChange={(e) =>
@@ -1404,7 +1583,7 @@ function BodyFieldsEditor({
               disabled={field.operation === "remove" || field.valueType === "null"}
               size="small"
               label={valueLabel}
-              {...ruleFieldProps(errors, validationAttempted, `payload.fields.${index}.value`)}
+              {...ruleFieldProps(errors, validationAttempted, `${keyPrefix}.${index}.value`)}
               value={field.value ?? ""}
               onChange={(e) =>
                 emit(

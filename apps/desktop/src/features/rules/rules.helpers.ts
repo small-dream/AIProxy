@@ -3,6 +3,7 @@ import type {
   BreakpointStage,
   DnsMappingRule,
   MapRule,
+  RewriteAction,
   RewriteRule,
   RewriteRuleType,
   RuleMatch,
@@ -27,23 +28,12 @@ export function createEmptyBreakpointRule(): BreakpointRule {
   return { id: crypto.randomUUID(), enabled: true, urlPattern: "", methods: [], stage: "request" };
 }
 
-export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"): RewriteRule {
-  const base = {
-    id: crypto.randomUUID(),
-    workspaceId: DEFAULT_WORKSPACE_ID,
-    name: "",
-    enabled: true,
-    priority: 100,
-    match: createEmptyRuleMatch(),
-    note: "",
-  };
-
+export function createEmptyRewriteAction(rewriteType: RewriteRuleType): RewriteAction {
   switch (rewriteType) {
     case "query":
-      return { ...base, rewriteType, payload: { operation: "set", paramName: "", value: "" } };
+      return { rewriteType, payload: { operation: "set", paramName: "", value: "" } };
     case "body":
       return {
-        ...base,
         rewriteType,
         payload: {
           contentType: "application/json",
@@ -55,18 +45,30 @@ export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"):
       };
     case "redirect":
       return {
-        ...base,
         rewriteType,
         payload: { preservePath: true, preserveQuery: true, targetUrl: "" },
       };
     case "header":
     default:
       return {
-        ...base,
         rewriteType: "header",
         payload: { headerName: "", operation: "set", target: "request", value: "" },
       };
   }
+}
+
+export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"): RewriteRule {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: "",
+    enabled: true,
+    priority: 100,
+    match: createEmptyRuleMatch(),
+    note: "",
+    rewriteType,
+    actions: [createEmptyRewriteAction(rewriteType)],
+  };
 }
 
 export function createEmptyMapRule(mode: MapRule["mode"]): MapRule {
@@ -178,52 +180,57 @@ export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn):
     }
   }
 
-  if (rule.rewriteType === "header") {
-    if (!rule.payload.headerName.trim())
-      errors["payload.headerName"] = t("rulesPage.validation.headerNameRequired");
-    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
-      errors["payload.value"] = t("rulesPage.validation.headerValueRequired");
+  if (rule.actions.length === 0) {
+    errors.actions = t("rulesPage.rewrite.actionsRequired");
   }
-  if (rule.rewriteType === "query") {
-    if (!rule.payload.paramName.trim())
-      errors["payload.paramName"] = t("rulesPage.validation.queryNameRequired");
-    if (rule.payload.operation === "set" && !(rule.payload.value ?? "").trim())
-      errors["payload.value"] = t("rulesPage.validation.queryValueRequired");
-  }
-  if (rule.rewriteType === "body") {
-    const mode = rule.payload.mode ?? "replace";
-    if (mode === "replace" && !(rule.payload.text ?? "").trim())
-      errors["payload.text"] = t("rulesPage.validation.bodyTextRequired");
-    if (mode === "fields") {
-      const fields = rule.payload.fields ?? [];
-      if (fields.length === 0 || fields.some((field) => !field.path.trim())) {
+
+  rule.actions.forEach((action, actionIndex) => {
+    const key = (field: string) => `actions.${actionIndex}.payload.${field}`;
+    if (action.rewriteType === "header") {
+      if (!action.payload.headerName.trim())
+        errors[key("headerName")] = t("rulesPage.validation.headerNameRequired");
+      if (action.payload.operation === "set" && !(action.payload.value ?? "").trim())
+        errors[key("value")] = t("rulesPage.validation.headerValueRequired");
+    }
+    if (action.rewriteType === "query") {
+      if (!action.payload.paramName.trim())
+        errors[key("paramName")] = t("rulesPage.validation.queryNameRequired");
+      if (action.payload.operation === "set" && !(action.payload.value ?? "").trim())
+        errors[key("value")] = t("rulesPage.validation.queryValueRequired");
+    }
+    if (action.rewriteType === "body") {
+      const mode = action.payload.mode ?? "replace";
+      if (mode === "replace" && !(action.payload.text ?? "").trim())
+        errors[key("text")] = t("rulesPage.validation.bodyTextRequired");
+      if (mode === "fields") {
+        const fields = action.payload.fields ?? [];
         if (fields.length === 0) {
-          errors["payload.fields"] = t("rulesPage.validation.bodyFieldPathRequired");
+          errors[key("fields")] = t("rulesPage.validation.bodyFieldPathRequired");
         } else {
-          fields.forEach((field, index) => {
+          fields.forEach((field, fieldIndex) => {
             if (!field.path.trim()) {
-              errors[`payload.fields.${index}.path`] = t(
+              errors[`${key("fields")}.${fieldIndex}.path`] = t(
                 "rulesPage.validation.bodyFieldPathRequired",
               );
             }
           });
         }
+        fields.forEach((field, fieldIndex) => {
+          if (
+            field.operation === "set" &&
+            field.valueType !== "null" &&
+            !(field.value ?? "").trim()
+          ) {
+            errors[`${key("fields")}.${fieldIndex}.value`] = t(
+              "rulesPage.validation.bodyFieldValueRequired",
+            );
+          }
+        });
       }
-      fields.forEach((field, index) => {
-        if (
-          field.operation === "set" &&
-          field.valueType !== "null" &&
-          !(field.value ?? "").trim()
-        ) {
-          errors[`payload.fields.${index}.value`] = t(
-            "rulesPage.validation.bodyFieldValueRequired",
-          );
-        }
-      });
     }
-  }
-  if (rule.rewriteType === "redirect" && !rule.payload.targetUrl.trim())
-    errors["payload.targetUrl"] = t("rulesPage.validation.redirectTargetRequired");
+    if (action.rewriteType === "redirect" && !action.payload.targetUrl.trim())
+      errors[key("targetUrl")] = t("rulesPage.validation.redirectTargetRequired");
+  });
 
   return errors;
 }

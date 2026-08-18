@@ -18,6 +18,11 @@ pub struct RewriteRuleMatch {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RewriteRule {
+    /// Ordered rewrite actions (new shape, D2). Legacy rows omit this field
+    /// and carry `rewrite_type` + `payload` instead; `rewrite_actions()`
+    /// expands both shapes.
+    #[serde(default)]
+    pub actions: Option<Vec<serde_json::Value>>,
     pub id: String,
     pub enabled: bool,
     pub name: String,

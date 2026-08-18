@@ -7,6 +7,7 @@ use super::types::{
     RewriteRedirectPayload,
 };
 use super::*;
+use serde_json::Value;
 
 pub(crate) fn method_matches(methods: &[String], method: &Method) -> bool {
     methods.is_empty()
@@ -238,13 +239,41 @@ fn apply_body_field_rewrite(
     Ok((rewritten, entries))
 }
 
-fn parse_rewrite_payload<T: DeserializeOwned>(rule: &RewriteRule) -> Result<T, String> {
-    serde_json::from_value(rule.payload.clone()).map_err(|error| {
+fn parse_payload<T: DeserializeOwned>(
+    rule_id: &str,
+    rewrite_type: &str,
+    payload: &Value,
+) -> Result<T, String> {
+    serde_json::from_value(payload.clone()).map_err(|error| {
         format!(
             "rewrite rule '{}' has an invalid payload for type '{}': {error}",
-            rule.id, rule.rewrite_type,
+            rule_id, rewrite_type,
         )
     })
+}
+
+/// Expands a rule into its ordered `(rewrite_type, payload)` actions (D2).
+/// New-format rows carry an `actions` array; legacy rows carry the
+/// `rewrite_type` + `payload` pair and expand to a single action. The returned
+/// vec is never empty for a deserialized rule (the legacy shape always has a
+/// rewrite_type; a malformed new-format array falls back to the legacy shape).
+pub(crate) fn rewrite_actions(rule: &RewriteRule) -> Vec<(String, Value)> {
+    if let Some(actions) = rule.actions.as_ref() {
+        if !actions.is_empty() {
+            let expanded: Vec<(String, Value)> = actions
+                .iter()
+                .filter_map(|action| {
+                    let rewrite_type = action.get("rewriteType")?.as_str()?.to_string();
+                    let payload = action.get("payload")?.clone();
+                    Some((rewrite_type, payload))
+                })
+                .collect();
+            if !expanded.is_empty() {
+                return expanded;
+            }
+        }
+    }
+    vec![(rule.rewrite_type.clone(), rule.payload.clone())]
 }
 
 pub(crate) fn apply_request_rewrite_rules(
@@ -297,16 +326,11 @@ pub(crate) fn apply_request_rewrite_rules(
     Ok(traces)
 }
 
-/// Applies a single request-stage rewrite rule.
+/// Applies a single request-stage rewrite rule by running its ordered actions.
 ///
-/// - `Ok("success")` — the rule ran and applied a mutation.
-/// - `Ok("skipped")` — the rule did not apply (target stage mismatch, HTTP/2
-///   body rewrite unsupported, unknown rewrite type). The reason is recorded as
-///   a skip entry on `entries`; the caller must keep the trace outcome as
-///   `"skipped"` so the inspector distinguishes it from a real mutation.
-/// - `Err(String)` — a per-rule failure (invalid payload, malformed redirect
-///   URL, body shape mismatch, ...). The caller records an error trace and
-///   continues with the remaining rules instead of aborting the request.
+/// A single action failing (invalid payload, malformed redirect URL, body
+/// shape mismatch, ...) records an error entry and the remaining actions still
+/// run (R1); the rule only fails outright when every action failed.
 ///
 /// Mirrors the per-rule isolation already used by `apply_*_script_rules`.
 fn apply_one_request_rule(
@@ -315,13 +339,69 @@ fn apply_one_request_rule(
     is_http2: bool,
     entries: &mut Vec<RewriteTraceEntry>,
 ) -> Result<&'static str, String> {
-    match rule.rewrite_type.as_str() {
+    let actions = rewrite_actions(rule);
+    let mut any_success = false;
+    let mut any_skipped = false;
+    let mut first_error: Option<String> = None;
+
+    for (index, (rewrite_type, payload)) in actions.iter().enumerate() {
+        let sequence = index as u32;
+        match apply_request_action(
+            rewrite_type,
+            payload,
+            &rule.id,
+            request,
+            is_http2,
+            sequence,
+            entries,
+        ) {
+            Ok("success") => any_success = true,
+            Ok("skipped") => any_skipped = true,
+            Ok(_) => {}
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error.clone());
+                }
+                entries.push(trace_entry(
+                    sequence,
+                    "error",
+                    None,
+                    None,
+                    None,
+                    Some(error),
+                ));
+            }
+        }
+    }
+
+    if any_success {
+        Ok("success")
+    } else if any_skipped {
+        Ok("skipped")
+    } else {
+        Err(first_error.unwrap_or_else(|| "rewrite rule has no applicable actions".to_string()))
+    }
+}
+
+/// Applies one request-stage action (a single `(rewrite_type, payload)` pair).
+/// Mirrors the old per-rule match body; `sequence` drives the trace entry
+/// ordering so multi-action rules keep deterministic traces.
+fn apply_request_action(
+    rewrite_type: &str,
+    payload: &Value,
+    rule_id: &str,
+    request: &mut ParsedProxyRequest,
+    is_http2: bool,
+    sequence: u32,
+    entries: &mut Vec<RewriteTraceEntry>,
+) -> Result<&'static str, String> {
+    match rewrite_type {
         "header" => {
-            let payload: RewriteHeaderPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteHeaderPayload = parse_payload(rule_id, rewrite_type, payload)?;
 
             if !payload.target.eq_ignore_ascii_case("request") {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some(payload.header_name),
                     None,
@@ -339,7 +419,7 @@ fn apply_one_request_rule(
             }
             let after = header_entry_value(&request.request_headers, &payload.header_name);
             entries.push(trace_entry(
-                0,
+                sequence,
                 "header",
                 Some(payload.header_name),
                 before,
@@ -348,7 +428,7 @@ fn apply_one_request_rule(
             ));
         }
         "query" => {
-            let payload: RewriteQueryPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteQueryPayload = parse_payload(rule_id, rewrite_type, payload)?;
             let param_name = payload.param_name;
             let before = query_param_value(&request.url, &param_name);
             let mut query_pairs: Vec<(String, String)> = request
@@ -372,7 +452,7 @@ fn apply_one_request_rule(
             }
             let after = query_param_value(&request.url, &param_name);
             entries.push(trace_entry(
-                0,
+                sequence,
                 "query",
                 Some(param_name),
                 before,
@@ -381,11 +461,11 @@ fn apply_one_request_rule(
             ));
         }
         "body" => {
-            let payload: RewriteBodyPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteBodyPayload = parse_payload(rule_id, rewrite_type, payload)?;
 
             if !payload.target.eq_ignore_ascii_case("request") {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some("body".to_string()),
                     None,
@@ -397,7 +477,7 @@ fn apply_one_request_rule(
 
             if is_http2 {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some("body".to_string()),
                     None,
@@ -418,7 +498,7 @@ fn apply_one_request_rule(
             } else {
                 request.body = payload.text.unwrap_or_default().into_bytes();
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "body",
                     Some(CONTENT_TYPE.as_str().to_string()),
                     before,
@@ -434,14 +514,14 @@ fn apply_one_request_rule(
             strip_plain_body_edit_header_entries(&mut request.request_headers);
         }
         "redirect" => {
-            let payload: RewriteRedirectPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteRedirectPayload = parse_payload(rule_id, rewrite_type, payload)?;
             let before = request.url.to_string();
             let original_path = request.url.path().to_string();
             let original_query = request.url.query().map(str::to_string);
             let mut redirected_url = Url::parse(&payload.target_url).map_err(|error| {
                 format!(
                     "rewrite rule '{}' points to an invalid target URL '{}': {error}",
-                    rule.id, payload.target_url
+                    rule_id, payload.target_url
                 )
             })?;
 
@@ -454,7 +534,7 @@ fn apply_one_request_rule(
 
             request.url = redirected_url;
             entries.push(trace_entry(
-                0,
+                sequence,
                 "redirect",
                 Some("url".to_string()),
                 Some(before),
@@ -464,9 +544,9 @@ fn apply_one_request_rule(
         }
         _ => {
             entries.push(trace_entry(
-                0,
+                sequence,
                 "skip",
-                Some(rule.rewrite_type.clone()),
+                Some(rewrite_type.to_string()),
                 None,
                 None,
                 Some("unsupported rewrite type".to_string()),
@@ -507,31 +587,76 @@ pub(crate) fn apply_response_rewrite_rules(
     Ok(traces)
 }
 
-/// Applies a single response-stage rewrite rule.
-///
-/// - `Ok("success")` — the rule ran and applied a mutation.
-/// - `Ok("skipped")` — the rule did not apply (target stage mismatch, HTTP/2
-///   body rewrite unsupported, unknown rewrite type). The reason is recorded as
-///   a skip entry on `entries`; the caller must keep the trace outcome as
-///   `"skipped"` so the inspector distinguishes it from a real mutation.
-/// - `Err(String)` — a per-rule failure. The caller records an error trace and
-///   continues with the remaining rules instead of aborting the request.
-///
-/// Mirrors the per-rule isolation used by `apply_one_request_rule` and the
-/// script rule appliers.
+/// Applies a single response-stage rewrite rule by running its ordered
+/// actions. A single action failing records an error entry and the remaining
+/// actions still run; the rule only fails outright when every action failed.
 fn apply_one_response_rule(
     rule: &RewriteRule,
     response: &mut UpstreamResponse,
     is_http2: bool,
     entries: &mut Vec<RewriteTraceEntry>,
 ) -> Result<&'static str, String> {
-    match rule.rewrite_type.as_str() {
+    let actions = rewrite_actions(rule);
+    let mut any_success = false;
+    let mut any_skipped = false;
+    let mut first_error: Option<String> = None;
+
+    for (index, (rewrite_type, payload)) in actions.iter().enumerate() {
+        let sequence = index as u32;
+        match apply_response_action(
+            rewrite_type,
+            payload,
+            &rule.id,
+            response,
+            is_http2,
+            sequence,
+            entries,
+        ) {
+            Ok("success") => any_success = true,
+            Ok("skipped") => any_skipped = true,
+            Ok(_) => {}
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error.clone());
+                }
+                entries.push(trace_entry(
+                    sequence,
+                    "error",
+                    None,
+                    None,
+                    None,
+                    Some(error),
+                ));
+            }
+        }
+    }
+
+    if any_success {
+        Ok("success")
+    } else if any_skipped {
+        Ok("skipped")
+    } else {
+        Err(first_error.unwrap_or_else(|| "rewrite rule has no applicable actions".to_string()))
+    }
+}
+
+/// Applies one response-stage action (a single `(rewrite_type, payload)` pair).
+fn apply_response_action(
+    rewrite_type: &str,
+    payload: &Value,
+    rule_id: &str,
+    response: &mut UpstreamResponse,
+    is_http2: bool,
+    sequence: u32,
+    entries: &mut Vec<RewriteTraceEntry>,
+) -> Result<&'static str, String> {
+    match rewrite_type {
         "header" => {
-            let payload: RewriteHeaderPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteHeaderPayload = parse_payload(rule_id, rewrite_type, payload)?;
 
             if !payload.target.eq_ignore_ascii_case("response") {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some(payload.header_name),
                     None,
@@ -555,7 +680,7 @@ fn apply_one_response_rule(
             }
             let after = header_map_value(&response.response_headers, &payload.header_name);
             entries.push(trace_entry(
-                0,
+                sequence,
                 "header",
                 Some(payload.header_name),
                 before,
@@ -564,11 +689,11 @@ fn apply_one_response_rule(
             ));
         }
         "body" => {
-            let payload: RewriteBodyPayload = parse_rewrite_payload(rule)?;
+            let payload: RewriteBodyPayload = parse_payload(rule_id, rewrite_type, payload)?;
 
             if !payload.target.eq_ignore_ascii_case("response") {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some("body".to_string()),
                     None,
@@ -580,7 +705,7 @@ fn apply_one_response_rule(
 
             if is_http2 {
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "skip",
                     Some("body".to_string()),
                     None,
@@ -607,7 +732,7 @@ fn apply_one_response_rule(
             } else {
                 response.replace_response_body(payload.text.unwrap_or_default().into_bytes());
                 entries.push(trace_entry(
-                    0,
+                    sequence,
                     "body",
                     Some(CONTENT_TYPE.as_str().to_string()),
                     before,
@@ -627,9 +752,9 @@ fn apply_one_response_rule(
         }
         _ => {
             entries.push(trace_entry(
-                0,
+                sequence,
                 "skip",
-                Some(rule.rewrite_type.clone()),
+                Some(rewrite_type.to_string()),
                 None,
                 None,
                 Some("rewrite type does not apply to response stage".to_string()),

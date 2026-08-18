@@ -446,6 +446,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-debug-mode",
@@ -467,6 +468,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             match_type: None,
         },
         rewrite_type: "query".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "operation": "set",
@@ -487,6 +489,7 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
             match_type: None,
         },
         rewrite_type: "redirect".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "preservePath": true,
@@ -531,6 +534,7 @@ fn applies_request_body_rewrite_as_plain_body() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -584,6 +588,132 @@ fn applies_request_body_rewrite_as_plain_body() {
 }
 
 #[test]
+fn multi_action_rewrite_rule_runs_actions_in_order() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-multi".to_string(),
+        enabled: true,
+        name: "Header + query".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        actions: Some(vec![
+            json!({
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "x-multi",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "1"
+                }
+            }),
+            json!({
+                "rewriteType": "query",
+                "payload": {
+                    "operation": "set",
+                    "paramName": "from",
+                    "value": "rule"
+                }
+            }),
+        ]),
+        workspace_id: "default".to_string(),
+        payload: json!({}),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .unwrap();
+
+    assert!(request
+        .request_headers
+        .iter()
+        .any(|header| header.name.eq_ignore_ascii_case("x-multi") && header.value == "1"));
+    assert_eq!(request.url.query(), Some("from=rule"));
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].rewrite_type, "header");
+    assert_eq!(traces[0].outcome, "success");
+    let kinds: Vec<&str> = traces[0]
+        .entries
+        .iter()
+        .map(|entry| entry.kind.as_str())
+        .collect();
+    assert_eq!(kinds, vec!["header", "query"]);
+    assert_eq!(traces[0].entries[0].sequence, 0);
+    assert_eq!(traces[0].entries[1].sequence, 1);
+}
+
+#[test]
+fn multi_action_rule_continues_after_a_failing_action() {
+    let manager = RewriteManager::new();
+    manager.save_rule(RewriteRule {
+        id: "rewrite-partial".to_string(),
+        enabled: true,
+        name: "Header + broken redirect".to_string(),
+        note: None,
+        priority: 10,
+        r#match: RewriteRuleMatch {
+            methods: vec!["GET".to_string()],
+            stage: "request".to_string(),
+            url_pattern: "example.com".to_string(),
+            match_type: None,
+        },
+        rewrite_type: "header".to_string(),
+        actions: Some(vec![
+            json!({
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "x-kept",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "yes"
+                }
+            }),
+            json!({
+                "rewriteType": "redirect",
+                "payload": {
+                    "preservePath": true,
+                    "preserveQuery": true,
+                    "targetUrl": "not a url"
+                }
+            }),
+        ]),
+        workspace_id: "default".to_string(),
+        payload: json!({}),
+    });
+
+    let mut request = build_test_request("http://example.com/api/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(Arc::new(manager)), "default", &mut request, false)
+            .unwrap();
+
+    // The successful header action is kept and the rule still reports success.
+    assert!(request
+        .request_headers
+        .iter()
+        .any(|header| header.name.eq_ignore_ascii_case("x-kept") && header.value == "yes"));
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "success");
+    let kinds: Vec<&str> = traces[0]
+        .entries
+        .iter()
+        .map(|entry| entry.kind.as_str())
+        .collect();
+    assert_eq!(kinds, vec!["header", "error"]);
+    assert!(traces[0].entries.iter().any(|entry| entry.kind == "error"
+        && entry
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("invalid target URL"))));
+}
+
+#[test]
 fn applies_response_body_rewrite_as_plain_body() {
     let manager = RewriteManager::new();
     manager.save_rule(RewriteRule {
@@ -599,6 +729,7 @@ fn applies_response_body_rewrite_as_plain_body() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -685,6 +816,7 @@ fn m3_response_body_rewrite_noop_preserves_integrity_headers() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         // The replace text equals the existing body → no-op.
         payload: json!({
@@ -762,6 +894,7 @@ fn applies_request_body_rewrite_to_json_fields() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -827,6 +960,7 @@ fn isolates_a_failing_request_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-first",
@@ -849,6 +983,7 @@ fn isolates_a_failing_request_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -874,6 +1009,7 @@ fn isolates_a_failing_request_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-third",
@@ -952,6 +1088,7 @@ fn rebuild_failure_on_request_rewrite_does_not_abort_request() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-first",
@@ -977,6 +1114,7 @@ fn rebuild_failure_on_request_rewrite_does_not_abort_request() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "bad header",
@@ -1000,6 +1138,7 @@ fn rebuild_failure_on_request_rewrite_does_not_abort_request() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-third",
@@ -1070,6 +1209,7 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-first",
@@ -1091,6 +1231,7 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1115,6 +1256,7 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-third",
@@ -1198,6 +1340,7 @@ fn rewrite_rule_skipped_for_target_mismatch_keeps_skipped_outcome() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1238,6 +1381,7 @@ fn rewrite_rule_body_rewrite_over_http2_is_skipped_not_success() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1279,6 +1423,7 @@ fn applies_response_body_rewrite_to_json_array_fields() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1356,6 +1501,7 @@ fn body_field_rewrite_refuses_to_destroy_existing_scalar() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1402,6 +1548,7 @@ fn body_field_rewrite_auto_creates_under_null_parent() {
             match_type: None,
         },
         rewrite_type: "body".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "contentType": "application/json",
@@ -1444,6 +1591,7 @@ fn rewrite_rule_respects_match_type_exact() {
             match_type: Some("exact".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1479,6 +1627,7 @@ fn rewrite_rule_respects_match_type_regex() {
             match_type: Some("regex".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1514,6 +1663,7 @@ fn invalid_regex_rule_is_skipped_gracefully() {
             match_type: Some("regex".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1543,6 +1693,7 @@ fn compiled_regex_refreshes_after_rule_update() {
             match_type: Some("regex".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1567,6 +1718,7 @@ fn compiled_regex_refreshes_after_rule_update() {
             match_type: Some("regex".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"2"}),
     });
@@ -1606,6 +1758,7 @@ fn non_regex_match_types_do_not_compile_regex() {
             match_type: Some("contains".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1624,6 +1777,7 @@ fn non_regex_match_types_do_not_compile_regex() {
             match_type: Some("exact".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"2"}),
     });
@@ -1668,6 +1822,7 @@ fn compiled_rules_snapshot_is_shared_until_mutation() {
             match_type: Some("regex".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1727,6 +1882,7 @@ fn save_rule_preserves_position_of_existing_rule() {
                 match_type: Some("contains".to_string()),
             },
             rewrite_type: "header".to_string(),
+            actions: None,
             workspace_id: "default".to_string(),
             payload: json!({"headerName":"x","operation":"set","target":"request","value":"1"}),
         });
@@ -1764,6 +1920,7 @@ fn rewrite_rule_respects_match_type_wildcard() {
             match_type: Some("wildcard".to_string()),
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -1798,6 +1955,7 @@ fn rewrite_rule_uses_contains_by_default() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({"headerName":"x-test","operation":"set","target":"request","value":"1"}),
     });
@@ -3766,6 +3924,7 @@ async fn ws_upgrade_101_success_carries_rewrite_traces() {
             match_type: None,
         },
         rewrite_type: "header".to_string(),
+        actions: None,
         workspace_id: "default".to_string(),
         payload: json!({
             "headerName": "x-ws-test",
