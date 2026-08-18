@@ -42,7 +42,7 @@ export function AppShellActivityBar({
 
   function renderNavigationIcon(
     item: (typeof navigationItems)[number],
-    options?: { badgeContent?: number; showDot?: boolean; onClick?: () => void },
+    options?: { badgeContent?: number; showUpdateBadge?: boolean; onClick?: () => void },
   ) {
     const selected =
       item.to === "/" ? locationPathname === "/" : locationPathname.startsWith(item.to);
@@ -132,18 +132,21 @@ export function AppShellActivityBar({
                 {options.badgeContent > 9 ? "9+" : options.badgeContent}
               </Box>
             ) : null}
-            {options?.showDot ? (
+            {options?.showUpdateBadge ? (
               <Box
                 sx={{
-                  bgcolor: "error.main",
+                  bgcolor: (theme) =>
+                    alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.96 : 0.88),
+                  boxShadow: (theme) =>
+                    `0 0 0 2px ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.16)}`,
                   borderRadius: 999,
                   border: `2px solid ${ACTIVITY_BAR_BG}`,
-                  boxShadow: (theme) => `0 0 0 1.5px ${alpha(theme.palette.error.main, 0.35)}`,
-                  height: 12,
+                  height: 10,
+                  pointerEvents: "none",
                   position: "absolute",
-                  right: -3,
-                  top: 0,
-                  width: 12,
+                  right: -2,
+                  top: 1,
+                  width: 10,
                 }}
               />
             ) : null}
@@ -202,7 +205,7 @@ export function AppShellActivityBar({
                 settingsItem,
                 availableUpdate
                   ? {
-                      showDot: true,
+                      showUpdateBadge: true,
                       onClick: () => setUpdateDialogOpen(true),
                     }
                   : undefined,
