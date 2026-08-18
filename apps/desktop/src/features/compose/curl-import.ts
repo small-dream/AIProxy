@@ -4,7 +4,7 @@ export type ParsedCurlCommand = {
   body?: string;
   bodyType: "formdata" | "raw" | "urlencoded";
   formDataEntries: HeaderEntry[];
-  formFiles: Array<{ name: string; fileName: string; filePath: string }>;
+  formFiles: Array<{ name: string; fileName: string; filePath: string; contentType?: string }>;
   headers: HeaderEntry[];
   method: string;
   url: string;
@@ -87,16 +87,50 @@ export function tokenizeCurlCommand(command: string): string[] {
   return tokens;
 }
 
-function parseValueWithPossibleFile(token: string): {
+type FormPart = {
   name: string;
   value: string;
   isFile: boolean;
-} | null {
+  fileName?: string;
+  contentType?: string;
+};
+
+/**
+ * Parse a single `-F name=value` argument. The main value may carry curl
+ * multipart options after a `;`: `;filename=...` renames the uploaded file and
+ * `;type=...` pins its Content-Type (both commonly appear on `@path` files).
+ * They are stripped from the value so the file path is not corrupted.
+ */
+function parseFormPart(token: string): FormPart | null {
   const equalIndex = token.indexOf("=");
   if (equalIndex < 0) return null;
   const name = token.slice(0, equalIndex);
-  const value = token.slice(equalIndex + 1);
-  return { name, value, isFile: value.startsWith("@") };
+  const rawValue = token.slice(equalIndex + 1);
+  const segments = rawValue.split(";");
+  const value = segments[0] ?? "";
+  let fileName: string | undefined;
+  let contentType: string | undefined;
+  for (let index = 1; index < segments.length; index += 1) {
+    const segment = segments[index]?.trim();
+    if (!segment) continue;
+    const match = /^([a-zA-Z-]+)=(.*)$/.exec(segment);
+    if (!match) continue;
+    const [, key, paramValue] = match;
+    if (key === "filename") {
+      fileName = paramValue;
+    } else if (key === "type") {
+      contentType = paramValue;
+    }
+    // Other curl options (`;headers=...`, `;encoder=...`) are not represented
+    // in the editor model yet and are intentionally dropped.
+  }
+  return {
+    name,
+    value,
+    isFile: value.startsWith("@"),
+    ...(fileName !== undefined ? { fileName } : {}),
+    ...(contentType !== undefined ? { contentType } : {}),
+  };
 }
 
 /**
@@ -113,7 +147,7 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
   let method = "GET";
   const headers: HeaderEntry[] = [];
   const dataArgs: string[] = [];
-  const formParts: Array<{ name: string; value: string; isFile: boolean }> = [];
+  const formParts: FormPart[] = [];
   let url: string | undefined;
 
   for (let index = 1; index < tokens.length; index += 1) {
@@ -131,7 +165,12 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
           });
         }
       }
-    } else if (token === "-d" || token === "--data" || token === "--data-raw") {
+    } else if (
+      token === "-d" ||
+      token === "--data" ||
+      token === "--data-raw" ||
+      token === "--data-urlencode"
+    ) {
       const value = tokens[++index];
       if (value !== undefined) dataArgs.push(value);
     } else if (token === "--data-binary") {
@@ -139,7 +178,7 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
       if (value !== undefined) dataArgs.push(value);
     } else if (token === "-F" || token === "--form") {
       const value = tokens[++index];
-      const parsed = value !== undefined ? parseValueWithPossibleFile(value) : null;
+      const parsed = value !== undefined ? parseFormPart(value) : null;
       if (parsed) formParts.push(parsed);
     } else if (token === "-u" || token === "--user") {
       // Skip the credentials argument (kept out of the import).
@@ -153,9 +192,12 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
     return null;
   }
 
-  // -d without an explicit urlencoded content-type is raw JSON/text.
-  const contentType = headers.find((h) => h.name.toLowerCase() === "content-type")?.value ?? "";
-  const isUrlEncoded = contentType.includes("application/x-www-form-urlencoded");
+  const contentType =
+    headers.find((h) => h.name.toLowerCase() === "content-type")?.value.toLowerCase() ?? "";
+  // curl -d defaults to application/x-www-form-urlencoded when no Content-Type
+  // header is given; an explicit non-form content-type falls back to raw.
+  const isUrlEncoded =
+    contentType === "" || contentType.includes("application/x-www-form-urlencoded");
 
   if (formParts.length > 0) {
     const formDataEntries: HeaderEntry[] = [];
@@ -165,8 +207,9 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
         const filePath = part.value.slice(1);
         formFiles.push({
           name: part.name,
-          fileName: filePath.split(/[\\/]/).pop() ?? filePath,
+          fileName: part.fileName ?? filePath.split(/[\\/]/).pop() ?? filePath,
           filePath,
+          ...(part.contentType ? { contentType: part.contentType } : {}),
         });
       } else {
         formDataEntries.push({ name: part.name, value: part.value });

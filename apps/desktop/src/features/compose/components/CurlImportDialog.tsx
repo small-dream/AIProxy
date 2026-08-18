@@ -11,10 +11,7 @@ import {
 } from "@mui/material";
 
 import { useComposeEditorStore } from "@/features/compose/compose-editor.store";
-import {
-  inferRawLanguageFromContentType,
-  parseCurlCommand,
-} from "@/features/compose/curl-import";
+import { inferRawLanguageFromContentType, parseCurlCommand } from "@/features/compose/curl-import";
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -36,6 +33,13 @@ export function CurlImportDialog(props: { onClose: () => void; open: boolean }) 
     const contentType = parsed.headers.find(
       (header) => header.name.toLowerCase() === "content-type",
     )?.value;
+    const urlEncodedEntries =
+      parsed.bodyType === "urlencoded"
+        ? Array.from(new URLSearchParams(parsed.body ?? "").entries()).map(([name, value]) => ({
+            name,
+            value,
+          }))
+        : [];
     store.loadFromSession({
       bodyType: parsed.bodyType,
       body: parsed.body ?? "",
@@ -48,7 +52,7 @@ export function CurlImportDialog(props: { onClose: () => void; open: boolean }) 
           ? inferRawLanguageFromContentType(contentType)
           : "json",
       url: parsed.url,
-      urlEncodedEntries: [],
+      urlEncodedEntries,
     });
     onClose();
   }

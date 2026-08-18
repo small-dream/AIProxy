@@ -57,12 +57,36 @@ describe("parseCurlCommand", () => {
     expect(binary?.body).toBe("abc");
   });
 
+  it("treats --data-urlencode as data instead of misreading its value as the URL", () => {
+    const parsed = parseCurlCommand(
+      `curl https://example.com/search --data-urlencode 'q=hello world'`,
+    );
+    expect(parsed?.url).toBe("https://example.com/search");
+    expect(parsed?.body).toBe("q=hello world");
+  });
+
   it("detects urlencoded from the content-type header", () => {
     const parsed = parseCurlCommand(
       `curl -X POST https://example.com/login -H 'Content-Type: application/x-www-form-urlencoded' -d 'user=alice&pass=secret'`,
     );
     expect(parsed?.bodyType).toBe("urlencoded");
     expect(parsed?.body).toBe("user=alice&pass=secret");
+  });
+
+  it("defaults -d without a content-type header to urlencoded (curl default semantics)", () => {
+    const parsed = parseCurlCommand(
+      `curl -X POST https://example.com/login -d 'user=alice&pass=secret'`,
+    );
+    expect(parsed?.bodyType).toBe("urlencoded");
+    expect(parsed?.body).toBe("user=alice&pass=secret");
+  });
+
+  it("keeps raw body type when an explicit non-form content-type is set", () => {
+    const parsed = parseCurlCommand(
+      `curl -X POST https://example.com/api -H 'Content-Type: text/plain' -d 'hello'`,
+    );
+    expect(parsed?.bodyType).toBe("raw");
+    expect(parsed?.body).toBe("hello");
   });
 
   it("parses -F text fields and file parts with @path", () => {
@@ -74,6 +98,30 @@ describe("parseCurlCommand", () => {
     expect(parsed?.formFiles).toEqual([
       { name: "file", fileName: "a.txt", filePath: "/tmp/a.txt" },
     ]);
+  });
+
+  it("parses -F ;filename= and ;type= options without corrupting the file path", () => {
+    const parsed = parseCurlCommand(
+      `curl -X POST https://example.com/upload -F 'file=@/tmp/a.txt;filename=photo.png;type=image/png' -F 'note=hello'`,
+    );
+    expect(parsed?.bodyType).toBe("formdata");
+    expect(parsed?.formFiles).toEqual([
+      {
+        name: "file",
+        fileName: "photo.png",
+        filePath: "/tmp/a.txt",
+        contentType: "image/png",
+      },
+    ]);
+    expect(parsed?.formDataEntries).toEqual([{ name: "note", value: "hello" }]);
+  });
+
+  it("keeps plain -F values intact when they contain no file options", () => {
+    const parsed = parseCurlCommand(
+      `curl -X POST https://example.com/upload -F 'note=hello;type=text/plain'`,
+    );
+    expect(parsed?.bodyType).toBe("formdata");
+    expect(parsed?.formDataEntries).toEqual([{ name: "note", value: "hello" }]);
   });
 
   it("handles a Windows-style command", () => {
