@@ -91,6 +91,7 @@ mod http_proxy;
 mod rules;
 mod server;
 mod ssl_proxying;
+mod ssl_proxying_defaults;
 mod stream;
 mod timing_connector;
 mod types;
@@ -123,7 +124,8 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, start_proxy_server};
-pub use ssl_proxying::{default_ssl_proxying_exclusions, SslProxyingConfig, SslProxyingSettings};
+pub use ssl_proxying::{SslProxyingConfig, SslProxyingSettings};
+pub use ssl_proxying_defaults::DEFAULT_SSL_PROXYING_EXCLUSIONS;
 pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,

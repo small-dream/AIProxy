@@ -14,35 +14,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::host_pattern::matches_any;
-
-/// Hosts excluded from interception when the user has not customized the list.
-///
-/// These are known to pin certificates, so intercepting them can only break
-/// them. The list is a starting point rather than an exhaustive registry —
-/// users are expected to add whatever else their targets pin.
-pub fn default_ssl_proxying_exclusions() -> Vec<String> {
-    [
-        // ByteDance apps ship a security SDK that pins every first-party API
-        // host, including the risk-control (`mssdk`) and asset (`gecko`)
-        // channels.
-        "*.tiktokv.com",
-        "*.tiktokcdn.com",
-        "*.tiktok-row.net",
-        "*.snssdk.com",
-        "*.byteoversea.com",
-        // Pinned by iOS itself rather than by a third-party app, so no
-        // certificate a user installs will ever be accepted for them.
-        "*.icloud.com",
-        "*.icloud.com.cn",
-        "apps.apple.com",
-        "*.apps.apple.com",
-        "itunes.apple.com",
-        "*.itunes.apple.com",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
+use crate::ssl_proxying_defaults::DEFAULT_SSL_PROXYING_EXCLUSIONS;
 
 /// A resolved SSL proxying policy, consulted once per CONNECT.
 #[derive(Debug, Clone)]
@@ -101,7 +73,10 @@ impl Default for SslProxyingSettings {
     fn default() -> Self {
         Self {
             include: Vec::new(),
-            exclude: default_ssl_proxying_exclusions(),
+            exclude: DEFAULT_SSL_PROXYING_EXCLUSIONS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
         }
     }
 }

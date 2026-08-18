@@ -5276,6 +5276,19 @@ fn ssl_proxying_defaults_exclude_known_pinning_hosts() {
             "{host} pins its certificate and must be excluded by default"
         );
     }
+    for host in [
+        "play.googleapis.com",
+        "android.clients.google.com",
+        "firebaseremoteconfig.googleapis.com",
+        "ssl.gstatic.com",
+        "lh3.googleusercontent.com",
+        "accounts.google.com",
+    ] {
+        assert!(
+            !policy.should_intercept(host),
+            "{host} should be excluded by default for Google Play / login flows"
+        );
+    }
     // Ordinary hosts still get captured out of the box.
     assert!(policy.should_intercept("example.com"));
     assert!(policy.should_intercept("www.apple.com"));

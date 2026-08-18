@@ -767,18 +767,25 @@ function UpstreamProxySection() {
           />
         </Stack>
 
-        <TextField
-          size="small"
-          multiline
-          minRows={2}
-          maxRows={5}
+        <SettingsRow
           label={t("upstreamProxy.bypass")}
-          placeholder={t("upstreamProxy.bypassPlaceholder")}
-          helperText={t("upstreamProxy.bypassDescription")}
-          value={draft.bypassText}
-          onChange={(event) => patchDraft({ bypassText: event.target.value })}
-          sx={{ ...compactFieldSx, width: "100%" }}
-        />
+          description={t("upstreamProxy.bypassDescription")}
+          stacked
+        >
+          <TextField
+            size="small"
+            multiline
+            fullWidth
+            minRows={2}
+            maxRows={5}
+            hiddenLabel
+            placeholder={t("upstreamProxy.bypassPlaceholder")}
+            value={draft.bypassText}
+            onChange={(event) => patchDraft({ bypassText: event.target.value })}
+            slotProps={{ htmlInput: { "aria-label": t("upstreamProxy.bypass") } }}
+            sx={{ ...compactFieldSx, width: "100%" }}
+          />
+        </SettingsRow>
 
         {testResult && (
           <Alert
@@ -1027,31 +1034,45 @@ function SslProxyingSection() {
           </Stack>
         </Stack>
 
-        <TextField
-          size="small"
-          multiline
-          minRows={2}
-          maxRows={6}
+        <SettingsRow
           label={t("sslProxying.include")}
-          placeholder={t("sslProxying.includePlaceholder")}
-          helperText={t("sslProxying.includeDescription")}
-          value={draft.includeText}
-          onChange={(event) => patchDraft({ includeText: event.target.value })}
-          sx={{ ...compactFieldSx, width: "100%" }}
-        />
+          description={t("sslProxying.includeDescription")}
+          stacked
+        >
+          <TextField
+            size="small"
+            multiline
+            fullWidth
+            minRows={2}
+            maxRows={6}
+            hiddenLabel
+            placeholder={t("sslProxying.includePlaceholder")}
+            value={draft.includeText}
+            onChange={(event) => patchDraft({ includeText: event.target.value })}
+            slotProps={{ htmlInput: { "aria-label": t("sslProxying.include") } }}
+            sx={{ ...compactFieldSx, width: "100%" }}
+          />
+        </SettingsRow>
 
-        <TextField
-          size="small"
-          multiline
-          minRows={3}
-          maxRows={10}
+        <SettingsRow
           label={t("sslProxying.exclude")}
-          placeholder={t("sslProxying.excludePlaceholder")}
-          helperText={t("sslProxying.excludeDescription")}
-          value={draft.excludeText}
-          onChange={(event) => patchDraft({ excludeText: event.target.value })}
-          sx={{ ...compactFieldSx, width: "100%" }}
-        />
+          description={t("sslProxying.excludeDescription")}
+          stacked
+        >
+          <TextField
+            size="small"
+            multiline
+            fullWidth
+            minRows={3}
+            maxRows={10}
+            hiddenLabel
+            placeholder={t("sslProxying.excludePlaceholder")}
+            value={draft.excludeText}
+            onChange={(event) => patchDraft({ excludeText: event.target.value })}
+            slotProps={{ htmlInput: { "aria-label": t("sslProxying.exclude") } }}
+            sx={{ ...compactFieldSx, width: "100%" }}
+          />
+        </SettingsRow>
 
         <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
           {t("sslProxying.pinningHint")}
