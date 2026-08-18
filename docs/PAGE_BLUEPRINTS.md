@@ -471,6 +471,13 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 → loadFromSession() 预填 Zustand store
 → navigate("/compose") → Compose 页面显示预填数据
 → 用户可编辑后发送
+
+2026-08 增强（评审 §4.6）：
+-> 顶栏：环境选择器（compact，与 Collections 共享 aiproxy.activeEnvironmentId）、
+   cURL 导入（parseCurlCommand -> loadFromSession）、保存到 Collection（复用 SaveToCollectionDialog）
+-> 发送与 cURL 导出共用 encodeComposedRequest：内联替换 {{var}}，编辑器保留模板原文
+-> multipart 编辑器下半区附件行；附件只存元数据（D1），发送时 Rust 读取文件并构建字节，
+   支持 multipartEntries -> send_direct_request_bytes
 ```
 
 ## 6. Rules Page — `规则中心首版已实现`
@@ -648,6 +655,18 @@ User switches rule type
 -> preview card updates immediately as the draft changes
 -> save command persists the rule
 -> list refreshes and keeps the saved rule selected
+
+2026-08 增强（评审 §4.6 / §4.7）：
+-> Rewrite Then 区为动作卡片列表：类型 Select + per-action 表单 + 添加/删除/上下移，
+   单规则可叠加多个动作（actions[]，rewriteType 派生自 actions[0]）
+-> 空表单提交 -> 字段级 helperText 错误（ruleFieldProps），Alert 仅留 saveError + 跨字段组合
+-> 行首 Checkbox 多选 -> 顶部批量条（启用/禁用/删除/完成）；删除循环 allSettled + 汇总 toast
+-> 拖拽手柄（distance 4）-> computeReorderedPriorities((N-index)*10) -> bulk_update_rules
+   -> 乐观 setQueryData 重排，失败回滚
+-> Tabs 行右端 Export/Import：导出 downloadTextFile；导入后端 pick_and_read_rules_file
+   -> 预览对话框（各类计数 + checkbox）-> 追加合并（全新 uuid、enabled=false）
+-> 断点 Forward/Send Mock 前校验编辑过的 JSON body，坏 JSON 阻断
+-> Map/DNS/Script/Throttle 编辑器补 matchType 选择器
 
 ## 6.6 Throttling Page — `已实现 P0/P1`
 

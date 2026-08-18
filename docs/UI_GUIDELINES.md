@@ -638,6 +638,29 @@ Rules Page
 - Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中
 - Rewrite 无效组合必须在编辑器内直接提示，并阻止保存明显不会生效的配置
 
+### 2026-08 更新（评审 §4.6 / §4.7）
+
+- Rewrite 支持多动作：Then 区改为动作卡片列表（类型 Select + per-action 表单 +
+  删除 / 上下移 / Add action），单条规则可叠加 header / query / body / redirect
+- 字段级校验：空表单提交后错误直接显示在对应输入框 helperText；Alert 仅保留
+  后端 saveError 与跨字段组合错误
+- 批量操作：规则列表行首 Checkbox 多选，选中后顶部出现批量条（启用 / 禁用 /
+  删除 / 完成 + 计数），删除结果汇总为 toast
+- 拖拽排序：列表行左侧拖拽手柄可重排（PointerSensor distance 4 防误触），
+  优先级按 `(N - index) * 10` 重编，仅变化项落库，失败回滚
+- 导入导出：Tabs 行右端 Export / Import 按钮；导入走后端对话框 + 预览对话框
+  （各类计数 + checkbox），导入规则默认禁用、全新 uuid
+- 优先级输入统一为 PriorityField（带"数值越大越优先；可拖拽调整顺序"提示）
+- 断点放行前校验编辑过的 JSON body（Forward / Send Mock），坏 JSON 阻断
+- Map / DNS / Script / Throttle 规则编辑器补齐 matchType（contains / wildcard /
+  exact / regex）选择器
+
+## 9.4.1 Compose Page 更新 — `2026-08`
+
+- 顶栏新增环境选择器（compact）、cURL 导入、保存到 Collection 按钮
+- multipart 编辑器下半区支持附件行（attach / remove + 信任模型 hint）；
+  附件只存元数据，发送时由 Rust 读取文件字节并编码
+
 ### 编辑区结构
 
 - 基本信息

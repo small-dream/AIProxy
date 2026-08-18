@@ -288,6 +288,9 @@ flowchart LR
 - 编辑 URL、Method、Headers、Body — `已实现`：Method 下拉选择、URL 输入框、Headers/Query 可编辑键值表、Body 文本编辑器
 - 查看发送结果与 Timing — `已实现`：响应预览复用 Inspector 组件（Overview/Headers/Body/Timing 标签页）
 - 导出为 `cURL` — `已实现`：前端纯函数 `generateCurlCommand()` 生成 cURL 命令并复制到剪贴板
+- 从 `cURL` 导入 — `已实现`（2026-08）：解析 POSIX / Windows 风格命令，识别 method、headers、-d / --data-raw / --data-binary（多 -d 以 & 拼接）、-F（文本值 / @path 文件），bodyType 按 content-type 推断，-F 文件进入 multipart 附件列表
+- 环境变量接入 Compose — `已实现`（2026-08）：Compose 顶栏共享环境选择器（与 Collections 同一活动环境），发送与 cURL 导出时替换 `{{var}}`，编辑器保留模板原文
+- 保存到 Collection — `已实现`（2026-08）：Compose 顶栏 "保存到 Collection" 复用保存对话框，body 以模板原文存储，multipart 附件一并保存
 
 ### 9.5 Breakpoints — `已实现`
 
@@ -313,8 +316,10 @@ flowchart LR
 - Query 改写：支持 request 阶段 set / remove
 - Body 改写：支持 request / response 整段替换并设置 Content-Type，也支持字段模式按 JSON Path 修改/删除指定字段的值
 - Redirect：支持 request 阶段目标 URL 改写，并可保留 path / query
+- 多动作（R1，2026-08）：单条规则可挂 1..n 个按序执行的动作，动作卡片支持类型切换、添加、删除、上下移；`rewriteType` 由 `actions[0]` 派生，旧格式读写兼容
 - 本地文件映射
 - 远程地址映射
+- Map 匹配方式（R6，2026-08）：contains / wildcard / exact / regex
 - 优先级与启停控制
 - Rewrite 命中日志与 before / after diff
 - 从 Session 右键创建 Rewrite 规则草稿
@@ -324,10 +329,20 @@ flowchart LR
 ### 9.7 DNS 映射 — `已实现`
 
 - 主机名模式匹配（子串匹配，非通配符展开；详见用户指南 DNS Mapping）
+- 匹配方式（R6，2026-08）：contains / wildcard / exact / regex
 - 映射到自定义 IPv4 / IPv6 地址
 - 规则按 workspace 隔离
 - 优先级与启停控制
 - 持久化到 SQLite，重启不丢失
+
+### 9.8 规则管理增强 — `已实现`（2026-08，评审 §4.6/§4.7）
+
+- 字段级校验：空表单提交时错误定位到具体输入框（helperText），Alert 仅保留后端 saveError 与跨字段项
+- 批量操作：多选后顶部批量条支持启用 / 禁用 / 删除（删除循环 + 汇总 toast）
+- 拖拽排序：列表行可拖拽重排，优先级按 `(N - index) * 10` 重编，仅变更项落库
+- 规则导入导出：单文件 JSON（rewrite / map / dns / script / breakpoint / throttle + profiles），导入预览后追加合并、默认禁用、全新 uuid
+- 断点放行校验：Forward / Send Mock 前校验用户编辑过的 JSON body，坏 JSON 阻断并提示
+- Throttle 规则匹配方式（R6）：contains / wildcard / exact / regex
 
 实现说明：
 

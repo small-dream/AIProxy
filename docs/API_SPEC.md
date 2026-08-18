@@ -384,6 +384,15 @@ type RewriteRedirectPayload = {
   targetUrl: string;
 };
 
+// R1（2026-08）：单规则可挂 1..n 个按序执行的动作。DB 列与 trace 保留
+// rewriteType = actions[0].rewriteType；旧格式（rewriteType + payload）读取时
+// 由 normalizeRewriteRule / rewrite_actions() 懒升级。
+type RewriteAction =
+  | { rewriteType: "header"; payload: RewriteHeaderPayload }
+  | { rewriteType: "query"; payload: RewriteQueryPayload }
+  | { rewriteType: "body"; payload: RewriteBodyPayload }
+  | { rewriteType: "redirect"; payload: RewriteRedirectPayload };
+
 type RewriteRule = {
   id: string;
   workspaceId: string;
@@ -392,12 +401,9 @@ type RewriteRule = {
   enabled: boolean;
   match: RuleMatch;
   priority: number;
-} & (
-  | { rewriteType: "header"; payload: RewriteHeaderPayload }
-  | { rewriteType: "query"; payload: RewriteQueryPayload }
-  | { rewriteType: "body"; payload: RewriteBodyPayload }
-  | { rewriteType: "redirect"; payload: RewriteRedirectPayload }
-);
+  actions: RewriteAction[];      // 1..n，按序执行
+  rewriteType: RewriteRuleType;  // 派生 = actions[0].rewriteType
+};
 
 type RewriteRunEntry = {
   after?: string;
@@ -430,6 +436,7 @@ type MapRule = {
   preservePath: boolean;
   preserveQuery: boolean;
   priority: number;
+  matchType?: MatchType;  // R6：map 规则匹配方式，默认 contains
 };
 
 type MapSessionTrace = {
@@ -477,6 +484,7 @@ type ThrottleRule = {
   urlPattern: string;       // "*" / "https://api.example.com/users" / "*://api.example.com/*"
   methods: string[];        // [] = any method
   stage: "both" | "request" | "response";
+  matchType?: MatchType;    // R6：throttle 规则匹配方式，默认 contains
 };
 ```
 
@@ -520,7 +528,8 @@ type DnsMappingRule = {
   note?: string;
   enabled: boolean;
   priority: number;
-  hostPattern: string;  // 子串匹配（非通配符），如 "example.com"
+  hostPattern: string;  // 匹配方式由 matchType 决定，默认 contains
+  matchType?: MatchType;  // R6：DNS 规则匹配方式，默认 contains
   targetIp: string;     // "192.168.1.100"
 };
 ```
@@ -1026,6 +1035,27 @@ type SendComposedRequestInput = {
   url: string;
   headers: HeaderEntry[];
   body?: string;
+  // C3（2026-08）：结构化 multipart 部分；提供时 Rust 生成 boundary、
+  // 读取文件字节并保证 Content-Type，body 字段不再参与编码。
+  multipartEntries?: MultipartEntry[];
+};
+
+// C3：renderer 只持有文件元数据，字节由 Rust 侧读取（D1）
+type MultipartEntry =
+  | { kind: "text"; name: string; value: string }
+  | {
+      kind: "file";
+      name: string;
+      fileName: string;
+      filePath: string;
+      contentType?: string;
+    };
+
+type FormFileEntry = {
+  name: string;
+  fileName: string;
+  filePath: string;
+  contentType?: string;
 };
 ```
 
@@ -1387,6 +1417,29 @@ type DeleteRuleInput = {
 ```ts
 type DeleteRuleOutput = void;
 ```
+
+### `bulk_update_rules` — `R5（2026-08）`
+
+批量更新规则字段（多选启用/禁用 + 拖拽重排）。单个 IPC 内完成 DB 与内存
+manager 的一致更新；script 复用编译链路；throttle 走 ThrottleRuleRow +
+throttle manager。
+
+请求：
+
+```ts
+type BulkRuleUpdate = {
+  id: string;
+  enabled?: boolean;
+  priority?: number;
+};
+
+type BulkUpdateRulesInput = {
+  ruleType: "rewrite" | "map" | "dns" | "script" | "throttle";
+  updates: BulkRuleUpdate[];
+};
+```
+
+响应：`number`（实际命中的更新条数）。
 
 ## 6.7 Breakpoint Runtime Commands — `已实现`
 
@@ -1930,6 +1983,29 @@ type InstallHarmonyCertificateViaHdcOutput = {
 
 ## 6.11 File Import / Export Commands
 
+### 规则导出文件契约 — `R2（2026-08）`
+
+```ts
+type RulesExportFile = {
+  format: "aiproxy.rules";
+  version: 1;
+  exportedAt: string;
+  rules: {
+    rewrite: RewriteRule[];
+    map: MapRule[];
+    dns: DnsMappingRule[];
+    script: ScriptRule[];
+    breakpoint: BreakpointRule[];
+    throttle: ThrottleRule[];
+    throttleProfiles: ThrottleProfile[]; // 必须随行，否则 throttle 规则是死配置
+  };
+};
+```
+
+导入行为：预览（各类计数 + checkbox）→ 追加合并；全新 uuid、`enabled=false`、
+workspaceId=default；breakpoint 走"读现有 + 追加 + set_breakpoint_rules"；
+throttleProfiles 按 id 仅补缺失。不做替换全部、不脱敏（M6 范围外）。
+
 当前没有注册 `export_sessions` 后端命令。Sessions 导出由前端 `session-export.helpers.ts` 生成 Session Snapshot / HAR / cURL 文本，再通过 `save_text_file` 写入用户 Downloads 目录。
 
 ### `save_text_file`
@@ -1974,6 +2050,48 @@ type HarFileOutput = {
 - 文件选择器由后端拉起，前端只传标题、不接触原始路径（与 `pick_and_read_script_file` 同一安全模型）
 - 仅接受 `.har` 扩展名
 - 读取后由前端解析并导入为本地会话快照
+
+### `pick_and_read_rules_file` — `R2（2026-08）`
+
+请求：
+
+```ts
+type PickRulesFileInput = { title: string };
+```
+
+响应：
+
+```ts
+type RulesFileOutput = {
+  fileName: string;
+  contents: string; // 规则导出 JSON 文本
+} | null;
+```
+
+约束：与 `pick_and_read_har_file` 同一后端拉起对话框 + canonicalize +
+64 MB 上限模型；仅接受 `.json`。内容由前端 `parseRulesExportFile` 校验
+（format = `aiproxy.rules`、version = 1）。
+
+### `pick_attachment_file` — `C3（2026-08）`
+
+请求：
+
+```ts
+type PickAttachmentFileInput = { title: string };
+```
+
+响应：
+
+```ts
+type AttachmentFileOutput = {
+  fileName: string;
+  filePath: string;  // canonicalize 后的路径
+  sizeBytes: number;
+} | null;
+```
+
+约束：renderer 只拿到元数据，文件字节在发送时由 Rust 侧读取（D1）；
+canonicalize + 64 MB 上限与 multipart 发送路径一致。
 
 ### `save_response_files`
 
@@ -2372,6 +2490,7 @@ type ApiCollectionItem = {
   rawLanguage: string;
   formData: HeaderEntry[];
   urlEncoded: HeaderEntry[];
+  formFiles: FormFileEntry[];  // C3：multipart 附件元数据（renderer 不接触文件内容）
   createdAt: string;
   updatedAt: string;
 };
@@ -2388,7 +2507,7 @@ type ApiCollectionItem = {
 
 - `list_api_collection_items({ collectionId }) -> ApiCollectionItem[]`
 - `get_api_collection_item({ id }) -> ApiCollectionItem`
-- `upsert_api_collection_item({ id?, collectionId, name, description?, method, url, headers, body, bodyType, rawLanguage, formData, urlEncoded }) -> ApiCollectionItem`
+- `upsert_api_collection_item({ id?, collectionId, name, description?, method, url, headers, body, bodyType, rawLanguage, formData, urlEncoded, formFiles }) -> ApiCollectionItem`
 - `delete_api_collection_item({ id }) -> void`
 - `move_api_collection_item({ id, targetCollectionId, sortOrder }) -> void` — 在文件夹之间移动请求项或在同一文件夹内重排，`sortOrder` 是目标列表中的目标索引，触发 dense renumber
 - `save_session_to_collection({ sessionId, collectionId, name? }) -> ApiCollectionItem` — 从抓包流量保存
