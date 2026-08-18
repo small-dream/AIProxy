@@ -457,6 +457,12 @@ export const enMessages = {
       hint: "Attached files are read from disk when the request is sent; the app never uploads file contents to the renderer.",
       removeFile: "Remove file",
     },
+    importCurl: "Import cURL",
+    importCurlAction: "Import",
+    importCurlInvalid: "This doesn't look like a cURL command with an http(s) URL.",
+    importCurlPlaceholder:
+      "curl -X POST https://api.example.com/orders \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"ok\": true}'",
+    importCurlTitle: "Import from cURL",
     savedToCollection: "Saved to {{name}}",
     untitledRequest: "Untitled request",
     waiting: "Waiting",

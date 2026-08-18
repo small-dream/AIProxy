@@ -1,5 +1,6 @@
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import BookmarkAddRoundedIcon from "@mui/icons-material/BookmarkAddRounded";
+import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import {
   Box,
@@ -42,6 +43,7 @@ import {
   type ComposeResponseTab,
 } from "@/features/compose/components/ComposeResponseSection";
 import { generateCurlCommand } from "@/features/compose/curl-export";
+import { CurlImportDialog } from "@/features/compose/components/CurlImportDialog";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
 import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
 import { useUpsertCollectionItem } from "@/features/collections/use-collection-items";
@@ -91,6 +93,7 @@ export function ComposePage() {
   );
   const [manageEnvDialogOpen, setManageEnvDialogOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [curlImportOpen, setCurlImportOpen] = useState(false);
 
   useEffect(() => {
     writeActiveEnvironmentId(activeEnvironmentId);
@@ -222,13 +225,11 @@ export function ComposePage() {
         },
         {
           onSuccess: () => {
-            useNotificationStore
-              .getState()
-              .push(
-                t("composePage.savedToCollection", {
-                  name: name?.trim() || `${method} ${url}`.trim(),
-                }),
-              );
+            useNotificationStore.getState().push(
+              t("composePage.savedToCollection", {
+                name: name?.trim() || `${method} ${url}`.trim(),
+              }),
+            );
             setSaveDialogOpen(false);
           },
         },
@@ -379,6 +380,24 @@ export function ComposePage() {
             onEnvironmentChange={setActiveEnvironmentId}
             onManageEnvironments={() => setManageEnvDialogOpen(true)}
           />
+          <Tooltip title={t("composePage.importCurl")}>
+            <span>
+              <IconButton
+                color="primary"
+                onClick={() => setCurlImportOpen(true)}
+                size="small"
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  flex: "0 0 auto",
+                  height: 38,
+                  width: 38,
+                }}
+              >
+                <TerminalRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip title={t("collectionsPage.saveToCollection")}>
             <span>
               <IconButton
@@ -456,6 +475,7 @@ export function ComposePage() {
         onCancel={() => setSaveDialogOpen(false)}
         onConfirm={handleSaveToCollection}
       />
+      <CurlImportDialog open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />
 
       <Box
         ref={gridRef}

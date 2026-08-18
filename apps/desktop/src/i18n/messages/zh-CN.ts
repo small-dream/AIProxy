@@ -445,6 +445,12 @@ export const zhCNMessages: Messages = {
       hint: "附加文件在发送请求时从磁盘读取，应用不会把文件内容传给渲染进程。",
       removeFile: "移除文件",
     },
+    importCurl: "导入 cURL",
+    importCurlAction: "导入",
+    importCurlInvalid: "这不是带 http(s) URL 的 cURL 命令。",
+    importCurlPlaceholder:
+      "curl -X POST https://api.example.com/orders \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"ok\": true}'",
+    importCurlTitle: "从 cURL 导入",
     savedToCollection: "已保存到 {{name}}",
     untitledRequest: "未命名请求",
     waiting: "等待响应",
