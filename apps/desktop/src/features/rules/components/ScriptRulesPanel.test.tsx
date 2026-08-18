@@ -69,7 +69,7 @@ function makeRule(overrides: Partial<ScriptRule> = {}): ScriptRule {
 describe("ScriptRulesPanel — file import error feedback (L10)", () => {
   it("surfaces an error notification when the script import fails instead of failing silently", async () => {
     // Before the fix the catch block was empty: a failed file import gave the
-    // user zero feedback, violating CLAUDE.md "no empty catch".
+    // user zero feedback, violating AGENTS.md "no empty catch".
     // H10 (closed): import is a single backend-owned command (dialog + read).
     pickAndReadScriptFileMock.mockRejectedValue(new Error("disk read failed"));
 
