@@ -25,7 +25,11 @@
 
 - `package.json`
 - `Cargo.toml`
+- `Cargo.lock`
+- `apps/desktop/package.json`
 - `apps/desktop/src-tauri/tauri.conf.json`
+
+> 说明：`81dfbfdc4fb91459630b8268308596d8cf9b29ce` 这次发版就是按这 5 处一起改的。以后发新版本先把这 5 个地方统一更新，再跑下面的检查和打包，避免版本号不一致导致 Settings 一直误报有新版本。
 
 ### Build Number 与唯一标识
 
