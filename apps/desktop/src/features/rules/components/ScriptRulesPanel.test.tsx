@@ -20,7 +20,16 @@ vi.mock("@/features/rules/use-rule-center", () => ({
   useScriptRules: () => ({ data: rulesState.current, isError: false }),
   useSaveScriptRule: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
+  useBulkUpdateRules: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
+  };
+});
 
 // Keep the test free of the i18n provider dependency. The fake `t` returns the
 // key verbatim, but when interpolation params are supplied it appends the

@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared-types";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -20,8 +21,10 @@ import {
   formatRuleFieldLabel,
   ManagedRuleList,
   ManagedRulesWorkbench,
+  RuleBatchBar,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
+import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
 import {
   createEmptyScriptRule,
   formatRuleMatch,
@@ -34,12 +37,14 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
+  SCRIPT_RULES_QUERY_KEY,
+  useBulkUpdateRules,
   useDeleteManagedRule,
   useSaveScriptRule,
   useScriptRules,
 } from "@/features/rules/use-rule-center";
 import { useI18n } from "@/i18n";
-import { pickAndReadScriptFile } from "@/services/commands";
+import { deleteRule, pickAndReadScriptFile } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -76,11 +81,14 @@ const EXTRACT_TEMPLATE = `export function onResponse(ctx) {
 
 export function ScriptRulesPanel() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { data: rules = [], isError: isRulesError } = useScriptRules();
   const saveMutation = useSaveScriptRule();
   const deleteMutation = useDeleteManagedRule();
+  const bulkMutation = useBulkUpdateRules();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
@@ -231,6 +239,73 @@ export function ScriptRulesPanel() {
   const errors = getScriptValidationErrors(draft, t);
   const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
 
+  function toggleSelect(id: string) {
+    setSelectedRuleIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedRuleIds(new Set());
+  }
+
+  function handleBatchEnabled(enabled: boolean) {
+    const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
+    if (updates.length === 0) return;
+    bulkMutation.mutate(
+      { ruleType: "script", updates },
+      {
+        onSettled: () => clearSelection(),
+      },
+    );
+  }
+
+  function handleBatchDelete() {
+    const ids = [...selectedRuleIds];
+    if (ids.length === 0) return;
+    void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "script" }))).then(
+      (results) => {
+        const failed = results.filter((result) => result.status === "rejected").length;
+        useNotificationStore.getState().push(
+          failed > 0
+            ? t("rulesPage.batch.resultPartial", {
+                applied: ids.length - failed,
+                total: ids.length,
+              })
+            : t("rulesPage.batch.resultSuccess", { count: ids.length }),
+        );
+        clearSelection();
+      },
+    );
+  }
+
+  function handleReorder(orderedIds: string[]) {
+    const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
+    const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+    if (updates.length === 0) return;
+
+    const previous = rules;
+    const reordered = orderedIds
+      .map((id) => rules.find((rule) => rule.id === id))
+      .filter((rule): rule is ScriptRule => rule !== undefined);
+    queryClient.setQueryData(SCRIPT_RULES_QUERY_KEY, reordered);
+    bulkMutation.mutate(
+      { ruleType: "script", updates },
+      {
+        onError: () => {
+          queryClient.setQueryData(SCRIPT_RULES_QUERY_KEY, previous);
+          queryClient.invalidateQueries({ queryKey: SCRIPT_RULES_QUERY_KEY });
+        },
+      },
+    );
+  }
+
   return (
     <>
       {isRulesError && (
@@ -239,6 +314,18 @@ export function ScriptRulesPanel() {
         </Alert>
       )}
       <ManagedRulesWorkbench
+        batchBar={
+          selectedRuleIds.size > 0 ? (
+            <RuleBatchBar
+              count={selectedRuleIds.size}
+              deletePending={false}
+              onDelete={handleBatchDelete}
+              onDisable={() => handleBatchEnabled(false)}
+              onDone={clearSelection}
+              onEnable={() => handleBatchEnabled(true)}
+            />
+          ) : undefined
+        }
         searchPlaceholder={t("rulesPage.script.searchPlaceholder")}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
@@ -300,6 +387,8 @@ export function ScriptRulesPanel() {
         list={
           <ManagedRuleList
             emptyDescription={t("rulesPage.script.emptyDescription")}
+            onReorder={handleReorder}
+            selectedIds={selectedRuleIds}
             items={filteredRules.map((rule) => ({
               id: rule.id,
               active: rule.id === selectedRuleId,
@@ -308,6 +397,7 @@ export function ScriptRulesPanel() {
               subtitle: `${formatRuleMatch(rule.match)} • ${rule.language.toUpperCase()}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              onSelectToggle: () => toggleSelect(rule.id),
               // Persist the SAVED rule (not the in-flight draft) so the toggle
               // takes effect immediately (review §4.1).
               onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),

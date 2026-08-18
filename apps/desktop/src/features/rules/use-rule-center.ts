@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DnsMappingRule, MapRule, RewriteRule, ScriptRule } from "@aiproxy/shared-types";
 
 import {
+  bulkUpdateRules,
   deleteRule,
   listDnsMappings,
   listMapRules,
@@ -12,11 +13,17 @@ import {
   saveRewriteRule,
   saveScriptRule,
 } from "@/services/commands";
+import type { BulkRuleType, BulkRuleUpdate } from "@/services/commands/rules";
 
 const REWRITE_RULES_KEY = ["rewrite-rules"] as const;
 const MAP_RULES_KEY = ["map-rules"] as const;
 const DNS_MAPPINGS_KEY = ["dns-mappings"] as const;
 const SCRIPT_RULES_KEY = ["script-rules"] as const;
+
+export const MAP_RULES_QUERY_KEY = MAP_RULES_KEY;
+export const REWRITE_RULES_QUERY_KEY = REWRITE_RULES_KEY;
+export const DNS_MAPPINGS_QUERY_KEY = DNS_MAPPINGS_KEY;
+export const SCRIPT_RULES_QUERY_KEY = SCRIPT_RULES_KEY;
 
 export function useRewriteRules() {
   return useQuery({
@@ -33,6 +40,29 @@ export function useSaveRewriteRule() {
     mutationFn: (input: Omit<RewriteRule, "id"> & { id?: string }) => saveRewriteRule(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
+    },
+  });
+}
+
+/** Shared bulk patch (multi-select enable/disable + drag reorder, R5/R4b). */
+export function useBulkUpdateRules() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { ruleType: BulkRuleType; updates: BulkRuleUpdate[] }) =>
+      bulkUpdateRules(input.ruleType, input.updates),
+    onSuccess: (_count, variables) => {
+      // Throttle rules keep their own store/hook family and are excluded from
+      // the rules-page batch UI (R5).
+      if (variables.ruleType === "rewrite") {
+        queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
+      } else if (variables.ruleType === "map") {
+        queryClient.invalidateQueries({ queryKey: MAP_RULES_KEY });
+      } else if (variables.ruleType === "dns") {
+        queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_KEY });
+      } else if (variables.ruleType === "script") {
+        queryClient.invalidateQueries({ queryKey: SCRIPT_RULES_KEY });
+      }
     },
   });
 }

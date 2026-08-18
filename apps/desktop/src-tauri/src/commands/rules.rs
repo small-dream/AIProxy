@@ -1,4 +1,5 @@
 use super::common::*;
+use aiproxy_db::rusqlite::Connection;
 
 #[tauri::command]
 pub async fn list_script_session_trace(
@@ -770,6 +771,337 @@ pub async fn delete_rule(
     Ok(())
 }
 
+// --- Bulk updates (multi-select enable/disable + drag reorder) ---
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkRuleUpdate {
+    pub id: String,
+    pub enabled: Option<bool>,
+    pub priority: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkUpdateRulesInput {
+    pub rule_type: String,
+    pub updates: Vec<BulkRuleUpdate>,
+}
+
+fn validate_bulk_rule_type(rule_type: &str) -> Result<(), String> {
+    match rule_type {
+        "rewrite" | "map" | "dns" | "script" | "throttle" => Ok(()),
+        _ => Err(app_error(
+            ERR_INVALID_INPUT,
+            format!("Unknown rule type: {rule_type}"),
+        )),
+    }
+}
+
+trait RulePatchable {
+    fn set_enabled(&mut self, enabled: bool);
+    fn set_priority(&mut self, priority: u32);
+}
+
+impl RulePatchable for RewriteRule {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    fn set_priority(&mut self, priority: u32) {
+        self.priority = priority;
+    }
+}
+
+impl RulePatchable for MapRule {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    fn set_priority(&mut self, priority: u32) {
+        self.priority = priority;
+    }
+}
+
+impl RulePatchable for DnsMappingRule {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    fn set_priority(&mut self, priority: u32) {
+        self.priority = priority;
+    }
+}
+
+impl RulePatchable for ScriptRule {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    fn set_priority(&mut self, priority: u32) {
+        self.priority = priority;
+    }
+}
+
+impl RulePatchable for ThrottleRuleData {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+    fn set_priority(&mut self, priority: u32) {
+        self.priority = priority;
+    }
+}
+
+fn apply_rule_patch<T: RulePatchable>(rule: &mut T, update: &BulkRuleUpdate) {
+    if let Some(enabled) = update.enabled {
+        rule.set_enabled(enabled);
+    }
+    if let Some(priority) = update.priority {
+        rule.set_priority(priority);
+    }
+}
+
+/// Applies a single bulk patch in one DB + manager transaction scope. Returns
+/// true when the rule was found and patched. Unknown rule types are rejected
+/// before any mutation (mirrors delete_rule).
+#[tauri::command]
+pub async fn bulk_update_rules(
+    input: BulkUpdateRulesInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<usize, String> {
+    let rule_type = input.rule_type.clone();
+    validate_bulk_rule_type(&rule_type)?;
+
+    let updates = input.updates.clone();
+    let state = Arc::clone(state.inner());
+    run_blocking_command("bulk_update_rules", {
+        let state = Arc::clone(&state);
+        move || {
+            let conn_guard = state.lock_db_for_ipc()?;
+            let mut applied = 0usize;
+            for update in &updates {
+                let patched = match rule_type.as_str() {
+                    "rewrite" => bulk_patch_rewrite(&state, &conn_guard, update)?,
+                    "map" => bulk_patch_map(&state, &conn_guard, update)?,
+                    "dns" => bulk_patch_dns(&state, &conn_guard, update)?,
+                    "script" => bulk_patch_script(&state, &conn_guard, update)?,
+                    "throttle" => bulk_patch_throttle(&state, &conn_guard, update)?,
+                    _ => unreachable!("validated above"),
+                };
+                if patched {
+                    applied += 1;
+                }
+            }
+            Ok(applied)
+        }
+    })
+    .await
+}
+
+fn bulk_patch_rewrite(
+    state: &AppState,
+    conn: &Connection,
+    update: &BulkRuleUpdate,
+) -> Result<bool, String> {
+    let mut rule = state
+        .read_rewrite_manager()
+        .list_rules()
+        .into_iter()
+        .find(|candidate| candidate.id == update.id);
+    let Some(rule) = rule.as_mut() else {
+        return Ok(false);
+    };
+    apply_rule_patch(rule, update);
+    let row = aiproxy_db::rules::RewriteRuleRow {
+        id: rule.id.clone(),
+        workspace_id: rule.workspace_id.clone(),
+        name: rule.name.clone(),
+        note: rule.note.clone(),
+        enabled: rule.enabled,
+        priority: rule.priority,
+        match_methods: serde_json::to_string(&rule.r#match.methods).unwrap_or_default(),
+        match_stage: rule.r#match.stage.clone(),
+        match_url_pattern: rule.r#match.url_pattern.clone(),
+        match_type: rule
+            .r#match
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+        rewrite_type: rule.rewrite_type.clone(),
+        // D2: persist the ordered actions array; a legacy in-memory rule
+        // (actions=None) is expanded to a single-action array first so the DB
+        // column stays in the new format.
+        payload: match rule.actions.as_ref() {
+            Some(actions) => serde_json::to_string(actions).unwrap_or_else(|_| "[]".to_string()),
+            None => serde_json::json!([{
+                "rewriteType": rule.rewrite_type,
+                "payload": rule.payload,
+            }])
+            .to_string(),
+        },
+    };
+    aiproxy_db::rules::save_rewrite_rule(conn, &row)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Bulk update rewrite rule: {error}")))?;
+    state.read_rewrite_manager().save_rule(rule.clone());
+    Ok(true)
+}
+
+fn bulk_patch_map(
+    state: &AppState,
+    conn: &Connection,
+    update: &BulkRuleUpdate,
+) -> Result<bool, String> {
+    let mut rule = state
+        .read_map_manager()
+        .list_rules()
+        .into_iter()
+        .find(|candidate| candidate.id == update.id);
+    let Some(rule) = rule.as_mut() else {
+        return Ok(false);
+    };
+    apply_rule_patch(rule, update);
+    let row = aiproxy_db::rules::MapRuleRow {
+        id: rule.id.clone(),
+        workspace_id: rule.workspace_id.clone(),
+        mode: rule.mode.clone(),
+        name: rule.name.clone(),
+        note: rule.note.clone(),
+        enabled: rule.enabled,
+        preserve_path: rule.preserve_path,
+        preserve_query: rule.preserve_query,
+        priority: rule.priority,
+        source_pattern: rule.source_pattern.clone(),
+        target_value: rule.target_value.clone(),
+        match_type: rule
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+    };
+    aiproxy_db::rules::save_map_rule(conn, &row)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Bulk update map rule: {error}")))?;
+    state.read_map_manager().save_rule(rule.clone());
+    Ok(true)
+}
+
+fn bulk_patch_dns(
+    state: &AppState,
+    conn: &Connection,
+    update: &BulkRuleUpdate,
+) -> Result<bool, String> {
+    let mut rule = state
+        .read_dns_manager()
+        .list_rules()
+        .into_iter()
+        .find(|candidate| candidate.id == update.id);
+    let Some(rule) = rule.as_mut() else {
+        return Ok(false);
+    };
+    apply_rule_patch(rule, update);
+    let row = aiproxy_db::rules::DnsMappingRow {
+        id: rule.id.clone(),
+        workspace_id: rule.workspace_id.clone(),
+        name: rule.name.clone(),
+        note: rule.note.clone(),
+        enabled: rule.enabled,
+        priority: rule.priority,
+        host_pattern: rule.host_pattern.clone(),
+        target_ip: rule.target_ip.clone(),
+        match_type: rule
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+    };
+    aiproxy_db::rules::save_dns_mapping(conn, &row)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Bulk update DNS mapping: {error}")))?;
+    state.read_dns_manager().save_rule(rule.clone());
+    Ok(true)
+}
+
+fn bulk_patch_script(
+    state: &AppState,
+    conn: &Connection,
+    update: &BulkRuleUpdate,
+) -> Result<bool, String> {
+    let Some(mut rule) = state
+        .read_script_manager()
+        .list_rules()
+        .into_iter()
+        .find(|candidate| candidate.id == update.id)
+    else {
+        return Ok(false);
+    };
+    apply_rule_patch(&mut rule, update);
+    let compiled = compile_script_rule(rule)?;
+    let row = aiproxy_db::rules::ScriptRuleRow {
+        id: compiled.rule.id.clone(),
+        workspace_id: compiled.rule.workspace_id.clone(),
+        name: compiled.rule.name.clone(),
+        note: compiled.rule.note.clone(),
+        enabled: compiled.rule.enabled,
+        priority: compiled.rule.priority,
+        match_methods: serde_json::to_string(&compiled.rule.r#match.methods).unwrap_or_default(),
+        match_stage: compiled.rule.r#match.stage.clone(),
+        match_url_pattern: compiled.rule.r#match.url_pattern.clone(),
+        match_type: compiled
+            .rule
+            .r#match
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+        language: match compiled.rule.language {
+            ScriptRuleLanguage::JavaScript => "javascript".to_string(),
+            ScriptRuleLanguage::TypeScript => "typescript".to_string(),
+        },
+        source_type: match compiled.rule.source_type {
+            ScriptRuleSourceType::Inline => "inline".to_string(),
+            ScriptRuleSourceType::FileImport => "fileImport".to_string(),
+        },
+        source_code: compiled.rule.source_code.clone(),
+        source_path: compiled.rule.source_path.clone(),
+        entrypoints: serde_json::to_string(&compiled.rule.entrypoints)
+            .unwrap_or_else(|_| "{}".to_string()),
+        compiled_code: (*compiled.compiled_code).clone(),
+        source_map: compiled.source_map.as_ref().map(|arc| (**arc).clone()),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    aiproxy_db::rules::save_script_rule(conn, &row)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Bulk update script rule: {error}")))?;
+    state.read_script_manager().save_rule(compiled);
+    Ok(true)
+}
+
+fn bulk_patch_throttle(
+    state: &AppState,
+    conn: &Connection,
+    update: &BulkRuleUpdate,
+) -> Result<bool, String> {
+    let mut rule = state
+        .read_throttle_manager()
+        .list_rules()
+        .into_iter()
+        .find(|candidate| candidate.id == update.id);
+    let Some(rule) = rule.as_mut() else {
+        return Ok(false);
+    };
+    apply_rule_patch(rule, update);
+    let row = aiproxy_db::rules::ThrottleRuleRow {
+        id: rule.id.clone(),
+        workspace_id: rule.workspace_id.clone(),
+        name: rule.name.clone(),
+        note: rule.note.clone(),
+        enabled: rule.enabled,
+        priority: rule.priority,
+        profile_id: rule.profile_id.clone(),
+        url_pattern: rule.url_pattern.clone(),
+        methods: serde_json::to_string(&rule.methods).unwrap_or_else(|_| "[]".to_string()),
+        stage: rule.stage.clone(),
+        match_type: rule
+            .match_type
+            .clone()
+            .unwrap_or_else(|| "contains".to_string()),
+    };
+    aiproxy_db::rules::save_throttle_rule(conn, &row)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Bulk update throttle rule: {error}")))?;
+    state.read_throttle_manager().save_rule(rule.clone());
+    Ok(true)
+}
+
 // --- DNS mapping commands ---
 
 #[derive(Debug, Deserialize)]
@@ -917,6 +1249,53 @@ mod tests {
             message.contains("not-an-ip"),
             "message should include the bad value"
         );
+    }
+
+    #[test]
+    fn validate_bulk_rule_type_accepts_all_rule_kinds_and_rejects_unknown() {
+        for kind in ["rewrite", "map", "dns", "script", "throttle"] {
+            assert!(
+                validate_bulk_rule_type(kind).is_ok(),
+                "kind {kind} must be accepted"
+            );
+        }
+
+        let err = validate_bulk_rule_type("unknown").expect_err("unknown kind must be rejected");
+        let (code, message) = err_parts(&err);
+        assert_eq!(code, ERR_INVALID_INPUT);
+        assert!(message.contains("Unknown rule type"), "got: {message}");
+    }
+
+    #[test]
+    fn apply_rule_patch_updates_only_present_fields() {
+        let mut rule = sample_dns_mapping("127.0.0.1");
+        rule.enabled = false;
+        rule.priority = 5;
+
+        apply_rule_patch(
+            &mut rule,
+            &BulkRuleUpdate {
+                id: "dns-1".to_string(),
+                enabled: Some(true),
+                priority: None,
+            },
+        );
+        assert!(rule.enabled);
+        assert_eq!(
+            rule.priority, 5,
+            "priority untouched when the patch omits it"
+        );
+
+        apply_rule_patch(
+            &mut rule,
+            &BulkRuleUpdate {
+                id: "dns-1".to_string(),
+                enabled: None,
+                priority: Some(99),
+            },
+        );
+        assert!(rule.enabled, "enabled untouched when the patch omits it");
+        assert_eq!(rule.priority, 99);
     }
 
     #[test]

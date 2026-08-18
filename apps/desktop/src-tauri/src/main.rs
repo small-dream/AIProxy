@@ -232,6 +232,7 @@ pub fn run() {
             commands::save_script_rule,
             commands::pick_and_read_script_file,
             commands::delete_rule,
+            commands::bulk_update_rules,
             commands::list_dns_mappings,
             commands::save_dns_mapping,
             commands::list_script_session_trace,

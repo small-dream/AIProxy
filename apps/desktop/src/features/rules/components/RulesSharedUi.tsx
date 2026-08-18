@@ -1,7 +1,24 @@
 import { type ReactNode } from "react";
+import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
   Box,
+  Button,
+  Checkbox,
   Chip,
   InputAdornment,
   List,
@@ -116,6 +133,8 @@ export function RuleSection({ children }: { children: ReactNode }) {
 /* ── ManagedRulesWorkbench ────────────────────────────────────────── */
 
 export function ManagedRulesWorkbench(props: {
+  /** Optional batch-action bar rendered above the rule list (R5). */
+  batchBar?: ReactNode;
   createActions: ReactNode;
   editor: ReactNode;
   list: ReactNode;
@@ -123,7 +142,8 @@ export function ManagedRulesWorkbench(props: {
   searchPlaceholder: string;
   searchValue: string;
 }) {
-  const { createActions, editor, list, onSearchChange, searchPlaceholder, searchValue } = props;
+  const { batchBar, createActions, editor, list, onSearchChange, searchPlaceholder, searchValue } =
+    props;
 
   return (
     <Box
@@ -185,6 +205,7 @@ export function ManagedRulesWorkbench(props: {
           >
             {createActions}
           </Stack>
+          {batchBar}
         </Stack>
 
         <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>{list}</Box>
@@ -227,23 +248,31 @@ export function ManagedRulesWorkbench(props: {
 
 /* ── ManagedRuleList ──────────────────────────────────────────────── */
 
+export type ManagedRuleListItem = {
+  active: boolean;
+  chipLabel: string;
+  enabled: boolean;
+  id: string;
+  name: string;
+  onClick: () => void;
+  /** When provided, renders a row-leading checkbox (multi-select, R5). */
+  onSelectToggle?: () => void;
+  /** When provided, renders an inline switch that persists immediately
+   *  (via the caller's save mutation) instead of the static OFF chip. */
+  onToggleEnabled?: (enabled: boolean) => void;
+  subtitle: string;
+};
+
 export function ManagedRuleList(props: {
   emptyDescription: string;
-  items: Array<{
-    active: boolean;
-    chipLabel: string;
-    enabled: boolean;
-    id: string;
-    name: string;
-    onClick: () => void;
-    /** When provided, renders an inline switch that persists immediately
-     *  (via the caller's save mutation) instead of the static OFF chip. */
-    onToggleEnabled?: (enabled: boolean) => void;
-    subtitle: string;
-  }>;
+  items: ManagedRuleListItem[];
+  /** When provided, the list becomes sortable and reports the new order. */
+  onReorder?: (orderedIds: string[]) => void;
+  /** Ids currently selected via the row checkboxes. */
+  selectedIds?: Set<string>;
 }) {
-  const { t } = useI18n();
-  const { emptyDescription, items } = props;
+  const { emptyDescription, items, onReorder, selectedIds } = props;
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   if (items.length === 0) {
     return (
@@ -267,108 +296,244 @@ export function ManagedRuleList(props: {
     );
   }
 
-  return (
+  const content = (
     <List disablePadding dense sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
       {items.map((item) => (
-        <ListItemButton
+        <ManagedRuleListRow
           key={item.id}
-          selected={item.active}
-          onClick={item.onClick}
-          sx={{
-            border: 1,
-            borderColor: item.active ? "primary.main" : "divider",
-            borderRadius: "8px",
-            overflow: "hidden",
-            px: 1.25,
-            py: 1,
-            transition:
-              "border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease",
-            "&.Mui-selected": {
-              bgcolor: (theme) =>
-                alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
-            },
-            "&:hover": {
-              bgcolor: (theme) =>
-                alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
-              borderColor: (theme) => alpha(theme.palette.primary.main, 0.45),
-            },
-          }}
-        >
-          <ListItemText
-            primary={
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
-                  {item.name}
-                </Typography>
-                <Stack
-                  direction="row"
-                  spacing={0.5}
-                  sx={{
-                    alignItems: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  {item.onToggleEnabled ? (
-                    // Review §4.1: "temporarily disable one rule" is a frequent
-                    // need — the inline switch persists the SAVED rule
-                    // immediately instead of requiring select → edit → save.
-                    // stopPropagation keeps the row click (select rule) intact.
-                    <Switch
-                      size="small"
-                      checked={item.enabled}
-                      onChange={(event) => {
-                        event.stopPropagation();
-                        item.onToggleEnabled?.(event.target.checked);
-                      }}
-                      onClick={(event) => event.stopPropagation()}
-                      slotProps={{ input: { "aria-label": item.name } }}
-                    />
-                  ) : (
-                    !item.enabled && (
-                      <Chip
-                        size="small"
-                        label={t("rulesPage.off")}
-                        variant="outlined"
-                        sx={{ height: 20, fontSize: 11 }}
-                      />
-                    )
-                  )}
-                  <Chip
-                    size="small"
-                    label={item.chipLabel}
-                    variant={item.active ? "filled" : "outlined"}
-                    sx={{
-                      fontFamily: fontFamilies.mono,
-                      fontSize: 11,
-                      height: 20,
-                    }}
-                  />
-                </Stack>
-              </Stack>
-            }
-            secondary={
-              <Typography
-                variant="caption"
-                noWrap
-                component="p"
-                sx={{
-                  color: "text.secondary",
-                  mt: 0.35,
-                }}
-              >
-                {item.subtitle}
-              </Typography>
-            }
-          />
-        </ListItemButton>
+          item={item}
+          onReorder={onReorder}
+          selected={selectedIds?.has(item.id) ?? false}
+        />
       ))}
     </List>
+  );
+
+  if (!onReorder) {
+    return content;
+  }
+
+  return (
+    <DndContext
+      collisionDetection={closestCenter}
+      sensors={sensors}
+      onDragEnd={(event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        if (oldIndex < 0 || newIndex < 0) return;
+        onReorder(
+          arrayMove(
+            items.map((item) => item.id),
+            oldIndex,
+            newIndex,
+          ),
+        );
+      }}
+    >
+      <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+        {content}
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function ManagedRuleListRow({
+  item,
+  onReorder,
+  selected,
+}: {
+  item: ManagedRuleListItem;
+  onReorder?: ((orderedIds: string[]) => void) | undefined;
+  selected: boolean;
+}) {
+  const { t } = useI18n();
+  const sortable = useSortable({ id: item.id, disabled: !onReorder });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
+
+  return (
+    <ListItemButton
+      ref={setNodeRef}
+      selected={item.active}
+      onClick={item.onClick}
+      style={{
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        transition,
+      }}
+      sx={{
+        border: 1,
+        borderColor: item.active ? "primary.main" : "divider",
+        borderRadius: "8px",
+        opacity: isDragging ? 0.55 : 1,
+        overflow: "hidden",
+        px: 1.25,
+        py: 1,
+        ...(onReorder ? { cursor: "default" } : {}),
+        "&.Mui-selected": {
+          bgcolor: (theme) =>
+            alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+        },
+        "&:hover": {
+          bgcolor: (theme) =>
+            alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.13 : 0.055),
+          borderColor: (theme) => alpha(theme.palette.primary.main, 0.45),
+        },
+      }}
+    >
+      {item.onSelectToggle && (
+        <Checkbox
+          size="small"
+          checked={selected}
+          onChange={(event) => {
+            event.stopPropagation();
+            item.onSelectToggle?.();
+          }}
+          onClick={(event) => event.stopPropagation()}
+          slotProps={{ input: { "aria-label": `select ${item.name}` } }}
+          sx={{ ml: -0.5, mr: 0.25 }}
+        />
+      )}
+      {onReorder && (
+        <Box
+          {...attributes}
+          {...listeners}
+          onClick={(event) => event.stopPropagation()}
+          sx={{
+            alignItems: "center",
+            color: "text.disabled",
+            cursor: "grab",
+            display: "flex",
+            mr: 0.25,
+            touchAction: "none",
+          }}
+          aria-label={t("rulesPage.batch.dragHandle")}
+        >
+          <DragIndicatorRoundedIcon fontSize="small" />
+        </Box>
+      )}
+      <ListItemText
+        primary={
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13 }} noWrap>
+              {item.name}
+            </Typography>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              sx={{
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              {item.onToggleEnabled ? (
+                <Switch
+                  size="small"
+                  checked={item.enabled}
+                  onChange={(event) => {
+                    event.stopPropagation();
+                    item.onToggleEnabled?.(event.target.checked);
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                  slotProps={{ input: { "aria-label": item.name } }}
+                />
+              ) : (
+                !item.enabled && (
+                  <Chip
+                    size="small"
+                    label={t("rulesPage.off")}
+                    variant="outlined"
+                    sx={{ height: 20, fontSize: 11 }}
+                  />
+                )
+              )}
+              <Chip
+                size="small"
+                label={item.chipLabel}
+                variant={item.active ? "filled" : "outlined"}
+                sx={{
+                  fontFamily: fontFamilies.mono,
+                  fontSize: 11,
+                  height: 20,
+                }}
+              />
+            </Stack>
+          </Stack>
+        }
+        secondary={
+          <Typography
+            variant="caption"
+            noWrap
+            component="p"
+            sx={{
+              color: "text.secondary",
+              mt: 0.35,
+            }}
+          >
+            {item.subtitle}
+          </Typography>
+        }
+      />
+    </ListItemButton>
+  );
+}
+
+/* ── Batch action bar (multi-select, R5) ─────────────────────────── */
+
+export function RuleBatchBar(props: {
+  count: number;
+  deletePending: boolean;
+  onDelete: () => void;
+  onDisable: () => void;
+  onDone: () => void;
+  onEnable: () => void;
+}) {
+  const { t } = useI18n();
+  const { count, deletePending, onDelete, onDisable, onDone, onEnable } = props;
+
+  return (
+    <Box
+      sx={{
+        alignItems: "center",
+        bgcolor: (theme) => alpha(theme.palette.primary.main, 0.08),
+        border: 1,
+        borderColor: (theme) => alpha(theme.palette.primary.main, 0.35),
+        borderRadius: "8px",
+        display: "flex",
+        gap: 0.75,
+        px: 1,
+        py: 0.5,
+        flexWrap: "wrap",
+      }}
+    >
+      <Typography variant="body2" sx={{ fontWeight: 650, fontSize: 13, mr: 0.5 }}>
+        {t("rulesPage.batch.selectedCount", { count })}
+      </Typography>
+      <Button size="small" variant="outlined" onClick={onEnable}>
+        {t("rulesPage.batch.enable")}
+      </Button>
+      <Button size="small" variant="outlined" onClick={onDisable}>
+        {t("rulesPage.batch.disable")}
+      </Button>
+      <Button
+        size="small"
+        variant="outlined"
+        color="error"
+        onClick={onDelete}
+        disabled={deletePending}
+      >
+        {t("rulesPage.batch.delete")}
+      </Button>
+      <Button size="small" onClick={onDone}>
+        {t("rulesPage.batch.done")}
+      </Button>
+    </Box>
   );
 }

@@ -735,6 +735,16 @@ export const zhCNMessages: Messages = {
       urlPatternRequired: "请填写 URL 模式。",
       regexPatternInvalid: "URL 模式不是合法的正则表达式。",
     },
+    batch: {
+      delete: "删除",
+      disable: "禁用",
+      done: "完成",
+      dragHandle: "拖拽调整顺序",
+      enable: "启用",
+      resultPartial: "已更新 {{applied}} / {{total}} 条规则。",
+      resultSuccess: "已更新 {{count}} 条规则。",
+      selectedCount: "已选 {{count}} 条",
+    },
   },
   certificatesPage: {
     actions: {

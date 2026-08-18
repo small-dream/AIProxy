@@ -765,6 +765,16 @@ export const enMessages = {
       urlPatternRequired: "Enter a URL pattern.",
       regexPatternInvalid: "URL pattern is not a valid regular expression.",
     },
+    batch: {
+      delete: "Delete",
+      disable: "Disable",
+      done: "Done",
+      dragHandle: "Drag to reorder",
+      enable: "Enable",
+      resultPartial: "{{applied}} of {{total}} rules updated.",
+      resultSuccess: "{{count}} rules updated.",
+      selectedCount: "{{count}} selected",
+    },
   },
   certificatesPage: {
     actions: {

@@ -15,12 +15,16 @@ import {
 } from "@mui/material";
 import { open } from "@tauri-apps/plugin-dialog";
 import { coerceAppError, type MapRule, type SessionSummary } from "@aiproxy/shared-types";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { deleteRule } from "@/services/commands";
+import { useNotificationStore } from "@/services/notification.store";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
+import { RuleBatchBar } from "@/features/rules/components/RulesSharedUi";
 import {
   createEmptyMapRule,
   getMapValidationErrors,
@@ -35,7 +39,10 @@ import {
   ManagedRulesWorkbench,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
+import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
 import {
+  MAP_RULES_QUERY_KEY,
+  useBulkUpdateRules,
   useDeleteManagedRule,
   useMapRules,
   useSaveMapRule,
@@ -59,13 +66,16 @@ function createSeededMapRule(seed: MapLocalSeed, mode: MapRule["mode"]): MapRule
 
 export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const { data: rules = [], isError: isRulesError } = useMapRules(mode);
   const saveMutation = useSaveMapRule();
   const deleteMutation = useDeleteManagedRule();
+  const bulkMutation = useBulkUpdateRules();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<MapRule>(createEmptyMapRule(mode));
   const [validationAttempted, setValidationAttempted] = useState(false);
@@ -217,6 +227,73 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
     }
   }, [t]);
 
+  function toggleSelect(id: string) {
+    setSelectedRuleIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedRuleIds(new Set());
+  }
+
+  function handleBatchEnabled(enabled: boolean) {
+    const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
+    if (updates.length === 0) return;
+    bulkMutation.mutate(
+      { ruleType: "map", updates },
+      {
+        onSettled: () => clearSelection(),
+      },
+    );
+  }
+
+  function handleBatchDelete() {
+    const ids = [...selectedRuleIds];
+    if (ids.length === 0) return;
+    void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "map" }))).then(
+      (results) => {
+        const failed = results.filter((result) => result.status === "rejected").length;
+        useNotificationStore.getState().push(
+          failed > 0
+            ? t("rulesPage.batch.resultPartial", {
+                applied: ids.length - failed,
+                total: ids.length,
+              })
+            : t("rulesPage.batch.resultSuccess", { count: ids.length }),
+        );
+        clearSelection();
+      },
+    );
+  }
+
+  function handleReorder(orderedIds: string[]) {
+    const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
+    const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+    if (updates.length === 0) return;
+
+    const previous = rules;
+    const reordered = orderedIds
+      .map((id) => rules.find((rule) => rule.id === id))
+      .filter((rule): rule is MapRule => rule !== undefined);
+    queryClient.setQueryData([...MAP_RULES_QUERY_KEY, mode ?? "all"], reordered);
+    bulkMutation.mutate(
+      { ruleType: "map", updates },
+      {
+        onError: () => {
+          queryClient.setQueryData([...MAP_RULES_QUERY_KEY, mode ?? "all"], previous);
+          queryClient.invalidateQueries({ queryKey: MAP_RULES_QUERY_KEY });
+        },
+      },
+    );
+  }
+
   return (
     <>
       {isRulesError && (
@@ -225,6 +302,18 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
         </Alert>
       )}
       <ManagedRulesWorkbench
+        batchBar={
+          selectedRuleIds.size > 0 ? (
+            <RuleBatchBar
+              count={selectedRuleIds.size}
+              deletePending={false}
+              onDelete={handleBatchDelete}
+              onDisable={() => handleBatchEnabled(false)}
+              onDone={clearSelection}
+              onEnable={() => handleBatchEnabled(true)}
+            />
+          ) : undefined
+        }
         searchPlaceholder={
           isLocal
             ? t("rulesPage.mapLocal.searchPlaceholder")
@@ -250,6 +339,8 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
                 ? t("rulesPage.mapLocal.emptyDescription")
                 : t("rulesPage.mapRemote.emptyDescription")
             }
+            onReorder={handleReorder}
+            selectedIds={selectedRuleIds}
             items={filteredRules.map((rule) => ({
               id: rule.id,
               active: rule.id === selectedRuleId,
@@ -258,6 +349,7 @@ export function MapRulesPanel({ mode }: { mode: MapRule["mode"] }) {
               subtitle: `${rule.sourcePattern || "*"} → ${rule.targetValue || t("rulesPage.notConfigured")}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              onSelectToggle: () => toggleSelect(rule.id),
               // Persist the SAVED rule (not the in-flight draft) so the toggle
               // takes effect immediately (review §4.1).
               onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),

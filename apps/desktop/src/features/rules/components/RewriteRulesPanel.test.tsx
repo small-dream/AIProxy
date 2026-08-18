@@ -12,7 +12,16 @@ vi.mock("@/features/rules/use-rule-center", () => ({
   useRewriteRules: () => ({ data: rulesState.current, isError: false }),
   useSaveRewriteRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
+  useBulkUpdateRules: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
+  };
+});
 
 const routerState = vi.hoisted(() => ({ current: null as unknown }));
 const navigateMock = vi.hoisted(() => vi.fn());

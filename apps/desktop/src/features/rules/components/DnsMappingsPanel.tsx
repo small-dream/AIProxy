@@ -3,9 +3,12 @@ import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { Alert, Button, Stack, Switch, TextField, Typography } from "@mui/material";
 import { coerceAppError, type DnsMappingRule, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { deleteRule } from "@/services/commands";
+import { useNotificationStore } from "@/services/notification.store";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
@@ -19,9 +22,13 @@ import {
   formatRuleFieldLabel,
   ManagedRuleList,
   ManagedRulesWorkbench,
+  RuleBatchBar,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
+import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
 import {
+  DNS_MAPPINGS_QUERY_KEY,
+  useBulkUpdateRules,
   useDeleteManagedRule,
   useDnsMappings,
   useSaveDnsMapping,
@@ -30,11 +37,14 @@ import { useI18n } from "@/i18n";
 
 export function DnsMappingsPanel() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { data: rules = [], isError: isRulesError } = useDnsMappings(DEFAULT_WORKSPACE_ID);
   const saveMutation = useSaveDnsMapping();
   const deleteMutation = useDeleteManagedRule();
+  const bulkMutation = useBulkUpdateRules();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<DnsMappingRule>(createEmptyDnsMappingRule());
   const [validationAttempted, setValidationAttempted] = useState(false);
@@ -105,6 +115,73 @@ export function DnsMappingsPanel() {
   const errors = getDnsMappingValidationErrors(draft, t);
   const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
 
+  function toggleSelect(id: string) {
+    setSelectedRuleIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedRuleIds(new Set());
+  }
+
+  function handleBatchEnabled(enabled: boolean) {
+    const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
+    if (updates.length === 0) return;
+    bulkMutation.mutate(
+      { ruleType: "dns", updates },
+      {
+        onSettled: () => clearSelection(),
+      },
+    );
+  }
+
+  function handleBatchDelete() {
+    const ids = [...selectedRuleIds];
+    if (ids.length === 0) return;
+    void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "dns" }))).then(
+      (results) => {
+        const failed = results.filter((result) => result.status === "rejected").length;
+        useNotificationStore.getState().push(
+          failed > 0
+            ? t("rulesPage.batch.resultPartial", {
+                applied: ids.length - failed,
+                total: ids.length,
+              })
+            : t("rulesPage.batch.resultSuccess", { count: ids.length }),
+        );
+        clearSelection();
+      },
+    );
+  }
+
+  function handleReorder(orderedIds: string[]) {
+    const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
+    const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+    if (updates.length === 0) return;
+
+    const previous = rules;
+    const reordered = orderedIds
+      .map((id) => rules.find((rule) => rule.id === id))
+      .filter((rule): rule is DnsMappingRule => rule !== undefined);
+    queryClient.setQueryData([...DNS_MAPPINGS_QUERY_KEY, DEFAULT_WORKSPACE_ID], reordered);
+    bulkMutation.mutate(
+      { ruleType: "dns", updates },
+      {
+        onError: () => {
+          queryClient.setQueryData([...DNS_MAPPINGS_QUERY_KEY, DEFAULT_WORKSPACE_ID], previous);
+          queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_QUERY_KEY });
+        },
+      },
+    );
+  }
+
   return (
     <>
       {isRulesError && (
@@ -113,6 +190,18 @@ export function DnsMappingsPanel() {
         </Alert>
       )}
       <ManagedRulesWorkbench
+        batchBar={
+          selectedRuleIds.size > 0 ? (
+            <RuleBatchBar
+              count={selectedRuleIds.size}
+              deletePending={false}
+              onDelete={handleBatchDelete}
+              onDisable={() => handleBatchEnabled(false)}
+              onDone={clearSelection}
+              onEnable={() => handleBatchEnabled(true)}
+            />
+          ) : undefined
+        }
         searchPlaceholder={t("rulesPage.dns.searchPlaceholder")}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
@@ -130,6 +219,8 @@ export function DnsMappingsPanel() {
         list={
           <ManagedRuleList
             emptyDescription={t("rulesPage.dns.emptyDescription")}
+            onReorder={handleReorder}
+            selectedIds={selectedRuleIds}
             items={filteredRules.map((rule) => ({
               id: rule.id,
               active: rule.id === selectedRuleId,
@@ -138,6 +229,7 @@ export function DnsMappingsPanel() {
               subtitle: `${rule.hostPattern || "*"} → ${rule.targetIp || t("rulesPage.notConfigured")}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              onSelectToggle: () => toggleSelect(rule.id),
               // Persist the SAVED rule (not the in-flight draft) so the toggle
               // takes effect immediately (review §4.1).
               onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),

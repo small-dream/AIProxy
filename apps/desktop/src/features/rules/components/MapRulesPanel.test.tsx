@@ -13,12 +13,22 @@ const rulesState: { current: MapRule[] } = { current: [] };
 const deleteMutateMock = vi.fn();
 // Module-level so the validation test can assert the save was never called.
 const saveMutateMock = vi.fn();
+const bulkMutateMock = vi.fn();
 
 vi.mock("@/features/rules/use-rule-center", () => ({
   useMapRules: () => ({ data: rulesState.current, isError: false }),
   useSaveMapRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
+  useBulkUpdateRules: () => ({ mutate: bulkMutateMock, isPending: false }),
 }));
+
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
+  };
+});
 
 // The panel imports the Tauri dialog plugin at module top level for the file
 // picker; it is never invoked during this test (we never click the picker), but
@@ -40,7 +50,15 @@ vi.mock("react-router-dom", () => ({
 
 // Keep the test free of the i18n provider dependency.
 vi.mock("@/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key, tList: (key: string) => [key], locale: "en-US" }),
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) => {
+      if (!params) return key;
+      const value = params.count ?? params.index;
+      return value === undefined ? key : `${key}:${value}`;
+    },
+    tList: (key: string) => [key],
+    locale: "en-US",
+  }),
 }));
 
 function makeRule(overrides: Partial<MapRule> = {}): MapRule {
@@ -64,7 +82,49 @@ beforeEach(() => {
   rulesState.current = [];
   deleteMutateMock.mockClear();
   saveMutateMock.mockClear();
+  bulkMutateMock.mockClear();
   routerState.current = null;
+});
+
+describe("MapRulesPanel — batch operations (R5)", () => {
+  it("selects multiple rules and bulk-disables them", async () => {
+    rulesState.current = [
+      makeRule({ id: "rule-a", name: "Rule A", priority: 200 }),
+      makeRule({ id: "rule-b", name: "Rule B", priority: 100 }),
+    ];
+
+    render(<MapRulesPanel mode="remote" />);
+
+    fireEvent.click(screen.getByLabelText("select Rule A"));
+    fireEvent.click(screen.getByLabelText("select Rule B"));
+
+    expect(screen.getByText("rulesPage.batch.selectedCount:2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.batch.disable" }));
+
+    await waitFor(() => {
+      expect(bulkMutateMock).toHaveBeenCalledTimes(1);
+    });
+    expect(bulkMutateMock.mock.calls[0]?.[0]).toEqual({
+      ruleType: "map",
+      updates: [
+        { id: "rule-a", enabled: false },
+        { id: "rule-b", enabled: false },
+      ],
+    });
+  });
+
+  it("shows the batch bar until Done clears the selection", () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Rule A", priority: 200 })];
+
+    render(<MapRulesPanel mode="remote" />);
+
+    fireEvent.click(screen.getByLabelText("select Rule A"));
+    expect(screen.getByText("rulesPage.batch.selectedCount:1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.batch.done" }));
+    expect(screen.queryByText("rulesPage.batch.selectedCount:1")).not.toBeInTheDocument();
+  });
 });
 
 describe("MapRulesPanel — field-level validation (R3)", () => {

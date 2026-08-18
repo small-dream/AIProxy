@@ -41,10 +41,15 @@ import {
   type RuleMatch,
   type SessionSummary,
 } from "@aiproxy/shared-types";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { deleteRule } from "@/services/commands";
+import { useNotificationStore } from "@/services/notification.store";
 import {
+  REWRITE_RULES_QUERY_KEY,
+  useBulkUpdateRules,
   useDeleteManagedRule,
   useRewriteRules,
   useSaveRewriteRule,
@@ -68,8 +73,10 @@ import {
   InlineSwitch,
   ManagedRuleList,
   ManagedRulesWorkbench,
+  RuleBatchBar,
   RuleSection,
 } from "@/features/rules/components/RulesSharedUi";
+import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -227,13 +234,16 @@ function TemplateIcon({ icon }: { icon: RewriteTemplate["icon"] }) {
 
 export function RewriteRulesPanel() {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const { data: rules = [], isError: isRulesError } = useRewriteRules();
   const saveMutation = useSaveRewriteRule();
   const deleteMutation = useDeleteManagedRule();
+  const bulkMutation = useBulkUpdateRules();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState<string>();
+  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
   const [testInput, setTestInput] = useState<RuleTestInput>({
@@ -499,6 +509,73 @@ export function RewriteRulesPanel() {
   const testResult = testRuleMatch(draft, testInput, t);
   const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
+  function toggleSelect(id: string) {
+    setSelectedRuleIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedRuleIds(new Set());
+  }
+
+  function handleBatchEnabled(enabled: boolean) {
+    const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
+    if (updates.length === 0) return;
+    bulkMutation.mutate(
+      { ruleType: "rewrite", updates },
+      {
+        onSettled: () => clearSelection(),
+      },
+    );
+  }
+
+  function handleBatchDelete() {
+    const ids = [...selectedRuleIds];
+    if (ids.length === 0) return;
+    void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "rewrite" }))).then(
+      (results) => {
+        const failed = results.filter((result) => result.status === "rejected").length;
+        useNotificationStore.getState().push(
+          failed > 0
+            ? t("rulesPage.batch.resultPartial", {
+                applied: ids.length - failed,
+                total: ids.length,
+              })
+            : t("rulesPage.batch.resultSuccess", { count: ids.length }),
+        );
+        clearSelection();
+      },
+    );
+  }
+
+  function handleReorder(orderedIds: string[]) {
+    const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
+    const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+    if (updates.length === 0) return;
+
+    const previous = rules;
+    const reordered = orderedIds
+      .map((id) => rules.find((rule) => rule.id === id))
+      .filter((rule): rule is RewriteRule => rule !== undefined);
+    queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, reordered);
+    bulkMutation.mutate(
+      { ruleType: "rewrite", updates },
+      {
+        onError: () => {
+          queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, previous);
+          queryClient.invalidateQueries({ queryKey: REWRITE_RULES_QUERY_KEY });
+        },
+      },
+    );
+  }
+
   return (
     <>
       {isRulesError && (
@@ -507,6 +584,18 @@ export function RewriteRulesPanel() {
         </Alert>
       )}
       <ManagedRulesWorkbench
+        batchBar={
+          selectedRuleIds.size > 0 ? (
+            <RuleBatchBar
+              count={selectedRuleIds.size}
+              deletePending={false}
+              onDelete={handleBatchDelete}
+              onDisable={() => handleBatchEnabled(false)}
+              onDone={clearSelection}
+              onEnable={() => handleBatchEnabled(true)}
+            />
+          ) : undefined
+        }
         searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
@@ -545,6 +634,8 @@ export function RewriteRulesPanel() {
         list={
           <ManagedRuleList
             emptyDescription={t("rulesPage.rewrite.emptyDescription")}
+            onReorder={handleReorder}
+            selectedIds={selectedRuleIds}
             items={filteredRules.map((rule) => ({
               id: rule.id,
               active: rule.id === selectedRuleId,
@@ -553,6 +644,7 @@ export function RewriteRulesPanel() {
               subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
               chipLabel: `${rule.priority}`,
               onClick: () => selectRule(rule),
+              onSelectToggle: () => toggleSelect(rule.id),
               // Persist the SAVED rule (not the in-flight draft) so the toggle
               // takes effect immediately (review §4.1).
               onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),

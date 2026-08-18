@@ -182,6 +182,89 @@ export async function saveRewriteRule(
   return nextRule;
 }
 
+export type BulkRuleUpdate = {
+  id: string;
+  enabled?: boolean;
+  priority?: number;
+};
+
+export type BulkRuleType = "rewrite" | "map" | "dns" | "script" | "throttle";
+
+export async function bulkUpdateRules(
+  ruleType: BulkRuleType,
+  updates: BulkRuleUpdate[],
+): Promise<number> {
+  if (isTauriRuntime()) {
+    try {
+      return await invoke<number>("bulk_update_rules", {
+        input: { ruleType, updates },
+      });
+    } catch (error) {
+      reportCommandFailure("bulk_update_rules", error);
+      if (!shouldFallbackToLocalStore(error)) {
+        throw coerceAppError(error);
+      }
+    }
+  }
+
+  // Web-dev fallback: apply each patch through the existing per-type save so
+  // the localStorage store stays consistent with the Tauri path.
+  let applied = 0;
+  for (const update of updates) {
+    const saved = await applyLocalBulkUpdate(ruleType, update);
+    if (saved) applied += 1;
+  }
+  return applied;
+}
+
+async function applyLocalBulkUpdate(
+  ruleType: BulkRuleType,
+  update: BulkRuleUpdate,
+): Promise<boolean> {
+  const patch = (rule: { enabled: boolean; priority: number }) => ({
+    ...rule,
+    ...(update.enabled === undefined ? {} : { enabled: update.enabled }),
+    ...(update.priority === undefined ? {} : { priority: update.priority }),
+  });
+
+  switch (ruleType) {
+    case "rewrite": {
+      const rules = readStoredRules(REWRITE_RULES_STORAGE_KEY, parseRewriteRules);
+      const target = rules.find((rule) => rule.id === update.id);
+      if (!target) return false;
+      const next = { ...target, ...patch(target) } as RewriteRule;
+      writeStoredRules(REWRITE_RULES_STORAGE_KEY, upsertStoredEntity(rules, next));
+      return true;
+    }
+    case "map": {
+      const rules = readStoredRules(MAP_RULES_STORAGE_KEY, parseMapRules);
+      const target = rules.find((rule) => rule.id === update.id);
+      if (!target) return false;
+      const next = { ...target, ...patch(target) } as MapRule;
+      writeStoredRules(MAP_RULES_STORAGE_KEY, upsertStoredEntity(rules, next));
+      return true;
+    }
+    case "dns": {
+      const rules = readStoredRules(DNS_MAPPINGS_STORAGE_KEY, parseDnsMappings);
+      const target = rules.find((rule) => rule.id === update.id);
+      if (!target) return false;
+      const next = { ...target, ...patch(target) } as DnsMappingRule;
+      writeStoredRules(DNS_MAPPINGS_STORAGE_KEY, upsertStoredEntity(rules, next));
+      return true;
+    }
+    case "script": {
+      const rules = readStoredRules(SCRIPT_RULES_STORAGE_KEY, parseScriptRules);
+      const target = rules.find((rule) => rule.id === update.id);
+      if (!target) return false;
+      const next = { ...target, ...patch(target) } as ScriptRule;
+      writeStoredRules(SCRIPT_RULES_STORAGE_KEY, upsertStoredEntity(rules, next));
+      return true;
+    }
+    case "throttle":
+      return false;
+  }
+}
+
 export async function listMapRules(input?: {
   mode?: MapRule["mode"];
   workspaceId?: string;
