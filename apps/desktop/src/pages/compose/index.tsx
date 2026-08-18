@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   CircularProgress,
+  Divider,
   IconButton,
   MenuItem,
   OutlinedInput,
@@ -52,6 +53,18 @@ import { useI18n } from "@/i18n";
 import { appFontCssVars } from "@/themes/fonts";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+// Shared look for the icon buttons inside the toolbar's joined action group:
+// square-ish cells with secondary ink that pick up the accent on hover.
+const composeToolbarActionSx = {
+  borderRadius: 0,
+  color: "text.secondary",
+  flex: "0 0 auto",
+  height: 34,
+  width: 34,
+  "&:hover": { color: "primary.main" },
+  "&.Mui-disabled": { color: "action.disabled" },
+} as const;
 
 const COMPOSE_SPLIT_STORAGE_KEY = "aiproxy.compose.splitRatio";
 const COMPOSE_SPLIT_MIN = 0.15;
@@ -329,10 +342,6 @@ export function ComposePage() {
           border: 1,
           borderColor: "divider",
           borderRadius: 1,
-          boxShadow:
-            theme.palette.mode === "dark"
-              ? "0 12px 28px rgba(0, 0, 0, 0.22)"
-              : "0 12px 28px rgba(15, 23, 42, 0.05)",
           flexShrink: 0,
           p: 0.75,
         })}
@@ -341,15 +350,17 @@ export function ComposePage() {
           <Select
             size="small"
             sx={{
-              flex: "0 0 112px",
+              flex: "0 0 108px",
               fontFamily: appFontCssVars.content,
               fontSize: 13,
               fontWeight: 700,
+              height: 36,
               "& .MuiSelect-select": {
                 alignItems: "center",
+                boxSizing: "border-box",
                 display: "flex",
-                minHeight: 22,
-                py: 0.875,
+                height: 34,
+                py: 0,
               },
             }}
             value={method}
@@ -362,7 +373,6 @@ export function ComposePage() {
             ))}
           </Select>
           <OutlinedInput
-            fullWidth
             placeholder={t("composePage.urlPlaceholder")}
             size="small"
             sx={{
@@ -371,11 +381,13 @@ export function ComposePage() {
                   theme.palette.background.default,
                   theme.palette.mode === "dark" ? 0.34 : 0.52,
                 ),
+              flex: "1 1 160px",
               fontFamily: appFontCssVars.content,
               fontSize: 13,
+              height: 36,
               minWidth: 0,
               "& .MuiOutlinedInput-input": {
-                py: 1.05,
+                py: 0.875,
               },
             }}
             value={url}
@@ -392,43 +404,56 @@ export function ComposePage() {
             onEnvironmentChange={setActiveEnvironmentId}
             onManageEnvironments={() => setManageEnvDialogOpen(true)}
           />
-          <Tooltip title={t("composePage.importCurl")}>
-            <span>
-              <IconButton
-                color="primary"
-                onClick={() => setCurlImportOpen(true)}
-                size="small"
-                sx={{
-                  border: 1,
-                  borderColor: "divider",
-                  flex: "0 0 auto",
-                  height: 38,
-                  width: 38,
-                }}
-              >
-                <TerminalRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={t("collectionsPage.saveToCollection")}>
-            <span>
-              <IconButton
-                color="primary"
-                disabled={!url.trim()}
-                onClick={() => setSaveDialogOpen(true)}
-                size="small"
-                sx={{
-                  border: 1,
-                  borderColor: "divider",
-                  flex: "0 0 auto",
-                  height: 38,
-                  width: 38,
-                }}
-              >
-                <BookmarkAddRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <Box
+            sx={{
+              alignItems: "stretch",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              display: "flex",
+              flex: "0 0 auto",
+              height: 36,
+              overflow: "hidden",
+            }}
+          >
+            <Tooltip title={t("composePage.importCurl")}>
+              <span style={{ display: "flex" }}>
+                <IconButton
+                  onClick={() => setCurlImportOpen(true)}
+                  size="small"
+                  sx={composeToolbarActionSx}
+                >
+                  <TerminalRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Divider flexItem orientation="vertical" sx={{ my: 0.75 }} />
+            <Tooltip title={t("collectionsPage.saveToCollection")}>
+              <span style={{ display: "flex" }}>
+                <IconButton
+                  disabled={!url.trim()}
+                  onClick={() => setSaveDialogOpen(true)}
+                  size="small"
+                  sx={composeToolbarActionSx}
+                >
+                  <BookmarkAddRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Divider flexItem orientation="vertical" sx={{ my: 0.75 }} />
+            <Tooltip title={t("composePage.copyAsCurl")}>
+              <span style={{ display: "flex" }}>
+                <IconButton
+                  disabled={!url.trim()}
+                  onClick={handleExportCurl}
+                  size="small"
+                  sx={composeToolbarActionSx}
+                >
+                  <ContentCopyRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
           <Tooltip title={t("common.actions.send")}>
             <span>
               <Button
@@ -438,8 +463,8 @@ export function ComposePage() {
                 startIcon={sendMutation.isPending ? undefined : <SendRoundedIcon />}
                 sx={{
                   flex: "0 0 auto",
-                  minHeight: 38,
-                  minWidth: 92,
+                  height: 36,
+                  minWidth: 88,
                   px: 1.75,
                   "& .MuiButton-startIcon": {
                     mr: 0.5,
@@ -453,25 +478,6 @@ export function ComposePage() {
                   t("common.actions.send")
                 )}
               </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title={t("composePage.copyAsCurl")}>
-            <span>
-              <IconButton
-                color="primary"
-                disabled={!url.trim()}
-                onClick={handleExportCurl}
-                size="small"
-                sx={{
-                  border: 1,
-                  borderColor: "divider",
-                  flex: "0 0 auto",
-                  height: 38,
-                  width: 38,
-                }}
-              >
-                <ContentCopyRoundedIcon />
-              </IconButton>
             </span>
           </Tooltip>
         </Stack>

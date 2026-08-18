@@ -384,7 +384,7 @@ UI 布局：
 │ Title: Compose                                          (Send) (Export cURL) │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [Request Builder]                                                            │
-│ <GET▼> [https://example.com/api..............]                              │
+│ [Toolbar: <GET▼> [URL..............] [环境▼|⚙] [⎇|🔖|⧉] (Send) ]            │
 │ [Headers] [Body] [Query]                                                     │
 │ Body: (none | form-data | x-www-form-urlencoded | raw)  [raw 时: 语言选择▼]   │
 │       EditableKeyValueTable（键值对） / multiline TextField（raw）             │
@@ -400,11 +400,14 @@ UI 布局：
 ```text
 ComposePage
 ├─ PageHeader (title + description)
-├─ Toolbar (Send button + Export cURL button)
+├─ Toolbar（统一 36px 高控件的单行工具栏，窄窗口下 URL/环境选择器可收缩，避免溢出重叠）
+│  ├─ MethodSelect (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
+│  ├─ UrlInput (OutlinedInput, Enter 键触发发送)
+│  ├─ EnvironmentSelector (compact：环境 Select + 管理按钮)
+│  ├─ 操作组（Import cURL / Save to Collection / Copy as cURL，共享边框的图标按钮组）
+│  └─ Send 主按钮
 ├─ 垂直分栏（请求在上、响应在下，各自内部滚动）
 │  ├─ SectionCard "Request Builder"
-│  │  ├─ MethodSelect (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS)
-│  │  ├─ UrlInput (OutlinedInput, Enter 键触发发送)
 │  │  ├─ Tabs: Headers | Body | Query
 │  │  │  ├─ Headers: EditableKeyValueTable
 │  │  │  ├─ Body: ToggleButtonGroup (none | form-data | x-www-form-urlencoded | raw)
