@@ -760,7 +760,7 @@ erDiagram
 - `CertificatesPage`
 - `SettingsPage`（含 Proxy Presets section）
 - `InsightsPage`（流量统计分析）
-- `DocsPage`（内置用户指南，路由 `/docs`，蓝图见 `docs/PAGE_BLUEPRINTS.md` 第 14 节）
+- `DocsPage`（内置用户指南，路由 `/docs`，蓝图见 `docs/PAGE_BLUEPRINTS.md` 第 15 节）
 
 ### 页面蓝图协同规则
 

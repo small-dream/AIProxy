@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：页面蓝图与实现映射
-- 当前阶段：`Phase 1 / Page Blueprint`
-- 文档状态：`Draft v1.0`
+- 当前阶段：`P0 功能闭环 / 商业化前产品化`
+- 文档状态：`Living Spec v1.1`
 - 关联文档：
   - `docs/UI_GUIDELINES.md`
   - `docs/ARCHITECTURE.md`
@@ -477,7 +477,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 
 ### 6.1 页面目标
 
-统一管理断点、改写、本地映射、远程映射与 DNS 映射规则。
+统一管理断点、改写、映射（本地 / 远程 / DNS）与脚本规则。
 
 ### 6.2 低保真线框
 
@@ -486,7 +486,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: Rules                                                                │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ <Breakpoint> <Rewrite> <Map Local> <Map Remote> <DNS>                       │
+│ <Breakpoint> <Rewrite> <Mapping (Map Local / Map Remote / DNS)> <Script>    │
 ├───────────────────────┬──────────────────────────────────────────────────────┤
 │ [Rule List]           │ [Rule Editor]                                        │
 │ (New Rule)            │ Name                                                 │
@@ -504,7 +504,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 RulesPage
 ├─ PageHeader
 ├─ SectionCard "Rule Center"
-│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Map Local / Map Remote / DNS)
+│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Mapping / Script；Mapping 内部分段 Map Local / Map Remote / DNS)
 │  └─ ActiveWorkbench
 │     ├─ BreakpointRulesPanel
 │     │  ├─ SectionCard "Quick Breakpoint"
@@ -521,7 +521,7 @@ RulesPage
 │     │  │     ├─ MatchConditionsCard
 │     │  │     ├─ RewriteActionEditor
 │     │  │     └─ RulePreviewCard
-│     └─ MapRulesPanel (local / remote)
+│     ├─ MapRulesPanel (local / remote)
 │        ├─ ManagedRulesWorkbench
 │        │  ├─ Left Pane
 │        │  │  ├─ Create Rule Button
@@ -531,7 +531,7 @@ RulesPage
 │        │     ├─ SectionCard "Basic Information"
 │        │     ├─ SectionCard "Source & Target"
 │        │     └─ RulePreviewCard
-│     └─ DnsMappingsPanel
+│     ├─ DnsMappingsPanel
 │        ├─ ManagedRulesWorkbench
 │        │  ├─ Left Pane
 │        │  │  ├─ Create Rule Button
@@ -542,6 +542,19 @@ RulesPage
 │        │     ├─ FieldGroup "Host Pattern"
 │        │     ├─ FieldGroup "Target IP"
 │        │     └─ FieldGroup "Priority / Enabled / Note"
+│     └─ ScriptRulesPanel
+│        ├─ ManagedRulesWorkbench
+│        │  ├─ Left Pane
+│        │  │  ├─ Quick Templates (Header / Mock / Extract)
+│        │  │  ├─ Import Script File
+│        │  │  ├─ Create Rule Button
+│        │  │  ├─ Rule Search Field
+│        │  │  └─ ManagedRuleList
+│        │  └─ Right Pane
+│        │     ├─ FieldGroup "Rule Name / Enabled / Priority"
+│        │     ├─ FieldGroup "Match Conditions" (URL Pattern / HTTP Methods / Stage)
+│        │     ├─ FieldGroup "Script Source" (TypeScript 单文件脚本编辑器)
+│        │     └─ Save Error Alert
 ```
 
 断点拦截面板（独立组件，在 AppShell 中渲染）：
@@ -982,102 +995,6 @@ type SettingsPageState = {
 };
 ```
 
-## 9. Proxy Presets（代理预设）— 已实现
-
-> 原设计为独立 Workspaces Page，已降级为 Settings Page 内的 Proxy Presets section。
-> 后端 API 不变（`list_workspaces` 等命令），用户面向概念从"工作区"简化为"代理预设"。
-
-### 9.1 功能目标
-
-保存常用代理启动配置（端口、SSL），支持一键切换。每个预设只携带端口和 SSL 开关，不承诺会话或规则隔离。
-
-### 9.2 实现位置
-
-Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件。
-
-### 9.3 实现文件映射
-
-| 层级 | 文件 | 职责 |
-| --- | --- | --- |
-| 页面 | `pages/settings/index.tsx` — `ProxyPresetsSection` | 预设列表 + 新建/编辑表单 + Apply/Save 操作 |
-| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useWorkspaces`, `useCreateWorkspace`, `useLoadWorkspace`, `useUpdateWorkspace` |
-| 服务层 | `services/commands/index.ts` | `listWorkspaces`, `createWorkspace`, `loadWorkspace`, `updateWorkspace` |
-| 共享类型 | `packages/shared-types/src/index.ts` | `Workspace` 类型, `isWorkspace`, `parseWorkspaces` |
-| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_workspaces`, `create_workspace`, `load_workspace`, `update_workspace` |
-| Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
-| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
-
-## 9.4 Upstream Proxy（上游代理）— 已实现
-
-### 功能目标
-
-把抓包流量转发给另一个代理，而不是直接连接目标。典型场景：手机把代理指向 AIProxy 做抓包，实际出网由本机的规则代理（Clash / Surge / mitmproxy / Charles）按分流规则完成。
-
-### 实现位置
-
-Settings Page（`pages/settings/index.tsx`）内的独立 `UpstreamProxySection` 组件。
-
-### 关键设计约束
-
-- **统一拨号**：Rust 侧三个出站点（CONNECT 盲转发、HTTP/MITM 转发、WebSocket 上游）共用 `upstream_proxy::dial_target()`，所以四类流量的路由行为完全一致。
-- **不回退直连**：上游代理不可用时请求失败。静默绕过会把用户明确要求经由代理的流量泄漏出去。
-- **域名交给上游解析**：默认以主机名形式把目标交给代理（SOCKS5 `ATYP=domain` / CONNECT authority），否则 Clash 的域名分流规则无法匹配。存在 DNS 覆盖时覆盖 IP 优先。
-- **重启才生效**：配置在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
-- **测试忽略绕行列表**：`test_upstream_proxy` 探测的是代理本身，绕行命中不应被报成「连接成功」。
-
-### 实现文件映射
-
-| 层级 | 文件 | 职责 |
-| --- | --- | --- |
-| 页面 | `pages/settings/index.tsx` — `UpstreamProxySection` | 配置表单 + 连通性测试 + 保存/重启 |
-| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`upstreamProxy` 入参） |
-| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `testUpstreamProxy`；日志脱敏密码 |
-| 共享类型 | `packages/shared-types/src/workspaces.ts` | `UpstreamProxySettings`, `UpstreamProxyProtocol`, `UpstreamProxyProbeResult` 及其校验/解析函数 |
-| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `test_upstream_proxy`；`start_proxy` 中解析 workspace 配置 |
-| Rust 领域 | `crates/proxy-core/src/upstream_proxy.rs` | 协议握手、绕行匹配、`dial_target`、连通性探测 |
-| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.upstream_proxy` JSON 列；`session_details.via_upstream_proxy` |
-| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `upstreamProxy.*`、`inspector.request.overview.route*` 文案键 |
-
-## 9.5 SSL Proxying（逐域名解密策略）— 已实现
-
-### 功能目标
-
-决定哪些域名的 TLS 需要解密。对标 Charles 的 SSL Proxying Settings。
-
-解决的问题：拦截是全局开关时，使用证书绑定（SSL Pinning）的 App 会拒绝 AIProxy 的证书，而**握手失败会直接断开连接**——结果不是「抓不到这个 App 的包」，而是「这个 App 在开着 AIProxy 时完全不能用」。Charles 默认不解密任何域名，所以不会出现这个问题；把域名排除后走盲转发即可获得同样的效果。
-
-### 实现位置
-
-Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` 组件。
-
-### 关键设计约束
-
-- **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
-- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
-- **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
-- **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
-- **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
-- **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
-- **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
-- **推荐列表不可用时锁定保存**：从未配置过策略的工作区以推荐列表为草稿底稿；该列表加载失败（或尚未加载完）时保存按钮禁用并给出警示——否则会把空 exclude 列表持久化，静默丢掉对已知绑定证书域名的防护。已配置过的工作区不受影响（草稿来自已存设置）。
-- **保存成功的提示不被工作区刷新擦除**：保存后 workspace 缓存失效重取会生成同 id 的新对象，重置草稿与反馈分别依赖不同信号（内容 vs id），成功消息因此保留。
-- **握手失败按原因分级**：客户端以证书类 alert 拒绝记为 `debug`（多为证书绑定，无法通过配置解决；措辞不断言绑定——OpenSSL 系栈会把部分链校验失败也映射为 `bad_certificate`），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
-
-### 实现文件映射
-
-| 层级 | 文件 | 职责 |
-| --- | --- | --- |
-| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
-| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
-| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
-| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
-| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
-| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
-| Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
-| Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
-| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |
-| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `sslProxying.*` 文案键 |
-
 ## 8.5 Compare Page — `已实现发布硬化版`
 
 Compare Page 是面向 AI 的会话对比工作台，用于回答“这两次请求 / 响应到底差在哪里，以及可能意味着什么”。
@@ -1127,6 +1044,31 @@ Sessions 右键 Set as Compare Base
 -> summarize_session_diff 返回 AI 总结
 ```
 
+## 9. Proxy Presets（代理预设）— 已实现
+
+> 原设计为独立 Workspaces Page，已降级为 Settings Page 内的 Proxy Presets section。
+> 后端 API 不变（`list_workspaces` 等命令），用户面向概念从"工作区"简化为"代理预设"。
+
+### 9.1 功能目标
+
+保存常用代理启动配置（端口、SSL），支持一键切换。每个预设只携带端口和 SSL 开关，不承诺会话或规则隔离。
+
+### 9.2 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的 `ProxyPresetsSection` 组件。
+
+### 9.3 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `ProxyPresetsSection` | 预设列表 + 新建/编辑表单 + Apply/Save 操作 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useWorkspaces`, `useCreateWorkspace`, `useLoadWorkspace`, `useUpdateWorkspace` |
+| 服务层 | `services/commands/index.ts` | `listWorkspaces`, `createWorkspace`, `loadWorkspace`, `updateWorkspace` |
+| 共享类型 | `packages/shared-types/src/index.ts` | `Workspace` 类型, `isWorkspace`, `parseWorkspaces` |
+| Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_workspaces`, `create_workspace`, `load_workspace`, `update_workspace` |
+| Rust 领域 | `src-tauri/src/workspace.rs` | `WorkspaceManager` — 内存中预设 CRUD |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `proxyPresets.*` 文案键 |
+
 ### 9.4 页面事件流
 
 | 用户操作 | 触发 | 结果 |
@@ -1137,6 +1079,77 @@ Sessions 右键 Set as Compare Base
 | 点击 "Save" (编辑) | `updateWorkspaceMutation.mutate()` | 调用 Rust `update_workspace` |
 | 点击 "Apply" | `loadWorkspaceMutation.mutate()` | 切换当前活跃预设 |
 | AppShell 底部状态栏预设切换 | `handleWorkspaceSwitch(id)` | 从底部状态栏打开预设列表；若代理运行中则以当前配置重启并切换到目标预设 |
+
+## 9.5 Upstream Proxy（上游代理）— 已实现
+
+### 功能目标
+
+把抓包流量转发给另一个代理，而不是直接连接目标。典型场景：手机把代理指向 AIProxy 做抓包，实际出网由本机的规则代理（Clash / Surge / mitmproxy / Charles）按分流规则完成。
+
+### 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的独立 `UpstreamProxySection` 组件。
+
+### 关键设计约束
+
+- **统一拨号**：Rust 侧三个出站点（CONNECT 盲转发、HTTP/MITM 转发、WebSocket 上游）共用 `upstream_proxy::dial_target()`，所以四类流量的路由行为完全一致。
+- **不回退直连**：上游代理不可用时请求失败。静默绕过会把用户明确要求经由代理的流量泄漏出去。
+- **域名交给上游解析**：默认以主机名形式把目标交给代理（SOCKS5 `ATYP=domain` / CONNECT authority），否则 Clash 的域名分流规则无法匹配。存在 DNS 覆盖时覆盖 IP 优先。
+- **重启才生效**：配置在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
+- **测试忽略绕行列表**：`test_upstream_proxy` 探测的是代理本身，绕行命中不应被报成「连接成功」。
+
+### 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `UpstreamProxySection` | 配置表单 + 连通性测试 + 保存/重启 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`upstreamProxy` 入参） |
+| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `testUpstreamProxy`；日志脱敏密码 |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `UpstreamProxySettings`, `UpstreamProxyProtocol`, `UpstreamProxyProbeResult` 及其校验/解析函数 |
+| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `test_upstream_proxy`；`start_proxy` 中解析 workspace 配置 |
+| Rust 领域 | `crates/proxy-core/src/upstream_proxy.rs` | 协议握手、绕行匹配、`dial_target`、连通性探测 |
+| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.upstream_proxy` JSON 列；`session_details.via_upstream_proxy` |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `upstreamProxy.*`、`inspector.request.overview.route*` 文案键 |
+
+## 9.6 SSL Proxying（逐域名解密策略）— 已实现
+
+### 功能目标
+
+决定哪些域名的 TLS 需要解密。对标 Charles 的 SSL Proxying Settings。
+
+解决的问题：拦截是全局开关时，使用证书绑定（SSL Pinning）的 App 会拒绝 AIProxy 的证书，而**握手失败会直接断开连接**——结果不是「抓不到这个 App 的包」，而是「这个 App 在开着 AIProxy 时完全不能用」。Charles 默认不解密任何域名，所以不会出现这个问题；把域名排除后走盲转发即可获得同样的效果。
+
+### 实现位置
+
+Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` 组件。
+
+### 关键设计约束
+
+- **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
+- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
+- **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
+- **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
+- **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
+- **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
+- **推荐列表不可用时锁定保存**：从未配置过策略的工作区以推荐列表为草稿底稿；该列表加载失败（或尚未加载完）时保存按钮禁用并给出警示——否则会把空 exclude 列表持久化，静默丢掉对已知绑定证书域名的防护。已配置过的工作区不受影响（草稿来自已存设置）。
+- **保存成功的提示不被工作区刷新擦除**：保存后 workspace 缓存失效重取会生成同 id 的新对象，重置草稿与反馈分别依赖不同信号（内容 vs id），成功消息因此保留。
+- **握手失败按原因分级**：客户端以证书类 alert 拒绝记为 `debug`（多为证书绑定，无法通过配置解决；措辞不断言绑定——OpenSSL 系栈会把部分链校验失败也映射为 `bad_certificate`），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
+
+### 实现文件映射
+
+| 层级 | 文件 | 职责 |
+| --- | --- | --- |
+| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
+| Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
+| 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
+| Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
+| Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
+| 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |
+| i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `sslProxying.*` 文案键 |
 
 ## 10. Collections Page（集合页面）
 
@@ -1245,13 +1258,13 @@ CollectionsPage
 | Rust 命令 | `src-tauri/src/commands/mod.rs` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `move_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `move_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
 | i18n | `i18n/messages/en.ts`, `zh-CN.ts` | `collectionsPage.*` 文案键 |
 
-## 10.7 Insights Page — `已实现首版`
+## 11. Insights Page — `已实现首版`
 
-### 10.7.1 页面目标
+### 11.1 页面目标
 
 提供流量统计分析面板，基于已捕获会话的聚合数据展示概览、Host 维度分析、分布图和慢请求排名。
 
-### 10.7.2 低保真线框
+### 11.2 低保真线框
 
 ```text
 [Insights Page]
@@ -1282,7 +1295,7 @@ CollectionsPage
 └──────────────────────────────┴───────────────────────────────────────────────┘
 ```
 
-### 10.7.3 React 组件树
+### 11.3 React 组件树
 
 ```text
 InsightsPage
@@ -1299,11 +1312,11 @@ InsightsPage
 │  ├─ DistributionSection
 │  │  ├─ StatusCodeDistribution (chips or mini bars)
 │  │  └─ MethodDistribution (chips or mini bars)
-│  └─ SlowRequestsSection (仅在有过滤时渲染，见 10.7.6)
+│  └─ SlowRequestsSection (仅在有过滤时渲染，见 11.6)
 │     └─ SlowRequestList (ranked list with method/host/path/duration)
 ```
 
-### 10.7.4 实现文件映射
+### 11.4 实现文件映射
 
 | 文件 | 职责 |
 |------|------|
@@ -1312,7 +1325,7 @@ InsightsPage
 | `services/commands/insights.ts` | `getInsights` 命令包装 |
 | `crates/db/src/insights.rs` | `compute_insights()` SQLite 聚合查询实现 |
 
-### 10.7.5 页面状态模型
+### 11.5 页面状态模型
 
 ```ts
 type InsightsPageState = {
@@ -1326,7 +1339,7 @@ type InsightsPageState = {
 };
 ```
 
-### 10.7.6 页面事件流
+### 11.6 页面事件流
 
 ```text
 User navigates to /insights
@@ -1348,7 +1361,7 @@ User clicks Export dropdown
 -> Snackbar confirms export success
 ```
 
-## 11. 页面与模块映射
+## 12. 页面与模块映射
 
 | 页面 | 主 Feature 模块 | 主要命令/接口 |
 | --- | --- | --- |
@@ -1356,25 +1369,25 @@ User clicks Export dropdown
 | Compose | `compose-request` | `send_composed_request` (已实现)，`repeat_session` (前端 Repeat 按钮替代) |
 | Collections | `collections`, `environments` | `list_api_collections`, `upsert_api_collection`, `delete_api_collection`, `list_api_collection_items`, `upsert_api_collection_item`, `delete_api_collection_item`, `save_session_to_collection`, `list_api_environments`, `upsert_api_environment`, `delete_api_environment`, `list_api_environment_variables`, `set_api_environment_variables`, `list_api_global_variables`, `set_api_global_variables`, `batch_execute_collection_items` |
 | Compare | `session-compare`, `ai` | `get_ai_settings`, `save_ai_settings`, `test_ai_connection`, `summarize_session_diff` |
-| Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现) |
+| Rules | `breakpoints` (已实现), `rewrite-rules`, `map-rules`, `dns-mappings` (已实现), `script-rules` (已实现) | `list_breakpoint_rules` (已实现), `set_breakpoint_rules` (已实现), `resolve_breakpoint` (已实现), `list_dns_mappings` (已实现), `save_dns_mapping` (已实现), script 规则经 `use-rule-center` 读写 |
 | Certificates | `certificate-center` | `get_certificate_status`, `generate_root_certificate`, `get_local_ip` |
 | Settings | `settings`, `workspace-manager` | settings service / local config + Proxy Presets section；`list_workspaces` (已实现), `create_workspace` (已实现), `load_workspace` (已实现), `update_workspace` (已实现), `test_upstream_proxy` (已实现) |
 | Insights | `insights` | `get_insights` (已实现) |
 
-## 12. 实现建议
+## 13. 实现建议
 
 - 先按页面蓝图搭稳定的 `layout + feature + shared component` 骨架
 - 页面级状态与服务调用放入 `features/*`
 - 页面容器只负责拼装，不承载复杂业务逻辑
 - 所有分栏页优先实现拖拽宽度记忆和空状态统一策略
 
-## 13. Setup Wizard & Setup Checklist — 首启引导
+## 14. Setup Wizard & Setup Checklist — 首启引导
 
-### 12.1 目标
+### 14.1 目标
 
 让首次安装的新用户能走通"生成根证书 → 安装并信任 → 启动代理 → 开启系统代理/手动配置 → 抓到第一条 HTTPS 流量"。完成口径以 `captureReady` 为准(而非仅"证书已信任")。
 
-### 12.2 状态模型(纯函数 `computeSetupProgress`)
+### 14.2 状态模型(纯函数 `computeSetupProgress`)
 
 派生自 `useCertificateStatus()` + `useProxyStatus()` + 持久化的 `manualProxyAcknowledgedFor`,无新增后端状态源:
 
@@ -1388,7 +1401,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 持久化字段(`app-preferences.store`,key `aiproxy.app-preferences`):`setupWizardCompleted`、`setupWizardDismissedAt`、`manualProxyAcknowledgedFor`(带 port+workspace 上下文,变化即失效)。
 
-### 12.3 门控逻辑(`shouldShowSetupWizard`)
+### 14.3 门控逻辑(`shouldShowSetupWizard`)
 
 - 弹模态向导 iff `!completed && !dismissedAt && !captureReady`。
 - 跳过 → 只写 `dismissedAt`,不再强弹;未完成项改由常驻清单承接。
@@ -1396,7 +1409,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 回退(证书被删/代理停)→ `captureReady` 退回 false 时**不**重弹模态,由常驻清单指引自救。
 - 常驻清单显示 iff `!captureReady`(与 dismiss/complete 无关)。
 
-### 12.4 组件与文件映射
+### 14.4 组件与文件映射
 
 - 向导:`features/setup-wizard/SetupWizard.tsx`(常驻挂载于 AppShell,自管 open)+ `SetupWizardSteps.tsx`(9 步:欢迎/生成/安装/验证信任轮询/启动代理/SSL 解密/系统代理·手动/首条 HTTPS 流量检测/完成)+ `use-setup-wizard.ts`。
 - 常驻清单:`components/shared/SetupChecklistCard.tsx`,挂载于 Sessions 页顶部;主按钮随 `nextAction` 动态化("启动代理"步骤→"启动代理"按钮,调用 `useStartProxy`),端口占用时 inline Alert + "更改端口";「打开设置向导」按钮调用 `resetSetupWizardState`——该 action **只重置** `setupWizardCompleted`/`setupWizardDismissedAt`,**不清** `manualProxyAcknowledgedFor`(手动代理用户的确认必须保留)。
@@ -1406,24 +1419,24 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 代理启动默认值:`features/proxy-status/use-proxy-start-defaults.ts`(AppShell 与向导共用)。
 - 移动端 preflight:`features/certificate-center/mobile-preflight.helpers.ts`,门控 `MobileSetupTab`。
 
-### 12.5 事件流
+### 14.5 事件流
 
-- 各步动作调用既有 mutation(`useGenerateRootCertificate`/`useLaunchCertificateInstaller`/`useStartProxy`/`useEnableSystemProxy`),成功推进、失败经 `CertificateErrorGuidance` 渲染页面级指引;指引中的「打开排障指南」按错误类深链到应用内 Docs 页对应锚点(见 §13)。
+- 各步动作调用既有 mutation(`useGenerateRootCertificate`/`useLaunchCertificateInstaller`/`useStartProxy`/`useEnableSystemProxy`),成功推进、失败经 `CertificateErrorGuidance` 渲染页面级指引;指引中的「打开排障指南」按错误类深链到应用内 Docs 页对应锚点(见 §15)。
 - 验证信任步轮询 `useCertificateStatus().trusted`(2s);首条流量步复用 `useSessions()` + `session-upsert` 事件检测首条会话。
 - 启动代理失败:端口占用经 `proxy-start.store` 汇聚;auto-start 弹端口对话框、清单卡 inline 提示(二者不重复,模态在前、关闭后清单卡承接);其他启动失败 auto-start 走全局 snackbar、引导链路内走页面级 `CertificateErrorGuidance`。
 - 结束占用进程并重启:端口对话框(占用场景,标题「解决端口冲突」+ `Divider` 两路径)查 `get_port_occupant` 展示 `进程名 · PID` → MUI 二次确认 → `kill_proxy_port_process`(后端 re-verify PID 防 TOCTOU,失败含 `PROCESS_CHANGED`)→ 用 `retryWhilePortInUse`(`proxy-start.helpers`)带退避重试 `start_proxy`(SIGKILL 异步、端口释放有 race,默认 5 次 × 300ms)→ 成功则关对话框 + `clearPortInUse`;失败关确认窗回端口对话框、走 snackbar 并重查占用者。
 - 命令层 `reportCommandFailure` 仅记日志;全局 snackbar 与页面级 Alert 不重复表达(引导链路内以页面级为权威)。
 
-## 14. Docs Page — 应用内文档查看器 `已实现`
+## 15. Docs Page — 应用内文档查看器 `已实现`
 
-入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`）。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览，不进入左侧主导航。
+入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`），同时位于左侧主导航 manage 分组（`/docs`）。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览。
 
-### 13.1 页面目标
+### 15.1 页面目标
 
 - 离线提供覆盖主要功能的用户指南，按四组组织（快速上手 / 抓包与检视 / 规则与改写 / 进阶），含证书安装、会话检视、DNS 映射、WebSocket、Rewrite、脚本、限速、断点、映射（本地/远程）、集合与环境变量、Compose、Insights、会话对比、设置等，无需维护独立文档站。
 - 文档源单一：`apps/desktop/user-guides/*.md` 是应用内置指南的事实源，经 Vite `@docs` 别名 + `import.meta.glob ?raw` eager 内联进前端 bundle。
 
-### 13.2 低保真线框
+### 15.2 低保真线框
 
 ```text
 ┌─────────────────────────────────────────────────┐
@@ -1439,7 +1452,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 窄屏（`< md`）：左侧目录收起为顶部 `Select`（`ListSubheader` 分组）。
 
-### 13.3 组件树
+### 15.3 组件树
 
 - `DocsPage`（`pages/docs/index.tsx`）
   - 页面标题区（icon + `docsPage.title` / `docsPage.subtitle`）
@@ -1448,7 +1461,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
     - 侧栏 `Paper` + `List` / `ListSubheader` / `ListItemButton`
     - 正文 `Paper`（独立 `overflowY: auto`）+ `MarkdownRenderer`（`density="comfortable"`）
 
-### 13.4 文件映射
+### 15.4 文件映射
 
 - 页面：`pages/docs/index.tsx`、`pages/docs/index.test.tsx`
 - 文档加载：`features/docs/docs-content.ts`（两个 `import.meta.glob("@docs/{en,zh-CN}/*.md", ?raw, eager)`，各按 basename 归一化 slug，导出 `getDocContent(slug, locale)` 与按 locale 的 slug 列表）
@@ -1456,7 +1469,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 导航纯函数：`features/docs/docs-navigation.ts`（`groupDocsEntries` / `resolveInitialSlug` / `resolveDocLink`）+ `.test.ts`
 - 共享渲染：`components/shared/MarkdownRenderer.tsx`（compact / comfortable，链接分派）
 
-### 13.5 状态模型
+### 15.5 状态模型
 
 - `activeSlug`：由 URL `?doc=` 派生，`resolveInitialSlug` 在缺失/未知时回退到清单第一项。
 - 锚点深链：`?anchor=<id>`（如设置向导错误指引跳 `/docs?doc=certificate-setup&anchor=port-in-use`）。规范化回填 `?doc=` 时保留 `anchor`；文章渲染后按 `document.getElementById(anchor)` `scrollIntoView`（重试若干动画帧，markdown 虽同步渲染但需等元素进 DOM）；有 anchor 时跳过滚动复位。
@@ -1464,7 +1477,7 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 - 正文滚动复位：`viewportRef.scrollTo({ top: 0 })`（依赖 `activeSlug` + `locale`，切文档或切语言都回到顶部；带 anchor 的深链跳过复位，由锚点滚动接管）。
 - 正文按当前 `locale`（来自 `useI18n`）取；`MarkdownRenderer` 用 `key={activeSlug + locale}` 强制 remount，避免切语言时旧标题/锚点残留。
 
-### 13.6 数据流
+### 15.6 数据流
 
 - 构建期：Vite 把 `apps/desktop/user-guides/{en,zh-CN}/*.md` 作为 raw 字符串内联；`docs-content.ts` 按 locale 分桶、各按 basename 归一化为 `slug → content`，两种语言必须 1:1 同名 slug（parity 测试强制）。
 - 运行期：`DocsPage` 据 `activeSlug` + 当前 `locale` 调 `getDocContent(slug, locale)` 取对应语言正文（精确取，不回退），交 `MarkdownRenderer` 渲染；`MarkdownRenderer` 经 `resolveInternalLink`（`DocsPage` 注入 `resolveDocLink`）把 `*.md` 相对引用归一化为 slug → `onInternalLink` 站内切换（按当前 locale 重载）；`http(s)` 经 `onExternalLink`（`@tauri-apps/plugin-opener` 的 `openUrl`）交系统浏览器；`#anchor` 走默认行为。

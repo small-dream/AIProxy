@@ -48,6 +48,9 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 企业级集中式策略下发
 - 深度安全扫描与漏洞检测
 - 全量替代 Postman / API 文档平台
+- 反向代理（入站服务端 / Listen）模式：聚焦正向代理调试闭环，不做反向映射服务器
+- Block / Allow List 域名级黑白名单：暂不纳入，屏蔽类需求由 Focus / Ignore 视图状态与 SSL 逐域名策略部分覆盖
+- Repeat Advanced 高级重放（并发 N 次、编辑后批量重发）：编排类回放由 Scenario Replay 承接（见 `docs/NEXT_6_MONTH_ROADMAP.md` M5），不单独实现
 
 ## 4. 使用场景
 
@@ -128,6 +131,9 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - 代理预设模板与项目级配置（当前通过 Settings 中的 Proxy Presets 管理基础配置，模板共享待后续版本）
 - WebSocket 消息查看、过滤与重发（当前已实现消息查看、搜索与活跃连接注入，WebSocket 脚本化仍为后续方向）
 - 导入导出 `HAR`、`cURL`、`Postman`
+- HTTP/2 会话捕获与展示 — `M3 已实现`：TLS ALPN `h2` 协商后将 stream 映射为 Session，展示 pseudo headers 与 trailers，设置页提供开关可回退 HTTP/1.1
+- Protobuf body 解码与 gRPC-Web / Native gRPC 检查 — `M4 规划中`：descriptor set 导入、Raw / Hex / Decoded 视图、grpc-status / trailers 展示
+- Scenario Replay 场景回放 — `M5 规划中`：从选中 sessions 生成回放场景，支持环境变量、顺序执行、断言与失败定位
 - TypeScript 脚本化规则引擎（HTTP/HTTPS 请求与响应阶段，单文件脚本，严格沙箱，支持日志与数据提取）
 - API Collections 与环境变量（当前已实现集合、请求项、从 Session 保存、变量替换与批量执行）
 - 请求 / 响应 Diff 对比与 AI 总结（当前已实现发布硬化版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload、Body lazy diff、截断可见提示、body size guard 与 binary body 明确状态）
@@ -249,6 +255,7 @@ flowchart LR
 - 支持启动、停止、重启
 - 支持显示代理状态、证书状态、系统代理状态
 - 支持 HTTP / HTTPS / WebSocket 捕获
+- 支持 HTTP/2 捕获 — `已实现`：TLS ALPN 协商 `h2` 后将 HTTP/2 stream 映射为 Session，Inspector 展示 pseudo headers（斜体 + 标签）与 trailers；HAR 导出记录真实 HTTP version；设置页可关闭 HTTP/2 回退 HTTP/1.1 排障
 - 支持上游（链式）代理：将抓包流量经由 HTTP CONNECT / HTTPS / SOCKS5 上游代理出网，适配「手机连 AIProxy 抓包、由本机规则代理负责实际出网」的场景；提供绕行列表与连通性测试，会话详情标注每条请求是直连还是经由上游代理
 - 支持逐域名的 SSL 代理策略（对标 Charles SSL Proxying Settings）：include / exclude 两级列表决定哪些域名解密，未解密的域名仍正常盲转发。默认解密全部并预置一份已知使用证书绑定的域名排除表，使 TikTok、iCloud 等 App 在开启抓包时仍可正常使用
 
@@ -372,6 +379,14 @@ flowchart LR
 - `JSON / HAR` 下载文件，`cURL` 复制到剪贴板
 - 导出范围依赖当前 Sessions 视图上下文，不强制用户跳转页面
 
+### 9.10 Collections — `已实现`
+
+- 集合 / 文件夹树形管理，集合内保存请求项（复用 Compose 的请求/响应编辑组件）
+- 从 Sessions 右键保存请求到集合
+- 环境选择器与环境变量 / 全局变量管理，支持 `{{key}}` 变量替换
+- 批量执行集合内请求并展示逐条结果
+- 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
+
 ## 10. 非功能需求
 
 ### 10.1 性能
@@ -410,28 +425,33 @@ flowchart LR
 
 - HTTPS 解密在不同平台上的证书信任链行为存在差异
 - 系统代理修改权限因平台不同而存在限制
-- WebSocket、HTTP/2、未来 HTTP/3 支持难度不同，应分阶段推进
+- WebSocket、HTTP/2、HTTP/3 支持难度不同：HTTP/2 捕获已实现（含回退开关），HTTP/3 / QUIC 明确延后（见 `docs/NEXT_6_MONTH_ROADMAP.md` P2），WebSocket 脚本化等深度能力仍分阶段推进
 - 若涉及受保护 App 或证书锁定场景，抓包能力受客户端策略影响
 - “1:1 功能对标”应理解为能力对标，而非品牌/UI 复制
 
 ## 13. 版本规划建议
 
-### Phase 1
+里程碑排期、验收口径与优先级以 `docs/NEXT_6_MONTH_ROADMAP.md`（M1–M6）为唯一执行事实源；本节只保留粗粒度阶段映射，不另立版本规划。
+
+### Phase 1（对应 M1，已完成）
 
 - 完成本地代理核心闭环
 - 支持基础规则、会话分析、证书管理、弱网模拟
+- 可靠性与性能产品化：高流量渲染、大 body、导出稳定性
 
-### Phase 2
+### Phase 2（对应 M2–M5，M2 / M3 已完成）
 
 - 完成 WebSocket 深度支持
 - 完成代理预设持久化与导入导出增强（当前通过 Settings 中的 Proxy Presets 管理基础配置）
 - 增加轻量统计分析 — `已实现`：Insights 页面提供概览卡片、Host 分析、分布图和慢请求排名
 - 完整 Timing 采集与 WaterfallChart — `已实现`：通过 hyper TimingConnector 采集全部 7 个 timing 阶段，WaterfallChart 水平堆叠条形图可视化
+- HTTP/2 可用级捕获 — `已实现`（M3）
+- Protobuf / gRPC-Web 检查、Collection 增强与 Scenario Replay（M4–M5，规划中）
 
-### Phase 3
+### Phase 3（对应 M6 及之后）
 
-- 增加脚本化规则与插件体系
-- 增加团队协作与规则共享能力
+- 文件级协作闭环（规则包 / 快照脱敏导入导出）与三端 Beta 发布（M6）
+- 插件体系与团队协作规则共享（半年后再评估，明确延后项见 Roadmap P2）
 
 ## 14. 验收标准（Phase 1）
 

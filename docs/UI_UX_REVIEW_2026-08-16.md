@@ -4,7 +4,7 @@
 - 评审视角：产品与真实用户（开发者日常使用高频路径）
 - 评审方式：产品文档（PRD / UI_GUIDELINES / PAGE_BLUEPRINTS / ROADMAP / ARCHITECTURE）+ 前端源码全量走查（`apps/desktop/src`）+ 关键后端链路抽查（`crates`、`apps/desktop/src-tauri`）+ 界面截图
 - 路径约定：前端代码均相对 `apps/desktop/src/`；Rust 代码相对仓库根（`crates/…`、`apps/desktop/src-tauri/…`）
-- **状态（2026-08-17 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；§3.3 / §3.4 / §3.5、以及 §五 全部（5.1–5.8）已于 2026-08-17 修复（见各节标注）。下文已修条目的描述保留评审时快照，仅作背景。其余 P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
+- **状态（2026-08-17 更新）**：P0-1 / P0-2 / P0-3 已在 `b8df3b53` 修复并验证；§3.3 / §3.4 / §3.5、以及 §五 全部（5.1–5.8）已于 2026-08-17 修复（见各节标注）。§七 文档侧问题已于 2026-08-18 处理（见该节标注）。下文已修条目的描述保留评审时快照，仅作背景。其余 P1 / P2 为**待执行 backlog**，与 Roadmap M4–M6 部分重合，执行时以后续排期为准。
 
 ---
 
@@ -225,15 +225,15 @@
 
 ---
 
-## 七、文档侧问题（影响协作效率）
+## 七、文档侧问题（影响协作效率）✅ 已处理（2026-08-18）
 
-1. **导航清单三处三个版本**：PRD §8.1（11 项）、UI_GUIDELINES §8.3（11 项、另一套）、ARCHITECTURE §11.1（实际 9 页）互不一致；UI Guidelines 自身“8~10 个以内”与 11 项建议矛盾。
-2. **Script Rules 无页面级规范**：Rules 页实际含 Script tab，但 UI_GUIDELINES/PAGE_BLUEPRINTS 的 Rules tab 清单均未包含。
-3. **PRD 落后于实现**：Collections 在 §5.2 仅有一条带实现注记的条目（无页面级需求展开，也未进入 §8.1 一级导航），HTTP/2 只在 §12 以风险条款出现（“应分阶段推进”）；Protobuf、gRPC、Scenario Replay 则完全缺席；§13 的 Phase 1/2/3 与 Roadmap M1–M6 是两套版本规划。
-4. 文档编号冲突：UI Guidelines 仍是 Draft v1.0，且存在两个 §9.4（Rules Page / Throttling Page）；PAGE_BLUEPRINTS 存在两个 §11（“页面与模块映射”/“实现建议”）。需统一清理。
-5. Roadmap M1–M3 均标注“2026-05-25 完成”（roadmap 生成次日）——状态标记可信度存疑，评审以仓库实现为准。
-6. **文档明示的能力空缺（有据可查）**：HTTP/3/QUIC（Roadmap 明确“不做”，`NEXT_6_MONTH_ROADMAP.md:251,290`）；证书锁定场景为客户端策略限制、无绕过方案（PRD §12:413）；扁平列表视图为预留扩展位（PRD §9.2:261）。
-7. **评审对标差距（文档未提及，属本评审观点而非文档承诺）**：上游代理/代理链、SOCKS 代理、反向代理模式、Block/Allow List、SSL 解密按 host 白名单（✅ 2026-08-17 已实现为 `Workspace.sslBlindHosts` 盲解列表，见 §3.5，API_SPEC 已同步）、Repeat Advanced——这些能力文档既未规划也未排除，建议在 PRD/Roadmap 中明确“做或不做”。（注：API_SPEC 的 `tlsVerifyHosts` 白名单属于上游 TLS 校验维度，不是解密白名单。）
+1. **导航清单三处三个版本**：PRD §8.1（11 项）、UI_GUIDELINES §8.3（11 项、另一套）、ARCHITECTURE §11.1（实际 9 页）互不一致；UI Guidelines 自身“8~10 个以内”与 11 项建议矛盾。 ✅ 核验一致（2026-08-18）：三处均为 10 项且与 `navigation-items.tsx` 实际路由一致（Docs 已进一级导航、分组 workspace/manage 对齐）。
+2. **Script Rules 无页面级规范**：Rules 页实际含 Script tab，但 UI_GUIDELINES/PAGE_BLUEPRINTS 的 Rules tab 清单均未包含。 ✅ 已修复（2026-08-18）：UI_GUIDELINES §9.4 与 PAGE_BLUEPRINTS §6.1–6.3 补齐（对齐实际四 tab：Breakpoint / Rewrite / Mapping[Map Local / Map Remote / DNS] / Script，含 ScriptRulesPanel 组件树与“保存失败必须显式提示”约束）；§12 页面与模块映射补 `script-rules`。
+3. **PRD 落后于实现**：Collections 在 §5.2 仅有一条带实现注记的条目（无页面级需求展开，也未进入 §8.1 一级导航），HTTP/2 只在 §12 以风险条款出现（“应分阶段推进”）；Protobuf、gRPC、Scenario Replay 则完全缺席；§13 的 Phase 1/2/3 与 Roadmap M1–M6 是两套版本规划。 ✅ 已修复（2026-08-18）：HTTP/2 补入 §5.2/§9.1 并标 `已实现`；Protobuf / gRPC-Web / Scenario Replay 补入 §5.2（标 M4/M5 规划中）；Collections 补 §9.10 功能明细（§8.1 一级导航此前已含）；§13 改为 Roadmap M1–M6 的阶段映射并声明 Roadmap 为唯一执行事实源；§12 风险表述同步（HTTP/2 已实现、HTTP/3 明确延后）。
+4. 文档编号冲突：UI Guidelines 仍是 Draft v1.0，且存在两个 §9.4（Rules Page / Throttling Page）；PAGE_BLUEPRINTS 存在两个 §11（“页面与模块映射”/“实现建议”）。需统一清理。 ✅ 已修复（2026-08-18）：UI_GUIDELINES 升为 `Living Spec v1.1`，§9 重排为 Rules 9.4 / Throttling 9.5 / Sessions Export 9.6 / Certificates 9.7 / Settings 9.8 / Compare 9.9 / Insights 9.10（原 §13.5/13.6 从快捷键章节移回页面规范序列），页面蓝图索引补 Collections / Throttling；PAGE_BLUEPRINTS 两个 §11 已在先前清理，本次消除两个 §9.4（Proxy Presets 事件流归位为 §9.4，Upstream→9.5、SSL Proxying→9.6），错位的 §8.5 Compare 移回 §8 末尾，Insights 从 §10.7 独立为 §11，尾部章节顺延为 §12 映射 / §13 实现建议 / §14 Setup Wizard / §15 Docs（子节编号与文内 `(见 §15)` 引用同步）；ARCHITECTURE 对 Docs 蓝图的引用同步为“第 15 节”。
+5. Roadmap M1–M3 均标注“2026-05-25 完成”（roadmap 生成次日）——状态标记可信度存疑，评审以仓库实现为准。 ✅ 已修复（2026-08-18）：该日期早于执行周期起点（2026-06-01）不可采信，且仓库 git 历史已于 2026-08-14 重建、精确日期不可考；三处状态改为“经仓库实现核验”并在文档头加状态标注说明，不再标注具体完成日期。
+6. **文档明示的能力空缺（有据可查）**：HTTP/3/QUIC（Roadmap 明确“不做”，`NEXT_6_MONTH_ROADMAP.md:251,290`）；证书锁定场景为客户端策略限制、无绕过方案（PRD §12:413）；扁平列表视图为预留扩展位（PRD §9.2:261）。 （保持现状：属决策记录而非缺陷，三处“明示空缺”均仍然成立且与实现一致。）
+7. **评审对标差距（文档未提及，属本评审观点而非文档承诺）**：上游代理/代理链、SOCKS 代理、反向代理模式、Block/Allow List、SSL 解密按 host 白名单（✅ 2026-08-17 已实现为 `Workspace.sslBlindHosts` 盲解列表，见 §3.5，API_SPEC 已同步）、Repeat Advanced——这些能力文档既未规划也未排除，建议在 PRD/Roadmap 中明确“做或不做”。（注：API_SPEC 的 `tlsVerifyHosts` 白名单属于上游 TLS 校验维度，不是解密白名单。） ✅ 已修复（2026-08-18）：上游链式代理（HTTP/HTTPS/SOCKS5）与 SSL 逐域名解密策略均已实现并写入 PRD §9.1（见 `80d9dde7`、`fcfccdba`）；反向代理（入站服务端）模式、Block/Allow List、Repeat Advanced 明确写入 PRD §3.2 非目标与 Roadmap §7 P2（Repeat Advanced 由 M5 Scenario Replay 承接），PRD/Roadmap 双向一致。
 
 ---
 
@@ -260,7 +260,7 @@
 | **P1-防呆** | 规则开关行内即时生效；Map/Rewrite/DNS 保存失败提示；编辑器脏检查；断点超时倒计时与通知 | 低成本、高确定性修复 |
 | **P1-内容** | ~~挂回 MITM 风险说明死代码；证书移除入口；排障指南 guideUrl 断链；移动端 IP 选择；移动端验证闭环~~（✅ 2026-08-17 完成，连同 5.6–5.8 一并修复，见 §五 各节标注） | 写好的内容接上即可 |
 | **P2** | 扁平列表视图（Sequence/List）；~~SSL 按 host 白名单~~（✅ 2026-08-17 完成，见 §3.5）；cURL 导入；Compose↔Collection 收敛（环境变量/保存/附件）；Windows 菜单 i18n；toast 体系统一；状态栏吞吐 | 结构性改进，排进 roadmap（部分与 M4–M6 重合，建议调整优先级） |
-| **文档** | 同步 PRD/UI_GUIDELINES/PAGE_BLUEPRINTS 的导航与 Rules tab 清单；补 Script Rules 页面规范 | 消除“三处三个版本”的协作噪音 |
+| **文档** | ~~同步 PRD/UI_GUIDELINES/PAGE_BLUEPRINTS 的导航与 Rules tab 清单；补 Script Rules 页面规范~~（✅ 2026-08-18 完成，见 §七 各条标注） | 消除“三处三个版本”的协作噪音 |
 
 ---
 

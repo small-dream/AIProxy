@@ -4,8 +4,8 @@
 
 - 产品代号：`AIProxy`
 - 文档类型：UI / UX 设计规范
-- 当前阶段：`Phase 1 / 初始化设计`
-- 文档状态：`Draft v1.0`
+- 当前阶段：`P0 功能闭环 / 商业化前产品化`
+- 文档状态：`Living Spec v1.1`
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -325,12 +325,14 @@ Capture Workspace
 
 - `Sessions Page`：抓包主工作台、会话列表、详情检查器
 - `Compose Page`：请求构造、响应预览（已实现），模板面板（待实现）
+- `Collections Page`：集合树、请求列表、请求编辑器三栏工作台（已实现）
+- `Throttling Page`：弱网预设与定向规则的运行状态 + 编辑工作台（已实现 P0/P1）
 - `Insights Page`：流量统计分析面板（已实现首版）
 - `Compare Page`：请求 / 响应 Diff 与 AI 总结（已实现发布硬化版）
-- `Rules Page`：规则类型切换、规则列表、规则编辑器
+- `Rules Page`：规则类型切换（Breakpoint / Rewrite / Mapping / Script）、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
 - `Settings Page`：代理预设、设置导航与设置内容区
-- `Docs Page`：应用内文档查看器，离线浏览 `apps/desktop/user-guides` 用户指南（Help 菜单入口，不进入主导航）
+- `Docs Page`：应用内文档查看器，离线浏览 `apps/desktop/user-guides` 用户指南（Help 菜单入口 + 左侧主导航 manage 分组）
 
 ## 9.1 Sessions Page
 
@@ -595,14 +597,15 @@ Collections Page 是 API 集合管理页面，支持保存、分组、编辑和�
 
 ### 页面定位
 
-Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote、DNS。
+Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite、Map Local、Map Remote、DNS 与 Script 规则。
 
 当前实现补充：
 
-- 顶部使用 `Tabs` 固定承载规则类型切换
+- 顶部使用 `Tabs` 固定承载规则类型切换（`Breakpoint / Rewrite / Mapping / Script` 四个一级 tab；`Mapping` 内部再分段切换 Map Local / Map Remote / DNS）
 - Breakpoint 使用”快捷断点 + 规则列表 + 新增对话框”的轻量流
 - Rewrite 使用”左侧模板 + 规则列表，右侧 When / Then / Test”的桌面工作台流
 - Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
+- Script 使用”左侧规则列表 + 右侧脚本编辑器”的工作台流：脚本为单文件 TypeScript，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
 - 规则创建优先提供快捷模板，降低首次配置门槛
 
 ### 页面结构树
@@ -658,7 +661,7 @@ Rules Page
 - 底部决策按钮必须始终可见，且不得覆盖可编辑内容；Mock 模式控制与 Drop / Forward 等最终决策分区摆放。
 - Mock Response 是请求阶段的临时模式，进入后应明确显示 Mock 状态，并复用 Response 区域编辑状态码、Header 和 Body。
 
-## 9.4 Throttling Page
+## 9.5 Throttling Page
 
 ### 页面定位
 
@@ -700,7 +703,7 @@ Throttling Page
 - 从 Session 创建规则时，应自动带入 host / path / method，减少复制粘贴
 - Session Automation tab 应展示 Throttling trace，让用户确认 profile / rule 是否命中
 
-## 9.5 Sessions Export
+## 9.6 Sessions Export
 
 ### 页面定位
 
@@ -726,7 +729,7 @@ Export Dialog
 - 如果当前没有选中会话，应禁用“Selected Session”并说明原因
 - 导出过程中只阻塞当前对话框，不阻塞 Sessions 主工作台
 
-## 9.6 Certificates Page
+## 9.7 Certificates Page
 
 ### 页面定位
 
@@ -765,7 +768,7 @@ Certificates Page
 - 常见问题
 - 风险提示
 
-## 9.7 Settings Page
+## 9.8 Settings Page
 
 ### 页面定位
 
@@ -823,6 +826,60 @@ Settings Page
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
 - `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`，提供 include / exclude 两个多行输入、恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`，空 include 表示解密全部未排除域名。
+
+## 9.9 Compare Page — `已实现发布硬化版`
+
+Compare Page 是面向 AI 的高密度分析页面，不使用营销式介绍区。首屏直接展示两个 Session 选择器、Diff 工作台和 AI Summary 面板。
+
+- 顶部操作只保留 `Preview AI Payload` 与 `Generate Summary`，AI 调用必须由用户手动触发。
+- Diff Workbench 按 section 展示 added / removed / changed / unchanged 计数，并只展开有变化的条目。
+- Body section 默认展示元数据摘要；使用 `Compute body diff` 按需计算详细 diff，避免页面初始渲染时解析大 body。
+- 当 body diff 被 entry 上限或 size guard 截断 / 跳过时，必须显示 warning 和可读原因；当前已装载的变化可用 `Show all changes` 展开。
+- 非文本 / binary body 必须明确显示不可文本 diff 状态，不显示成未捕获 body。
+- AI Summary 面板在未配置模型时显示 `Configure AI Model` 入口，配置完成后显示模型名和生成结果。
+- AI 返回的总结内容使用 Markdown 渲染（标题、粗体、表格、列表、代码块等），不再以纯文本预格式化形式展示。
+- “包含 Body 上下文”使用 Switch；默认发送的是脱敏 payload，不提供默认完整原文发送入口。
+- 窄屏下 AI Summary 移到 Diff 下方，避免右侧窄栏挤压代码文本。
+
+## 9.10 Insights Page — `已实现首版`
+
+Insights Page 是流量统计分析面板，基于已捕获会话的聚合数据提供概览指标、Host 维度分析、分布图和慢请求排名。
+
+### 页面定位
+
+- 面向开发者的流量概览页面，回答"整体流量健康吗？哪些 Host 最慢？有多少错误？"
+- 数据完全来自本地 SQLite 聚合查询，不依赖外部服务
+
+### 页面结构
+
+```text
+Insights Page
+├─ Page Header (title)
+├─ Overview Cards Row
+│  ├─ Total Requests Card
+│  ├─ Avg Duration Card
+│  ├─ Error Rate Card
+│  └─ Total Size Card
+├─ Host Breakdown Table (sortable columns)
+│  ├─ Host
+│  ├─ Requests
+│  ├─ Avg Duration / P95 Duration
+│  ├─ Total Size
+│  └─ Error Count
+├─ Bottom Split
+│  ├─ Distribution Section
+│  │  ├─ Status Code Distribution (chips/bars)
+│  │  └─ Method Distribution (chips/bars)
+│  └─ Slow Requests List (ranked, clickable to navigate to session)
+```
+
+### 设计要求
+
+- 概览卡片使用 MUI `Card`，数值使用 `Typography h4`，标签使用 `caption`
+- Host 表格使用 MUI `Table`，支持点击表头排序；无过滤时 flex 撑满剩余空间并在表格内滚动（表头 sticky），有过滤时自然高度让位给慢请求列表
+- 分布图使用 Chip 或小型水平条形展示，不引入重量级图表库
+- 慢请求列表使用虚拟列表布局，显示方法徽章、URL 和耗时；仅在应用了过滤（关键词 / 聚焦 Host / 排除 Host）时渲染，全局视角下隐藏，避免单条偶发请求干扰概览
+- 空状态：未捕获会话时显示提示引导用户返回 Sessions 开始抓包
 
 ## 10. 组件规范
 
@@ -955,60 +1012,6 @@ Settings Page
 - `Ctrl/Cmd + L`：清空会话列表
 - `Ctrl/Cmd + ,`：打开设置
 - `Space`：快速预览当前会话详情
-
-## 13.5 Compare Page — `已实现发布硬化版`
-
-Compare Page 是面向 AI 的高密度分析页面，不使用营销式介绍区。首屏直接展示两个 Session 选择器、Diff 工作台和 AI Summary 面板。
-
-- 顶部操作只保留 `Preview AI Payload` 与 `Generate Summary`，AI 调用必须由用户手动触发。
-- Diff Workbench 按 section 展示 added / removed / changed / unchanged 计数，并只展开有变化的条目。
-- Body section 默认展示元数据摘要；使用 `Compute body diff` 按需计算详细 diff，避免页面初始渲染时解析大 body。
-- 当 body diff 被 entry 上限或 size guard 截断 / 跳过时，必须显示 warning 和可读原因；当前已装载的变化可用 `Show all changes` 展开。
-- 非文本 / binary body 必须明确显示不可文本 diff 状态，不显示成未捕获 body。
-- AI Summary 面板在未配置模型时显示 `Configure AI Model` 入口，配置完成后显示模型名和生成结果。
-- AI 返回的总结内容使用 Markdown 渲染（标题、粗体、表格、列表、代码块等），不再以纯文本预格式化形式展示。
-- “包含 Body 上下文”使用 Switch；默认发送的是脱敏 payload，不提供默认完整原文发送入口。
-- 窄屏下 AI Summary 移到 Diff 下方，避免右侧窄栏挤压代码文本。
-
-## 13.6 Insights Page — `已实现首版`
-
-Insights Page 是流量统计分析面板，基于已捕获会话的聚合数据提供概览指标、Host 维度分析、分布图和慢请求排名。
-
-### 页面定位
-
-- 面向开发者的流量概览页面，回答"整体流量健康吗？哪些 Host 最慢？有多少错误？"
-- 数据完全来自本地 SQLite 聚合查询，不依赖外部服务
-
-### 页面结构
-
-```text
-Insights Page
-├─ Page Header (title)
-├─ Overview Cards Row
-│  ├─ Total Requests Card
-│  ├─ Avg Duration Card
-│  ├─ Error Rate Card
-│  └─ Total Size Card
-├─ Host Breakdown Table (sortable columns)
-│  ├─ Host
-│  ├─ Requests
-│  ├─ Avg Duration / P95 Duration
-│  ├─ Total Size
-│  └─ Error Count
-├─ Bottom Split
-│  ├─ Distribution Section
-│  │  ├─ Status Code Distribution (chips/bars)
-│  │  └─ Method Distribution (chips/bars)
-│  └─ Slow Requests List (ranked, clickable to navigate to session)
-```
-
-### 设计要求
-
-- 概览卡片使用 MUI `Card`，数值使用 `Typography h4`，标签使用 `caption`
-- Host 表格使用 MUI `Table`，支持点击表头排序；无过滤时 flex 撑满剩余空间并在表格内滚动（表头 sticky），有过滤时自然高度让位给慢请求列表
-- 分布图使用 Chip 或小型水平条形展示，不引入重量级图表库
-- 慢请求列表使用虚拟列表布局，显示方法徽章、URL 和耗时；仅在应用了过滤（关键词 / 聚焦 Host / 排除 Host）时渲染，全局视角下隐藏，避免单条偶发请求干扰概览
-- 空状态：未捕获会话时显示提示引导用户返回 Sessions 开始抓包
 
 ## 14. 可访问性规范
 
