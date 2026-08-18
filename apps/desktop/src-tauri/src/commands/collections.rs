@@ -104,10 +104,13 @@ fn build_urlencoded_body(entries: Vec<ProxyHeaderEntry>) -> Option<String> {
     Some(serializer.finish())
 }
 
+/// (url, headers, body) of a built collection item request.
+type BuiltCollectionItemRequest = (String, Vec<ProxyHeaderEntry>, Option<Vec<u8>>);
+
 fn build_collection_item_request(
     item: &aiproxy_db::collections::CollectionItemRow,
     vars: &std::collections::HashMap<String, String>,
-) -> Result<(String, Vec<ProxyHeaderEntry>, Option<Vec<u8>>), String> {
+) -> Result<BuiltCollectionItemRequest, String> {
     let url = substitute_vars(&item.url, vars);
     let headers_str = substitute_vars(&item.headers, vars);
     let mut headers: Vec<ProxyHeaderEntry> = serde_json::from_str(&headers_str).unwrap_or_default();
