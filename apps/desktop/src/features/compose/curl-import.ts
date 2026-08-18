@@ -10,6 +10,22 @@ export type ParsedCurlCommand = {
   url: string;
 };
 
+const RAW_LANGUAGE_BY_CONTENT_TYPE: Array<{
+  contentType: string;
+  rawLanguage: "text" | "json" | "xml" | "html" | "javascript";
+}> = [
+  { contentType: "application/json", rawLanguage: "json" },
+  { contentType: "+json", rawLanguage: "json" },
+  { contentType: "application/xml", rawLanguage: "xml" },
+  { contentType: "+xml", rawLanguage: "xml" },
+  { contentType: "text/html", rawLanguage: "html" },
+  { contentType: "application/javascript", rawLanguage: "javascript" },
+  { contentType: "text/javascript", rawLanguage: "javascript" },
+  { contentType: "application/ecmascript", rawLanguage: "javascript" },
+  { contentType: "text/ecmascript", rawLanguage: "javascript" },
+  { contentType: "text/plain", rawLanguage: "text" },
+];
+
 /**
  * Tokenize a cURL command. Handles POSIX single-quoted arguments (with
  * `'\''` escapes) and Windows double-quoted arguments (with `""` escapes) —
@@ -183,4 +199,16 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
   }
 
   return { bodyType: "raw", formDataEntries: [], formFiles: [], headers, method, url };
+}
+
+export function inferRawLanguageFromContentType(
+  contentType: string,
+): "text" | "json" | "xml" | "html" | "javascript" {
+  const normalized = contentType.toLowerCase();
+  for (const candidate of RAW_LANGUAGE_BY_CONTENT_TYPE) {
+    if (normalized.includes(candidate.contentType)) {
+      return candidate.rawLanguage;
+    }
+  }
+  return "text";
 }

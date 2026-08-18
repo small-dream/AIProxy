@@ -18,6 +18,7 @@ export type ComposedRequestEncodingInput = {
   formFiles?: FormFileEntry[];
   headers: HeaderEntry[];
   rawLanguage: RawLanguage;
+  url: string;
   urlEncodedEntries: HeaderEntry[];
 };
 
@@ -25,6 +26,7 @@ export type ComposedRequestEncoding = {
   headers: HeaderEntry[];
   multipartEntries?: MultipartEntry[];
   textBody?: string;
+  url: string;
 };
 
 /**
@@ -40,6 +42,7 @@ export function encodeComposedRequest(
   vars?: Map<string, string>,
 ): ComposedRequestEncoding {
   const substitute = (value: string) => (vars ? substituteVariables(value, vars) : value);
+  const url = substitute(input.url);
   let finalHeaders = input.headers.map((header) => ({
     name: substitute(header.name),
     value: substitute(header.value),
@@ -105,5 +108,6 @@ export function encodeComposedRequest(
     headers: finalHeaders,
     ...(multipartEntries !== undefined ? { multipartEntries } : {}),
     ...(textBody !== undefined ? { textBody } : {}),
+    url,
   };
 }

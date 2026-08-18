@@ -9,6 +9,7 @@ function input(overrides: Partial<Parameters<typeof encodeComposedRequest>[0]> =
     formDataEntries: [],
     headers: [],
     rawLanguage: "json" as const,
+    url: "https://example.com",
     urlEncodedEntries: [],
     ...overrides,
   };
@@ -113,5 +114,18 @@ describe("encodeComposedRequest", () => {
       name: "/tmp/aiproxy/upload",
       filePath: "/tmp/aiproxy/a.txt",
     });
+  });
+
+  it("substitutes variables in the url", () => {
+    const result = encodeComposedRequest(
+      input({
+        url: "https://{{host}}/items/{{id}}",
+      }),
+      new Map([
+        ["host", "api.example.com"],
+        ["id", "42"],
+      ]),
+    );
+    expect(result.url).toBe("https://api.example.com/items/42");
   });
 });

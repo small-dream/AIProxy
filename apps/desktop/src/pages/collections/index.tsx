@@ -59,7 +59,6 @@ import { useCollectionTree } from "@/features/collections/use-collection-tree";
 import { EnvironmentManagerDialog } from "@/features/environments/components/EnvironmentManagerDialog";
 import {
   buildMergedVariableMap,
-  substituteVariables,
   useEnvironmentVariables,
   useEnvironments,
   useGlobalVariables,
@@ -229,11 +228,11 @@ export function CollectionsPage() {
   }
 
   function handleSend() {
-    const substitutedUrl = substituteVariables(editor.url, mergedVarMap);
     const {
       multipartEntries,
       textBody: encodedBody,
       headers: finalHeaders,
+      url: finalUrl,
     } = encodeComposedRequest(
       {
         headers: editor.headers,
@@ -241,6 +240,7 @@ export function CollectionsPage() {
         bodyType: editor.bodyType,
         formFiles: editor.formFiles,
         rawLanguage: editor.rawLanguage,
+        url: editor.url,
         formDataEntries: editor.formDataEntries,
         urlEncodedEntries: editor.urlEncodedEntries,
       },
@@ -250,7 +250,7 @@ export function CollectionsPage() {
     sendMutation.mutate({
       workspaceId: "default",
       method: editor.method,
-      url: substitutedUrl,
+      url: finalUrl,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),

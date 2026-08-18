@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCurlCommand, tokenizeCurlCommand } from "./curl-import";
+import {
+  inferRawLanguageFromContentType,
+  parseCurlCommand,
+  tokenizeCurlCommand,
+} from "./curl-import";
 
 describe("tokenizeCurlCommand", () => {
   it("handles POSIX single quotes with '\\'' escapes", () => {
@@ -90,5 +94,15 @@ describe("parseCurlCommand", () => {
     expect(parseCurlCommand("curl")).toBeNull();
     expect(parseCurlCommand("curl ftp://example.com")).toBeNull();
     expect(parseCurlCommand("wget https://example.com")).toBeNull();
+  });
+});
+
+describe("inferRawLanguageFromContentType", () => {
+  it("maps common content-types to raw languages", () => {
+    expect(inferRawLanguageFromContentType("application/json")).toBe("json");
+    expect(inferRawLanguageFromContentType("application/problem+json")).toBe("json");
+    expect(inferRawLanguageFromContentType("application/xml")).toBe("xml");
+    expect(inferRawLanguageFromContentType("text/html")).toBe("html");
+    expect(inferRawLanguageFromContentType("text/plain")).toBe("text");
   });
 });

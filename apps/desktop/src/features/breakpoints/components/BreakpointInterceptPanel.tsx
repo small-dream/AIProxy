@@ -1268,7 +1268,7 @@ export function BreakpointInterceptPanel() {
           return;
         }
       }
-      if (editedRespStatusCode !== null) {
+      if (action !== "drop" && editedRespStatusCode !== null) {
         const parsedResp = Number(editedRespStatusCode);
         if (editedRespStatusCode.trim() === "" || !Number.isFinite(parsedResp)) {
           setResolveError(t("breakpointPanel.invalidStatusCode"));
@@ -1276,62 +1276,68 @@ export function BreakpointInterceptPanel() {
         }
       }
 
-      // Block broken JSON from being forwarded. Only bodies the user actually
-      // edited are validated (null = untouched, pass through as-is); the mock
-      // body is always validated because it is fully user-authored. MIME is
-      // resolved from the current header drafts so a user-edited content-type
-      // changes how the body is judged.
-      const jsonChecks = [
-        validateJsonText(
-          editedReqBody,
-          getBodyMimeType(activeHit.requestBody, editedReqHeaders ?? activeHit.requestHeaders),
-        ),
-        validateJsonText(
-          editedRespBody,
-          getBodyMimeType(
-            activeHit.responseBody,
-            editedRespHeaders ?? activeHit.responseHeaders ?? [],
+      // Block broken JSON only when the edited body will actually be sent
+      // back. Drop does not transmit any body, so it should never be blocked
+      // by a malformed draft.
+      if (action !== "drop") {
+        const jsonChecks = [
+          validateJsonText(
+            editedReqBody,
+            getBodyMimeType(activeHit.requestBody, editedReqHeaders ?? activeHit.requestHeaders),
           ),
-        ),
-        ...(action === "mock"
-          ? [validateJsonText(mockBody, getBodyMimeType(undefined, mockHeaders))]
-          : []),
-      ];
-      const brokenJson = jsonChecks.find(
-        (result): result is { ok: false; message: string } => result !== null && !result.ok,
-      );
-      if (brokenJson) {
-        setResolveError(t("breakpointPanel.invalidJson", { message: brokenJson.message }));
-        return;
+          validateJsonText(
+            editedRespBody,
+            getBodyMimeType(
+              activeHit.responseBody,
+              editedRespHeaders ?? activeHit.responseHeaders ?? [],
+            ),
+          ),
+          ...(action === "mock"
+            ? [validateJsonText(mockBody, getBodyMimeType(undefined, mockHeaders))]
+            : []),
+        ];
+        const brokenJson = jsonChecks.find(
+          (result): result is { ok: false; message: string } => result !== null && !result.ok,
+        );
+        if (brokenJson) {
+          setResolveError(t("breakpointPanel.invalidJson", { message: brokenJson.message }));
+          return;
+        }
       }
 
       setResolvingAction(action);
 
-      const resolution: BreakpointResolution = {
-        sessionId: activeHit.sessionId,
-        action,
-        ...(action === "mock"
+      const resolution: BreakpointResolution =
+        action === "drop"
           ? {
-              mock: {
-                statusCode: Number(mockStatusCode),
-                headers: mockHeaders,
-                bodyBase64: encodeBase64Utf8(mockBody),
-              },
+              sessionId: activeHit.sessionId,
+              action,
             }
-          : {}),
-        ...(editedReqHeaders ? { modifiedRequestHeaders: editedReqHeaders } : {}),
-        ...(editedReqQueryParams ? { modifiedRequestQueryParams: editedReqQueryParams } : {}),
-        ...(editedReqBody !== null
-          ? { modifiedRequestBodyBase64: encodeBase64Utf8(editedReqBody) }
-          : {}),
-        ...(editedRespStatusCode !== null
-          ? { modifiedResponseStatusCode: Number(editedRespStatusCode) }
-          : {}),
-        ...(editedRespHeaders ? { modifiedResponseHeaders: editedRespHeaders } : {}),
-        ...(editedRespBody !== null
-          ? { modifiedResponseBodyBase64: encodeBase64Utf8(editedRespBody) }
-          : {}),
-      };
+          : {
+              sessionId: activeHit.sessionId,
+              action,
+              ...(action === "mock"
+                ? {
+                    mock: {
+                      statusCode: Number(mockStatusCode),
+                      headers: mockHeaders,
+                      bodyBase64: encodeBase64Utf8(mockBody),
+                    },
+                  }
+                : {}),
+              ...(editedReqHeaders ? { modifiedRequestHeaders: editedReqHeaders } : {}),
+              ...(editedReqQueryParams ? { modifiedRequestQueryParams: editedReqQueryParams } : {}),
+              ...(editedReqBody !== null
+                ? { modifiedRequestBodyBase64: encodeBase64Utf8(editedReqBody) }
+                : {}),
+              ...(editedRespStatusCode !== null
+                ? { modifiedResponseStatusCode: Number(editedRespStatusCode) }
+                : {}),
+              ...(editedRespHeaders ? { modifiedResponseHeaders: editedRespHeaders } : {}),
+              ...(editedRespBody !== null
+                ? { modifiedResponseBodyBase64: encodeBase64Utf8(editedRespBody) }
+                : {}),
+            };
 
       const resetDrafts = () => {
         setMockMode(false);

@@ -165,6 +165,7 @@ export function ComposePage() {
         body,
         bodyType,
         rawLanguage,
+        url,
         formDataEntries,
         formFiles,
         urlEncodedEntries,
@@ -176,6 +177,7 @@ export function ComposePage() {
     body,
     bodyType,
     rawLanguage,
+    url,
     urlEncodedEntries,
     formDataEntries,
     formFiles,
@@ -183,29 +185,31 @@ export function ComposePage() {
   ]);
 
   const handleSend = useCallback(() => {
-    const { multipartEntries, textBody: encodedBody, headers: finalHeaders } = encodeBody();
+    const { multipartEntries, textBody: encodedBody, headers: finalHeaders, url: finalUrl } =
+      encodeBody();
     sendMutation.mutate({
       workspaceId: "default",
       method,
-      url,
+      url: finalUrl,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
-  }, [sendMutation, method, url, encodeBody]);
+  }, [sendMutation, method, encodeBody]);
 
   const handleExportCurl = useCallback(() => {
-    const { multipartEntries, textBody: encodedBody, headers: finalHeaders } = encodeBody();
+    const { multipartEntries, textBody: encodedBody, headers: finalHeaders, url: finalUrl } =
+      encodeBody();
     const cmd = generateCurlCommand({
       method,
-      url,
+      url: finalUrl,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
     void navigator.clipboard?.writeText(cmd);
     setSnackbarOpen(true);
-  }, [method, url, encodeBody]);
+  }, [method, encodeBody]);
 
   const handleSaveToCollection = useCallback(
     (collectionId: string, name?: string) => {
