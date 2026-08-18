@@ -416,18 +416,18 @@ export function isTrustRemovalReport(value: unknown): value is TrustRemovalRepor
   );
 }
 
-export function parseRemoveCertificateTrustOutput(
-  value: unknown,
-): RemoveCertificateTrustOutput {
+export function parseRemoveCertificateTrustOutput(value: unknown): RemoveCertificateTrustOutput {
   if (
     typeof value !== "object" ||
     value === null ||
     !isCertificateStatus((value as Partial<RemoveCertificateTrustOutput>).status) ||
     !isTrustRemovalReport((value as Partial<RemoveCertificateTrustOutput>).trustRemoval) ||
     !isNullableString(
-      (value as Partial<RemoveCertificateTrustOutput> & {
-        systemProxyHandbackError?: string | null;
-      }).systemProxyHandbackError,
+      (
+        value as Partial<RemoveCertificateTrustOutput> & {
+          systemProxyHandbackError?: string | null;
+        }
+      ).systemProxyHandbackError,
     )
   ) {
     throw coerceAppError(value);

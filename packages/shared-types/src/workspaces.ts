@@ -81,8 +81,7 @@ export function parseSslProxyingExclusions(value: unknown): string[] {
 
 export function isUpstreamProxyProtocol(value: unknown): value is UpstreamProxyProtocol {
   return (
-    typeof value === "string" &&
-    UPSTREAM_PROXY_PROTOCOLS.includes(value as UpstreamProxyProtocol)
+    typeof value === "string" && UPSTREAM_PROXY_PROTOCOLS.includes(value as UpstreamProxyProtocol)
   );
 }
 

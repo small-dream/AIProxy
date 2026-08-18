@@ -765,7 +765,9 @@ describe("parseRemoveCertificateTrustOutput", () => {
     expect(parsed.status.trusted).toBe(false);
     expect(parsed.status.platform).toBe("macos");
     expect(parsed.trustRemoval.succeeded).toEqual(["macos.userDomain"]);
-    expect(parsed.trustRemoval.failed).toEqual([{ store: "macos.systemDomain", error: "access denied" }]);
+    expect(parsed.trustRemoval.failed).toEqual([
+      { store: "macos.systemDomain", error: "access denied" },
+    ]);
   });
 
   it("throws when the trust report shape is invalid", () => {
@@ -783,8 +785,9 @@ describe("parseRemoveCertificateTrustOutput", () => {
       trustRemoval: { attempted: [], succeeded: [], failed: [] },
     };
 
-    expect(parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: null }))
-      .not.toHaveProperty("systemProxyHandbackError");
+    expect(
+      parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: null }),
+    ).not.toHaveProperty("systemProxyHandbackError");
     expect(
       parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: "restore failed" })
         .systemProxyHandbackError,

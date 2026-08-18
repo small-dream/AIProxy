@@ -164,7 +164,7 @@ Before submitting:
 - [ ] `pnpm lint` passes
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm test` passes
-- [ ] `pnpm --filter @aiproxy/desktop format:check` passes
+- [ ] `pnpm -r format:check` passes
 - [ ] `cargo fmt --check --all` passes
 - [ ] `cargo clippy --workspace -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
