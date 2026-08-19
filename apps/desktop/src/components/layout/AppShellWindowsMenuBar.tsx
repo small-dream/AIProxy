@@ -14,11 +14,13 @@ export const WINDOWS_TOP_CONTROLS_HEIGHT = 40;
 type AppShellWindowsMenuBarProps = {
   centerControls: ReactNode;
   onMenuAction: (menuId: string) => void;
+  rightControls?: ReactNode;
 };
 
 export function AppShellWindowsMenuBar({
   centerControls,
   onMenuAction,
+  rightControls = null,
 }: AppShellWindowsMenuBarProps) {
   const { t } = useI18n();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export function AppShellWindowsMenuBar({
           zIndex: 1,
         }}
       >
+        {rightControls}
         <WindowControls onMenuAction={onMenuAction} />
       </Box>
 

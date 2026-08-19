@@ -10,6 +10,7 @@ import {
   WINDOWS_TOP_CONTROLS_HEIGHT,
 } from "@/components/layout/AppShellWindowsMenuBar";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
+import { UpdateAvailableButton } from "@/features/updater/UpdateAvailableButton";
 
 const TOP_CONTROLS_VERTICAL_OFFSET = 2;
 const MACOS_WINDOW_CONTROLS_SAFE_WIDTH = 112;
@@ -151,10 +152,11 @@ export function AppShellTopControls({
             alignItems: "center",
             display: "flex",
             height: "100%",
-            inset: 0,
+            left: 0,
             justifyContent: "center",
             pointerEvents: "none",
             position: "absolute",
+            right: 0,
             transform: `translateY(${TOP_CONTROLS_VERTICAL_OFFSET}px)`,
           }}
         >
@@ -170,6 +172,20 @@ export function AppShellTopControls({
             {renderControls("floating")}
           </Box>
         </Box>
+        <Box
+          sx={{
+            alignItems: "center",
+            display: "flex",
+            height: "100%",
+            pointerEvents: "auto",
+            position: "absolute",
+            right: MACOS_WINDOW_CONTROLS_SAFE_WIDTH,
+            top: 0,
+            transform: `translateY(${TOP_CONTROLS_VERTICAL_OFFSET}px)`,
+          }}
+        >
+          <UpdateAvailableButton />
+        </Box>
       </Box>
     );
   }
@@ -178,6 +194,7 @@ export function AppShellTopControls({
     <AppShellWindowsMenuBar
       centerControls={renderControls("commandBar")}
       onMenuAction={onMenuAction}
+      rightControls={<UpdateAvailableButton />}
     />
   );
 }

@@ -51,6 +51,12 @@
 - `<>` 表示切换器 / tabs / filters
 - `...` 表示可滚动内容区域
 
+### 3.4 全局更新入口
+
+- `AppShell` 启动时静默检查更新；发现可用版本后写入 shell 级 `availableUpdate` 状态。
+- macOS 将 `Update <version>` 放在窗口控制区左侧，Windows/Linux 放在右上角窗口控制按钮左侧；无更新时不占位。
+- 点击入口打开 `UpdateDialog`，复用已有更新说明、下载进度、安装和重启流程；安装中隐藏入口，避免重复触发。
+
 ## 4. Sessions Page
 
 ### 4.1 页面目标 — `已实现首版`

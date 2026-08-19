@@ -122,6 +122,8 @@ export const enMessages = {
   },
   appShell: {
     appSubtitle: "Desktop proxy workbench",
+    updateAvailableAction: "Update {{version}}",
+    updateAvailableTooltip: "A new AIProxy version is available",
     breakpointsPending: "{{count}} breakpoint{{suffix}}",
     breakpointsPendingTitle: "Breakpoints pending, click to open Rules",
     changePortTitle: "Change Proxy Port",
