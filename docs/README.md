@@ -31,6 +31,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [SYSTEM_PROXY.md](./SYSTEM_PROXY.md) | System proxy behavior and platform differences |
 | [BUILD_RUN_PACKAGE_GUIDE.md](./BUILD_RUN_PACKAGE_GUIDE.md) | How to build, run, and package the app |
 | [RELEASE_GUIDE.md](./RELEASE_GUIDE.md) | Release process and publishing guide |
+| [releases/](./releases/) | Versioned bilingual release summaries used by GitHub Releases and in-app updates |
 
 ### Architecture Decision Records (ADRs)
 

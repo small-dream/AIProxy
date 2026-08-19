@@ -11,15 +11,16 @@
 
 ## 1. 发布前统一检查
 
-每次正式发布前，建议至少完成以下动作：
+每次正式发布前，必须完成以下动作：
 
 1. 更新版本号
-2. 执行 lint / test / typecheck / Rust tests
-3. 确认 GitHub Actions CI 已通过
-4. 在目标平台本机或 Release workflow 中完成一次 `bundle`
-5. 手工安装产物验证
-6. 验证自动更新与系统代理恢复
-7. 再上传到下载站点或 Release 页面
+2. 新增与 Git tag 同名的双语发布摘要（`docs/releases/v<版本号>.md`）
+3. 执行 lint / test / typecheck / Rust tests
+4. 确认 GitHub Actions CI 已通过
+5. 在目标平台本机或 Release workflow 中完成一次 `bundle`
+6. 手工安装产物验证
+7. 验证自动更新与系统代理恢复
+8. 再上传到下载站点或 Release 页面
 
 ### 版本号需要同步的位置
 
@@ -255,7 +256,7 @@ Tauri 官方参考：
 5. 按分发渠道补签名或仓库元数据
 6. 上传到 GitHub Releases、官网或软件仓库
 
-## 7. GitHub Release 建议结构
+## 7. GitHub Release 说明与发布摘要
 
 建议每个版本创建一个 Release，例如：
 
@@ -270,22 +271,24 @@ Tauri 官方参考：
 - updater artifacts：macOS `.app.tar.gz`、Windows `.msi.sig` / `.exe.sig`、Linux `.AppImage.sig`
 - `latest.json`
 
-建议在 Release Notes 中写清楚：
+每个 Release 都必须在 `docs/releases/` 新增一个与 Git tag 同名的双语 Markdown 文件。例如 tag 为 `v0.1.19`，则必须提交 `docs/releases/v0.1.19.md`。完整格式、模板与写作规则见 [`docs/releases/README.md`](releases/README.md)。
 
-- 版本号
-- 更新内容
-- 支持的平台与架构
-- 安装方式
-- 已知限制
-- 签名状态：`signed/notarized` 或 `unsigned`
-- 未签名产物的用户安装提示（如 macOS 需执行 `xattr -cr /Applications/AIProxy.app` 清除隔离属性）
+发布摘要是 GitHub Release 和应用内更新弹窗共用的唯一用户可见更新内容来源。它只回答“本版本新增或改善了什么”，不应直接罗列 Git 提交。
+
+Release workflow 会基于实际构建结果自动追加“安装与更新 / Install and update”部分：
+
+- Windows、macOS、Linux 对应的安装包格式；
+- 是否可使用应用内更新（仅 `latest.json` 成功生成时提示可用）；
+- 仅在 macOS 或 Windows 实际未签名时显示对应的风险与操作提示。
+
+不要维护独立的“Signing status”表格，也不要在摘要中硬编码 `unsigned`、自动更新可用性或 macOS Gatekeeper 命令。这些状态由工作流检测，以免发布说明与实际产物不一致。
 
 ## 8. GitHub Actions 自动发布
 
 仓库已提供：
 
 - `.github/workflows/ci.yml`：PR 与 `master` push 的质量门禁
-- `.github/workflows/release.yml`：`v*` tag 与手动触发的三端打包发布
+- `.github/workflows/release.yml`：`v*` tag 触发的三端打包发布
 
 Release workflow 的默认发布仓库为：
 
@@ -305,7 +308,7 @@ updater artifacts 为**条件性开启**：`release.yml` 检测到 `TAURI_SIGNIN
 - macOS：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_API_ISSUER`、`APPLE_API_KEY_ID`、`APPLE_API_KEY`
 - Windows：`WINDOWS_CERTIFICATE`、`WINDOWS_CERTIFICATE_PASSWORD`
 
-如果未配置平台签名证书，Release workflow 仍允许产出未签名安装包，但 Release Notes 必须明确标记 `unsigned`。
+如果未配置平台签名证书，Release workflow 仍允许产出未签名安装包。工作流会仅针对受影响的平台追加用户可执行的风险提示；不会生成单独的签名状态表格。
 
 ## 9. 自动更新验证
 

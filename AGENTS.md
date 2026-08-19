@@ -132,10 +132,11 @@
 1. **同步版本号**：`package.json`、`Cargo.toml`、`Cargo.lock`、`apps/desktop/package.json`、`apps/desktop/src-tauri/tauri.conf.json` 五处必须保持一致。
 2. **质量门禁**：运行 `scripts/release-checklist.sh`（typecheck / lint / test / Rust tests / clippy），并确认 GitHub Actions CI 通过。
 3. **打包验证**：脚本不支持跨平台打包，必须在对应原生宿主机上执行 `pnpm desktop:bundle:<platform>` 验证产物。
-4. **触发发布**：推送 `v*` tag（或手动触发 `release.yml`），workflow 会在 macOS / Windows / Linux 三端打包并发布 GitHub Release；含 `-test` / `-beta` 的 tag 会标记为 pre-release。
-5. **签名与自动更新**：updater 产物（`.sig`、`latest.json`）仅在配置 `TAURI_SIGNING_PRIVATE_KEY` 时生成；未配置则发布普通安装包且不阻塞流程。平台签名 Secrets（Apple / Windows）未配置时产物为 unsigned，Release Notes 必须明确标注。
-6. **发布后验证**：验证自动更新（旧版本检测新版本、安装并重启后版本生效）与系统代理恢复。
-7. **回滚**：阻断问题先标记问题版本为 pre-release，将 `latest.json` 回滚到上一稳定版本，再发布修复版本并在 Release Notes 说明。
+4. **发布摘要**：在创建 tag 前新增 `docs/releases/v<版本号>.md`；文件名必须与 tag 一致，且必须包含中文 `更新内容` 和英文 `What's new`。该文件是 GitHub Release 与应用内更新的唯一更新内容来源，详见 `docs/releases/README.md`。
+5. **触发发布**：仅从 `v*` tag 触发 `release.yml`；workflow 会校验发布摘要，随后在 macOS / Windows / Linux 三端打包并发布 GitHub Release。含 `-test` / `-beta` 的 tag 会标记为 pre-release。
+6. **签名与自动更新**：updater 产物（`.sig`、`latest.json`）仅在配置 `TAURI_SIGNING_PRIVATE_KEY` 时生成；未配置则发布普通安装包且不阻塞流程。安装、自动更新和未签名风险提示由工作流根据实际产物追加，禁止在发布摘要中硬编码签名状态。
+7. **发布后验证**：验证自动更新（旧版本检测新版本、安装并重启后版本生效）与系统代理恢复。
+8. **回滚**：阻断问题先标记问题版本为 pre-release，将 `latest.json` 回滚到上一稳定版本，再发布修复版本并在 Release Notes 说明。
 
 ## 14. 在这个仓库里，好的改动应当是
 

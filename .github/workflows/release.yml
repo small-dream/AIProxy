@@ -1,7 +1,6 @@
 name: Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -82,16 +81,17 @@ jobs:
         with:
           tool: tauri-cli
 
-      - name: Record signing mode
+      - name: Record release context
         shell: bash
         run: |
-          if [[ "${{ matrix.platform }}" == "macos" && -n "${APPLE_CERTIFICATE}" && -n "${APPLE_API_KEY}" ]]; then
-            echo "SIGNING_STATUS=macOS signed/notarized" >> "$GITHUB_ENV"
+          if [[ "${{ matrix.platform }}" == "macos" && -n "${APPLE_CERTIFICATE}" ]]; then
+            platform_signed=true
           elif [[ "${{ matrix.platform }}" == "windows" && -n "${WINDOWS_CERTIFICATE}" ]]; then
-            echo "SIGNING_STATUS=Windows signed" >> "$GITHUB_ENV"
+            platform_signed=true
           else
-            echo "SIGNING_STATUS=${{ matrix.platform }} unsigned" >> "$GITHUB_ENV"
+            platform_signed=false
           fi
+          printf '{"platform":"%s","signed":%s}\n' "${{ matrix.platform }}" "$platform_signed" > "release-context-${{ matrix.platform }}.json"
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -151,10 +151,6 @@ jobs:
           path: ${{ matrix.artifact-glob }}
           if-no-files-found: error
 
-      - name: Write signing summary
-        shell: bash
-        run: echo "- $SIGNING_STATUS" > "signing-${{ matrix.platform }}.md"
-
       - name: Write updater platform metadata
         shell: bash
         run: |
@@ -181,11 +177,11 @@ jobs:
           esac
           printf '{"bundle":"%s","platform":"%s"}\n' "${{ matrix.platform }}" "$updater_platform" > "updater-platform-${{ matrix.platform }}.json"
 
-      - name: Upload signing summary
+      - name: Upload release context
         uses: actions/upload-artifact@v4
         with:
-          name: signing-${{ matrix.platform }}
-          path: signing-${{ matrix.platform }}.md
+          name: release-context-${{ matrix.platform }}
+          path: release-context-${{ matrix.platform }}.json
 
       - name: Upload updater platform metadata
         uses: actions/upload-artifact@v4
@@ -202,33 +198,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history + tags so `git describe --tags` can find the previous release tag.
-          fetch-depth: 0
+          fetch-depth: 1
+
+      - name: Validate release reference and notes
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "Release workflow must run from a version tag (for example v0.1.19)." >&2
+            exit 1
+          fi
+
+          notes_path="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "$notes_path" ]]; then
+            echo "Missing required bilingual release notes: $notes_path" >&2
+            exit 1
+          fi
+
+          if ! grep -q '^## 更新内容' "$notes_path" || ! grep -Fq "## What's new" "$notes_path"; then
+            echo "$notes_path must contain both '## 更新内容' and '## What's new' sections." >&2
+            exit 1
+          fi
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
 
-      - name: Build changelog from commits
-        id: changelog
-        shell: bash
-        run: |
-          prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-          if [ -n "$prev_tag" ]; then
-            text=$(git log --pretty=format:"- %s" "${prev_tag}..HEAD")
-          else
-            text="Release ${GITHUB_REF_NAME}"
-          fi
-          {
-            echo "text<<CHANGELOG_EOF"
-            echo "$text"
-            echo "CHANGELOG_EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Generate updater manifest
-        env:
-          CHANGELOG: ${{ steps.changelog.outputs.text }}
         run: |
           node <<'NODE'
           const fs = require("node:fs");
@@ -238,7 +234,8 @@ jobs:
           const tag = process.env.GITHUB_REF_NAME;
           const version = tag.startsWith("v") ? tag.slice(1) : tag;
           const root = path.resolve("release-artifacts");
-          const changelog = process.env.CHANGELOG || `AIProxy ${version}`;
+          const notesPath = path.join("docs", "releases", `${tag}.md`);
+          const releaseNotes = fs.readFileSync(notesPath, "utf8").trim();
 
           function walk(dir) {
             return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -298,7 +295,7 @@ jobs:
           } else {
             fs.writeFileSync(
               "latest.json",
-              `${JSON.stringify({ version, notes: changelog, pub_date: new Date().toISOString(), platforms }, null, 2)}\n`,
+              `${JSON.stringify({ version, notes: releaseNotes, pub_date: new Date().toISOString(), platforms }, null, 2)}\n`,
             );
             console.log("Wrote latest.json with", Object.keys(platforms).length, "platform(s).");
           }
@@ -306,21 +303,55 @@ jobs:
 
       - name: Build release notes
         run: |
-          {
-            echo "AIProxy release ${GITHUB_REF_NAME}"
-            echo
-            echo "## Download"
-            echo
-            echo "Pre-built installers are available below. Installer signing depends on platform certificates; updater artifacts are published only when the TAURI signing key is configured."
-            echo
-            echo "- **Windows**: \`.msi\` or \`.exe\` installer"
-            echo "- **macOS**: \`.dmg\` (unsigned) — Gatekeeper shows a \"damaged\" warning after a browser download; clear it with \`xattr -cr /Applications/AIProxy.app\` (right-click → Open no longer bypasses this on recent macOS)"
-            echo "- **Linux**: \`.AppImage\`, \`.deb\`, or \`.rpm\`"
-            echo
-            echo "## Signing status"
-            echo
-            cat release-artifacts/signing-*/*.md
-          } > release-notes.md
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const tag = process.env.GITHUB_REF_NAME;
+          const sourceNotes = fs.readFileSync(path.join("docs", "releases", `${tag}.md`), "utf8").trim();
+          const artifactsRoot = path.resolve("release-artifacts");
+          const contexts = fs.readdirSync(artifactsRoot, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && entry.name.startsWith("release-context-"))
+            .map((entry) => JSON.parse(fs.readFileSync(path.join(artifactsRoot, entry.name, `release-context-${entry.name.replace("release-context-", "")}.json`), "utf8")));
+          const isSigned = (platform) => contexts.find((context) => context.platform === platform)?.signed === true;
+          const hasUpdater = fs.existsSync("latest.json");
+
+          const chinese = [
+            "## 安装与更新",
+            "",
+            "- Windows：下载 `.msi` 或 `.exe` 安装包。",
+            "- macOS：下载 `.dmg` 安装包。",
+            "- Linux：下载 `.AppImage`、`.deb` 或 `.rpm` 安装包。",
+            hasUpdater
+              ? "- 本版本支持应用内更新；可在 **设置 → 软件更新** 中检查更新。"
+              : "- 本版本暂不支持应用内更新；请下载最新安装包并手动安装。",
+          ];
+          if (!isSigned("macos")) {
+            chinese.push("- macOS 安装包未签名。若浏览器下载后显示“已损坏”，将应用移至“应用程序”目录后执行 `xattr -cr /Applications/AIProxy.app`。");
+          }
+          if (!isSigned("windows")) {
+            chinese.push("- Windows 安装包未签名，首次运行时可能出现 SmartScreen 提示；请确认下载来源为本 Release 页面。");
+          }
+
+          const english = [
+            "## Install and update",
+            "",
+            "- Windows: download the `.msi` or `.exe` installer.",
+            "- macOS: download the `.dmg` installer.",
+            "- Linux: download the `.AppImage`, `.deb`, or `.rpm` package.",
+            hasUpdater
+              ? "- In-app updates are available in **Settings → Software Updates**."
+              : "- In-app updates are not available for this release. Download and install the latest package manually.",
+          ];
+          if (!isSigned("macos")) {
+            english.push("- The macOS package is unsigned. If macOS says the browser-downloaded app is damaged, move it to Applications and run `xattr -cr /Applications/AIProxy.app`.");
+          }
+          if (!isSigned("windows")) {
+            english.push("- The Windows package is unsigned. SmartScreen may appear on first launch; verify that you downloaded it from this Release page.");
+          }
+
+          fs.writeFileSync("release-notes.md", `${sourceNotes}\n\n${chinese.join("\n")}\n\n---\n\n${english.join("\n")}\n`);
+          NODE
 
       - name: Collect installers
         run: |

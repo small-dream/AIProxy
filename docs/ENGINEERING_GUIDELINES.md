@@ -344,7 +344,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - `docs/ARCHITECTURE.md`
 - `docs/API_SPEC.md`
 - `docs/UI_GUIDELINES.md`
-- `CHANGELOG.md`（若项目引入）
+- `docs/releases/v<版本号>.md`（每次发布必需；文件名与 Git tag 一致，包含中文和英文的用户可见更新摘要）
 
 ### 10.3 接口变更要求
 
