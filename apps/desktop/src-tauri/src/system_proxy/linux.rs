@@ -16,13 +16,12 @@ enum LinuxDesktopEnvironment {
     Kde,
 }
 
-fn detect_desktop_environment() -> Result<LinuxDesktopEnvironment, String> {
-    let xdg = env::var("XDG_CURRENT_DESKTOP")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let session = env::var("DESKTOP_SESSION")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+fn detect_desktop_environment_from(
+    xdg_current_desktop: &str,
+    desktop_session: &str,
+) -> Result<LinuxDesktopEnvironment, String> {
+    let xdg = xdg_current_desktop.to_ascii_lowercase();
+    let session = desktop_session.to_ascii_lowercase();
 
     let combined = format!("{xdg}|{session}");
 
@@ -41,6 +40,13 @@ fn detect_desktop_environment() -> Result<LinuxDesktopEnvironment, String> {
     Err(format!(
         "unsupported Linux desktop environment (XDG_CURRENT_DESKTOP={xdg:?}, DESKTOP_SESSION={session:?})"
     ))
+}
+
+fn detect_desktop_environment() -> Result<LinuxDesktopEnvironment, String> {
+    detect_desktop_environment_from(
+        &env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        &env::var("DESKTOP_SESSION").unwrap_or_default(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -593,39 +599,31 @@ mod tests {
 
     #[test]
     fn detects_gnome_from_xdg() {
-        env::set_var("XDG_CURRENT_DESKTOP", "GNOME");
-        env::set_var("DESKTOP_SESSION", "gnome");
         assert_eq!(
-            detect_desktop_environment().unwrap(),
+            detect_desktop_environment_from("GNOME", "gnome").unwrap(),
             LinuxDesktopEnvironment::Gnome
         );
     }
 
     #[test]
     fn detects_kde_from_xdg() {
-        env::set_var("XDG_CURRENT_DESKTOP", "KDE");
-        env::set_var("DESKTOP_SESSION", "plasma");
         assert_eq!(
-            detect_desktop_environment().unwrap(),
+            detect_desktop_environment_from("KDE", "plasma").unwrap(),
             LinuxDesktopEnvironment::Kde
         );
     }
 
     #[test]
     fn detects_ubuntu_as_gnome() {
-        env::set_var("XDG_CURRENT_DESKTOP", "ubuntu:GNOME");
-        env::set_var("DESKTOP_SESSION", "ubuntu");
         assert_eq!(
-            detect_desktop_environment().unwrap(),
+            detect_desktop_environment_from("ubuntu:GNOME", "ubuntu").unwrap(),
             LinuxDesktopEnvironment::Gnome
         );
     }
 
     #[test]
     fn rejects_unknown_desktop() {
-        env::set_var("XDG_CURRENT_DESKTOP", "sway");
-        env::set_var("DESKTOP_SESSION", "sway");
-        assert!(detect_desktop_environment().is_err());
+        assert!(detect_desktop_environment_from("sway", "sway").is_err());
     }
 
     // M13: the GNOME snapshot must capture (and serde-round-trip) the full
