@@ -30,3 +30,7 @@ echo "✓ Clippy passed"
 echo ""
 
 echo "=== All checks passed ==="
+
+echo ""
+echo "=== M3.5 Platform Smoke Evidence ==="
+echo "Complete scripts/release/m35-smoke-checklist.md on native macOS, Windows, and Linux hosts before promoting 0.1.20."

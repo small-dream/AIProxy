@@ -2186,15 +2186,76 @@ fn applies_map_remote_rules_by_rewriting_the_request_url() {
     assert!(response.is_none());
     assert_eq!(
         request.url.as_str(),
-        "https://staging.example.com/v1/users?debug=true"
+        "https://staging.example.com/base/v1/users?debug=true"
     );
     assert_eq!(request.protocol, "https");
     assert_eq!(request.host, "staging.example.com");
     assert_eq!(traces.len(), 1);
     assert_eq!(
         traces[0].mapped_url.as_deref(),
-        Some("https://staging.example.com/v1/users?debug=true")
+        Some("https://staging.example.com/base/v1/users?debug=true")
     );
+}
+
+#[test]
+fn map_remote_preserves_target_base_path_without_duplicate_separators() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-remote-base".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "Map remote base".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "api.example.com".to_string(),
+        target_value: "http://127.0.0.1:8080/gateway/".to_string(),
+        workspace_id: "default".to_string(),
+        match_type: None,
+    });
+
+    let mut request = build_test_request("https://api.example.com/v1/users?x=1");
+    let (_, traces) =
+        apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+    assert_eq!(request.url.as_str(), "http://127.0.0.1:8080/gateway/v1/users?x=1");
+    assert_eq!(traces[0].original_url, "https://api.example.com/v1/users?x=1");
+    assert_eq!(
+        traces[0].mapped_url.as_deref(),
+        Some("http://127.0.0.1:8080/gateway/v1/users?x=1")
+    );
+    assert_eq!(request.protocol, "http");
+    assert_eq!(request.host, "127.0.0.1");
+    assert_eq!(request.url.port(), Some(8080));
+}
+
+#[test]
+fn map_remote_can_drop_original_path_while_retaining_target_path() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-remote-target-only".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "Map remote target only".to_string(),
+        note: None,
+        preserve_path: false,
+        preserve_query: false,
+        priority: 100,
+        source_pattern: "api.example.com".to_string(),
+        target_value: "https://staging.example.com/base/health".to_string(),
+        workspace_id: "default".to_string(),
+        match_type: None,
+    });
+
+    let mut request = build_test_request("http://api.example.com/v1/users?x=1");
+    let (_, traces) =
+        apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+    assert_eq!(request.url.as_str(), "https://staging.example.com/base/health");
+    assert_eq!(traces[0].mapped_url.as_deref(), Some("https://staging.example.com/base/health"));
+    assert_eq!(request.protocol, "https");
+    assert_eq!(request.url.port(), None);
 }
 
 #[test]

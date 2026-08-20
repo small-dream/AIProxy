@@ -56,7 +56,7 @@ impl UpstreamConnectionPool {
     /// select h2), in which case the caller should fall back to the existing
     /// per-request h1 path.
     pub(crate) async fn get_or_connect(
-        &self,
+        self: &Arc<Self>,
         key: &UpstreamKey,
         dns_override_ip: Option<IpAddr>,
         verify_upstream_tls: bool,
@@ -186,7 +186,7 @@ impl UpstreamConnectionPool {
 
     /// Perform the DNS + TCP + TLS + h2 handshake (no locking).
     async fn do_connect(
-        &self,
+        self: &Arc<Self>,
         key: &UpstreamKey,
         dns_override_ip: Option<IpAddr>,
         verify_upstream_tls: bool,
@@ -241,9 +241,32 @@ impl UpstreamConnectionPool {
             .await
             .map_err(|e| format!("upstream pool h2 handshake failed: {e}"))?;
 
-        // Spawn the connection driver task.
+        // Spawn the connection driver task.  A pooled sender can remain
+        // apparently usable briefly after the peer has closed its connection;
+        // evict as soon as the driver observes that close so the next request
+        // cannot reuse a half-open entry.
+        let pool = Arc::clone(self);
+        let driver_key = key.clone();
         tokio::spawn(async move {
-            let _ = conn.await;
+            match conn.await {
+                Ok(()) => tracing::debug!(
+                    event = "upstream_pool_driver_closed",
+                    host = %driver_key.host,
+                    port = driver_key.port,
+                    reason = "clean",
+                    "upstream_pool_driver_closed"
+                ),
+                Err(error) => {
+                    tracing::warn!(
+                        event = "upstream_pool_driver_failed",
+                        host = %driver_key.host,
+                        port = driver_key.port,
+                        error = %error,
+                        "upstream_pool_driver_failed"
+                    );
+                    pool.evict_key(&driver_key).await;
+                }
+            }
         });
 
         tracing::debug!(

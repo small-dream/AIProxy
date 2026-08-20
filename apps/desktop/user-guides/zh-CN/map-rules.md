@@ -60,7 +60,7 @@ Map Local 直接产生本地响应，因此：
 **目标**字段填一个 **`http://` 或 `https://` 开头的基地址**（例如 `https://staging.example.com`）：
 
 - 命中后，请求的 host / 上游被替换为该目标
-- 开启「保留路径 / 保留 Query」时，原请求的 path 和 query 会拼到新目标上
+- 开启「保留路径 / 保留 Query」时，原请求的 path 和 query 会拼到新目标上。目标 URL 的 path 会作为 base path 使用，并自动合并斜杠：目标 `/gateway/` + 原路径 `/v1/users` 最终为 `/gateway/v1/users`。
 - 请求**继续走完整代理管线**（[脚本](./script-rules.md) / [断点](./breakpoints.md) / [限速](./throttling.md) / 上游），不是给客户端返回重定向
 
 例如来源 `api.example.com`、目标 `https://staging.example.com`，开启保留路径与 Query 后，`https://api.example.com/v1/users?id=1` 会被转发到 `https://staging.example.com/v1/users?id=1`，客户端完全无感知，且 Sessions 里仍保留原始 URL 上下文。

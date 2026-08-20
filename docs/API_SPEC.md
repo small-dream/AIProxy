@@ -453,6 +453,8 @@ type MapSessionTrace = {
 };
 ```
 
+Map Remote 的 `preservePath` 语义：目标 URL 的 path 被视为 base path。启用时，原请求 path 会拼接到目标 base path 后，且只保留一个 `/`（例如目标 `/gateway/` 与原路径 `/v1/users` 结果为 `/gateway/v1/users`）；关闭时保留目标 URL 自身的 path。`preserveQuery` 独立控制 query 覆盖。跨协议映射会重新计算 scheme、host、port、Host header 和请求 path。
+
 ## 5.6 ThrottleProfile
 
 ```ts
