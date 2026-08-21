@@ -313,6 +313,16 @@ pub async fn pick_attachment_file(
     };
     let canonical = std::fs::canonicalize(&path_buf)
         .map_err(|_| app_error(ERR_INVALID_INPUT, "Attachment file cannot be resolved."))?;
+    // Same-root policy as the send path (multipart read_attachment_bytes):
+    // reject here, at pick time, instead of letting the failure surface only
+    // when the user hits send.
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("attachment")
+        .to_string();
+    ensure_attachment_path_allowed(&canonical, &file_name)
+        .map_err(|e| app_error(ERR_INVALID_INPUT, e))?;
     let metadata = std::fs::metadata(&canonical)
         .map_err(|_| app_error(ERR_INVALID_INPUT, "Attachment file cannot be read."))?;
     if metadata.len() > super::multipart::MAX_MULTIPART_FILE_BYTES as u64 {
@@ -325,11 +335,6 @@ pub async fn pick_attachment_file(
         ));
     }
 
-    let file_name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("attachment")
-        .to_string();
     Ok(Some(AttachmentFileOutput {
         file_name,
         file_path: canonical.display().to_string(),
@@ -354,7 +359,7 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("decode base64 content: {error}"))
 }
 
-fn allowed_media_save_roots() -> Vec<PathBuf> {
+pub(super) fn allowed_media_save_roots() -> Vec<PathBuf> {
     [
         dirs::download_dir(),
         dirs::picture_dir(),
@@ -366,6 +371,21 @@ fn allowed_media_save_roots() -> Vec<PathBuf> {
     .flatten()
     .filter_map(|dir| std::fs::canonicalize(dir).ok())
     .collect()
+}
+
+/// Shared attachment-root policy: picking and sending must accept exactly the
+/// same canonical paths, otherwise the user could attach a file that only
+/// fails later on send. `label` is the human-facing file name for the error.
+pub(super) fn ensure_attachment_path_allowed(canonical: &Path, label: &str) -> Result<(), String> {
+    if allowed_media_save_roots()
+        .iter()
+        .any(|root| canonical.starts_with(root))
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "'{label}' is outside the allowed directories (Downloads, Pictures, Videos, Desktop, Documents)"
+    ))
 }
 
 fn reject_unsafe_write_path(path: &Path) -> Result<(), String> {
@@ -393,12 +413,60 @@ fn reject_unsafe_write_path(path: &Path) -> Result<(), String> {
     Err("save path must be inside Downloads, Pictures, Videos, Desktop, or Documents".to_string())
 }
 
+/// Write (or replace) a regular file at `path`, refusing to follow a symbolic
+/// link in the final path component.
+///
+/// `reject_unsafe_write_path` only canonicalizes the parent directory, so a
+/// link planted at the final slot would otherwise redirect `std::fs::write`
+/// outside the allowed roots. Unix opens with `O_NOFOLLOW`, which fails the
+/// open atomically (ELOOP) — no check-then-write window remains. Other
+/// platforms fall back to an lstat guard; std has no portable no-follow open
+/// there, so a link planted between the check and the write could still be
+/// followed (same trade-off as `overwrite_export_file`).
+fn overwrite_regular_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|error| {
+                if error.raw_os_error() == Some(libc::ELOOP) {
+                    format!("refusing to overwrite symbolic link {}", path.display())
+                } else {
+                    format!("write file: {error}")
+                }
+            })?;
+        file.write_all(bytes)
+            .map_err(|error| format!("write file: {error}"))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let is_symlink = std::fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        if is_symlink {
+            return Err(format!(
+                "refusing to overwrite symbolic link {}",
+                path.display()
+            ));
+        }
+        std::fs::write(path, bytes).map_err(|error| format!("write file: {error}"))
+    }
+}
+
 #[tauri::command]
 pub fn save_media_file(input: SaveMediaFileInput) -> Result<String, String> {
     let bytes = decode_base64(&input.base64_content)?;
     let path = Path::new(&input.path);
     reject_unsafe_write_path(path)?;
-    std::fs::write(path, &bytes).map_err(|error| format!("write file: {error}"))?;
+    overwrite_regular_file(path, &bytes)?;
     Ok(path.display().to_string())
 }
 
@@ -1789,7 +1857,10 @@ mod tests {
             "the BOM must be neutralized"
         );
         // Joiners stay: emoji sequences are legitimate file names.
-        assert!(sanitize_path_segment("\u{200D}").contains('\u{200D}') || true);
+        assert!(
+            sanitize_path_segment("\u{200D}").contains('\u{200D}'),
+            "zero-width joiner must be preserved"
+        );
     }
 
     #[test]
@@ -1798,5 +1869,92 @@ mod tests {
         // `con.txt`.
         assert_eq!(sanitize_path_segment("con.txt"), "_con.txt");
         assert_eq!(sanitize_path_segment("con .txt"), "_con .txt");
+    }
+
+    // ── save_media_file ────────────────────────────────────────────────
+
+    /// Scratch directory under the first allowed media root so the save-path
+    /// containment check passes. Returns `None` when no media root resolves.
+    fn scratch_dir_under_allowed_root(label: &str) -> Option<std::path::PathBuf> {
+        let root = allowed_media_save_roots().into_iter().next()?;
+        let dir = root.join(format!("aiproxy-media-test-{}-{label}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    }
+
+    #[test]
+    fn save_media_file_writes_and_replaces_a_regular_file() {
+        let Some(dir) = scratch_dir_under_allowed_root("write") else {
+            return; // no resolvable media root in this environment
+        };
+        let path = dir.join("media.bin");
+
+        save_media_file(SaveMediaFileInput {
+            base64_content: "AQID".to_string(), // 01 02 03
+            path: path.display().to_string(),
+        })
+        .expect("first save creates the file");
+        assert_eq!(std::fs::read(&path).expect("read"), vec![1, 2, 3]);
+
+        save_media_file(SaveMediaFileInput {
+            base64_content: "WA==".to_string(), // X
+            path: path.display().to_string(),
+        })
+        .expect("second save replaces the file");
+        assert_eq!(
+            std::fs::read(&path).expect("read"),
+            b"X".to_vec(),
+            "saving over an existing regular file must replace it"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_media_file_still_rejects_paths_outside_allowed_roots() {
+        let outside =
+            std::env::temp_dir().join(format!("aiproxy-media-out-{}.bin", std::process::id()));
+        let err = save_media_file(SaveMediaFileInput {
+            base64_content: "WA==".to_string(),
+            path: outside.display().to_string(),
+        })
+        .unwrap_err();
+
+        assert!(err.contains("must be inside Downloads"), "got: {err}");
+        assert!(
+            !outside.exists(),
+            "nothing may be written outside the roots"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_media_file_refuses_to_write_through_a_symbolic_link() {
+        use std::os::unix::fs::symlink;
+
+        let Some(dir) = scratch_dir_under_allowed_root("symlink") else {
+            return; // no resolvable media root in this environment
+        };
+        // A link planted at the final slot pointing outside every allowed
+        // root: `std::fs::write` used to follow it and land the bytes there,
+        // because the containment check only ever canonicalized the parent.
+        let outside = std::env::temp_dir().join(format!("aiproxy-pwn-{}.txt", std::process::id()));
+        std::fs::remove_file(&outside).ok();
+        let link = dir.join("victim.txt");
+        symlink(&outside, &link).expect("symlink");
+
+        let err = save_media_file(SaveMediaFileInput {
+            base64_content: "WA==".to_string(),
+            path: link.display().to_string(),
+        })
+        .unwrap_err();
+
+        assert!(
+            err.contains("refusing to overwrite symbolic link"),
+            "got: {err}"
+        );
+        assert!(!outside.exists(), "nothing may be created through the link");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -26,6 +26,26 @@ fn escape_field_name(name: &str) -> String {
     name.replace('"', "%22").replace(['\r', '\n'], "")
 }
 
+/// Renderer-supplied Content-Type is written verbatim into the part header, so
+/// unlike field names it cannot be sanitized in place — anything that may
+/// break the header framing (CR/LF, other control bytes, non-ASCII) must be
+/// rejected outright. Empty values fall back to the octet-stream default.
+fn resolve_part_content_type(content_type: Option<&str>) -> Result<String, String> {
+    match content_type {
+        None => Ok("application/octet-stream".to_string()),
+        Some(value) if value.trim().is_empty() => Ok("application/octet-stream".to_string()),
+        Some(value) => {
+            if value.bytes().all(|byte| (0x20..=0x7E).contains(&byte)) {
+                Ok(value.to_string())
+            } else {
+                // Debug-format the rejected value so CR/LF never reaches logs
+                // or the UI as real control bytes.
+                Err(format!("invalid Content-Type {value:?} for a file part"))
+            }
+        }
+    }
+}
+
 fn read_attachment_bytes(entry: &MultipartEntry) -> Result<Vec<u8>, String> {
     let MultipartEntry::File {
         file_name,
@@ -45,6 +65,14 @@ fn read_attachment_bytes(entry: &MultipartEntry) -> Result<Vec<u8>, String> {
             file_name, file_path
         )
     })?;
+    // P0-6: a composed request can carry arbitrary renderer-supplied paths,
+    // so reading must stay inside the same roots as media saves — otherwise
+    // any file readable by the user could be exfiltrated in a body. The same
+    // shared policy already gated picking, so this is defense in depth.
+    super::files::ensure_attachment_path_allowed(
+        &canonical,
+        &format!("{file_name} ({file_path})"),
+    )?;
     if !canonical.is_file() {
         return Err(format!(
             "attachment '{}' ({}) is not a file",
@@ -101,9 +129,7 @@ pub fn build_multipart_body_bytes(
                 content_type,
                 ..
             } => {
-                let content_type = content_type
-                    .as_deref()
-                    .unwrap_or("application/octet-stream");
+                let content_type = resolve_part_content_type(content_type.as_deref())?;
                 format!(
                     "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\nContent-Type: {}",
                     escape_field_name(name),
@@ -163,10 +189,29 @@ mod tests {
         assert!(rendered.ends_with("\r\n--BOUNDARY--"));
     }
 
+    /// Scratch directory under the first allowed media root so attachment
+    /// reads pass the P0-6 root constraint. Returns `None` in environments
+    /// with no resolvable media root (then no path can be read at all).
+    fn scratch_dir_under_allowed_root(label: &str) -> Option<std::path::PathBuf> {
+        let root = crate::commands::files::allowed_media_save_roots()
+            .into_iter()
+            .next()?;
+        let dir = root.join(format!(
+            "aiproxy-multipart-test-{}-{label}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    }
+
     #[test]
     fn reads_file_parts_from_disk_with_filename() {
-        let dir = std::env::temp_dir();
-        let path = dir.join(format!("aiproxy-multipart-{}.bin", std::process::id()));
+        let Some(dir) = scratch_dir_under_allowed_root("read") else {
+            // No allowed media root here, so every read is rejected by design;
+            // the rejection itself is covered by the outside-root test below.
+            return;
+        };
+        let path = dir.join("a.bin");
         std::fs::write(&path, b"file-bytes").unwrap();
 
         let body = build_multipart_body_bytes(
@@ -184,21 +229,118 @@ mod tests {
         assert!(rendered.contains("name=\"upload\"; filename=\"a.bin\""));
         assert!(rendered.contains("Content-Type: application/octet-stream"));
         assert!(rendered.contains("file-bytes"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn missing_file_failure_includes_name_and_path() {
+        let missing = scratch_dir_under_allowed_root("missing")
+            .map(|dir| dir.join("gone.txt"))
+            .unwrap_or_else(|| "/definitely/missing/aiproxy-file.txt".into());
         let err = build_multipart_body_bytes(
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "gone.txt".to_string(),
-                file_path: "/definitely/missing/aiproxy-file.txt".to_string(),
+                file_path: missing.display().to_string(),
                 content_type: None,
             }],
             "BOUNDARY",
         )
         .unwrap_err();
         assert!(err.contains("gone.txt"), "got: {err}");
-        assert!(err.contains("missing"), "got: {err}");
+        assert!(
+            err.contains("cannot be resolved") || err.contains("outside"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_attachments_outside_allowed_roots() {
+        // temp_dir is deliberately outside Downloads/Pictures/Videos/Desktop/
+        // Documents: reading arbitrary renderer-chosen paths must fail even
+        // though the file exists (P0-6).
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("aiproxy-outside-{}.txt", std::process::id()));
+        std::fs::write(&path, b"secret").unwrap();
+
+        let err = build_multipart_body_bytes(
+            &[MultipartEntry::File {
+                name: "upload".to_string(),
+                file_name: "secret.txt".to_string(),
+                file_path: path.display().to_string(),
+                content_type: None,
+            }],
+            "BOUNDARY",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("outside the allowed directories"),
+            "got: {err}"
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rejects_content_type_with_crlf_injection() {
+        let err = build_multipart_body_bytes(
+            &[MultipartEntry::File {
+                name: "upload".to_string(),
+                file_name: "a.bin".to_string(),
+                // The path is never read: header validation must fail first.
+                file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                content_type: Some("text/plain\r\nX-Injected: 1".to_string()),
+            }],
+            "BOUNDARY",
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid Content-Type"), "got: {err}");
+        // The rejected value must not appear with real CR/LF bytes anywhere
+        // (header, logs, or UI).
+        assert!(!err.contains("\r\n"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_content_type_with_other_control_or_non_ascii_bytes() {
+        for value in ["a\u{0}b", "text/plain\n", "text/plain\r", "类型/中文"] {
+            let err = build_multipart_body_bytes(
+                &[MultipartEntry::File {
+                    name: "upload".to_string(),
+                    file_name: "a.bin".to_string(),
+                    file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                    content_type: Some(value.to_string()),
+                }],
+                "BOUNDARY",
+            )
+            .unwrap_err();
+            assert!(
+                err.contains("invalid Content-Type"),
+                "value {value:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_content_type_falls_back_to_octet_stream() {
+        let body = build_multipart_body_bytes(
+            &[MultipartEntry::File {
+                name: "upload".to_string(),
+                file_name: "a.bin".to_string(),
+                file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                content_type: Some("  ".to_string()),
+            }],
+            "BOUNDARY",
+        );
+        // The blank content type resolves to the default before the (missing)
+        // path is ever touched, so the failure must be the path error.
+        let err = body.unwrap_err();
+        assert!(err.contains("cannot be resolved"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_media_type_parameters_in_content_type() {
+        let resolved = resolve_part_content_type(Some("application/json; charset=utf-8")).unwrap();
+        assert_eq!(resolved, "application/json; charset=utf-8");
     }
 }
