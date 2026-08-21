@@ -75,11 +75,21 @@ impl RootCaPair {
     pub fn load_from_pem(cert_pem: &str, key_pem: &str) -> Result<Self, TlsManagerError> {
         let key_pair = Arc::new(KeyPair::from_pem(key_pem)?);
         let params = CertificateParams::from_ca_cert_pem(cert_pem)?;
-        let cert = params.clone().self_signed(&key_pair)?;
-        let cert_der = cert.der().to_vec();
+        // P1-9: `params.self_signed(&key_pair)` re-signs the CA, producing a
+        // NEW certificate (fresh serial + signature) whose DER drifts from the
+        // PEM actually stored on disk — so the fingerprint surfaced to the UI
+        // and compared against the OS trust store never matched the real
+        // cert. Parse the on-disk PEM back to its raw DER instead; only
+        // `issuer_cert` (the rcgen handle used to sign leaf certificates)
+        // keeps the re-signed representation.
+        let (_, pem) = x509_parser::pem::parse_x509_pem(cert_pem.as_bytes())
+            .map_err(|error| {
+                TlsManagerError::GenerationFailed(format!("parse CA cert PEM: {error}"))
+            })?;
+        let cert_der = pem.contents;
         let key_der = key_pair.serialize_der();
         let fingerprint = compute_fingerprint(&cert_der);
-        let issuer_cert = Arc::new(cert);
+        let issuer_cert = Arc::new(params.clone().self_signed(&key_pair)?);
 
         Ok(Self {
             cert_params: params,
@@ -350,6 +360,23 @@ mod tests {
         // SHA-256 produces 32 bytes = 64 hex chars + 31 colons = 95 chars
         assert_eq!(fp.len(), 95);
         assert!(fp.chars().all(|c| c.is_ascii_hexdigit() || c == ':'));
+    }
+
+    // P1-9: load_from_pem must fingerprint the DER encoded in the on-disk PEM,
+    // not a re-signed replica. A re-sign mints a fresh serial + signature, so
+    // under the old behavior the roundtrip fingerprint drifted from the cert
+    // users actually imported into their OS trust store.
+    #[test]
+    fn load_from_pem_fingerprint_matches_the_on_disk_certificate() {
+        let root_ca = RootCaPair::generate().unwrap();
+        let loaded = RootCaPair::load_from_pem(root_ca.cert_pem(), root_ca.key_pem()).unwrap();
+
+        // The fingerprint equals SHA-256 over the PEM's own DER payload...
+        let (_, pem) = x509_parser::pem::parse_x509_pem(root_ca.cert_pem().as_bytes()).unwrap();
+        assert_eq!(loaded.cert_der(), pem.contents.as_slice());
+        assert_eq!(loaded.fingerprint(), compute_fingerprint(&pem.contents));
+        // ...and the generate → save → load roundtrip is stable.
+        assert_eq!(loaded.fingerprint(), root_ca.fingerprint());
     }
 
     #[test]
