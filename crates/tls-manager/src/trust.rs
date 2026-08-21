@@ -106,26 +106,30 @@ pub fn remove_cert_trust_on_platform(cert_path: &Path, platform: Platform) -> Tr
     }
 }
 
-#[cfg(target_os = "windows")]
-fn is_trusted_windows(cert_path: &Path) -> bool {
-    use aiproxy_sys_util::CommandExt;
-    use std::process::Command;
+/// Wrap a PowerShell script body in an inline script block and append the
+/// arguments as single-quoted literals. `powershell -Command <text> <args>`
+/// does NOT bind trailing process arguments to a top-level `param()` — they
+/// are appended to the command text, so the previous `.arg()` calls left
+/// `$Thumbprint`/`$Location` empty (P0-5): trust checks always printed 'False'
+/// and removals always threw. Embedding the values INSIDE the command text as
+/// script-block arguments binds them positionally to `param()`.
+#[cfg(any(target_os = "windows", test))]
+fn windows_ps_script_block_command(script_body: &str, args: &[&str]) -> String {
+    let quoted = args
+        .iter()
+        .map(|value| format!("'{}'", value.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("& {{\n{script_body}\n}} {quoted}")
+}
 
-    let thumbprint = match certificate_sha1_thumbprint(cert_path) {
-        Ok(thumbprint) => thumbprint,
-        Err(error) => {
-            tracing::warn!(
-                event = "windows_cert_trust_thumbprint_failed",
-                path = %cert_path.to_string_lossy(),
-                error,
-                "windows_cert_trust_thumbprint_failed"
-            );
-            return false;
-        }
-    };
-
+/// The full `-Command` text for the Windows trust check, with `thumbprint`
+/// bound to the script block's `param()`.
+#[cfg(any(target_os = "windows", test))]
+fn windows_trust_check_command(thumbprint: &str) -> String {
     let script = r#"
 param([string]$Thumbprint)
+if ([string]::IsNullOrWhiteSpace($Thumbprint)) { throw 'Thumbprint is required' }
 $ErrorActionPreference = 'Stop'
 $normalized = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
 
@@ -171,10 +175,74 @@ foreach ($locationName in @('CurrentUser', 'LocalMachine')) {
 
 'False'
 "#;
+    windows_ps_script_block_command(script, &[thumbprint])
+}
+
+/// The full `-Command` text for removing the certificate from one Root store,
+/// with `thumbprint` and `location` bound to the script block's `param()`.
+#[cfg(any(target_os = "windows", test))]
+fn windows_removal_command(thumbprint: &str, location: &str) -> String {
+    let script = r#"
+param([string]$Thumbprint, [string]$Location)
+if ([string]::IsNullOrWhiteSpace($Thumbprint)) { throw 'Thumbprint is required' }
+if ([string]::IsNullOrWhiteSpace($Location)) { throw 'Location is required' }
+$ErrorActionPreference = 'Stop'
+$normalized = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+
+$storeLocation = [System.Enum]::Parse(
+  [System.Security.Cryptography.X509Certificates.StoreLocation],
+  $Location
+)
+$store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+  [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+  $storeLocation
+)
+try {
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+  $matches = $store.Certificates.Find(
+    [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+    $normalized,
+    $false
+  )
+  if ($matches.Count -eq 0) {
+    'absent'
+  } else {
+    foreach ($cert in $matches) {
+      $store.Remove($cert)
+    }
+    'removed'
+  }
+} finally {
+  if ($null -ne $store) {
+    $store.Close()
+  }
+}
+"#;
+    windows_ps_script_block_command(script, &[thumbprint, location])
+}
+
+#[cfg(target_os = "windows")]
+fn is_trusted_windows(cert_path: &Path) -> bool {
+    use aiproxy_sys_util::CommandExt;
+    use std::process::Command;
+
+    let thumbprint = match certificate_sha1_thumbprint(cert_path) {
+        Ok(thumbprint) => thumbprint,
+        Err(error) => {
+            tracing::warn!(
+                event = "windows_cert_trust_thumbprint_failed",
+                path = %cert_path.to_string_lossy(),
+                error,
+                "windows_cert_trust_thumbprint_failed"
+            );
+            return false;
+        }
+    };
+
+    let command = windows_trust_check_command(&thumbprint);
 
     let output = match Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .arg(&thumbprint)
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
         .no_window()
         .output()
     {
@@ -242,49 +310,13 @@ fn remove_cert_trust_windows(cert_path: &Path) -> TrustRemovalReport {
     // Per-location removal. Exit code 0 with stdout "absent" (cert not in the
     // store) or "removed" both count as success; a non-zero exit surfaces the
     // stderr (e.g. access denied opening LocalMachine\Root without admin).
-    let script = r#"
-param([string]$Thumbprint, [string]$Location)
-$ErrorActionPreference = 'Stop'
-$normalized = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-
-$storeLocation = [System.Enum]::Parse(
-  [System.Security.Cryptography.X509Certificates.StoreLocation],
-  $Location
-)
-$store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-  [System.Security.Cryptography.X509Certificates.StoreName]::Root,
-  $storeLocation
-)
-try {
-  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-  $matches = $store.Certificates.Find(
-    [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
-    $normalized,
-    $false
-  )
-  if ($matches.Count -eq 0) {
-    'absent'
-  } else {
-    foreach ($cert in $matches) {
-      $store.Remove($cert)
-    }
-    'removed'
-  }
-} finally {
-  if ($null -ne $store) {
-    $store.Close()
-  }
-}
-"#;
-
     for (location, store_id) in [
         ("CurrentUser", trust_store::WINDOWS_CURRENT_USER_ROOT),
         ("LocalMachine", trust_store::WINDOWS_LOCAL_MACHINE_ROOT),
     ] {
+        let command = windows_removal_command(&thumbprint, location);
         let result = match Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .arg(&thumbprint)
-            .arg(location)
+            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
             .no_window()
             .output()
         {
@@ -743,6 +775,62 @@ mod tests {
         assert_eq!(Platform::Windows.to_string(), "windows");
         assert_eq!(Platform::Macos.to_string(), "macos");
         assert_eq!(Platform::Linux.to_string(), "linux");
+    }
+
+    // P0-5 regression: the Windows trust commands must pass their arguments as
+    // literals inside an inline script block. `powershell -Command <text>`
+    // appends trailing process arguments to the command TEXT instead of binding
+    // them to `param()`, so the previous `.arg(thumbprint)` calls left
+    // `$Thumbprint` empty — checks always printed 'False' and removals always
+    // threw on an unbound `$Location`.
+    #[test]
+    fn windows_check_command_binds_thumbprint_via_script_block() {
+        let command = windows_trust_check_command("ABCDEF0123456789");
+
+        assert!(command.starts_with("& {"), "got: {command}");
+        assert!(
+            command.contains("param([string]$Thumbprint)"),
+            "got: {command}"
+        );
+        // The literal argument must come AFTER the script block's closing
+        // brace, i.e. it is a script-block argument, not stray command text.
+        assert!(
+            command.trim_end().ends_with("} 'ABCDEF0123456789'"),
+            "got: {command}"
+        );
+        // An empty-parameter guard must be present so a future binding
+        // regression fails loudly instead of silently checking an empty
+        // thumbprint.
+        assert!(
+            command.contains("IsNullOrWhiteSpace($Thumbprint)"),
+            "got: {command}"
+        );
+    }
+
+    #[test]
+    fn windows_removal_command_binds_thumbprint_and_location() {
+        let command = windows_removal_command("ABCDEF0123456789", "CurrentUser");
+
+        assert!(command.starts_with("& {"), "got: {command}");
+        assert!(
+            command.contains("param([string]$Thumbprint, [string]$Location)"),
+            "got: {command}"
+        );
+        assert!(
+            command
+                .trim_end()
+                .ends_with("} 'ABCDEF0123456789' 'CurrentUser'"),
+            "got: {command}"
+        );
+        assert!(command.contains("IsNullOrWhiteSpace($Thumbprint)"));
+        assert!(command.contains("IsNullOrWhiteSpace($Location)"));
+    }
+
+    #[test]
+    fn windows_ps_script_block_command_escapes_single_quotes() {
+        let command = windows_ps_script_block_command("$V", &["o'brien"]);
+        // PowerShell doubles single quotes inside single-quoted literals.
+        assert!(command.contains("'o''brien'"), "got: {command}");
     }
 
     #[test]
