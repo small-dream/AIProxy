@@ -126,6 +126,31 @@ pub(crate) fn h2_request_uri(url: &Url) -> String {
 // Upstream request forwarding & response handling
 // ---------------------------------------------------------------------------
 
+/// Bound ONE head-phase step (TCP/TLS connect, HTTP handshake, or
+/// request-send + response-head wait) by the upstream request timeout
+/// (P1-5). Each phase gets its own full budget; only the head phases are
+/// capped — the response body is bounded per-chunk by the response-body idle
+/// ceiling so large downloads and slow SSE streams are never cut off at an
+/// arbitrary total duration.
+async fn bound_head_phase<F, T>(fut: F) -> Result<T, ProxyError>
+where
+    F: std::future::Future<Output = T>,
+{
+    let deadline = crate::upstream_request_timeout();
+    match tokio::time::timeout(deadline, fut).await {
+        Ok(value) => Ok(value),
+        Err(_) => {
+            let timeout_secs = deadline.as_secs();
+            tracing::warn!(
+                event = "upstream_head_phase_timed_out",
+                timeout_secs,
+                "upstream_head_phase_timed_out"
+            );
+            Err(ProxyError::UpstreamTimeout { timeout_secs })
+        }
+    }
+}
+
 /// Forward a parsed proxy request to the upstream server and return the
 /// full response (status, headers, body, timing).
 pub(crate) async fn forward_request(
@@ -175,14 +200,17 @@ pub(crate) async fn forward_request(
                 port: request.url.port().unwrap_or(443),
             };
             Some(
-                p.get_or_connect(
+                bound_head_phase(p.get_or_connect(
                     &key,
                     dns_override_ip,
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
                     upstream_proxy.clone(),
-                )
-                .await?,
+                ))
+                .await?
+                // get_or_connect reports String errors; the outer ? above only
+                // strips bound_head_phase's own ProxyError layer.
+                .map_err(ProxyError::from)?,
             )
         } else {
             None
@@ -303,9 +331,9 @@ pub(crate) async fn forward_request(
 
         // send_request + read
         let waiting_started_at = Instant::now();
-        let response = match h2_sender.send_request(build_h2_req()?).await {
-            Ok(r) => r,
-            Err(error) => {
+        let response = match bound_head_phase(h2_sender.send_request(build_h2_req()?)).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(error)) => {
                 // M3: the pooled connection is likely half-open (the local side
                 // hasn't observed the peer's RST/FIN). Evict it. For safe/
                 // idempotent methods we also retry ONCE on a freshly established
@@ -361,9 +389,9 @@ pub(crate) async fn forward_request(
                 };
                 match retry_sender {
                     Some((mut fresh_sender, _)) => {
-                        match fresh_sender.send_request(build_h2_req()?).await {
-                            Ok(r) => r,
-                            Err(retry_error) => {
+                        match bound_head_phase(fresh_sender.send_request(build_h2_req()?)).await {
+                            Ok(Ok(r)) => r,
+                            Ok(Err(retry_error)) => {
                                 if let Some(ref p) = pool {
                                     p.evict_key(&pool_key).await;
                                 }
@@ -371,6 +399,16 @@ pub(crate) async fn forward_request(
                                     "failed to send upstream h2 request after retry: {retry_error}"
                                 )));
                             }
+                            // P1-5: same eviction discipline as above when
+                            // the retried connection also fails to produce a
+                            // head in time.
+                            Err(error @ ProxyError::UpstreamTimeout { .. }) => {
+                                if let Some(ref p) = pool {
+                                    p.evict_key(&pool_key).await;
+                                }
+                                return Err(error);
+                            }
+                            Err(other) => return Err(other),
                         }
                     }
                     None => {
@@ -380,6 +418,16 @@ pub(crate) async fn forward_request(
                     }
                 }
             }
+            // P1-5: no response head within the deadline — treat like a dead
+            // pooled connection (evict so the next request dials fresh) but
+            // report the Gateway Timeout cause.
+            Err(error @ ProxyError::UpstreamTimeout { .. }) => {
+                if let Some(ref p) = pool {
+                    p.evict_key(&pool_key).await;
+                }
+                return Err(error);
+            }
+            Err(other) => return Err(other),
         };
         let waiting_ms = waiting_started_at.elapsed().as_millis();
 
@@ -424,22 +472,26 @@ pub(crate) async fn forward_request(
                 request.url
             ))
         })?;
-        let (timing_stream, connection_timing) = tower_service::Service::call(&mut connector, uri)
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    event = "upstream_connect_failed",
-                    request_id = %request.request_id,
-                    host = %request.host,
-                    url = %request.url,
-                    error = %error,
-                    "upstream_connect_failed"
-                );
-                ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
-            })?;
+        // P1-5: each head-phase step gets its own full budget of the upstream
+        // request timeout; a stalled dial/handshake no longer relies on an
+        // outer total-duration wrapper.
+        let (timing_stream, connection_timing) =
+            bound_head_phase(tower_service::Service::call(&mut connector, uri))
+                .await?
+                .map_err(|error| {
+                    tracing::error!(
+                        event = "upstream_connect_failed",
+                        request_id = %request.request_id,
+                        host = %request.host,
+                        url = %request.url,
+                        error = %error,
+                        "upstream_connect_failed"
+                    );
+                    ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
+                })?;
 
-        let (sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
-            .await
+        let (sender, conn) = bound_head_phase(hyper::client::conn::http1::handshake(timing_stream))
+            .await?
             .map_err(|error| {
                 tracing::error!(
                     event = "upstream_http_handshake_failed",
@@ -453,9 +505,9 @@ pub(crate) async fn forward_request(
 
         // Spawn the h1 connection driver and retain its JoinHandle. We must
         // Retain the driver JoinHandle in a guard so we can deterministically
-        // abort it if this request is dropped early (e.g. the
-        // upstream_request_timeout wrapper in http_proxy.rs drops the
-        // forward_request future). On the current hyper version the driver
+        // abort it if this request is dropped early (e.g. a head phase times
+        // out and forward_request returns before the body has been read). On
+        // the current hyper version the driver
         // self-terminates when SendRequest is dropped (dispatch channel closes),
         // so a leak is not reproducible today; the explicit abort is
         // defense-in-depth so a future hyper change cannot reintroduce a hung
@@ -500,27 +552,40 @@ pub(crate) async fn forward_request(
     // duration as waiting_ms and leave request_send_ms at 0 until we have a
     // streaming send API that can report flush completion.
     let waiting_started_at = Instant::now();
-    let response = sender.send_request(http_req).await.map_err(|error| {
-        tracing::error!(
-            event = "upstream_request_send_failed",
-            request_id = %request.request_id,
-            method = %request.method,
-            scheme = %request.url.scheme(),
-            host = %request.host,
-            url = %request.url,
-            error = %error,
-            "upstream_request_send_failed"
-        );
-        ProxyError::UpstreamError(format!("failed to send upstream request: {error}"))
-    })?;
+    // P1-5: this call resolves when the response HEAD arrives, so it is the
+    // last head phase and gets its own full budget of the upstream request
+    // timeout. The body read below is NOT covered — it is bounded per-chunk by
+    // the response-body idle ceiling instead.
+    let response = match bound_head_phase(sender.send_request(http_req)).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            tracing::error!(
+                event = "upstream_request_send_failed",
+                request_id = %request.request_id,
+                method = %request.method,
+                scheme = %request.url.scheme(),
+                host = %request.host,
+                url = %request.url,
+                error = %error,
+                "upstream_request_send_failed"
+            );
+            return Err(ProxyError::UpstreamError(format!(
+                "failed to send upstream request: {error}"
+            )));
+        }
+        // Head deadline elapsed. Early-return fires the conn-driver abort
+        // guard, releasing the socket.
+        Err(error @ ProxyError::UpstreamTimeout { .. }) => return Err(error),
+        Err(other) => return Err(other),
+    };
     let waiting_ms = waiting_started_at.elapsed().as_millis();
 
     let result =
         build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await;
     // On the normal success path the response body has been fully read; let the
-    // conn driver complete naturally (do not abort it). Any error or an early
-    // drop of this future (e.g. upstream_request_timeout) skips this line, so
-    // the guard fires and aborts the driver, releasing the socket.
+    // conn driver complete naturally (do not abort it). Any error (head-phase
+    // timeout, body-idle timeout) or an early drop of this future skips this
+    // line, so the guard fires and aborts the driver, releasing the socket.
     _conn_driver_guard.disarm();
     result
 }
@@ -626,11 +691,26 @@ pub(crate) async fn read_response_body_with_limit(
         response_body.reserve((content_length as usize).min(MAX_CAPTURED_BODY_BYTES));
     }
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("read response chunk: {error}"))?
-    {
+    // P1-5: per-chunk idle ceiling instead of a total-duration cap. A body
+    // that keeps producing chunks may legitimately take arbitrarily long
+    // (large download, slow SSE); a body that goes silent mid-stream is
+    // abandoned after the ceiling.
+    let idle_ceiling = crate::response_body_read_idle_timeout();
+    loop {
+        // chunk() yields Result<Option<Bytes>>; timeout wraps it with the idle
+        // ceiling (P1-5).
+        let chunk = match tokio::time::timeout(idle_ceiling, response.chunk()).await {
+            Ok(inner) => match inner.map_err(|error| format!("read response chunk: {error}"))? {
+                Some(chunk) => chunk,
+                None => break,
+            },
+            Err(_) => {
+                return Err(format!(
+                    "response body idle timed out after {}s",
+                    idle_ceiling.as_secs()
+                ));
+            }
+        };
         if preserve_full_body {
             if body_truncated {
                 if let Some(file) = spooled_file.as_mut() {
@@ -713,8 +793,22 @@ async fn read_hyper_response_body_with_limit(
 
     let mut body_stream = std::pin::pin!(response.into_body());
 
-    while let Some(frame_result) = body_stream.frame().await {
-        let frame = frame_result.map_err(|error| format!("read hyper response frame: {error}"))?;
+    // P1-5: per-chunk idle ceiling instead of a total-duration cap — same
+    // contract as the reqwest reader above.
+    let idle_ceiling = crate::response_body_read_idle_timeout();
+    loop {
+        let frame = match tokio::time::timeout(idle_ceiling, body_stream.frame()).await {
+            Ok(Some(frame_result)) => {
+                frame_result.map_err(|error| format!("read hyper response frame: {error}"))?
+            }
+            Ok(None) => break,
+            Err(_) => {
+                return Err(format!(
+                    "response body idle timed out after {}s",
+                    idle_ceiling.as_secs()
+                ));
+            }
+        };
 
         let chunk = match frame.into_data() {
             Ok(data) => data,

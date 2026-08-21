@@ -766,28 +766,30 @@ async fn stage_forward_upstream(
     started_at_instant: Instant,
 ) -> Result<ForwardOutcome, crate::ProxyError> {
     // --- Forward upstream ---
+    // P1-5: no outer total-duration wrapper. forward_request bounds each head
+    // phase (dial / handshake / head arrival) by the upstream request timeout
+    // and reports elapse as ProxyError::UpstreamTimeout, while the body is
+    // bounded per-chunk by the response-body idle ceiling — so a large or
+    // slow-but-alive download is never cut off at an arbitrary deadline.
     let upstream_result: Result<UpstreamResponse, crate::ProxyError> = match local_response {
         Some(local_response) => Ok(local_response),
         None => {
             let host = request.host.clone();
-            let upstream_timeout = crate::upstream_request_timeout();
-            match tokio::time::timeout(
-                upstream_timeout,
-                crate::upstream::forward_request(
-                    request,
-                    &ctx.dns_manager,
-                    &ctx.workspace_id,
-                    Some(ctx.upstream_pool.clone()),
-                    ctx.verify_upstream_tls,
-                    Arc::clone(&ctx.tls_verify_hosts),
-                    ctx.upstream_proxy.clone(),
-                ),
+            match crate::upstream::forward_request(
+                request,
+                &ctx.dns_manager,
+                &ctx.workspace_id,
+                Some(ctx.upstream_pool.clone()),
+                ctx.verify_upstream_tls,
+                Arc::clone(&ctx.tls_verify_hosts),
+                ctx.upstream_proxy.clone(),
             )
             .await
             {
-                Ok(result) => result,
-                Err(_) => {
-                    let timeout_secs = upstream_timeout.as_secs();
+                Ok(result) => Ok(result),
+                // A head phase exceeded its budget: keep the existing 504
+                // gateway-timeout session/response behavior.
+                Err(crate::ProxyError::UpstreamTimeout { timeout_secs }) => {
                     let response_message =
                         format!("The upstream server did not respond within {timeout_secs}s.",);
                     tracing::warn!(
@@ -824,6 +826,7 @@ async fn stage_forward_upstream(
                         build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, &response_message)?;
                     return Ok(ForwardOutcome::Response(response));
                 }
+                result => result,
             }
         }
     };

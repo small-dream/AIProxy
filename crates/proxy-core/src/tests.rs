@@ -7,7 +7,8 @@ use super::server::is_ssl_blind_tunnel;
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    override_client_header_read_timeout_for_test, override_tunnel_idle_timeout_for_test,
+    override_client_header_read_timeout_for_test,
+    override_response_body_read_idle_timeout_for_test, override_tunnel_idle_timeout_for_test,
     override_upstream_request_timeout_for_test,
     override_ws_upstream_body_read_idle_timeout_for_test, resolve_target_url, send_direct_request,
     start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
@@ -2588,6 +2589,188 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
     assert_eq!(session.summary.status_code, 504);
     assert_eq!(session.summary.method, "GET");
     assert_eq!(session.summary.path, "/slow");
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
+/// P1-5 regression: the upstream request timeout now bounds only the HEAD
+/// phases (dial / handshake / head arrival). An upstream that delivers the
+/// response head promptly and then drips a slow-but-alive body must complete,
+/// even when the total transfer exceeds the request timeout. Before this
+/// change a single outer `timeout(upstream_request_timeout, forward_request)`
+/// wrapper aborted such transfers with a 504 partway through the body.
+#[tokio::test]
+async fn slow_dripping_response_body_survives_a_short_upstream_request_timeout() {
+    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(200));
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // Head arrives immediately; the body then drips for 300ms — well past
+        // the 200ms request-timeout budget.
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 30\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            sleep(Duration::from_millis(100)).await;
+            stream.write_all(&[b'A'; 10]).await.unwrap();
+        }
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/drip");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    timeout(
+        Duration::from_secs(5),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("response should complete even though it exceeds the request timeout")
+    .unwrap();
+
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
+    assert!(response.contains("200 OK"), "got: {response}");
+    assert_eq!(body.len(), 30, "body must arrive in full: {response:?}");
+    assert!(body.bytes().all(|b| b == b'A'), "got: {body:?}");
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+    assert_eq!(session.summary.status_code, 200);
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+/// P1-5 regression: a response body that goes silent mid-stream is abandoned
+/// by the per-chunk idle ceiling (client sees 502 quickly), NOT held until
+/// the much longer upstream request timeout. Only the body-idle slot is
+/// armed here — the request timeout stays at its 120s default — so a fast
+/// failure can only come from the idle ceiling.
+#[tokio::test]
+async fn silent_response_body_fails_within_the_body_idle_ceiling() {
+    let _idle_guard =
+        override_response_body_read_idle_timeout_for_test(Duration::from_millis(200));
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // The head promises 1000 bytes, then the upstream falls completely
+        // silent without delivering any of them.
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+            .await
+            .unwrap();
+        sleep(Duration::from_secs(5)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/silent-body");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    timeout(
+        Duration::from_secs(5),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("silent body should fail within the idle ceiling, not the request timeout")
+    .unwrap();
+    assert!(
+        response.contains("502 Bad Gateway"),
+        "expected Bad Gateway, got: {response}"
+    );
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+    assert_eq!(session.summary.status_code, 502);
 
     started_proxy.server_handle.shutdown().await;
     upstream_task.abort();

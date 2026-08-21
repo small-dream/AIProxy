@@ -731,27 +731,14 @@ pub async fn send_direct_request_bytes(
     let response_headers = response.headers().clone();
 
     let response_read_started_at = Instant::now();
-    let (response_body, response_body_size_bytes, body_truncated, _) = match tokio::time::timeout(
-        upstream_timeout,
-        crate::upstream::read_response_body_with_limit(response, &request_id, false),
-    )
-    .await
-    {
-        Ok(result) => result.map_err(|error| format!("failed to read response body: {error}"))?,
-        Err(_) => {
-            tracing::warn!(
-                event = "direct_request_timed_out",
-                request_id = %request_id,
-                url = %url,
-                timeout_secs,
-                stage = "body_read",
-                "direct_request_timed_out"
-            );
-            return Err(format!(
-                "upstream '{url}' stopped sending the response body within {timeout_secs}s."
-            ));
-        }
-    };
+    // P1-5: no outer total-duration cap on the body read — the reader bounds
+    // each chunk by the response-body idle ceiling, so a slow-but-alive body
+    // (large download) completes while a truly dead stream fails within the
+    // idle ceiling.
+    let (response_body, response_body_size_bytes, body_truncated, _) =
+        crate::upstream::read_response_body_with_limit(response, &request_id, false)
+            .await
+            .map_err(|error| format!("failed to read response body: {error}"))?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     tracing::debug!(
