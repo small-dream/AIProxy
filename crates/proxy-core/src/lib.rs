@@ -64,6 +64,31 @@ static TEST_BREAKPOINT_WAIT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const WS_CLOSE_GRACE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 static TEST_WS_CLOSE_GRACE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// WebSocket relay frame-boundary idle ceiling (P1-1). Waiting for the FIRST
+// byte of the next frame header is a normal silence period for push/market-
+// data connections whose heartbeat interval may exceed any short timeout, so
+// it gets a minutes-level ceiling instead of the per-read frame timeout. Once
+// the first byte arrives the frame has started; every subsequent read of that
+// frame is bounded by `WS_FRAME_READ_TIMEOUT_SECS` so a stalled peer cannot
+// drag a half-delivered frame forever. See `ws::parse_ws_frame`.
+const WS_FRAME_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+#[cfg(test)]
+static TEST_WS_FRAME_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// WebSocket relay per-read ceiling for the bytes of an IN-FLIGHT frame
+// (header tail, extended length, mask key, payload). Deliberately much
+// shorter than the frame-boundary idle ceiling: once a peer starts sending a
+// frame it must finish delivering it.
+const WS_FRAME_READ_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+static TEST_WS_FRAME_READ_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+// Upstream response-body per-chunk idle ceiling (P1-5). The total upstream
+// request timeout only bounds dial + send + response-head arrival; a body
+// that keeps producing chunks may take arbitrarily long (large download,
+// slow SSE), while a body that goes silent is abandoned after this ceiling.
+// See `upstream::read_hyper_response_body_with_limit`.
+const RESPONSE_BODY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+static TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 // WebSocket upgrade non-101 body: per-read idle ceiling. A non-101 refusal on
 // an HTTP/1.1 keep-alive connection with no Content-Length would otherwise
 // block on upstream.read() forever — the peer keeps the connection open and
@@ -189,6 +214,49 @@ pub(crate) fn ws_close_grace_timeout() -> Duration {
     WS_CLOSE_GRACE_TIMEOUT
 }
 
+/// WebSocket relay frame-boundary idle ceiling: how long the relay tolerates
+/// complete silence between frames before ending the connection. See
+/// `WS_FRAME_IDLE_TIMEOUT`.
+pub(crate) fn ws_frame_idle_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_WS_FRAME_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    WS_FRAME_IDLE_TIMEOUT
+}
+
+/// WebSocket relay per-read ceiling for bytes of an in-flight frame. See
+/// `WS_FRAME_READ_TIMEOUT`.
+pub(crate) fn ws_frame_read_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_WS_FRAME_READ_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    WS_FRAME_READ_TIMEOUT
+}
+
+/// Upstream response-body per-chunk idle ceiling. See
+/// `RESPONSE_BODY_READ_IDLE_TIMEOUT`.
+pub(crate) fn response_body_read_idle_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    RESPONSE_BODY_READ_IDLE_TIMEOUT
+}
+
 /// WebSocket upgrade non-101 body: per-read idle ceiling. Bounds each read of
 /// a refused upstream response body so a keep-alive peer without a
 /// Content-Length cannot block the proxy forever.
@@ -262,6 +330,32 @@ pub(crate) fn override_ws_close_grace_timeout_for_test(timeout: Duration) -> Tes
     TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
     TestTimeoutGuard {
         slot: &TEST_WS_CLOSE_GRACE_TIMEOUT_MS,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn override_ws_frame_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_WS_FRAME_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: &TEST_WS_FRAME_IDLE_TIMEOUT_MS,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn override_ws_frame_read_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_WS_FRAME_READ_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: &TEST_WS_FRAME_READ_TIMEOUT_MS,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn override_response_body_read_idle_timeout_for_test(
+    timeout: Duration,
+) -> TestTimeoutGuard {
+    TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: &TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS,
     }
 }
 

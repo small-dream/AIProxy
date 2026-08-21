@@ -2,18 +2,12 @@ use crate::ProxyError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 const MAX_WS_FRAME_SIZE: u64 = 16 * 1024 * 1024;
 const WS_MASK_CHUNK_BYTES: usize = 16 * 1024;
-
-/// Timeout for individual read operations during WebSocket frame parsing.
-/// Prevents a malicious peer from stalling the relay by sending a header
-/// that claims a large payload but never delivers the data.
-const WS_FRAME_READ_TIMEOUT_SECS: u64 = 30;
 
 /// Marker prefix used to tag `ProxyError::Other` messages produced by
 /// `parse_ws_frame` for genuine RFC 6455 protocol violations (reserved
@@ -157,19 +151,39 @@ impl WsMessageAssembler {
 
 /// Read one WebSocket frame from an async stream.
 /// Returns the parsed frame with unmasked payload.
-/// Each read operation is guarded by a timeout to prevent a stalled peer
-/// from blocking the relay loop indefinitely.
+///
+/// P1-1: the wait for the FIRST byte of the frame header is the inter-frame
+/// silence period — heartbeat gaps and quiet push connections are normal, so
+/// it is bounded by `ws_frame_idle_timeout()` (minutes-level), NOT by the
+/// per-read frame timeout. Once that byte arrives the frame is in flight and
+/// every subsequent read (header tail, extended length, mask key, payload) is
+/// bounded by `ws_frame_read_timeout()` so a stalled peer cannot drag a
+/// half-delivered frame forever.
 pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> Result<WsFrame, ProxyError> {
-    let read_timeout = Duration::from_secs(WS_FRAME_READ_TIMEOUT_SECS);
+    let read_timeout = crate::ws_frame_read_timeout();
 
-    let mut head = [0u8; 2];
-    timeout(read_timeout, reader.read_exact(&mut head))
+    // Frame-boundary wait: first byte of the next header.
+    let mut head: [u8; 2] = [0; 2];
+    let idle_timeout = crate::ws_frame_idle_timeout();
+    timeout(idle_timeout, reader.read_exact(&mut head[..1]))
         .await
         .map_err(|_| {
             ProxyError::Other(format!(
-                "ws frame header read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                "ws frame idle timed out ({}s between frames)",
+                idle_timeout.as_secs()
+            ))
+        })?
+        .map_err(ProxyError::IoError)?;
+
+    // Frame in flight: remaining header byte.
+    timeout(read_timeout, reader.read_exact(&mut head[1..]))
+        .await
+        .map_err(|_| {
+            ProxyError::Other(format!(
+                "ws frame header read timed out ({:?})",
+                read_timeout
             ))
         })?
         .map_err(ProxyError::IoError)?;
@@ -220,7 +234,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
             .await
             .map_err(|_| {
                 ProxyError::Other(format!(
-                    "ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                    "ws extended length read timed out ({read_timeout:?})"
                 ))
             })?
             .map_err(ProxyError::IoError)?;
@@ -231,7 +245,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
             .await
             .map_err(|_| {
                 ProxyError::Other(format!(
-                    "ws extended length read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                    "ws extended length read timed out ({read_timeout:?})"
                 ))
             })?
             .map_err(ProxyError::IoError)?;
@@ -250,7 +264,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
             .await
             .map_err(|_| {
                 ProxyError::Other(format!(
-                    "ws mask key read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                    "ws mask key read timed out ({read_timeout:?})"
                 ))
             })?
             .map_err(ProxyError::IoError)?;
@@ -264,7 +278,7 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
             .await
             .map_err(|_| {
                 ProxyError::Other(format!(
-                    "ws payload read timed out ({WS_FRAME_READ_TIMEOUT_SECS}s)"
+                    "ws payload read timed out ({read_timeout:?})"
                 ))
             })?
             .map_err(ProxyError::IoError)?;
@@ -958,6 +972,7 @@ pub async fn relay_websocket_frames<C, U>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn opcode_round_trip() {
@@ -1450,6 +1465,110 @@ mod tests {
             ),
             Ok(Err(e)) => panic!("unexpected read error: {e}"),
         }
+    }
+
+    // ----- P1-1: inter-frame silence vs in-flight frame stall -----
+
+    #[tokio::test]
+    async fn relay_survives_inter_frame_silence_longer_than_frame_read_timeout() {
+        // P1-1: waiting for the FIRST byte of the next frame header is a normal
+        // silence period. With the frame-boundary idle ceiling at 500ms and the
+        // in-flight frame read timeout at 100ms, a 300ms silence between two
+        // frames must NOT terminate the relay — under the old behavior every
+        // read (including the header wait) used the 100ms timeout, so this
+        // test would have lost the second frame.
+        let _idle = crate::override_ws_frame_idle_timeout_for_test(Duration::from_millis(500));
+        let _frame_read =
+            crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(100));
+
+        let (mut client_outer, client_inner) = tokio::io::duplex(64);
+        let (upstream_outer, upstream_inner) = tokio::io::duplex(64);
+
+        let text_frame = |payload: &[u8]| -> Vec<u8> {
+            let mut bytes = vec![0b1000_0001u8, payload.len() as u8];
+            bytes.extend_from_slice(payload);
+            bytes
+        };
+
+        client_outer
+            .write_all(&text_frame(b"m1"))
+            .await
+            .unwrap();
+        // Silence for longer than the frame-read timeout...
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        // ...then another frame on the same connection.
+        client_outer
+            .write_all(&text_frame(b"m2"))
+            .await
+            .unwrap();
+
+        let (tx, mut rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
+
+        let relay = tokio::spawn(async move {
+            // Upstream stays silent; its side ends via the idle ceiling.
+            let mut client_inner = client_inner;
+            let mut upstream_inner = upstream_inner;
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-idle-between-frames",
+                &tx,
+                &mut inject_rx,
+            )
+            .await;
+        });
+
+        let mut payloads = Vec::new();
+        for _ in 0..2 {
+            let msg = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("relay must deliver both frames across the silence gap")
+                .expect("channel open");
+            payloads.push(msg.payload_text.expect("text frame payload"));
+        }
+        assert_eq!(payloads, ["m1", "m2"]);
+
+        relay.abort();
+        drop(client_outer);
+        drop(upstream_outer);
+    }
+
+    #[tokio::test]
+    async fn relay_ends_when_in_flight_frame_stalls_mid_header() {
+        // P1-1: once the first header byte has arrived the frame is in flight,
+        // so a stall is bounded by the SHORT frame-read timeout, not the
+        // minutes-level idle ceiling. The client sends one header byte and then
+        // goes quiet; the relay must end quickly (frame-read timeout + close
+        // grace), not hang for the idle ceiling.
+        let _frame_read =
+            crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(150));
+        let _grace = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(200));
+
+        let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
+        let (upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
+
+        // Only the first byte of a Text frame header, then nothing.
+        client_outer.write_all(&[0x81]).await.unwrap();
+
+        let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
+        let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            relay_websocket_frames(
+                &mut client_inner,
+                &mut upstream_inner,
+                "sess-mid-frame-stall",
+                &tx,
+                &mut inject_rx,
+            ),
+        )
+        .await
+        .expect("relay must end after an in-flight frame stalls, not hang");
+
+        drop(client_outer);
+        drop(upstream_outer);
     }
 
     #[tokio::test]
