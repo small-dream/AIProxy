@@ -37,6 +37,8 @@ pub(crate) fn wildcard_matches(normalized: &str, candidate: &str) -> bool {
         return true;
     }
 
+    let leading_wildcard = normalized.starts_with('*');
+    let trailing_wildcard = normalized.ends_with('*');
     let parts: Vec<&str> = normalized
         .split('*')
         .filter(|part| !part.is_empty())
@@ -46,33 +48,92 @@ pub(crate) fn wildcard_matches(normalized: &str, candidate: &str) -> bool {
         return true;
     }
 
-    let mut search_start = 0_usize;
+    // Single segment: the anchors decide everything, no scanning needed.
+    if parts.len() == 1 {
+        let part = parts[0];
+        return match (leading_wildcard, trailing_wildcard) {
+            (false, false) => candidate == part,
+            (true, false) => candidate.ends_with(part),
+            (false, true) => candidate.starts_with(part),
+            (true, true) => candidate.contains(part),
+        };
+    }
 
-    for (index, part) in parts.iter().enumerate() {
-        if let Some(relative_index) = candidate[search_start..].find(part) {
-            let absolute_index = search_start + relative_index;
+    // P1-7: the previous single-pass greedy scan advanced each part by its
+    // FIRST occurrence and finally demanded that the scan land exactly on the
+    // candidate's end. That misses valid alignments whenever an early part's
+    // first occurrence steals positions a later part needs — e.g. `foo*bar`
+    // vs `foobarXbar`, or even a lone middle part as in `*b*b` vs `bab`.
+    //
+    // The fix pins the anchor segments (first when unanchored-left, last when
+    // unanchored-right) and backtracks over every occurrence of the middle
+    // parts until an assignment fits the window between the anchors.
+    let head = if leading_wildcard {
+        None
+    } else {
+        Some(parts[0])
+    };
+    let tail = if trailing_wildcard {
+        None
+    } else {
+        Some(parts[parts.len() - 1])
+    };
+    let middle_start = usize::from(head.is_some());
+    let middle_end = parts.len() - usize::from(tail.is_some());
+    let middles = &parts[middle_start..middle_end];
 
-            if index == 0 && !normalized.starts_with('*') && absolute_index != 0 {
-                return false;
-            }
+    // Window the candidate between the pinned head/tail segments. Byte offsets
+    // stay on char boundaries because `starts_with`/`ends_with` matched these
+    // exact segments inside `candidate`.
+    let mut window_start = 0_usize;
+    let mut window_end = candidate.len();
 
-            search_start = absolute_index + part.len();
-        } else {
+    if let Some(head_part) = head {
+        if !candidate.starts_with(head_part) {
             return false;
         }
+        window_start = head_part.len();
+    }
+    if let Some(tail_part) = tail {
+        if candidate.len() - window_start < tail_part.len()
+            || !candidate[window_start..].ends_with(tail_part)
+        {
+            return false;
+        }
+        window_end -= tail_part.len();
+    }
+    if window_start > window_end {
+        // Head and tail would overlap — e.g. `aba*bab` vs `abab`.
+        return false;
     }
 
-    if normalized.ends_with('*') {
+    match_middles(middles, candidate, window_start, window_end)
+}
+
+/// Match `middles` (each separated by an implicit `*`) inside
+/// `candidate[window_start..window_end]`, trying every occurrence of each
+/// segment before giving up (backtracking).
+fn match_middles(middles: &[&str], candidate: &str, window_start: usize, window_end: usize) -> bool {
+    let Some((first, rest)) = middles.split_first() else {
         return true;
-    }
+    };
 
-    // No trailing '*': the last part must end exactly at the candidate's end.
-    // After the loop, search_start points just past the last matched part, so
-    // it equals candidate.len() only when that part consumed the candidate to
-    // its end. The previous `candidate.ends_with(last)` check was insufficient
-    // — it let a part match anywhere as long as the candidate ended with it,
-    // so "_" wrongly matched "__" (any string ending in the part).
-    search_start == candidate.len()
+    let mut occurrence_start = window_start;
+    loop {
+        let Some(relative) = candidate[occurrence_start..window_end].find(first) else {
+            return false;
+        };
+        let end = occurrence_start + relative + first.len();
+        if rest.is_empty() || match_middles(rest, candidate, end, window_end) {
+            return true;
+        }
+        // Retry from the next character boundary after this occurrence so
+        // overlapping occurrences are considered (multibyte-safe).
+        match candidate[end..window_end].chars().next() {
+            Some(c) => occurrence_start = end + c.len_utf8(),
+            None => return false,
+        }
+    }
 }
 
 pub(crate) fn contains_matches(normalized: &str, candidate: &str) -> bool {
@@ -86,6 +147,70 @@ pub(crate) fn contains_matches(normalized: &str, candidate: &str) -> bool {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    // P1-7 regression: first-occurrence alignment must not steal positions a
+    // later segment needs.
+    #[test]
+    fn greedy_first_occurrence_false_negatives() {
+        // First segment's only occurrence is at 0; last segment must align at
+        // the end — the old scan matched "bar" too early and failed.
+        assert!(wildcard_matches("foo*bar", "foobarXbar"));
+        // `*.log` style suffix patterns against repeated extensions.
+        assert!(wildcard_matches("*.log", "a.log.b.log"));
+        // A middle segment alone can need backtracking past its first
+        // occurrence (`*b*b` vs "bab": first b@0, second b@2).
+        assert!(wildcard_matches("*b*b", "bab"));
+        assert!(wildcard_matches("*b*c", "abcbc"));
+
+        // Anchored semantics are unchanged (the "_" vs "__" regression).
+        assert!(!wildcard_matches("_", "__"));
+        assert!(!wildcard_matches("aba*bab", "abab")); // pinned segments overlap
+    }
+
+    /// Build the regex equivalent of a wildcard pattern so the proptest below
+    /// can cross-check `wildcard_matches` against a reference implementation.
+    fn wildcard_as_regex(normalized: &str) -> String {
+        let leading_wildcard = normalized.starts_with('*');
+        let trailing_wildcard = normalized.ends_with('*');
+        let parts: Vec<String> = normalized
+            .split('*')
+            .filter(|part| !part.is_empty())
+            .map(regex::escape)
+            .collect();
+
+        let mut re = String::from("^");
+        if leading_wildcard {
+            re.push_str(".*");
+        }
+        re.push_str(&parts.join(".*"));
+        if trailing_wildcard {
+            re.push_str(".*");
+        }
+        re.push('$');
+        re
+    }
+
+    // P1-7: `wildcard_matches` must agree with an equivalent regex on every
+    // pattern/candidate pair — this is what proves no false negatives remain
+    // in the backtracking matcher.
+    proptest! {
+        #[test]
+        fn agrees_with_equivalent_regex(
+            pattern in "[abc_]{0,6}(\\*[abc_]{0,4}){0,3}",
+            candidate in "[abc_]{0,12}",
+        ) {
+            let normalized = pattern.trim();
+            // Match-all shortcuts bypass the segment matcher entirely.
+            if normalized.is_empty() || normalized == "*" {
+                prop_assert!(wildcard_matches(normalized, &candidate));
+                return Ok(());
+            }
+            let expected = Regex::new(&wildcard_as_regex(normalized))
+                .expect("constructed regex must compile")
+                .is_match(candidate.as_str());
+            prop_assert_eq!(wildcard_matches(normalized, &candidate), expected);
+        }
+    }
 
     // P1-1: Empty pattern / "*" matches everything
     proptest! {
