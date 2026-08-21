@@ -235,61 +235,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         "ws_hyper_connecting_upstream"
     );
 
-    // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS for
-    // wss://. On failure, send a 502 session and return Ok(502) — not Err/499.
-    let ws_tcp = match crate::upstream_proxy::dial_target(
-        ctx.upstream_proxy.as_deref(),
-        &request.host,
-        port,
-        dns_override_ip,
-    )
-    .await
-    {
-        Ok((stream, _route)) => stream,
-        Err(e) => {
-            let error = format!("WebSocket upstream connect to {connect_host_port}: {e}");
-            return Ok(send_ws_upstream_error_session(
-                &request,
-                ctx,
-                &error,
-                started_at,
-                started_at_instant,
-                map_traces,
-                rewrite_traces,
-                script_traces,
-                throttle_traces,
-            )
-            .await);
-        }
-    };
-
-    // R6-1: TLS is required when EITHER we are in MITM mode (CONNECT already
-    // happened, URL normalized to https://) OR the URL scheme itself is `wss`
-    // (a wss:// absolute-form request sent directly over the plain proxy port).
-    let needs_tls = ws_needs_tls(&request.url, &ctx.mode);
-    let mut upstream = if needs_tls {
-        match connect_ws_upstream_tls(ws_tcp, &request, ctx).await {
-            Ok(stream) => stream,
-            Err(error) => {
-                return Ok(send_ws_upstream_error_session(
-                    &request,
-                    ctx,
-                    &error,
-                    started_at,
-                    started_at_instant,
-                    map_traces,
-                    rewrite_traces,
-                    script_traces,
-                    throttle_traces,
-                )
-                .await);
-            }
-        }
-    } else {
-        TlsOrPlain::Plain(ws_tcp)
-    };
-
-    // Build and send the raw upgrade request to upstream.
+    // Build the raw upgrade request to upstream (pure — no IO, not timed).
     let raw_req = match build_ws_upgrade_request(&request) {
         Ok(r) => r,
         Err(e) => {
@@ -312,41 +258,96 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         request_id = %request_id,
         "ws_hyper_sending_upgrade"
     );
-    if let Err(e) = upstream.write_all(raw_req.as_bytes()).await {
-        let error = format!("WebSocket upgrade send to upstream: {e}");
-        return Ok(send_ws_upstream_error_session(
-            &request,
-            ctx,
-            &error,
-            started_at,
-            started_at_instant,
-            map_traces,
-            rewrite_traces,
-            script_traces,
-            throttle_traces,
-        )
-        .await);
-    }
 
-    // Read the upstream response.
-    let (response_head, leftover_bytes) =
-        match crate::connect::read_http_response_head(&mut upstream).await {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(send_ws_upstream_error_session(
-                    &request,
-                    ctx,
-                    &e,
-                    started_at,
-                    started_at_instant,
-                    map_traces,
-                    rewrite_traces,
-                    script_traces,
-                    throttle_traces,
-                )
-                .await);
-            }
+    // P1-2: dial → TLS handshake → write upgrade request → read response head
+    // must be bounded AS A WHOLE. Previously none of these steps carried a
+    // timeout: a half-open TCP peer, a stalled TLS handshake or an upstream
+    // that accepted the request but never answered left this future Pending
+    // forever, pinning one of the 1024 connection permits until the client
+    // disconnected. The CONNECT blind-tunnel path already wraps its dial in a
+    // timeout; this brings the WS path to parity using the same
+    // `upstream_request_timeout` semantics. The post-101 relay keeps its own
+    // idle/grace timeouts; the non-101 body read below keeps
+    // `ws_upstream_body_read_idle_timeout`.
+    let upgrade_deadline = crate::upstream_request_timeout();
+    let established = tokio::time::timeout(upgrade_deadline, async {
+        // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS
+        // for wss://. On failure, send a 502 session and return Ok(502) — not
+        // Err/499.
+        let ws_tcp = crate::upstream_proxy::dial_target(
+            ctx.upstream_proxy.as_deref(),
+            &request.host,
+            port,
+            dns_override_ip,
+        )
+        .await
+        .map(|(stream, _route)| stream)
+        .map_err(|e| format!("WebSocket upstream connect to {connect_host_port}: {e}"))?;
+
+        // R6-1: TLS is required when EITHER we are in MITM mode (CONNECT
+        // already happened, URL normalized to https://) OR the URL scheme
+        // itself is `wss` (a wss:// absolute-form request sent directly over
+        // the plain proxy port).
+        let needs_tls = ws_needs_tls(&request.url, &ctx.mode);
+        let mut upstream = if needs_tls {
+            connect_ws_upstream_tls(ws_tcp, &request, ctx).await?
+        } else {
+            TlsOrPlain::Plain(ws_tcp)
         };
+
+        if let Err(e) = upstream.write_all(raw_req.as_bytes()).await {
+            return Err(format!("WebSocket upgrade send to upstream: {e}"));
+        }
+
+        // Read the upstream response head.
+        crate::connect::read_http_response_head(&mut upstream)
+            .await
+            .map(|(head, leftover)| (upstream, head, leftover))
+    })
+    .await;
+
+    let (mut upstream, response_head, leftover_bytes) = match established {
+        Ok(Ok(triple)) => triple,
+        Ok(Err(error)) => {
+            return Ok(send_ws_upstream_error_session(
+                &request,
+                ctx,
+                &error,
+                started_at,
+                started_at_instant,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            )
+            .await);
+        }
+        Err(_elapsed) => {
+            let error = format!(
+                "WebSocket upgrade to {connect_host_port} did not complete within {}s",
+                upgrade_deadline.as_secs()
+            );
+            tracing::warn!(
+                event = "ws_hyper_upgrade_timeout",
+                request_id = %request_id,
+                host_port = %connect_host_port,
+                timeout_secs = upgrade_deadline.as_secs(),
+                "ws_hyper_upgrade_timeout"
+            );
+            return Ok(send_ws_upstream_error_session(
+                &request,
+                ctx,
+                &error,
+                started_at,
+                started_at_instant,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            )
+            .await);
+        }
+    };
 
     // Parse status code and headers from the upstream response. M4: use a lossy
     // decode — HTTP header field values are opaque octets (obs-text / Latin-1

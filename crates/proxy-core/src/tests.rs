@@ -3186,6 +3186,78 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
     started_proxy.server_handle.shutdown().await;
 }
 
+// P1-2: dial → TLS → write upgrade request → read response head must be
+// bounded as a whole. An upstream that accepts the TCP connection but never
+// responds previously left the upgrade future Pending forever (pinning a
+// connection permit); it must now fail within the upstream request timeout
+// and surface as a 502 session, like the CONNECT blind-tunnel path.
+#[tokio::test]
+async fn ws_upgrade_hanging_upstream_times_out_and_emits_502() {
+    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(400));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    // Half-open/stalled peer: accept the connection, then neither read nor
+    // respond for the lifetime of the test.
+    let upstream_task = tokio::spawn(async move {
+        let (_stream, _) = upstream_listener.accept().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let started_at = tokio::time::Instant::now();
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+    let elapsed = started_at.elapsed();
+
+    assert!(
+        response_text.contains("502"),
+        "expected 502 response, got: {response_text}"
+    );
+    assert_eq!(
+        completed_session.summary.status_code, 502,
+        "expected 502 session, got {}",
+        completed_session.summary.status_code
+    );
+    // The upgrade must fail within the overridden timeout, not hang until the
+    // helper's 3s client read deadline.
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "upgrade must time out within the upstream deadline, took {elapsed:?}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
 // R6-2: a request body exceeding the 20 MiB capture limit must produce a 413
 // response AND a recorded session, instead of closing the connection silently
 // (which previously left the client with a reset and no session record).
