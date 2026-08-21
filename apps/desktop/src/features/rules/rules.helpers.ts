@@ -71,6 +71,62 @@ export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"):
   };
 }
 
+/* ── Dirty-check equality (P0-2) ──────────────────────────────────── */
+
+/**
+ * Field-by-field equality for the rewrite editor's unsaved-changes guard.
+ * `id` is deliberately ignored — an unsaved draft carries a freshly minted
+ * uuid, and comparing against an empty-rule baseline must not depend on it.
+ * Optional fields are normalized so `undefined` equals the empty default the
+ * editor form produces (`note`: "" vs undefined, `match.matchType`: unset vs
+ * "contains").
+ */
+export function isRewriteRuleEqual(a: RewriteRule, b: RewriteRule): boolean {
+  if (
+    a.name !== b.name ||
+    (a.note ?? "") !== (b.note ?? "") ||
+    a.enabled !== b.enabled ||
+    a.priority !== b.priority ||
+    a.rewriteType !== b.rewriteType ||
+    a.workspaceId !== b.workspaceId
+  ) {
+    return false;
+  }
+  if (!isRuleMatchEqual(a.match, b.match)) return false;
+  return isJsonEqual(a.actions, b.actions);
+}
+
+function isRuleMatchEqual(a: RuleMatch, b: RuleMatch): boolean {
+  // An unset matchType behaves as "contains" everywhere it is evaluated.
+  const matchTypeA = a.matchType ?? "contains";
+  const matchTypeB = b.matchType ?? "contains";
+  return (
+    a.urlPattern === b.urlPattern &&
+    a.stage === b.stage &&
+    matchTypeA === matchTypeB &&
+    isJsonEqual(a.methods, b.methods)
+  );
+}
+
+/** Structural equality for plain JSON data (actions payloads, method lists). */
+function isJsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, index) => isJsonEqual(item, b[index]));
+  }
+  if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
+    const keysA = Object.keys(a).sort();
+    const keysB = Object.keys(b).sort();
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every((key, index) => {
+      const recordA = a as Record<string, unknown>;
+      const recordB = b as Record<string, unknown>;
+      return key === keysB[index] && isJsonEqual(recordA[key], recordB[key]);
+    });
+  }
+  return false;
+}
+
 export function createEmptyMapRule(mode: MapRule["mode"]): MapRule {
   return {
     id: crypto.randomUUID(),

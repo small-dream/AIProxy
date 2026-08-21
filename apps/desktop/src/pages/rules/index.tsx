@@ -1,11 +1,14 @@
 import { Box, Paper, Stack, Tab, Tabs } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
 import { MappingRulesPanel } from "@/features/rules/components/MappingRulesPanel";
-import { RewriteRulesPanel } from "@/features/rules/components/RewriteRulesPanel";
+import {
+  RewriteRulesPanel,
+  type RewriteRulesPanelHandle,
+} from "@/features/rules/components/RewriteRulesPanel";
 import { ScriptRulesPanel } from "@/features/rules/components/ScriptRulesPanel";
 import { RulesImportExportButtons } from "@/features/rules/components/RulesImportExportButtons";
 import type { RulesTabValue } from "@/features/rules/rules.helpers";
@@ -15,6 +18,20 @@ export function RulesPage() {
   const { t } = useI18n();
   const location = useLocation();
   const [tab, setTab] = useState<RulesTabValue>("rewrite");
+  const rewritePanelRef = useRef<RewriteRulesPanelHandle>(null);
+
+  // P0-2: switching tabs unmounts the active panel and silently drops its
+  // draft, so the rewrite panel gets to veto via its unsaved-changes guard.
+  // Phase-1 scope: only the rewrite panel tracks dirtiness — later panels can
+  // adopt the same handle pattern.
+  async function handleTabChange(value: RulesTabValue) {
+    if (value === tab) return;
+    if (tab === "rewrite") {
+      const allowed = await rewritePanelRef.current?.confirmLeave();
+      if (!allowed) return;
+    }
+    setTab(value);
+  }
 
   // The sessions page routes here with a mapLocalSeed for the "Map Local this
   // request" flow; land on the mapping tab so the pre-filled draft is visible.
@@ -64,7 +81,7 @@ export function RulesPage() {
         >
           <Tabs
             value={tab}
-            onChange={(_, value: RulesTabValue) => setTab(value)}
+            onChange={(_, value: RulesTabValue) => void handleTabChange(value)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{
@@ -118,7 +135,7 @@ export function RulesPage() {
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
           {tab === "breakpoint" && <BreakpointRulesPanel />}
-          {tab === "rewrite" && <RewriteRulesPanel />}
+          {tab === "rewrite" && <RewriteRulesPanel ref={rewritePanelRef} />}
           {tab === "mapping" && <MappingRulesPanel />}
           {tab === "script" && <ScriptRulesPanel />}
         </Box>
