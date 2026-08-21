@@ -617,7 +617,9 @@ pub(crate) async fn read_response_body_with_limit(
     let mut response_body = Vec::new();
     let mut response_body_size_bytes = 0usize;
     let mut body_truncated = false;
-    let mut spooled_response_path = None;
+    // P1-4: owns the spool path until the reader completes successfully, so
+    // any `?` exit or cancellation deletes the partial file.
+    let mut spooled_guard = SpooledResponsePathGuard(None);
     let mut spooled_file: Option<tokio::fs::File> = None;
 
     if let Some(content_length) = response.content_length() {
@@ -638,6 +640,7 @@ pub(crate) async fn read_response_body_with_limit(
                 }
             } else if response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
                 let (mut file, path) = create_response_spool_file(request_id).await?;
+                spooled_guard = SpooledResponsePathGuard(Some(path));
                 if !response_body.is_empty() {
                     file.write_all(&response_body)
                         .await
@@ -646,7 +649,6 @@ pub(crate) async fn read_response_body_with_limit(
                 file.write_all(&chunk)
                     .await
                     .map_err(|error| format!("write spooled response chunk: {error}"))?;
-                spooled_response_path = Some(path);
                 spooled_file = Some(file);
                 body_truncated = true;
             }
@@ -669,6 +671,10 @@ pub(crate) async fn read_response_body_with_limit(
             .await
             .map_err(|error| format!("flush spooled response body: {error}"))?;
     }
+
+    // Flush succeeded: hand the spool to the caller. From here on cleanup is
+    // UpstreamResponse's responsibility (clear_spooled_response).
+    let spooled_response_path = spooled_guard.take();
 
     if body_truncated {
         tracing::warn!(
@@ -700,7 +706,9 @@ async fn read_hyper_response_body_with_limit(
     let mut response_body = Vec::new();
     let mut response_body_size_bytes = 0usize;
     let mut body_truncated = false;
-    let mut spooled_response_path = None;
+    // P1-4: owns the spool path until the reader completes successfully, so
+    // any `?` exit or cancellation deletes the partial file.
+    let mut spooled_guard = SpooledResponsePathGuard(None);
     let mut spooled_file: Option<tokio::fs::File> = None;
 
     let mut body_stream = std::pin::pin!(response.into_body());
@@ -722,6 +730,7 @@ async fn read_hyper_response_body_with_limit(
                 }
             } else if response_body_size_bytes + chunk.len() > MAX_CAPTURED_BODY_BYTES {
                 let (mut file, path) = create_response_spool_file(request_id).await?;
+                spooled_guard = SpooledResponsePathGuard(Some(path));
                 if !response_body.is_empty() {
                     file.write_all(&response_body)
                         .await
@@ -730,7 +739,6 @@ async fn read_hyper_response_body_with_limit(
                 file.write_all(&chunk)
                     .await
                     .map_err(|error| format!("write spooled response chunk: {error}"))?;
-                spooled_response_path = Some(path);
                 spooled_file = Some(file);
                 body_truncated = true;
             }
@@ -753,6 +761,10 @@ async fn read_hyper_response_body_with_limit(
             .await
             .map_err(|error| format!("flush spooled response body: {error}"))?;
     }
+
+    // Flush succeeded: hand the spool to the caller. From here on cleanup is
+    // UpstreamResponse's responsibility (clear_spooled_response).
+    let spooled_response_path = spooled_guard.take();
 
     if body_truncated {
         tracing::warn!(
@@ -793,4 +805,88 @@ async fn create_response_spool_file(
         .map_err(|error| format!("create spooled response file '{}': {error}", path.display()))?;
 
     Ok((file, path))
+}
+
+/// RAII holder for a spool file path while the body is still being written.
+///
+/// P1-4: between `create_response_spool_file` and the successful return of a
+/// body reader there are several fallible steps (seed write, chunk writes,
+/// flush) plus the possibility of the whole future being cancelled. Any of
+/// those exits previously leaked the partial spool file into the temp dir.
+/// The guard deletes it on drop; the success path calls [`take`](Self::take)
+/// to hand ownership to the returned `UpstreamResponse`.
+struct SpooledResponsePathGuard(Option<PathBuf>);
+
+impl SpooledResponsePathGuard {
+    fn take(&mut self) -> Option<PathBuf> {
+        self.0.take()
+    }
+}
+
+impl Drop for SpooledResponsePathGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            // Same offload rationale as
+            // UpstreamResponse::clear_spooled_response (L1): a blocking
+            // remove on a Tokio worker stalls it, but during teardown no
+            // runtime may exist, in which case remove inline rather than
+            // leak the temp file.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn_blocking(move || {
+                    let _ = fs::remove_file(path);
+                });
+            } else {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod spool_guard_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn guard_deletes_the_spool_file_when_dropped_without_take() {
+        let request_id = "guard-drop-test";
+        let (file, path) = create_response_spool_file(request_id).await.unwrap();
+        assert!(path.exists());
+        drop(file);
+
+        // Simulate the error/cancellation path: the reader ends without
+        // calling take(), so Drop must remove the partial spool.
+        {
+            let _guard = SpooledResponsePathGuard(Some(path.clone()));
+        }
+        // Deletion is offloaded to the blocking pool (see Drop); wait briefly
+        // for it to land rather than asserting synchronously.
+        for _ in 0..100 {
+            if !path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            !path.exists(),
+            "dropped guard must delete the partial spool file"
+        );
+    }
+
+    #[tokio::test]
+    async fn guard_take_hands_ownership_to_the_caller() {
+        let request_id = "guard-take-test";
+        let (file, path) = create_response_spool_file(request_id).await.unwrap();
+        assert!(path.exists());
+        drop(file);
+
+        let mut guard = SpooledResponsePathGuard(Some(path.clone()));
+        let taken = guard.take().unwrap();
+        assert_eq!(taken, path);
+        // Success path: dropping the emptied guard must NOT delete the file —
+        // cleanup is now UpstreamResponse's responsibility.
+        drop(guard);
+        assert!(path.exists(), "taken path must survive the guard drop");
+
+        let _ = fs::remove_file(&path);
+    }
 }
