@@ -2127,6 +2127,7 @@ mod tests {
     async fn m9_mock_response_throttle_drop_returns_504_with_response_message_and_traces() {
         use crate::rules::ThrottleRuntimeSelection;
 
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         // Long breakpoint wait so the resolution (Mock) is what drives the
         // stage, not a timeout.
         let _wait_guard =

@@ -340,6 +340,12 @@ impl Drop for TestTimeoutGuard {
 #[cfg(test)]
 pub(crate) static WS_TIMEOUT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Same contract as [`WS_TIMEOUT_TEST_LOCK`], for tests arming the
+/// breakpoint-wait override slot (armed anywhere from 50ms to 30s).
+#[cfg(test)]
+pub(crate) static BREAKPOINT_WAIT_TEST_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
 pub(crate) fn breakpoint_wait_timeout() -> Duration {
     #[cfg(test)]
     {

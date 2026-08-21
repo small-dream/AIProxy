@@ -1182,6 +1182,7 @@ mod tests {
     /// also return None so the request forwards unmodified.
     #[tokio::test]
     async fn request_stage_breakpoint_wait_times_out_and_cleans_pending() {
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         let _guard =
             crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
         let manager = Arc::new(BreakpointManager::new());
@@ -1208,6 +1209,7 @@ mod tests {
     /// detect the dropped sender and clean the pending entry.
     #[tokio::test]
     async fn request_stage_breakpoint_sender_drop_cleans_pending() {
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         // Use a long timeout so the dropped-sender path (not the timeout path)
         // is what resolves this test.
         let _guard =
@@ -1254,6 +1256,7 @@ mod tests {
     /// breakpoint-hit followed by breakpoint-released with a timeout reason.
     #[tokio::test]
     async fn emits_breakpoint_released_on_wait_timeout() {
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         let _guard =
             crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
         let manager = Arc::new(BreakpointManager::new());

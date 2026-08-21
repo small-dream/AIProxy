@@ -146,47 +146,34 @@ impl WsMessageAssembler {
 }
 
 // ---------------------------------------------------------------------------
-// Frame parsing (reading from async stream)
+// Frame parsing (cancellation-safe: buffer-fed)
+//
+// The relay polls both directions' frame reads inside one `tokio::select!`.
+// When any other arm wins (an injected frame, the close-grace deadline, the
+// peer direction ending), the in-progress parse future is DROPPED — and with
+// it any bytes a naive `read_exact`-based parser had already consumed from
+// the stream. Losing those bytes desynchronizes the stream permanently (the
+// next "header" starts mid-payload). The parse is therefore split into a
+// PURE synchronous step over a caller-owned buffer plus an append-only read
+// loop: bytes enter the buffer only via completed `read()` calls, so a
+// cancelled attempt leaves everything it saw in the buffer for the next one.
 // ---------------------------------------------------------------------------
 
-/// Read one WebSocket frame from an async stream.
-/// Returns the parsed frame with unmasked payload.
+/// How many bytes a single `read()` call may pull into the frame buffer.
+const WS_FRAME_READ_CHUNK_BYTES: usize = 8 * 1024;
+
+/// Try to parse one complete WebSocket frame from the front of `buf`.
 ///
-/// P1-1: the wait for the FIRST byte of the frame header is the inter-frame
-/// silence period — heartbeat gaps and quiet push connections are normal, so
-/// it is bounded by `ws_frame_idle_timeout()` (minutes-level), NOT by the
-/// per-read frame timeout. Once that byte arrives the frame is in flight and
-/// every subsequent read (header tail, extended length, mask key, payload) is
-/// bounded by `ws_frame_read_timeout()` so a stalled peer cannot drag a
-/// half-delivered frame forever.
-pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> Result<WsFrame, ProxyError> {
-    let read_timeout = crate::ws_frame_read_timeout();
-
-    // Frame-boundary wait: first byte of the next header.
-    let mut head: [u8; 2] = [0; 2];
-    let idle_timeout = crate::ws_frame_idle_timeout();
-    timeout(idle_timeout, reader.read_exact(&mut head[..1]))
-        .await
-        .map_err(|_| {
-            ProxyError::Other(format!(
-                "ws frame idle timed out ({}s between frames)",
-                idle_timeout.as_secs()
-            ))
-        })?
-        .map_err(ProxyError::IoError)?;
-
-    // Frame in flight: remaining header byte.
-    timeout(read_timeout, reader.read_exact(&mut head[1..]))
-        .await
-        .map_err(|_| {
-            ProxyError::Other(format!(
-                "ws frame header read timed out ({:?})",
-                read_timeout
-            ))
-        })?
-        .map_err(ProxyError::IoError)?;
+/// Returns `Ok(None)` when `buf` holds an incomplete frame (more bytes are
+/// needed), `Ok(Some((frame, consumed)))` with the UNMASKED frame and the
+/// number of bytes it occupied, or a protocol-violation error (close code
+/// 1002 territory: RSV bits, reserved opcodes, fragmented/oversized control
+/// frames, declared length over the frame-size limit).
+fn try_parse_ws_frame(buf: &[u8]) -> Result<Option<(WsFrame, usize)>, ProxyError> {
+    if buf.len() < 2 {
+        return Ok(None);
+    }
+    let head = [buf[0], buf[1]];
 
     let fin = (head[0] & 0x80) != 0;
     // RFC 6455 §5.2: RSV1/RSV2/RSV3 MUST be zero unless an extension
@@ -228,28 +215,20 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
         }
     }
 
+    let mut offset = 2usize;
     if payload_len == 126 {
-        let mut ext = [0u8; 2];
-        timeout(read_timeout, reader.read_exact(&mut ext))
-            .await
-            .map_err(|_| {
-                ProxyError::Other(format!(
-                    "ws extended length read timed out ({read_timeout:?})"
-                ))
-            })?
-            .map_err(ProxyError::IoError)?;
-        payload_len = u16::from_be_bytes(ext) as u64;
+        if buf.len() < offset + 2 {
+            return Ok(None);
+        }
+        payload_len = u16::from_be_bytes([buf[offset], buf[offset + 1]]) as u64;
+        offset += 2;
     } else if payload_len == 127 {
-        let mut ext = [0u8; 8];
-        timeout(read_timeout, reader.read_exact(&mut ext))
-            .await
-            .map_err(|_| {
-                ProxyError::Other(format!(
-                    "ws extended length read timed out ({read_timeout:?})"
-                ))
-            })?
-            .map_err(ProxyError::IoError)?;
+        if buf.len() < offset + 8 {
+            return Ok(None);
+        }
+        let ext: [u8; 8] = buf[offset..offset + 8].try_into().expect("8 bytes");
         payload_len = u64::from_be_bytes(ext);
+        offset += 8;
     }
 
     if payload_len > MAX_WS_FRAME_SIZE {
@@ -260,42 +239,98 @@ pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
 
     let mut mask_key = [0u8; 4];
     if mask {
-        timeout(read_timeout, reader.read_exact(&mut mask_key))
-            .await
-            .map_err(|_| {
-                ProxyError::Other(format!(
-                    "ws mask key read timed out ({read_timeout:?})"
-                ))
-            })?
-            .map_err(ProxyError::IoError)?;
+        if buf.len() < offset + 4 {
+            return Ok(None);
+        }
+        mask_key.copy_from_slice(&buf[offset..offset + 4]);
+        offset += 4;
     }
 
     let payload_len = usize::try_from(payload_len)
         .map_err(|_| ws_protocol_error("payload length does not fit in usize"))?;
-    let mut payload = vec![0u8; payload_len];
-    if payload_len > 0 {
-        timeout(read_timeout, reader.read_exact(&mut payload))
-            .await
-            .map_err(|_| {
-                ProxyError::Other(format!(
-                    "ws payload read timed out ({read_timeout:?})"
-                ))
-            })?
-            .map_err(ProxyError::IoError)?;
+    if buf.len() < offset + payload_len {
+        return Ok(None);
     }
-
+    let mut payload = buf[offset..offset + payload_len].to_vec();
     if mask {
         for (i, byte) in payload.iter_mut().enumerate() {
             *byte ^= mask_key[i % 4];
         }
     }
 
-    Ok(WsFrame {
-        fin,
-        opcode,
-        mask: false, // payload is now unmasked
-        payload,
-    })
+    Ok(Some((
+        WsFrame {
+            fin,
+            opcode,
+            mask: false, // payload is now unmasked
+            payload,
+        },
+        offset + payload_len,
+    )))
+}
+
+/// Read one WebSocket frame from `reader`, staging bytes through `buf`.
+///
+/// The buffer is owned by the CALLER and persists across cancellations of
+/// this future (the relay's `select!` drops this future whenever another arm
+/// wins), so partially received frames are never lost — see the module
+/// comment above.
+///
+/// P1-1 timeout semantics, preserved from the previous `read_exact`-based
+/// parser: while the buffer is EMPTY we are between frames — heartbeat gaps
+/// and quiet push connections are normal, so the wait is bounded by
+/// `ws_frame_idle_timeout()` (minutes-level). Once any byte of the frame is
+/// staged the frame is in flight and every further wait is bounded by
+/// `ws_frame_read_timeout()` so a stalled peer cannot drag a half-delivered
+/// frame forever.
+pub async fn read_ws_frame<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+) -> Result<WsFrame, ProxyError> {
+    let read_timeout = crate::ws_frame_read_timeout();
+    let idle_timeout = crate::ws_frame_idle_timeout();
+
+    loop {
+        if let Some((frame, used)) = try_parse_ws_frame(buf)? {
+            buf.drain(..used);
+            return Ok(frame);
+        }
+
+        let ceiling = if buf.is_empty() { idle_timeout } else { read_timeout };
+        let mut chunk = [0u8; WS_FRAME_READ_CHUNK_BYTES];
+        let bytes_read = timeout(ceiling, reader.read(&mut chunk))
+            .await
+            .map_err(|_| {
+                if buf.is_empty() {
+                    ProxyError::Other(format!(
+                        "ws frame idle timed out ({}s between frames)",
+                        idle_timeout.as_secs()
+                    ))
+                } else {
+                    ProxyError::Other(format!("ws frame read timed out ({ceiling:?})"))
+                }
+            })?
+            .map_err(ProxyError::IoError)?;
+        if bytes_read == 0 {
+            // EOF: surfaced as IoError(UnexpectedEof) so `is_clean_eof`
+            // classifies it exactly as the previous parser did.
+            return Err(ProxyError::IoError(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "ws stream ended",
+            )));
+        }
+        buf.extend_from_slice(&chunk[..bytes_read]);
+    }
+}
+
+/// Convenience wrapper that parses one frame from a stream using a
+/// throwaway buffer. The relay uses [`read_ws_frame`] with a persistent
+/// per-direction buffer instead — only stateless callers (tests) need this.
+pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+) -> Result<WsFrame, ProxyError> {
+    let mut buf = Vec::new();
+    read_ws_frame(reader, &mut buf).await
 }
 
 // ---------------------------------------------------------------------------
@@ -741,6 +776,13 @@ pub async fn relay_websocket_frames<C, U>(
     // instead of decoding each Continuation fragment in isolation.
     let mut client_assembler = WsMessageAssembler::new();
     let mut upstream_assembler = WsMessageAssembler::new();
+    // Partially received frames, staged per direction. Owned by the relay
+    // loop (NOT by the select! arm futures) so a cancelled parse attempt —
+    // any other arm winning — keeps every byte it already read. Without this
+    // a frame header consumed right before an injection/grace/peer event
+    // would be lost and the stream would desync permanently.
+    let mut client_read_buf: Vec<u8> = Vec::new();
+    let mut upstream_read_buf: Vec<u8> = Vec::new();
     // Once the injection channel is closed it will keep returning `None`, which
     // would busy-spin the select! loop. Track it so we stop polling it.
     let mut inject_closed = false;
@@ -796,7 +838,7 @@ pub async fn relay_websocket_frames<C, U>(
                     std::future::pending::<Option<Result<WsFrame, ProxyError>>>().await;
                     return None;
                 }
-                Some(parse_ws_frame(client_stream).await)
+                Some(read_ws_frame(client_stream, &mut client_read_buf).await)
             } => {
                 match client_result {
                     Some(Ok(frame)) => {
@@ -866,7 +908,7 @@ pub async fn relay_websocket_frames<C, U>(
                     std::future::pending::<Option<Result<WsFrame, ProxyError>>>().await;
                     return None;
                 }
-                Some(parse_ws_frame(upstream_stream).await)
+                Some(read_ws_frame(upstream_stream, &mut upstream_read_buf).await)
             } => {
                 match upstream_result {
                     Some(Ok(frame)) => {
@@ -1468,6 +1510,41 @@ mod tests {
     }
 
     // ----- P1-1: inter-frame silence vs in-flight frame stall -----
+
+    #[tokio::test]
+    async fn partially_received_frame_survives_a_cancelled_parse_attempt() {
+        // Cancellation safety: the relay's select! drops an in-progress
+        // read_ws_frame whenever another arm wins. Bytes already staged into
+        // the caller-owned buffer must survive; here the first header byte
+        // was consumed by a (dropped) attempt and the rest arrives after.
+        let (mut outer, mut inner) = tokio::io::duplex(64);
+        let mut buf = vec![0x81]; // FIN+Text header byte, staged by a dropped future
+        outer.write_all(&[0x02, b'h', b'i']).await.unwrap();
+
+        let frame = read_ws_frame(&mut inner, &mut buf).await.unwrap();
+        assert_eq!(frame.opcode, WsOpcode::Text);
+        assert!(frame.fin);
+        assert_eq!(frame.payload, b"hi");
+        assert!(buf.is_empty(), "consumed bytes must be drained from the buffer");
+    }
+
+    #[tokio::test]
+    async fn buffered_leftover_bytes_feed_the_next_frame() {
+        // Two frames arriving in one read: the first parse must consume only
+        // its own bytes and leave frame #2 staged for the next call.
+        let (mut outer, mut inner) = tokio::io::duplex(64);
+        let mut buf = Vec::new();
+        outer
+            .write_all(&[0x81, 1, b'a', 0x81, 1, b'b'])
+            .await
+            .unwrap();
+
+        let first = read_ws_frame(&mut inner, &mut buf).await.unwrap();
+        assert_eq!(first.payload, b"a");
+        let second = read_ws_frame(&mut inner, &mut buf).await.unwrap();
+        assert_eq!(second.payload, b"b");
+        assert!(buf.is_empty());
+    }
 
     #[tokio::test]
     async fn relay_survives_inter_frame_silence_longer_than_frame_read_timeout() {
