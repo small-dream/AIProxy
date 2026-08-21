@@ -339,9 +339,9 @@ export function useThrottleEditor() {
     );
   }
 
-  function handleTemporaryEnable() {
+  function handleTemporaryEnable(explicitProfileId?: string) {
     if (isProfilesError) return;
-    const target = selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
+    const target = explicitProfileId ?? selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
     if (!target) return;
     // M23: record which profile this temporary-enable targets so the timeout
     // callback can verify the active profile is still this one before

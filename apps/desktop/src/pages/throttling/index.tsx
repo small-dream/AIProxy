@@ -142,7 +142,7 @@ export function ThrottlingPage() {
                 size="small"
                 variant="outlined"
                 startIcon={<TimerOutlinedIcon />}
-                onClick={ed.handleTemporaryEnable}
+                onClick={() => ed.handleTemporaryEnable()}
                 disabled={ed.profiles.length === 0 || ed.setActivePending}
               >
                 15 min
@@ -233,7 +233,7 @@ export function ThrottlingPage() {
                   profiles={ed.presetProfiles}
                   activeProfileId={ed.activeProfile?.id}
                   selectedProfileId={ed.selectedProfileId}
-                  onApply={() => ed.handleTemporaryEnable()}
+                  onApply={(profile) => ed.handleTemporaryEnable(profile.id)}
                   onSelect={ed.selectProfile}
                 />
                 <Divider />
@@ -254,7 +254,7 @@ export function ThrottlingPage() {
                     profiles={ed.customProfiles}
                     activeProfileId={ed.activeProfile?.id}
                     selectedProfileId={ed.selectedProfileId}
-                    onApply={() => ed.handleTemporaryEnable()}
+                    onApply={(profile) => ed.handleTemporaryEnable(profile.id)}
                     onSelect={ed.selectProfile}
                   />
                 )}

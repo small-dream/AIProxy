@@ -285,3 +285,57 @@ describe("useThrottleEditor temporary-enable timeout (M23)", () => {
     expect(setActiveMutateMock).toHaveBeenCalledWith(undefined);
   });
 });
+
+describe("useThrottleEditor apply preset target (P0-1)", () => {
+  it("enables the explicitly passed profile id, not the currently selected one", () => {
+    // P0-1: clicking Apply on a preset row must activate THAT row's profile.
+    // Before the fix the row's id was dropped and the hook fell back to
+    // selectedProfileId, silently enabling the wrong profile.
+    profilesState.current = [
+      {
+        id: "p1",
+        name: "P1",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: false,
+        preset: false,
+        note: "",
+      },
+      {
+        id: "p2",
+        name: "P2",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: false,
+        preset: false,
+        note: "",
+      },
+    ];
+
+    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+
+    // The user has p1 selected in the editor pane...
+    act(() => result.current.selectProfile(profilesState.current[0]!));
+    expect(result.current.selectedProfileId).toBe("p1");
+
+    // ...then clicks Apply on the p2 row. The activation must target p2.
+    act(() => result.current.handleTemporaryEnable("p2"));
+    expect(setActiveMutateMock).toHaveBeenCalledWith("p2");
+  });
+
+  it("falls back to selectedProfileId when no explicit id is passed", () => {
+    // The top-bar "15 min" button calls handleTemporaryEnable() with no arg;
+    // that fallback path must keep working.
+    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+
+    act(() => result.current.selectProfile(profilesState.current[0]!));
+    act(() => result.current.handleTemporaryEnable());
+    expect(setActiveMutateMock).toHaveBeenCalledWith("p1");
+  });
+});
