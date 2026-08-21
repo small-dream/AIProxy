@@ -7,7 +7,8 @@ use super::server::is_ssl_blind_tunnel;
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    override_tunnel_idle_timeout_for_test, override_upstream_request_timeout_for_test,
+    override_client_header_read_timeout_for_test, override_tunnel_idle_timeout_for_test,
+    override_upstream_request_timeout_for_test,
     override_ws_upstream_body_read_idle_timeout_for_test, resolve_target_url, send_direct_request,
     start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
     ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
@@ -4865,6 +4866,7 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
     // Close. Without a close-grace timeout the relay would wait forever on
     // the client read. With H9 it must terminate within the grace window and
     // the registry must reach a terminal state.
+    let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
     let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
@@ -5695,4 +5697,207 @@ fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
         classify_client_handshake_error(&std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
         ClientHandshakeRejection::Other
     );
+}
+
+// ---------------------------------------------------------------------------
+// P1-3: every phase that waits on a client must be bounded by
+// CLIENT_HEADER_READ_TIMEOUT.
+//
+// A client that connects and then never speaks would otherwise pin one of the
+// 1024 connection-semaphore permits indefinitely (slow-loris exhaustion).
+// The pre-hyper header probe always had a ceiling, but hyper applied NONE on
+// kept-alive connections because no Timer was installed — so a client that
+// completed request #1 and then stalled forever held its permit. Both layers
+// now share the same overridable ceiling.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
+    let _header_guard = override_client_header_read_timeout_for_test(Duration::from_millis(300));
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Open several concurrent connections that never send a request line.
+    let mut clients = Vec::new();
+    for _ in 0..16 {
+        clients.push(TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap());
+    }
+
+    // Each must be answered (400) and closed within a few ceiling periods —
+    // concurrently, not serialized behind each other or behind 30s defaults.
+    for client in clients.iter_mut() {
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .expect("silent connection must be reaped by the server")
+            .unwrap();
+        assert!(
+            response.starts_with("HTTP/1.1 400"),
+            "server should answer a silent client with 400, got {response:?}"
+        );
+    }
+
+    // The reaped connections released their permits: a normal request still
+    // goes through end-to-end afterwards.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .unwrap();
+    });
+
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let target_url = format!("http://127.0.0.1:{upstream_port}/after-reap");
+    client_stream
+        .write_all(
+            format!("GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = String::new();
+    timeout(Duration::from_secs(2), client_stream.read_to_string(&mut response))
+        .await
+        .expect("post-reap request must complete")
+        .unwrap();
+    assert!(response.contains("HTTP/1.1 200 OK"));
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
+    let _header_guard = override_client_header_read_timeout_for_test(Duration::from_millis(300));
+
+    // Upstream answers with a keep-alive response (no `Connection: close`),
+    // so hyper keeps the client connection open for a follow-up request.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_response =
+        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_vec();
+    let expected_body: &[u8] = b"Hello";
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream.write_all(&upstream_response).await.unwrap();
+        // Keep the upstream socket open; only the CLIENT stall is under test.
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let target_url = format!("http://127.0.0.1:{upstream_port}/first");
+    client_stream
+        .write_all(
+            format!("GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+
+    // Read through the end of the first response's fixed 5-byte body, then go
+    // silent — never sending the second request's headers. Match on the body
+    // rather than exact wire bytes: hyper rebuilds response heads (adds
+    // `date`, lowercases header names), so they are not byte-identical to the
+    // upstream's.
+    let mut first_response = Vec::new();
+    loop {
+        let mut chunk = [0_u8; 512];
+        let bytes_read = client_stream.read(&mut chunk).await.unwrap();
+        assert!(
+            bytes_read > 0,
+            "connection closed before the first response completed"
+        );
+        first_response.extend_from_slice(&chunk[..bytes_read]);
+        if first_response.ends_with(expected_body) {
+            break;
+        }
+    }
+
+    // Without an installed Timer + header_read_timeout this read hangs
+    // forever and pins the connection permit; it must now hit EOF within a
+    // few ceiling periods once hyper's header-read deadline elapses.
+    // Any bytes beyond the first response would be unsolicited; only EOF (or
+    // a connection error) is expected.
+    let mut tail = Vec::new();
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let mut chunk = [0_u8; 512];
+            match client_stream.read(&mut chunk).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => tail.extend_from_slice(&chunk[..n]),
+            }
+        }
+    })
+    .await
+    .expect("stalled keep-alive connection must be closed by the server");
+    assert!(
+        !String::from_utf8_lossy(&tail).contains("HTTP/1.1"),
+        "no further responses were requested, got {tail:?}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
 }

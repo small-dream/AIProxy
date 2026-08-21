@@ -34,7 +34,14 @@ use uuid::Uuid;
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
+// Client request-header deadline, covering three layers (P1-3): the initial
+// header-only CONNECT/CA probe, hyper's per-request header-read ceiling on
+// kept-alive connections, and the MITM TLS handshake wait. Without it a
+// client that connects and never sends data pins one of the connection
+// permits indefinitely.
 const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+static TEST_CLIENT_HEADER_READ_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(test)]
 static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
@@ -178,6 +185,20 @@ pub(crate) fn upstream_request_timeout() -> Duration {
     UPSTREAM_REQUEST_TIMEOUT
 }
 
+/// Client request-header / TLS-handshake deadline. See
+/// `CLIENT_HEADER_READ_TIMEOUT`.
+pub(crate) fn client_header_read_timeout() -> Duration {
+    #[cfg(test)]
+    {
+        let timeout_ms = TEST_CLIENT_HEADER_READ_TIMEOUT_MS.load(Ordering::SeqCst);
+        if timeout_ms > 0 {
+            return Duration::from_millis(timeout_ms);
+        }
+    }
+
+    CLIENT_HEADER_READ_TIMEOUT
+}
+
 /// CONNECT blind-tunnel TCP connect timeout. Bounded so a slow/unreachable
 /// upstream cannot hold a connection permit indefinitely.
 pub(crate) fn connect_tunnel_connect_timeout() -> Duration {
@@ -280,6 +301,14 @@ pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> T
     }
 }
 
+#[cfg(test)]
+pub(crate) fn override_client_header_read_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
+    TEST_CLIENT_HEADER_READ_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: &TEST_CLIENT_HEADER_READ_TIMEOUT_MS,
+    }
+}
+
 /// RAII guard that resets exactly the test timeout slot it armed on drop.
 /// Each slot is independent, so concurrent tests (cargo test runs threads in
 /// parallel) cannot clobber each other's overrides — finishing one test must
@@ -296,6 +325,20 @@ impl Drop for TestTimeoutGuard {
         self.slot.store(0, Ordering::SeqCst);
     }
 }
+
+/// Serializes tests that arm WebSocket timeout override slots.
+///
+/// The slots are process-global, and each [`TestTimeoutGuard`] zeroes its slot
+/// on drop. Slot *independence* only protects tests arming DIFFERENT slots —
+/// two concurrent tests arming the SAME slot still corrupt each other: the
+/// later writer's value wins for both, and when either test finishes it zeroes
+/// the slot while the other relay still depends on it (observed as an
+/// inter-frame-idle test silently reverting a sibling's frame-read override
+/// back to the 30s default and blowing its outer 2s bound). Affected tests
+/// hold this lock across their whole body — declare the guard BEFORE arming
+/// overrides so it drops after them.
+#[cfg(test)]
+pub(crate) static WS_TIMEOUT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) fn breakpoint_wait_timeout() -> Duration {
     #[cfg(test)]

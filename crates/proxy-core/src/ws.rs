@@ -1477,6 +1477,7 @@ mod tests {
         // frames must NOT terminate the relay — under the old behavior every
         // read (including the header wait) used the 100ms timeout, so this
         // test would have lost the second frame.
+        let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
         let _idle = crate::override_ws_frame_idle_timeout_for_test(Duration::from_millis(500));
         let _frame_read =
             crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(100));
@@ -1541,6 +1542,7 @@ mod tests {
         // minutes-level idle ceiling. The client sends one header byte and then
         // goes quiet; the relay must end quickly (frame-read timeout + close
         // grace), not hang for the idle ceiling.
+        let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
         let _frame_read =
             crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(150));
         let _grace = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(200));
@@ -1554,8 +1556,12 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<WsMessageData>(16);
         let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;
 
+        // Outer bound is deliberately far above the expected ~350ms
+        // (150ms frame-read + 200ms close grace): it exists to catch a HANG,
+        // not to measure the deadline precisely, so it must absorb scheduler
+        // jitter when the whole suite runs in parallel.
         tokio::time::timeout(
-            Duration::from_secs(2),
+            Duration::from_secs(5),
             relay_websocket_frames(
                 &mut client_inner,
                 &mut upstream_inner,
@@ -1625,8 +1631,10 @@ mod tests {
         // open, no FIN, no further frames). The client likewise stays open and
         // sends nothing. Without the close-grace timeout the relay would block
         // on the client read forever. The grace deadline must force termination.
-        // Use 300ms to match the integration test's override value so the two
-        // do not fight over the global override slot when run in parallel.
+        // The integration twin of this test (tests.rs) arms the same global
+        // close-grace slot, so the two serialize on the WS timeout lock
+        // instead of fighting over it when run in parallel.
+        let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
         let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
 
         let (client_outer, mut client_inner) = tokio::io::duplex(64);

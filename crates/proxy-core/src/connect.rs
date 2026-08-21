@@ -418,9 +418,12 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
 
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
     let tls_instant = Instant::now();
-    let tls_stream = match tls_acceptor.accept(stream).await {
-        Ok(stream) => stream,
-        Err(error) => {
+    // P1-3: bound the MITM TLS handshake. A client that completes the CONNECT
+    // but then never sends the TLS ClientHello would otherwise hold this
+    // future (and its connection permit) forever.
+    let tls_stream = match timeout(client_header_read_timeout(), tls_acceptor.accept(stream)).await {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(error)) => {
             match classify_client_handshake_error(&error) {
                 // Most often certificate pinning, in which case nothing the
                 // user can change will make it succeed and a warning per
@@ -464,6 +467,23 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
             }
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake failed for {host}:{port}: {error}"
+            )));
+        }
+        // P1-3: the client never started (or never finished) the handshake
+        // within the ceiling — a slow-loris style stall. Log at debug: like
+        // certificate pinning, this is usually a scanner or a broken client,
+        // not something the user can act on.
+        Err(_elapsed) => {
+            tracing::debug!(
+                event = "tls_handshake_timed_out",
+                host = %host,
+                port = port,
+                timeout_secs = client_header_read_timeout().as_secs(),
+                "client did not complete the TLS handshake in time"
+            );
+            return Err(ProxyError::TlsError(format!(
+                "TLS handshake timed out after {}s for {host}:{port}",
+                client_header_read_timeout().as_secs()
             )));
         }
     };
@@ -536,8 +556,12 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     let io = hyper_util::rt::TokioIo::new(tls_stream);
 
     if is_h2 {
+        // P1-3: install a Timer so hyper's keep-alive/idle machinery works on
+        // this connection (h2 has no header-read timeout, but the timer keeps
+        // the builder's time-based options functional).
         let executor = hyper_util::rt::TokioExecutor::new();
         hyper::server::conn::http2::Builder::new(executor)
+            .timer(hyper_util::rt::TokioTimer::new())
             .serve_connection(io, service)
             .await
             .map_err(|e| {
@@ -552,7 +576,14 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
                 ))
             })?;
     } else {
+        // P1-3: without an installed Timer hyper applies NO header read
+        // timeout — a MITM client that connects (TLS done) but never sends
+        // request headers pins the connection forever. Mirror the plain-HTTP
+        // path: TokioTimer + explicit 30s header-read ceiling covering every
+        // request on the kept-alive connection.
         hyper::server::conn::http1::Builder::new()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .header_read_timeout(client_header_read_timeout())
             .serve_connection(io, service)
             .with_upgrades()
             .await

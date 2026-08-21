@@ -474,7 +474,15 @@ async fn handle_connection(
     prefix.extend_from_slice(&leftover);
     let io = hyper_util::rt::TokioIo::new(OwnedPrefixedStream::new(prefix, stream));
 
+    // P1-3: without an installed Timer hyper applies NO header read timeout,
+    // so a client that connects and never sends request headers pins one of
+    // the 1024 connection permits indefinitely (slow-loris style exhaustion).
+    // Installing TokioTimer activates hyper's default 30s header-read ceiling
+    // for both the first request and every kept-alive request after it; set
+    // it explicitly to stay in lockstep with the pre-hyper probe above.
     hyper::server::conn::http1::Builder::new()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(client_header_read_timeout())
         .serve_connection(io, service)
         .with_upgrades()
         .await
@@ -504,7 +512,7 @@ async fn read_header_only<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
-        let read_result = timeout(CLIENT_HEADER_READ_TIMEOUT, stream.read(&mut chunk))
+        let read_result = timeout(client_header_read_timeout(), stream.read(&mut chunk))
             .await
             .map_err(|_| "timed out waiting for client request headers".to_string())?;
 
