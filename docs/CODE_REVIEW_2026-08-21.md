@@ -625,8 +625,8 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 | 条目 | 状态 | commit | 修复方式 |
 |---|---|---|---|
 | P0-1 限流 Apply preset 传错 profile | ✅ | `b14f48e1` | 行 profile 显式传参，无参 fallback 保留 |
-| P0-2 规则编辑器脏检查缺失 | ✅ | `fd0871c9` | 草稿守卫，切 tab/选会话不再静默丢弃 |
-| P0-3 Sessions 整库订阅 + 派生数组 | ✅ | `fce819d3` | 细粒度 selector + deriveActiveData 引用稳定 |
+| P0-2 规则编辑器脏检查缺失 | ✅* | `fd0871c9` | 草稿守卫；一期仅 RewriteRulesPanel，其余面板见 §10.3 余项 |
+| P0-3 Sessions 整库订阅 + 派生数组 | ✅* | `fce819d3` | 细粒度 selector + 引用稳定；upsert 仍每次重建订阅字段，10Hz 渲染仅部分消除（§10.3） |
 | P0-4 WS 窗格每帧 setState 全量过滤 | ✅ | `3c3c2a02` | 快照/实时竞态修复 + rAF 微批 + lowercase WeakMap 缓存 |
 | P0-5 Windows PowerShell 参数绑定 | ✅ | `ac06b1be` | `param()` 显式绑定 thumbprint/location |
 | P0-6 附件任意文件读取 | ✅ | `561e1de0` | allowed-roots 收口 + Content-Type 校验 |
@@ -647,8 +647,8 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 | P1-10 save_media_file symlink 防护 | ✅ | `561e1de0` | O_NOFOLLOW 写入 + symlink 攻击测试（随 P0-6 同 commit） |
 | P1-14 WS 窗格快照竞态丢帧 | ✅ | `3c3c2a02` | 先订阅后快照、按 id 去重合并 + loadError 重试态 |
 | P1-16 keyed rows updater 副作用 | ✅ | `3c2b4fc4` | 副作用移出 setState updater，StrictMode 不再双发 onChange |
-| P1-18 detail 10Hz invalidate | ✅ | `023a6c02` | 已缓存 detail 改 setQueryData 原地合并，未缓存跳过 |
-| P1-19 全局 MutationCache 缺失 | ✅ | `5de4803b` | MutationCache.onError 兜底 + meta 豁免 + 回归测试 |
+| P1-18 detail 10Hz invalidate | ✅ | `023a6c02` / `929973a7` | setQueryData 原地合并；首版回归（in-flight body 永不更新）已在完成转换点补单次 invalidate 修复 |
+| P1-19 全局 MutationCache 缺失 | ✅ | `5de4803b` / `7123983e` | MutationCache.onError 兜底 + meta 豁免；首版仅证书页豁免产生双重提示，已为全部本地渲染错误的 mutation 补齐 meta |
 | P1-23 ConfirmDialog 不等结果 | ✅ | `5de4803b` | 成功才关对话框，失败 inline Alert 留守可重试 |
 | P1-24 collections/compose 静默失败 | ✅ | `5de4803b` | isPending 防双击 + 错误反馈 |
 | P1-27 证书页无失败反馈 | ✅ | `5de4803b` | 本地化错误通知 + DiagnosticsCard 错误态与重试 |
@@ -658,9 +658,26 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 - **第三阶段候选**：P1-6、P1-8、P1-11、P1-12、P1-13、P1-15、P1-17、P1-20、P1-21、P1-22、P1-25、P1-26、P1-29 ~ P1-33。
 - **backlog**：第 4 节 P2 全部条目。
+- **复核新增（2026-08-22，见 §10.5）**：
+  - P0-2 草稿守卫目前仅覆盖 RewriteRulesPanel，其余规则面板（断点、集合等编辑入口）待补齐。
+  - P0-3 upsert 每次都重新分配订阅字段，缺少内容相等性 bail-out，Sessions 列表 10Hz 重渲染仅部分消除。
+  - P1-3 h2 连接未配置 keep-alive 探活（`connect.rs` h2 builder 未传 `keep_alive_interval`），长静默连接可能被中间设备静默断开。
+  - P1-5 spool 目录无容量上限，长期运行的磁盘增长为已知取舍；是否加 cap 待决策。
+  - `save_text_file` 用普通 `fs::write` 写文件，会跟随指向不存在目标的符号链接（与 P0-4 加固同类，建议统一走 O_NOFOLLOW）。
+  - P0-5 的 Windows 行为仍待真机手动验证（fail-closed 分支）。
 
 ### 10.4 整体验证（2026-08-22）
 
 - `cargo clippy --workspace --all-targets`：通过。仅剩 4 个修复前已存在的告警（items_after_test_module ×3、server.rs too many arguments），已在 `da104ff2` 记录为范围外。
 - `cargo test -p aiproxy-proxy-core`：306 通过；`cargo test -p aiproxy-tls-manager`：58 通过（报告基线时为 54）。
 - 前端：typecheck 通过；Vitest 582 测试通过（基线 547）；format:check 通过；i18n en/zh-CN parity 5/5 通过。
+
+### 10.5 复核（2026-08-22）
+
+对基线 `1fd7b56d`..HEAD 共 20 个修复 commit 做了全面复核（多代理并行审查 + 逐项人工核验），结论：13 项完全修复，另发现并当场修复三个回归/缺口：
+
+- **R1（P1-18 回归）** in-flight 会话完成时 body/detail 不再刷新 — `929973a7`：仅在 `statusCode <= 0 → > 0` 完成转换点补一次 invalidateQueries，恢复后端 `refresh_detail_if_cached` 的数据通路；回归测试锁定 exactly-once。
+- **R2（P1-19 首版缺口）** 本地已渲染错误的 mutation 仍会弹全局 toast 造成双重提示 — `7123983e`：为全部本地渲染错误提示的 mutation 补 `meta.suppressGlobalErrorNotification`，并在 SetupChecklistCard 补本地 onError 兜底。
+- **R3（P1-24 同类）** Compose 附加文件被拒绝时无任何反馈 + hint 未披露允许目录 — `4edb6c6a`：handleAttach try/catch 推送通知，hint 文案披露 Downloads/Pictures/Videos/Desktop/Documents 限制（en/zh-CN 同步）。
+
+复核验证信号：前端 typecheck ✓、Vitest 584/584 ✓、eslint 0 error、format:check ✓；受影响 Rust 路径未改动。
