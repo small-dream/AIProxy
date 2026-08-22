@@ -1,9 +1,10 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import type { WsMessage } from "@aiproxy/shared-types";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
+import { onWsMessage } from "@/services/events";
 
 // Mock react-virtual to return all items as visible (same as SessionExplorerPane.test.tsx)
 vi.mock("@tanstack/react-virtual", () => ({
@@ -127,4 +128,146 @@ describe("SessionInspectorMessagesPane stress", () => {
     // In production (without our mock), only viewport-visible items would render,
     // so the DOM would contain far fewer than 1000 elements.
   }, 15_000);
+});
+
+// ---------------------------------------------------------------------------
+// P0-4 snapshot/live race + P1-14 micro-batching
+// ---------------------------------------------------------------------------
+
+const SESSION_ID = "session-ws-test";
+
+function buildWsMessage(id: string, marker: string): WsMessage {
+  return {
+    id,
+    sessionId: SESSION_ID,
+    direction: "serverToClient",
+    timestamp: new Date("2026-05-24T10:00:00.000Z").toISOString(),
+    opcode: "text",
+    payloadText: JSON.stringify({ marker }),
+    payloadSize: 16,
+    fin: true,
+  };
+}
+
+function emitWsFrame(msg: WsMessage) {
+  const calls = vi.mocked(onWsMessage).mock.calls;
+  const handler = calls.at(-1)?.[0] as ((msg: WsMessage) => void) | undefined;
+  expect(handler, "onWsMessage handler not registered").toBeDefined();
+  handler?.(msg);
+}
+
+describe("SessionInspectorMessagesPane snapshot/live race", () => {
+  it("keeps live frames that arrive before the snapshot resolves and dedupes by id", async () => {
+    let resolveSnapshot!: (messages: WsMessage[]) => void;
+    vi.mocked(listWsMessages).mockImplementation(
+      () => new Promise((resolve) => (resolveSnapshot = resolve)),
+    );
+
+    render(
+      <AppProviders>
+        <SessionInspectorMessagesPane sessionId={SESSION_ID} />
+      </AppProviders>,
+    );
+
+    // Live frames race in before the snapshot command resolves; one of them
+    // duplicates a frame the snapshot also contains.
+    emitWsFrame(buildWsMessage("ws-live-1", "live-1"));
+    emitWsFrame(buildWsMessage("ws-dup", "dup-from-live"));
+    await act(async () => {
+      resolveSnapshot([
+        buildWsMessage("ws-snap-0", "snap-0"),
+        buildWsMessage("ws-dup", "dup-from-snapshot"),
+      ]);
+    });
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("snap-0");
+      expect(text).toContain("live-1");
+      expect(text).toContain("dup-from");
+    });
+
+    // The duplicate id appears exactly once — the live copy won the merge.
+    const text = document.body.textContent ?? "";
+    expect(text.match(/dup-from/g)).toHaveLength(1);
+  }, 10_000);
+
+  it("shows a load error with retry when the snapshot command rejects", async () => {
+    vi.mocked(listWsMessages).mockRejectedValueOnce({
+      code: "WS_LOAD_FAILED",
+      message: "snapshot boom",
+    });
+    vi.mocked(listWsMessages).mockResolvedValueOnce([]);
+
+    const { getByRole, findByText } = render(
+      <AppProviders>
+        <SessionInspectorMessagesPane sessionId={SESSION_ID} />
+      </AppProviders>,
+    );
+
+    expect(await findByText("snapshot boom")).toBeInTheDocument();
+    fireEvent.click(getByRole("button", { name: "Retry" }));
+
+    // Retry succeeds → the normal empty state returns.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("No WebSocket Messages");
+    });
+  }, 10_000);
+});
+
+describe("SessionInspectorMessagesPane live-frame batching", () => {
+  let rafCallbacks: FrameRequestCallback[];
+
+  beforeEach(() => {
+    rafCallbacks = [];
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        rafCallbacks.push(callback);
+        return rafCallbacks.length;
+      }),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("commits a burst of frames in one flush instead of one render per event", async () => {
+    const initial = Array.from({ length: 5 }, (_, i) =>
+      buildWsMessage(`ws-init-${i}`, `init-${i}`),
+    );
+    vi.mocked(listWsMessages).mockResolvedValue(initial);
+
+    render(
+      <AppProviders>
+        <SessionInspectorMessagesPane sessionId={SESSION_ID} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("init-4");
+    });
+
+    // A burst of 50 frames arrives synchronously. With rAF held back nothing
+    // may commit yet — per-event setState would have rendered immediately.
+    act(() => {
+      for (let i = 0; i < 50; i++) {
+        emitWsFrame(buildWsMessage(`ws-burst-${i}`, `burst-${i}`));
+      }
+    });
+    expect(document.body.textContent).not.toContain("burst-49");
+
+    // One animation frame releases the whole burst in a single commit.
+    act(() => {
+      for (const callback of rafCallbacks.splice(0)) callback(0);
+    });
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("burst-0");
+      expect(text).toContain("burst-49");
+    });
+  }, 10_000);
 });

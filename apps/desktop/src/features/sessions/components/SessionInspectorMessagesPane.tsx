@@ -22,11 +22,12 @@ import {
 } from "@mui/material";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  WsConnectionStatusValue,
-  WsMessage,
-  WsMessageDirection,
-  WsOpcode,
+import {
+  coerceAppError,
+  type WsConnectionStatusValue,
+  type WsMessage,
+  type WsMessageDirection,
+  type WsOpcode,
 } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
@@ -51,6 +52,62 @@ function trimWsMessages(messages: WsMessage[]): WsMessage[] {
   }
 
   return messages.slice(messages.length - MAX_WS_MESSAGES_IN_MEMORY);
+}
+
+/**
+ * P1-14: per-message lowercase cache. Every filter pass (each keystroke of the
+ * debounced search, each appended batch) lowercases every payload; for large
+ * payloads that dominates re-filtering. Message objects are immutable once
+ * captured, so a WeakMap keyed by the object caches the work for its lifetime.
+ */
+const lowercasePayloadCache = new WeakMap<WsMessage, string>();
+
+function lowercasePayload(msg: WsMessage): string {
+  const cached = lowercasePayloadCache.get(msg);
+  if (cached !== undefined) return cached;
+  const lowered = msg.payloadText?.toLowerCase() ?? "";
+  if (msg.payloadText !== undefined) {
+    lowercasePayloadCache.set(msg, lowered);
+  }
+  return lowered;
+}
+
+/**
+ * P1-14: micro-batch scheduler for live frame appends. Bursts of frames commit
+ * in ONE setMessages per animation frame instead of one render per event.
+ * Falls back to a coarse timer when rAF is unavailable (tests).
+ */
+const LIVE_FRAME_FLUSH_INTERVAL_MS = 50;
+
+function scheduleLiveFlush(callback: () => void): () => void {
+  if (typeof requestAnimationFrame === "function") {
+    const handle = requestAnimationFrame(() => callback());
+    return () => cancelAnimationFrame(handle);
+  }
+  const timer = setTimeout(callback, LIVE_FRAME_FLUSH_INTERVAL_MS);
+  return () => clearTimeout(timer);
+}
+
+/** Snapshot ∪ live-buffer merge: dedupe by id, ordered by timestamp. */
+function mergeSnapshotWithBuffer(
+  snapshot: WsMessage[],
+  buffered: Map<string, WsMessage>,
+): WsMessage[] {
+  if (buffered.size === 0) return trimWsMessages(snapshot);
+
+  const mergedById = new Map<string, WsMessage>();
+  for (const msg of snapshot) {
+    mergedById.set(msg.id, msg);
+  }
+  // Live frames win on conflict: they are at least as recent as the snapshot.
+  for (const [id, msg] of buffered) {
+    mergedById.set(id, msg);
+  }
+
+  const merged = [...mergedById.values()].sort((a, b) =>
+    a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0,
+  );
+  return trimWsMessages(merged);
 }
 
 function formatBytes(bytes: number): string {
@@ -130,34 +187,80 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
   const [composePayload, setComposePayload] = useState("");
   const [injecting, setInjecting] = useState(false);
 
-  // Load messages
+  // Snapshot load + live updates (P0-4). The two raced before: frames arriving
+  // between `listWsMessages` issuing and resolving were either dropped (they
+  // appended into a state the stale snapshot then overwrote). Subscribe FIRST,
+  // buffer pre-snapshot live frames by id, and merge them into the snapshot
+  // when it lands; post-snapshot frames append through a micro-batched flush.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+    let snapshotLoaded = false;
+    const preSnapshotFrames = new Map<string, WsMessage>();
+    let pendingLiveFrames: WsMessage[] = [];
+    let cancelFlush: (() => void) | null = null;
+
     setMessages([]);
     setSelectedId(null);
     setComposeOpen(false);
-    listWsMessages(sessionId).then((loaded) => {
-      if (!cancelled) setMessages(trimWsMessages(loaded));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
+    setLoadError(null);
 
-  // Live updates
-  useEffect(() => {
-    let cancelled = false;
-    const unlistenPromise = onWsMessage((msg) => {
-      if (cancelled) return;
-      if (msg.sessionId === sessionId) {
-        setMessages((prev) => trimWsMessages([...prev, msg]));
+    const flushLiveFrames = () => {
+      cancelFlush = null;
+      if (cancelled || !snapshotLoaded) return;
+      const batch = pendingLiveFrames;
+      if (batch.length === 0) return;
+      pendingLiveFrames = [];
+      setMessages((prev) => trimWsMessages([...prev, ...batch]));
+    };
+
+    const queueLiveFrame = (msg: WsMessage) => {
+      if (!snapshotLoaded) {
+        // Snapshot still in flight — buffer for the merge instead of racing it.
+        preSnapshotFrames.set(msg.id, msg);
+        return;
       }
+      pendingLiveFrames.push(msg);
+      if (!cancelFlush) {
+        cancelFlush = scheduleLiveFlush(flushLiveFrames);
+      }
+    };
+
+    const unlistenPromise = onWsMessage((msg) => {
+      if (cancelled || msg.sessionId !== sessionId) return;
+      queueLiveFrame(msg);
     });
+
+    listWsMessages(sessionId)
+      .then((loaded) => {
+        if (cancelled) return;
+        snapshotLoaded = true;
+        setMessages(mergeSnapshotWithBuffer(loaded, preSnapshotFrames));
+        preSnapshotFrames.clear();
+        // Frames may have queued while the snapshot was resolving.
+        flushLiveFrames();
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        snapshotLoaded = true;
+        // The snapshot failed, but frames buffered before the failure are real
+        // traffic — keep them visible alongside the error.
+        const buffered = [...preSnapshotFrames.values()].sort((a, b) =>
+          a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0,
+        );
+        preSnapshotFrames.clear();
+        setMessages(trimWsMessages(buffered));
+        setLoadError(coerceAppError(error).message.trim() || t("websocket.loadFailed"));
+      });
+
     return () => {
       cancelled = true;
+      cancelFlush?.();
       void unlistenPromise.then((fn) => fn());
     };
-  }, [sessionId]);
+  }, [sessionId, reloadNonce, t]);
 
   // Connection status
   useEffect(() => {
@@ -188,8 +291,9 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       if (opcodeFilter === "control" && !CONTROL_OPCODES.has(msg.opcode as WsOpcode)) return false;
       if (debouncedSearch) {
         const q = debouncedSearch.toLowerCase();
-        const text = msg.payloadText?.toLowerCase() ?? "";
-        if (!text.includes(q) && !msg.opcode.includes(q)) return false;
+        // P1-14: lowercase is cached per message object, so re-filtering on a
+        // new search term does not re-lowercase every payload.
+        if (!lowercasePayload(msg).includes(q) && !msg.opcode.includes(q)) return false;
       }
       return true;
     });
@@ -259,6 +363,33 @@ export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string 
       setInjecting(false);
     }
   }, [sessionId, composeDirection, composeOpcode, composePayload, t]);
+
+  // P0-4: snapshot load failure is recoverable — show the error with a retry
+  // affordance instead of the "no messages" empty state.
+  if (loadError) {
+    return (
+      <Stack
+        sx={{
+          alignItems: "center",
+          justifyContent: "center",
+          flex: 1,
+          gap: 1.5,
+          py: 4,
+          px: 2,
+        }}
+      >
+        <Typography variant="body1" sx={{ color: "error.main" }}>
+          {t("websocket.loadFailedTitle")}
+        </Typography>
+        <Typography variant="body2" sx={{ color: "text.secondary", textAlign: "center" }}>
+          {loadError}
+        </Typography>
+        <Button size="small" variant="outlined" onClick={() => setReloadNonce((n) => n + 1)}>
+          {t("websocket.retry")}
+        </Button>
+      </Stack>
+    );
+  }
 
   if (messages.length === 0) {
     return (
