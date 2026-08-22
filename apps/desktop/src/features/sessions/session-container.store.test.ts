@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import {
+  deriveActiveData,
   useSessionContainerFilterStore,
   useSessionContainerStore,
 } from "./session-container.store";
@@ -304,5 +305,82 @@ describe("SessionContainerStore", () => {
       expect(state.sessionSummaryById["s-0"]).toBeDefined();
       expect(state.sessionSummaryById["s-199"]).toBeDefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deriveActiveData referential stability (P0-3)
+// ---------------------------------------------------------------------------
+
+describe("deriveActiveData referential stability", () => {
+  beforeEach(() => {
+    useSessionContainerStore.getState().clearSessions();
+    useSessionContainerStore.getState().init();
+  });
+
+  it("returns the same references when an unrelated container field changes", () => {
+    const store = useSessionContainerStore;
+    store.getState().seedSessions([buildSummary("s1"), buildSummary("s2")]);
+    const before = store.getState();
+
+    // A search-text edit rewrites the active container object but touches
+    // neither sessionIds nor the summary map.
+    store.getState().updateActiveContainer((container) => ({
+      ...container,
+      searchValue: "api",
+    }));
+
+    const after = store.getState();
+    expect(after.activeSessionIds).toBe(before.activeSessionIds);
+    expect(after.activeSessionSummaries).toBe(before.activeSessionSummaries);
+  });
+
+  it("returns the same references when sessionIds are rebuilt with identical content", () => {
+    const store = useSessionContainerStore;
+    store.getState().seedSessions([buildSummary("s1"), buildSummary("s2")]);
+    const before = store.getState();
+
+    store.getState().updateActiveContainer((container) => ({
+      ...container,
+      sessionIds: [...container.sessionIds],
+    }));
+
+    const after = store.getState();
+    expect(after.activeSessionIds).toBe(before.activeSessionIds);
+    expect(after.activeSessionSummaries).toBe(before.activeSessionSummaries);
+  });
+
+  it("returns fresh references when the content actually changes", () => {
+    const store = useSessionContainerStore;
+    store.getState().seedSessions([buildSummary("s1")]);
+    const before = store.getState();
+
+    store.getState().upsertSummary(buildSummary("s2"));
+
+    const after = store.getState();
+    expect(after.activeSessionIds).not.toBe(before.activeSessionIds);
+    expect(after.activeSessionSummaries).not.toBe(before.activeSessionSummaries);
+    expect(after.activeSessionIds).toHaveLength(2);
+  });
+
+  it("caches by content, not identity, when called directly", () => {
+    const store = useSessionContainerStore;
+    store.getState().seedSessions([buildSummary("s1")]);
+    const stateA = store.getState();
+
+    const first = deriveActiveData(stateA);
+    // A second state object with equal ids content (rebuilt array, same map
+    // reference) must reuse the cached arrays.
+    const rebuiltState = {
+      ...stateA,
+      containers: stateA.containers.map((container) => ({
+        ...container,
+        sessionIds: [...container.sessionIds],
+      })),
+    };
+    const second = deriveActiveData(rebuiltState);
+
+    expect(second.activeSessionIds).toBe(first.activeSessionIds);
+    expect(second.activeSessionSummaries).toBe(first.activeSessionSummaries);
   });
 });

@@ -7,6 +7,7 @@ import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import type { AppShellOutletContext } from "@/components/layout/app-shell.types";
@@ -105,12 +106,17 @@ export function SessionsPage() {
   const lastHandledHostFilterActionRef = useRef(0);
   const lastHandledSessionSelectRef = useRef(0);
 
-  const store = useSessionContainerStore;
+  // P0-3: fine-grained subscriptions instead of a whole-store `store()`
+  // call. A full subscription re-rendered this page on EVERY store write
+  // (including 10Hz summary upserts) even when none of the consumed fields
+  // changed. Data fields get single-value selectors; actions are defined
+  // once at store creation (stable references) so they share one `useShallow`
+  // selector.
+  const activeContainerId = useSessionContainerStore((s) => s.activeContainerId);
+  const containers = useSessionContainerStore((s) => s.containers);
+  const hydrated = useSessionContainerStore((s) => s.hydrated);
+  const sessionSummaryById = useSessionContainerStore((s) => s.sessionSummaryById);
   const {
-    activeContainerId,
-    containers,
-    hydrated,
-    sessionSummaryById,
     seedSessions,
     addContainer,
     closeContainer,
@@ -119,7 +125,18 @@ export function SessionsPage() {
     clearOtherSessions,
     removeSummary: removeSummaryFromStore,
     clearSessions: clearStoreSessions,
-  } = store();
+  } = useSessionContainerStore(
+    useShallow((s) => ({
+      seedSessions: s.seedSessions,
+      addContainer: s.addContainer,
+      closeContainer: s.closeContainer,
+      selectContainer: s.selectContainer,
+      updateActiveContainer: s.updateActiveContainer,
+      clearOtherSessions: s.clearOtherSessions,
+      removeSummary: s.removeSummary,
+      clearSessions: s.clearSessions,
+    })),
+  );
 
   const lastHandledMenuActionRef = useRef(0);
 
@@ -221,9 +238,9 @@ export function SessionsPage() {
   // ── existing imperative handlers ─────────────────────────────────
 
   useEffect(() => {
-    if (store.getState().hydrated) return;
+    if (useSessionContainerStore.getState().hydrated) return;
     const storedSessionId = readStorageValue(SELECTED_SESSION_ID_STORAGE_KEY);
-    store.getState().init({
+    useSessionContainerStore.getState().init({
       expandedHosts: readStoredHosts(EXPANDED_HOSTS_STORAGE_KEY),
       inspectorSplitRatio: defaultInspectorSplitRatio,
       requestCollapsed: readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
@@ -231,7 +248,7 @@ export function SessionsPage() {
       responseTab: "overview",
       ...(storedSessionId ? { selectedSessionId: storedSessionId } : {}),
     });
-  }, [defaultInspectorSplitRatio, store]);
+  }, [defaultInspectorSplitRatio]);
 
   useEffect(() => {
     if (
@@ -271,10 +288,10 @@ export function SessionsPage() {
 
   useEffect(() => {
     if (areSessionsLoading) return;
-    if (!store.getState().hydrated) {
+    if (!useSessionContainerStore.getState().hydrated) {
       seedSessions(runtimeSessions);
     }
-  }, [areSessionsLoading, runtimeSessions, seedSessions, store]);
+  }, [areSessionsLoading, runtimeSessions, seedSessions]);
 
   // Persist focused / ignored hosts
   useEffect(() => {
@@ -428,7 +445,7 @@ export function SessionsPage() {
     visibleSessions,
     onImportComplete: (details) => {
       for (const d of details) {
-        store.getState().upsertSummary(d.summary);
+        useSessionContainerStore.getState().upsertSummary(d.summary);
       }
       updateContainer((c) => ({
         ...c,
