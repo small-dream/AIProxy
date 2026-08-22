@@ -9,8 +9,9 @@ use tokio::time::timeout;
 const MAX_WS_FRAME_SIZE: u64 = 16 * 1024 * 1024;
 const WS_MASK_CHUNK_BYTES: usize = 16 * 1024;
 
-/// Marker prefix used to tag `ProxyError::Other` messages produced by
-/// `parse_ws_frame` for genuine RFC 6455 protocol violations (reserved
+/// Marker prefix used to tag `ProxyError::Other` messages produced by the
+/// WS frame parser (`try_parse_ws_frame`, surfaced through
+/// [`read_ws_frame`]) for genuine RFC 6455 protocol violations (reserved
 /// opcode, fragmented/oversized control frame, oversized payload, RSV bit
 /// set without a negotiated extension, ...).
 ///
@@ -29,7 +30,7 @@ fn ws_protocol_error(msg: impl Into<String>) -> ProxyError {
 /// treats this as a normal end of the connection (no Close(1002) answer).
 ///
 /// `read_exact` reports EOF as `std::io::ErrorKind::UnexpectedEof`; that error
-/// is propagated by `parse_ws_frame` as `ProxyError::IoError`.
+/// is propagated by [`read_ws_frame`] as `ProxyError::IoError`.
 pub fn is_clean_eof(err: &ProxyError) -> bool {
     match err {
         ProxyError::IoError(io) => io.kind() == std::io::ErrorKind::UnexpectedEof,
@@ -38,7 +39,7 @@ pub fn is_clean_eof(err: &ProxyError) -> bool {
 }
 
 /// Returns true when the error is a genuine RFC 6455 protocol violation
-/// produced by `parse_ws_frame` (e.g. reserved opcode, fragmented/oversized
+/// produced by the WS frame parser (e.g. reserved opcode, fragmented/oversized
 /// control frame, oversized payload, RSV bit set). Per RFC 6455 §7.4.1 the
 /// relay must answer such a violation with a Close frame carrying status
 /// code 1002 before dropping the connection.
@@ -323,10 +324,15 @@ pub async fn read_ws_frame<R: AsyncReadExt + Unpin>(
     }
 }
 
-/// Convenience wrapper that parses one frame from a stream using a
-/// throwaway buffer. The relay uses [`read_ws_frame`] with a persistent
-/// per-direction buffer instead — only stateless callers (tests) need this.
-pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
+/// Convenience wrapper that parses one frame from a stream using a throwaway
+/// buffer. TEST-ONLY: one `read()` may deliver several frames at once, and
+/// this wrapper drops every byte after the first parsed frame — silent data
+/// loss if it were used on a live stream. The relay avoids the shape entirely
+/// by calling [`read_ws_frame`] with a persistent per-direction buffer whose
+/// leftovers feed the next frame. Compiled out of non-test builds so the
+/// frame-dropping wrapper cannot grow production callers.
+#[cfg(test)]
+async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> Result<WsFrame, ProxyError> {
     let mut buf = Vec::new();

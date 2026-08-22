@@ -18,6 +18,19 @@ const DEFAULT_WORKSPACE_ID = "default";
 export type RulesTabValue = "breakpoint" | "rewrite" | "mapping" | "script";
 export type TranslationFn = ReturnType<typeof useI18n>["t"];
 
+/**
+ * P0-2 phase 2: imperative API every Rules tab panel exposes to the page.
+ * Switching tabs unmounts the active panel, so the page asks it to confirm
+ * before discarding an in-flight editor draft. (`RewriteRulesPanelHandle`
+ * predates this shared shape and is structurally identical.)
+ */
+export type RulesPanelHandle = {
+  /** True while the panel holds an unsaved editor draft. */
+  isDirty: boolean;
+  /** Resolves true when leaving is allowed (not dirty, or user discarded). */
+  confirmLeave: () => Promise<boolean>;
+};
+
 /* ── Factory helpers ──────────────────────────────────────────────── */
 
 function createEmptyRuleMatch(): RuleMatch {
@@ -125,6 +138,70 @@ function isJsonEqual(a: unknown, b: unknown): boolean {
     });
   }
   return false;
+}
+
+/* ── Dirty-check equality for the other rule editors (P0-2 phase 2) ──
+ *
+ * Same contract as isRewriteRuleEqual: `id` is ignored (an unsaved draft
+ * carries a freshly minted uuid), and optional fields are normalized to the
+ * defaults the editor forms produce.
+ */
+
+export function isBreakpointRuleEqual(a: BreakpointRule, b: BreakpointRule): boolean {
+  const matchTypeA = a.matchType ?? "contains";
+  const matchTypeB = b.matchType ?? "contains";
+  return (
+    a.enabled === b.enabled &&
+    a.urlPattern === b.urlPattern &&
+    a.stage === b.stage &&
+    matchTypeA === matchTypeB &&
+    isJsonEqual(a.methods, b.methods)
+  );
+}
+
+export function isMapRuleEqual(a: MapRule, b: MapRule): boolean {
+  return (
+    a.mode === b.mode &&
+    a.name === b.name &&
+    (a.note ?? "") === (b.note ?? "") &&
+    a.enabled === b.enabled &&
+    a.priority === b.priority &&
+    a.workspaceId === b.workspaceId &&
+    a.sourcePattern === b.sourcePattern &&
+    a.targetValue === b.targetValue &&
+    a.preservePath === b.preservePath &&
+    a.preserveQuery === b.preserveQuery
+  );
+}
+
+export function isDnsMappingRuleEqual(a: DnsMappingRule, b: DnsMappingRule): boolean {
+  const matchTypeA = a.matchType ?? "contains";
+  const matchTypeB = b.matchType ?? "contains";
+  return (
+    a.name === b.name &&
+    (a.note ?? "") === (b.note ?? "") &&
+    a.enabled === b.enabled &&
+    a.priority === b.priority &&
+    a.workspaceId === b.workspaceId &&
+    a.hostPattern === b.hostPattern &&
+    a.targetIp === b.targetIp &&
+    matchTypeA === matchTypeB
+  );
+}
+
+export function isScriptRuleEqual(a: ScriptRule, b: ScriptRule): boolean {
+  return (
+    a.name === b.name &&
+    (a.note ?? "") === (b.note ?? "") &&
+    a.enabled === b.enabled &&
+    a.priority === b.priority &&
+    a.workspaceId === b.workspaceId &&
+    a.language === b.language &&
+    a.sourceType === b.sourceType &&
+    a.sourceCode === b.sourceCode &&
+    isRuleMatchEqual(a.match, b.match) &&
+    isJsonEqual(a.entrypoints, b.entrypoints)
+  );
 }
 
 export function createEmptyMapRule(mode: MapRule["mode"]): MapRule {

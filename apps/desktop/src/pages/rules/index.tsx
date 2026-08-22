@@ -4,43 +4,68 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
-import { MappingRulesPanel } from "@/features/rules/components/MappingRulesPanel";
+import {
+  MappingRulesPanel,
+  type MappingRulesPanelHandle,
+} from "@/features/rules/components/MappingRulesPanel";
 import {
   RewriteRulesPanel,
   type RewriteRulesPanelHandle,
 } from "@/features/rules/components/RewriteRulesPanel";
 import { ScriptRulesPanel } from "@/features/rules/components/ScriptRulesPanel";
 import { RulesImportExportButtons } from "@/features/rules/components/RulesImportExportButtons";
-import type { RulesTabValue } from "@/features/rules/rules.helpers";
+import type { RulesPanelHandle, RulesTabValue } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 
 export function RulesPage() {
   const { t } = useI18n();
   const location = useLocation();
   const [tab, setTab] = useState<RulesTabValue>("rewrite");
+  const breakpointPanelRef = useRef<RulesPanelHandle>(null);
   const rewritePanelRef = useRef<RewriteRulesPanelHandle>(null);
+  const mappingPanelRef = useRef<MappingRulesPanelHandle>(null);
+  const scriptPanelRef = useRef<RulesPanelHandle>(null);
+  // Consume-once marker for the mapLocalSeed deep link, keyed by the history
+  // entry, so a vetoed switch is not re-prompted on every later re-render.
+  const lastHandledSeedKeyRef = useRef<string | null>(null);
 
-  // P0-2: switching tabs unmounts the active panel and silently drops its
-  // draft, so the rewrite panel gets to veto via its unsaved-changes guard.
-  // Phase-1 scope: only the rewrite panel tracks dirtiness — later panels can
-  // adopt the same handle pattern.
+  function panelForTab(value: RulesTabValue): RulesPanelHandle | null | undefined {
+    switch (value) {
+      case "breakpoint":
+        return breakpointPanelRef.current;
+      case "rewrite":
+        return rewritePanelRef.current;
+      case "mapping":
+        return mappingPanelRef.current;
+      case "script":
+        return scriptPanelRef.current;
+    }
+  }
+
+  // P0-2: switching tabs unmounts the active panel and silently dropped its
+  // draft, so every panel now vetoes through the shared unsaved-changes guard.
   async function handleTabChange(value: RulesTabValue) {
     if (value === tab) return;
-    if (tab === "rewrite") {
-      const allowed = await rewritePanelRef.current?.confirmLeave();
-      if (!allowed) return;
-    }
+    const allowed = (await panelForTab(tab)?.confirmLeave()) ?? true;
+    if (!allowed) return;
     setTab(value);
   }
 
   // The sessions page routes here with a mapLocalSeed for the "Map Local this
   // request" flow; land on the mapping tab so the pre-filled draft is visible.
+  // Routed through handleTabChange so a dirty editor can still veto — nothing
+  // is silently lost, because the seed stays in history state until the
+  // mapping panel actually consumes it.
+  // Deliberately no dep array: handleTabChange closes over `tab` and gets a
+  // fresh identity every render, so listing deps would be equivalent anyway.
+  // The history-entry key makes the handling run-once per navigation.
   useEffect(() => {
     const state = location.state as { mapLocalSeed?: unknown } | null;
-    if (state?.mapLocalSeed) {
-      setTab("mapping");
-    }
-  }, [location.state]);
+    if (!state?.mapLocalSeed) return;
+    if (lastHandledSeedKeyRef.current === location.key) return;
+    lastHandledSeedKeyRef.current = location.key;
+    void handleTabChange("mapping");
+  });
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
@@ -134,10 +159,10 @@ export function RulesPage() {
         </Stack>
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-          {tab === "breakpoint" && <BreakpointRulesPanel />}
+          {tab === "breakpoint" && <BreakpointRulesPanel ref={breakpointPanelRef} />}
           {tab === "rewrite" && <RewriteRulesPanel ref={rewritePanelRef} />}
-          {tab === "mapping" && <MappingRulesPanel />}
-          {tab === "script" && <ScriptRulesPanel />}
+          {tab === "mapping" && <MappingRulesPanel ref={mappingPanelRef} />}
+          {tab === "script" && <ScriptRulesPanel ref={scriptPanelRef} />}
         </Box>
       </Paper>
     </Stack>

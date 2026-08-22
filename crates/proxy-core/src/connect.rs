@@ -5,6 +5,17 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
 // ---------------------------------------------------------------------------
 
+/// How often the inbound h2 server probes an idle client connection with PING
+/// frames. Without this a half-open MITM connection (peer vanished behind a
+/// dropped NAT mapping, laptop asleep, middlebox silently discarding the flow)
+/// is never detected: hyper keeps the connection open indefinitely and the
+/// per-connection resources stay pinned.
+const H2_SERVER_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// How long an inbound h2 client may ignore our PINGs before hyper closes the
+/// connection as dead.
+const H2_SERVER_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Why a client refused the certificate we presented.
 ///
 /// The distinction matters for log severity: one case is a configuration
@@ -559,9 +570,15 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         // P1-3: install a Timer so hyper's keep-alive/idle machinery works on
         // this connection (h2 has no header-read timeout, but the timer keeps
         // the builder's time-based options functional).
+        //
+        // P1-6: actually enable that machinery — probe idle connections with
+        // PING frames so a half-open tunnel is detected and closed instead of
+        // pinning its connection slot until the process exits.
         let executor = hyper_util::rt::TokioExecutor::new();
         hyper::server::conn::http2::Builder::new(executor)
             .timer(hyper_util::rt::TokioTimer::new())
+            .keep_alive_interval(H2_SERVER_KEEP_ALIVE_INTERVAL)
+            .keep_alive_timeout(H2_SERVER_KEEP_ALIVE_TIMEOUT)
             .serve_connection(io, service)
             .await
             .map_err(|e| {

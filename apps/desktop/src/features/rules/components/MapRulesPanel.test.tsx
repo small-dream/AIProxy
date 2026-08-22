@@ -46,6 +46,9 @@ vi.mock("react-router-dom", () => ({
   // Stable reference: the seed effect depends on `navigate`, and a fresh
   // function identity per render would re-trigger it forever.
   useNavigate: () => navigateMock,
+  // P0-2 unsaved-changes guard: never dirty in these multi-action tests.
+  useBlocker: () => ({ state: "unblocked" as const, proceed: vi.fn(), reset: vi.fn() }),
+  useBeforeUnload: () => {},
 }));
 
 // Keep the test free of the i18n provider dependency.
@@ -184,7 +187,7 @@ describe("MapRulesPanel — Map Local seed from a captured request", () => {
 });
 
 describe("MapRulesPanel — newly-created rule selection (M10)", () => {
-  it("keeps the freshly-created draft selected instead of snapping back to an existing rule", () => {
+  it("keeps the freshly-created draft selected instead of snapping back to an existing rule", async () => {
     // Seed two existing saved rules. Without the fix, clicking "Create Rule"
     // sets selectedRuleId to the new draft id, but the auto-select effect then
     // sees that id is absent from `rules`, does NOT early-return, and overwrites
@@ -203,7 +206,11 @@ describe("MapRulesPanel — newly-created rule selection (M10)", () => {
 
     // After the fix, the new empty draft stays selected: the editor's rule-name
     // field is cleared (new empty draft) instead of snapping back to "Rule A".
-    expect(screen.queryByDisplayValue("Rule A")).not.toBeInTheDocument();
+    // The create handler awaits the guard promise, so the transition flushes in
+    // a microtask; wait for the UI to catch up.
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue("Rule A")).not.toBeInTheDocument();
+    });
     // The editor should now show an empty rule-name input (the new draft).
     const nameField = screen.getByLabelText(/rulesPage\.editor\.ruleName/i) as HTMLInputElement;
     expect(nameField.value).toBe("");

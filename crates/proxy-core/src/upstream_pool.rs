@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use http_body_util::combinators::BoxBody;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 
 use crate::timing_connector::ConnectionTiming;
 
@@ -34,16 +34,67 @@ struct PooledConnection {
 /// closed or idle for too long it is evicted and a fresh one is established on
 /// the next request.
 pub(crate) struct UpstreamConnectionPool {
-    connections: RwLock<HashMap<UpstreamKey, PooledConnection>>,
+    connections: tokio::sync::RwLock<HashMap<UpstreamKey, PooledConnection>>,
     /// Tracks in-flight connection attempts to prevent thundering-herd duplicates.
+    ///
+    /// A std (sync) lock on purpose: the critical sections are tiny map
+    /// operations with no `.await` inside, and the cancellation-safety guard
+    /// below must be able to take it from `Drop`, which cannot async-await.
     pending: RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
     idle_timeout: Duration,
+}
+
+/// Cancellation-safe ownership of one `pending` registration.
+///
+/// The connector inserts its watch channel under `pending[key]` before dialing
+/// and removes it afterwards. Every removal step sits behind an `.await`, so
+/// when the caller cancels `get_or_connect` mid-dial (the head-phase timeout in
+/// `forward_request` drops this future) none of them run and the entry stays in
+/// the map forever — one leak per timed-out host, unbounded growth. This guard
+/// deregisters synchronously from `Drop`, which cannot be cancelled, so the
+/// entry is cleaned up on every exit path by construction.
+struct PendingConnectGuard<'a> {
+    key: UpstreamKey,
+    /// Clone of the receiver that was registered under [`Self::key`]. The map
+    /// entry is only removed when it still IS our channel: a waiter that
+    /// observed a dropped sender may already have removed the stale entry and a
+    /// successor connector re-registered before our `Drop` runs, and deleting
+    /// their fresh registration would just strand their dial.
+    marker: watch::Receiver<Option<PooledConnection>>,
+    /// Always true today — kept as a switch so a future success path can take
+    /// over deregistration explicitly without restructuring the Drop logic.
+    armed: bool,
+    pending: &'a RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
+}
+
+impl Drop for PendingConnectGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut pending = self
+            .pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let is_ours = pending
+            .get(&self.key)
+            .is_some_and(|registered| registered.same_channel(&self.marker));
+        if is_ours {
+            pending.remove(&self.key);
+            tracing::debug!(
+                event = "upstream_pool_pending_cancelled",
+                host = %self.key.host,
+                port = self.key.port,
+                "cancelled connector deregistered its pending entry"
+            );
+        }
+    }
 }
 
 impl UpstreamConnectionPool {
     pub fn new() -> Self {
         Self {
-            connections: RwLock::new(HashMap::new()),
+            connections: tokio::sync::RwLock::new(HashMap::new()),
             pending: RwLock::new(HashMap::new()),
             idle_timeout: Duration::from_secs(60),
         }
@@ -90,20 +141,23 @@ impl UpstreamConnectionPool {
         // Check pending map AND register under a single write lock to eliminate
         // the TOCTOU window where two tasks could both pass a read-only check.
         // Returns either a receiver to wait on (another task is connecting) or
-        // a sender (we are the connector).
+        // a sender plus our own receiver clone (we are the connector).
         enum PendingAction {
             Wait(watch::Receiver<Option<PooledConnection>>),
-            Connect(watch::Sender<Option<PooledConnection>>),
+            Connect(
+                watch::Sender<Option<PooledConnection>>,
+                watch::Receiver<Option<PooledConnection>>,
+            ),
         }
 
         let action = {
-            let mut pending = self.pending.write().await;
+            let mut pending = self.pending.write().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(rx) = pending.get(key) {
                 PendingAction::Wait(rx.clone())
             } else {
                 let (tx, rx) = watch::channel(None);
-                pending.insert(key.clone(), rx);
-                PendingAction::Connect(tx)
+                pending.insert(key.clone(), rx.clone());
+                PendingAction::Connect(tx, rx)
             }
         };
 
@@ -131,7 +185,10 @@ impl UpstreamConnectionPool {
                     port = key.port,
                     "upstream_pool_pending_dropped"
                 );
-                self.pending.write().await.remove(key);
+                self.pending
+                    .write()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(key);
                 // Retry from scratch: re-enter the logic by recursing once.
                 // (Tail-call via boxing to avoid unbounded stack growth.)
                 return Box::pin(self.get_or_connect(
@@ -143,8 +200,24 @@ impl UpstreamConnectionPool {
                 ))
                 .await;
             }
-            PendingAction::Connect(tx) => {
-                // We are the connector. Perform the connection outside any lock.
+            PendingAction::Connect(tx, rx_marker) => {
+                // We are the connector. The guard owns our `pending`
+                // registration from here on: every explicit removal used to sit
+                // behind an `.await`, so when the caller cancelled this future
+                // mid-dial (the head-phase timeout wrapper drops it) none of
+                // them ran and the entry leaked — one per timed-out host,
+                // unbounded growth. On drop the guard deregisters us
+                // synchronously, so cancellation now cleans up by construction;
+                // the success paths below simply let the guard do the same work
+                // the old explicit removals did.
+                let _guard = PendingConnectGuard {
+                    key: key.clone(),
+                    marker: rx_marker,
+                    armed: true,
+                    pending: &self.pending,
+                };
+
+                // Perform the connection outside any lock.
                 let connect_result = self
                     .do_connect(
                         key,
@@ -165,21 +238,25 @@ impl UpstreamConnectionPool {
                             let mut connections = self.connections.write().await;
                             connections.insert(key.clone(), pooled.clone_for_watch());
                         }
+                        // Publish BEFORE the guard drops: a waiter that wakes on
+                        // this send reads the connection directly, and any
+                        // connector arriving between the send and the removal
+                        // becomes a waiter instead of dialing a duplicate.
                         let _ = tx.send(Some(pooled));
-                        self.pending.write().await.remove(key);
                         Ok(Some((sender, Some(connection_timing))))
                     }
                     Ok(None) => {
                         let _ = tx.send(None);
-                        self.pending.write().await.remove(key);
                         Ok(None)
                     }
                     Err(e) => {
                         let _ = tx.send(None);
-                        self.pending.write().await.remove(key);
                         Err(e)
                     }
                 }
+                // Dropping `guard` here removes our `pending` entry on every
+                // path above, and also fires when this future was cancelled at
+                // either `.await`.
             }
         }
     }
@@ -382,13 +459,19 @@ mod tests {
         // insert a watch channel into the pending map.
         let (tx, rx) = tokio::sync::watch::channel(None);
         {
-            let mut pending = pool.pending.write().await;
+            let mut pending = pool
+                .pending
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             pending.insert(key.clone(), rx);
         }
 
         // Verify the pending map has exactly one entry.
         {
-            let pending = pool.pending.read().await;
+            let pending = pool
+                .pending
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             assert_eq!(pending.len(), 1);
             assert!(pending.contains_key(&key));
         }
@@ -396,18 +479,125 @@ mod tests {
         // A second insert for the same key should replace the entry.
         let (tx2, rx2) = tokio::sync::watch::channel(None);
         {
-            let mut pending = pool.pending.write().await;
+            let mut pending = pool
+                .pending
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             pending.insert(key.clone(), rx2);
         }
 
         {
-            let pending = pool.pending.read().await;
+            let pending = pool
+                .pending
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             assert_eq!(pending.len(), 1);
         }
 
         // Suppress unused warnings.
         drop(tx);
         drop(tx2);
+    }
+
+    fn test_key() -> UpstreamKey {
+        UpstreamKey {
+            host: "api.example.com".to_string(),
+            port: 443,
+        }
+    }
+
+    /// The leak being fixed: a connector whose `get_or_connect` future is
+    /// dropped mid-dial (head-phase timeout) must deregister its `pending`
+    /// entry from `Drop`. Without the guard the entry stayed forever — one per
+    /// timed-out host, unbounded growth.
+    #[test]
+    fn cancelled_connector_deregisters_its_pending_entry() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+
+        let (_tx, rx) = tokio::sync::watch::channel(None);
+        pool.pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone(), rx.clone());
+
+        // Simulates the cancellation path: the connector future is dropped
+        // without reaching any of its explicit cleanup steps, so only the
+        // guard's Drop runs.
+        drop(PendingConnectGuard {
+            key: key.clone(),
+            marker: rx,
+            armed: true,
+            pending: &pool.pending,
+        });
+
+        let pending = pool
+            .pending
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !pending.contains_key(&key),
+            "a cancelled connector must not leave its pending entry behind"
+        );
+    }
+
+    /// A successor connector may have re-registered the key between our
+    /// cancellation and our Drop; deleting their fresh channel would strand
+    /// THEIR dial, so the guard only removes its own registration.
+    #[test]
+    fn guard_never_removes_a_successors_registration() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+
+        let (_stale_tx, stale_rx) = tokio::sync::watch::channel(None);
+        let (successor_tx, _successor_rx) = tokio::sync::watch::channel(None);
+        pool.pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone(), successor_tx.subscribe());
+
+        drop(PendingConnectGuard {
+            key: key.clone(),
+            marker: stale_rx,
+            armed: true,
+            pending: &pool.pending,
+        });
+
+        let pending = pool
+            .pending
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            pending.contains_key(&key),
+            "the guard must not delete a successor connector's registration"
+        );
+    }
+
+    /// Sanity check for the disarm switch: a disarmed guard leaves the map
+    /// untouched (used if a future success path takes over removal).
+    #[test]
+    fn disarmed_guard_leaves_the_entry_in_place() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+
+        let (_tx, rx) = tokio::sync::watch::channel(None);
+        pool.pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone(), rx.clone());
+
+        drop(PendingConnectGuard {
+            key: key.clone(),
+            marker: rx,
+            armed: false,
+            pending: &pool.pending,
+        });
+
+        let pending = pool
+            .pending
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(pending.contains_key(&key), "disarmed guard must be a no-op");
     }
 
     /// Verify that evict_key removes the specified key from the pool.

@@ -115,7 +115,14 @@ export function SessionsPage() {
   const activeContainerId = useSessionContainerStore((s) => s.activeContainerId);
   const containers = useSessionContainerStore((s) => s.containers);
   const hydrated = useSessionContainerStore((s) => s.hydrated);
-  const sessionSummaryById = useSessionContainerStore((s) => s.sessionSummaryById);
+  // Consume the store's cached `activeSessionSummaries` derivation rather than
+  // subscribing to the raw `sessionSummaryById` map. A raw-map subscription
+  // handed this page a new reference on every upsert, so the page re-rendered
+  // AND re-derived the active-session list (~10Hz under traffic) even though
+  // the store already computes exactly this array once per write; the
+  // store-side content cache also keeps the reference stable across unrelated
+  // writes (selection, search text, expanded hosts…).
+  const activeSessions = useSessionContainerStore((s) => s.activeSessionSummaries);
   const {
     seedSessions,
     addContainer,
@@ -154,14 +161,8 @@ export function SessionsPage() {
     [proxyStatus?.activeWorkspaceId, workspaces],
   );
 
-  // Active sessions from the container
-  const activeSessions = useMemo(
-    () =>
-      (activeContainer?.sessionIds ?? [])
-        .map((sessionId) => sessionSummaryById[sessionId])
-        .filter((session): session is SessionSummary => Boolean(session)),
-    [activeContainer?.sessionIds, sessionSummaryById],
-  );
+  // Active sessions come straight from the store's cached derivation (see the
+  // subscription note above) — no page-local re-derivation.
 
   // ═══ extracted hooks ════════════════════════════════════════════
   // Order matters: timeout hook produces displayActiveSessions which

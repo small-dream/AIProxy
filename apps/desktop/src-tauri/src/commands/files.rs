@@ -104,8 +104,11 @@ pub fn save_text_file(input: SaveTextFileInput, app: tauri::AppHandle) -> Result
         .ok_or_else(|| "Unable to locate the Downloads directory.".to_string())?;
     let target_path = next_available_export_path(&downloads_dir, safe_name);
 
-    std::fs::write(&target_path, input.content.as_bytes())
-        .map_err(|error| format!("write exported file: {error}"))?;
+    // No-follow write, same as `save_media_file`: `next_available_export_path`
+    // treats a dangling symlink as a free name (`exists()` follows links), so a
+    // plain `fs::write` here could land the bytes on whatever the planted link
+    // points at instead of creating a regular file in Downloads.
+    overwrite_regular_file(&target_path, input.content.as_bytes())?;
 
     if input.reveal_in_folder.unwrap_or(false) {
         app.opener()
@@ -1956,5 +1959,31 @@ mod tests {
         assert!(!outside.exists(), "nothing may be created through the link");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// H6: `save_text_file` picks its target with `next_available_export_path`,
+    /// whose `exists()` follows links — a dangling symlink counts as a free
+    /// name. The write that follows must refuse to go through the link instead
+    /// of creating (or overwriting) whatever the link points at.
+    #[cfg(unix)]
+    #[test]
+    fn overwrite_regular_file_refuses_a_dangling_symbolic_link() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dangling_target = dir.path().join("does-not-exist.bin");
+        let link = dir.path().join("export.json");
+        symlink(&dangling_target, &link).expect("symlink");
+
+        let err = overwrite_regular_file(&link, b"X").unwrap_err();
+
+        assert!(
+            err.contains("refusing to overwrite symbolic link"),
+            "got: {err}"
+        );
+        assert!(
+            !dangling_target.exists(),
+            "nothing may be created through the dangling link"
+        );
     }
 }

@@ -373,18 +373,32 @@ pub(crate) async fn forward_request(
                     error = %error,
                     "upstream_request_send_failed_retrying"
                 );
-                let retry_sender = match pool.as_ref().map(|p| {
-                    p.get_or_connect(
-                        &pool_key,
-                        dns_override_ip,
-                        verify_upstream_tls,
-                        Arc::clone(&tls_verify_hosts),
-                        upstream_proxy.clone(),
-                    )
-                }) {
-                    Some(fut) => fut.await.map_err(|e| {
-                        ProxyError::UpstreamError(format!("failed to reconnect on retry: {e}"))
-                    })?,
+                let retry_sender = match pool.as_ref() {
+                    Some(p) => {
+                        let connect = p.get_or_connect(
+                            &pool_key,
+                            dns_override_ip,
+                            verify_upstream_tls,
+                            Arc::clone(&tls_verify_hosts),
+                            upstream_proxy.clone(),
+                        );
+                        // The retry dial is a fresh DNS/TCP/TLS/h2 handshake, so
+                        // it must be bounded exactly like the first dial above;
+                        // an unbounded await here would hang the request forever
+                        // on a stalled reconnect.
+                        match bound_head_phase(connect).await {
+                            Ok(Ok(sender)) => sender,
+                            Ok(Err(error)) => {
+                                return Err(ProxyError::UpstreamError(format!(
+                                    "failed to reconnect on retry: {error}"
+                                )));
+                            }
+                            Err(timeout @ ProxyError::UpstreamTimeout { .. }) => {
+                                return Err(timeout)
+                            }
+                            Err(other) => return Err(other),
+                        }
+                    }
                     None => None,
                 };
                 match retry_sender {
