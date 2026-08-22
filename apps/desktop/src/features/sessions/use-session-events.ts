@@ -58,10 +58,19 @@ export function useSessionEvents() {
           summary.id,
         ]);
         if (!existingDetail) continue;
+        const completedNow = existingDetail.summary.statusCode <= 0 && summary.statusCode > 0;
         queryClient.setQueryData<SessionDetail>([SESSION_DETAIL_QUERY_KEY, summary.id], {
           ...existingDetail,
           summary,
         });
+        if (!completedNow) continue;
+        // The backend refreshes its cached detail in place when a captured
+        // request completes (the response body arrives), and a summary-only
+        // merge cannot carry that body over. Invalidate once on the
+        // in-flight→completed transition so an open inspector refetches the
+        // full detail; later upserts see a completed cached summary and never
+        // reach this point, keeping the old batch-frequency refetch storm out.
+        queryClient.invalidateQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY, summary.id] });
       }
     }
 

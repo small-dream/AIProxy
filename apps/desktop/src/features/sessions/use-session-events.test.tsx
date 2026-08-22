@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useSessionContainerStore } from "./session-container.store";
 import { SESSION_DETAIL_QUERY_KEY } from "./use-session-detail";
@@ -67,6 +67,13 @@ async function emitUpsert(summary: SessionSummary) {
 }
 
 describe("useSessionEvents", () => {
+  // The container store is module-level and shared across tests; stale ids
+  // from an earlier test would let `emitUpsert`'s waitFor pass before the
+  // 100ms flush timer has even fired.
+  beforeEach(() => {
+    useSessionContainerStore.getState().clearSessions();
+  });
+
   it("mounts without throwing", () => {
     const wrapper = createWrapper(new QueryClient());
     expect(() => renderHook(() => useSessionEvents(), { wrapper })).not.toThrow();
@@ -106,5 +113,41 @@ describe("useSessionEvents", () => {
         .getQueryCache()
         .find({ exact: true, queryKey: [SESSION_DETAIL_QUERY_KEY, "unknown"] }),
     ).toBeUndefined();
+  });
+
+  // The backend refreshes its cached detail in place when an in-flight request
+  // completes (the response body arrives), but the summary-only merge cannot
+  // carry that body. The transition must schedule exactly one refetch so an
+  // open inspector picks the body up instead of showing "empty body" forever.
+  it("invalidates a cached detail exactly once when it completes", async () => {
+    const queryClient = new QueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    renderHook(() => useSessionEvents(), { wrapper: createWrapper(queryClient) });
+
+    const detailKey = [SESSION_DETAIL_QUERY_KEY, "s-complete"];
+    queryClient.setQueryData(detailKey, buildDetail(buildSummary("s-complete", { statusCode: 0 })));
+
+    await emitUpsert(buildSummary("s-complete", { statusCode: 200 }));
+    expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData<SessionDetail>(detailKey)?.summary.statusCode).toBe(200);
+
+    // Trailing upserts for the already-completed session must not re-invalidate.
+    await emitUpsert(buildSummary("s-complete", { durationMs: 150 }));
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // A completed session receiving further cosmetic updates (duration refresh)
+  // never passes through the in-flight→completed transition, so its cached
+  // detail stays fresh and merge-only.
+  it("keeps merging without invalidating for details cached post-completion", async () => {
+    const queryClient = new QueryClient();
+    renderHook(() => useSessionEvents(), { wrapper: createWrapper(queryClient) });
+
+    const detailKey = [SESSION_DETAIL_QUERY_KEY, "s-post"];
+    queryClient.setQueryData(detailKey, buildDetail(buildSummary("s-post", { statusCode: 200 })));
+
+    await emitUpsert(buildSummary("s-post", { durationMs: 250 }));
+    expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData<SessionDetail>(detailKey)?.summary.durationMs).toBe(250);
   });
 });
