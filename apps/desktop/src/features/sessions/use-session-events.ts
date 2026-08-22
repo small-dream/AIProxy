@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@aiproxy/shared-types";
+import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -47,9 +47,20 @@ export function useSessionEvents() {
       });
 
       for (const summary of batch) {
-        void queryClient.invalidateQueries({
-          exact: true,
-          queryKey: [SESSION_DETAIL_QUERY_KEY, summary.id],
+        // P1-18: merge the fresh summary into an already-cached detail instead
+        // of invalidating it. A blind invalidate marked the entry stale on
+        // every upsert of every session at batch frequency, refetching details
+        // nobody is inspecting and re-parsing the inspector's memos. When
+        // nothing is cached there is no consumer — an inspector that opens
+        // later fetches on mount — so skip entirely.
+        const existingDetail = queryClient.getQueryData<SessionDetail>([
+          SESSION_DETAIL_QUERY_KEY,
+          summary.id,
+        ]);
+        if (!existingDetail) continue;
+        queryClient.setQueryData<SessionDetail>([SESSION_DETAIL_QUERY_KEY, summary.id], {
+          ...existingDetail,
+          summary,
         });
       }
     }
