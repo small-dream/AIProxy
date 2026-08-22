@@ -145,6 +145,7 @@ docs(readme): update build instructions for Linux
 chore(deps): bump React to 19.2.8
 ```
 
+- Write commit messages (subject and body) in English.
 - Keep the subject line under 72 characters.
 - Use the imperative mood ("add", not "added" or "adds").
 - Reference issues in the body: `Closes #123`, `Refers to #456`.
