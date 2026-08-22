@@ -1797,7 +1797,7 @@ fn non_regex_match_types_do_not_compile_regex() {
         apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false)
             .unwrap();
     assert!(
-        traces.len() >= 1,
+        !traces.is_empty(),
         "contains and exact rules should still match"
     );
 }
@@ -4851,7 +4851,7 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
     for i in 0..6 {
         sleep(Duration::from_millis(100)).await;
         // Write a byte to the upstream (through the tunnel).
-        if client.write_all(&[b'A']).await.is_err() {
+        if client.write_all(b"A").await.is_err() {
             break;
         }
         // Read the echoed byte back. Use a generous outer bound: if the tunnel

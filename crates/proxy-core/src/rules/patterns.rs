@@ -272,9 +272,8 @@ mod tests {
         #[test]
         fn multi_segment_rejects_wrong_order(candidate in ".*bar.*foo.*") {
             // "bar...foo" does not have "foo" before "bar"
-            let has_foo_before_bar = candidate.find("foo").map_or(false, |fi| {
-                candidate[fi + 3..].contains("bar")
-            });
+            let has_foo_before_bar =
+                candidate.find("foo").is_some_and(|fi| candidate[fi + 3..].contains("bar"));
             if has_foo_before_bar {
                 // This candidate accidentally satisfies the order, skip it
                 return Ok(());
