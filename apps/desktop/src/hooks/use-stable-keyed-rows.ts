@@ -37,6 +37,10 @@ function stripIds<T extends KeyedRowValue>(rows: StableKeyedRow<T>[]): T[] {
   });
 }
 
+function buildRows<T extends KeyedRowValue>(source: T[]): StableKeyedRow<T>[] {
+  return source.map((item) => ({ ...item, id: crypto.randomUUID() }));
+}
+
 export type StableKeyedRowsApi<T extends KeyedRowValue> = {
   rows: StableKeyedRow<T>[];
   update: (index: number, field: "name" | "value", value: string) => void;
@@ -59,9 +63,14 @@ export function useStableKeyedRows<T extends KeyedRowValue>(
   items: T[],
   onChange: (items: T[]) => void,
 ): StableKeyedRowsApi<T> {
-  const [rows, setRows] = useState<StableKeyedRow<T>[]>(() =>
-    items.map((item) => ({ ...item, id: crypto.randomUUID() })),
-  );
+  const [rows, setRows] = useState<StableKeyedRow<T>[]>(() => buildRows(items));
+  // Mirror of `rows` for the mutators: they compute the next rows OUTSIDE
+  // `setRows` so that no side effect ever runs inside a state updater.
+  // StrictMode intentionally double-invokes updater functions, so an
+  // updater-emitted `onChange` fired twice per keystroke in dev (P1-16). Kept
+  // in sync at every point `rows` changes — here, the mutators' commit, and
+  // the external reset below.
+  const rowsRef = useRef(rows);
   const lastEmittedRef = useRef<T[]>(items);
 
   // Keep a stable ref to the latest onChange so the memoized mutators below do
@@ -75,42 +84,48 @@ export function useStableKeyedRows<T extends KeyedRowValue>(
   // (an external reset), so we never bind a stale id to foreign data.
   useEffect(() => {
     if (sameValues(lastEmittedRef.current, items)) return;
+    const next = buildRows(items);
+    rowsRef.current = next;
     lastEmittedRef.current = items;
-    setRows(items.map((item) => ({ ...item, id: crypto.randomUUID() })));
+    setRows(next);
   }, [items]);
 
-  const update = useCallback((index: number, field: "name" | "value", value: string) => {
-    setRows((prev) => {
-      const current = prev[index];
-      if (!current) return prev;
-      const next = [...prev];
-      next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
-      const stripped = stripIds(next);
-      lastEmittedRef.current = stripped;
-      onChangeRef.current(stripped);
-      return next;
-    });
+  // Single side-effecting path shared by all mutators. Called from the event
+  // callback itself (never from inside a `setRows` updater), so each user
+  // action emits exactly once and the parent receives the stripped array
+  // synchronously — the contract BreakpointInterceptPanel relies on.
+  const commit = useCallback((next: StableKeyedRow<T>[]) => {
+    rowsRef.current = next;
+    setRows(next);
+    const stripped = stripIds(next);
+    lastEmittedRef.current = stripped;
+    onChangeRef.current(stripped);
   }, []);
 
-  const remove = useCallback((index: number) => {
-    setRows((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      const stripped = stripIds(next);
-      lastEmittedRef.current = stripped;
-      onChangeRef.current(stripped);
-      return next;
-    });
-  }, []);
+  const update = useCallback(
+    (index: number, field: "name" | "value", value: string) => {
+      const current = rowsRef.current[index];
+      if (!current) return;
+      const next = [...rowsRef.current];
+      next[index] = field === "name" ? { ...current, name: value } : { ...current, value };
+      commit(next);
+    },
+    [commit],
+  );
+
+  const remove = useCallback(
+    (index: number) => {
+      commit(rowsRef.current.filter((_, i) => i !== index));
+    },
+    [commit],
+  );
 
   const add = useCallback(() => {
-    setRows((prev) => {
-      const next = [...prev, { name: "", value: "", id: crypto.randomUUID() } as StableKeyedRow<T>];
-      const stripped = stripIds(next);
-      lastEmittedRef.current = stripped;
-      onChangeRef.current(stripped);
-      return next;
-    });
-  }, []);
+    commit([
+      ...rowsRef.current,
+      { name: "", value: "", id: crypto.randomUUID() } as StableKeyedRow<T>,
+    ]);
+  }, [commit]);
 
   return { rows, update, remove, add };
 }
