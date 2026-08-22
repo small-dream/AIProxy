@@ -33,6 +33,10 @@ export function useRewriteRules() {
   });
 }
 
+// The rule panels render save failures inline (saveError alert), so these
+// mutations opt out of the global MutationCache toast to avoid double
+// reporting (P1-19). Bulk updates and rule deletion have no inline rendering
+// and keep the global toast as their only failure channel.
 export function useSaveRewriteRule() {
   const queryClient = useQueryClient();
 
@@ -41,6 +45,7 @@ export function useSaveRewriteRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
     },
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -83,6 +88,7 @@ export function useSaveMapRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: MAP_RULES_KEY });
     },
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -102,6 +108,7 @@ export function useSaveScriptRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SCRIPT_RULES_KEY });
     },
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -121,6 +128,7 @@ export function useSaveDnsMapping() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: DNS_MAPPINGS_KEY });
     },
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 

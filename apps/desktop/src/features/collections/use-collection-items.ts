@@ -47,6 +47,8 @@ export function useDeleteCollectionItem() {
         queryKey: ["api-collection-items", variables.collectionId],
       });
     },
+    // Surfaced inside the delete ConfirmDialog while it stays open on failure.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 

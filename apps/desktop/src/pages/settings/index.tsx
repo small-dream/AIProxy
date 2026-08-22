@@ -1227,6 +1227,8 @@ function AiModelSettingsSection() {
         message: coerceAppError(error).message || t("common.errors.generic"),
       });
     },
+    // Failures render in the local feedback banner; skip the global toast.
+    meta: { suppressGlobalErrorNotification: true },
   });
   const testMutation = useMutation({
     mutationFn: testAiConnection,
@@ -1242,6 +1244,8 @@ function AiModelSettingsSection() {
         message: coerceAppError(error).message || t("common.errors.generic"),
       });
     },
+    // Failures render in the local feedback banner; skip the global toast.
+    meta: { suppressGlobalErrorNotification: true },
   });
   const [draft, setDraft] = useState<SaveAiSettingsInput>({
     provider: "openai-compatible",

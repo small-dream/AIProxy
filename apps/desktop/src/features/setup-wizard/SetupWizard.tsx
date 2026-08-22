@@ -63,8 +63,14 @@ export function SetupWizard() {
   } = useSetupWizard();
 
   const { data: certStatus, refetch: refetchCertStatus } = useCertificateStatus();
-  const generateMutation = useGenerateRootCertificate();
-  const installMutation = useLaunchCertificateInstaller();
+  // Both steps render failures through setActionError; opt out of the global
+  // MutationCache toast so the same failure is not reported twice.
+  const generateMutation = useGenerateRootCertificate({
+    meta: { suppressGlobalErrorNotification: true },
+  });
+  const installMutation = useLaunchCertificateInstaller({
+    meta: { suppressGlobalErrorNotification: true },
+  });
   const { data: proxyStatus } = useProxyStatus();
   const startProxyMutation = useStartProxy();
   const stopProxyMutation = useStopProxy();

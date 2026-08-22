@@ -64,6 +64,9 @@ export function useDiagnoseCertificateSetup(options?: DiagnosticQueryOptions) {
     queryFn: diagnoseCertificateSetup,
     enabled: options?.enabled ?? false,
     staleTime: 0,
+    // DiagnosticsCard renders the failure inline with a retry action; the
+    // QueryCache toast would report it twice.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -118,6 +121,8 @@ export function useRemoveCertificateTrust() {
       queryClient.invalidateQueries({ queryKey: PROXY_STATUS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
+    // The page surfaces removal failures through its removeFeedback state.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -137,6 +142,9 @@ export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
   });
 }
 
+// The mobile quick-action panels render install/proxy failures inline
+// (`*.error.message` in the panel body), so these mutations opt out of the
+// global MutationCache toast to avoid double reporting.
 export function useInstallAndroidCertificateViaAdb() {
   return useMutation<
     AndroidAdbCertificateInstallResult,
@@ -144,6 +152,7 @@ export function useInstallAndroidCertificateViaAdb() {
     InstallAndroidCertificateViaAdbInput | undefined
   >({
     mutationFn: (input) => installAndroidCertificateViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -167,18 +176,21 @@ export function useInstallIosCertificateViaSimulator() {
     InstallIosCertificateViaSimulatorInput | undefined
   >({
     mutationFn: (input) => installIosCertificateViaSimulator(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
 export function useSetAndroidProxyViaAdb() {
   return useMutation<AndroidAdbProxyResult, Error, SetAndroidProxyViaAdbInput>({
     mutationFn: (input) => setAndroidProxyViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
 export function useClearAndroidProxyViaAdb() {
   return useMutation<AndroidAdbProxyResult, Error, ClearAndroidProxyViaAdbInput | undefined>({
     mutationFn: (input) => clearAndroidProxyViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -201,5 +213,6 @@ export function useInstallHarmonyCertificateViaHdc() {
     InstallHarmonyCertificateViaHdcInput | undefined
   >({
     mutationFn: (input) => installHarmonyCertificateViaHdc(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }

@@ -66,5 +66,8 @@ export function useSendComposedRequest() {
 
       queryClient.setQueryData([SESSION_DETAIL_QUERY_KEY, detail.id], detail);
     },
+    // Both consumers (compose and collections pages) render the failure on
+    // the response pane; the global MutationCache toast would double-report.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }

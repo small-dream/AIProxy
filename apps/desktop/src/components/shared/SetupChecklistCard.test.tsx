@@ -97,11 +97,16 @@ describe("SetupChecklistCard", () => {
 
     fireEvent.click(screen.getByText("common.actions.startProxy"));
 
-    expect(state.startProxy.mutate).toHaveBeenCalledWith({
-      enableSsl: true,
-      port: 8888,
-      workspaceId: "default",
-    });
+    // The second argument carries the card's own failure handler (the hook
+    // opts out of the global MutationCache toast).
+    expect(state.startProxy.mutate).toHaveBeenCalledWith(
+      {
+        enableSsl: true,
+        port: 8888,
+        workspaceId: "default",
+      },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
   });
 
   it("surfaces the port-in-use warning with a 'Change port' action on the proxy step", () => {

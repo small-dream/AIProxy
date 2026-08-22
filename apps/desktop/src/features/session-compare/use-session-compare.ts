@@ -82,6 +82,8 @@ export function useSessionCompare() {
         language: locale,
         payload,
       }),
+    // Rendered by AiSummaryPanel via mutationError.
+    meta: { suppressGlobalErrorNotification: true },
   });
 
   // --- Sync state from URL ---
