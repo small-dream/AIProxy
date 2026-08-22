@@ -79,10 +79,16 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
     function handleSave() {
       setValidationAttempted(true);
       if (errors.length > 0) return;
-      setRulesMutation.mutate([...rules, draft]);
-      setDialogOpen(false);
-      setDraft(createEmptyBreakpointRule());
-      setValidationAttempted(false);
+      // Close the dialog and reset the draft only once the save has actually
+      // succeeded: on failure the saveError alert renders inside the still-open
+      // dialog and the user can retry without losing their edits.
+      setRulesMutation.mutate([...rules, draft], {
+        onSuccess: () => {
+          setDialogOpen(false);
+          setDraft(createEmptyBreakpointRule());
+          setValidationAttempted(false);
+        },
+      });
     }
 
     function handleToggle(id: string) {
@@ -105,7 +111,9 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
 
     function handleDialogClose() {
       setDialogOpen(false);
+      setDraft(createEmptyBreakpointRule());
       setValidationAttempted(false);
+      setRulesMutation.reset();
     }
 
     const hasRequestCatchAll = rules.some(
@@ -140,11 +148,6 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
     return (
       <Stack spacing={2}>
         {isRulesError && <Alert severity="error">{t("common.errors.generic")}</Alert>}
-        {saveError && (
-          <Alert severity="error" variant="outlined">
-            {saveError}
-          </Alert>
-        )}
         <Paper
           elevation={0}
           sx={{
@@ -302,6 +305,11 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
           <DialogTitle>{t("rulesPage.addDialogTitle")}</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ pt: 0.5 }}>
+              {saveError && (
+                <Alert severity="error" variant="outlined">
+                  {saveError}
+                </Alert>
+              )}
               {validationAttempted && errors.length > 0 && (
                 <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
                   <Stack spacing={0.25}>

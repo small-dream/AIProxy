@@ -160,6 +160,9 @@ export function isBreakpointRuleEqual(a: BreakpointRule, b: BreakpointRule): boo
 }
 
 export function isMapRuleEqual(a: MapRule, b: MapRule): boolean {
+  // An unset matchType behaves as "contains" everywhere it is evaluated.
+  const matchTypeA = a.matchType ?? "contains";
+  const matchTypeB = b.matchType ?? "contains";
   return (
     a.mode === b.mode &&
     a.name === b.name &&
@@ -169,6 +172,7 @@ export function isMapRuleEqual(a: MapRule, b: MapRule): boolean {
     a.workspaceId === b.workspaceId &&
     a.sourcePattern === b.sourcePattern &&
     a.targetValue === b.targetValue &&
+    matchTypeA === matchTypeB &&
     a.preservePath === b.preservePath &&
     a.preserveQuery === b.preserveQuery
   );

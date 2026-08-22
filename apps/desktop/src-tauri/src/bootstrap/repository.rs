@@ -220,16 +220,6 @@ impl Repository {
         }
     }
 
-    /// Fire-and-forget variant for callers that have already updated caches
-    /// and emitted events and don't need to wait for DB cleanup.
-    pub fn spawn_delete_sessions(&self, ids: Vec<String>) {
-        let db = Arc::clone(&self.db);
-        let body_store = Arc::clone(&self.body_store);
-        std::thread::spawn(move || {
-            delete_sessions_impl(&db, &body_store, &ids);
-        });
-    }
-
     /// Load a session detail row from the database for an IPC-reachable path,
     /// with tracing. Fail-closed on poison: returns a structured `DB_POISONED`
     /// error so session-detail IPC commands stay consistent with all other IPC

@@ -77,7 +77,7 @@ static TEST_WS_CLOSE_GRACE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 // it gets a minutes-level ceiling instead of the per-read frame timeout. Once
 // the first byte arrives the frame has started; every subsequent read of that
 // frame is bounded by `WS_FRAME_READ_TIMEOUT_SECS` so a stalled peer cannot
-// drag a half-delivered frame forever. See `ws::parse_ws_frame`.
+// drag a half-delivered frame forever. See `ws::read_ws_frame`.
 const WS_FRAME_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[cfg(test)]
 static TEST_WS_FRAME_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);

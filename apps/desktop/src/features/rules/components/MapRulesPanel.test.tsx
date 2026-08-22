@@ -40,9 +40,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 // the tests exercise the panel in isolation without a router. The state holder
 // lets the seed test drive what useLocation returns.
 const routerState = vi.hoisted(() => ({ current: null as unknown }));
+const locationKey = vi.hoisted(() => ({ current: "initial" }));
 const navigateMock = vi.hoisted(() => vi.fn());
 vi.mock("react-router-dom", () => ({
-  useLocation: () => ({ pathname: "/rules", state: routerState.current }),
+  useLocation: () => ({
+    key: locationKey.current,
+    pathname: "/rules",
+    state: routerState.current,
+  }),
   // Stable reference: the seed effect depends on `navigate`, and a fresh
   // function identity per render would re-trigger it forever.
   useNavigate: () => navigateMock,
@@ -87,6 +92,7 @@ beforeEach(() => {
   saveMutateMock.mockClear();
   bulkMutateMock.mockClear();
   routerState.current = null;
+  locationKey.current = "initial";
 });
 
 describe("MapRulesPanel — batch operations (R5)", () => {

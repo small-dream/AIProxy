@@ -28,6 +28,7 @@ export function RulesPage() {
   // Consume-once marker for the mapLocalSeed deep link, keyed by the history
   // entry, so a vetoed switch is not re-prompted on every later re-render.
   const lastHandledSeedKeyRef = useRef<string | null>(null);
+  const seedHandlingRef = useRef(false);
 
   function panelForTab(value: RulesTabValue): RulesPanelHandle | null | undefined {
     switch (value) {
@@ -44,18 +45,22 @@ export function RulesPage() {
 
   // P0-2: switching tabs unmounts the active panel and silently dropped its
   // draft, so every panel now vetoes through the shared unsaved-changes guard.
-  async function handleTabChange(value: RulesTabValue) {
-    if (value === tab) return;
+  async function handleTabChange(value: RulesTabValue): Promise<boolean> {
+    if (value === tab) return true;
     const allowed = (await panelForTab(tab)?.confirmLeave()) ?? true;
-    if (!allowed) return;
+    if (!allowed) return false;
     setTab(value);
+    return true;
   }
 
   // The sessions page routes here with a mapLocalSeed for the "Map Local this
   // request" flow; land on the mapping tab so the pre-filled draft is visible.
-  // Routed through handleTabChange so a dirty editor can still veto — nothing
-  // is silently lost, because the seed stays in history state until the
-  // mapping panel actually consumes it.
+  // Routed through handleTabChange so a dirty editor on the CURRENT tab can
+  // still veto the switch. When the mapping tab is already active this call is
+  // a no-op — the mapping panel then guards the seed consumption itself, since
+  // applying the seed replaces its in-flight draft. Either way nothing is
+  // silently lost: the seed stays in history state until the mapping panel
+  // actually consumes it.
   // Deliberately no dep array: handleTabChange closes over `tab` and gets a
   // fresh identity every render, so listing deps would be equivalent anyway.
   // The history-entry key makes the handling run-once per navigation.
@@ -63,8 +68,16 @@ export function RulesPage() {
     const state = location.state as { mapLocalSeed?: unknown } | null;
     if (!state?.mapLocalSeed) return;
     if (lastHandledSeedKeyRef.current === location.key) return;
-    lastHandledSeedKeyRef.current = location.key;
-    void handleTabChange("mapping");
+    // When mapping is already mounted, the child owns seed consumption and its
+    // own dirty guard. Do not mark the history entry here before that child has
+    // confirmed and consumed it.
+    if (tab === "mapping") return;
+    if (seedHandlingRef.current) return;
+    seedHandlingRef.current = true;
+    void handleTabChange("mapping").then((handled) => {
+      seedHandlingRef.current = false;
+      if (handled) lastHandledSeedKeyRef.current = location.key;
+    });
   });
 
   return (

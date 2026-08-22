@@ -27,12 +27,18 @@ export function useSessionEvents() {
     const unlistenFns: Array<() => void> = [];
     let upsertBuffer: SessionSummary[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    // Session IDs are UUIDs and are never reused. Keep tombstones for IDs
+    // removed by a destructive operation so an already-queued backend upsert
+    // cannot resurrect the deleted session after the remove/clear event.
+    const removedSessionIds = new Set<string>();
 
     function flushUpsertBuffer() {
+      // The timer may fire after a remove/clear emptied the buffer. Clear the
+      // handle first so a later upsert can schedule a fresh flush.
+      flushTimer = null;
       if (upsertBuffer.length === 0) return;
       const batch = upsertBuffer;
       upsertBuffer = [];
-      flushTimer = null;
 
       for (const summary of batch) {
         useSessionContainerStore.getState().upsertSummary(summary);
@@ -76,6 +82,7 @@ export function useSessionEvents() {
 
     onSessionUpsert((summary) => {
       if (cancelled) return;
+      if (removedSessionIds.has(summary.id)) return;
       upsertBuffer.push(summary);
       if (!flushTimer) {
         flushTimer = setTimeout(flushUpsertBuffer, FLUSH_INTERVAL_MS);
@@ -87,6 +94,13 @@ export function useSessionEvents() {
 
     onSessionRemove((sessionId) => {
       if (cancelled) return;
+      removedSessionIds.add(sessionId);
+      // P1-15: drop any still-buffered upsert for this id. Upserts flush on a
+      // 100ms timer while removes apply immediately, so without this a summary
+      // buffered BEFORE the remove would flush AFTER it and resurrect the
+      // session. Filtering by id (not clearing) preserves upserts for other
+      // sessions and any upsert the backend emits after the remove.
+      upsertBuffer = upsertBuffer.filter((summary) => summary.id !== sessionId);
       useSessionContainerStore.getState().removeSummary(sessionId);
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
         removeSessionSummary(currentSessions, sessionId),
@@ -99,6 +113,14 @@ export function useSessionEvents() {
 
     onSessionsCleared(() => {
       if (cancelled) return;
+      const currentIds = new Set([
+        ...useSessionContainerStore.getState().activeSessionIds,
+        ...upsertBuffer.map((summary) => summary.id),
+        ...(queryClient.getQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY) ?? []).map(
+          (summary) => summary.id,
+        ),
+      ]);
+      for (const id of currentIds) removedSessionIds.add(id);
       upsertBuffer = [];
       if (flushTimer) {
         clearTimeout(flushTimer);
@@ -114,6 +136,11 @@ export function useSessionEvents() {
 
     onSessionsRemoved((ids) => {
       if (cancelled) return;
+      // P1-15: same buffered-upsert race as onSessionRemove — drop buffered
+      // entries for the removed ids so a later flush cannot resurrect them.
+      const removedIds = new Set(ids);
+      for (const id of removedIds) removedSessionIds.add(id);
+      upsertBuffer = upsertBuffer.filter((summary) => !removedIds.has(summary.id));
       for (const id of ids) {
         useSessionContainerStore.getState().removeSummary(id);
       }

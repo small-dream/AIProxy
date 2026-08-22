@@ -113,7 +113,12 @@ pub(crate) fn wildcard_matches(normalized: &str, candidate: &str) -> bool {
 /// Match `middles` (each separated by an implicit `*`) inside
 /// `candidate[window_start..window_end]`, trying every occurrence of each
 /// segment before giving up (backtracking).
-fn match_middles(middles: &[&str], candidate: &str, window_start: usize, window_end: usize) -> bool {
+fn match_middles(
+    middles: &[&str],
+    candidate: &str,
+    window_start: usize,
+    window_end: usize,
+) -> bool {
     let Some((first, rest)) = middles.split_first() else {
         return true;
     };

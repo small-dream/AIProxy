@@ -546,7 +546,7 @@ fn estimate_session_body_content_patch_bytes(
 #[tauri::command]
 pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let state = Arc::clone(state.inner());
-    state.clear_sessions();
+    state.clear_sessions().await;
     Ok(())
 }
 

@@ -67,20 +67,38 @@ struct PendingConnectGuard<'a> {
     pending: &'a RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
 }
 
+/// Remove `key` from `pending` only when the registered receiver is still the
+/// same watch channel as `marker`.
+///
+/// Both the connector guard's `Drop` and the waiter fallback clean up stale
+/// registrations, and both can race with a successor connector that already
+/// re-registered a fresh channel under the same key. Deleting that fresh entry
+/// would strand the successor's dial — its result could never be awaited — so
+/// removal is conditional on channel identity. Returns whether an entry was
+/// removed.
+fn remove_pending_entry_if_current(
+    pending: &RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
+    key: &UpstreamKey,
+    marker: &watch::Receiver<Option<PooledConnection>>,
+) -> bool {
+    let mut pending = pending
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let is_current = pending
+        .get(key)
+        .is_some_and(|registered| registered.same_channel(marker));
+    if is_current {
+        pending.remove(key);
+    }
+    is_current
+}
+
 impl Drop for PendingConnectGuard<'_> {
     fn drop(&mut self) {
         if !self.armed {
             return;
         }
-        let mut pending = self
-            .pending
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let is_ours = pending
-            .get(&self.key)
-            .is_some_and(|registered| registered.same_channel(&self.marker));
-        if is_ours {
-            pending.remove(&self.key);
+        if remove_pending_entry_if_current(self.pending, &self.key, &self.marker) {
             tracing::debug!(
                 event = "upstream_pool_pending_cancelled",
                 host = %self.key.host,
@@ -151,7 +169,10 @@ impl UpstreamConnectionPool {
         }
 
         let action = {
-            let mut pending = self.pending.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut pending = self
+                .pending
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(rx) = pending.get(key) {
                 PendingAction::Wait(rx.clone())
             } else {
@@ -185,10 +206,12 @@ impl UpstreamConnectionPool {
                     port = key.port,
                     "upstream_pool_pending_dropped"
                 );
-                self.pending
-                    .write()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(key);
+                // Only remove the entry when it is still the channel we waited
+                // on: the cancelled connector's guard may already have
+                // deregistered it and a successor connector may have
+                // re-registered a fresh channel for the same key — deleting
+                // THAT would strand the successor's dial.
+                remove_pending_entry_if_current(&self.pending, key, &rx);
                 // Retry from scratch: re-enter the logic by recursing once.
                 // (Tail-call via boxing to avoid unbounded stack growth.)
                 return Box::pin(self.get_or_connect(
@@ -598,6 +621,58 @@ mod tests {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(pending.contains_key(&key), "disarmed guard must be a no-op");
+    }
+
+    /// The waiter fallback (stale sender observed via `rx.changed()`) shares
+    /// the guard's identity check: when a successor connector has already
+    /// re-registered the key, the stale marker must not delete their entry.
+    #[test]
+    fn waiter_cleanup_never_removes_a_successors_registration() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+
+        let (_stale_tx, stale_rx) = tokio::sync::watch::channel(None);
+        let (successor_tx, _successor_rx) = tokio::sync::watch::channel(None);
+        pool.pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone(), successor_tx.subscribe());
+
+        let removed = remove_pending_entry_if_current(&pool.pending, &key, &stale_rx);
+        assert!(!removed, "a stale waiter marker must not remove anything");
+
+        let pending = pool
+            .pending
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            pending.contains_key(&key),
+            "the waiter cleanup must not delete a successor connector's registration"
+        );
+    }
+
+    /// The same cleanup still removes the entry when it is the waiter's own
+    /// channel — the normal stale-entry path after a connector panicked or was
+    /// cancelled before its guard ran.
+    #[test]
+    fn waiter_cleanup_removes_its_own_stale_entry() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+
+        let (_tx, rx) = tokio::sync::watch::channel(None);
+        pool.pending
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone(), rx.clone());
+
+        let removed = remove_pending_entry_if_current(&pool.pending, &key, &rx);
+        assert!(removed, "the waiter's own stale entry must be removed");
+
+        let pending = pool
+            .pending
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(!pending.contains_key(&key));
     }
 
     /// Verify that evict_key removes the specified key from the pool.

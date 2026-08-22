@@ -432,7 +432,8 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     // P1-3: bound the MITM TLS handshake. A client that completes the CONNECT
     // but then never sends the TLS ClientHello would otherwise hold this
     // future (and its connection permit) forever.
-    let tls_stream = match timeout(client_header_read_timeout(), tls_acceptor.accept(stream)).await {
+    let tls_stream = match timeout(client_header_read_timeout(), tls_acceptor.accept(stream)).await
+    {
         Ok(Ok(stream)) => stream,
         Ok(Err(error)) => {
             match classify_client_handshake_error(&error) {

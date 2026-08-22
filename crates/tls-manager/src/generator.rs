@@ -82,10 +82,9 @@ impl RootCaPair {
         // cert. Parse the on-disk PEM back to its raw DER instead; only
         // `issuer_cert` (the rcgen handle used to sign leaf certificates)
         // keeps the re-signed representation.
-        let (_, pem) = x509_parser::pem::parse_x509_pem(cert_pem.as_bytes())
-            .map_err(|error| {
-                TlsManagerError::GenerationFailed(format!("parse CA cert PEM: {error}"))
-            })?;
+        let (_, pem) = x509_parser::pem::parse_x509_pem(cert_pem.as_bytes()).map_err(|error| {
+            TlsManagerError::GenerationFailed(format!("parse CA cert PEM: {error}"))
+        })?;
         let cert_der = pem.contents;
         let key_der = key_pair.serialize_der();
         let fingerprint = compute_fingerprint(&cert_der);

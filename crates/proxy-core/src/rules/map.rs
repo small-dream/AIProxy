@@ -60,7 +60,11 @@ fn apply_remote_map_rule(
 /// configured base (`/api` + `/v1` becomes `/api/v1`).
 fn join_remote_base_path(base: &str, request_path: &str) -> String {
     let base = if base.is_empty() { "/" } else { base };
-    let request = if request_path.is_empty() { "/" } else { request_path };
+    let request = if request_path.is_empty() {
+        "/"
+    } else {
+        request_path
+    };
 
     if base == "/" {
         return request.to_string();
@@ -90,7 +94,10 @@ mod tests {
     #[test]
     fn joins_root_and_nested_paths() {
         assert_eq!(join_remote_base_path("/", "/v1/users"), "/v1/users");
-        assert_eq!(join_remote_base_path("/gateway/", "/v1/users"), "/gateway/v1/users");
+        assert_eq!(
+            join_remote_base_path("/gateway/", "/v1/users"),
+            "/gateway/v1/users"
+        );
         assert_eq!(join_remote_base_path("/gateway", "/"), "/gateway/");
         assert_eq!(join_remote_base_path("", ""), "/");
     }

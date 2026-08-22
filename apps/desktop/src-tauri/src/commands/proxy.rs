@@ -403,6 +403,7 @@ async fn start_proxy_impl(
         let mut inflight_ws_inserts: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
 
         loop {
+            let session_generation = state_for_collector.session_generation();
             tokio::select! {
                 session = session_receiver.recv() => {
                     match session {
@@ -414,7 +415,9 @@ async fn start_proxy_impl(
                                     Err(_) => break,
                                 }
                             }
-                            state_for_collector.upsert_session_batch_async(batch).await;
+                            state_for_collector
+                                .upsert_session_batch_async_at_generation(batch, session_generation)
+                                .await;
                         }
                         None => break,
                     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RewriteRule } from "@aiproxy/shared-types";
+import type { MapRule, RewriteRule } from "@aiproxy/shared-types";
 
 import {
   getDnsMappingValidationErrors,
@@ -7,12 +7,30 @@ import {
   getRewriteValidationErrors,
   getScriptValidationErrors,
   hasRuleFieldErrors,
+  isMapRuleEqual,
   isRewriteRuleEqual,
   ruleFieldProps,
 } from "./rules.helpers";
 
 function makeT() {
   return (key: string) => key;
+}
+
+function makeMapRule(overrides: Partial<MapRule> = {}): MapRule {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: "default",
+    mode: "remote",
+    name: "rule",
+    note: "",
+    enabled: true,
+    priority: 100,
+    sourcePattern: "example.com",
+    targetValue: "https://other.com",
+    preservePath: true,
+    preserveQuery: true,
+    ...overrides,
+  };
 }
 
 function makeRewriteRule(overrides: Partial<RewriteRule> = {}): RewriteRule {
@@ -138,6 +156,33 @@ describe("isRewriteRuleEqual — rewrite editor dirty check (P0-2)", () => {
       ],
     });
     expect(isRewriteRuleEqual(rule, twoActions)).toBe(false);
+  });
+});
+
+describe("isMapRuleEqual — map editor dirty check (P0-2)", () => {
+  it("considers identical rules equal and ignores the id", () => {
+    const rule = makeMapRule();
+    expect(isMapRuleEqual(rule, structuredClone(rule))).toBe(true);
+    expect(isMapRuleEqual(rule, makeMapRule({ ...rule, id: crypto.randomUUID() }))).toBe(true);
+  });
+
+  it("normalizes matchType: unset compares as the explicit contains default", () => {
+    const rule = makeMapRule();
+    expect(isMapRuleEqual(rule, makeMapRule({ matchType: "contains" }))).toBe(true);
+  });
+
+  it("detects a matchType-only edit so switching tabs cannot silently drop it", () => {
+    const rule = makeMapRule();
+    expect(isMapRuleEqual(rule, makeMapRule({ matchType: "wildcard" }))).toBe(false);
+    expect(isMapRuleEqual(rule, makeMapRule({ matchType: "exact" }))).toBe(false);
+    expect(isMapRuleEqual(rule, makeMapRule({ matchType: "regex" }))).toBe(false);
+  });
+
+  it("detects scalar field edits", () => {
+    const rule = makeMapRule();
+    expect(isMapRuleEqual(rule, makeMapRule({ name: "renamed" }))).toBe(false);
+    expect(isMapRuleEqual(rule, makeMapRule({ enabled: false }))).toBe(false);
+    expect(isMapRuleEqual(rule, makeMapRule({ preserveQuery: false }))).toBe(false);
   });
 });
 

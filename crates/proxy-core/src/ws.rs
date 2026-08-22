@@ -297,7 +297,11 @@ pub async fn read_ws_frame<R: AsyncReadExt + Unpin>(
             return Ok(frame);
         }
 
-        let ceiling = if buf.is_empty() { idle_timeout } else { read_timeout };
+        let ceiling = if buf.is_empty() {
+            idle_timeout
+        } else {
+            read_timeout
+        };
         let mut chunk = [0u8; WS_FRAME_READ_CHUNK_BYTES];
         let bytes_read = timeout(ceiling, reader.read(&mut chunk))
             .await
@@ -324,15 +328,16 @@ pub async fn read_ws_frame<R: AsyncReadExt + Unpin>(
     }
 }
 
-/// Convenience wrapper that parses one frame from a stream using a throwaway
-/// buffer. TEST-ONLY: one `read()` may deliver several frames at once, and
-/// this wrapper drops every byte after the first parsed frame — silent data
-/// loss if it were used on a live stream. The relay avoids the shape entirely
-/// by calling [`read_ws_frame`] with a persistent per-direction buffer whose
-/// leftovers feed the next frame. Compiled out of non-test builds so the
-/// frame-dropping wrapper cannot grow production callers.
-#[cfg(test)]
-async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
+/// Compatibility wrapper for the former public one-frame parser.
+///
+/// Retained for downstream source compatibility, but deprecated because a
+/// throwaway buffer cannot preserve a second frame delivered in the same read.
+/// New callers must use [`read_ws_frame`] with a persistent buffer.
+#[cfg_attr(
+    not(test),
+    deprecated(note = "use read_ws_frame with a persistent buffer")
+)]
+pub async fn parse_ws_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> Result<WsFrame, ProxyError> {
     let mut buf = Vec::new();
@@ -1531,7 +1536,10 @@ mod tests {
         assert_eq!(frame.opcode, WsOpcode::Text);
         assert!(frame.fin);
         assert_eq!(frame.payload, b"hi");
-        assert!(buf.is_empty(), "consumed bytes must be drained from the buffer");
+        assert!(
+            buf.is_empty(),
+            "consumed bytes must be drained from the buffer"
+        );
     }
 
     #[tokio::test]
@@ -1574,17 +1582,11 @@ mod tests {
             bytes
         };
 
-        client_outer
-            .write_all(&text_frame(b"m1"))
-            .await
-            .unwrap();
+        client_outer.write_all(&text_frame(b"m1")).await.unwrap();
         // Silence for longer than the frame-read timeout...
         tokio::time::sleep(Duration::from_millis(300)).await;
         // ...then another frame on the same connection.
-        client_outer
-            .write_all(&text_frame(b"m2"))
-            .await
-            .unwrap();
+        client_outer.write_all(&text_frame(b"m2")).await.unwrap();
 
         let (tx, mut rx) = mpsc::channel::<WsMessageData>(16);
         let mut inject_rx = mpsc::channel::<WsInjectRequest>(WS_INJECT_CHANNEL_CAPACITY).1;

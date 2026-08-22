@@ -96,22 +96,6 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
     // sync and clobber an in-flight edit. Mirrors `use-throttle-editor.ts`.
     const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
 
-    // M-rules: when the user triggers "Map Local" from a captured request, the
-    // sessions page navigates here with a mapLocalSeed; pre-fill the draft with
-    // the request's host+path so the user only picks the local file. Only local
-    // mode consumes the seed (remote/DNS mode ignores it).
-    useEffect(() => {
-      const state = location.state as RulesLocationState;
-      if (!state?.mapLocalSeed || mode !== "local") return;
-
-      const seededRule = createSeededMapRule(state.mapLocalSeed, mode);
-      lastSyncedRuleIdRef.current = seededRule.id;
-      setSelectedRuleId(seededRule.id);
-      setDraft(seededRule);
-      setValidationAttempted(false);
-      navigate(location.pathname, { replace: true, state: null });
-    }, [location.pathname, location.state, mode, navigate]);
-
     const filteredRules = useMemo(() => {
       const q = searchValue.trim().toLowerCase();
       return [...rules]
@@ -176,6 +160,45 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
       guard.confirmLeave,
       isDirty,
     ]);
+
+    // M-rules: when the user triggers "Map Local" from a captured request, the
+    // sessions page navigates here with a mapLocalSeed; pre-fill the draft with
+    // the request's host+path so the user only picks the local file. Only local
+    // mode consumes the seed (remote/DNS mode ignores it).
+    // Consuming the seed replaces the in-flight draft, so a dirty editor vetoes
+    // through the same guard as every other draft-discarding transition. The
+    // page-level handler only guards when it actually switches tabs; when the
+    // mapping tab is already active this effect IS the discard point.
+    // Keyed by the history entry so a vetoed seed is not re-prompted on every
+    // later re-render; a veto leaves the seed in history state, unconsumed.
+    const lastHandledSeedKeyRef = useRef<string | null>(null);
+    const seedHandlingRef = useRef(false);
+    // Destructured so the effect can depend on the stable callback directly
+    // (useCallback with no deps) instead of the per-render `guard` object.
+    const confirmLeave = guard.confirmLeave;
+    useEffect(() => {
+      const state = location.state as RulesLocationState;
+      if (!state?.mapLocalSeed || mode !== "local") return;
+      if (lastHandledSeedKeyRef.current === location.key) return;
+      if (seedHandlingRef.current) return;
+      seedHandlingRef.current = true;
+
+      const seed = state.mapLocalSeed;
+      void (async () => {
+        if (!(await confirmLeave())) {
+          seedHandlingRef.current = false;
+          return;
+        }
+        const seededRule = createSeededMapRule(seed, mode);
+        lastSyncedRuleIdRef.current = seededRule.id;
+        setSelectedRuleId(seededRule.id);
+        setDraft(seededRule);
+        setValidationAttempted(false);
+        lastHandledSeedKeyRef.current = location.key;
+        seedHandlingRef.current = false;
+        navigate(location.pathname, { replace: true, state: null });
+      })();
+    }, [location.pathname, location.state, location.key, mode, navigate, confirmLeave]);
 
     async function selectRule(rule: MapRule) {
       if (!(await guard.confirmLeave())) return;

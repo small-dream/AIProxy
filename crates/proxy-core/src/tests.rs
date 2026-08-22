@@ -2218,11 +2218,16 @@ fn map_remote_preserves_target_base_path_without_duplicate_separators() {
     });
 
     let mut request = build_test_request("https://api.example.com/v1/users?x=1");
-    let (_, traces) =
-        apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+    let (_, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
 
-    assert_eq!(request.url.as_str(), "http://127.0.0.1:8080/gateway/v1/users?x=1");
-    assert_eq!(traces[0].original_url, "https://api.example.com/v1/users?x=1");
+    assert_eq!(
+        request.url.as_str(),
+        "http://127.0.0.1:8080/gateway/v1/users?x=1"
+    );
+    assert_eq!(
+        traces[0].original_url,
+        "https://api.example.com/v1/users?x=1"
+    );
     assert_eq!(
         traces[0].mapped_url.as_deref(),
         Some("http://127.0.0.1:8080/gateway/v1/users?x=1")
@@ -2251,11 +2256,16 @@ fn map_remote_can_drop_original_path_while_retaining_target_path() {
     });
 
     let mut request = build_test_request("http://api.example.com/v1/users?x=1");
-    let (_, traces) =
-        apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+    let (_, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
 
-    assert_eq!(request.url.as_str(), "https://staging.example.com/base/health");
-    assert_eq!(traces[0].mapped_url.as_deref(), Some("https://staging.example.com/base/health"));
+    assert_eq!(
+        request.url.as_str(),
+        "https://staging.example.com/base/health"
+    );
+    assert_eq!(
+        traces[0].mapped_url.as_deref(),
+        Some("https://staging.example.com/base/health")
+    );
     assert_eq!(request.protocol, "https");
     assert_eq!(request.url.port(), None);
 }
@@ -2694,8 +2704,7 @@ async fn slow_dripping_response_body_survives_a_short_upstream_request_timeout()
 /// failure can only come from the idle ceiling.
 #[tokio::test]
 async fn silent_response_body_fails_within_the_body_idle_ceiling() {
-    let _idle_guard =
-        override_response_body_read_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard = override_response_body_read_idle_timeout_for_test(Duration::from_millis(200));
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
     let upstream_task = tokio::spawn(async move {
@@ -5971,10 +5980,13 @@ async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
         .await
         .unwrap();
     let mut response = String::new();
-    timeout(Duration::from_secs(2), client_stream.read_to_string(&mut response))
-        .await
-        .expect("post-reap request must complete")
-        .unwrap();
+    timeout(
+        Duration::from_secs(2),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("post-reap request must complete")
+    .unwrap();
     assert!(response.contains("HTTP/1.1 200 OK"));
 
     started_proxy.server_handle.shutdown().await;
@@ -5989,8 +6001,7 @@ async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
     // so hyper keeps the client connection open for a follow-up request.
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
-    let upstream_response =
-        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_vec();
+    let upstream_response = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_vec();
     let expected_body: &[u8] = b"Hello";
     let upstream_task = tokio::spawn(async move {
         let (mut stream, _) = upstream_listener.accept().await.unwrap();
