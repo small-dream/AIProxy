@@ -457,9 +457,10 @@ export const enMessages = {
     title: "Compose",
     urlPlaceholder: "https://example.com/api/resource",
     formFile: {
+      attachFailed: "Could not attach file",
       attachFile: "Attach file",
       fileName: "File name",
-      hint: "Attached files are read from disk when the request is sent; the app never uploads file contents to the renderer.",
+      hint: "Attached files are read from disk when the request is sent; the app never uploads file contents to the renderer. Only files under Downloads, Pictures, Videos, Desktop or Documents can be attached.",
       removeFile: "Remove file",
     },
     importCurl: "Import cURL",

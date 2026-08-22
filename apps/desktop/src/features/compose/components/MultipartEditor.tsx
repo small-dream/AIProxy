@@ -1,9 +1,10 @@
 import AttachFileRoundedIcon from "@mui/icons-material/AttachFileRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { Box, Button, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import type { FormFileEntry, HeaderEntry } from "@aiproxy/shared-types";
+import { coerceAppError, type FormFileEntry, type HeaderEntry } from "@aiproxy/shared-types";
 
 import { pickAttachmentFile } from "@/services/commands/files";
+import { useNotificationStore } from "@/services/notification.store";
 import { useI18n } from "@/i18n";
 
 import { EditableKeyValueTable } from "./EditableKeyValueTable";
@@ -23,7 +24,18 @@ export function MultipartEditor(props: {
   const { entries, files, onEntriesChange, onFilesChange } = props;
 
   async function handleAttach() {
-    const picked = await pickAttachmentFile(t("composePage.formFile.attachFile"));
+    let picked;
+    try {
+      picked = await pickAttachmentFile(t("composePage.formFile.attachFile"));
+    } catch (error) {
+      // The Rust picker rejects paths outside the allowed roots at pick time
+      // (and requires the desktop runtime); without this handler the failure
+      // would be a silent unhandled rejection.
+      useNotificationStore
+        .getState()
+        .push(`${t("composePage.formFile.attachFailed")}: ${coerceAppError(error).message}`);
+      return;
+    }
     if (!picked) return;
     onFilesChange([
       ...files,

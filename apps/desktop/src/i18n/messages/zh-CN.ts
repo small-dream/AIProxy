@@ -445,9 +445,10 @@ export const zhCNMessages: Messages = {
     title: "构造请求",
     urlPlaceholder: "https://example.com/api/resource",
     formFile: {
+      attachFailed: "无法附加文件",
       attachFile: "附加文件",
       fileName: "文件名",
-      hint: "附加文件在发送请求时从磁盘读取，应用不会把文件内容传给渲染进程。",
+      hint: "附加文件在发送请求时从磁盘读取，应用不会把文件内容传给渲染进程。仅可选择位于下载、图片、视频、桌面或文档目录中的文件。",
       removeFile: "移除文件",
     },
     importCurl: "导入 cURL",
