@@ -1,5 +1,6 @@
 import {
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -23,12 +24,16 @@ import { useI18n } from "@/i18n";
 type SaveToCollectionDialogProps = {
   open: boolean;
   sessionName: string;
+  /** True while the parent's save mutation is in flight (P1-24): disables
+   * both buttons so a second click cannot enqueue a duplicate save. */
+  saving?: boolean;
   onCancel: () => void;
   onConfirm: (collectionId: string, name?: string) => void;
 };
 
 export function SaveToCollectionDialog({
   open,
+  saving = false,
   sessionName,
   onCancel,
   onConfirm,
@@ -111,12 +116,15 @@ export function SaveToCollectionDialog({
         </List>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onCancel}>{t("common.actions.cancel")}</Button>
+        <Button disabled={saving} onClick={onCancel}>
+          {t("common.actions.cancel")}
+        </Button>
         <Button
           variant="contained"
-          disabled={!selectedId}
+          disabled={!selectedId || saving}
+          startIcon={saving ? <CircularProgress size={16} /> : undefined}
           onClick={() => {
-            if (selectedId) onConfirm(selectedId, name || undefined);
+            if (selectedId && !saving) onConfirm(selectedId, name || undefined);
           }}
         >
           {t("collectionsPage.saveToCollection")}

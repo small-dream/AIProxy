@@ -30,6 +30,7 @@ export const zhCNMessages: Messages = {
       refreshStatus: "刷新状态",
       remove: "移除",
       repeat: "重复请求",
+      retry: "重试",
       send: "发送",
       sendMock: "发送 Mock",
       startOnNewPort: "在新端口启动",
@@ -788,6 +789,8 @@ export const zhCNMessages: Messages = {
       generating: "生成中...",
       install: "安装证书...",
       opening: "打开中...",
+      generateError: "生成根证书失败",
+      installError: "打开证书安装器失败",
       regenerate: "重新生成根证书",
     },
     remove: {
@@ -1294,6 +1297,7 @@ export const zhCNMessages: Messages = {
     copySuffix: "{{name}} 副本",
     defaultRuleName: "定向规则",
     profileSummary: "{{latency}} ms • ↓ {{download}} kbps • ↑ {{upload}} kbps • 丢包 {{loss}}%",
+    setActiveError: "切换生效的弱网配置失败",
     temporaryEnable: "15 分钟",
     temporaryRemaining: "{{minutes}} 分钟",
     stats: {

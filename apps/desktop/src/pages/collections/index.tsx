@@ -23,7 +23,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import type { ApiCollectionItem } from "@aiproxy/shared-types";
+import { coerceAppError, type ApiCollectionItem } from "@aiproxy/shared-types";
 
 import { encodeComposedRequest } from "@/features/compose/encode-request";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
@@ -286,7 +286,9 @@ export function CollectionsPage() {
   }
 
   function handleCreateCollection() {
-    if (!newCollectionName.trim()) return;
+    // P1-24: a second Enter / click while the upsert is in flight used to
+    // create a duplicate collection.
+    if (!newCollectionName.trim() || upsertCollection.isPending) return;
     upsertCollection.mutate(
       {
         name: newCollectionName.trim(),
@@ -551,7 +553,7 @@ export function CollectionsPage() {
             {t("common.actions.cancel")}
           </Button>
           <Button
-            disabled={!newCollectionName.trim()}
+            disabled={!newCollectionName.trim() || upsertCollection.isPending}
             onClick={handleCreateCollection}
             variant="contained"
           >
@@ -617,10 +619,18 @@ export function CollectionsPage() {
         })}
         onConfirm={() => {
           if (!deleteCollectionConfirm) return;
-          treeHook.handleDeleteCollection(deleteCollectionConfirm.id);
-          setDeleteCollectionConfirm(null);
+          // P1-23: keep the dialog open until the delete settles so a
+          // failure shows inline and can be retried in place.
+          treeHook.handleDeleteCollection(deleteCollectionConfirm.id, {
+            onSuccess: () => setDeleteCollectionConfirm(null),
+          });
         }}
         onCancel={() => setDeleteCollectionConfirm(null)}
+        errorMessage={
+          deleteCollectionMutation.error
+            ? coerceAppError(deleteCollectionMutation.error).message
+            : undefined
+        }
         isConfirming={deleteCollectionMutation.isPending}
       />
 
@@ -632,10 +642,14 @@ export function CollectionsPage() {
         })}
         onConfirm={() => {
           if (!deleteItemConfirm) return;
-          treeHook.handleDeleteItem(deleteItemConfirm);
-          setDeleteItemConfirm(null);
+          treeHook.handleDeleteItem(deleteItemConfirm, {
+            onSuccess: () => setDeleteItemConfirm(null),
+          });
         }}
         onCancel={() => setDeleteItemConfirm(null)}
+        errorMessage={
+          deleteItemMutation.error ? coerceAppError(deleteItemMutation.error).message : undefined
+        }
         isConfirming={deleteItemMutation.isPending}
       />
     </Box>

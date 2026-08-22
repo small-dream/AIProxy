@@ -45,6 +45,14 @@ export function ThrottlingPage() {
       {(ed.isProfilesError || ed.isRulesError) && (
         <Alert severity="error">{t("common.errors.generic")}</Alert>
       )}
+      {/* P1-28: enabling (15 min / save+apply) or globally disabling the
+          active profile runs through setActiveMutation whose failure used to
+          vanish — surface it next to the status it failed to change. */}
+      {ed.setActiveError && (
+        <Alert severity="error" onClose={ed.clearSetActiveError}>
+          {`${t("throttlingPage.setActiveError")}: ${ed.setActiveError}`}
+        </Alert>
+      )}
       <Paper elevation={0} variant="outlined" sx={{ borderRadius: "8px", overflow: "hidden" }}>
         <Box sx={{ px: 1.5, py: 1.25 }}>
           <Stack
@@ -421,10 +429,14 @@ export function ThrottlingPage() {
         })}
         onConfirm={() => {
           if (!deleteRuleConfirm) return;
-          ed.handleDeleteRule(deleteRuleConfirm.id);
-          setDeleteRuleConfirm(null);
+          // P1-23: keep the dialog open until the delete settles so the
+          // pending state is visible and a failure can be retried in place.
+          ed.handleDeleteRule(deleteRuleConfirm.id, {
+            onSuccess: () => setDeleteRuleConfirm(null),
+          });
         }}
         onCancel={() => setDeleteRuleConfirm(null)}
+        errorMessage={ed.deleteRuleError}
         isConfirming={ed.deleteRulePending}
       />
     </Stack>

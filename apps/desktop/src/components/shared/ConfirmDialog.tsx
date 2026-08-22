@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Checkbox,
   Dialog,
@@ -26,6 +27,12 @@ type ConfirmDialogProps = {
   /** Drives the confirm button's pending state (e.g. mutation.isPending). */
   isConfirming?: boolean;
   /**
+   * Failure of the confirmed action, already reduced to display text. Renders
+   * an inline error Alert and keeps the dialog open so the user can retry
+   * (P1-23); callers close the dialog themselves on success.
+   */
+  errorMessage?: string | undefined;
+  /**
    * MUI color of the confirm button. Defaults to "error" (destructive
    * deletes); use "warning" for softer discards like unsaved-changes guards.
    */
@@ -51,6 +58,7 @@ export function ConfirmDialog({
   confirmLabel,
   dontAskAgainChecked = false,
   dontAskAgainLabel,
+  errorMessage,
   isConfirming = false,
   message,
   onCancel,
@@ -68,6 +76,11 @@ export function ConfirmDialog({
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {message}
         </Typography>
+        {errorMessage ? (
+          <Alert severity="error" sx={{ mt: 1.5 }}>
+            {errorMessage}
+          </Alert>
+        ) : null}
         {dontAskAgainLabel ? (
           <FormControlLabel
             control={

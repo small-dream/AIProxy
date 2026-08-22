@@ -28,6 +28,7 @@ export const enMessages = {
       refreshStatus: "Refresh Status",
       remove: "Remove",
       repeat: "Repeat",
+      retry: "Retry",
       send: "Send",
       sendMock: "Send Mock",
       startOnNewPort: "Start on New Port",
@@ -818,6 +819,8 @@ export const enMessages = {
       generating: "Generating...",
       install: "Install Certificate...",
       opening: "Opening...",
+      generateError: "Failed to generate the root certificate",
+      installError: "Failed to open the certificate installer",
       regenerate: "Regenerate Root Certificate",
     },
     remove: {
@@ -1353,6 +1356,7 @@ export const enMessages = {
     copySuffix: "{{name}} copy",
     defaultRuleName: "Targeted rule",
     profileSummary: "{{latency}} ms • ↓ {{download}} kbps • ↑ {{upload}} kbps • loss {{loss}}%",
+    setActiveError: "Failed to switch the active throttling profile",
     temporaryEnable: "15 min",
     temporaryRemaining: "{{minutes}} min",
     stats: {

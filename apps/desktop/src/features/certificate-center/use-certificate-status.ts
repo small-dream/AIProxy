@@ -67,7 +67,15 @@ export function useDiagnoseCertificateSetup(options?: DiagnosticQueryOptions) {
   });
 }
 
-export function useGenerateRootCertificate() {
+// `meta` flows into the mutation definition (v5 has no per-mutate meta) so a
+// caller rendering its own localized failure can mark the mutation with
+// `suppressGlobalErrorNotification` and opt out of the AppProviders
+// MutationCache toast (P1-19/P1-27).
+type MutationMetaOptions = {
+  meta?: { suppressGlobalErrorNotification?: boolean } | undefined;
+};
+
+export function useGenerateRootCertificate(options?: MutationMetaOptions) {
   const queryClient = useQueryClient();
 
   return useMutation<CertificateStatus, Error, GenerateRootCertificateInput | undefined>({
@@ -75,6 +83,7 @@ export function useGenerateRootCertificate() {
     onSuccess: (status: CertificateStatus) => {
       queryClient.setQueryData(CERTIFICATE_STATUS_QUERY_KEY, status);
     },
+    ...(options?.meta ? { meta: options.meta } : {}),
   });
 }
 
@@ -84,9 +93,10 @@ export function useOpenCertificateInstallGuide() {
   });
 }
 
-export function useLaunchCertificateInstaller() {
+export function useLaunchCertificateInstaller(options?: MutationMetaOptions) {
   return useMutation<void, Error, void>({
     mutationFn: () => launchCertificateInstaller(),
+    ...(options?.meta ? { meta: options.meta } : {}),
   });
 }
 
