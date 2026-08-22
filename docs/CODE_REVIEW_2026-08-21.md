@@ -21,6 +21,8 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 > **核验说明**：报告完成后，已由人工对关键条目在当前代码基线上二次复核。P0 全部成立；P1 大部分成立；少量条目已有修复痕迹、描述过时或方案需要调整，文中已用 🔄 标记并给出修正后的方案。完整核验结论见第 9 节。
 
+> **修复进展（2026-08-22 更新）**：第一阶段（P0 止损）与第二阶段（P1 稳定性与性能）已全部完成并整体验证通过，共 20 个修复 commit。逐条状态与对应 commit 见第 10 节；已修复条目在标题处标注 ✅。剩余项归第三阶段 / backlog。
+
 ---
 
 ## 1. 客观质量信号
@@ -36,17 +38,17 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 ## 2. P0 — Critical（立即修复，影响功能正确性或造成静默损失）
 
-### P0-1 限流页 Apply preset 启用错误的限流配置
+### P0-1 限流页 Apply preset 启用错误的限流配置 ✅ 已修复
 - **位置**：`apps/desktop/src/pages/throttling/index.tsx:236-238`
 - **问题**：`ProfileList` 的 `onApply={() => ed.handleTemporaryEnable()}` 没有把当前点击行的 profile 传进去，实际启用的是 `selectedProfileId` 对应的 profile。用户点击未选中行的 Apply 时，会静默启用另一套配置。
 - **最优解法**：`onApply` 改为接收行 profile id，调用 `ed.handleTemporaryEnable(profile.id)`；在 `use-throttle-editor.ts` 里让 `handleTemporaryEnable` 支持传入 profile id，否则 fallback 到 selectedProfileId。
 
-### P0-2 规则编辑器缺失脏检查守卫，未保存修改静默丢失
+### P0-2 规则编辑器缺失脏检查守卫，未保存修改静默丢失 ✅ 已修复
 - **位置**：`features/rules/components/RewriteRulesPanel.tsx:440-445`；`pages/rules/index.tsx:120-123`
 - **问题**：`selectRule` 直接覆盖 draft，无任何 dirty 判断；四个规则面板用条件渲染 `{tab === "rewrite" && <RewriteRulesPanel />}`，切换 tab 即卸载组件、草稿销毁。`PAGE_BLUEPRINTS.md` §6.4 与 `UI_GUIDELINES.md` §11.3 均要求脏检查守卫，但仓库内 `useUnsavedChangesGuard` 0 匹配。
 - **最优解法**：实现 `useUnsavedChangesGuard`（比较 draft 与已保存规则）；在 `selectRule`、切换 tab、关闭页面/应用前弹 ConfirmDialog；或把 tab 切换改为保持挂载并缓存各 tab 草稿。
 
-### P0-3 Sessions 页面整库无 selector 订阅，每 100ms 全页重渲染
+### P0-3 Sessions 页面整库无 selector 订阅，每 100ms 全页重渲染 ✅ 已修复
 - **位置**：`apps/desktop/src/pages/sessions/index.tsx:108-122`；`features/sessions/session-container.store.ts:24-31`
 - **问题**：`const store = useSessionContainerStore; ... = store()` 解构全部字段，任何字段变化触发整页重渲染。`deriveActiveData` 每次 `set` 都新建 `activeSessionIds` / `activeSessionSummaries` 数组身份，导致即使数据未变也触发订阅者重渲染。与后端 100ms 批次叠加，高流量下整页 10Hz 全树重绘。
 - **最优解法**：
@@ -54,7 +56,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
   2. `deriveActiveData` 在 `ids` 内容未变时复用旧引用；或改用 shallow selector + 稳定派生。
   3. `buildSessionHostGroups` 按 host 分桶并增量缓存，避免每批次 O(n) 重建。
 
-### P0-4 WS 消息窗格每帧直接 setState 且全量重过滤
+### P0-4 WS 消息窗格每帧直接 setState 且全量重过滤 ✅ 已修复
 - **位置**：`features/sessions/components/SessionInspectorMessagesPane.tsx:148-160`；`:182-196`
 - **问题**：每收到一帧直接 `setMessages(prev => [...prev, msg])`，`filtered` memo 每次对最多 10,000 条消息全量重跑过滤并逐条 `payloadText.toLowerCase()`。大 payload 下每帧产生 MB 级字符串操作，主线程卡顿。
 - **最优解法**：
@@ -62,7 +64,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
   2. 维护双缓存：`messages`（原始）+ `lowerCasePayloads`（一次 lowercase 后缓存），过滤只在搜索词变化时重算。
   3. 搜索使用虚拟化列表的 `rangeExtractor`，避免对全部消息逐一转换。
 
-### P0-5 Windows CA 信任检测恒为 false，移除操作实际不删除
+### P0-5 Windows CA 信任检测恒为 false，移除操作实际不删除 ✅ 已修复
 - **位置**：`crates/tls-manager/src/trust.rs:110-177`；`:219-286`
 - **问题**：脚本以 `param([string]$Thumbprint)` 开头，调用方式为 `powershell -NoProfile -NonInteractive -Command <script> <thumbprint>`。PowerShell 的 `-Command` 不会把尾部参数绑定到 `param()`，而是把所有参数拼接到命令文本后执行。后果：
   - `$Thumbprint` 永远为空 → 检测恒返回 false；
@@ -70,14 +72,14 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
   - 检测脚本末行 `'False' <thumbprint>` 被解析为调用名为 `'False'` 的命令，抛 `CommandNotFoundException`。
 - **最优解法**：改用 `-File script.ps1 -Thumbprint <value>`；或在 `-Command` 下显式用脚本块 `& { param([string]$Thumbprint) ... } '<value>'`（严格转义单引号）。脚本内部 `param` 为空时以明确错误码退出，不要静默走完。
 
-### P0-6 组合请求附件构成任意文件读取并外发原语
+### P0-6 组合请求附件构成任意文件读取并外发原语 ✅ 已修复
 - **位置**：`apps/desktop/src-tauri/src/commands/multipart.rs:29-76`；`compose.rs:18-60`
 - **问题**：renderer 传入的 `file_path` 只做 `canonicalize` + `is_file` + 64MB 上限校验，**无任何根目录约束**。被入侵/XSS 的 renderer 可读取用户任意可读文件（如 `~/.ssh/id_rsa`）并 POST 到任意 URL。代码注释把它对齐到 MapRule local targetValue 的信任模型，与同仓库 H3/H10/D1“后端持对话框、renderer 不传路径”的加固方向不一致。
 - **最优解法**：
   1. 首选：附件路径必须落在已登记的安全根目录（复用 `commands/files.rs` 的 `allowed_media_save_roots` 集合），否则拒绝。
   2. 更彻底：引入服务端附件 token 登记表——`save_media_file`/对话框挑选后由 Rust 侧签发 token，IPC 只传 token 不传路径，发送时按 token 解析 canonical 路径。
 
-### P0-7 Clippy `--all-targets` 编译失败：恒真测试断言
+### P0-7 Clippy `--all-targets` 编译失败：恒真测试断言 ✅ 已修复
 - **位置**：`apps/desktop/src-tauri/src/commands/files.rs:1792`
 - **问题**：`assert!(sanitize_path_segment("\u{200D}").contains('\u{200D}') || true);` 因 `|| true` 永远为 true，该测试不验证任何行为；同时触发 `clippy::overly_complex_bool_expr` deny，导致 `cargo clippy --workspace --all-targets` 失败。
 - **最优解法**：删除 `|| true`，改为 `assert!(sanitize_path_segment("\u{200D}").contains('\u{200D}'));`。若原意是测试零宽连接符不被过滤，则断言应为 `assert!(!sanitize_path_segment("\u{200D}").is_empty())` 或类似语义。
@@ -88,27 +90,27 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 ### 3.1 代理引擎（proxy-core）
 
-#### P1-1 WebSocket 空闲 30 秒被强制断开
+#### P1-1 WebSocket 空闲 30 秒被强制断开 ✅ 已修复
 - **位置**：`crates/proxy-core/src/ws.rs:16`；`:168-175`；`:785,855`
 - **问题**：`parse_ws_frame` 对每次读都套 30s 超时，帧头静默 30s 即报错终止 relay。心跳间隔 >30s 或业务静默期的长连接（推送、行情）会被周期性掐断。
 - **最优解法**：区分“帧内分片读超时”与“帧间空闲超时”。帧头等待改为可配置的空闲上限（分钟级），或仅在半关闭状态下启用；帧体分片读仍保留较短超时防止恶意对等端拖死。
 
-#### P1-2 WS upgrade 上游链路全程无超时，任务可无限挂起
+#### P1-2 WS upgrade 上游链路全程无超时，任务可无限挂起 ✅ 已修复
 - **位置**：`crates/proxy-core/src/ws_upgrade.rs:240`；`:271`；`:315`；`:333`；`connect.rs:351-380`；`upstream_proxy.rs:389-399`
 - **问题**：dial→TLS 握手→写 upgrade 请求→读响应头均无线程/整体超时。上游 TCP 半开/TLS 卡死/只回部分数据时，future 永久 Pending，一直占用 1024 连接许可之一，只有客户端主动断开才释放。CONNECT 盲转发路径有 30s 包裹，WS 路径漏掉了。
 - **最优解法**：为 dial→TLS→写→读响应头整段套一个整体 `tokio::time::timeout`（如 30s），复用现有 `upstream_request_timeout` 语义；body 已有的 10s idle 超时保留。
 
-#### P1-3 hyper serve_connection 未安装 Timer，默认 header 读超时失效 🔄
+#### P1-3 hyper serve_connection 未安装 Timer，默认 header 读超时失效 ✅ 已修复（按 🔄 修正后方案）
 - **位置**：`crates/proxy-core/src/server.rs:477-481`；`connect.rs:541,556`；`:421`
 - **问题**：初始探测有 30s 超时，但交给 hyper 后请求头读取、keep-alive 空闲、MITM TLS 握手全部无界。恶意/异常客户端批量建连后不发数据可占满 1024 信号量，新连接全被拒。
 - **最优解法**：先对照当前使用的 Hyper 1.x API 确认 `http1::Builder::timer` / `header_read_timeout` / `keep_alive_timeout` 的可用形态（不同小版本 API 有差异）；在 `serve_connection` 配置中安装 `TokioTimer` 并显式设置 header 读超时与 keep-alive 空闲超时；`tls_acceptor.accept(stream)` 外层套 `tokio::time::timeout`。修改后补充 slow-loris 回归测试。
 
-#### P1-4 大响应 spool 文件在错误路径永久泄漏
+#### P1-4 大响应 spool 文件在错误路径永久泄漏 ✅ 已修复
 - **位置**：`crates/proxy-core/src/upstream.rs:640-651`（reqwest 版）；`:724-735`（hyper 版）
 - **问题**：创建 spool 文件后，读帧失败、写失败、flush 失败等任一错误提前返回 Err 时，spool path 随 Err 丢失。`UpstreamResponse` 的 Drop 清理拿不到 path，文件永远留在 `/tmp/aiproxy-response-spool/`。M1-6 的 120s 超时中止时也会触发。
 - **最优解法**：spool 文件用 RAII guard 持有 path，成功 `take` 后交给 `UpstreamResponse` 消费；任何 Err/Drop 即删除。或在 `forward_request` 内用 `scopeguard`/`defer` 保证清理。
 
-#### P1-5 120s 上游超时覆盖整个响应体下载，大文件/慢链路必被截断
+#### P1-5 120s 上游超时覆盖整个响应体下载，大文件/慢链路必被截断 ✅ 已修复
 - **位置**：`crates/proxy-core/src/http_proxy.rs:773-786`；`upstream.rs:392,519`
 - **问题**：超时是总时长语义，不是“首字节/空闲”语义。>20MiB 触发 spool 流式回传本意支持大文件，但下载超过 120s 即被砍成 504，客户端拿不到任何部分内容也无法续传；慢速 SSE 流必然失败。
 - **最优解法**：把超时改为覆盖到响应头到达；body 阶段改用逐 chunk idle 超时（如 30s 无数据才算超时）。可配置总时长上限作为可选项，默认不启用。
@@ -118,7 +120,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **问题**：正常路径用 `append` 保留重复头；断点编辑后用 `insert` 重建 HeaderMap，多个 `Cookie`/`Set-Cookie`/`Via` 被合并成一个，含 obs-text 等非法 UTF-8 值的头被 `if let` 跳过——请求数据静默变更。
 - **最优解法**：改用 `append` 重建；解析失败时记录 trace 并返回错误（让 UI 提示该头非法），而不是跳过。
 
-#### P1-7 通配符匹配贪心算法存在假阴性
+#### P1-7 通配符匹配贪心算法存在假阴性 ✅ 已修复
 - **位置**：`crates/proxy-core/src/rules/patterns.rs:49-76`
 - **问题**：按首次出现位置推进，末段要求恰好结束于候选串末尾，但首现未必是能对齐末尾的那次。例：`foo*bar` 匹配 `foobarXbar` 返回 false；`*.log` 不匹配 `a.log.b.log`。影响 rewrite/map/throttle/dns 所有 wildcard 规则静默失配。
 - **最优解法**：末段改从尾部 `rfind` 对齐；或实现带回溯的分段匹配。同步补充回归用例：`foo*bar` 应命中 `foobarXbar`、`*b*c` 应命中 `abcbc`。
@@ -134,7 +136,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 ### 3.2 安全与平台（tls-manager / db / src-tauri）
 
-#### P1-9 根 CA 状态指纹与磁盘证书指纹不一致（重签名导致 serial 漂移）🔄
+#### P1-9 根 CA 状态指纹与磁盘证书指纹不一致（重签名导致 serial 漂移）✅ 已修复（按 🔄 修正后方案）
 - **位置**：`crates/tls-manager/src/generator.rs:75-94`；`apps/desktop/src-tauri/src/commands/certificates.rs:279`
 - **问题**：`load_from_pem` 用 `CertificateParams::from_ca_cert_pem` 解析磁盘 PEM 后调用 `params.self_signed(&key_pair)` 重新签名，rcgen 重签名会生成新的随机 serial，产出的 DER 与原证书不同，`compute_fingerprint` 因此不等于系统信任库里的真实指纹。用户按 UI 指纹去 Keychain/certutil 比对必然不匹配。
 - **最优解法**：
@@ -142,7 +144,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
   2. 保留 `load_from_pem` 重建 rcgen `Certificate` 的逻辑，因为该对象仍用于签发叶子证书，不能简单删除。
   3. 在 `TlsManager` 中同时持有“原始 DER（用于指纹）”和“rcgen Certificate（用于签名）”两个字段，避免重签名改变身份。
 
-#### P1-10 `save_media_file` 缺最终组件符号链接防护
+#### P1-10 `save_media_file` 缺最终组件符号链接防护 ✅ 已修复
 - **位置**：`apps/desktop/src-tauri/src/commands/files.rs:371-403`
 - **问题**：`reject_unsafe_write_path` 只校验父目录属于安全根目录，若最终文件名本身是指向任意位置的符号链接，写入会跟随链接落到目标。同文件 `save_response_files` 已有 `O_NOFOLLOW` 加固与符号链接攻击测试，此处不一致。
 - **最优解法**：复用 `overwrite_export_file` 的 `O_NOFOLLOW` / `create_new_export_file` 的 `O_EXCL` 打开方式；补上针对 `save_media_file` 的 symlink 攻击单测。
@@ -164,7 +166,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 ### 3.3 前端数据链路
 
-#### P1-14 WS 消息窗格快照与实时事件竞态丢帧 + 加载失败静默
+#### P1-14 WS 消息窗格快照与实时事件竞态丢帧 + 加载失败静默 ✅ 已修复
 - **位置**：`features/sessions/components/SessionInspectorMessagesPane.tsx:134-160`
 - **问题**：effect 1 先清空并异步 `listWsMessages(sessionId)`，effect 2 立即订阅 `onWsMessage`。若消息在快照发出后、resolve 前到达，会被 append 进 state，随后快照整体覆盖导致丢失；`listWsMessages(...).then(...)` 无 `.catch`，命令失败时产生 unhandled rejection，窗格永远显示“无消息”。
 - **最优解法**：先建立订阅并缓冲带序号的实时帧，快照 resolve 后按 `msg.id` 去重合并且排序；`.catch` 中展示错误态；用一次性 `isMounted` 或 AbortSignal 避免竞态。
@@ -174,7 +176,7 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **问题**：`session-upsert` 有 100ms 缓冲，`session-remove` / `sessions-removed` 即时生效。同一会话 id 在窗口内“先 upsert 后 remove”时，remove 先应用、flush 再把该会话复活进 store；`onSessionsRemoved` 不清扫 `upsertBuffer`。
 - **最优解法**：remove/clear 同样进入缓冲队列按到达顺序回放；或 flush 时以 buffer 内最后一条事件为准做同 id 折叠；`onSessionsRemoved`/`onSessionsCleared` 同步 purge 缓冲。
 
-#### P1-16 `useStableKeyedRows` 在 setState updater 内执行副作用
+#### P1-16 `useStableKeyedRows` 在 setState updater 内执行副作用 ✅ 已修复
 - **位置**：`hooks/use-stable-keyed-rows.ts:82-113`
 - **问题**：`update/remove/add` 把 `lastEmittedRef.current = stripped` 和 `onChangeRef.current(stripped)` 写进 `setRows` updater。StrictMode 下 updater 被双调用 → onChange 触发两次；updater 可能在 render 阶段被重放，触发父组件 setState 属于渲染期副作用。
 - **最优解法**：updater 只算 next rows；`onChange`/`lastEmitted` 移到 `useEffect`（比较 prev/next）或在事件回调里先算好再 set。保持该 hook 对调用者 API 不变。
@@ -184,14 +186,14 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **问题**：桌面端 `isTauriRuntime=true` 时，只要后端错误消息包含 `"not found"` / `"failed to invoke"`，`saveRewriteRule` 等就静默改写 localStorage 并返回成功。真实后端错误（如 "Workspace not found"、IPC 层 "failed to invoke"）会让规则只落在前端本地——代理不生效、重启即丢。
 - **最优解法**：改为按结构化 `code`（如专用 `COMMAND_NOT_REGISTERED`）判断；桌面端完全不走 localStorage 回退、直接抛错；若必须保留 localStorage 模式，仅在明确离线/未注册时触发。
 
-#### P1-18 流式会话 detail 以 ~10Hz 走 Tauri IPC refetch
+#### P1-18 流式会话 detail 以 ~10Hz 走 Tauri IPC refetch ✅ 已修复
 - **位置**：`features/sessions/use-session-events.ts:49-54`；`services/commands/sessions.ts:73-105`
 - **问题**：每批 flush 对每条 summary invalidate `SESSION_DETAIL_QUERY_KEY`，被选中的流式会话 detail 以约 10Hz 频率走 IPC refetch，使 Inspector 的 parse memo 失效。
 - **最优解法**：流式响应期间用 `queryClient.setQueryData` 直接把 summary/partial body 合入 detail cache，而不是 invalidate；非流式场景保留 refetch。详情增量更新走 `session-upsert` payload 中的增量字段。
 
 ### 3.4 UI 交互
 
-#### P1-19 全局缺少 MutationCache，mutation 失败普遍静默
+#### P1-19 全局缺少 MutationCache，mutation 失败普遍静默 ✅ 已修复
 - **位置**：`app/providers/AppProviders.tsx:93-107`
 - **问题**：只配置了 `QueryCache.onError`，没有 `MutationCache.onError`。因此所有 mutation 失败必须由页面自行渲染，否则只进 console。certificates、collections、compose、throttling 等大量 mutation 无 `onError`。
 - **最优解法**：在 `QueryClient` 中补 `mutationCache: new MutationCache({ onError: (error, _variables, _context, mutation) => { if (!mutation?.meta?.suppressGlobalErrorNotification) notification.error(...) } })`，与现有 QueryCache 兜底机制对称；页面级仍可按 `meta.suppressGlobalErrorNotification` 豁免。
@@ -211,12 +213,12 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **问题**：导航后用 `requestAnimationFrame` + `querySelector('[data-session-id=...]')` + `scrollIntoView`，但列表经 `useVirtualizer` 虚拟化，虚拟窗口外的行不在 DOM，`querySelector` 落空。
 - **最优解法**：删除 `querySelector` + `scrollIntoView` 方案；键盘导航时直接计算目标行在**可见行数组** `visibleRows` 中的索引（注意不是原始 session 索引），然后调用 `virtualizer.scrollToIndex(visibleIndex, { align: "auto" })`。同步验证 Home/End/Arrow 与过滤后的可见行一致。
 
-#### P1-23 ConfirmDialog 立即关闭不等结果（删除限流规则 / collections 删除）
+#### P1-23 ConfirmDialog 立即关闭不等结果（删除限流规则 / collections 删除）✅ 已修复
 - **位置**：`pages/throttling/index.tsx:416-429`；`pages/collections/index.tsx:612-640`；`use-collection-tree.ts:336,345`
 - **问题**：`onConfirm` 里直接关闭对话框，不等 mutation settle；`deleteRuleMutation.error` / collection 删除错误全文件未消费，删除失败无提示。
 - **最优解法**：`onConfirm` 里保留对话框开启并显示 `isPending` 状态，mutation 成功后再关闭；失败时展示 Alert / Snackbar，并保持对话框开启让用户可重试。
 
-#### P1-24 Collections / Compose 保存失败完全静默或重复提交
+#### P1-24 Collections / Compose 保存失败完全静默或重复提交 ✅ 已修复
 - **位置**：`pages/collections/index.tsx:260-286`；`pages/compose/index.tsx:235-261`；`SaveToCollectionDialog.tsx:117`
 - **问题**：保存/upsert 只传 `onSuccess`；`isPending` 未用于禁用提交按钮，可双击重复创建；失败无提示。
 - **最优解法**：补 `onError` 展示 Alert/Snackbar；提交按钮绑定 `isPending`；成功后重置表单；新建集合时按名称去重或后端加唯一索引 + 错误提示。
@@ -231,12 +233,12 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **问题**：`useQuery` 的 `isError` 未解构未处理，失败时静默 fallback 到前端计算，最终显示 `noData` 而非错误。
 - **最优解法**：解构 `isError` / `error`，在面板顶部展示 Error Alert 与重试按钮；明确告诉用户“后端聚合不可用，展示的是本地近似值”或完全回退到空态并提示错误。
 
-#### P1-27 Certificates 生成/安装失败无任何页面反馈
+#### P1-27 Certificates 生成/安装失败无任何页面反馈 ✅ 已修复
 - **位置**：`pages/certificates/index.tsx:174-188`；`DesktopCertificateTab.tsx:246-331`
 - **问题**：`generateMutation` / `installMutation` 无 `onError`，error 从未渲染；DiagnosticsCard 的 `isError` 未处理，诊断失败后回到 hint 文案。
 - **最优解法**：补 `onError` 展示 Alert/Snackbar；DiagnosticsCard 失败态展示错误与重试按钮；把证书相关 mutation 错误统一到 i18n key `certificates.*.error`。
 
-#### P1-28 `setActiveMutation`（15min 启用/全局禁用）失败完全无展示
+#### P1-28 `setActiveMutation`（15min 启用/全局禁用）失败完全无展示 ✅ 已修复
 - **位置**：`features/throttling/use-throttle-editor.ts:196-201,437-442`
 - **问题**：hook 只暴露 `saveProfileError` / `ruleSaveError`，切换 active profile 的 mutation 错误未被消费。
 - **最优解法**：在 throttling page 的状态栏或 profile 列表旁消费 `setActiveMutation.isError` / `error`，失败时展示 inline Alert；或把错误纳入 `useThrottleEditor` 返回的 `editorState.error`。
@@ -529,23 +531,23 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 ## 7. 建议修复顺序（已按核验结果调整）
 
-### 第一阶段（当周，P0 止损）
-1. P0-1 限流 Apply preset 传参修复。
-2. P0-5 Windows PowerShell 参数绑定修复（**必须**在真实 Windows 环境实测后合并）。
-3. P0-6 组合请求附件路径根目录约束（安全加固，注意不能破坏正常附件场景，长期应走 token 方案）。
-4. P0-7 Clippy 恒真断言修复，使 `cargo clippy --workspace --all-targets` 通过。
-5. P0-2 规则编辑器脏检查守卫（避免用户数据丢失）。
+### 第一阶段（当周，P0 止损）— ✅ 已完成（2026-08-22）
+1. P0-1 限流 Apply preset 传参修复。（`b14f48e1`）
+2. P0-5 Windows PowerShell 参数绑定修复（**必须**在真实 Windows 环境实测后合并）。（`ac06b1be`）
+3. P0-6 组合请求附件路径根目录约束（安全加固，注意不能破坏正常附件场景，长期应走 token 方案）。（`561e1de0`）
+4. P0-7 Clippy 恒真断言修复，使 `cargo clippy --workspace --all-targets` 通过。（`561e1de0`，同 commit 移除 `|| true`）
+5. P0-2 规则编辑器脏检查守卫（避免用户数据丢失）。（`fd0871c9`）
 
-### 第二阶段（两周内，P1 稳定性与性能）
-6. P0-3 / P1-14 / P1-18 会话页 selector 化 + detail 增量更新 + WS 消息窗格批处理。
-7. P1-1 / P1-2 / P1-3 代理超时矩阵统一（WS 空闲超时、WS upgrade 超时、hyper Timer）。
-8. P1-4 / P1-5 spool 文件 RAII 清理 + 响应体 idle 超时语义。
-9. P1-7 通配符匹配假阴性修复。
-10. P1-19 全局 MutationCache 兜底 + 各页面 mutation onError 补齐。
-11. P1-9 CA 指纹直接由原始 DER 计算（保留 rcgen 对象用于签名）。
-12. P1-16 `useStableKeyedRows` updater 副作用移除。
+### 第二阶段（两周内，P1 稳定性与性能）— ✅ 已完成（2026-08-22）
+6. P0-3 / P1-14 / P1-18 会话页 selector 化 + detail 增量更新 + WS 消息窗格批处理。（`fce819d3` / `3c3c2a02` / `023a6c02`）
+7. P1-1 / P1-2 / P1-3 代理超时矩阵统一（WS 帧间空闲与帧内读分离、upgrade 整体超时、hyper Timer + TLS accept 限时；另含 relay 取消保留半读帧的关联加固）（`9d1a3edf` / `206f51bc` / `e1d6fb07` / `8f11d092`）
+8. P1-4 / P1-5 spool 文件 RAII 清理 + head 相位限时 + 响应体逐 chunk idle 上限。（`fb6c651c` / `06d881e8`）
+9. P1-7 通配符匹配假阴性修复（显式回溯 + 与等价 regex 对齐的 proptest）。（`1bd537d0`）
+10. P1-19 全局 MutationCache 兜底 + 各页面 mutation 反馈补齐（含 P1-23 / P1-24 / P1-27 / P1-28：删除对话框等结果、防双击、证书页本地化错误、setActive 错误浮出）。（`5de4803b`）
+11. P1-9 CA 指纹直接由原始 DER 计算（保留 rcgen 对象用于签名）。（`790fc8b0`）
+12. P1-16 `useStableKeyedRows` updater 副作用移除。（`3c2b4fc4`）
 
-### 第三阶段（一个月内，架构与债务）
+### 第三阶段（一个月内，架构与债务）— 待开始
 13. P1-29 / P1-30 前端 feature 边界重构 + services 反向依赖解除。
 14. P1-31 / P1-32 契约清单 CI 断言 + 规则 matcher 共享 fixture。
 15. P1-33 converters/repository 补测试。
@@ -611,3 +613,54 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - 所有 file:line 均基于 v0.1.x 当前工作区（1fd7b56d 及其 tree）。
 - Critical / Major 发现均已由 reviewer 打开完整相关代码确认，非推测。
 - 本报告应同步更新：若修复其中任一项导致 `docs/API_SPEC.md`、`docs/ARCHITECTURE.md`、`docs/UI_GUIDELINES.md`、`docs/PAGE_BLUEPRINTS.md` 过时，请在同一 PR 内同步文档。
+
+---
+
+## 10. 修复进展（2026-08-22）
+
+第一、二阶段已在 `v0.1.x` 分支完成，共 20 个修复 commit。下表 hash 为改写后的当前值（commit 信息已统一为英文，见 `AGENTS.md` §5 语言约定）。已修复条目在正文标题处同步标注 ✅。
+
+### 10.1 第一阶段：P0（全部完成）
+
+| 条目 | 状态 | commit | 修复方式 |
+|---|---|---|---|
+| P0-1 限流 Apply preset 传错 profile | ✅ | `b14f48e1` | 行 profile 显式传参，无参 fallback 保留 |
+| P0-2 规则编辑器脏检查缺失 | ✅ | `fd0871c9` | 草稿守卫，切 tab/选会话不再静默丢弃 |
+| P0-3 Sessions 整库订阅 + 派生数组 | ✅ | `fce819d3` | 细粒度 selector + deriveActiveData 引用稳定 |
+| P0-4 WS 窗格每帧 setState 全量过滤 | ✅ | `3c3c2a02` | 快照/实时竞态修复 + rAF 微批 + lowercase WeakMap 缓存 |
+| P0-5 Windows PowerShell 参数绑定 | ✅ | `ac06b1be` | `param()` 显式绑定 thumbprint/location |
+| P0-6 附件任意文件读取 | ✅ | `561e1de0` | allowed-roots 收口 + Content-Type 校验 |
+| P0-7 Clippy 恒真断言 | ✅ | `561e1de0` | 删除 `\|\| true`，断言表达真实语义并带失败消息 |
+
+### 10.2 第二阶段：P1（12 个工作项全部完成）
+
+| 条目 | 状态 | commit | 修复方式 |
+|---|---|---|---|
+| P1-1 WS 帧间空闲 30s 误断 | ✅ | `9d1a3edf` | 帧间空闲（300s）与帧内分片读（30s）分离 |
+| （关联加固）relay 取消丢半读帧 | ✅ | `8f11d092` | relay 取消时保留半读帧，跨 read 重入不丢数据 |
+| P1-2 WS upgrade 链路无超时 | ✅ | `206f51bc` | dial→TLS→写请求→读 head 整体超时包裹 |
+| P1-3 hyper 无 Timer / TLS accept 无界 | ✅ | `e1d6fb07` | 三处 serve_connection 装 TokioTimer + header_read_timeout；TLS accept 外层限时；slow-loris 回归 |
+| P1-4 spool 文件错误路径泄漏 | ✅ | `fb6c651c` | RAII guard：任何早退/取消路径删除临时文件 |
+| P1-5 120s 总时长截断大响应 | ✅ | `06d881e8` | 超时语义收敛到 head 相位；body 改逐 chunk idle 上限（30s） |
+| P1-7 通配符假阴性 | ✅ | `1bd537d0` | 显式回溯匹配 + 与等价 regex 对齐的 proptest |
+| P1-9 CA 指纹漂移 | ✅ | `790fc8b0` | 指纹从磁盘原始 DER 计算（按 🔄 修正后方案，保留 rcgen issuer） |
+| P1-10 save_media_file symlink 防护 | ✅ | `561e1de0` | O_NOFOLLOW 写入 + symlink 攻击测试（随 P0-6 同 commit） |
+| P1-14 WS 窗格快照竞态丢帧 | ✅ | `3c3c2a02` | 先订阅后快照、按 id 去重合并 + loadError 重试态 |
+| P1-16 keyed rows updater 副作用 | ✅ | `3c2b4fc4` | 副作用移出 setState updater，StrictMode 不再双发 onChange |
+| P1-18 detail 10Hz invalidate | ✅ | `023a6c02` | 已缓存 detail 改 setQueryData 原地合并，未缓存跳过 |
+| P1-19 全局 MutationCache 缺失 | ✅ | `5de4803b` | MutationCache.onError 兜底 + meta 豁免 + 回归测试 |
+| P1-23 ConfirmDialog 不等结果 | ✅ | `5de4803b` | 成功才关对话框，失败 inline Alert 留守可重试 |
+| P1-24 collections/compose 静默失败 | ✅ | `5de4803b` | isPending 防双击 + 错误反馈 |
+| P1-27 证书页无失败反馈 | ✅ | `5de4803b` | 本地化错误通知 + DiagnosticsCard 错误态与重试 |
+| P1-28 setActive 错误无展示 | ✅ | `5de4803b` | setActiveError 暴露 + throttling 页 inline Alert |
+
+### 10.3 剩余项
+
+- **第三阶段候选**：P1-6、P1-8、P1-11、P1-12、P1-13、P1-15、P1-17、P1-20、P1-21、P1-22、P1-25、P1-26、P1-29 ~ P1-33。
+- **backlog**：第 4 节 P2 全部条目。
+
+### 10.4 整体验证（2026-08-22）
+
+- `cargo clippy --workspace --all-targets`：通过。仅剩 4 个修复前已存在的告警（items_after_test_module ×3、server.rs too many arguments），已在 `da104ff2` 记录为范围外。
+- `cargo test -p aiproxy-proxy-core`：306 通过；`cargo test -p aiproxy-tls-manager`：58 通过（报告基线时为 54）。
+- 前端：typecheck 通过；Vitest 582 测试通过（基线 547）；format:check 通过；i18n en/zh-CN parity 5/5 通过。
