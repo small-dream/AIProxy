@@ -5,6 +5,7 @@ import {
   createDefaultProxyStatus,
   createMockComposeSessionDetail,
   DEFAULT_PROXY_PORT,
+  INVALID_WS_MESSAGES,
   isAppError,
   isSessionDetail,
   isProxyStatus,
@@ -25,6 +26,7 @@ import {
   parsePortOccupant,
   parseRemoveCertificateTrustOutput,
   parseUpstreamProxyProbeResult,
+  parseWsMessages,
 } from "./index";
 
 function makeRewriteRuleBase() {
@@ -888,6 +890,82 @@ describe("parseRemoveCertificateTrustOutput", () => {
     expect(() =>
       parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: 42 }),
     ).toThrow();
+  });
+});
+
+describe("parseWsMessages", () => {
+  function makeWsMessage(id: string) {
+    return {
+      id,
+      sessionId: "session-1",
+      direction: "clientToServer",
+      timestamp: "2026-08-23T10:00:00.000Z",
+      opcode: "text",
+      payloadText: "hello",
+      payloadSize: 5,
+      fin: true,
+      truncated: false,
+    };
+  }
+
+  it("returns a valid message list unchanged", () => {
+    const payload = [makeWsMessage("ws-1"), makeWsMessage("ws-2")];
+    expect(parseWsMessages(payload)).toEqual(payload);
+  });
+
+  it("accepts an empty list", () => {
+    expect(parseWsMessages([])).toEqual([]);
+  });
+
+  it("keeps the generic app error when the payload is not an array", () => {
+    try {
+      parseWsMessages({ id: "ws-1" });
+      throw new Error("expected parseWsMessages to throw");
+    } catch (error) {
+      const actual = coerceAppError(error);
+      expect(actual.code).toBe("UNKNOWN_ERROR");
+      expect(actual.message).toBe("An unexpected error occurred.");
+      expect(actual.details).toEqual({ receivedType: "object" });
+    }
+  });
+
+  // P2 4.3-1: a failing batch must surface which entries were invalid instead
+  // of collapsing into "An unexpected error occurred.".
+  it("throws a structured INVALID_WS_MESSAGES error naming the bad indexes", () => {
+    let thrown: unknown;
+    try {
+      parseWsMessages([makeWsMessage("ws-1"), { id: "broken" }, makeWsMessage("ws-3"), null]);
+      throw new Error("expected parseWsMessages to throw");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isAppError(thrown)).toBe(true);
+    const actual = thrown as { code: string; message: string; details?: Record<string, unknown> };
+    expect(actual.code).toBe(INVALID_WS_MESSAGES);
+    expect(actual.message).toContain("2 of 4");
+    expect(actual.message).toContain("[1, 3]");
+    expect(actual.details?.totalCount).toBe(4);
+    expect(actual.details?.invalidCount).toBe(2);
+    expect(actual.details?.invalidIndexes).toEqual([1, 3]);
+    expect(actual.details?.samples).toEqual(['[1] {"id":"broken"}', "[3] null"]);
+  });
+
+  it("bounds the reported samples for large failing batches", () => {
+    const payload = Array.from({ length: 20 }, (_, index) =>
+      index % 2 === 0 ? makeWsMessage(`ws-${index}`) : { broken: index },
+    );
+
+    try {
+      parseWsMessages(payload);
+      throw new Error("expected parseWsMessages to throw");
+    } catch (error) {
+      const actual = error as { message: string; details?: Record<string, unknown> };
+      expect(actual.details?.invalidCount).toBe(10);
+      expect((actual.details?.invalidIndexes as number[]).length).toBe(10);
+      expect((actual.details?.samples as string[]).length).toBe(5);
+      expect(actual.message).toContain(", ...]");
+    }
   });
 });
 
