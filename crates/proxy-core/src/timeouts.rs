@@ -16,6 +16,7 @@ pub(crate) enum TimeoutKind {
     WsUpstreamBodyReadIdle,
     UpstreamProxyDial,
     UpstreamPoolIdle,
+    UpstreamPoolH1LeaseWait,
     Http2KeepAliveInterval,
     Http2KeepAliveTimeout,
     UpstreamPoolEvictionInterval,
@@ -37,6 +38,7 @@ impl TimeoutKind {
             Self::WsUpstreamBodyReadIdle => Duration::from_secs(10),
             Self::UpstreamProxyDial => Duration::from_secs(20),
             Self::UpstreamPoolIdle => Duration::from_secs(60),
+            Self::UpstreamPoolH1LeaseWait => Duration::from_secs(5),
             Self::Http2KeepAliveInterval => Duration::from_secs(30),
             Self::Http2KeepAliveTimeout => Duration::from_secs(20),
             Self::UpstreamPoolEvictionInterval => Duration::from_secs(60),
@@ -58,6 +60,7 @@ impl TimeoutKind {
         static WS_UPSTREAM_BODY_READ_IDLE_MS: AtomicU64 = AtomicU64::new(0);
         static UPSTREAM_PROXY_DIAL_MS: AtomicU64 = AtomicU64::new(0);
         static UPSTREAM_POOL_IDLE_MS: AtomicU64 = AtomicU64::new(0);
+        static UPSTREAM_POOL_H1_LEASE_WAIT_MS: AtomicU64 = AtomicU64::new(0);
         static HTTP2_KEEP_ALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(0);
         static HTTP2_KEEP_ALIVE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
         static UPSTREAM_POOL_EVICTION_INTERVAL_MS: AtomicU64 = AtomicU64::new(0);
@@ -75,6 +78,7 @@ impl TimeoutKind {
             Self::WsUpstreamBodyReadIdle => &WS_UPSTREAM_BODY_READ_IDLE_MS,
             Self::UpstreamProxyDial => &UPSTREAM_PROXY_DIAL_MS,
             Self::UpstreamPoolIdle => &UPSTREAM_POOL_IDLE_MS,
+            Self::UpstreamPoolH1LeaseWait => &UPSTREAM_POOL_H1_LEASE_WAIT_MS,
             Self::Http2KeepAliveInterval => &HTTP2_KEEP_ALIVE_INTERVAL_MS,
             Self::Http2KeepAliveTimeout => &HTTP2_KEEP_ALIVE_TIMEOUT_MS,
             Self::UpstreamPoolEvictionInterval => &UPSTREAM_POOL_EVICTION_INTERVAL_MS,
@@ -115,6 +119,7 @@ mod tests {
             TimeoutKind::WsUpstreamBodyReadIdle,
             TimeoutKind::UpstreamProxyDial,
             TimeoutKind::UpstreamPoolIdle,
+            TimeoutKind::UpstreamPoolH1LeaseWait,
             TimeoutKind::Http2KeepAliveInterval,
             TimeoutKind::Http2KeepAliveTimeout,
             TimeoutKind::UpstreamPoolEvictionInterval,

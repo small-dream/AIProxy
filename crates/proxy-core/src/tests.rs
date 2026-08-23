@@ -2447,6 +2447,266 @@ fn throttle_rule_does_not_match_when_pattern_absent_from_url() {
 }
 
 #[tokio::test]
+async fn pooled_h1_reuses_one_upstream_connection_for_sequential_requests() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        for body in [b"one".as_slice(), b"two".as_slice()] {
+            let mut request_bytes = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 512];
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "proxy opened a second upstream connection");
+                request_bytes.extend_from_slice(&chunk[..read]);
+                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            stream.write_all(response.as_bytes()).await.unwrap();
+            stream.write_all(body).await.unwrap();
+        }
+        let _ = completed_tx.send(());
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    for path in ["/one", "/two"] {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        let request = format!(
+            "GET http://127.0.0.1:{upstream_port}{path} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+        );
+        client.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.contains("HTTP/1.1 200 OK"));
+    }
+
+    timeout(Duration::from_secs(2), completed_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+async fn start_plain_proxy_for_pool_test() -> StartedProxyServer {
+    start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: allocate_unused_port(),
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn pooled_h1_opens_a_second_connection_for_concurrent_requests() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::channel(2);
+    let upstream_task = tokio::spawn({
+        let barrier = Arc::clone(&barrier);
+        async move {
+            for index in 0..2 {
+                let (mut stream, _) = upstream_listener.accept().await.unwrap();
+                let barrier = Arc::clone(&barrier);
+                let accepted_tx = accepted_tx.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    loop {
+                        let mut chunk = [0_u8; 512];
+                        let read = stream.read(&mut chunk).await.unwrap();
+                        assert!(read > 0);
+                        request.extend_from_slice(&chunk[..read]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    accepted_tx.send(index).await.unwrap();
+                    barrier.wait().await;
+                    let body = if index == 0 { "one" } else { "two" };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+        }
+    });
+
+    let proxy = start_plain_proxy_for_pool_test().await;
+    let first_url = format!("http://127.0.0.1:{upstream_port}/one");
+    let second_url = format!("http://127.0.0.1:{upstream_port}/two");
+    let proxy_port = proxy.bound_port;
+    let first = tokio::spawn(async move {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET {first_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        response
+    });
+    accepted_rx.recv().await.unwrap();
+
+    let second = tokio::spawn(async move {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET {second_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        response
+    });
+    let second_connection = timeout(Duration::from_secs(2), accepted_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        second_connection, 0,
+        "the concurrent request reused the busy h1 connection"
+    );
+    assert!(timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("one"));
+    assert!(timeout(Duration::from_secs(2), second)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("two"));
+    proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn pooled_h1_connection_close_forces_a_redial() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::channel(2);
+    let upstream_task = tokio::spawn(async move {
+        for index in 0..2 {
+            let (mut stream, _) = upstream_listener.accept().await.unwrap();
+            let accepted_tx = accepted_tx.clone();
+            tokio::spawn(async move {
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request).await.unwrap();
+                accepted_tx.send(index).await.unwrap();
+                let (body, connection) = if index == 0 {
+                    ("closed", "Connection: close\r\n")
+                } else {
+                    ("fresh", "")
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n{}\r\n{}",
+                    body.len(),
+                    connection,
+                    body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+    });
+
+    let proxy = start_plain_proxy_for_pool_test().await;
+    for path in ["/closed", "/fresh"] {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy.bound_port))
+            .await
+            .unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET http://127.0.0.1:{upstream_port}{path} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.contains("200 OK"));
+        assert!(response.contains(if path == "/closed" { "closed" } else { "fresh" }));
+    }
+    let first = accepted_rx.recv().await.unwrap();
+    let second = accepted_rx.recv().await.unwrap();
+    assert_eq!((first, second), (0, 1));
+    proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
 async fn forwards_plain_http_requests_and_emits_a_session_detail() {
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();

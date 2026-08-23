@@ -1,12 +1,28 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::IpAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock,
+};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify, OwnedMutexGuard};
+
+const MAX_H1_CONNECTIONS_PER_KEY: usize = 4;
 
 use crate::timing_connector::ConnectionTiming;
+
+pub(crate) type H1RequestBody = BoxBody<Bytes, Infallible>;
+pub(crate) type H1Sender = hyper::client::conn::http1::SendRequest<H1RequestBody>;
+type H2RequestBody = BoxBody<Bytes, String>;
+type H2Sender = hyper::client::conn::http2::SendRequest<H2RequestBody>;
+type PendingRegistration = (
+    watch::Sender<Option<Arc<PooledConnection>>>,
+    watch::Receiver<Option<Arc<PooledConnection>>>,
+);
 
 /// Key used to look up pooled connections.
 ///
@@ -16,32 +32,254 @@ use crate::timing_connector::ConnectionTiming;
 /// already part of this key.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct UpstreamKey {
+    /// The scheme is part of the key because `http://host:443` and
+    /// `https://host:443` must never share a transport.
+    pub scheme: String,
     pub host: String,
     pub port: u16,
 }
 
-/// A pooled h2 `SendRequest` handle together with metadata.
-struct PooledConnection {
-    sender: hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
-    last_used: Instant,
+/// A checked-out h1 sender. The mutex guard is held until the response body is
+/// fully consumed, which prevents two requests from interleaving on one h1
+/// connection and makes cancellation close/evict the correct connection.
+pub(crate) struct H1Lease {
+    connection: Arc<H1PooledConnection>,
+    notify: Arc<Notify>,
+    sender: OwnedMutexGuard<H1Sender>,
 }
 
-/// A simple pool of upstream h2 connections.
+impl H1Lease {
+    pub(crate) fn sender_mut(&mut self) -> &mut H1Sender {
+        &mut self.sender
+    }
+
+    pub(crate) fn connection(&self) -> Arc<H1PooledConnection> {
+        Arc::clone(&self.connection)
+    }
+}
+
+impl Drop for H1Lease {
+    fn drop(&mut self) {
+        if !self.connection.closed.load(Ordering::Acquire) {
+            if let Ok(mut last_used) = self.connection.last_used.lock() {
+                *last_used = Instant::now();
+            }
+        }
+        self.notify.notify_one();
+    }
+}
+
+pub(crate) struct H1PooledConnection {
+    sender: Arc<tokio::sync::Mutex<H1Sender>>,
+    last_used: Mutex<Instant>,
+    closed: AtomicBool,
+    driver_finished: AtomicBool,
+    driver: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    notify: Arc<Notify>,
+}
+
+impl H1PooledConnection {
+    fn new(sender: H1Sender, notify: Arc<Notify>) -> Self {
+        Self {
+            sender: Arc::new(tokio::sync::Mutex::new(sender)),
+            last_used: Mutex::new(Instant::now()),
+            closed: AtomicBool::new(false),
+            driver_finished: AtomicBool::new(false),
+            driver: Mutex::new(None),
+            notify,
+        }
+    }
+
+    fn try_acquire(
+        self: &Arc<Self>,
+        timing: Option<ConnectionTiming>,
+    ) -> Option<UpstreamConnection> {
+        if self.closed.load(Ordering::Acquire) {
+            return None;
+        }
+        let sender = match Arc::clone(&self.sender).try_lock_owned() {
+            Ok(sender) => sender,
+            Err(_) => return None,
+        };
+        if self.closed.load(Ordering::Acquire) || sender.is_closed() {
+            drop(sender);
+            self.mark_closed();
+            return None;
+        }
+        if let Ok(mut last_used) = self.last_used.lock() {
+            *last_used = Instant::now();
+        }
+        Some(UpstreamConnection::H1 {
+            lease: H1Lease {
+                connection: Arc::clone(self),
+                notify: Arc::clone(&self.notify),
+                sender,
+            },
+            timing,
+        })
+    }
+
+    /// A busy h1 connection is never evicted. A waiter that has not acquired
+    /// the mutex yet may race with eviction, but `acquire` rechecks `closed`
+    /// after obtaining the guard and will retry through the pool.
+    fn is_alive_and_not_idle(&self, max_idle: Duration) -> bool {
+        if self.closed.load(Ordering::Acquire) {
+            return false;
+        }
+        match self.sender.try_lock() {
+            Ok(sender) if sender.is_closed() => false,
+            Ok(_) => self
+                .last_used
+                .lock()
+                .map(|last_used| last_used.elapsed() < max_idle)
+                .unwrap_or(false),
+            Err(_) => true,
+        }
+    }
+
+    fn mark_closed(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    fn set_driver(&self, driver: tokio::task::JoinHandle<()>) {
+        if self.driver_finished.load(Ordering::Acquire) {
+            return;
+        }
+        if let Ok(mut stored) = self.driver.lock() {
+            if self.driver_finished.load(Ordering::Acquire) {
+                return;
+            }
+            *stored = Some(driver);
+        }
+    }
+
+    fn mark_driver_finished(&self) {
+        self.driver_finished.store(true, Ordering::Release);
+    }
+
+    fn abort_driver(&self) {
+        if let Ok(mut stored) = self.driver.lock() {
+            if let Some(driver) = stored.take() {
+                if !self.driver_finished.load(Ordering::Acquire) && !driver.is_finished() {
+                    driver.abort();
+                    #[cfg(test)]
+                    crate::upstream::h1_pool_driver_aborted_for_test();
+                }
+            }
+        }
+    }
+
+    pub(crate) fn close_and_abort(&self) {
+        self.mark_closed();
+        self.abort_driver();
+    }
+}
+
+struct H2PooledConnection {
+    sender: H2Sender,
+    last_used: Mutex<Instant>,
+}
+
+enum PooledConnection {
+    H2(Arc<H2PooledConnection>),
+    H1(Arc<H1PooledConnection>),
+}
+
+/// A protocol-aware upstream connection checked out for one request.
+pub(crate) enum UpstreamConnection {
+    H2 {
+        sender: H2Sender,
+        timing: Option<ConnectionTiming>,
+    },
+    H1 {
+        lease: H1Lease,
+        timing: Option<ConnectionTiming>,
+    },
+}
+
+impl PooledConnection {
+    fn is_alive_and_not_idle(&self, max_idle: Duration) -> bool {
+        match self {
+            Self::H2(connection) => {
+                !connection.sender.is_closed()
+                    && connection
+                        .last_used
+                        .lock()
+                        .map(|last_used| last_used.elapsed() < max_idle)
+                        .unwrap_or(false)
+            }
+            Self::H1(connection) => connection.is_alive_and_not_idle(max_idle),
+        }
+    }
+
+    fn mark_closed(&self) {
+        if let Self::H1(connection) = self {
+            connection.mark_closed();
+        }
+    }
+
+    fn is_h1(&self) -> bool {
+        matches!(self, Self::H1(_))
+    }
+
+    fn h1_connection(&self) -> Option<Arc<H1PooledConnection>> {
+        match self {
+            Self::H1(connection) => Some(Arc::clone(connection)),
+            Self::H2(_) => None,
+        }
+    }
+
+    fn abort_driver(&self) {
+        if let Self::H1(connection) = self {
+            connection.abort_driver();
+        }
+    }
+
+    fn mark_driver_finished(&self) {
+        if let Self::H1(connection) = self {
+            connection.mark_driver_finished();
+        }
+    }
+
+    fn try_acquire(
+        pooled: Arc<Self>,
+        timing: Option<ConnectionTiming>,
+    ) -> Option<UpstreamConnection> {
+        match pooled.as_ref() {
+            Self::H2(connection) => {
+                if connection.sender.is_closed() {
+                    return None;
+                }
+                if let Ok(mut last_used) = connection.last_used.lock() {
+                    *last_used = Instant::now();
+                }
+                Some(UpstreamConnection::H2 {
+                    sender: connection.sender.clone(),
+                    timing,
+                })
+            }
+            Self::H1(connection) => connection.try_acquire(timing),
+        }
+    }
+}
+
+/// A protocol-aware pool of upstream connections.
 ///
-/// HTTP/2 multiplexes many streams over a single TCP+TLS connection, so we can
-/// reuse one connection for multiple requests to the same (host, port). The pool
-/// stores at most **one** h2 connection per `UpstreamKey`. If the connection is
-/// closed or idle for too long it is evicted and a fresh one is established on
-/// the next request.
+/// HTTP/2 stores one multiplexed sender per key. HTTP/1.1 stores a bounded set
+/// of persistent senders, each behind an exclusive lease. This preserves h1
+/// framing while allowing concurrent requests to use separate connections.
 pub(crate) struct UpstreamConnectionPool {
-    connections: tokio::sync::RwLock<HashMap<UpstreamKey, PooledConnection>>,
+    connections: tokio::sync::RwLock<HashMap<UpstreamKey, Vec<Arc<PooledConnection>>>>,
     /// Tracks in-flight connection attempts to prevent thundering-herd duplicates.
     ///
     /// A std (sync) lock on purpose: the critical sections are tiny map
     /// operations with no `.await` inside, and the cancellation-safety guard
     /// below must be able to take it from `Drop`, which cannot async-await.
-    pending: RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
+    pending: RwLock<HashMap<UpstreamKey, watch::Receiver<Option<Arc<PooledConnection>>>>>,
     idle_timeout: Duration,
+    h1_connecting: Mutex<HashMap<UpstreamKey, usize>>,
+    h1_notify: Arc<Notify>,
+    eviction_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 /// Cancellation-safe ownership of one `pending` registration.
@@ -60,11 +298,33 @@ struct PendingConnectGuard<'a> {
     /// observed a dropped sender may already have removed the stale entry and a
     /// successor connector re-registered before our `Drop` runs, and deleting
     /// their fresh registration would just strand their dial.
-    marker: watch::Receiver<Option<PooledConnection>>,
+    marker: watch::Receiver<Option<Arc<PooledConnection>>>,
     /// Always true today — kept as a switch so a future success path can take
     /// over deregistration explicitly without restructuring the Drop logic.
     armed: bool,
-    pending: &'a RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
+    pending: &'a RwLock<HashMap<UpstreamKey, watch::Receiver<Option<Arc<PooledConnection>>>>>,
+}
+
+struct H1ConnectingGuard<'a> {
+    key: UpstreamKey,
+    connecting: &'a Mutex<HashMap<UpstreamKey, usize>>,
+    notify: &'a Notify,
+}
+
+impl Drop for H1ConnectingGuard<'_> {
+    fn drop(&mut self) {
+        let mut counts = self
+            .connecting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = counts.get_mut(&self.key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(&self.key);
+            }
+        }
+        self.notify.notify_waiters();
+    }
 }
 
 /// Remove `key` from `pending` only when the registered receiver is still the
@@ -77,9 +337,9 @@ struct PendingConnectGuard<'a> {
 /// removal is conditional on channel identity. Returns whether an entry was
 /// removed.
 fn remove_pending_entry_if_current(
-    pending: &RwLock<HashMap<UpstreamKey, watch::Receiver<Option<PooledConnection>>>>,
+    pending: &RwLock<HashMap<UpstreamKey, watch::Receiver<Option<Arc<PooledConnection>>>>>,
     key: &UpstreamKey,
-    marker: &watch::Receiver<Option<PooledConnection>>,
+    marker: &watch::Receiver<Option<Arc<PooledConnection>>>,
 ) -> bool {
     let mut pending = pending
         .write()
@@ -115,15 +375,16 @@ impl UpstreamConnectionPool {
             connections: tokio::sync::RwLock::new(HashMap::new()),
             pending: RwLock::new(HashMap::new()),
             idle_timeout: crate::timeout_for(crate::TimeoutKind::UpstreamPoolIdle),
+            h1_connecting: Mutex::new(HashMap::new()),
+            h1_notify: Arc::new(Notify::new()),
+            eviction_task: Mutex::new(None),
         }
     }
 
-    /// Return a cached h2 `SendRequest` if we have a valid one, otherwise
-    /// establish a new h2 connection, cache it, and return it.
-    ///
-    /// Returns `None` if the upstream negotiated HTTP/1.1 (i.e. ALPN did not
-    /// select h2), in which case the caller should fall back to the existing
-    /// per-request h1 path.
+    /// Return a checked-out cached connection, otherwise establish and cache a
+    /// new h1 or h2 connection. H1 contention is bounded independently from
+    /// the request head timeout; busy connections may grow up to the per-key
+    /// limit before callers wait briefly for a lease to be released.
     pub(crate) async fn get_or_connect(
         self: &Arc<Self>,
         key: &UpstreamKey,
@@ -131,160 +392,166 @@ impl UpstreamConnectionPool {
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
         upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
-    ) -> Result<
-        Option<(
-            hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
-            Option<ConnectionTiming>,
-        )>,
-        String,
-    > {
-        // Fast path: check the pool for an existing, live connection.
-        {
-            let mut connections = self.connections.write().await;
-            if let Some(pooled) = connections.get_mut(key) {
-                if !pooled.sender.is_closed() && pooled.last_used.elapsed() < self.idle_timeout {
-                    pooled.last_used = Instant::now();
-                    tracing::debug!(
-                        event = "upstream_pool_reuse",
-                        host = %key.host,
-                        port = key.port,
-                        "upstream_pool_reuse"
-                    );
-                    // We don't have timing info for a reused connection.
-                    return Ok(Some((pooled.sender.clone(), None)));
-                }
+    ) -> Result<UpstreamConnection, String> {
+        loop {
+            enum Action {
+                Wait(watch::Receiver<Option<Arc<PooledConnection>>>),
+                Connect {
+                    pending: Option<PendingRegistration>,
+                    reserved_h1: bool,
+                },
+                Queue,
             }
-        }
 
-        // Check pending map AND register under a single write lock to eliminate
-        // the TOCTOU window where two tasks could both pass a read-only check.
-        // Returns either a receiver to wait on (another task is connecting) or
-        // a sender plus our own receiver clone (we are the connector).
-        enum PendingAction {
-            Wait(watch::Receiver<Option<PooledConnection>>),
-            Connect(
-                watch::Sender<Option<PooledConnection>>,
-                watch::Receiver<Option<PooledConnection>>,
-            ),
-        }
-
-        let action = {
-            let mut pending = self
-                .pending
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(rx) = pending.get(key) {
-                PendingAction::Wait(rx.clone())
-            } else {
-                let (tx, rx) = watch::channel(None);
-                pending.insert(key.clone(), rx.clone());
-                PendingAction::Connect(tx, rx)
-            }
-        };
-
-        match action {
-            PendingAction::Wait(mut rx) => {
-                // Another task is connecting — wait for it to finish.
-                if rx.changed().await.is_ok() {
-                    if let Some(conn) = rx.borrow().as_ref() {
-                        tracing::debug!(
-                            event = "upstream_pool_awaited",
-                            host = %key.host,
-                            port = key.port,
-                            "upstream_pool_awaited"
-                        );
-                        return Ok(Some((conn.sender.clone(), None)));
-                    } else {
-                        return Ok(None);
-                    }
-                }
-                // Sender dropped without sending (task panicked). Fall through
-                // to connect ourselves — but first clean up the stale entry.
-                tracing::debug!(
-                    event = "upstream_pool_pending_dropped",
-                    host = %key.host,
-                    port = key.port,
-                    "upstream_pool_pending_dropped"
-                );
-                // Only remove the entry when it is still the channel we waited
-                // on: the cancelled connector's guard may already have
-                // deregistered it and a successor connector may have
-                // re-registered a fresh channel for the same key — deleting
-                // THAT would strand the successor's dial.
-                remove_pending_entry_if_current(&self.pending, key, &rx);
-                // Retry from scratch: re-enter the logic by recursing once.
-                // (Tail-call via boxing to avoid unbounded stack growth.)
-                return Box::pin(self.get_or_connect(
-                    key,
-                    dns_override_ip,
-                    verify_upstream_tls,
-                    tls_verify_hosts,
-                    upstream_proxy,
-                ))
-                .await;
-            }
-            PendingAction::Connect(tx, rx_marker) => {
-                // We are the connector. The guard owns our `pending`
-                // registration from here on: every explicit removal used to sit
-                // behind an `.await`, so when the caller cancelled this future
-                // mid-dial (the head-phase timeout wrapper drops it) none of
-                // them ran and the entry leaked — one per timed-out host,
-                // unbounded growth. On drop the guard deregisters us
-                // synchronously, so cancellation now cleans up by construction;
-                // the success paths below simply let the guard do the same work
-                // the old explicit removals did.
-                let _guard = PendingConnectGuard {
-                    key: key.clone(),
-                    marker: rx_marker,
-                    armed: true,
-                    pending: &self.pending,
-                };
-
-                // Perform the connection outside any lock.
-                let connect_result = self
-                    .do_connect(
-                        key,
-                        dns_override_ip,
-                        verify_upstream_tls,
-                        tls_verify_hosts,
-                        upstream_proxy,
-                    )
-                    .await;
-
-                match connect_result {
-                    Ok(Some((sender, connection_timing))) => {
-                        let pooled = PooledConnection {
-                            sender: sender.clone(),
-                            last_used: Instant::now(),
-                        };
-                        {
-                            let mut connections = self.connections.write().await;
-                            connections.insert(key.clone(), pooled.clone_for_watch());
+            let action = {
+                let mut connections = self.connections.write().await;
+                if let Some(entries) = connections.get_mut(key) {
+                    entries.retain(|connection| {
+                        let alive = connection.is_alive_and_not_idle(self.idle_timeout);
+                        if !alive {
+                            connection.mark_closed();
+                            connection.abort_driver();
                         }
-                        // Publish BEFORE the guard drops: a waiter that wakes on
-                        // this send reads the connection directly, and any
-                        // connector arriving between the send and the removal
-                        // becomes a waiter instead of dialing a duplicate.
-                        let _ = tx.send(Some(pooled));
-                        Ok(Some((sender, Some(connection_timing))))
+                        alive
+                    });
+
+                    for connection in entries.iter().cloned() {
+                        if let Some(acquired) = PooledConnection::try_acquire(connection, None) {
+                            return Ok(acquired);
+                        }
                     }
-                    Ok(None) => {
-                        let _ = tx.send(None);
-                        Ok(None)
+
+                    if entries.is_empty() {
+                        connections.remove(key);
+                        drop(connections);
+                        continue;
                     }
-                    Err(e) => {
-                        let _ = tx.send(None);
-                        Err(e)
+
+                    let h1_count = entries
+                        .iter()
+                        .filter(|connection| connection.is_h1())
+                        .count();
+                    let connecting = self
+                        .h1_connecting
+                        .lock()
+                        .map(|counts| counts.get(key).copied().unwrap_or(0))
+                        .unwrap_or(0);
+                    // Reaching this point means all live entries were busy;
+                    // only h1 entries can reach it because h2 is multiplexed.
+                    if h1_count + connecting < MAX_H1_CONNECTIONS_PER_KEY {
+                        let mut counts = self
+                            .h1_connecting
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        *counts.entry(key.clone()).or_default() += 1;
+                        Action::Connect {
+                            pending: None,
+                            reserved_h1: true,
+                        }
+                    } else {
+                        Action::Queue
+                    }
+                } else {
+                    let mut pending = self
+                        .pending
+                        .write()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(rx) = pending.get(key) {
+                        Action::Wait(rx.clone())
+                    } else {
+                        let (tx, rx) = watch::channel(None);
+                        pending.insert(key.clone(), rx.clone());
+                        Action::Connect {
+                            pending: Some((tx, rx)),
+                            reserved_h1: false,
+                        }
                     }
                 }
-                // Dropping `guard` here removes our `pending` entry on every
-                // path above, and also fires when this future was cancelled at
-                // either `.await`.
+            };
+
+            match action {
+                Action::Queue => {
+                    tokio::time::timeout(
+                        crate::timeout_for(crate::TimeoutKind::UpstreamPoolH1LeaseWait),
+                        self.h1_notify.notified(),
+                    )
+                    .await
+                    .map_err(|_| {
+                        format!(
+                            "timed out waiting for an available upstream h1 connection ({:?})",
+                            crate::timeout_for(crate::TimeoutKind::UpstreamPoolH1LeaseWait)
+                        )
+                    })?;
+                }
+                Action::Wait(mut rx) => {
+                    if rx.changed().await.is_err() {
+                        remove_pending_entry_if_current(&self.pending, key, &rx);
+                    }
+                }
+                Action::Connect {
+                    pending,
+                    reserved_h1,
+                } => {
+                    let (tx, rx_marker) = pending.clone().unwrap_or_else(|| {
+                        let (tx, rx) = watch::channel(None);
+                        (tx, rx)
+                    });
+                    let _guard = PendingConnectGuard {
+                        key: key.clone(),
+                        marker: rx_marker,
+                        armed: pending.is_some(),
+                        pending: &self.pending,
+                    };
+                    let _h1_connecting_guard = reserved_h1.then(|| H1ConnectingGuard {
+                        key: key.clone(),
+                        connecting: &self.h1_connecting,
+                        notify: &self.h1_notify,
+                    });
+
+                    let connect_result = self
+                        .do_connect(
+                            key,
+                            dns_override_ip,
+                            verify_upstream_tls,
+                            tls_verify_hosts.clone(),
+                            upstream_proxy.clone(),
+                        )
+                        .await;
+
+                    match connect_result {
+                        Ok((pooled, connection_timing)) => {
+                            self.connections
+                                .write()
+                                .await
+                                .entry(key.clone())
+                                .or_default()
+                                .push(Arc::clone(&pooled));
+                            if pending.is_some() {
+                                let _ = tx.send(Some(Arc::clone(&pooled)));
+                            }
+                            self.h1_notify.notify_waiters();
+                            if let Some(connection) = PooledConnection::try_acquire(
+                                Arc::clone(&pooled),
+                                Some(connection_timing),
+                            ) {
+                                return Ok(connection);
+                            }
+                            self.evict_if_same(key, &pooled).await;
+                            return Err("newly connected upstream is unavailable".to_string());
+                        }
+                        Err(error) => {
+                            if pending.is_some() {
+                                let _ = tx.send(None);
+                            }
+                            return Err(error);
+                        }
+                    }
+                }
             }
         }
     }
 
-    /// Perform the DNS + TCP + TLS + h2 handshake (no locking).
+    /// Perform DNS + TCP + TLS + protocol handshake (no pool locking).
     async fn do_connect(
         self: &Arc<Self>,
         key: &UpstreamKey,
@@ -292,13 +559,7 @@ impl UpstreamConnectionPool {
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
         upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
-    ) -> Result<
-        Option<(
-            hyper::client::conn::http2::SendRequest<BoxBody<bytes::Bytes, String>>,
-            ConnectionTiming,
-        )>,
-        String,
-    > {
+    ) -> Result<(Arc<PooledConnection>, ConnectionTiming), String> {
         let mut connector = crate::timing_connector::TimingConnector::new(
             dns_override_ip,
             verify_upstream_tls,
@@ -313,7 +574,7 @@ impl UpstreamConnectionPool {
         } else {
             key.host.clone()
         };
-        let uri: http::Uri = format!("https://{authority_host}:{}", key.port)
+        let uri: http::Uri = format!("{}://{authority_host}:{}", key.scheme, key.port)
             .parse()
             .map_err(|e| format!("invalid upstream URI for pool: {e}"))?;
 
@@ -321,114 +582,222 @@ impl UpstreamConnectionPool {
             .await
             .map_err(|e| format!("upstream pool connect failed: {e}"))?;
 
-        // Check ALPN — if the upstream did not negotiate h2 we cannot pool this
-        // connection as h2. Return None so the caller falls back to h1.
         let negotiated_h2 = connection_timing.alpn_protocol.as_deref() == Some("h2");
 
-        if !negotiated_h2 {
+        let pooled = if negotiated_h2 {
+            let executor = hyper_util::rt::TokioExecutor::new();
+            let (sender, conn) = hyper::client::conn::http2::handshake(executor, timing_stream)
+                .await
+                .map_err(|e| format!("upstream pool h2 handshake failed: {e}"))?;
+            let connection = Arc::new(H2PooledConnection {
+                sender,
+                last_used: Mutex::new(Instant::now()),
+            });
+            let pooled = Arc::new(PooledConnection::H2(Arc::clone(&connection)));
+            self.spawn_driver(key, Arc::clone(&pooled), conn);
+            pooled
+        } else {
             tracing::debug!(
                 event = "upstream_pool_h1_fallback",
+                scheme = %key.scheme,
                 host = %key.host,
                 port = key.port,
                 alpn = %connection_timing.alpn_protocol.as_deref().unwrap_or("none"),
                 "upstream_pool_h1_fallback"
             );
-            return Ok(None);
-        }
+            let (sender, conn) = hyper::client::conn::http1::handshake(timing_stream)
+                .await
+                .map_err(|e| format!("upstream pool h1 handshake failed: {e}"))?;
+            let connection = Arc::new(H1PooledConnection::new(sender, Arc::clone(&self.h1_notify)));
+            let pooled = Arc::new(PooledConnection::H1(Arc::clone(&connection)));
+            self.spawn_driver(key, Arc::clone(&pooled), conn);
+            pooled
+        };
 
-        let executor = hyper_util::rt::TokioExecutor::new();
-        let (sender, conn) = hyper::client::conn::http2::handshake(executor, timing_stream)
-            .await
-            .map_err(|e| format!("upstream pool h2 handshake failed: {e}"))?;
+        tracing::debug!(
+            event = "upstream_pool_new_connection",
+            scheme = %key.scheme,
+            host = %key.host,
+            port = key.port,
+            protocol = if negotiated_h2 { "h2" } else { "h1" },
+            "upstream_pool_new_connection"
+        );
+        Ok((pooled, connection_timing))
+    }
 
-        // Spawn the connection driver task.  A pooled sender can remain
-        // apparently usable briefly after the peer has closed its connection;
-        // evict as soon as the driver observes that close so the next request
-        // cannot reuse a half-open entry.
+    fn spawn_driver<T>(self: &Arc<Self>, key: &UpstreamKey, pooled: Arc<PooledConnection>, conn: T)
+    where
+        T: std::future::Future<Output = Result<(), hyper::Error>> + Send + 'static,
+    {
         let pool = Arc::clone(self);
         let driver_key = key.clone();
-        tokio::spawn(async move {
+        let pooled_weak = Arc::downgrade(&pooled);
+        let is_h1 = pooled.is_h1();
+        #[cfg(test)]
+        if is_h1 {
+            crate::upstream::h1_pool_driver_started_for_test();
+        }
+        let driver = tokio::spawn(async move {
             match conn.await {
                 Ok(()) => tracing::debug!(
                     event = "upstream_pool_driver_closed",
+                    scheme = %driver_key.scheme,
                     host = %driver_key.host,
                     port = driver_key.port,
                     reason = "clean",
                     "upstream_pool_driver_closed"
                 ),
-                Err(error) => {
-                    tracing::warn!(
-                        event = "upstream_pool_driver_failed",
-                        host = %driver_key.host,
-                        port = driver_key.port,
-                        error = %error,
-                        "upstream_pool_driver_failed"
-                    );
-                    pool.evict_key(&driver_key).await;
+                Err(error) => tracing::warn!(
+                    event = "upstream_pool_driver_failed",
+                    scheme = %driver_key.scheme,
+                    host = %driver_key.host,
+                    port = driver_key.port,
+                    error = %error,
+                    "upstream_pool_driver_failed"
+                ),
+            }
+            let pooled = pooled_weak.upgrade();
+            if is_h1 {
+                if let Some(pooled) = pooled.as_ref() {
+                    pooled.mark_driver_finished();
                 }
+                #[cfg(test)]
+                crate::upstream::h1_pool_driver_natural_completion_for_test();
+            }
+            if let Some(pooled) = pooled {
+                pooled.mark_closed();
+                pool.evict_if_same(&driver_key, &pooled).await;
             }
         });
-
-        tracing::debug!(
-            event = "upstream_pool_new_connection",
-            host = %key.host,
-            port = key.port,
-            "upstream_pool_new_connection"
-        );
-
-        Ok(Some((sender, connection_timing)))
+        if is_h1 {
+            if let Some(connection) = pooled.h1_connection() {
+                connection.set_driver(driver);
+            }
+        }
     }
 
     /// Start a background task that periodically evicts idle connections.
     pub fn start_eviction_timer(self: &Arc<Self>, interval: Duration, max_idle: Duration) {
         let pool = Arc::clone(self);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
                 pool.evict_expired_with_max_idle(max_idle).await;
             }
         });
+        *self
+            .eviction_task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        if let Some(task) = self
+            .eviction_task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            task.abort();
+        }
+        let mut connections = self.connections.write().await;
+        for entries in connections.values() {
+            for connection in entries {
+                connection.mark_closed();
+                connection.abort_driver();
+            }
+        }
+        connections.clear();
+        self.h1_notify.notify_waiters();
     }
 
     /// Evict expired entries using a custom idle threshold (called by timer).
     async fn evict_expired_with_max_idle(&self, max_idle: Duration) {
         let mut connections = self.connections.write().await;
-        connections.retain(|key, pooled| {
-            let alive = !pooled.sender.is_closed() && pooled.last_used.elapsed() < max_idle;
-            if !alive {
-                tracing::debug!(
-                    event = "upstream_pool_evicted",
-                    host = %key.host,
-                    port = key.port,
-                    "upstream_pool_evicted"
-                );
+        connections.retain(|key, entries| {
+            entries.retain(|pooled| {
+                let alive = pooled.is_alive_and_not_idle(max_idle);
+                if !alive {
+                    pooled.mark_closed();
+                    pooled.abort_driver();
+                    tracing::debug!(
+                        event = "upstream_pool_connection_evicted",
+                        scheme = %key.scheme,
+                        host = %key.host,
+                        port = key.port,
+                        "upstream_pool_connection_evicted"
+                    );
+                }
+                alive
+            });
+            if entries.is_empty() {
+                tracing::debug!(event = "upstream_pool_evicted", scheme = %key.scheme, host = %key.host, port = key.port, "upstream_pool_evicted");
+                false
+            } else {
+                true
             }
-            alive
         });
     }
 
     /// Evict a specific key from the pool (e.g. after a send failure).
     pub(crate) async fn evict_key(&self, key: &UpstreamKey) {
         let mut connections = self.connections.write().await;
-        if connections.remove(key).is_some() {
+        if let Some(entries) = connections.remove(key) {
+            for connection in entries {
+                connection.mark_closed();
+                connection.abort_driver();
+            }
             tracing::debug!(
                 event = "upstream_pool_evicted",
+                scheme = %key.scheme,
                 host = %key.host,
                 port = key.port,
                 "upstream_pool_evicted"
             );
         }
+        self.h1_notify.notify_waiters();
     }
-}
 
-impl PooledConnection {
-    /// Clone the sender for use in the watch channel notification.
-    fn clone_for_watch(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            last_used: self.last_used,
+    pub(crate) async fn evict_h1_connection(
+        &self,
+        key: &UpstreamKey,
+        expected: &Arc<H1PooledConnection>,
+    ) {
+        let mut connections = self.connections.write().await;
+        if let Some(entries) = connections.get_mut(key) {
+            entries.retain(|pooled| match pooled.as_ref() {
+                PooledConnection::H1(connection) if Arc::ptr_eq(connection, expected) => {
+                    pooled.mark_closed();
+                    pooled.abort_driver();
+                    false
+                }
+                _ => true,
+            });
+            if entries.is_empty() {
+                connections.remove(key);
+            }
         }
+        self.h1_notify.notify_waiters();
+    }
+
+    async fn evict_if_same(&self, key: &UpstreamKey, expected: &Arc<PooledConnection>) {
+        let mut connections = self.connections.write().await;
+        if let Some(entries) = connections.get_mut(key) {
+            entries.retain(|connection| {
+                if Arc::ptr_eq(connection, expected) {
+                    connection.mark_closed();
+                    connection.abort_driver();
+                    false
+                } else {
+                    true
+                }
+            });
+            if entries.is_empty() {
+                connections.remove(key);
+            }
+        }
+        self.h1_notify.notify_waiters();
     }
 }
 
@@ -474,6 +843,7 @@ mod tests {
     async fn pending_map_dedup_registers_single_entry() {
         let pool = UpstreamConnectionPool::new();
         let key = UpstreamKey {
+            scheme: "https".to_string(),
             host: "api.example.com".to_string(),
             port: 443,
         };
@@ -524,6 +894,7 @@ mod tests {
 
     fn test_key() -> UpstreamKey {
         UpstreamKey {
+            scheme: "https".to_string(),
             host: "api.example.com".to_string(),
             port: 443,
         }
@@ -623,6 +994,24 @@ mod tests {
         assert!(pending.contains_key(&key), "disarmed guard must be a no-op");
     }
 
+    #[test]
+    fn cancelled_h1_growth_dial_returns_capacity_reservation() {
+        let pool = UpstreamConnectionPool::new();
+        let key = test_key();
+        {
+            let mut counts = pool.h1_connecting.lock().unwrap();
+            counts.insert(key.clone(), 1);
+        }
+        {
+            let _guard = H1ConnectingGuard {
+                key: key.clone(),
+                connecting: &pool.h1_connecting,
+                notify: &pool.h1_notify,
+            };
+        }
+        assert!(pool.h1_connecting.lock().unwrap().get(&key).is_none());
+    }
+
     /// The waiter fallback (stale sender observed via `rx.changed()`) shares
     /// the guard's identity check: when a successor connector has already
     /// re-registered the key, the stale marker must not delete their entry.
@@ -680,6 +1069,7 @@ mod tests {
     async fn evict_key_removes_target_entry() {
         let pool = UpstreamConnectionPool::new();
         let key = UpstreamKey {
+            scheme: "https".to_string(),
             host: "api.example.com".to_string(),
             port: 443,
         };

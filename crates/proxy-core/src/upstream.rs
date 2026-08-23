@@ -31,6 +31,23 @@ pub(crate) fn h1_conn_driver_completion_breakdown_for_test() -> (usize, usize) {
     )
 }
 
+#[cfg(test)]
+pub(crate) fn h1_pool_driver_started_for_test() {
+    H1_ACTIVE_CONN_DRIVERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn h1_pool_driver_natural_completion_for_test() {
+    H1_ACTIVE_CONN_DRIVERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    H1_CONN_DRIVER_NATURAL_COMPLETIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn h1_pool_driver_aborted_for_test() {
+    H1_ACTIVE_CONN_DRIVERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    H1_CONN_DRIVER_ABORTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// RAII guard that aborts a spawned h1 connection-driver task on drop, unless
 /// explicitly disarmed on the success path.
 ///
@@ -188,28 +205,31 @@ pub(crate) async fn forward_request(
         );
     }
 
-    // --- Try h2 connection pool for HTTPS requests ---
-    // R6-1: treat `wss` like `https` (same TLS transport). The WS upgrade path
-    // connects upstream directly and never reaches here, but keep this scheme
-    // check aligned so a `wss://` URL could never silently take the plain path.
-    let is_https = matches!(request.url.scheme(), "https" | "wss");
-    let pool_result = if is_https {
+    // Pool regular HTTP and HTTPS upstream requests. WebSocket upgrades use a
+    // separate byte relay and never enter this function.
+    let pool_key = crate::upstream_pool::UpstreamKey {
+        scheme: request.url.scheme().to_string(),
+        host: request.host.clone(),
+        port: request.url.port().unwrap_or_else(|| {
+            if request.url.scheme() == "http" {
+                80
+            } else {
+                443
+            }
+        }),
+    };
+    let is_poolable_scheme = matches!(request.url.scheme(), "http" | "https");
+    let mut pool_result = if is_poolable_scheme {
         if let Some(ref p) = pool {
-            let key = crate::upstream_pool::UpstreamKey {
-                host: request.host.clone(),
-                port: request.url.port().unwrap_or(443),
-            };
             Some(
                 bound_head_phase(p.get_or_connect(
-                    &key,
+                    &pool_key,
                     dns_override_ip,
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
                     upstream_proxy.clone(),
                 ))
                 .await?
-                // get_or_connect reports String errors; the outer ? above only
-                // strips bound_head_phase's own ProxyError layer.
                 .map_err(ProxyError::from)?,
             )
         } else {
@@ -219,47 +239,13 @@ pub(crate) async fn forward_request(
         None
     };
 
-    // Build the request-target (path + query) for the HTTP request line.
-    let request_target = if request.url.query().is_some() {
-        format!(
-            "{}?{}",
-            request.url.path(),
-            request.url.query().unwrap_or("")
-        )
-    } else {
-        request.url.path().to_string()
-    };
-
-    // Build an http::Request with the original Host header (not DNS override IP).
-    let mut http_req_builder = http::Request::builder()
-        .method(request.method.clone())
-        .uri(&request_target);
-
-    // Copy request headers as raw `HeaderValue`s so legal non-UTF-8 bytes
-    // (obs-text, RFC 9110 §5.5) survive the copy; a `to_str()` round-trip
-    // would silently drop such headers entirely.
-    for (name, value) in &request.headers {
-        if name == http::header::HOST {
-            // Re-added explicitly below so it always matches `request.host`.
-            // `Builder::header` appends, so copying the captured value here
-            // as well would send a duplicate Host header.
-            continue;
+    let h2_pooled = match pool_result.as_ref() {
+        Some(crate::upstream_pool::UpstreamConnection::H2 { sender, timing }) => {
+            Some((sender.clone(), timing.clone()))
         }
-        http_req_builder = http_req_builder.header(name.clone(), value.clone());
-    }
-    // Ensure Host header matches the original request host.
-    let host_header = match request.url.port() {
-        Some(port) => format!("{}:{port}", request.host),
-        None => request.host.clone(),
+        _ => None,
     };
-    http_req_builder = http_req_builder.header("host", &host_header);
-
-    // Holds the h1 conn-driver abort guard. The h2 pool branch always returns
-    // early below, so by the time we reach the shared send/read path this is
-    // initialized on the h1 path (and unused on h2).
-    let _conn_driver_guard: ConnDriverAbortOnDrop;
-
-    let (mut sender, connection_timing) = if let Some(Some((mut h2_sender, timing))) = pool_result {
+    if let Some((mut h2_sender, timing)) = h2_pooled {
         // Pooled h2 path — reuse the cached connection.
         let timing = timing.unwrap_or_else(|| crate::timing_connector::ConnectionTiming {
             dns_ms: 0,
@@ -324,11 +310,6 @@ pub(crate) async fn forward_request(
             }
         };
 
-        let pool_key = crate::upstream_pool::UpstreamKey {
-            host: request.host.clone(),
-            port: request.url.port().unwrap_or(443),
-        };
-
         // send_request + read
         let waiting_started_at = Instant::now();
         let response = match bound_head_phase(h2_sender.send_request(build_h2_req()?)).await {
@@ -387,7 +368,15 @@ pub(crate) async fn forward_request(
                         // an unbounded await here would hang the request forever
                         // on a stalled reconnect.
                         match bound_head_phase(connect).await {
-                            Ok(Ok(sender)) => sender,
+                            Ok(Ok(crate::upstream_pool::UpstreamConnection::H2 {
+                                sender, ..
+                            })) => sender,
+                            Ok(Ok(crate::upstream_pool::UpstreamConnection::H1 { .. })) => {
+                                return Err(ProxyError::UpstreamError(
+                                    "upstream protocol changed from h2 to h1 during retry"
+                                        .to_string(),
+                                ));
+                            }
                             Ok(Err(error)) => {
                                 return Err(ProxyError::UpstreamError(format!(
                                     "failed to reconnect on retry: {error}"
@@ -399,37 +388,33 @@ pub(crate) async fn forward_request(
                             Err(other) => return Err(other),
                         }
                     }
-                    None => None,
-                };
-                match retry_sender {
-                    Some((mut fresh_sender, _)) => {
-                        match bound_head_phase(fresh_sender.send_request(build_h2_req()?)).await {
-                            Ok(Ok(r)) => r,
-                            Ok(Err(retry_error)) => {
-                                if let Some(ref p) = pool {
-                                    p.evict_key(&pool_key).await;
-                                }
-                                return Err(ProxyError::UpstreamError(format!(
-                                    "failed to send upstream h2 request after retry: {retry_error}"
-                                )));
-                            }
-                            // P1-5: same eviction discipline as above when
-                            // the retried connection also fails to produce a
-                            // head in time.
-                            Err(error @ ProxyError::UpstreamTimeout { .. }) => {
-                                if let Some(ref p) = pool {
-                                    p.evict_key(&pool_key).await;
-                                }
-                                return Err(error);
-                            }
-                            Err(other) => return Err(other),
-                        }
-                    }
                     None => {
+                        return Err(ProxyError::UpstreamError(
+                            "h2 retry requested without an upstream pool".to_string(),
+                        ));
+                    }
+                };
+                let mut fresh_sender = retry_sender;
+                match bound_head_phase(fresh_sender.send_request(build_h2_req()?)).await {
+                    Ok(Ok(r)) => r,
+                    Ok(Err(retry_error)) => {
+                        if let Some(ref p) = pool {
+                            p.evict_key(&pool_key).await;
+                        }
                         return Err(ProxyError::UpstreamError(format!(
-                            "failed to send upstream h2 request: {error}"
+                            "failed to send upstream h2 request after retry: {retry_error}"
                         )));
                     }
+                    // P1-5: same eviction discipline as above when
+                    // the retried connection also fails to produce a
+                    // head in time.
+                    Err(error @ ProxyError::UpstreamTimeout { .. }) => {
+                        if let Some(ref p) = pool {
+                            p.evict_key(&pool_key).await;
+                        }
+                        return Err(error);
+                    }
+                    Err(other) => return Err(other),
                 }
             }
             // P1-5: no response head within the deadline — treat like a dead
@@ -448,17 +433,12 @@ pub(crate) async fn forward_request(
         // Read the response body. M2: a body-read error mid-stream (RST_STREAM,
         // the pooled connection dying during the body) must also evict the key —
         // otherwise the next request to this host reuses the now-broken pooled
-        // connection and fails again. (On the h1 path every request gets a fresh
-        // connection, so this only matters for the pooled h2 path.)
+        // connection and fails again.
         let result =
             build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
         if let Err(error) = &result {
             if let Some(ref p) = pool {
-                let key = crate::upstream_pool::UpstreamKey {
-                    host: request.host.clone(),
-                    port: request.url.port().unwrap_or(443),
-                };
-                p.evict_key(&key).await;
+                p.evict_key(&pool_key).await;
             }
             tracing::error!(
                 event = "upstream_response_read_failed",
@@ -472,8 +452,168 @@ pub(crate) async fn forward_request(
             );
         }
         return result;
+    }
+
+    let pooled_h1 = match pool_result.take() {
+        Some(crate::upstream_pool::UpstreamConnection::H1 { lease, timing }) => {
+            Some((lease, timing))
+        }
+        Some(crate::upstream_pool::UpstreamConnection::H2 { .. }) => {
+            return Err(ProxyError::UpstreamError(
+                "upstream h2 connection was not handled".to_string(),
+            ));
+        }
+        None => None,
+    };
+    forward_h1_request(
+        request,
+        H1ForwardContext {
+            pool,
+            pool_key,
+            dns_override_ip,
+            verify_upstream_tls,
+            tls_verify_hosts,
+            upstream_proxy,
+        },
+        pooled_h1,
+    )
+    .await
+}
+
+struct H1ForwardContext {
+    pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
+    pool_key: crate::upstream_pool::UpstreamKey,
+    dns_override_ip: Option<std::net::IpAddr>,
+    verify_upstream_tls: bool,
+    tls_verify_hosts: Arc<[String]>,
+    upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+}
+
+struct H1LeaseEvictOnDrop {
+    pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
+    key: crate::upstream_pool::UpstreamKey,
+    connection: Option<Arc<crate::upstream_pool::H1PooledConnection>>,
+}
+
+impl H1LeaseEvictOnDrop {
+    fn disarm(&mut self) {
+        self.connection = None;
+    }
+
+    async fn evict(&mut self) {
+        if let (Some(pool), Some(connection)) = (&self.pool, &self.connection) {
+            pool.evict_h1_connection(&self.key, connection).await;
+        }
+        self.disarm();
+    }
+}
+
+impl Drop for H1LeaseEvictOnDrop {
+    fn drop(&mut self) {
+        let Some(connection) = self.connection.take() else {
+            return;
+        };
+        connection.close_and_abort();
+    }
+}
+
+/// Forward one request over a pooled or freshly established HTTP/1.1
+/// connection. A pooled lease remains held through the complete response body
+/// read, because hyper cannot safely multiplex h1 requests.
+async fn forward_h1_request(
+    request: &ParsedProxyRequest,
+    context: H1ForwardContext,
+    pooled: Option<(
+        crate::upstream_pool::H1Lease,
+        Option<crate::timing_connector::ConnectionTiming>,
+    )>,
+) -> Result<UpstreamResponse, ProxyError> {
+    use http_body_util::BodyExt;
+
+    let H1ForwardContext {
+        pool,
+        pool_key,
+        dns_override_ip,
+        verify_upstream_tls,
+        tls_verify_hosts,
+        upstream_proxy,
+    } = context;
+
+    let request_target = if request.url.query().is_some() {
+        format!(
+            "{}?{}",
+            request.url.path(),
+            request.url.query().unwrap_or("")
+        )
     } else {
-        // h1 path — establish a new connection per request.
+        request.url.path().to_string()
+    };
+    let mut http_req_builder = http::Request::builder()
+        .method(request.method.clone())
+        .uri(&request_target);
+    for (name, value) in &request.headers {
+        if name != http::header::HOST {
+            http_req_builder = http_req_builder.header(name.clone(), value.clone());
+        }
+    }
+    let host_header = match request.url.port() {
+        Some(port) => format!("{}:{port}", request.host),
+        None => request.host.clone(),
+    };
+    http_req_builder = http_req_builder.header("host", &host_header);
+    let http_req = if request.body.is_empty() {
+        http_req_builder
+            .body::<crate::upstream_pool::H1RequestBody>(
+                http_body_util::Empty::new()
+                    .map_err(|_: std::convert::Infallible| unreachable!())
+                    .boxed(),
+            )
+            .map_err(|e| format!("failed to build upstream request: {e}"))?
+    } else {
+        http_req_builder
+            .body::<crate::upstream_pool::H1RequestBody>(
+                http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
+                    .map_err(|_: std::convert::Infallible| unreachable!())
+                    .boxed(),
+            )
+            .map_err(|e| format!("failed to build upstream request body: {e}"))?
+    };
+
+    enum H1SenderHandle {
+        Pooled(crate::upstream_pool::H1Lease),
+        Direct {
+            sender: crate::upstream_pool::H1Sender,
+            guard: ConnDriverAbortOnDrop,
+        },
+    }
+    impl H1SenderHandle {
+        fn sender_mut(&mut self) -> &mut crate::upstream_pool::H1Sender {
+            match self {
+                Self::Pooled(lease) => lease.sender_mut(),
+                Self::Direct { sender, .. } => sender,
+            }
+        }
+
+        fn disarm_direct(self) {
+            if let Self::Direct { guard, .. } = self {
+                guard.disarm();
+            }
+        }
+
+        fn is_pooled(&self) -> bool {
+            matches!(self, Self::Pooled(_))
+        }
+    }
+
+    let mut pooled_guard = pooled.as_ref().map(|(lease, _)| H1LeaseEvictOnDrop {
+        pool: pool.clone(),
+        key: pool_key.clone(),
+        connection: Some(lease.connection()),
+    });
+    let pooled_timing = pooled.as_ref().and_then(|(_, timing)| timing.clone());
+    let (mut sender_handle, direct_timing) = if let Some((lease, _)) = pooled {
+        (H1SenderHandle::Pooled(lease), None)
+    } else {
         let mut connector = crate::timing_connector::create_timing_connector(
             dns_override_ip,
             verify_upstream_tls,
@@ -486,9 +626,6 @@ pub(crate) async fn forward_request(
                 request.url
             ))
         })?;
-        // P1-5: each head-phase step gets its own full budget of the upstream
-        // request timeout; a stalled dial/handshake no longer relies on an
-        // outer total-duration wrapper.
         let (timing_stream, connection_timing) =
             bound_head_phase(tower_service::Service::call(&mut connector, uri))
                 .await?
@@ -503,7 +640,6 @@ pub(crate) async fn forward_request(
                     );
                     ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
                 })?;
-
         let (sender, conn) = bound_head_phase(hyper::client::conn::http1::handshake(timing_stream))
             .await?
             .map_err(|error| {
@@ -516,17 +652,6 @@ pub(crate) async fn forward_request(
                 );
                 ProxyError::UpstreamError(format!("upstream HTTP handshake failed: {error}"))
             })?;
-
-        // Spawn the h1 connection driver and retain its JoinHandle. We must
-        // Retain the driver JoinHandle in a guard so we can deterministically
-        // abort it if this request is dropped early (e.g. a head phase times
-        // out and forward_request returns before the body has been read). On
-        // the current hyper version the driver
-        // self-terminates when SendRequest is dropped (dispatch channel closes),
-        // so a leak is not reproducible today; the explicit abort is
-        // defense-in-depth so a future hyper change cannot reintroduce a hung
-        // driver holding the socket. The guard is `disarm`ed on the normal
-        // completion path so a legitimate response is never interrupted.
         let conn_handle = tokio::spawn(async move {
             let _ = conn.await;
             #[cfg(test)]
@@ -538,39 +663,18 @@ pub(crate) async fn forward_request(
         });
         #[cfg(test)]
         H1_ACTIVE_CONN_DRIVERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        _conn_driver_guard = ConnDriverAbortOnDrop(Some(conn_handle));
-
-        (sender, connection_timing)
+        (
+            H1SenderHandle::Direct {
+                sender,
+                guard: ConnDriverAbortOnDrop(Some(conn_handle)),
+            },
+            Some(connection_timing),
+        )
     };
 
-    let http_req = if request.body.is_empty() {
-        http_req_builder
-            .body::<http_body_util::combinators::BoxBody<bytes::Bytes, std::convert::Infallible>>(
-                http_body_util::Empty::new()
-                    .map_err(|_: std::convert::Infallible| unreachable!())
-                    .boxed(),
-            )
-            .map_err(|e| format!("failed to build upstream request: {e}"))?
-    } else {
-        http_req_builder
-            .body::<http_body_util::combinators::BoxBody<bytes::Bytes, std::convert::Infallible>>(
-                http_body_util::Full::new(bytes::Bytes::from(request.body.clone()))
-                    .map_err(|_: std::convert::Infallible| unreachable!())
-                    .boxed(),
-            )
-            .map_err(|e| format!("failed to build upstream request body: {e}"))?
-    };
-
-    // send_request().await bundles socket-write + server-think into one call,
-    // so we cannot truly separate "send" from "wait".  Measure the combined
-    // duration as waiting_ms and leave request_send_ms at 0 until we have a
-    // streaming send API that can report flush completion.
+    let was_pooled = sender_handle.is_pooled();
     let waiting_started_at = Instant::now();
-    // P1-5: this call resolves when the response HEAD arrives, so it is the
-    // last head phase and gets its own full budget of the upstream request
-    // timeout. The body read below is NOT covered — it is bounded per-chunk by
-    // the response-body idle ceiling instead.
-    let response = match bound_head_phase(sender.send_request(http_req)).await {
+    let response = match bound_head_phase(sender_handle.sender_mut().send_request(http_req)).await {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
             tracing::error!(
@@ -583,25 +687,82 @@ pub(crate) async fn forward_request(
                 error = %error,
                 "upstream_request_send_failed"
             );
+            if was_pooled {
+                if let Some(ref mut guard) = pooled_guard {
+                    guard.evict().await;
+                }
+            }
             return Err(ProxyError::UpstreamError(format!(
                 "failed to send upstream request: {error}"
             )));
         }
-        // Head deadline elapsed. Early-return fires the conn-driver abort
-        // guard, releasing the socket.
-        Err(error @ ProxyError::UpstreamTimeout { .. }) => return Err(error),
-        Err(other) => return Err(other),
+        Err(error @ ProxyError::UpstreamTimeout { .. }) => {
+            if was_pooled {
+                if let Some(ref mut guard) = pooled_guard {
+                    guard.evict().await;
+                }
+            }
+            return Err(error);
+        }
+        Err(other) => {
+            if was_pooled {
+                if let Some(ref mut guard) = pooled_guard {
+                    guard.evict().await;
+                }
+            }
+            return Err(other);
+        }
     };
+    let reusable = h1_response_can_reuse(&response);
     let waiting_ms = waiting_started_at.elapsed().as_millis();
-
+    let connection_timing = direct_timing.or(pooled_timing).unwrap_or_else(|| {
+        crate::timing_connector::ConnectionTiming {
+            dns_ms: 0,
+            connect_ms: 0,
+            tls_ms: None,
+            alpn_protocol: if request.url.scheme() == "https" {
+                Some("http/1.1".to_string())
+            } else {
+                None
+            },
+            via_upstream_proxy: upstream_proxy
+                .as_ref()
+                .is_some_and(|proxy| !proxy.should_bypass(&request.host)),
+        }
+    });
     let result =
         build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await;
-    // On the normal success path the response body has been fully read; let the
-    // conn driver complete naturally (do not abort it). Any error (head-phase
-    // timeout, body-idle timeout) or an early drop of this future skips this
-    // line, so the guard fires and aborts the driver, releasing the socket.
-    _conn_driver_guard.disarm();
+    if was_pooled && (!reusable || result.is_err()) {
+        if let Some(ref mut guard) = pooled_guard {
+            guard.evict().await;
+        }
+    }
+    if result.is_ok() {
+        if let Some(ref mut guard) = pooled_guard {
+            guard.disarm();
+        }
+        // On success, let a direct driver's task finish naturally. On any
+        // error the handle is dropped here, which aborts it and releases the
+        // socket just like the pre-pool path.
+        sender_handle.disarm_direct();
+    }
     result
+}
+
+fn h1_response_can_reuse(response: &hyper::Response<hyper::body::Incoming>) -> bool {
+    if response.version() != http::Version::HTTP_11 || response.status().is_informational() {
+        return false;
+    }
+    !response
+        .headers()
+        .get_all(http::header::CONNECTION)
+        .iter()
+        .any(|value| {
+            value
+                .as_bytes()
+                .split(|byte| *byte == b',')
+                .any(|token| token.trim_ascii().eq_ignore_ascii_case(b"close"))
+        })
 }
 
 /// Build an `UpstreamResponse` from a hyper response, reading the body and

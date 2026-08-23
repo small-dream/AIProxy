@@ -79,6 +79,7 @@ pub async fn start_proxy_server(
         "listener_started"
     );
 
+    let listener_pool = Arc::clone(&upstream_pool);
     let join_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -110,7 +111,7 @@ pub async fn start_proxy_server(
                             let ws_message_sender = ws_message_sender.clone();
                             let managers = managers.clone();
                             let config = config.clone();
-                            let upstream_pool = upstream_pool.clone();
+                            let upstream_pool = listener_pool.clone();
 
                             tokio::spawn(async move {
                                 let _permit = permit;
@@ -169,6 +170,7 @@ pub async fn start_proxy_server(
         server_handle: ProxyServerHandle {
             shutdown_sender: Some(shutdown_sender),
             join_handle,
+            upstream_pool: Some(upstream_pool),
         },
         session_receiver,
         ws_message_receiver,
