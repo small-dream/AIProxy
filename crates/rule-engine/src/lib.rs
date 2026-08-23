@@ -107,6 +107,43 @@ export function onRequest(ctx: { request: { setHeader: (name: string, value: str
         assert!(!entrypoints.on_response);
     }
 
+    /// Validation accepts non-single-space separators (`export\nfunction ...`)
+    /// while the runtime rewrite used to replace literal single spaces only —
+    /// such rules were accepted but their hooks never fired. The rewrite must
+    /// handle everything validation lets through.
+    #[test]
+    fn compiles_odd_whitespace_javascript_entrypoint_and_runs() {
+        let rule = base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export\n  function onRequest(ctx) {\n  ctx.log.info(\"odd-ws ok\");\n}",
+        );
+        let compiled = compile_script_rule(rule).expect("odd-whitespace JS compiles");
+        assert!(compiled
+            .compiled_code
+            .contains("globalThis.__aiproxyScriptExports.onRequest = function onRequest("));
+        assert!(!compiled.compiled_code.contains("\nexport"));
+
+        let result = execute_request_hook(&compiled, payload());
+        assert!(result
+            .trace
+            .entries
+            .iter()
+            .any(|e| e.message.as_deref() == Some("odd-ws ok")));
+    }
+
+    #[test]
+    fn rewrites_async_and_sync_entrypoints_with_odd_whitespace() {
+        use crate::compile::build_runtime_module;
+        let module = build_runtime_module(
+            "export\nasync\tfunction onResponse(ctx) {}\nexport  function onRequest(ctx) {}",
+        );
+        assert!(module.contains(
+            "globalThis.__aiproxyScriptExports.onResponse = async function onResponse("
+        ));
+        assert!(module
+            .contains("globalThis.__aiproxyScriptExports.onRequest = function onRequest("));
+    }
+
     #[test]
     fn detects_mixed_async_and_sync_entrypoints() {
         use crate::compile::detect_entrypoints;
