@@ -5915,6 +5915,84 @@ fn h2_forbidden_headers_do_not_over_match_ordinary_headers() {
     }
 }
 
+/// HEAD and 304 carry metadata without a body. The response builder strips the
+/// upstream framing headers, so it must re-emit the declared Content-Length
+/// when the caller marks the response bodyless — otherwise hyper describes the
+/// empty body as `content-length: 0`, breaking HEAD metadata and cache
+/// revalidation (RFC 9110 §9.3.2 / §15.4.5).
+#[test]
+fn head_and_304_responses_keep_declared_content_length() {
+    use crate::http_proxy::build_hyper_response_from_upstream;
+
+    fn empty_body() -> http_body_util::combinators::BoxBody<bytes::Bytes, String> {
+        use http_body_util::BodyExt;
+        http_body_util::Full::new(bytes::Bytes::new())
+            .map_err(|error: std::convert::Infallible| error.to_string())
+            .boxed()
+    }
+
+    fn upstream_headers_with_length(len: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            HeaderValue::from_str(len).expect("valid header value"),
+        );
+        headers
+    }
+
+    let head = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &upstream_headers_with_length("1234"),
+        empty_body(),
+        None,
+        true,
+    )
+    .expect("HEAD response builds");
+    assert_eq!(
+        head.headers().get(http::header::CONTENT_LENGTH).unwrap(),
+        "1234"
+    );
+
+    let not_modified = build_hyper_response_from_upstream(
+        StatusCode::NOT_MODIFIED,
+        &upstream_headers_with_length("5678"),
+        empty_body(),
+        None,
+        true,
+    )
+    .expect("304 response builds");
+    assert_eq!(
+        not_modified
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .unwrap(),
+        "5678"
+    );
+
+    // A regular GET must NOT pin the upstream length: rewrite rules may have
+    // changed the in-memory body, and hyper derives framing from Full<Bytes>.
+    let regular_get = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &upstream_headers_with_length("1234"),
+        empty_body(),
+        None,
+        false,
+    )
+    .expect("GET response builds");
+    assert!(regular_get.headers().get(http::header::CONTENT_LENGTH).is_none());
+
+    // The spooled-stream path keeps its exact-length hint.
+    let streamed = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &HeaderMap::new(),
+        empty_body(),
+        Some(7),
+        false,
+    )
+    .expect("streamed response builds");
+    assert_eq!(streamed.headers().get(http::header::CONTENT_LENGTH).unwrap(), "7");
+}
+
 #[test]
 fn h2_request_uri_is_absolute_without_userinfo_or_fragment() {
     use crate::upstream::h2_request_uri;

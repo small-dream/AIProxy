@@ -635,6 +635,7 @@ async fn stage_intercept_request_breakpoint(
                 // Content-Length needed — hyper derives it from Full.
                 mock_body,
                 None,
+                false, // Mock bodies carry their own framing; no HEAD/304 passthrough.
             )?;
             Ok(BreakpointRequestOutcome::Mock(response))
         }
@@ -1189,11 +1190,17 @@ async fn stage_process_upstream_response(
         )
     };
 
+    // HEAD responses and 304 Not Modified carry metadata without a body; the
+    // upstream's declared Content-Length must survive the empty Full<Bytes>
+    // body hyper would otherwise describe as `content-length: 0`.
+    let is_bodyless_metadata_response = request.method == http::Method::HEAD
+        || upstream_response.status_code == StatusCode::NOT_MODIFIED;
     build_hyper_response_from_upstream(
         upstream_response.status_code,
         &upstream_response.response_headers,
         response_body,
         streamed_content_length,
+        is_bodyless_metadata_response,
     )
 }
 
@@ -1702,11 +1709,18 @@ impl<S> Drop for CleanupStream<S> {
 /// back to chunked transfer-encoding, which a raw-TCP client reading to EOF
 /// would mis-read. The in-memory `Full<Bytes>` path needs no hint (hyper
 /// derives the length from the finite body).
-fn build_hyper_response_from_upstream(
+///
+/// When `preserve_declared_content_length` is true (HEAD responses and 304
+/// Not Modified), the upstream's declared Content-Length is re-emitted even
+/// though the body hyper sees is empty — otherwise hyper would emit
+/// `content-length: 0`, breaking HEAD metadata and 304 cache-validation
+/// semantics (RFC 9110 §9.3.2 / §15.4.5).
+pub(crate) fn build_hyper_response_from_upstream(
     status_code: StatusCode,
     headers: &HeaderMap,
     body: http_body_util::combinators::BoxBody<bytes::Bytes, String>,
     streamed_content_length: Option<u64>,
+    preserve_declared_content_length: bool,
 ) -> Result<
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>,
     crate::ProxyError,
@@ -1723,10 +1737,18 @@ fn build_hyper_response_from_upstream(
     let strip =
         crate::hop_by_hop_strip_set(headers.iter().map(|(n, v)| (n.as_str(), v.as_bytes())));
 
+    let mut declared_content_length: Option<u64> = None;
     for (name, value) in headers {
         // Content-Length and Transfer-Encoding are always dropped here; the
         // framing is re-derived below (M3) or by the body type.
-        if name == CONTENT_LENGTH || name == TRANSFER_ENCODING {
+        if name == CONTENT_LENGTH {
+            if let Some(len) = std::str::from_utf8(value.as_bytes()).ok().and_then(|s| s.parse().ok())
+            {
+                declared_content_length = Some(len);
+            }
+            continue;
+        }
+        if name == TRANSFER_ENCODING {
             continue;
         }
         if crate::should_strip_hop_by_hop(name.as_str(), &strip, is_upgrade_response) {
@@ -1739,6 +1761,10 @@ fn build_hyper_response_from_upstream(
     // fixed-length response instead of chunked encoding.
     if let Some(len) = streamed_content_length {
         builder = builder.header(CONTENT_LENGTH, len);
+    } else if preserve_declared_content_length {
+        if let Some(len) = declared_content_length {
+            builder = builder.header(CONTENT_LENGTH, len);
+        }
     }
 
     builder
