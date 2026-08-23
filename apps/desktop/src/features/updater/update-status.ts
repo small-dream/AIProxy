@@ -44,4 +44,9 @@ export async function installUpdateAndStore(): Promise<void> {
     store.setUpdateInstalling(false);
     throw error;
   }
+  // P2 4.3-6: the download is done at this point; relaunch normally
+  // terminates the process before this line runs, but if it doesn't (failed
+  // or deferred relaunch), the shell must not stay stuck in the installing
+  // state with a disabled button.
+  store.setUpdateInstalling(false);
 }
