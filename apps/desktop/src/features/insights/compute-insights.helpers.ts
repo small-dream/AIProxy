@@ -84,6 +84,25 @@ export function areSessionIdsEqual(a: string[], b: string[]): boolean {
   return a.every((id, index) => id === b[index]);
 }
 
+/**
+ * P2 4.3-3: stable string signature of an id list, for debouncing on CONTENT
+ * instead of array identity. The store batches rebuild `activeSessionIds`
+ * every ~100ms, so the raw reference churns even while the contents stand
+ * still; feeding that reference into {@link useDebouncedValue} restarts the
+ * window on every tick and the debounced value never settles under sustained
+ * traffic. Session ids are UUID-shaped (backend-generated or
+ * `imported-har-<uuid>`), so " " is a safe separator.
+ */
+export function buildSessionIdsSignature(ids: string[]): string {
+  return ids.join(" ");
+}
+
+/** Inverse of {@link buildSessionIdsSignature}. The empty signature is the
+ * empty list (a bare `"".split(" ")` would yield `[""]`). */
+export function parseSessionIdsSignature(signature: string): string[] {
+  return signature === "" ? [] : signature.split(" ");
+}
+
 export function percentile(sortedValues: number[], percentileValue: number): number {
   if (sortedValues.length === 0) {
     return 0;
