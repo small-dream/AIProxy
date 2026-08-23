@@ -1868,6 +1868,10 @@ type AndroidAdbProxyResult = {
 };
 ```
 
+说明：
+
+- `host` 仅接受主机名 / IPv4 / IPv6 字面量字符（字母数字与 `. - :`，支持 `[...]` 括号写法）；其余输入返回 `INVALID_INPUT` 错误。该校验是纵深防御：`adb shell` 会在设备端拼接参数，元字符可能被当作设备侧 shell 命令执行。
+
 ### `clear_android_proxy_via_adb`
 
 请求：

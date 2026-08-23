@@ -929,14 +929,48 @@ fn install_ios_certificate_via_simulator_impl(
     })
 }
 
+/// Validates a proxy host before it is spliced into an `adb shell` command.
+///
+/// `adb -s <serial> shell <args...>` joins its arguments into one shell string
+/// on the device side, so shell metacharacters inside the host would run as
+/// device-side commands. Only hostname / IPv4 / IPv6 characters are accepted
+/// as defense-in-depth; the frontend input is already restricted.
+fn is_safe_proxy_host(host: &str) -> bool {
+    // Accept bracketed IPv6 literals (`[::1]`) by validating the inner text;
+    // an unbalanced bracket fails the whitelist below because `[` / `]` are
+    // not in the allowed set for the unstripped form.
+    let inner = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(host);
+
+    let mut bytes = inner.bytes();
+    match bytes.next() {
+        // Hostnames / IPv4 start with an alphanumeric, IPv6 literals with a
+        // hex digit or `:` (bracketed `[::1]` strips to `::1`). A leading `-`
+        // or `.` stays rejected so the value can never look like a flag.
+        Some(first) if first.is_ascii_alphanumeric() || first == b':' => {}
+        _ => return false,
+    }
+
+    !inner.is_empty()
+        && inner.len() <= 253
+        && inner.bytes().all(|byte| {
+            matches!(
+                byte,
+                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b':'
+            )
+        })
+}
+
 fn set_android_proxy_via_adb_impl(
     input: SetAndroidProxyViaAdbInput,
 ) -> Result<AndroidAdbProxyResult, String> {
     let host = input.host.trim();
-    if host.is_empty() {
+    if !is_safe_proxy_host(host) {
         return Err(app_error(
             ERR_INVALID_INPUT,
-            "Android proxy host cannot be empty.",
+            format!("Invalid Android proxy host `{host}`: expected a hostname or IP address."),
         ));
     }
 
@@ -1890,6 +1924,30 @@ fn is_hdc_binary(path: &std::path::Path) -> bool {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn is_safe_proxy_host_accepts_hostnames_and_ips() {
+        assert!(is_safe_proxy_host("192.168.1.10"));
+        assert!(is_safe_proxy_host("desktop.lan"));
+        assert!(is_safe_proxy_host("My-PC"));
+        assert!(is_safe_proxy_host("[::1]"));
+        assert!(is_safe_proxy_host("fe80::1"));
+    }
+
+    #[test]
+    fn is_safe_proxy_host_rejects_shell_metacharacters_and_garbage() {
+        // adb joins shell args on the device side, so each of these could
+        // otherwise smuggle device-side shell syntax.
+        assert!(!is_safe_proxy_host(""));
+        assert!(!is_safe_proxy_host("127.0.0.1; reboot"));
+        assert!(!is_safe_proxy_host("$(reboot)"));
+        assert!(!is_safe_proxy_host("`id`"));
+        assert!(!is_safe_proxy_host("host name"));
+        assert!(!is_safe_proxy_host("a\tb"));
+        assert!(!is_safe_proxy_host("[::1"));
+        assert!(!is_safe_proxy_host("-x"));
+        assert!(!is_safe_proxy_host(&"a".repeat(254)));
+    }
 
     fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
         let stamp = SystemTime::now()
