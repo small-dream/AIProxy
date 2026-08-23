@@ -1097,7 +1097,10 @@ mod tests {
     #[test]
     fn ws_tls_server_name_rejects_unparseable_hosts_instead_of_loopback() {
         let error = ws_tls_server_name("[broken").expect_err("stray bracket must fail");
-        assert!(error.contains("[broken"), "error names the bad host: {error}");
+        assert!(
+            error.contains("[broken"),
+            "error names the bad host: {error}"
+        );
 
         assert!(ws_tls_server_name("").is_err(), "empty host must fail");
     }

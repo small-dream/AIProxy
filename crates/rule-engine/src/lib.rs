@@ -137,11 +137,11 @@ export function onRequest(ctx: { request: { setHeader: (name: string, value: str
         let module = build_runtime_module(
             "export\nasync\tfunction onResponse(ctx) {}\nexport  function onRequest(ctx) {}",
         );
-        assert!(module.contains(
-            "globalThis.__aiproxyScriptExports.onResponse = async function onResponse("
-        ));
         assert!(module
-            .contains("globalThis.__aiproxyScriptExports.onRequest = function onRequest("));
+            .contains("globalThis.__aiproxyScriptExports.onResponse = async function onResponse("));
+        assert!(
+            module.contains("globalThis.__aiproxyScriptExports.onRequest = function onRequest(")
+        );
     }
 
     #[test]

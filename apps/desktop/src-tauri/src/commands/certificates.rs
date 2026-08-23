@@ -452,7 +452,10 @@ async fn generate_root_certificate_impl(
     if input.force_regenerate.unwrap_or(false) && storage.root_cert_exists() {
         let old_cert_path = storage.root_cert_path().to_path_buf();
         let report = run_blocking_command("generate_root_certificate_untrust_old", move || {
-            Ok(remove_cert_trust_on_platform(&old_cert_path, detect_platform()))
+            Ok(remove_cert_trust_on_platform(
+                &old_cert_path,
+                detect_platform(),
+            ))
         })
         .await?;
         for failure in &report.failed {

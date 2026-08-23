@@ -1742,7 +1742,9 @@ pub(crate) fn build_hyper_response_from_upstream(
         // Content-Length and Transfer-Encoding are always dropped here; the
         // framing is re-derived below (M3) or by the body type.
         if name == CONTENT_LENGTH {
-            if let Some(len) = std::str::from_utf8(value.as_bytes()).ok().and_then(|s| s.parse().ok())
+            if let Some(len) = std::str::from_utf8(value.as_bytes())
+                .ok()
+                .and_then(|s| s.parse().ok())
             {
                 declared_content_length = Some(len);
             }

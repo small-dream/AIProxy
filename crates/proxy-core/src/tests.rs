@@ -5979,7 +5979,10 @@ fn head_and_304_responses_keep_declared_content_length() {
         false,
     )
     .expect("GET response builds");
-    assert!(regular_get.headers().get(http::header::CONTENT_LENGTH).is_none());
+    assert!(regular_get
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .is_none());
 
     // The spooled-stream path keeps its exact-length hint.
     let streamed = build_hyper_response_from_upstream(
@@ -5990,7 +5993,13 @@ fn head_and_304_responses_keep_declared_content_length() {
         false,
     )
     .expect("streamed response builds");
-    assert_eq!(streamed.headers().get(http::header::CONTENT_LENGTH).unwrap(), "7");
+    assert_eq!(
+        streamed
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .unwrap(),
+        "7"
+    );
 }
 
 #[test]
