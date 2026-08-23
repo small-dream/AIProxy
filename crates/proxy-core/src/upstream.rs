@@ -987,7 +987,31 @@ async fn read_hyper_response_body_with_limit(
 
         let chunk = match frame.into_data() {
             Ok(data) => data,
-            Err(_) => continue, // Skip trailers
+            // P2 4.1-10: a non-data frame here is a trailers frame (e.g. the
+            // grpc-status trailer on every gRPC response). Trailers are not
+            // forwarded to the client, but log them so the dropped semantics
+            // are diagnosable instead of vanishing silently.
+            Err(frame) => match frame.into_trailers() {
+                Ok(trailers) => {
+                    let trailer_names = trailers
+                        .keys()
+                        .map(|name| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    tracing::debug!(
+                        request_id = %request_id,
+                        trailer_count = trailers.len(),
+                        trailer_names = %trailer_names,
+                        event = "upstream_response_trailers_dropped",
+                        "response trailers received but not forwarded to client"
+                    );
+                    continue;
+                }
+                // Unreachable in practice: a frame that is not data must be
+                // trailers. Keep the old skip semantics rather than failing
+                // the response over an impossible shape.
+                Err(_) => continue,
+            },
         };
 
         if preserve_full_body {
