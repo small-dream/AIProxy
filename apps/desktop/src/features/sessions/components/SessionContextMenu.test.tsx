@@ -68,4 +68,53 @@ describe("SessionContextMenu", () => {
 
     expect(handleExportSession).toHaveBeenCalledWith(session);
   });
+
+  // P2 4.3-9: copy actions hydrate session details asynchronously and can
+  // reject; the menu must absorb that rejection instead of leaking an
+  // unhandled promise rejection (Vitest fails the suite on those).
+  it("does not leak rejections from async actions", async () => {
+    const handleCopyUrl = vi.fn(() => Promise.reject(new Error("clipboard denied")));
+
+    render(
+      <AppProviders>
+        <SessionContextMenu
+          anchorPosition={{ left: 20, top: 20 }}
+          isHostFocused={false}
+          isHostIgnored={false}
+          isHostSslDecryptDisabled={false}
+          onClearOthers={vi.fn()}
+          onClose={vi.fn()}
+          onCompose={vi.fn()}
+          onCompareWith={vi.fn()}
+          onCopyCurl={vi.fn()}
+          onCopyRequest={vi.fn()}
+          onCopyResponse={vi.fn()}
+          onCopyUrl={handleCopyUrl}
+          onCreateMapLocal={vi.fn()}
+          onCreateRewrite={vi.fn()}
+          onCreateThrottleRule={vi.fn()}
+          onExportSession={vi.fn()}
+          onFocusHost={vi.fn()}
+          onGoToBreakpoints={vi.fn()}
+          onGoToRules={vi.fn()}
+          onIgnoreHost={vi.fn()}
+          onRepeat={vi.fn()}
+          onSaveResponse={vi.fn()}
+          onSaveToCollection={vi.fn()}
+          onSetCompareBase={vi.fn()}
+          onStopIgnoringHost={vi.fn()}
+          onToggleSslDecrypt={vi.fn()}
+          onUnfocusHost={vi.fn()}
+          session={createSessionSummary()}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByText("Copy URL"));
+    // Flush microtasks so the rejected promise settles inside the test.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handleCopyUrl).toHaveBeenCalledTimes(1);
+  });
 });

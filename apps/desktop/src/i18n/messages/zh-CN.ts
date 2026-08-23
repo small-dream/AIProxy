@@ -1663,6 +1663,7 @@ export const zhCNMessages: Messages = {
     copy: "复制",
     copyAsCurl: "复制 cURL",
     copiedToClipboard: "已复制到剪贴板",
+    copyFailed: "复制失败",
     search: "搜索",
     copyRequest: "复制请求",
     copyResponse: "复制响应",

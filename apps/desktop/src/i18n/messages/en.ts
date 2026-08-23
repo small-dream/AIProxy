@@ -1735,6 +1735,7 @@ export const enMessages = {
     copy: "Copy",
     copyAsCurl: "Copy cURL",
     copiedToClipboard: "Copied to clipboard",
+    copyFailed: "Copy failed",
     search: "Search",
     copyRequest: "Copy Request",
     copyResponse: "Copy Response",
