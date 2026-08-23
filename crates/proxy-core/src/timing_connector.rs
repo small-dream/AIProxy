@@ -179,16 +179,19 @@ impl Service<Uri> for TimingConnector {
                     route == DialRoute::UpstreamProxy,
                 )
             } else {
-                let (dns_ms, socket_addr) = if let Some(ip) = dns_override_ip {
-                    (0, SocketAddr::new(ip, port))
+                let (dns_ms, resolved_addrs) = if let Some(ip) = dns_override_ip {
+                    (0, vec![SocketAddr::new(ip, port)])
                 } else {
                     let started = Instant::now();
-                    let addr = resolve_host(&host, port).await?;
-                    (started.elapsed().as_millis(), addr)
+                    let addrs = resolve_host(&host, port).await?;
+                    (started.elapsed().as_millis(), addrs)
                 };
 
+                // P2 4.1-3: try every resolved address in order so a dead
+                // first address (AAAA without an IPv6 route) falls back to
+                // the next one. `connect_ms` honestly covers all attempts.
                 let tcp_started = Instant::now();
-                let tcp_stream = TcpStream::connect(socket_addr).await?;
+                let tcp_stream = connect_first_reachable(&host, &resolved_addrs).await?;
                 (
                     dns_ms,
                     tcp_started.elapsed().as_millis(),
@@ -276,15 +279,60 @@ fn uri_port(uri: &Uri) -> u16 {
     })
 }
 
-async fn resolve_host(host: &str, port: u16) -> io::Result<SocketAddr> {
+/// Resolve `host:port` to ALL addresses the resolver returns (getaddrinfo
+/// orders them per RFC 6724, so the system's address-preference policy is
+/// preserved).
+///
+/// P2 4.1-3: the previous version kept only the first address, so on a
+/// dual-stack network where AAAA sorts first but no IPv6 route exists, every
+/// h1/h2 forward failed outright. Callers now try the addresses in order via
+/// [`connect_first_reachable`].
+async fn resolve_host(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
     let lookup_target = format!("{host}:{port}");
-    let mut addrs = tokio::net::lookup_host(&lookup_target).await?;
-    addrs.next().ok_or_else(|| {
-        io::Error::new(
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(&lookup_target).await?.collect();
+    if addrs.is_empty() {
+        return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("DNS lookup failed for {host}"),
-        )
-    })
+        ));
+    }
+    Ok(addrs)
+}
+
+/// Try each resolved address in order and return the first successful TCP
+/// connection. A dead first address (e.g. unreachable AAAA on an IPv4-only
+/// link) falls through to the next one instead of failing the request.
+///
+/// No artificial per-attempt timeout: each attempt is bounded by the OS
+/// connect timeout, and the whole dial is additionally covered by the
+/// upstream-request timeout at the call site.
+async fn connect_first_reachable(host: &str, addrs: &[SocketAddr]) -> io::Result<TcpStream> {
+    let mut last_err: Option<io::Error> = None;
+    for addr in addrs {
+        match TcpStream::connect(addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(err) => {
+                tracing::debug!(
+                    event = "upstream_connect_attempt_failed",
+                    host = %host,
+                    %addr,
+                    error = %err,
+                    "connect attempt failed; trying next resolved address"
+                );
+                last_err = Some(err);
+            }
+        }
+    }
+    let last_err = last_err.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "no resolved addresses to connect")
+    });
+    Err(io::Error::new(
+        last_err.kind(),
+        format!(
+            "failed to connect to all {} resolved address(es) for {host}; last error: {last_err}",
+            addrs.len()
+        ),
+    ))
 }
 
 #[cfg(test)]
@@ -484,5 +532,39 @@ mod tests {
         assert!(host_in_allowlist(&allowlist, "api.example.org"));
         assert!(!host_in_allowlist(&allowlist, "evil.example.org"));
         assert!(!host_in_allowlist(&allowlist, ""));
+    }
+
+    // P2 4.1-3: a dead first address must fall through to the next resolved
+    // address instead of failing the request — the dual-stack case where AAAA
+    // sorts first but no IPv6 route exists.
+    #[tokio::test]
+    async fn connect_first_reachable_falls_through_dead_first_address() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let live_port = listener.local_addr().unwrap().port();
+        // Port 1 on loopback refuses immediately (no listener), standing in
+        // for the unreachable AAAA.
+        let addrs = vec![
+            SocketAddr::from(([127, 0, 0, 1], 1)),
+            SocketAddr::from(([127, 0, 0, 1], live_port)),
+        ];
+        let stream = connect_first_reachable("example.test", &addrs)
+            .await
+            .expect("second address must be reachable after the first fails");
+        assert_eq!(stream.peer_addr().unwrap().port(), live_port);
+    }
+
+    // P2 4.1-3: when every address fails, the error preserves the last
+    // attempt's kind and names the host so diagnostics stay actionable.
+    #[tokio::test]
+    async fn connect_first_reachable_reports_last_error_when_all_fail() {
+        let addrs = vec![
+            SocketAddr::from(([127, 0, 0, 1], 1)),
+            SocketAddr::from(([127, 0, 0, 1], 2)),
+        ];
+        let err = connect_first_reachable("example.test", &addrs)
+            .await
+            .expect_err("all-refused addresses must yield an error");
+        assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused);
+        assert!(err.to_string().contains("example.test"), "error should name the host: {err}");
     }
 }
