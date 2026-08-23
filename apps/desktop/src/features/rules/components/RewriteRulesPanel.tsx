@@ -503,6 +503,9 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       if (isRulesError) return;
       setValidationAttempted(true);
       if (hasRuleFieldErrors(errors)) return;
+      // UI_GUIDELINES §9.4: a combination that can never fire must not be
+      // persisted; the warning Alert above the form explains why.
+      if (invalidCombination) return;
       saveMutation.mutate(draft, {
         onSuccess: (saved) => {
           lastSyncedRuleIdRef.current = saved.id;

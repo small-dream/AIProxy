@@ -149,6 +149,33 @@ describe("RewriteRulesPanel — multi-action rules (R1)", () => {
     });
     expect(saveMutateMock).not.toHaveBeenCalled();
   });
+
+  // UI_GUIDELINES §9.4: an impossible stage/action combination must block
+  // save with the inline warning, not persist a rule that can never fire.
+  it("blocks saving a response-stage rule with a query action", async () => {
+    rulesState.current = [
+      makeRule({
+        id: "rule-invalid-combo",
+        name: "Response query rewrite",
+        match: { urlPattern: "*", methods: [], stage: "response" },
+        actions: [
+          { rewriteType: "query", payload: { operation: "set", paramName: "b", value: "2" } },
+        ],
+        rewriteType: "query",
+      }),
+    ];
+
+    render(<RewriteRulesPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("rulesPage.rewrite.invalidCombination.queryRedirectOnResponse"),
+      ).toBeInTheDocument();
+    });
+    expect(saveMutateMock).not.toHaveBeenCalled();
+  });
 });
 
 // ── P0-2 unsaved-changes guard: panel-level integration ─────────────────
