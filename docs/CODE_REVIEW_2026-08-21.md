@@ -700,3 +700,19 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 验证信号：`cargo clippy --workspace --all-targets` 无新增告警（5 条均为基线已有）；`cargo test` proxy-core 319 / desktop 121 / rule-engine 31 全过；前端 typecheck ✓、Vitest 595/595 ✓、format:check ✓。
 
 第二、三梯队（引擎热路径性能、低成本 UI/一致性 polish）与 backlog 维持第 4 节原状，其中 4.1-11 建议直接放弃（生产路径已不走该序列化）、4.3-10 视为已解决（setQueryData 合并已落地）、4.3-5 前提不成立（react-query 对数组 key 结构化哈希且 gcTime 回收）。
+
+### 10.7 P2 第二梯队 A 组：正确性与数据完整性（2026-08-23）
+
+第一梯队收尾后，从剩余 P2 中按「价值 × 风险」筛出正确性/数据完整性组先行修复：
+
+| 条目 | 状态 | 修复方式 |
+|---|---|---|
+| P2 4.1-7 WS 重组超限静默丢弃 | ✅ | `WsMessageData`/`ws_messages` 表/IPC 全链路新增 `truncated` 标志；溢出后丢弃后续分片保证缓冲区为精确前缀，FIN 捕获携带标志并告警日志；schema `migrate_add_column` 兼容旧库；前端列表 Chip + 详情 Alert 展示（i18n en/zh-CN 同步）；db round-trip 与 proxy-core 组装器回归测试 |
+| P2 4.1-3 DNS 只取首个解析地址 | ✅ | `resolve_host` 返回全部地址（保持 getaddrinfo RFC 6724 排序），新增 `connect_first_reachable` 逐地址尝试（不引入人为超时，由 OS 连接超时与上游请求超时兜底）；全失败时保留末次错误 kind 并点名 host；死首地址回退 + 全失败报错两个回归测试 |
+| P2 4.3-3 insights debounce 数组身份永不结算 | ✅ | 抽出 `buildSessionIdsSignature` / `parseSessionIdsSignature` 纯函数，debounce 改为对内容签名（id 为 UUID 形态，空格分隔安全）而非数组引用；签名往返 + 内容相等性单测锁定 |
+| P2 4.3-6 Updater install 无并发防护、isInstalling 不清 | ✅ | service 层 single-flight 守卫（并发调用 join 在途 promise）；check 失败清空 stale `pendingUpdate`；install 成功路径补 `setUpdateInstalling(false)` 防止 relaunch 未退出进程时 shell 卡在安装态；新增 app-updater.test.ts 三用例（stale 清理 / 并发 join / 守卫复位） |
+| P2 4.3-8 inline body 字符数冒充字节数 | ✅ | `buildInlineBodyReference` 改用 `TextEncoder` 计算 UTF-8 字节数；多字节 body 回归测试 |
+
+验证信号（2026-08-23）：`cargo clippy --workspace --all-targets` 通过（5 条告警均为基线已有，位于本次未改动文件）；`cargo test -p aiproxy-proxy-core` 322 通过（+3）、`-p aiproxy-db` 103 通过（+1）；shared-types Vitest 56/56 ✓；desktop typecheck ✓、Vitest 602/602（+7）、format:check ✓。文档同步：API_SPEC.md 的 `list_ws_messages` 响应与 `ws-message` 事件补 `truncated` 字段。
+
+B 组（反馈与可观测性）、C 组（性能小项）、D 组（零风险一致性/文档）见对话中的分批建议，尚未实施。
