@@ -491,7 +491,12 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     // P2 4.1-7: flag WS message captures whose reassembly hit the size cap so
     // the UI can present them as partial instead of silently showing a prefix
     // as if it were the whole message.
-    migrate_add_column(conn, "ws_messages", "truncated", "INTEGER NOT NULL DEFAULT 0")?;
+    migrate_add_column(
+        conn,
+        "ws_messages",
+        "truncated",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
 
     // M30: enforce the "at most one enabled throttle profile per workspace"
     // invariant at the storage layer with a partial UNIQUE index. First

@@ -923,9 +923,7 @@ fn persist_all_traces(
 mod tests {
     use super::*;
 
-    fn make_repository(
-        conn: aiproxy_db::rusqlite::Connection,
-    ) -> (Repository, std::path::PathBuf) {
+    fn make_repository(conn: aiproxy_db::rusqlite::Connection) -> (Repository, std::path::PathBuf) {
         let body_store_dir =
             std::env::temp_dir().join(format!("aiproxy-repo-clear-{}", uuid::Uuid::new_v4()));
         let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));

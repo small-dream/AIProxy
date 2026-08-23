@@ -596,8 +596,7 @@ fn assemble_ws_message(
                 // Already over the cap: drop every further fragment so the
                 // retained buffer remains an exact prefix of the original
                 // message rather than a patchwork of kept/dropped chunks.
-            } else if assembler.buffer.len() + frame.payload.len()
-                <= MAX_REASSEMBLED_MESSAGE_BYTES
+            } else if assembler.buffer.len() + frame.payload.len() <= MAX_REASSEMBLED_MESSAGE_BYTES
             {
                 assembler.buffer.extend_from_slice(&frame.payload);
             } else {
@@ -1154,8 +1153,12 @@ mod tests {
             mask: false,
             payload: vec![0u8; MAX_REASSEMBLED_MESSAGE_BYTES],
         };
-        let intermediate =
-            assemble_ws_message("sess-1", WsDirection::ClientToServer, &start, &mut assembler);
+        let intermediate = assemble_ws_message(
+            "sess-1",
+            WsDirection::ClientToServer,
+            &start,
+            &mut assembler,
+        );
         assert!(!intermediate.fin);
         assert!(!intermediate.truncated);
 
@@ -1166,7 +1169,12 @@ mod tests {
             mask: false,
             payload: b"!".to_vec(),
         };
-        let mid = assemble_ws_message("sess-1", WsDirection::ClientToServer, &cont1, &mut assembler);
+        let mid = assemble_ws_message(
+            "sess-1",
+            WsDirection::ClientToServer,
+            &cont1,
+            &mut assembler,
+        );
         assert!(!mid.fin);
 
         // The final fragment is dropped too (prefix stays exact).
@@ -1176,8 +1184,12 @@ mod tests {
             mask: false,
             payload: b"tail".to_vec(),
         };
-        let final_msg =
-            assemble_ws_message("sess-1", WsDirection::ClientToServer, &cont2, &mut assembler);
+        let final_msg = assemble_ws_message(
+            "sess-1",
+            WsDirection::ClientToServer,
+            &cont2,
+            &mut assembler,
+        );
         assert!(final_msg.fin);
         assert!(final_msg.truncated);
         assert_eq!(final_msg.payload_size, MAX_REASSEMBLED_MESSAGE_BYTES);

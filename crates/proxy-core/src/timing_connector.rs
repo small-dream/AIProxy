@@ -565,6 +565,9 @@ mod tests {
             .await
             .expect_err("all-refused addresses must yield an error");
         assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused);
-        assert!(err.to_string().contains("example.test"), "error should name the host: {err}");
+        assert!(
+            err.to_string().contains("example.test"),
+            "error should name the host: {err}"
+        );
     }
 }
