@@ -715,4 +715,16 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 
 验证信号（2026-08-23）：`cargo clippy --workspace --all-targets` 通过（5 条告警均为基线已有，位于本次未改动文件）；`cargo test -p aiproxy-proxy-core` 322 通过（+3）、`-p aiproxy-db` 103 通过（+1）；shared-types Vitest 56/56 ✓；desktop typecheck ✓、Vitest 602/602（+7）、format:check ✓。文档同步：API_SPEC.md 的 `list_ws_messages` 响应与 `ws-message` 事件补 `truncated` 字段。
 
-B 组（反馈与可观测性）、C 组（性能小项）、D 组（零风险一致性/文档）见对话中的分批建议，尚未实施。
+### 10.8 P2 第二梯队 B 组：反馈与可观测性（2026-08-23）
+
+| 条目 | 状态 | 修复方式 |
+|---|---|---|
+| P2 4.3-2 四个事件处理器静默丢弃畸形 payload | ✅ | `session-remove` / `sessions-removed` / `ws-message` / `ws-connection-status` 补 `logDevWarn` else 分支（沿用 `<event>_parse_failed` 命名），无抛错场景附带截断的 payload 预览；`sessions-removed` 收紧为逐元素非空字符串校验（单个坏 id 原先会溜过 `Array.isArray` 并静默漏删缓存） |
+| P2 4.3-1 parseWsMessages 数组入参错误信息丢失 | ✅ | 校验失败改为抛结构化 `AppError`：code `INVALID_WS_MESSAGES`，message 点名失败数量与前几个下标，details 携带完整 invalidIndexes 与有界 JSON 样本预览；非数组入参保留原 coerceAppError 行为；调用方已有 re-coerce 链路经 isAppError 原样透传；shared-types 新增 5 个用例 |
+| P2 4.3-9 复制类 async handler 未捕获拒绝 | ✅ | `copyToClipboard` 与三个 detail 水合 handler 各包 try/catch：记 `context_menu_copy_failed` + snackbar「复制失败」（新 i18n key `contextMenu.copyFailed`，en/zh-CN）；`SessionContextMenu.handleClick` 兜底吸收 async action 的杂散 rejection；新增 hook 回归测试两用例（直接 await handler，移除 try/catch 即确定性失败）+ 菜单不泄漏 rejection 用例 |
+| P2 4.2-7 clear_all_sessions DB 失败后 body 清理照跑 | ✅ | 两段清理改为顺序一致语义：DB 清除成功后才回收 body 文件；DB 失败/毒锁则整体跳过（避免行存活而 blob 被删导致悬空引用——与 M29 已兜底的无害孤儿 blob 相反方向）；新增毒库跳过 / 正常回收两个测试 |
+| P2 4.1-10 trailers `Err(_) => continue` 静默丢弃 | ✅ | 区分帧类型：trailers 帧以 debug 级记录条数与名称（`upstream_response_trailers_dropped`）后跳过（转发仍超范围）；其余意外形态保持旧跳过语义不致响应失败 |
+
+验证信号（2026-08-23）：`cargo clippy --workspace --all-targets` 通过（5 条告警均为基线）；`cargo test` src-tauri 123 通过（+2）、proxy-core 322 通过；shared-types typecheck ✓、Vitest 61/61（+5）、format:check ✓；desktop typecheck ✓、Vitest 606/606（+3）、format:check ✓。
+
+C 组（性能小项）、D 组（零风险一致性/文档）尚未实施。
