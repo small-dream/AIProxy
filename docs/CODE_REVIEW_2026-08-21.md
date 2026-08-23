@@ -680,4 +680,23 @@ AIProxy 当前代码库整体质量高于同类桌面代理工具平均水平。
 - **R2（P1-19 首版缺口）** 本地已渲染错误的 mutation 仍会弹全局 toast 造成双重提示 — `7123983e`：为全部本地渲染错误提示的 mutation 补 `meta.suppressGlobalErrorNotification`，并在 SetupChecklistCard 补本地 onError 兜底。
 - **R3（P1-24 同类）** Compose 附加文件被拒绝时无任何反馈 + hint 未披露允许目录 — `4edb6c6a`：handleAttach try/catch 推送通知，hint 文案披露 Downloads/Pictures/Videos/Desktop/Documents 限制（en/zh-CN 同步）。
 
-复核验证信号：前端 typecheck ✓、Vitest 584/584 ✓、eslint 0 error、format:check ✓；受影响 Rust 路径未改动。
+复核验证信号：前端 typecheck ✓、Vitest 584/584 ✓、eslint 0 error、format:check ✓；受影响 Rust 路径自基线以来未被改动。
+
+### 10.6 P2 第一梯队（2026-08-23）
+
+对第 4 节全部 54 条 P2 做了逐条核实（多代理并行 + 人工复核）：**0 条被基线后的修复顺带完全修复，49 条原样存在，4 条部分缓解，1 条实质已解决**。第一梯队（正确性/安全 × 小成本）当批修复如下：
+
+| 条目 | 状态 | 修复方式 |
+|---|---|---|
+| P2 4.2-5 adb host 未校验拼 shell 参数 | ✅ | `is_safe_proxy_host` 白名单（主机名/IPv4/IPv6 字符）+ 单测；`adb shell` 在设备端拼接参数，元字符可执行设备侧命令 |
+| P2 4.2-6 强制重签 CA 不撤旧信任 | ✅ | 覆盖旧文件前对旧证书 best-effort `remove_cert_trust_on_platform`，失败仅告警不阻塞签发 |
+| P2 4.2-3 脚本校验与运行时改写不一致 | ✅ | `build_runtime_module` 复用校验器同形正则（`\s+` 宽容），补 odd-whitespace JS 执行级测试 |
+| P2 4.4-1 Rewrite 无效组合不阻止保存 | ✅ | `handleSave` 增加 `invalidCombination` 门槛（UI_GUIDELINES §9.4），面板测试锁定 |
+| P2 4.3-7 批量删除措辞与行为不符 + 死代码 | ✅ | snackbar 如实改为“已从当前容器移除”；删除死代码链 `deleteSessionsExcept` 包装 + `useDeleteSessionsExcept` hook（后端命令保留） |
+| P2 4.1-2 Content-Length 一律丢弃 | ✅ | `build_hyper_response_from_upstream` 捕获上游声明长度，HEAD/304 重发原长度；GET 仍由 hyper 推导；回归测试锁定四类情形 |
+| P2 4.1-5 eviction timer 不可取消 | ⛔ 误报 | `ProxyServerHandle::shutdown` → `pool.shutdown()` 自连接池引入时即会 abort eviction task 并清池（[proxy.rs](../apps/desktop/src-tauri/src/commands/proxy.rs) stop/restart 均走此路径）；原文与首轮核实均漏看 |
+| P2 4.1-9 WS SNI 静默回退 127.0.0.1 | ✅ | `ws_tls_server_name` 改返回 `Result`，解析失败以明确错误终止升级并进入既有 502 路径；补拒绝用例 |
+
+验证信号：`cargo clippy --workspace --all-targets` 无新增告警（5 条均为基线已有）；`cargo test` proxy-core 319 / desktop 121 / rule-engine 31 全过；前端 typecheck ✓、Vitest 595/595 ✓、format:check ✓。
+
+第二、三梯队（引擎热路径性能、低成本 UI/一致性 polish）与 backlog 维持第 4 节原状，其中 4.1-11 建议直接放弃（生产路径已不走该序列化）、4.3-10 视为已解决（setQueryData 合并已落地）、4.3-5 前提不成立（react-query 对数组 key 结构化哈希且 gcTime 回收）。
