@@ -129,6 +129,11 @@ struct WsMessageAssembler {
     /// START frame); `None` when idle.
     start_opcode: Option<WsOpcode>,
     buffer: Vec<u8>,
+    /// Set once fragments stopped being appended because the reassembled size
+    /// hit [`MAX_REASSEMBLED_MESSAGE_BYTES`]. Propagated to the final emitted
+    /// message so the UI can flag the capture as partial instead of silently
+    /// presenting a prefix as if it were the whole message (P2 4.1-7).
+    truncated: bool,
 }
 
 impl WsMessageAssembler {
@@ -136,6 +141,7 @@ impl WsMessageAssembler {
         Self {
             start_opcode: None,
             buffer: Vec::new(),
+            truncated: false,
         }
     }
 
@@ -143,6 +149,7 @@ impl WsMessageAssembler {
     fn reset(&mut self) {
         self.start_opcode = None;
         self.buffer.clear();
+        self.truncated = false;
     }
 }
 
@@ -432,6 +439,11 @@ pub struct WsMessageData {
     pub payload_text: Option<String>,
     pub payload_size: usize,
     pub fin: bool,
+    /// True when this capture is only a prefix of the original message because
+    /// reassembly hit the size cap. `#[serde(default)]` keeps older persisted
+    /// payloads (which predate the flag) deserializable as untruncated.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Direction of a WebSocket message.
@@ -505,6 +517,9 @@ fn build_ws_message_raw(
         payload_text,
         payload_size: payload.len(),
         fin,
+        // Single-frame captures are always complete; the reassembly path
+        // overwrites this when the message hit the size cap.
+        truncated: false,
     }
 }
 
@@ -557,6 +572,11 @@ fn assemble_ws_message(
             assembler.buffer.clear();
             if frame.payload.len() <= MAX_REASSEMBLED_MESSAGE_BYTES {
                 assembler.buffer.extend_from_slice(&frame.payload);
+            } else {
+                // The message is over the cap before its first continuation
+                // even arrives; keep buffering disabled and remember to flag
+                // the final capture as truncated (P2 4.1-7).
+                assembler.truncated = true;
             }
             // Emit an intermediate capture so the UI shows the fragment with
             // FIN=false; the final reassembled message is emitted on FIN.
@@ -572,19 +592,35 @@ fn assemble_ws_message(
                 );
                 return build_ws_message(session_id, direction, frame);
             };
-            if assembler.buffer.len() + frame.payload.len() <= MAX_REASSEMBLED_MESSAGE_BYTES {
+            if assembler.truncated {
+                // Already over the cap: drop every further fragment so the
+                // retained buffer remains an exact prefix of the original
+                // message rather than a patchwork of kept/dropped chunks.
+            } else if assembler.buffer.len() + frame.payload.len()
+                <= MAX_REASSEMBLED_MESSAGE_BYTES
+            {
                 assembler.buffer.extend_from_slice(&frame.payload);
+            } else {
+                // Over the cap: stop appending and flag the final capture.
+                assembler.truncated = true;
+                tracing::warn!(
+                    event = "ws_message_truncated",
+                    session_id = %session_id,
+                    cap_bytes = MAX_REASSEMBLED_MESSAGE_BYTES,
+                    "reassembled ws message exceeded capture cap; capture is truncated"
+                );
             }
             if frame.fin {
                 // Final fragment: emit the whole reassembled message under the
                 // START frame's opcode so multi-byte UTF-8 decodes correctly.
-                let message = build_ws_message_raw(
+                let mut message = build_ws_message_raw(
                     session_id,
                     direction,
                     start_opcode,
                     &assembler.buffer,
                     true,
                 );
+                message.truncated = assembler.truncated;
                 assembler.reset();
                 message
             } else {
@@ -1097,8 +1133,58 @@ mod tests {
         assert_eq!(final_msg.opcode, "text");
         assert_eq!(final_msg.payload_text, Some(full.to_string()));
         assert_eq!(final_msg.payload_size, full.len());
+        // Under the cap: the capture is complete, no truncation flag.
+        assert!(!final_msg.truncated);
         // Assembler returned to idle.
         assert!(assembler.start_opcode.is_none());
+    }
+
+    // P2 4.1-7: a fragmented message that exceeds the reassembly cap used to
+    // silently emit a partial buffer as if it were the whole message. The final
+    // capture must carry truncated=true, and every fragment after the overflow
+    // must be dropped so the retained bytes stay an exact prefix of the
+    // original message.
+    #[test]
+    fn reassembly_over_cap_flags_truncated() {
+        let mut assembler = WsMessageAssembler::new();
+        // START frame fills the buffer exactly up to the cap.
+        let start = WsFrame {
+            fin: false,
+            opcode: WsOpcode::Binary,
+            mask: false,
+            payload: vec![0u8; MAX_REASSEMBLED_MESSAGE_BYTES],
+        };
+        let intermediate =
+            assemble_ws_message("sess-1", WsDirection::ClientToServer, &start, &mut assembler);
+        assert!(!intermediate.fin);
+        assert!(!intermediate.truncated);
+
+        // One byte over the cap flips the flag; this fragment is dropped.
+        let cont1 = WsFrame {
+            fin: false,
+            opcode: WsOpcode::Continuation,
+            mask: false,
+            payload: b"!".to_vec(),
+        };
+        let mid = assemble_ws_message("sess-1", WsDirection::ClientToServer, &cont1, &mut assembler);
+        assert!(!mid.fin);
+
+        // The final fragment is dropped too (prefix stays exact).
+        let cont2 = WsFrame {
+            fin: true,
+            opcode: WsOpcode::Continuation,
+            mask: false,
+            payload: b"tail".to_vec(),
+        };
+        let final_msg =
+            assemble_ws_message("sess-1", WsDirection::ClientToServer, &cont2, &mut assembler);
+        assert!(final_msg.fin);
+        assert!(final_msg.truncated);
+        assert_eq!(final_msg.payload_size, MAX_REASSEMBLED_MESSAGE_BYTES);
+        assert_eq!(final_msg.payload_text, None);
+        // Assembler returned to idle and cleared the flag.
+        assert!(assembler.start_opcode.is_none());
+        assert!(!assembler.truncated);
     }
 
     // M1: a single (unfragmented) Text frame still emits directly with no

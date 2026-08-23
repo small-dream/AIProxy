@@ -97,6 +97,7 @@ function generateWsMessages(count: number): WsMessage[] {
       payloadText: payloadText!,
       payloadSize,
       fin: true,
+      truncated: false,
     });
   }
 
@@ -146,6 +147,7 @@ function buildWsMessage(id: string, marker: string): WsMessage {
     payloadText: JSON.stringify({ marker }),
     payloadSize: 16,
     fin: true,
+    truncated: false,
   };
 }
 

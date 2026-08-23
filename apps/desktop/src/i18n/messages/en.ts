@@ -1806,6 +1806,11 @@ export const enMessages = {
     replayTooltip: "Edit and replay this message",
     injectionFailed: "Failed to send message",
     searchResultsCount: "{{count}} matches",
+    truncated: "Truncated",
+    truncatedTooltip:
+      "Reassembly hit the capture cap — only a prefix of the original message was captured",
+    truncatedNotice:
+      "This message exceeded the 20 MiB reassembly cap — showing the first {{size}} of the original payload.",
   },
   insightsPage: {
     title: "Insights",

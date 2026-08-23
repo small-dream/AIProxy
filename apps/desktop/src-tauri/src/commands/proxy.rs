@@ -436,6 +436,7 @@ async fn start_proxy_impl(
                                 payload_text: msg.payload_text.clone(),
                                 payload_size: msg.payload_size,
                                 fin: msg.fin,
+                                truncated: msg.truncated,
                             };
                             // H8: do NOT await — spawn and track the handle so the
                             // receive loop can pull the next message immediately.
@@ -479,6 +480,7 @@ async fn start_proxy_impl(
                                     "payloadText": msg.payload_text,
                                     "payloadSize": msg.payload_size,
                                     "fin": msg.fin,
+                                    "truncated": msg.truncated,
                                 }));
                             }
                         }

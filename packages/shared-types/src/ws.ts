@@ -12,6 +12,8 @@ export type WsMessage = {
   payloadText?: string;
   payloadSize: number;
   fin: boolean;
+  /** True when reassembly hit the capture cap — the payload is only a prefix of the original message. */
+  truncated: boolean;
 };
 
 export function isWsMessage(value: unknown): value is WsMessage {
@@ -25,6 +27,7 @@ export function isWsMessage(value: unknown): value is WsMessage {
     typeof candidate.opcode === "string" &&
     typeof candidate.payloadSize === "number" &&
     typeof candidate.fin === "boolean" &&
+    typeof candidate.truncated === "boolean" &&
     isNullableString(candidate.payloadText)
   );
 }

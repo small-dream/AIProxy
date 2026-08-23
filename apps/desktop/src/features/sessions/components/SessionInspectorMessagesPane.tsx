@@ -3,6 +3,7 @@ import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordR
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import {
+  Alert,
   alpha,
   Box,
   Button,
@@ -740,6 +741,17 @@ function MessageRowImpl({
         color={opcodeColor(message.opcode as WsOpcode)}
         sx={{ height: 20, fontSize: 11, minWidth: 44 }}
       />
+      {message.truncated && (
+        <Tooltip arrow title={t("websocket.truncatedTooltip")}>
+          <Chip
+            size="small"
+            label={t("websocket.truncated")}
+            color="warning"
+            variant="outlined"
+            sx={{ height: 20, fontSize: 11 }}
+          />
+        </Tooltip>
+      )}
       <Typography
         variant="caption"
         sx={{
@@ -968,6 +980,13 @@ function MessageDetail({
           </Stack>
         </Stack>
       </Box>
+      {/* P2 4.1-7: reassembly hit the capture cap — the payload below is only
+          a prefix of the original message, never present it as complete. */}
+      {message.truncated && (
+        <Alert severity="warning" variant="outlined" icon={false} sx={{ py: 0.5 }}>
+          {t("websocket.truncatedNotice", { size: formatBytes(message.payloadSize) })}
+        </Alert>
+      )}
       {/* Format toggle + copy */}
       <Stack
         direction="row"

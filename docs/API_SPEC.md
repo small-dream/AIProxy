@@ -1130,6 +1130,7 @@ type WsMessage = {
   payloadText?: string;       // 仅文本帧有值
   payloadSize: number;
   fin: boolean;
+  truncated: boolean;         // 重组达到捕获上限（20 MiB）时为 true，负载仅为原始消息前缀
 };
 ```
 
@@ -2271,6 +2272,7 @@ type WsMessageEvent = WsMessage;
 //   payloadText?: string;
 //   payloadSize: number;
 //   fin: boolean;
+//   truncated: boolean;  // 重组达到捕获上限时为 true
 // }
 ```
 

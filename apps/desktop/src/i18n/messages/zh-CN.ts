@@ -1734,6 +1734,9 @@ export const zhCNMessages: Messages = {
     replayTooltip: "编辑并重发此消息",
     injectionFailed: "发送消息失败",
     searchResultsCount: "{{count}} 个匹配",
+    truncated: "已截断",
+    truncatedTooltip: "重组达到捕获上限 — 仅保留了原始消息的前缀",
+    truncatedNotice: "该消息超过 20 MiB 重组上限 — 仅显示原始负载的前 {{size}}。",
   },
   insightsPage: {
     title: "洞察",
