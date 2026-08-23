@@ -1098,7 +1098,7 @@ export const zhCNMessages: Messages = {
     },
     batchDelete: "删除",
     batchDeleteConfirm: "将从当前容器移除 {{count}} 个会话。",
-    batchDeleteDone: "已删除 {{count}} 个会话",
+    batchDeleteDone: "已从当前容器移除 {{count}} 个会话",
     batchDeleteTitle: "删除选中的会话？",
     batchSaveResponsesDone: "已保存 {{count}} 个响应",
     clearSessionsConfirm: "将永久删除所有已捕获的会话，此操作无法撤销。",

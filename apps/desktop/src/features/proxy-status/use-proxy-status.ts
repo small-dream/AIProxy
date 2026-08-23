@@ -3,7 +3,6 @@ import { DEFAULT_PROXY_PORT, type ProxyStatus, type StartProxyInput } from "@aip
 
 import {
   clearSessions,
-  deleteSessionsExcept,
   disableSystemProxy,
   enableSystemProxy,
   getBootstrapStatus,
@@ -139,24 +138,6 @@ export function useClearSessions() {
       queryClient.setQueryData(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
       logDevInfo("ui.sessions", "clear_sessions_mutation_succeeded");
-    },
-  });
-}
-
-export function useDeleteSessionsExcept() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: deleteSessionsExcept,
-    onError: (error) => {
-      logDevError("ui.sessions", "delete_sessions_except_mutation_failed", {
-        error,
-      });
-    },
-    onSuccess: () => {
-      logDevInfo("ui.sessions", "delete_sessions_except_mutation_succeeded");
-      queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
-      queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
     },
   });
 }

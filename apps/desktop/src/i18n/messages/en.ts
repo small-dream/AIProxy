@@ -1144,7 +1144,7 @@ export const enMessages = {
     },
     batchDelete: "Delete",
     batchDeleteConfirm: "This will remove {{count}} session(s) from the current container.",
-    batchDeleteDone: "Deleted {{count}} sessions",
+    batchDeleteDone: "Removed {{count}} session(s) from the current container",
     batchDeleteTitle: "Delete selected sessions?",
     batchSaveResponsesDone: "Saved {{count}} responses",
     clearSessionsConfirm:
