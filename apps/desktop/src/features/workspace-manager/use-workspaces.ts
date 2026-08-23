@@ -74,5 +74,8 @@ export function useUpdateWorkspace() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
+    // Every caller (settings sections, sessions SSL toggle, proxy lifecycle)
+    // catches and surfaces the failure itself.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }

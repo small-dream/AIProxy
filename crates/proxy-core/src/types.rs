@@ -609,10 +609,16 @@ impl ProxySessionSummary {
     }
 }
 
-#[derive(Debug)]
 pub struct ProxyServerHandle {
     pub(crate) shutdown_sender: Option<oneshot::Sender<()>>,
     pub(crate) join_handle: JoinHandle<()>,
+    pub(crate) upstream_pool: Option<Arc<crate::upstream_pool::UpstreamConnectionPool>>,
+}
+
+impl std::fmt::Debug for ProxyServerHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProxyServerHandle").finish_non_exhaustive()
+    }
 }
 
 impl ProxyServerHandle {
@@ -622,6 +628,10 @@ impl ProxyServerHandle {
         }
 
         let _ = self.join_handle.await;
+
+        if let Some(pool) = self.upstream_pool.take() {
+            pool.shutdown().await;
+        }
     }
 }
 

@@ -100,19 +100,19 @@ describe("encodeComposedRequest", () => {
     ]);
   });
 
-  it("leaves file paths untouched while substituting the part name", () => {
+  it("leaves file tokens untouched while substituting the part name", () => {
     const vars = new Map([["dir", "/tmp/aiproxy"]]);
     const result = encodeComposedRequest(
       input({
         bodyType: "formdata",
-        formFiles: [{ name: "{{dir}}/upload", fileName: "a.txt", filePath: "/tmp/aiproxy/a.txt" }],
+        formFiles: [{ name: "{{dir}}/upload", fileName: "a.txt", fileToken: "token-a" }],
       }),
       vars,
     );
     expect(result.multipartEntries?.[0]).toMatchObject({
       kind: "file",
       name: "/tmp/aiproxy/upload",
-      filePath: "/tmp/aiproxy/a.txt",
+      fileToken: "token-a",
     });
   });
 

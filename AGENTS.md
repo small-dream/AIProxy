@@ -46,6 +46,7 @@
 
 - 与用户的沟通回复、项目文档（AGENTS.md、docs/ 等）统一使用**中文**。
 - 代码注释统一使用**英文**。
+- Commit 信息（subject 与 body）统一使用**英文**，遵循 Conventional Commits 格式（见 `CONTRIBUTING.md`）。
 - 用户可见的 UI 文案遵循 i18n 双语机制，不在此约束范围内。
 
 ## 6. 默认工作方式

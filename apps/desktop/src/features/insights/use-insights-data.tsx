@@ -13,6 +13,8 @@ import type { GetInsightsInput, InsightsResult } from "@aiproxy/shared-types";
 
 import {
   areSessionIdsEqual,
+  buildSessionIdsSignature,
+  parseSessionIdsSignature,
   computeInsightsFromSummaries,
   normalizeHostValue,
   type InsightsComputationFilters,
@@ -193,7 +195,23 @@ export function useInsightsData() {
   // every tick. `input` MUST be built from the same debounced ids: the cached
   // result is keyed by them, so building it from the fresher live ids would let
   // the two drift (and keep serving a stale result until the key catches up).
-  const debouncedSessionIds = useDebouncedValue(activeSessionIds, 5000);
+  //
+  // P2 4.3-3: the store batches rebuild `activeSessionIds` every ~100ms, so
+  // the raw array reference churns even when its contents stand still — and
+  // useDebouncedValue keys its timer on reference identity, which used to
+  // restart the window on every tick and starve the backend query indefinitely
+  // under sustained traffic. Debounce a string signature instead, then
+  // materialize the id list it stands for, so the window only restarts on real
+  // content changes.
+  const sessionIdsSignature = useMemo(
+    () => buildSessionIdsSignature(activeSessionIds),
+    [activeSessionIds],
+  );
+  const debouncedSignature = useDebouncedValue(sessionIdsSignature, 5000);
+  const debouncedSessionIds = useMemo(
+    () => parseSessionIdsSignature(debouncedSignature),
+    [debouncedSignature],
+  );
   const input = useMemo<GetInsightsInput>(() => {
     const base: GetInsightsInput = { sessionIds: debouncedSessionIds };
     const trimmedKeyword = debouncedDomain.trim();

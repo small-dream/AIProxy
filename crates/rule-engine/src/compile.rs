@@ -153,21 +153,27 @@ pub(crate) fn transpile_source(
 }
 
 pub(crate) fn build_runtime_module(transpiled_source: &str) -> String {
-    transpiled_source
-        .replace(
-            "export async function onRequest",
-            "globalThis.__aiproxyScriptExports.onRequest = async function onRequest",
-        )
-        .replace(
-            "export function onRequest",
-            "globalThis.__aiproxyScriptExports.onRequest = function onRequest",
-        )
-        .replace(
-            "export async function onResponse",
-            "globalThis.__aiproxyScriptExports.onResponse = async function onResponse",
-        )
-        .replace(
-            "export function onResponse",
-            "globalThis.__aiproxyScriptExports.onResponse = function onResponse",
-        )
+    // MUST mirror `detect_entrypoints`' entrypoint regex exactly: every source
+    // that passes validation is rewritten here. Literal single-space replaces
+    // used to skip sources like `export\nfunction onRequest(`, leaving a bare
+    // `export` in the module and no `__aiproxyScriptExports` entry — the rule
+    // was accepted but its hooks never fired.
+    static ENTRYPOINT_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
+    let export_re = ENTRYPOINT_EXPORT_RE.get_or_init(|| {
+        Regex::new(r"export\s+(async\s+)?function\s+(onRequest|onResponse)\s*\(")
+            .expect("valid entrypoint export regex")
+    });
+
+    export_re
+        .replace_all(transpiled_source, |caps: &regex::Captures| {
+            // Group 1 is optional: `caps.get` (not indexing) so a sync export
+            // with no `async` group does not panic.
+            let async_kw = match caps.get(1) {
+                Some(m) if !m.is_empty() => "async ",
+                _ => "",
+            };
+            let hook = &caps[2];
+            format!("globalThis.__aiproxyScriptExports.{hook} = {async_kw}function {hook}(")
+        })
+        .into_owned()
 }

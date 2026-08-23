@@ -3,9 +3,10 @@ import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
 import { Alert, AlertTitle, Button, Paper, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import { DEFAULT_PROXY_PORT } from "@aiproxy/shared-types";
+import { coerceAppError, DEFAULT_PROXY_PORT } from "@aiproxy/shared-types";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
+import { useNotificationStore } from "@/services/notification.store";
 import { type SetupStepKey } from "@/features/certificate-center/setup-progress.helpers";
 import { useProxyStartStore } from "@/features/proxy-status/proxy-start.store";
 import { useStartProxy } from "@/features/proxy-status/use-proxy-status";
@@ -134,7 +135,17 @@ export function SetupChecklistCard() {
               variant="contained"
               size="small"
               disabled={startProxyMutation.isPending}
-              onClick={() => startProxyMutation.mutate(startDefaults)}
+              onClick={() =>
+                startProxyMutation.mutate(startDefaults, {
+                  // The hook opts out of the global MutationCache toast, so
+                  // non-port failures need this local push to stay visible.
+                  onError: (error) => {
+                    useNotificationStore
+                      .getState()
+                      .push(coerceAppError(error).message || t("common.errors.generic"));
+                  },
+                })
+              }
             >
               {t("common.actions.startProxy")}
             </Button>

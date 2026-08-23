@@ -31,6 +31,17 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   };
 });
 
+// P0-2 unsaved-changes guard: these tests run outside a data router, so stub
+// the router hooks the guard consumes (same strategy as RewriteRulesPanel
+// tests). "unblocked" keeps every transition allowed; the guard's veto
+// behavior is covered by the dedicated RewriteRulesPanel guard tests.
+vi.mock("react-router-dom", () => ({
+  useLocation: () => ({ pathname: "/rules", state: null }),
+  useNavigate: () => vi.fn(),
+  useBlocker: () => ({ state: "unblocked" as const, proceed: vi.fn(), reset: vi.fn() }),
+  useBeforeUnload: () => {},
+}));
+
 // Keep the test free of the i18n provider dependency. The fake `t` returns the
 // key verbatim, but when interpolation params are supplied it appends the
 // `message` value so the L10 test can assert the error context is surfaced.

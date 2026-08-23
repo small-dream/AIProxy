@@ -2,6 +2,7 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import { useState } from "react";
 import {
+  Alert,
   Button,
   Chip,
   CircularProgress,
@@ -11,7 +12,7 @@ import {
   Stepper,
   Typography,
 } from "@mui/material";
-import { type CertificateStatus } from "@aiproxy/shared-types";
+import { coerceAppError, type CertificateStatus } from "@aiproxy/shared-types";
 import { useDiagnoseCertificateSetup } from "@/features/certificate-center/use-certificate-status";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { useI18n, type TranslationKey } from "@/i18n";
@@ -246,7 +247,9 @@ const DIAGNOSTIC_CHECK_KEYS: Record<string, TranslationKey> = {
 function DiagnosticsCard() {
   const { t } = useI18n();
   const [enabled, setEnabled] = useState(false);
-  const { data, isFetching, refetch } = useDiagnoseCertificateSetup({ enabled });
+  // P1-27: a failed diagnostic run used to fall back to the hint text with no
+  // trace of the error; surface it and let the same button retry.
+  const { data, error, isError, isFetching, refetch } = useDiagnoseCertificateSetup({ enabled });
 
   const handleRun = () => {
     if (!enabled) {
@@ -257,6 +260,7 @@ function DiagnosticsCard() {
 
   const checks = data?.checks ?? [];
   const passed = checks.filter((check) => check.ok).length;
+  const diagnosticError = isError && error ? coerceAppError(error).message : undefined;
 
   return (
     <SectionCard
@@ -271,10 +275,13 @@ function DiagnosticsCard() {
         >
           {isFetching
             ? t("certificatesPage.diagnostics.running")
-            : t("certificatesPage.diagnostics.run")}
+            : diagnosticError
+              ? t("common.actions.retry")
+              : t("certificatesPage.diagnostics.run")}
         </Button>
       }
     >
+      {diagnosticError ? <Alert severity="error">{diagnosticError}</Alert> : null}
       {data ? (
         <Stack spacing={1}>
           <Typography

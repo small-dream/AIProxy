@@ -3,7 +3,6 @@ import { DEFAULT_PROXY_PORT, type ProxyStatus, type StartProxyInput } from "@aip
 
 import {
   clearSessions,
-  deleteSessionsExcept,
   disableSystemProxy,
   enableSystemProxy,
   getBootstrapStatus,
@@ -55,6 +54,10 @@ export function useStartProxy() {
       queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
       useProxyStartStore.getState().clearPortInUse();
     },
+    // Settings, sessions, wizard, lifecycle and the checklist card all render
+    // start failures themselves (port conflicts additionally land in the
+    // shared store above).
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -74,6 +77,8 @@ export function useStopProxy() {
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
       queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
     },
+    // Wizard and lifecycle surfaces render this failure themselves.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -94,6 +99,8 @@ export function useEnableSystemProxy() {
       // the cached list so the next launch knows to restore the system proxy.
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
+    // Wizard and lifecycle surfaces render this failure themselves.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -112,6 +119,8 @@ export function useDisableSystemProxy() {
       queryClient.setQueryData(PROXY_STATUS_QUERY_KEY, status);
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
+    // Wizard and lifecycle surfaces render this failure themselves.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -129,24 +138,6 @@ export function useClearSessions() {
       queryClient.setQueryData(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
       logDevInfo("ui.sessions", "clear_sessions_mutation_succeeded");
-    },
-  });
-}
-
-export function useDeleteSessionsExcept() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: deleteSessionsExcept,
-    onError: (error) => {
-      logDevError("ui.sessions", "delete_sessions_except_mutation_failed", {
-        error,
-      });
-    },
-    onSuccess: () => {
-      logDevInfo("ui.sessions", "delete_sessions_except_mutation_succeeded");
-      queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
-      queryClient.removeQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
     },
   });
 }

@@ -41,6 +41,8 @@ export function useDeleteCollection() {
       queryClient.invalidateQueries({ queryKey: COLLECTIONS_KEY });
       queryClient.invalidateQueries({ queryKey: ["api-collection-items"] });
     },
+    // Surfaced inside the delete ConfirmDialog while it stays open on failure.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -74,6 +76,8 @@ export function useMoveCollection() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: COLLECTIONS_KEY });
     },
+    // Callers surface the failure through the tree's move-error snackbar.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 

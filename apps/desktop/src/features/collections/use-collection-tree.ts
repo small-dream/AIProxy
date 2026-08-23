@@ -121,8 +121,8 @@ export interface UseCollectionTreeReturn {
   handleBeginRename: () => void;
   handleRenameCancel: () => void;
   handleRenameSubmit: () => void;
-  handleDeleteCollection: (collectionId: string) => void;
-  handleDeleteItem: (item: CollectionEditorItem) => void;
+  handleDeleteCollection: (collectionId: string, callbacks?: { onSuccess?: () => void }) => void;
+  handleDeleteItem: (item: CollectionEditorItem, callbacks?: { onSuccess?: () => void }) => void;
 
   // State setters (for dialogs)
   setTreeMenuState: (
@@ -332,21 +332,36 @@ export function useCollectionTree(params: UseCollectionTreeParams): UseCollectio
 
   // --- Collection/item deletion ---
 
-  function handleDeleteCollection(collectionId: string) {
-    deleteCollection.mutate(collectionId);
-    if (selectedCollectionId === collectionId) {
-      setSelectedCollectionId(null);
-      setSelectedItemId(null);
-      editor.reset();
-    }
+  // P1-23: both deletes clear the affected selection only on SUCCESS (a failed
+  // delete used to clear it unconditionally, desyncing the tree from the
+  // backend) and invoke the caller's onSuccess so the confirm dialog closes
+  // after the mutation settles rather than optimistically.
+  function handleDeleteCollection(collectionId: string, callbacks?: { onSuccess?: () => void }) {
+    deleteCollection.mutate(collectionId, {
+      onSuccess: () => {
+        if (selectedCollectionId === collectionId) {
+          setSelectedCollectionId(null);
+          setSelectedItemId(null);
+          editor.reset();
+        }
+        callbacks?.onSuccess?.();
+      },
+    });
   }
 
-  function handleDeleteItem(item: CollectionEditorItem) {
-    deleteItem.mutate({ collectionId: item.collectionId, id: item.id });
-    if (selectedItemId === item.id) {
-      setSelectedItemId(null);
-      editor.reset();
-    }
+  function handleDeleteItem(item: CollectionEditorItem, callbacks?: { onSuccess?: () => void }) {
+    deleteItem.mutate(
+      { collectionId: item.collectionId, id: item.id },
+      {
+        onSuccess: () => {
+          if (selectedItemId === item.id) {
+            setSelectedItemId(null);
+            editor.reset();
+          }
+          callbacks?.onSuccess?.();
+        },
+      },
+    );
   }
 
   // --- DnD handlers ---

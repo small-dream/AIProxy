@@ -21,13 +21,72 @@ import {
 // Derived data helpers
 // ---------------------------------------------------------------------------
 
-function deriveActiveData(state: SessionContainerState) {
+type DerivedActiveData = {
+  activeSessionIds: string[];
+  activeSessionSummaries: SessionSummary[];
+};
+
+/**
+ * P0-3: content-equality cache for the derived active-container data.
+ *
+ * Every store action recomputes this derivation, and before the cache each
+ * call returned fresh array references — so an unrelated write (selection,
+ * search text, expanded hosts…) invalidated every downstream `useMemo` on the
+ * Sessions page that depends on `activeSessionIds`/`activeSessionSummaries`,
+ * re-running the whole filter/group pipeline at upsert frequency. When neither
+ * input changed by content, the PREVIOUS references are handed back instead.
+ */
+let derivedActiveDataCache:
+  | ({
+      sourceSessionIds: string[];
+      sourceSummariesById: SessionContainerState["sessionSummaryById"];
+    } & DerivedActiveData)
+  | null = null;
+
+export function deriveActiveData(state: SessionContainerState): DerivedActiveData {
   const activeContainer = getSessionContainerById(state, state.activeContainerId);
-  const activeSessionIds = activeContainer?.sessionIds ?? [];
-  const activeSessionSummaries = activeSessionIds
-    .map((id) => state.sessionSummaryById[id])
+  const nextSessionIds = activeContainer?.sessionIds ?? [];
+  const nextSummariesById = state.sessionSummaryById;
+
+  const cached = derivedActiveDataCache;
+  if (
+    cached !== null &&
+    cached.sourceSummariesById === nextSummariesById &&
+    areIdenticalStringArrays(cached.sourceSessionIds, nextSessionIds)
+  ) {
+    // Same content — reuse the previous references but remember the new
+    // source array so subsequent comparisons hit the cheap reference path.
+    derivedActiveDataCache = { ...cached, sourceSessionIds: nextSessionIds };
+    return {
+      activeSessionIds: cached.activeSessionIds,
+      activeSessionSummaries: cached.activeSessionSummaries,
+    };
+  }
+
+  const activeSessionSummaries = nextSessionIds
+    .map((id) => nextSummariesById[id])
     .filter((s): s is SessionSummary => Boolean(s));
-  return { activeSessionIds, activeSessionSummaries };
+  derivedActiveDataCache = {
+    sourceSessionIds: nextSessionIds,
+    sourceSummariesById: nextSummariesById,
+    activeSessionIds: nextSessionIds,
+    activeSessionSummaries,
+  };
+
+  return { activeSessionIds: nextSessionIds, activeSessionSummaries };
+}
+
+/** Length + element-wise string comparison (arrays are short; O(n) is fine). */
+function areIdenticalStringArrays(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

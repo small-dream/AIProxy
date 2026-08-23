@@ -98,25 +98,36 @@ impl Repository {
 
     /// Clear all session data from SQLite and BodyStore.
     ///
-    /// M29: the DB clear and the body-store clear are not atomic — if the
-    /// body clear fails (e.g. a transient FS error) the DB rows are gone but
-    /// orphaned blob files remain on disk. Rather than blocking the UI, spawn
-    /// a background rescan that retries `clear_all` once; if it still fails the
-    /// orphan blobs persist but are harmless (no DB rows reference them and a
-    /// later clear/full session re-run will sweep them again).
+    /// M29: the DB clear and the body-store clear are not atomic. P2 4.2-7:
+    /// they are ordered so a failure keeps both stores consistent — blob files
+    /// are only reclaimed once the DB rows referencing them are gone. If the
+    /// DB clear fails (poison or DB error) the body clear is skipped: deleting
+    /// the files anyway would strand every surviving row behind dangling body
+    /// refs, whereas keeping them merely delays reclamation until the next
+    /// successful clear. The reverse failure (bodies fail after the rows are
+    /// gone) leaves harmless orphans; the background rescan retries it once.
     pub fn clear_all_sessions(&self) {
-        // Fail-closed on poison: skip the DB clear rather than write through a
-        // potentially torn Connection. The body-store clear below still runs
-        // (it's independent of the DB Connection).
-        if let Ok(conn) = self.lock_best_effort("session_clear") {
-            if let Err(error) = aiproxy_db::sessions::clear_all_sessions(&conn) {
-                tracing::error!(
-                    component = "desktop.persistence",
-                    event = "clear_session_storage_db_failed",
-                    error = %error,
-                    "clear_session_storage_db_failed"
-                );
-            }
+        // Fail-closed on poison (logged by lock_db_best_effort): skip the DB
+        // clear rather than write through a potentially torn Connection — and
+        // skip the body clear with it.
+        let db_cleared = match self.lock_best_effort("session_clear") {
+            Ok(conn) => match aiproxy_db::sessions::clear_all_sessions(&conn) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "clear_session_storage_db_failed",
+                        error = %error,
+                        "clear_session_storage_db_failed"
+                    );
+                    false
+                }
+            },
+            Err(()) => false,
+        };
+
+        if !db_cleared {
+            return;
         }
 
         if let Err(error) = self.body_store.clear_all() {
@@ -218,16 +229,6 @@ impl Repository {
                 );
             }
         }
-    }
-
-    /// Fire-and-forget variant for callers that have already updated caches
-    /// and emitted events and don't need to wait for DB cleanup.
-    pub fn spawn_delete_sessions(&self, ids: Vec<String>) {
-        let db = Arc::clone(&self.db);
-        let body_store = Arc::clone(&self.body_store);
-        std::thread::spawn(move || {
-            delete_sessions_impl(&db, &body_store, &ids);
-        });
     }
 
     /// Load a session detail row from the database for an IPC-reachable path,
@@ -915,5 +916,78 @@ fn persist_all_traces(
             error = %e,
             "throttle_trace_upsert_db_failed"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_repository(conn: aiproxy_db::rusqlite::Connection) -> (Repository, std::path::PathBuf) {
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-repo-clear-{}", uuid::Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        (
+            Repository::new(Arc::new(Mutex::new(conn)), Arc::clone(&body_store)),
+            body_store_dir,
+        )
+    }
+
+    fn poison_db(db: &Arc<Mutex<aiproxy_db::rusqlite::Connection>>) {
+        let db_clone = Arc::clone(db);
+        let handle = std::thread::spawn(move || {
+            let _guard = db_clone.lock().unwrap();
+            panic!("intentional poison for test");
+        });
+        handle.join().ok();
+    }
+
+    // P2 4.2-7: when the DB clear cannot run (poisoned connection), the body
+    // clear must be skipped as well — deleting blob files whose rows survive
+    // would strand every remaining session behind dangling body refs.
+    #[test]
+    fn clear_all_sessions_skips_body_clear_when_db_is_poisoned() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        let (repository, body_store_dir) = make_repository(conn);
+        let relative_path = repository
+            .body_store()
+            .write_body("session-1", "request", b"payload")
+            .unwrap();
+
+        let db = Arc::clone(repository.db());
+        poison_db(&db);
+
+        repository.clear_all_sessions();
+
+        assert!(
+            body_store_dir.join("session-1").exists(),
+            "body files must survive when the DB clear was skipped"
+        );
+        assert!(repository.body_store().read_body(&relative_path).is_ok());
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    // Control for the case above: a healthy DB clear still reclaims bodies.
+    #[test]
+    fn clear_all_sessions_removes_bodies_when_db_clear_succeeds() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let (repository, body_store_dir) = make_repository(conn);
+        let relative_path = repository
+            .body_store()
+            .write_body("session-1", "request", b"payload")
+            .unwrap();
+
+        repository.clear_all_sessions();
+
+        assert!(
+            !body_store_dir.join("session-1").exists(),
+            "body files must be reclaimed once DB rows are gone"
+        );
+        assert!(repository.body_store().read_body(&relative_path).is_err());
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
     }
 }

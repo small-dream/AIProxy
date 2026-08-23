@@ -1,7 +1,11 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 import { describe, expect, it } from "vitest";
 
-import { markTimedOutPendingSession, PENDING_SESSION_TIMEOUT_MS } from "./session-cache.helpers";
+import {
+  buildPendingComposedSessionDetail,
+  markTimedOutPendingSession,
+  PENDING_SESSION_TIMEOUT_MS,
+} from "./session-cache.helpers";
 
 describe("markTimedOutPendingSession", () => {
   it("marks old pending sessions as gateway timeouts", () => {
@@ -31,6 +35,25 @@ describe("markTimedOutPendingSession", () => {
     });
 
     expect(markTimedOutPendingSession(session, startedAtMs + 30_000)).toBe(session);
+  });
+});
+
+// P2 4.3-8: inline body sizeBytes must be a byte count — string.length counts
+// UTF-16 code units and underestimates multi-byte UTF-8 payloads.
+describe("buildPendingComposedSessionDetail inline body size", () => {
+  it("reports the UTF-8 byte length, not the character count", () => {
+    const detail = buildPendingComposedSessionDetail(
+      {
+        workspaceId: "ws-1",
+        method: "POST",
+        url: "https://api.example.com/upload",
+        headers: [{ name: "Content-Type", value: "text/plain" }],
+        body: "中文", // 2 code units but 6 UTF-8 bytes
+      },
+      "session-1",
+    );
+
+    expect(detail?.requestBody?.sizeBytes).toBe(6);
   });
 });
 

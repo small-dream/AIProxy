@@ -60,7 +60,7 @@ Map Local produces a local response directly, so:
 The **target** field takes an **`http://` or `https://` base URL** (e.g. `https://staging.example.com`):
 
 - On a hit, the request's host / upstream is swapped to that target
-- With "Preserve Path / Preserve Query" on, the original path and query are appended to the new target
+- With "Preserve Path / Preserve Query" on, the original path and query are appended to the new target. The target URL path is treated as a base path and slashes are normalized: `/gateway/` plus `/v1/users` becomes `/gateway/v1/users`.
 - The request **continues the full proxy pipeline** ([scripts](./script-rules.md) / [breakpoints](./breakpoints.md) / [throttling](./throttling.md) / upstream) — it does not return a redirect to the client
 
 For example, source `api.example.com`, target `https://staging.example.com`, with path and query preserved, `https://api.example.com/v1/users?id=1` is forwarded to `https://staging.example.com/v1/users?id=1`. The client is completely unaware, and Sessions keeps the original URL context.

@@ -6,6 +6,7 @@ import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "re
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
 import { saveSessionToCollection, sendComposedRequest } from "@/services/commands";
+import { logDevWarn } from "@/services/logger/dev-logger";
 
 import { getRawMessageText } from "@/features/sessions/components/session-inspector.helpers";
 import type { SaveResponseFilesTarget } from "@/features/sessions/components/SaveResponseFilesDialog";
@@ -140,10 +141,18 @@ export function useSessionContextActions({
         return;
       }
 
-      await navigator.clipboard?.writeText(text);
-      showSnackbar(message);
+      // P2 4.3-9: clipboard writes reject when the document loses focus or the
+      // permission is denied — surface that instead of leaking an unhandled
+      // rejection from a fire-and-forget menu action.
+      try {
+        await navigator.clipboard?.writeText(text);
+        showSnackbar(message);
+      } catch (error) {
+        logDevWarn("ui.sessions", "context_menu_copy_failed", { error: String(error) });
+        showSnackbar(t("contextMenu.copyFailed"));
+      }
     },
-    [showSnackbar],
+    [showSnackbar, t],
   );
 
   const handleCopyUrl = useCallback(
@@ -155,97 +164,116 @@ export function useSessionContextActions({
 
   const handleCopyRequest = useCallback(
     async (session: SessionSummary) => {
-      let detail = await ensureSessionDetailContent(queryClient, session.id, {});
-      let rawRequest = getRawMessageText(
-        detail?.rawRequest,
-        detail?.rawRequestHead,
-        detail?.requestBody,
-      );
-
-      if (!rawRequest && detail?.requestBody?.textDeferred && detail.rawRequestHead) {
-        detail = await ensureSessionDetailContent(queryClient, session.id, {
-          includeRequestBodyText: true,
-        });
-        rawRequest = getRawMessageText(
-          detail.rawRequest,
-          detail.rawRequestHead,
-          detail.requestBody,
+      // P2 4.3-9: detail hydration can reject (command failure); report it via
+      // snackbar instead of leaking an unhandled rejection from the menu click.
+      try {
+        let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+        let rawRequest = getRawMessageText(
+          detail?.rawRequest,
+          detail?.rawRequestHead,
+          detail?.requestBody,
         );
-      }
 
-      if (!rawRequest && detail?.rawRequestDeferred) {
-        detail = await ensureSessionDetailContent(queryClient, session.id, {
-          includeRawRequest: true,
-        });
-        rawRequest = getRawMessageText(
-          detail.rawRequest,
-          detail.rawRequestHead,
-          detail.requestBody,
-        );
-      }
+        if (!rawRequest && detail?.requestBody?.textDeferred && detail.rawRequestHead) {
+          detail = await ensureSessionDetailContent(queryClient, session.id, {
+            includeRequestBodyText: true,
+          });
+          rawRequest = getRawMessageText(
+            detail.rawRequest,
+            detail.rawRequestHead,
+            detail.requestBody,
+          );
+        }
 
-      if (!rawRequest) {
-        return;
-      }
+        if (!rawRequest && detail?.rawRequestDeferred) {
+          detail = await ensureSessionDetailContent(queryClient, session.id, {
+            includeRawRequest: true,
+          });
+          rawRequest = getRawMessageText(
+            detail.rawRequest,
+            detail.rawRequestHead,
+            detail.requestBody,
+          );
+        }
 
-      await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
+        if (!rawRequest) {
+          return;
+        }
+
+        await copyToClipboard(rawRequest, t("contextMenu.copiedToClipboard"));
+      } catch (error) {
+        logDevWarn("ui.sessions", "context_menu_copy_failed", { error: String(error) });
+        showSnackbar(t("contextMenu.copyFailed"));
+      }
     },
-    [copyToClipboard, queryClient, t],
+    [copyToClipboard, queryClient, showSnackbar, t],
   );
 
   const handleCopyCurl = useCallback(
     async (session: SessionSummary) => {
-      const detail = await ensureSessionDetailContent(queryClient, session.id, {
-        includeRequestBodyText: true,
-      });
+      // P2 4.3-9: see handleCopyRequest — hydration failures must surface.
+      try {
+        const detail = await ensureSessionDetailContent(queryClient, session.id, {
+          includeRequestBodyText: true,
+        });
 
-      if (!detail) {
-        return;
+        if (!detail) {
+          return;
+        }
+
+        await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
+      } catch (error) {
+        logDevWarn("ui.sessions", "context_menu_copy_failed", { error: String(error) });
+        showSnackbar(t("contextMenu.copyFailed"));
       }
-
-      await copyToClipboard(buildCurlCommand(detail), t("composePage.copiedCurl"));
     },
-    [copyToClipboard, queryClient, t],
+    [copyToClipboard, queryClient, showSnackbar, t],
   );
 
   const handleCopyResponse = useCallback(
     async (session: SessionSummary) => {
-      let detail = await ensureSessionDetailContent(queryClient, session.id, {});
-      let rawResponse = getRawMessageText(
-        detail?.rawResponse,
-        detail?.rawResponseHead,
-        detail?.responseBody,
-      );
-
-      if (!rawResponse && detail?.responseBody?.textDeferred && detail.rawResponseHead) {
-        detail = await ensureSessionDetailContent(queryClient, session.id, {
-          includeResponseBodyText: true,
-        });
-        rawResponse = getRawMessageText(
-          detail.rawResponse,
-          detail.rawResponseHead,
-          detail.responseBody,
+      // P2 4.3-9: see handleCopyRequest — hydration failures must surface.
+      try {
+        let detail = await ensureSessionDetailContent(queryClient, session.id, {});
+        let rawResponse = getRawMessageText(
+          detail?.rawResponse,
+          detail?.rawResponseHead,
+          detail?.responseBody,
         );
-      }
 
-      if (!rawResponse && detail?.rawResponseDeferred) {
-        detail = await ensureSessionDetailContent(queryClient, session.id, {
-          includeRawResponse: true,
-        });
-        rawResponse = getRawMessageText(
-          detail.rawResponse,
-          detail.rawResponseHead,
-          detail.responseBody,
-        );
-      }
+        if (!rawResponse && detail?.responseBody?.textDeferred && detail.rawResponseHead) {
+          detail = await ensureSessionDetailContent(queryClient, session.id, {
+            includeResponseBodyText: true,
+          });
+          rawResponse = getRawMessageText(
+            detail.rawResponse,
+            detail.rawResponseHead,
+            detail.responseBody,
+          );
+        }
 
-      if (!rawResponse) {
-        return;
-      }
+        if (!rawResponse && detail?.rawResponseDeferred) {
+          detail = await ensureSessionDetailContent(queryClient, session.id, {
+            includeRawResponse: true,
+          });
+          rawResponse = getRawMessageText(
+            detail.rawResponse,
+            detail.rawResponseHead,
+            detail.responseBody,
+          );
+        }
 
-      await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
+        if (!rawResponse) {
+          return;
+        }
+
+        await copyToClipboard(rawResponse, t("contextMenu.copiedToClipboard"));
+      } catch (error) {
+        logDevWarn("ui.sessions", "context_menu_copy_failed", { error: String(error) });
+        showSnackbar(t("contextMenu.copyFailed"));
+      }
     },
-    [copyToClipboard, queryClient, t],
+    [copyToClipboard, queryClient, showSnackbar, t],
   );
 
   const handleSaveResponse = useCallback(

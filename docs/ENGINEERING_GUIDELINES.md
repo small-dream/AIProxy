@@ -131,6 +131,8 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
   - JS host bridge 与 runtime module 构造归入 `js_bridge.rs`
   - `lib.rs` 只保留模块声明、public re-export 和测试
 - 前端大型页面必须按“页面负责布局、hook 负责状态流程、helper 负责纯计算、service 负责命令调用”的方式拆分。新增复杂交互时优先扩展 `features/<domain>/` 下的 hook/helper/component，不把业务流程堆回 `pages/<domain>/index.tsx`。
+- 前端 feature 边界由 desktop 的 dependency-cruiser 规则守护；新增跨 feature import 前必须先下沉共享原语或更新显式豁免清单，禁止继续扩散。
+- 新增或调整任何超时语义时，必须在 `crates/proxy-core/src/timeouts.rs` 的 `TimeoutKind` 矩阵中声明；禁止在其他模块新增生产超时常量或独立 test-only override。
 - 三层同构命令架构必须保持一致：Rust `commands/<domain>.rs`、前端 `services/commands/<domain>.ts`、共享类型 `packages/shared-types/src/<domain>.ts` 同步演进。
 - 已删除的空壳 crate（`session-store`、`throttle-engine`、`exporter`）不得仅为占位重新加入；只有当存在可独立测试、可复用的真实领域逻辑时，才允许新增 crate，并需同步架构文档或 ADR。
 

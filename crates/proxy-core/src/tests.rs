@@ -7,13 +7,12 @@ use super::server::is_ssl_blind_tunnel;
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    override_tunnel_idle_timeout_for_test, override_upstream_request_timeout_for_test,
-    override_ws_upstream_body_read_idle_timeout_for_test, resolve_target_url, send_direct_request,
-    start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
-    ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
-    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
-    RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
-    ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
+    override_timeout_for_test, resolve_target_url, send_direct_request, start_proxy_server,
+    BreakpointActionKind, BreakpointResolution, MapManager, MapRule, ParsedProxyRequest,
+    ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers, ProxyRuntimeConfig,
+    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteManager, RewriteRule,
+    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, TimeoutKind,
+    UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
 use http::header::{HeaderMap, HeaderValue};
 use http::{Method, StatusCode};
@@ -1795,7 +1794,7 @@ fn non_regex_match_types_do_not_compile_regex() {
         apply_request_rewrite_rules(&Some(manager.clone()), "default", &mut request, false)
             .unwrap();
     assert!(
-        traces.len() >= 1,
+        !traces.is_empty(),
         "contains and exact rules should still match"
     );
 }
@@ -2186,15 +2185,86 @@ fn applies_map_remote_rules_by_rewriting_the_request_url() {
     assert!(response.is_none());
     assert_eq!(
         request.url.as_str(),
-        "https://staging.example.com/v1/users?debug=true"
+        "https://staging.example.com/base/v1/users?debug=true"
     );
     assert_eq!(request.protocol, "https");
     assert_eq!(request.host, "staging.example.com");
     assert_eq!(traces.len(), 1);
     assert_eq!(
         traces[0].mapped_url.as_deref(),
-        Some("https://staging.example.com/v1/users?debug=true")
+        Some("https://staging.example.com/base/v1/users?debug=true")
     );
+}
+
+#[test]
+fn map_remote_preserves_target_base_path_without_duplicate_separators() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-remote-base".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "Map remote base".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "api.example.com".to_string(),
+        target_value: "http://127.0.0.1:8080/gateway/".to_string(),
+        workspace_id: "default".to_string(),
+        match_type: None,
+    });
+
+    let mut request = build_test_request("https://api.example.com/v1/users?x=1");
+    let (_, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+    assert_eq!(
+        request.url.as_str(),
+        "http://127.0.0.1:8080/gateway/v1/users?x=1"
+    );
+    assert_eq!(
+        traces[0].original_url,
+        "https://api.example.com/v1/users?x=1"
+    );
+    assert_eq!(
+        traces[0].mapped_url.as_deref(),
+        Some("http://127.0.0.1:8080/gateway/v1/users?x=1")
+    );
+    assert_eq!(request.protocol, "http");
+    assert_eq!(request.host, "127.0.0.1");
+    assert_eq!(request.url.port(), Some(8080));
+}
+
+#[test]
+fn map_remote_can_drop_original_path_while_retaining_target_path() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-remote-target-only".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "Map remote target only".to_string(),
+        note: None,
+        preserve_path: false,
+        preserve_query: false,
+        priority: 100,
+        source_pattern: "api.example.com".to_string(),
+        target_value: "https://staging.example.com/base/health".to_string(),
+        workspace_id: "default".to_string(),
+        match_type: None,
+    });
+
+    let mut request = build_test_request("http://api.example.com/v1/users?x=1");
+    let (_, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request).unwrap();
+
+    assert_eq!(
+        request.url.as_str(),
+        "https://staging.example.com/base/health"
+    );
+    assert_eq!(
+        traces[0].mapped_url.as_deref(),
+        Some("https://staging.example.com/base/health")
+    );
+    assert_eq!(request.protocol, "https");
+    assert_eq!(request.url.port(), None);
 }
 
 #[test]
@@ -2377,6 +2447,266 @@ fn throttle_rule_does_not_match_when_pattern_absent_from_url() {
 }
 
 #[tokio::test]
+async fn pooled_h1_reuses_one_upstream_connection_for_sequential_requests() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        for body in [b"one".as_slice(), b"two".as_slice()] {
+            let mut request_bytes = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 512];
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "proxy opened a second upstream connection");
+                request_bytes.extend_from_slice(&chunk[..read]);
+                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            stream.write_all(response.as_bytes()).await.unwrap();
+            stream.write_all(body).await.unwrap();
+        }
+        let _ = completed_tx.send(());
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    for path in ["/one", "/two"] {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        let request = format!(
+            "GET http://127.0.0.1:{upstream_port}{path} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+        );
+        client.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.contains("HTTP/1.1 200 OK"));
+    }
+
+    timeout(Duration::from_secs(2), completed_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+async fn start_plain_proxy_for_pool_test() -> StartedProxyServer {
+    start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: allocate_unused_port(),
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn pooled_h1_opens_a_second_connection_for_concurrent_requests() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::channel(2);
+    let upstream_task = tokio::spawn({
+        let barrier = Arc::clone(&barrier);
+        async move {
+            for index in 0..2 {
+                let (mut stream, _) = upstream_listener.accept().await.unwrap();
+                let barrier = Arc::clone(&barrier);
+                let accepted_tx = accepted_tx.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    loop {
+                        let mut chunk = [0_u8; 512];
+                        let read = stream.read(&mut chunk).await.unwrap();
+                        assert!(read > 0);
+                        request.extend_from_slice(&chunk[..read]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    accepted_tx.send(index).await.unwrap();
+                    barrier.wait().await;
+                    let body = if index == 0 { "one" } else { "two" };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+        }
+    });
+
+    let proxy = start_plain_proxy_for_pool_test().await;
+    let first_url = format!("http://127.0.0.1:{upstream_port}/one");
+    let second_url = format!("http://127.0.0.1:{upstream_port}/two");
+    let proxy_port = proxy.bound_port;
+    let first = tokio::spawn(async move {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET {first_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        response
+    });
+    accepted_rx.recv().await.unwrap();
+
+    let second = tokio::spawn(async move {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET {second_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        response
+    });
+    let second_connection = timeout(Duration::from_secs(2), accepted_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        second_connection, 0,
+        "the concurrent request reused the busy h1 connection"
+    );
+    assert!(timeout(Duration::from_secs(2), first)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("one"));
+    assert!(timeout(Duration::from_secs(2), second)
+        .await
+        .unwrap()
+        .unwrap()
+        .contains("two"));
+    proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn pooled_h1_connection_close_forces_a_redial() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::channel(2);
+    let upstream_task = tokio::spawn(async move {
+        for index in 0..2 {
+            let (mut stream, _) = upstream_listener.accept().await.unwrap();
+            let accepted_tx = accepted_tx.clone();
+            tokio::spawn(async move {
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request).await.unwrap();
+                accepted_tx.send(index).await.unwrap();
+                let (body, connection) = if index == 0 {
+                    ("closed", "Connection: close\r\n")
+                } else {
+                    ("fresh", "")
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n{}\r\n{}",
+                    body.len(),
+                    connection,
+                    body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+    });
+
+    let proxy = start_plain_proxy_for_pool_test().await;
+    for path in ["/closed", "/fresh"] {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy.bound_port))
+            .await
+            .unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET http://127.0.0.1:{upstream_port}{path} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.contains("200 OK"));
+        assert!(response.contains(if path == "/closed" { "closed" } else { "fresh" }));
+    }
+    let first = accepted_rx.recv().await.unwrap();
+    let second = accepted_rx.recv().await.unwrap();
+    assert_eq!((first, second), (0, 1));
+    proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
 async fn forwards_plain_http_requests_and_emits_a_session_detail() {
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -2463,7 +2793,8 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
 
 #[tokio::test]
 async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(100));
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
     let upstream_task = tokio::spawn(async move {
@@ -2531,6 +2862,191 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
     upstream_task.abort();
 }
 
+/// P1-5 regression: the upstream request timeout now bounds only the HEAD
+/// phases (dial / handshake / head arrival). An upstream that delivers the
+/// response head promptly and then drips a slow-but-alive body must complete,
+/// even when the total transfer exceeds the request timeout. Before this
+/// change a single outer `timeout(upstream_request_timeout, forward_request)`
+/// wrapper aborted such transfers with a 504 partway through the body.
+#[tokio::test]
+async fn slow_dripping_response_body_survives_a_short_upstream_request_timeout() {
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(200));
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // Head arrives immediately; the body then drips for 300ms — well past
+        // the 200ms request-timeout budget.
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 30\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            sleep(Duration::from_millis(100)).await;
+            stream.write_all(&[b'A'; 10]).await.unwrap();
+        }
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/drip");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    timeout(
+        Duration::from_secs(5),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("response should complete even though it exceeds the request timeout")
+    .unwrap();
+
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
+    assert!(response.contains("200 OK"), "got: {response}");
+    assert_eq!(body.len(), 30, "body must arrive in full: {response:?}");
+    assert!(body.bytes().all(|b| b == b'A'), "got: {body:?}");
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+    assert_eq!(session.summary.status_code, 200);
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+/// P1-5 regression: a response body that goes silent mid-stream is abandoned
+/// by the per-chunk idle ceiling (client sees 502 quickly), NOT held until
+/// the much longer upstream request timeout. Only the body-idle slot is
+/// armed here — the request timeout stays at its 120s default — so a fast
+/// failure can only come from the idle ceiling.
+#[tokio::test]
+async fn silent_response_body_fails_within_the_body_idle_ceiling() {
+    let _idle_guard = override_timeout_for_test(
+        TimeoutKind::ResponseBodyReadIdle,
+        Duration::from_millis(200),
+    );
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        // The head promises 1000 bytes, then the upstream falls completely
+        // silent without delivering any of them.
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+            .await
+            .unwrap();
+        sleep(Duration::from_secs(5)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy: StartedProxyServer = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let target_url = format!("http://127.0.0.1:{upstream_port}/silent-body");
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let request = format!(
+        "GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+    );
+    client_stream.write_all(request.as_bytes()).await.unwrap();
+
+    let mut response = String::new();
+    timeout(
+        Duration::from_secs(5),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("silent body should fail within the idle ceiling, not the request timeout")
+    .unwrap();
+    assert!(
+        response.contains("502 Bad Gateway"),
+        "expected Bad Gateway, got: {response}"
+    );
+
+    let session: ProxySessionDetail = timeout(Duration::from_secs(1), async {
+        loop {
+            let session = started_proxy.session_receiver.recv().await.unwrap();
+            if session.summary.status_code != 0 {
+                break session;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for the completed session detail");
+    assert_eq!(session.summary.status_code, 502);
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
 /// Regression test for H5: when an h1 upstream request times out, the per-
 /// request h1 conn-driver task must be aborted (it must not linger as an
 /// orphaned task holding the socket until the peer FINs). Under
@@ -2548,7 +3064,8 @@ async fn h1_conn_driver_is_aborted_after_request_timeout() {
     use crate::upstream::h1_active_conn_drivers_for_test;
 
     let baseline = h1_active_conn_drivers_for_test();
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(100));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -3125,6 +3642,79 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
     started_proxy.server_handle.shutdown().await;
 }
 
+// P1-2: dial → TLS → write upgrade request → read response head must be
+// bounded as a whole. An upstream that accepts the TCP connection but never
+// responds previously left the upgrade future Pending forever (pinning a
+// connection permit); it must now fail within the upstream request timeout
+// and surface as a 502 session, like the CONNECT blind-tunnel path.
+#[tokio::test]
+async fn ws_upgrade_hanging_upstream_times_out_and_emits_502() {
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(400));
+
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    // Half-open/stalled peer: accept the connection, then neither read nor
+    // respond for the lifetime of the test.
+    let upstream_task = tokio::spawn(async move {
+        let (_stream, _) = upstream_listener.accept().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let mut started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let started_at = tokio::time::Instant::now();
+    let (response_text, completed_session) =
+        send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+    let elapsed = started_at.elapsed();
+
+    assert!(
+        response_text.contains("502"),
+        "expected 502 response, got: {response_text}"
+    );
+    assert_eq!(
+        completed_session.summary.status_code, 502,
+        "expected 502 session, got {}",
+        completed_session.summary.status_code
+    );
+    // The upgrade must fail within the overridden timeout, not hang until the
+    // helper's 3s client read deadline.
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "upgrade must time out within the upstream deadline, took {elapsed:?}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
+}
+
 // R6-2: a request body exceeding the 20 MiB capture limit must produce a 413
 // response AND a recorded session, instead of closing the connection silently
 // (which previously left the client with a reset and no session record).
@@ -3465,7 +4055,10 @@ async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
     // bounds each body read with an idle timeout and returns the refusal body.
     // Shrink the idle ceiling so a regression fails fast instead of waiting
     // the full default 10s.
-    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+    let _guard = override_timeout_for_test(
+        TimeoutKind::WsUpstreamBodyReadIdle,
+        Duration::from_millis(300),
+    );
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -3710,7 +4303,10 @@ async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
     // — instead of surfacing the idle timeout as a hard error that drops the
     // refusal body and synthesizes a 502. Mirrors the read-until-close path
     // (`ws_upgrade_non_101_no_content_length_does_not_hang`).
-    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+    let _guard = override_timeout_for_test(
+        TimeoutKind::WsUpstreamBodyReadIdle,
+        Duration::from_millis(300),
+    );
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -4306,7 +4902,8 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
 
 #[tokio::test]
 async fn direct_request_times_out_on_hanging_upstream() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(200));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(200));
 
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -4353,7 +4950,8 @@ async fn direct_request_times_out_on_hanging_upstream() {
 
 #[tokio::test]
 async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
-    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard =
+        override_timeout_for_test(TimeoutKind::TunnelIdle, Duration::from_millis(200));
 
     // Upstream accepts the proxied TCP connection but then sleeps forever —
     // i.e. it never sends or receives any application bytes (idle tunnel).
@@ -4454,7 +5052,8 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
 
 #[tokio::test]
 async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
-    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard =
+        override_timeout_for_test(TimeoutKind::TunnelIdle, Duration::from_millis(200));
 
     // Upstream: accepts the proxied connection, then echoes back every byte it
     // receives at 100ms intervals for ~600ms. This keeps the tunnel alive well
@@ -4534,7 +5133,7 @@ async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
     for i in 0..6 {
         sleep(Duration::from_millis(100)).await;
         // Write a byte to the upstream (through the tunnel).
-        if client.write_all(&[b'A']).await.is_err() {
+        if client.write_all(b"A").await.is_err() {
             break;
         }
         // Read the echoed byte back. Use a generous outer bound: if the tunnel
@@ -4732,7 +5331,8 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
     // Close. Without a close-grace timeout the relay would wait forever on
     // the client read. With H9 it must terminate within the grace window and
     // the registry must reach a terminal state.
-    let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
+    let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
+    let _guard = override_timeout_for_test(TimeoutKind::WsCloseGrace, Duration::from_millis(300));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -5315,6 +5915,93 @@ fn h2_forbidden_headers_do_not_over_match_ordinary_headers() {
     }
 }
 
+/// HEAD and 304 carry metadata without a body. The response builder strips the
+/// upstream framing headers, so it must re-emit the declared Content-Length
+/// when the caller marks the response bodyless — otherwise hyper describes the
+/// empty body as `content-length: 0`, breaking HEAD metadata and cache
+/// revalidation (RFC 9110 §9.3.2 / §15.4.5).
+#[test]
+fn head_and_304_responses_keep_declared_content_length() {
+    use crate::http_proxy::build_hyper_response_from_upstream;
+
+    fn empty_body() -> http_body_util::combinators::BoxBody<bytes::Bytes, String> {
+        use http_body_util::BodyExt;
+        http_body_util::Full::new(bytes::Bytes::new())
+            .map_err(|error: std::convert::Infallible| error.to_string())
+            .boxed()
+    }
+
+    fn upstream_headers_with_length(len: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            HeaderValue::from_str(len).expect("valid header value"),
+        );
+        headers
+    }
+
+    let head = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &upstream_headers_with_length("1234"),
+        empty_body(),
+        None,
+        true,
+    )
+    .expect("HEAD response builds");
+    assert_eq!(
+        head.headers().get(http::header::CONTENT_LENGTH).unwrap(),
+        "1234"
+    );
+
+    let not_modified = build_hyper_response_from_upstream(
+        StatusCode::NOT_MODIFIED,
+        &upstream_headers_with_length("5678"),
+        empty_body(),
+        None,
+        true,
+    )
+    .expect("304 response builds");
+    assert_eq!(
+        not_modified
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .unwrap(),
+        "5678"
+    );
+
+    // A regular GET must NOT pin the upstream length: rewrite rules may have
+    // changed the in-memory body, and hyper derives framing from Full<Bytes>.
+    let regular_get = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &upstream_headers_with_length("1234"),
+        empty_body(),
+        None,
+        false,
+    )
+    .expect("GET response builds");
+    assert!(regular_get
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .is_none());
+
+    // The spooled-stream path keeps its exact-length hint.
+    let streamed = build_hyper_response_from_upstream(
+        StatusCode::OK,
+        &HeaderMap::new(),
+        empty_body(),
+        Some(7),
+        false,
+    )
+    .expect("streamed response builds");
+    assert_eq!(
+        streamed
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .unwrap(),
+        "7"
+    );
+}
+
 #[test]
 fn h2_request_uri_is_absolute_without_userinfo_or_fragment() {
     use crate::upstream::h2_request_uri;
@@ -5562,4 +6249,211 @@ fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
         classify_client_handshake_error(&std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
         ClientHandshakeRejection::Other
     );
+}
+
+// ---------------------------------------------------------------------------
+// P1-3: every phase that waits on a client must be bounded by
+// CLIENT_HEADER_READ_TIMEOUT.
+//
+// A client that connects and then never speaks would otherwise pin one of the
+// 1024 connection-semaphore permits indefinitely (slow-loris exhaustion).
+// The pre-hyper header probe always had a ceiling, but hyper applied NONE on
+// kept-alive connections because no Timer was installed — so a client that
+// completed request #1 and then stalled forever held its permit. Both layers
+// now share the same overridable ceiling.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
+    let _header_guard =
+        override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Open several concurrent connections that never send a request line.
+    let mut clients = Vec::new();
+    for _ in 0..16 {
+        clients.push(TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap());
+    }
+
+    // Each must be answered (400) and closed within a few ceiling periods —
+    // concurrently, not serialized behind each other or behind 30s defaults.
+    for client in clients.iter_mut() {
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .expect("silent connection must be reaped by the server")
+            .unwrap();
+        assert!(
+            response.starts_with("HTTP/1.1 400"),
+            "server should answer a silent client with 400, got {response:?}"
+        );
+    }
+
+    // The reaped connections released their permits: a normal request still
+    // goes through end-to-end afterwards.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .unwrap();
+    });
+
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let target_url = format!("http://127.0.0.1:{upstream_port}/after-reap");
+    client_stream
+        .write_all(
+            format!("GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = String::new();
+    timeout(
+        Duration::from_secs(2),
+        client_stream.read_to_string(&mut response),
+    )
+    .await
+    .expect("post-reap request must complete")
+    .unwrap();
+    assert!(response.contains("HTTP/1.1 200 OK"));
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
+    let _header_guard =
+        override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
+
+    // Upstream answers with a keep-alive response (no `Connection: close`),
+    // so hyper keeps the client connection open for a follow-up request.
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_response = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_vec();
+    let expected_body: &[u8] = b"Hello";
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.unwrap();
+        stream.write_all(&upstream_response).await.unwrap();
+        // Keep the upstream socket open; only the CLIENT stall is under test.
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    });
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client_stream = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let target_url = format!("http://127.0.0.1:{upstream_port}/first");
+    client_stream
+        .write_all(
+            format!("GET {target_url} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+
+    // Read through the end of the first response's fixed 5-byte body, then go
+    // silent — never sending the second request's headers. Match on the body
+    // rather than exact wire bytes: hyper rebuilds response heads (adds
+    // `date`, lowercases header names), so they are not byte-identical to the
+    // upstream's.
+    let mut first_response = Vec::new();
+    loop {
+        let mut chunk = [0_u8; 512];
+        let bytes_read = client_stream.read(&mut chunk).await.unwrap();
+        assert!(
+            bytes_read > 0,
+            "connection closed before the first response completed"
+        );
+        first_response.extend_from_slice(&chunk[..bytes_read]);
+        if first_response.ends_with(expected_body) {
+            break;
+        }
+    }
+
+    // Without an installed Timer + header_read_timeout this read hangs
+    // forever and pins the connection permit; it must now hit EOF within a
+    // few ceiling periods once hyper's header-read deadline elapses.
+    // Any bytes beyond the first response would be unsolicited; only EOF (or
+    // a connection error) is expected.
+    let mut tail = Vec::new();
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let mut chunk = [0_u8; 512];
+            match client_stream.read(&mut chunk).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => tail.extend_from_slice(&chunk[..n]),
+            }
+        }
+    })
+    .await
+    .expect("stalled keep-alive connection must be closed by the server");
+    assert!(
+        !String::from_utf8_lossy(&tail).contains("HTTP/1.1"),
+        "no further responses were requested, got {tail:?}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
+    upstream_task.abort();
 }

@@ -16,6 +16,18 @@ import { logDevWarn } from "../logger/dev-logger";
 
 type Unlisten = () => void;
 
+// L6: guard-based handlers have no thrown error to log; include a bounded
+// preview of the rejected payload so the shape regression is still diagnosable.
+function payloadPreview(payload: unknown): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(payload) ?? String(payload);
+  } catch {
+    serialized = String(payload);
+  }
+  return serialized.length > 200 ? `${serialized.slice(0, 197)}...` : serialized;
+}
+
 export type MenuEventPayload = {
   menuId: string;
 };
@@ -105,6 +117,11 @@ export function onSessionRemove(
   return listen<string>("session-remove", (event) => {
     if (typeof event.payload === "string" && event.payload.length > 0) {
       callback(event.payload);
+    } else {
+      // L6: a silently-dropped remove leaves a ghost session in the tree.
+      logDevWarn("events", "session_remove_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
     }
   });
 }
@@ -125,8 +142,17 @@ export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Un
   }
 
   return listen<string[]>("sessions-removed", (event) => {
-    if (Array.isArray(event.payload)) {
+    if (
+      Array.isArray(event.payload) &&
+      event.payload.every((id) => typeof id === "string" && id.length > 0)
+    ) {
       callback(event.payload);
+    } else {
+      // L6: element-level check — a non-string id would silently miss every
+      // cache removal and leave a ghost session behind.
+      logDevWarn("events", "sessions_removed_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
     }
   });
 }
@@ -139,6 +165,11 @@ export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unl
   return listen<unknown>("ws-message", (event) => {
     if (isWsMessage(event.payload)) {
       callback(event.payload);
+    } else {
+      // L6: a silently-dropped message loses captured WS traffic with no trace.
+      logDevWarn("events", "ws_message_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
     }
   });
 }
@@ -153,6 +184,11 @@ export function onWsConnectionStatus(
   return listen<unknown>("ws-connection-status", (event) => {
     if (isWsConnectionStatusEvent(event.payload)) {
       callback(event.payload);
+    } else {
+      // L6: a dropped status event would leave the UI stuck on a stale state.
+      logDevWarn("events", "ws_connection_status_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
     }
   });
 }

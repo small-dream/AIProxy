@@ -64,10 +64,21 @@ export function useDiagnoseCertificateSetup(options?: DiagnosticQueryOptions) {
     queryFn: diagnoseCertificateSetup,
     enabled: options?.enabled ?? false,
     staleTime: 0,
+    // DiagnosticsCard renders the failure inline with a retry action; the
+    // QueryCache toast would report it twice.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
-export function useGenerateRootCertificate() {
+// `meta` flows into the mutation definition (v5 has no per-mutate meta) so a
+// caller rendering its own localized failure can mark the mutation with
+// `suppressGlobalErrorNotification` and opt out of the AppProviders
+// MutationCache toast (P1-19/P1-27).
+type MutationMetaOptions = {
+  meta?: { suppressGlobalErrorNotification?: boolean } | undefined;
+};
+
+export function useGenerateRootCertificate(options?: MutationMetaOptions) {
   const queryClient = useQueryClient();
 
   return useMutation<CertificateStatus, Error, GenerateRootCertificateInput | undefined>({
@@ -75,6 +86,7 @@ export function useGenerateRootCertificate() {
     onSuccess: (status: CertificateStatus) => {
       queryClient.setQueryData(CERTIFICATE_STATUS_QUERY_KEY, status);
     },
+    ...(options?.meta ? { meta: options.meta } : {}),
   });
 }
 
@@ -84,9 +96,10 @@ export function useOpenCertificateInstallGuide() {
   });
 }
 
-export function useLaunchCertificateInstaller() {
+export function useLaunchCertificateInstaller(options?: MutationMetaOptions) {
   return useMutation<void, Error, void>({
     mutationFn: () => launchCertificateInstaller(),
+    ...(options?.meta ? { meta: options.meta } : {}),
   });
 }
 
@@ -108,6 +121,8 @@ export function useRemoveCertificateTrust() {
       queryClient.invalidateQueries({ queryKey: PROXY_STATUS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
     },
+    // The page surfaces removal failures through its removeFeedback state.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -127,6 +142,9 @@ export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
   });
 }
 
+// The mobile quick-action panels render install/proxy failures inline
+// (`*.error.message` in the panel body), so these mutations opt out of the
+// global MutationCache toast to avoid double reporting.
 export function useInstallAndroidCertificateViaAdb() {
   return useMutation<
     AndroidAdbCertificateInstallResult,
@@ -134,6 +152,7 @@ export function useInstallAndroidCertificateViaAdb() {
     InstallAndroidCertificateViaAdbInput | undefined
   >({
     mutationFn: (input) => installAndroidCertificateViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -157,18 +176,21 @@ export function useInstallIosCertificateViaSimulator() {
     InstallIosCertificateViaSimulatorInput | undefined
   >({
     mutationFn: (input) => installIosCertificateViaSimulator(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
 export function useSetAndroidProxyViaAdb() {
   return useMutation<AndroidAdbProxyResult, Error, SetAndroidProxyViaAdbInput>({
     mutationFn: (input) => setAndroidProxyViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
 export function useClearAndroidProxyViaAdb() {
   return useMutation<AndroidAdbProxyResult, Error, ClearAndroidProxyViaAdbInput | undefined>({
     mutationFn: (input) => clearAndroidProxyViaAdb(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -191,5 +213,6 @@ export function useInstallHarmonyCertificateViaHdc() {
     InstallHarmonyCertificateViaHdcInput | undefined
   >({
     mutationFn: (input) => installHarmonyCertificateViaHdc(input),
+    meta: { suppressGlobalErrorNotification: true },
   });
 }

@@ -26,7 +26,7 @@ fn direct_http_client() -> Result<Client, String> {
     // send_direct_request via tokio::time::timeout (which respects the test
     // override), so we only set connect_timeout here to keep the static client
     // reusable across runs.
-    let connect_timeout = crate::upstream_request_timeout();
+    let connect_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     let client = Client::builder()
         .redirect(Policy::none())
         .no_proxy()
@@ -65,8 +65,8 @@ pub async fn start_proxy_server(
     {
         let pool = Arc::clone(&upstream_pool);
         pool.start_eviction_timer(
-            std::time::Duration::from_secs(60),
-            std::time::Duration::from_secs(120),
+            crate::timeout_for(crate::TimeoutKind::UpstreamPoolEvictionInterval),
+            crate::timeout_for(crate::TimeoutKind::UpstreamPoolEvictionMaxIdle),
         );
     }
 
@@ -79,6 +79,7 @@ pub async fn start_proxy_server(
         "listener_started"
     );
 
+    let listener_pool = Arc::clone(&upstream_pool);
     let join_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -110,7 +111,7 @@ pub async fn start_proxy_server(
                             let ws_message_sender = ws_message_sender.clone();
                             let managers = managers.clone();
                             let config = config.clone();
-                            let upstream_pool = upstream_pool.clone();
+                            let upstream_pool = listener_pool.clone();
 
                             tokio::spawn(async move {
                                 let _permit = permit;
@@ -169,6 +170,7 @@ pub async fn start_proxy_server(
         server_handle: ProxyServerHandle {
             shutdown_sender: Some(shutdown_sender),
             join_handle,
+            upstream_pool: Some(upstream_pool),
         },
         session_receiver,
         ws_message_receiver,
@@ -474,7 +476,15 @@ async fn handle_connection(
     prefix.extend_from_slice(&leftover);
     let io = hyper_util::rt::TokioIo::new(OwnedPrefixedStream::new(prefix, stream));
 
+    // P1-3: without an installed Timer hyper applies NO header read timeout,
+    // so a client that connects and never sends request headers pins one of
+    // the 1024 connection permits indefinitely (slow-loris style exhaustion).
+    // Installing TokioTimer activates hyper's default 30s header-read ceiling
+    // for both the first request and every kept-alive request after it; set
+    // it explicitly to stay in lockstep with the pre-hyper probe above.
     hyper::server::conn::http1::Builder::new()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(crate::timeout_for(crate::TimeoutKind::ClientHeaderRead))
         .serve_connection(io, service)
         .with_upgrades()
         .await
@@ -504,9 +514,12 @@ async fn read_header_only<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
-        let read_result = timeout(CLIENT_HEADER_READ_TIMEOUT, stream.read(&mut chunk))
-            .await
-            .map_err(|_| "timed out waiting for client request headers".to_string())?;
+        let read_result = timeout(
+            crate::timeout_for(crate::TimeoutKind::ClientHeaderRead),
+            stream.read(&mut chunk),
+        )
+        .await
+        .map_err(|_| "timed out waiting for client request headers".to_string())?;
 
         let bytes_read =
             read_result.map_err(|error| format!("failed to read from client stream: {error}"))?;
@@ -696,8 +709,8 @@ pub async fn send_direct_request_bytes(
 
     // Bound the upstream send + response so a hanging upstream (TCP open but
     // no response, or a slow body) cannot block the Compose/Replay command
-    // forever. The test override flows through upstream_request_timeout().
-    let upstream_timeout = crate::upstream_request_timeout();
+    // forever. The test override flows through the centralized timeout matrix.
+    let upstream_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     let timeout_secs = upstream_timeout.as_secs();
 
     let waiting_started_at = Instant::now();
@@ -723,27 +736,14 @@ pub async fn send_direct_request_bytes(
     let response_headers = response.headers().clone();
 
     let response_read_started_at = Instant::now();
-    let (response_body, response_body_size_bytes, body_truncated, _) = match tokio::time::timeout(
-        upstream_timeout,
-        crate::upstream::read_response_body_with_limit(response, &request_id, false),
-    )
-    .await
-    {
-        Ok(result) => result.map_err(|error| format!("failed to read response body: {error}"))?,
-        Err(_) => {
-            tracing::warn!(
-                event = "direct_request_timed_out",
-                request_id = %request_id,
-                url = %url,
-                timeout_secs,
-                stage = "body_read",
-                "direct_request_timed_out"
-            );
-            return Err(format!(
-                "upstream '{url}' stopped sending the response body within {timeout_secs}s."
-            ));
-        }
-    };
+    // P1-5: no outer total-duration cap on the body read — the reader bounds
+    // each chunk by the response-body idle ceiling, so a slow-but-alive body
+    // (large download) completes while a truly dead stream fails within the
+    // idle ceiling.
+    let (response_body, response_body_size_bytes, body_truncated, _) =
+        crate::upstream::read_response_body_with_limit(response, &request_id, false)
+            .await
+            .map_err(|error| format!("failed to read response body: {error}"))?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 
     tracing::debug!(

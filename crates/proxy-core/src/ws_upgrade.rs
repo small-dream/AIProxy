@@ -140,15 +140,16 @@ fn ws_needs_tls(url: &url::Url, mode: &ConnectionMode) -> bool {
 ///
 /// `request.host` keeps the brackets of an IPv6 authority
 /// (`wss://[2001:db8::5]/...` → `[2001:db8::5]`), which `ServerName` rejects —
-/// the same normalization every other outbound TLS path applies. An empty
-/// fallback is not possible here (the host came from a parsed URL), so on
-/// failure we keep the historical behavior of falling back to loopback rather
-/// than failing the whole upgrade.
-fn ws_tls_server_name(host: &str) -> tokio_rustls::rustls::pki_types::ServerName<'static> {
+/// the same normalization every other outbound TLS path applies. A host that
+/// still fails to parse is a hard error: silently substituting loopback SNI
+/// produced a misleading upstream certificate-validation failure instead of
+/// surfacing the malformed authority to the client.
+fn ws_tls_server_name(
+    host: &str,
+) -> Result<tokio_rustls::rustls::pki_types::ServerName<'static>, String> {
     let normalized = crate::timing_connector::tls_server_name_host(host).to_owned();
-    tokio_rustls::rustls::pki_types::ServerName::try_from(normalized).unwrap_or_else(|_| {
-        tokio_rustls::rustls::pki_types::ServerName::IpAddress(std::net::Ipv4Addr::LOCALHOST.into())
-    })
+    tokio_rustls::rustls::pki_types::ServerName::try_from(normalized)
+        .map_err(|error| format!("invalid WebSocket upstream TLS server name `{host}`: {error}"))
 }
 
 /// Wrap an already-connected TCP stream in TLS for the WebSocket upstream
@@ -170,7 +171,7 @@ async fn connect_ws_upstream_tls(
     let client_config =
         aiproxy_tls_manager::client::build_client_config_with_alpn_and_verify(vec![], verify);
     let tls_connector = tokio_rustls::TlsConnector::from(client_config);
-    let dns_name = ws_tls_server_name(&request.host);
+    let dns_name = ws_tls_server_name(&request.host)?;
     let tls_stream = tls_connector
         .connect(dns_name, tcp)
         .await
@@ -235,61 +236,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         "ws_hyper_connecting_upstream"
     );
 
-    // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS for
-    // wss://. On failure, send a 502 session and return Ok(502) — not Err/499.
-    let ws_tcp = match crate::upstream_proxy::dial_target(
-        ctx.upstream_proxy.as_deref(),
-        &request.host,
-        port,
-        dns_override_ip,
-    )
-    .await
-    {
-        Ok((stream, _route)) => stream,
-        Err(e) => {
-            let error = format!("WebSocket upstream connect to {connect_host_port}: {e}");
-            return Ok(send_ws_upstream_error_session(
-                &request,
-                ctx,
-                &error,
-                started_at,
-                started_at_instant,
-                map_traces,
-                rewrite_traces,
-                script_traces,
-                throttle_traces,
-            )
-            .await);
-        }
-    };
-
-    // R6-1: TLS is required when EITHER we are in MITM mode (CONNECT already
-    // happened, URL normalized to https://) OR the URL scheme itself is `wss`
-    // (a wss:// absolute-form request sent directly over the plain proxy port).
-    let needs_tls = ws_needs_tls(&request.url, &ctx.mode);
-    let mut upstream = if needs_tls {
-        match connect_ws_upstream_tls(ws_tcp, &request, ctx).await {
-            Ok(stream) => stream,
-            Err(error) => {
-                return Ok(send_ws_upstream_error_session(
-                    &request,
-                    ctx,
-                    &error,
-                    started_at,
-                    started_at_instant,
-                    map_traces,
-                    rewrite_traces,
-                    script_traces,
-                    throttle_traces,
-                )
-                .await);
-            }
-        }
-    } else {
-        TlsOrPlain::Plain(ws_tcp)
-    };
-
-    // Build and send the raw upgrade request to upstream.
+    // Build the raw upgrade request to upstream (pure — no IO, not timed).
     let raw_req = match build_ws_upgrade_request(&request) {
         Ok(r) => r,
         Err(e) => {
@@ -312,41 +259,96 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         request_id = %request_id,
         "ws_hyper_sending_upgrade"
     );
-    if let Err(e) = upstream.write_all(raw_req.as_bytes()).await {
-        let error = format!("WebSocket upgrade send to upstream: {e}");
-        return Ok(send_ws_upstream_error_session(
-            &request,
-            ctx,
-            &error,
-            started_at,
-            started_at_instant,
-            map_traces,
-            rewrite_traces,
-            script_traces,
-            throttle_traces,
-        )
-        .await);
-    }
 
-    // Read the upstream response.
-    let (response_head, leftover_bytes) =
-        match crate::connect::read_http_response_head(&mut upstream).await {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(send_ws_upstream_error_session(
-                    &request,
-                    ctx,
-                    &e,
-                    started_at,
-                    started_at_instant,
-                    map_traces,
-                    rewrite_traces,
-                    script_traces,
-                    throttle_traces,
-                )
-                .await);
-            }
+    // P1-2: dial → TLS handshake → write upgrade request → read response head
+    // must be bounded AS A WHOLE. Previously none of these steps carried a
+    // timeout: a half-open TCP peer, a stalled TLS handshake or an upstream
+    // that accepted the request but never answered left this future Pending
+    // forever, pinning one of the 1024 connection permits until the client
+    // disconnected. The CONNECT blind-tunnel path already wraps its dial in a
+    // timeout; this brings the WS path to parity using the same
+    // `upstream_request_timeout` semantics. The post-101 relay keeps its own
+    // idle/grace timeouts; the non-101 body read below keeps
+    // `ws_upstream_body_read_idle_timeout`.
+    let upgrade_deadline = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
+    let established = tokio::time::timeout(upgrade_deadline, async {
+        // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS
+        // for wss://. On failure, send a 502 session and return Ok(502) — not
+        // Err/499.
+        let ws_tcp = crate::upstream_proxy::dial_target(
+            ctx.upstream_proxy.as_deref(),
+            &request.host,
+            port,
+            dns_override_ip,
+        )
+        .await
+        .map(|(stream, _route)| stream)
+        .map_err(|e| format!("WebSocket upstream connect to {connect_host_port}: {e}"))?;
+
+        // R6-1: TLS is required when EITHER we are in MITM mode (CONNECT
+        // already happened, URL normalized to https://) OR the URL scheme
+        // itself is `wss` (a wss:// absolute-form request sent directly over
+        // the plain proxy port).
+        let needs_tls = ws_needs_tls(&request.url, &ctx.mode);
+        let mut upstream = if needs_tls {
+            connect_ws_upstream_tls(ws_tcp, &request, ctx).await?
+        } else {
+            TlsOrPlain::Plain(ws_tcp)
         };
+
+        if let Err(e) = upstream.write_all(raw_req.as_bytes()).await {
+            return Err(format!("WebSocket upgrade send to upstream: {e}"));
+        }
+
+        // Read the upstream response head.
+        crate::connect::read_http_response_head(&mut upstream)
+            .await
+            .map(|(head, leftover)| (upstream, head, leftover))
+    })
+    .await;
+
+    let (mut upstream, response_head, leftover_bytes) = match established {
+        Ok(Ok(triple)) => triple,
+        Ok(Err(error)) => {
+            return Ok(send_ws_upstream_error_session(
+                &request,
+                ctx,
+                &error,
+                started_at,
+                started_at_instant,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            )
+            .await);
+        }
+        Err(_elapsed) => {
+            let error = format!(
+                "WebSocket upgrade to {connect_host_port} did not complete within {}s",
+                upgrade_deadline.as_secs()
+            );
+            tracing::warn!(
+                event = "ws_hyper_upgrade_timeout",
+                request_id = %request_id,
+                host_port = %connect_host_port,
+                timeout_secs = upgrade_deadline.as_secs(),
+                "ws_hyper_upgrade_timeout"
+            );
+            return Ok(send_ws_upstream_error_session(
+                &request,
+                ctx,
+                &error,
+                started_at,
+                started_at_instant,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            )
+            .await);
+        }
+    };
 
     // Parse status code and headers from the upstream response. M4: use a lossy
     // decode — HTTP header field values are opaque octets (obs-text / Latin-1
@@ -672,7 +674,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 /// delimited per `framing` (Content-Length / chunked / read-until-close).
 ///
 /// All three framings are bounded by a per-read idle timeout
-/// (`crate::ws_upstream_body_read_idle_timeout()`) and a byte ceiling
+/// (`crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle)`) and a byte ceiling
 /// (`MAX_CAPTURED_BODY_BYTES`). The idle timeout is essential for the
 /// read-until-close case on an HTTP/1.1 keep-alive connection: without it a
 /// peer that keeps the connection open (e.g. a 403 error page with no
@@ -711,7 +713,7 @@ async fn read_length_delimited_body(
     while body.len() < total {
         let target = std::cmp::min(chunk.len(), total - body.len());
         let n = match timeout(
-            crate::ws_upstream_body_read_idle_timeout(),
+            crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
             upstream.read(&mut chunk[..target]),
         )
         .await
@@ -743,7 +745,7 @@ async fn read_until_close_body(
             break;
         }
         let n = match timeout(
-            crate::ws_upstream_body_read_idle_timeout(),
+            crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
             upstream.read(&mut chunk),
         )
         .await
@@ -845,7 +847,7 @@ async fn refill_stream(
     }
     let mut tmp = [0u8; READ_BUFFER_BYTES];
     let n = match timeout(
-        crate::ws_upstream_body_read_idle_timeout(),
+        crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
         upstream.read(&mut tmp),
     )
     .await
@@ -1073,7 +1075,7 @@ mod tests {
         // `request.host` keeps the brackets of a `wss://[2001:db8::5]/...`
         // authority; ServerName::try_from used to reject that outright (and
         // silently fell back to a loopback ServerName).
-        let bracketed = ws_tls_server_name("[2001:db8::5]");
+        let bracketed = ws_tls_server_name("[2001:db8::5]").expect("bracketed IPv6 parses");
         match bracketed {
             ServerName::IpAddress(ip) => {
                 assert_eq!(std::net::IpAddr::from(ip).to_string(), "2001:db8::5");
@@ -1081,12 +1083,26 @@ mod tests {
             other => panic!("expected an IP ServerName, got {other:?}"),
         }
 
-        let bare = ws_tls_server_name("2001:db8::5");
+        let bare = ws_tls_server_name("2001:db8::5").expect("bare IPv6 parses");
         assert!(matches!(bare, ServerName::IpAddress(_)));
 
-        let dns_name = ws_tls_server_name("api.example.com");
+        let dns_name = ws_tls_server_name("api.example.com").expect("dns host parses");
         assert!(matches!(dns_name, ServerName::DnsName(_)));
         assert_eq!(dns_name.to_str().to_ascii_lowercase(), "api.example.com");
+    }
+
+    /// An authority that still fails `ServerName` parsing must fail the
+    /// upgrade with a clear error instead of silently presenting loopback SNI
+    /// (which surfaced later as a misleading certificate-validation failure).
+    #[test]
+    fn ws_tls_server_name_rejects_unparseable_hosts_instead_of_loopback() {
+        let error = ws_tls_server_name("[broken").expect_err("stray bracket must fail");
+        assert!(
+            error.contains("[broken"),
+            "error names the bad host: {error}"
+        );
+
+        assert!(ws_tls_server_name("").is_err(), "empty host must fail");
     }
 
     // -----------------------------------------------------------------------

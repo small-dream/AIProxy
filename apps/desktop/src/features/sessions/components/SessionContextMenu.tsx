@@ -101,8 +101,14 @@ export function SessionContextMenu({
   const iconSx = getContextMenuIconSx(theme);
   const dividerSx = getContextMenuDividerSx(theme);
 
+  // P2 4.3-9: menu actions report their own failures via snackbar, but a stray
+  // rejection must never escape as an unhandled promise rejection from the
+  // click handler itself.
   const handleClick = (action: (session: SessionSummary) => void) => () => {
-    action(session);
+    const result = action(session) as unknown;
+    if (result instanceof Promise) {
+      result.catch(() => undefined);
+    }
     onClose();
   };
 

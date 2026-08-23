@@ -4,9 +4,18 @@ fn apply_remote_map_rule(
     request: &mut ParsedProxyRequest,
     rule: &MapRule,
 ) -> Result<String, String> {
+    let original_url = request.url.to_string();
     let original_path = request.url.path().to_string();
     let original_query = request.url.query().map(str::to_string);
     let mut mapped_url = Url::parse(&rule.target_value).map_err(|error| {
+        tracing::error!(
+            event = "map_remote_target_parse_failed",
+            rule_id = %rule.id,
+            original_url = %original_url,
+            target_url = %rule.target_value,
+            error = %error,
+            "map_remote_target_parse_failed"
+        );
         format!(
             "map remote rule '{}' points to an invalid target URL '{}': {error}",
             rule.id, rule.target_value
@@ -14,7 +23,13 @@ fn apply_remote_map_rule(
     })?;
 
     if rule.preserve_path {
-        mapped_url.set_path(&original_path);
+        // Treat the target path as a base path.  Replacing it outright made a
+        // target such as `https://staging.example/base` silently lose `/base`,
+        // while naïvely concatenating both paths could produce `/base//v1`.
+        // Keep the URL path absolute and join the two components exactly once.
+        let target_path = mapped_url.path();
+        let joined_path = join_remote_base_path(target_path, &original_path);
+        mapped_url.set_path(&joined_path);
     }
     if rule.preserve_query {
         mapped_url.set_query(original_query.as_deref());
@@ -22,8 +37,70 @@ fn apply_remote_map_rule(
 
     let mapped_url_text = mapped_url.to_string();
     request.url = mapped_url;
-    rebuild_request_runtime_state(request)?;
+    if let Err(error) = rebuild_request_runtime_state(request) {
+        tracing::error!(
+            event = "map_remote_runtime_state_rebuild_failed",
+            rule_id = %rule.id,
+            original_url = %original_url,
+            target_url = %mapped_url_text,
+            error = %error,
+            "map_remote_runtime_state_rebuild_failed"
+        );
+        return Err(format!(
+            "map remote rule '{}' could not rebuild request state for '{}': {error}",
+            rule.id, mapped_url_text
+        ));
+    }
     Ok(mapped_url_text)
+}
+
+/// Join a Map Remote target base path and the captured request path without
+/// duplicating separators.  A root target preserves the historical behavior
+/// (`/v1` remains `/v1`), while a non-root target scopes the request below its
+/// configured base (`/api` + `/v1` becomes `/api/v1`).
+fn join_remote_base_path(base: &str, request_path: &str) -> String {
+    let base = if base.is_empty() { "/" } else { base };
+    let request = if request_path.is_empty() {
+        "/"
+    } else {
+        request_path
+    };
+
+    if base == "/" {
+        return request.to_string();
+    }
+
+    let base = base.trim_end_matches('/');
+    let request = request.trim_start_matches('/');
+    // If the captured path is already scoped below the configured base, do not
+    // duplicate that base when a rule is intentionally written with the same
+    // path prefix (for example target `/v1/users` + request `/v1/users`).
+    if request == base.trim_start_matches('/')
+        || request.starts_with(&format!("{}/", base.trim_start_matches('/')))
+    {
+        return format!("/{request}");
+    }
+    if request.is_empty() {
+        format!("{base}/")
+    } else {
+        format!("{base}/{request}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_remote_base_path;
+
+    #[test]
+    fn joins_root_and_nested_paths() {
+        assert_eq!(join_remote_base_path("/", "/v1/users"), "/v1/users");
+        assert_eq!(
+            join_remote_base_path("/gateway/", "/v1/users"),
+            "/gateway/v1/users"
+        );
+        assert_eq!(join_remote_base_path("/gateway", "/"), "/gateway/");
+        assert_eq!(join_remote_base_path("", ""), "/");
+    }
 }
 
 fn sanitize_request_path(path: &str) -> PathBuf {

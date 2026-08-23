@@ -32,6 +32,8 @@ export function useSaveThrottleProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: THROTTLE_PROFILES_KEY });
     },
+    // Surfaced as the editor's profileSaveError alert.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -44,6 +46,8 @@ export function useSetActiveThrottleProfile() {
       queryClient.invalidateQueries({ queryKey: THROTTLE_PROFILES_KEY });
       queryClient.invalidateQueries({ queryKey: THROTTLE_STATS_KEY });
     },
+    // Surfaced as the page's setActiveError alert.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -63,6 +67,8 @@ export function useSaveThrottleRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: THROTTLE_RULES_KEY });
     },
+    // Surfaced as the editor's ruleSaveError alert.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 
@@ -74,6 +80,8 @@ export function useDeleteThrottleRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: THROTTLE_RULES_KEY });
     },
+    // Surfaced inside the delete ConfirmDialog while it stays open on failure.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }
 

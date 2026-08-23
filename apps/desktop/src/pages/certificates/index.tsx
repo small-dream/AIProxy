@@ -16,6 +16,7 @@ import {
 } from "@/features/certificate-center/use-certificate-status";
 import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { useI18n, type TranslationKey } from "@/i18n";
+import { useNotificationStore } from "@/services/notification.store";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -122,8 +123,14 @@ export function CertificatesPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { data: status, isLoading, refetch } = useCertificateStatus();
-  const generateMutation = useGenerateRootCertificate();
-  const installMutation = useLaunchCertificateInstaller();
+  // P1-27: failures push a localized notification here; the meta opt-out
+  // keeps the global MutationCache from raising the same failure twice.
+  const generateMutation = useGenerateRootCertificate({
+    meta: { suppressGlobalErrorNotification: true },
+  });
+  const installMutation = useLaunchCertificateInstaller({
+    meta: { suppressGlobalErrorNotification: true },
+  });
   const removeMutation = useRemoveCertificateTrust();
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removeFeedback, setRemoveFeedback] = useState<RemoveFeedback | null>(null);
@@ -179,12 +186,25 @@ export function CertificatesPage() {
         onSuccess: () => {
           refetch();
         },
+        onError: (error) => {
+          useNotificationStore
+            .getState()
+            .push(
+              `${t("certificatesPage.actions.generateError")}: ${coerceAppError(error).message}`,
+            );
+        },
       },
     );
   };
 
   const handleInstall = () => {
-    installMutation.mutate();
+    installMutation.mutate(undefined, {
+      onError: (error) => {
+        useNotificationStore
+          .getState()
+          .push(`${t("certificatesPage.actions.installError")}: ${coerceAppError(error).message}`);
+      },
+    });
   };
 
   const handleRefresh = () => {

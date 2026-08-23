@@ -42,8 +42,10 @@ import {
   type SessionSummary,
 } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 
 import { deleteRule } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
@@ -62,6 +64,7 @@ import {
   getRewriteValidationErrors,
   hasRuleFieldErrors,
   HTTP_METHODS,
+  isRewriteRuleEqual,
   ruleFieldProps,
   wildcardMatch,
   type RuleFieldErrors,
@@ -232,315 +235,353 @@ function TemplateIcon({ icon }: { icon: RewriteTemplate["icon"] }) {
   return <TuneRoundedIcon fontSize="small" />;
 }
 
-export function RewriteRulesPanel() {
-  const { t } = useI18n();
-  const queryClient = useQueryClient();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { data: rules = [], isError: isRulesError } = useRewriteRules();
-  const saveMutation = useSaveRewriteRule();
-  const deleteMutation = useDeleteManagedRule();
-  const bulkMutation = useBulkUpdateRules();
-  const [searchValue, setSearchValue] = useState("");
-  const [selectedRuleId, setSelectedRuleId] = useState<string>();
-  const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
-  const [testInput, setTestInput] = useState<RuleTestInput>({
-    method: "GET",
-    stage: "request",
-    url: "https://api.example.com/v1/users",
-  });
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
-  const [validationAttempted, setValidationAttempted] = useState(false);
-  // M22: track the last id we synced a draft FROM, so a TanStack Query refetch
-  // (new rules[]/filteredRules[] array identity) does NOT re-run the draft-
-  // sync and clobber an in-flight edit. Mirrors `use-throttle-editor.ts`.
-  const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
+/** Imperative API for the Rules page: tab switches must ask before the
+ * draft (and with it the panel's unmount) is discarded. */
+export type RewriteRulesPanelHandle = {
+  /** True while the editor draft differs from its saved/empty baseline. */
+  isDirty: boolean;
+  /** Resolves true when leaving is allowed (not dirty, or user discarded). */
+  confirmLeave: () => Promise<boolean>;
+};
 
-  const templates = useMemo<RewriteTemplate[]>(
-    () => [
-      {
-        build: () => {
-          const rule = createEmptyRewriteRule("header");
-          return {
-            ...rule,
-            match: { methods: [], stage: "either", urlPattern: "*" },
-            name: "Add debug header",
-            actions: [
-              {
-                rewriteType: "header",
-                payload: {
-                  headerName: "x-debug-mode",
-                  operation: "set",
-                  target: "request",
-                  value: "true",
-                },
-              },
-            ],
-          };
-        },
-        description: "rulesPage.rewrite.templates.debugHeader.description",
-        icon: "bug",
-        label: "rulesPage.rewrite.templates.debugHeader.label",
-        type: "header",
-      },
-      {
-        build: () => {
-          const rule = createEmptyRewriteRule("header");
-          return {
-            ...rule,
-            match: { methods: [], stage: "response", urlPattern: "*" },
-            name: "Disable response cache",
-            actions: [
-              {
-                rewriteType: "header",
-                payload: {
-                  headerName: "Cache-Control",
-                  operation: "set",
-                  target: "response",
-                  value: "no-store",
-                },
-              },
-            ],
-          };
-        },
-        description: "rulesPage.rewrite.templates.disableCache.description",
-        icon: "tune",
-        label: "rulesPage.rewrite.templates.disableCache.label",
-        type: "header",
-      },
-      {
-        build: () => {
-          const rule = createEmptyRewriteRule("query");
-          return {
-            ...rule,
-            match: { methods: [], stage: "request", urlPattern: "*" },
-            name: "Route query to staging",
-            actions: [
-              {
-                rewriteType: "query",
-                payload: { operation: "set", paramName: "env", value: "staging" },
-              },
-            ],
-          };
-        },
-        description: "rulesPage.rewrite.templates.envQuery.description",
-        icon: "route",
-        label: "rulesPage.rewrite.templates.envQuery.label",
-        type: "query",
-      },
-      {
-        build: () => {
-          const rule = createEmptyRewriteRule("redirect");
-          return {
-            ...rule,
-            match: { methods: [], stage: "request", urlPattern: "api.example.com/*" },
-            name: "Redirect API to staging",
-            actions: [
-              {
-                rewriteType: "redirect",
-                payload: {
-                  preservePath: true,
-                  preserveQuery: true,
-                  targetUrl: "https://staging.example.com",
-                },
-              },
-            ],
-          };
-        },
-        description: "rulesPage.rewrite.templates.stagingRedirect.description",
-        icon: "route",
-        label: "rulesPage.rewrite.templates.stagingRedirect.label",
-        type: "redirect",
-      },
-      {
-        build: () => {
-          const rule = createEmptyRewriteRule("body");
-          return {
-            ...rule,
-            match: { methods: [], stage: "response", urlPattern: "*" },
-            name: "Mock JSON response",
-            actions: [
-              {
-                rewriteType: "body",
-                payload: {
-                  contentType: "application/json",
-                  fields: [],
-                  mode: "replace",
-                  target: "response",
-                  text: '{\n  "ok": true\n}',
-                },
-              },
-            ],
-          };
-        },
-        description: "rulesPage.rewrite.templates.mockJson.description",
-        icon: "tune",
-        label: "rulesPage.rewrite.templates.mockJson.label",
-        type: "body",
-      },
-    ],
-    [],
-  );
-
-  const filteredRules = useMemo(() => {
-    const q = searchValue.trim().toLowerCase();
-    return [...rules]
-      .sort((a, b) => b.priority - a.priority)
-      .filter((r) => {
-        if (!q) return true;
-        return `${r.name} ${r.match.urlPattern} ${r.rewriteType}`.toLowerCase().includes(q);
-      });
-  }, [rules, searchValue]);
-
-  useEffect(() => {
-    const state = location.state as RulesLocationState;
-    if (!state?.rewriteSeed) return;
-
-    const seededRule = createSeededRule(state.rewriteSeed);
-    // M22: pre-mark as synced so the selection effect does not overwrite the
-    // seeded draft on the next rules[] refetch.
-    lastSyncedRuleIdRef.current = seededRule.id;
-    setSelectedRuleId(seededRule.id);
-    setDraft(seededRule);
-    setValidationAttempted(false);
-    setTestInput({
-      method: state.rewriteSeed.method,
+export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
+  function RewriteRulesPanel(_props, ref) {
+    const { t } = useI18n();
+    const queryClient = useQueryClient();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const { data: rules = [], isError: isRulesError } = useRewriteRules();
+    const saveMutation = useSaveRewriteRule();
+    const deleteMutation = useDeleteManagedRule();
+    const bulkMutation = useBulkUpdateRules();
+    const [searchValue, setSearchValue] = useState("");
+    const [selectedRuleId, setSelectedRuleId] = useState<string>();
+    const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
+    const [testInput, setTestInput] = useState<RuleTestInput>({
+      method: "GET",
       stage: "request",
-      url: state.rewriteSeed.url,
+      url: "https://api.example.com/v1/users",
     });
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate]);
+    const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+    const [validationAttempted, setValidationAttempted] = useState(false);
+    // M22: track the last id we synced a draft FROM, so a TanStack Query refetch
+    // (new rules[]/filteredRules[] array identity) does NOT re-run the draft-
+    // sync and clobber an in-flight edit. Mirrors `use-throttle-editor.ts`.
+    const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
 
-  useEffect(() => {
-    // M22: only sync the draft when the selection actually changes — NOT on
-    // every rules[] refetch. Protects in-flight edits from being clobbered.
-    const selectionValid =
-      selectedRuleId && (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId);
-    if (selectionValid) {
-      lastSyncedRuleIdRef.current = selectedRuleId;
-      return;
+    const templates = useMemo<RewriteTemplate[]>(
+      () => [
+        {
+          build: () => {
+            const rule = createEmptyRewriteRule("header");
+            return {
+              ...rule,
+              match: { methods: [], stage: "either", urlPattern: "*" },
+              name: "Add debug header",
+              actions: [
+                {
+                  rewriteType: "header",
+                  payload: {
+                    headerName: "x-debug-mode",
+                    operation: "set",
+                    target: "request",
+                    value: "true",
+                  },
+                },
+              ],
+            };
+          },
+          description: "rulesPage.rewrite.templates.debugHeader.description",
+          icon: "bug",
+          label: "rulesPage.rewrite.templates.debugHeader.label",
+          type: "header",
+        },
+        {
+          build: () => {
+            const rule = createEmptyRewriteRule("header");
+            return {
+              ...rule,
+              match: { methods: [], stage: "response", urlPattern: "*" },
+              name: "Disable response cache",
+              actions: [
+                {
+                  rewriteType: "header",
+                  payload: {
+                    headerName: "Cache-Control",
+                    operation: "set",
+                    target: "response",
+                    value: "no-store",
+                  },
+                },
+              ],
+            };
+          },
+          description: "rulesPage.rewrite.templates.disableCache.description",
+          icon: "tune",
+          label: "rulesPage.rewrite.templates.disableCache.label",
+          type: "header",
+        },
+        {
+          build: () => {
+            const rule = createEmptyRewriteRule("query");
+            return {
+              ...rule,
+              match: { methods: [], stage: "request", urlPattern: "*" },
+              name: "Route query to staging",
+              actions: [
+                {
+                  rewriteType: "query",
+                  payload: { operation: "set", paramName: "env", value: "staging" },
+                },
+              ],
+            };
+          },
+          description: "rulesPage.rewrite.templates.envQuery.description",
+          icon: "route",
+          label: "rulesPage.rewrite.templates.envQuery.label",
+          type: "query",
+        },
+        {
+          build: () => {
+            const rule = createEmptyRewriteRule("redirect");
+            return {
+              ...rule,
+              match: { methods: [], stage: "request", urlPattern: "api.example.com/*" },
+              name: "Redirect API to staging",
+              actions: [
+                {
+                  rewriteType: "redirect",
+                  payload: {
+                    preservePath: true,
+                    preserveQuery: true,
+                    targetUrl: "https://staging.example.com",
+                  },
+                },
+              ],
+            };
+          },
+          description: "rulesPage.rewrite.templates.stagingRedirect.description",
+          icon: "route",
+          label: "rulesPage.rewrite.templates.stagingRedirect.label",
+          type: "redirect",
+        },
+        {
+          build: () => {
+            const rule = createEmptyRewriteRule("body");
+            return {
+              ...rule,
+              match: { methods: [], stage: "response", urlPattern: "*" },
+              name: "Mock JSON response",
+              actions: [
+                {
+                  rewriteType: "body",
+                  payload: {
+                    contentType: "application/json",
+                    fields: [],
+                    mode: "replace",
+                    target: "response",
+                    text: '{\n  "ok": true\n}',
+                  },
+                },
+              ],
+            };
+          },
+          description: "rulesPage.rewrite.templates.mockJson.description",
+          icon: "tune",
+          label: "rulesPage.rewrite.templates.mockJson.label",
+          type: "body",
+        },
+      ],
+      [],
+    );
+
+    const filteredRules = useMemo(() => {
+      const q = searchValue.trim().toLowerCase();
+      return [...rules]
+        .sort((a, b) => b.priority - a.priority)
+        .filter((r) => {
+          if (!q) return true;
+          return `${r.name} ${r.match.urlPattern} ${r.rewriteType}`.toLowerCase().includes(q);
+        });
+    }, [rules, searchValue]);
+
+    useEffect(() => {
+      const state = location.state as RulesLocationState;
+      if (!state?.rewriteSeed) return;
+
+      const seededRule = createSeededRule(state.rewriteSeed);
+      // M22: pre-mark as synced so the selection effect does not overwrite the
+      // seeded draft on the next rules[] refetch.
+      lastSyncedRuleIdRef.current = seededRule.id;
+      setSelectedRuleId(seededRule.id);
+      setDraft(seededRule);
+      setValidationAttempted(false);
+      setTestInput({
+        method: state.rewriteSeed.method,
+        stage: "request",
+        url: state.rewriteSeed.url,
+      });
+      navigate(location.pathname, { replace: true, state: null });
+    }, [location.pathname, location.state, navigate]);
+
+    useEffect(() => {
+      // M22: only sync the draft when the selection actually changes — NOT on
+      // every rules[] refetch. Protects in-flight edits from being clobbered.
+      const selectionValid =
+        selectedRuleId &&
+        (rules.some((r) => r.id === selectedRuleId) || draft.id === selectedRuleId);
+      if (selectionValid) {
+        lastSyncedRuleIdRef.current = selectedRuleId;
+        return;
+      }
+      const next = filteredRules[0];
+      if (next) {
+        if (lastSyncedRuleIdRef.current === next.id) return;
+        lastSyncedRuleIdRef.current = next.id;
+        setSelectedRuleId(next.id);
+        setDraft(next);
+        setValidationAttempted(false);
+        return;
+      }
+      if (lastSyncedRuleIdRef.current === undefined) return;
+      lastSyncedRuleIdRef.current = undefined;
+      setSelectedRuleId(undefined);
+      setValidationAttempted(false);
+    }, [draft.id, filteredRules, rules, selectedRuleId]);
+
+    // P0-2: the draft is "dirty" when it differs from its baseline — the saved
+    // rule for an existing selection, or an empty rule for a new/seeded draft.
+    const selectedSavedRule = useMemo(
+      () => rules.find((rule) => rule.id === selectedRuleId),
+      [rules, selectedRuleId],
+    );
+    const isDirty = useMemo(() => {
+      const baseline = selectedSavedRule ?? createEmptyRewriteRule(draft.rewriteType);
+      return !isRewriteRuleEqual(draft, baseline);
+    }, [draft, selectedSavedRule]);
+
+    // Guards route navigation away AND in-component transitions that would
+    // replace the in-flight draft; both share one confirmation dialog.
+    const guard = useUnsavedChangesGuard(isDirty);
+
+    useImperativeHandle(ref, () => ({ isDirty, confirmLeave: guard.confirmLeave }), [
+      guard.confirmLeave,
+      isDirty,
+    ]);
+
+    async function selectRule(rule: RewriteRule) {
+      if (!(await guard.confirmLeave())) return;
+      lastSyncedRuleIdRef.current = rule.id;
+      setSelectedRuleId(rule.id);
+      setDraft(rule);
+      setValidationAttempted(false);
     }
-    const next = filteredRules[0];
-    if (next) {
-      if (lastSyncedRuleIdRef.current === next.id) return;
+
+    async function handleCreateRule(rewriteType: RewriteRuleType) {
+      if (!(await guard.confirmLeave())) return;
+      const d = createEmptyRewriteRule(rewriteType);
+      d.name = `${getRewriteTypeLabel(rewriteType, t)} rewrite`;
+      lastSyncedRuleIdRef.current = d.id;
+      setSelectedRuleId(d.id);
+      setDraft(d);
+      setValidationAttempted(false);
+    }
+
+    async function applyTemplate(template: RewriteTemplate) {
+      if (!(await guard.confirmLeave())) return;
+      const next = template.build();
       lastSyncedRuleIdRef.current = next.id;
       setSelectedRuleId(next.id);
       setDraft(next);
+      setTemplateDialogOpen(false);
       setValidationAttempted(false);
-      return;
     }
-    if (lastSyncedRuleIdRef.current === undefined) return;
-    lastSyncedRuleIdRef.current = undefined;
-    setSelectedRuleId(undefined);
-    setValidationAttempted(false);
-  }, [draft.id, filteredRules, rules, selectedRuleId]);
 
-  function selectRule(rule: RewriteRule) {
-    lastSyncedRuleIdRef.current = rule.id;
-    setSelectedRuleId(rule.id);
-    setDraft(rule);
-    setValidationAttempted(false);
-  }
-
-  function handleCreateRule(rewriteType: RewriteRuleType) {
-    const d = createEmptyRewriteRule(rewriteType);
-    d.name = `${getRewriteTypeLabel(rewriteType, t)} rewrite`;
-    lastSyncedRuleIdRef.current = d.id;
-    setSelectedRuleId(d.id);
-    setDraft(d);
-    setValidationAttempted(false);
-  }
-
-  function applyTemplate(template: RewriteTemplate) {
-    const next = template.build();
-    lastSyncedRuleIdRef.current = next.id;
-    setSelectedRuleId(next.id);
-    setDraft(next);
-    setTemplateDialogOpen(false);
-    setValidationAttempted(false);
-  }
-
-  function handleSave() {
-    if (isRulesError) return;
-    setValidationAttempted(true);
-    if (hasRuleFieldErrors(errors)) return;
-    saveMutation.mutate(draft, {
-      onSuccess: (saved) => {
-        lastSyncedRuleIdRef.current = saved.id;
-        setSelectedRuleId(saved.id);
-        setDraft(saved);
-        setValidationAttempted(false);
-      },
-    });
-  }
-
-  function handleDelete() {
-    if (isRulesError) return;
-    if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
-      lastSyncedRuleIdRef.current = undefined;
-      setDraft(createEmptyRewriteRule());
-      setSelectedRuleId(undefined);
-      return;
-    }
-    // Destructive: confirm before the persisted rule is removed.
-    setDeleteConfirmOpen(true);
-  }
-
-  function confirmDelete() {
-    if (!selectedRuleId) return;
-    deleteMutation.mutate(
-      { ruleId: selectedRuleId, ruleType: "rewrite" },
-      {
-        onSuccess: () => {
-          lastSyncedRuleIdRef.current = undefined;
-          setSelectedRuleId(undefined);
-          setDraft(createEmptyRewriteRule());
-          setDeleteConfirmOpen(false);
+    function handleSave() {
+      if (isRulesError) return;
+      setValidationAttempted(true);
+      if (hasRuleFieldErrors(errors)) return;
+      // UI_GUIDELINES §9.4: a combination that can never fire must not be
+      // persisted; the warning Alert above the form explains why.
+      if (invalidCombination) return;
+      saveMutation.mutate(draft, {
+        onSuccess: (saved) => {
+          lastSyncedRuleIdRef.current = saved.id;
+          setSelectedRuleId(saved.id);
+          setDraft(saved);
+          setValidationAttempted(false);
         },
-      },
-    );
-  }
+      });
+    }
 
-  const invalidCombination = getInvalidRewriteCombination(draft, t);
-  const errors = getRewriteValidationErrors(draft, t);
-  const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
-  const testResult = testRuleMatch(draft, testInput, t);
-  const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
-
-  function toggleSelect(id: string) {
-    setSelectedRuleIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+    function handleDelete() {
+      if (isRulesError) return;
+      if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
+        lastSyncedRuleIdRef.current = undefined;
+        setDraft(createEmptyRewriteRule());
+        setSelectedRuleId(undefined);
+        return;
       }
-      return next;
-    });
-  }
+      // Destructive: confirm before the persisted rule is removed.
+      setDeleteConfirmOpen(true);
+    }
 
-  function clearSelection() {
-    setSelectedRuleIds(new Set());
-  }
+    function confirmDelete() {
+      if (!selectedRuleId) return;
+      deleteMutation.mutate(
+        { ruleId: selectedRuleId, ruleType: "rewrite" },
+        {
+          onSuccess: () => {
+            lastSyncedRuleIdRef.current = undefined;
+            setSelectedRuleId(undefined);
+            setDraft(createEmptyRewriteRule());
+            setDeleteConfirmOpen(false);
+          },
+        },
+      );
+    }
 
-  function handleBatchEnabled(enabled: boolean) {
-    const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
-    if (updates.length === 0) return;
-    bulkMutation.mutate(
-      { ruleType: "rewrite", updates },
-      {
-        onSettled: () => clearSelection(),
-      },
-    );
-  }
+    const invalidCombination = getInvalidRewriteCombination(draft, t);
+    const errors = getRewriteValidationErrors(draft, t);
+    const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
+    const testResult = testRuleMatch(draft, testInput, t);
+    const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
-  function handleBatchDelete() {
-    const ids = [...selectedRuleIds];
-    if (ids.length === 0) return;
-    void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "rewrite" }))).then(
-      (results) => {
+    function toggleSelect(id: string) {
+      setSelectedRuleIds((previous) => {
+        const next = new Set(previous);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
+    }
+
+    function clearSelection() {
+      setSelectedRuleIds(new Set());
+    }
+
+    function handleBatchEnabled(enabled: boolean) {
+      const updates = [...selectedRuleIds].map((id) => ({ id, enabled }));
+      if (updates.length === 0) return;
+      bulkMutation.mutate(
+        { ruleType: "rewrite", updates },
+        {
+          onSettled: () => clearSelection(),
+        },
+      );
+    }
+
+    function handleBatchDelete() {
+      const ids = [...selectedRuleIds];
+      if (ids.length === 0) return;
+      void Promise.allSettled(
+        ids.map((ruleId) => deleteRule({ ruleId, ruleType: "rewrite" })),
+      ).then((results) => {
         const failed = results.filter((result) => result.status === "rejected").length;
         useNotificationStore.getState().push(
           failed > 0
@@ -551,368 +592,382 @@ export function RewriteRulesPanel() {
             : t("rulesPage.batch.resultSuccess", { count: ids.length }),
         );
         clearSelection();
-      },
-    );
-  }
+      });
+    }
 
-  function handleReorder(orderedIds: string[]) {
-    const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-    const updates = computeReorderedPriorities(orderedIds, currentPriorities);
-    if (updates.length === 0) return;
+    function handleReorder(orderedIds: string[]) {
+      const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
+      const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+      if (updates.length === 0) return;
 
-    const previous = rules;
-    const reordered = orderedIds
-      .map((id) => rules.find((rule) => rule.id === id))
-      .filter((rule): rule is RewriteRule => rule !== undefined);
-    queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, reordered);
-    bulkMutation.mutate(
-      { ruleType: "rewrite", updates },
-      {
-        onError: () => {
-          queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, previous);
-          queryClient.invalidateQueries({ queryKey: REWRITE_RULES_QUERY_KEY });
+      const previous = rules;
+      const reordered = orderedIds
+        .map((id) => rules.find((rule) => rule.id === id))
+        .filter((rule): rule is RewriteRule => rule !== undefined);
+      queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, reordered);
+      bulkMutation.mutate(
+        { ruleType: "rewrite", updates },
+        {
+          onError: () => {
+            queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, previous);
+            queryClient.invalidateQueries({ queryKey: REWRITE_RULES_QUERY_KEY });
+          },
         },
-      },
-    );
-  }
+      );
+    }
 
-  return (
-    <>
-      {isRulesError && (
-        <Alert severity="error" sx={{ mb: 1 }}>
-          {t("common.errors.generic")}
-        </Alert>
-      )}
-      <ManagedRulesWorkbench
-        batchBar={
-          selectedRuleIds.size > 0 ? (
-            <RuleBatchBar
-              count={selectedRuleIds.size}
-              deletePending={false}
-              onDelete={handleBatchDelete}
-              onDisable={() => handleBatchEnabled(false)}
-              onDone={clearSelection}
-              onEnable={() => handleBatchEnabled(true)}
-            />
-          ) : undefined
-        }
-        searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        createActions={
-          <Stack
-            direction="row"
-            spacing={0.75}
-            useFlexGap
-            sx={{
-              flexWrap: "wrap",
-            }}
-          >
-            {(["header", "query", "body", "redirect"] as const).map((type) => (
+    return (
+      <>
+        <ConfirmDialog
+          cancelLabel={t("common.actions.keepEditing")}
+          confirmColor="warning"
+          confirmLabel={t("common.actions.discard")}
+          message={t("rulesPage.unsavedChangesMessage")}
+          onCancel={guard.handleCancel}
+          onConfirm={guard.handleConfirm}
+          open={guard.dialogOpen}
+          title={t("rulesPage.unsavedChangesTitle")}
+        />
+        {isRulesError && (
+          <Alert severity="error" sx={{ mb: 1 }}>
+            {t("common.errors.generic")}
+          </Alert>
+        )}
+        <ManagedRulesWorkbench
+          batchBar={
+            selectedRuleIds.size > 0 ? (
+              <RuleBatchBar
+                count={selectedRuleIds.size}
+                deletePending={false}
+                onDelete={handleBatchDelete}
+                onDisable={() => handleBatchEnabled(false)}
+                onDone={clearSelection}
+                onEnable={() => handleBatchEnabled(true)}
+              />
+            ) : undefined
+          }
+          searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
+          searchValue={searchValue}
+          onSearchChange={setSearchValue}
+          createActions={
+            <Stack
+              direction="row"
+              spacing={0.75}
+              useFlexGap
+              sx={{
+                flexWrap: "wrap",
+              }}
+            >
+              {(["header", "query", "body", "redirect"] as const).map((type) => (
+                <Button
+                  key={type}
+                  size="small"
+                  variant="outlined"
+                  disabled={isRulesError}
+                  startIcon={<AddRoundedIcon />}
+                  onClick={() => handleCreateRule(type)}
+                >
+                  {getRewriteTypeLabel(type, t)}
+                </Button>
+              ))}
               <Button
-                key={type}
                 size="small"
                 variant="outlined"
                 disabled={isRulesError}
                 startIcon={<AddRoundedIcon />}
-                onClick={() => handleCreateRule(type)}
+                onClick={() => setTemplateDialogOpen(true)}
               >
-                {getRewriteTypeLabel(type, t)}
+                {t("rulesPage.rewrite.fromTemplate")}
               </Button>
-            ))}
-            <Button
-              size="small"
-              variant="outlined"
-              disabled={isRulesError}
-              startIcon={<AddRoundedIcon />}
-              onClick={() => setTemplateDialogOpen(true)}
-            >
-              {t("rulesPage.rewrite.fromTemplate")}
-            </Button>
-          </Stack>
-        }
-        list={
-          <ManagedRuleList
-            emptyDescription={t("rulesPage.rewrite.emptyDescription")}
-            onReorder={handleReorder}
-            selectedIds={selectedRuleIds}
-            items={filteredRules.map((rule) => ({
-              id: rule.id,
-              active: rule.id === selectedRuleId,
-              enabled: rule.enabled,
-              name: rule.name || t("rulesPage.untitledRule"),
-              subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
-              chipLabel: `${rule.priority}`,
-              onClick: () => selectRule(rule),
-              onSelectToggle: () => toggleSelect(rule.id),
-              // Persist the SAVED rule (not the in-flight draft) so the toggle
-              // takes effect immediately (review §4.1).
-              onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
-            }))}
-          />
-        }
-        editor={
-          <Stack spacing={2}>
-            <RewriteEditorHeader
-              deletePending={deleteMutation.isPending}
-              draft={draft}
-              errors={errors}
-              isError={isRulesError}
-              onChange={setDraft}
-              onDelete={handleDelete}
-              onSave={handleSave}
-              savePending={saveMutation.isPending}
-              validationAttempted={validationAttempted}
+            </Stack>
+          }
+          list={
+            <ManagedRuleList
+              emptyDescription={t("rulesPage.rewrite.emptyDescription")}
+              onReorder={handleReorder}
+              selectedIds={selectedRuleIds}
+              items={filteredRules.map((rule) => ({
+                id: rule.id,
+                active: rule.id === selectedRuleId,
+                enabled: rule.enabled,
+                name: rule.name || t("rulesPage.untitledRule"),
+                subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
+                chipLabel: `${rule.priority}`,
+                onClick: () => selectRule(rule),
+                onSelectToggle: () => toggleSelect(rule.id),
+                // Persist the SAVED rule (not the in-flight draft) so the toggle
+                // takes effect immediately (review §4.1).
+                onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
+              }))}
             />
-
-            {validationAttempted && invalidCombination && (
-              <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
-                <Typography variant="body2">{invalidCombination}</Typography>
-              </Alert>
-            )}
-
-            {saveError && (
-              <Alert severity="error" variant="outlined">
-                {saveError}
-              </Alert>
-            )}
-
-            <Box
-              sx={{
-                display: "grid",
-                gap: 2,
-                gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
-              }}
-            >
-              <Stack
-                spacing={2}
-                sx={{
-                  minWidth: 0,
-                }}
-              >
-                <RuleSection>
-                  <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
-                    <TextField
-                      size="small"
-                      label={formatRuleFieldLabel(t("rulesPage.editor.urlPattern"), "required", t)}
-                      value={draft.match.urlPattern}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          match: { ...draft.match, urlPattern: e.target.value },
-                        })
-                      }
-                      {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
-                      placeholder={t("rulesPage.editor.urlPatternExample")}
-                      fullWidth
-                    />
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "text.secondary",
-                            fontWeight: 650,
-                          }}
-                        >
-                          {t("rulesPage.editor.matchType")}
-                        </Typography>
-                        <Select
-                          size="small"
-                          value={draft.match.matchType ?? "contains"}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              match: { ...draft.match, matchType: e.target.value } as RuleMatch,
-                            })
-                          }
-                        >
-                          <MenuItem value="contains">
-                            {t("rulesPage.editor.matchTypes.contains")}
-                          </MenuItem>
-                          <MenuItem value="wildcard">
-                            {t("rulesPage.editor.matchTypes.wildcard")}
-                          </MenuItem>
-                          <MenuItem value="exact">
-                            {t("rulesPage.editor.matchTypes.exact")}
-                          </MenuItem>
-                          <MenuItem value="regex">
-                            {t("rulesPage.editor.matchTypes.regex")}
-                          </MenuItem>
-                        </Select>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "text.secondary",
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          {t(
-                            `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
-                          )}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "text.secondary",
-                            fontWeight: 650,
-                          }}
-                        >
-                          {httpMethodsLabel}
-                        </Typography>
-                        <Select
-                          displayEmpty
-                          multiple
-                          size="small"
-                          value={draft.match.methods}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              match: { ...draft.match, methods: e.target.value as string[] },
-                            })
-                          }
-                          renderValue={(s) =>
-                            s.length === 0 ? t("rulesPage.allMethods") : s.join(", ")
-                          }
-                        >
-                          {HTTP_METHODS.map((m) => (
-                            <MenuItem key={m} value={m}>
-                              {m}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </Stack>
-                      <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: "text.secondary",
-                            fontWeight: 650,
-                          }}
-                        >
-                          {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
-                        </Typography>
-                        <Select
-                          size="small"
-                          value={draft.match.stage}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              match: {
-                                ...draft.match,
-                                stage: e.target.value as RuleMatch["stage"],
-                              },
-                            })
-                          }
-                        >
-                          <MenuItem value="either">
-                            {t("rulesPage.editor.matchStageEither")}
-                          </MenuItem>
-                          <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
-                          <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
-                        </Select>
-                      </Stack>
-                    </Stack>
-                  </FieldGroup>
-                </RuleSection>
-
-                <RuleSection>
-                  <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
-                    <RewriteActionFields
-                      errors={errors}
-                      rule={draft}
-                      onChange={setDraft}
-                      validationAttempted={validationAttempted}
-                    />
-                  </FieldGroup>
-                </RuleSection>
-              </Stack>
-
-              <RewriteRuleTester
+          }
+          editor={
+            <Stack spacing={2}>
+              <RewriteEditorHeader
+                deletePending={deleteMutation.isPending}
                 draft={draft}
-                testInput={testInput}
-                testResult={testResult}
-                onChange={setTestInput}
+                errors={errors}
+                isError={isRulesError}
+                onChange={setDraft}
+                onDelete={handleDelete}
+                onSave={handleSave}
+                savePending={saveMutation.isPending}
+                validationAttempted={validationAttempted}
               />
-            </Box>
-          </Stack>
-        }
-      />
-      <Dialog
-        fullWidth
-        maxWidth="sm"
-        open={templateDialogOpen}
-        onClose={() => setTemplateDialogOpen(false)}
-      >
-        <DialogTitle>{t("rulesPage.rewrite.templatesTitle")}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1} sx={{ pb: 1 }}>
-            {templates.map((template) => (
-              <Button
-                key={template.label}
-                color="inherit"
-                onClick={() => applyTemplate(template)}
-                size="small"
-                startIcon={<TemplateIcon icon={template.icon} />}
+
+              {validationAttempted && invalidCombination && (
+                <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+                  <Typography variant="body2">{invalidCombination}</Typography>
+                </Alert>
+              )}
+
+              {saveError && (
+                <Alert severity="error" variant="outlined">
+                  {saveError}
+                </Alert>
+              )}
+
+              <Box
                 sx={{
-                  alignItems: "flex-start",
-                  border: 1,
-                  borderColor: "divider",
-                  justifyContent: "flex-start",
-                  px: 1,
-                  py: 0.85,
-                  textAlign: "left",
+                  display: "grid",
+                  gap: 2,
+                  gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
                 }}
               >
-                <Stack spacing={0.15}>
-                  <Stack
-                    direction="row"
-                    spacing={0.75}
-                    sx={{
-                      alignItems: "center",
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
-                      {t(template.label)}
-                    </Typography>
-                    <Chip
-                      size="small"
-                      label={getRewriteTypeLabel(template.type, t)}
-                      sx={{ height: 18, fontSize: 10 }}
-                    />
-                  </Stack>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                    }}
-                  >
-                    {t(template.description)}
-                  </Typography>
-                </Stack>
-              </Button>
-            ))}
-          </Stack>
-        </DialogContent>
-      </Dialog>
+                <Stack
+                  spacing={2}
+                  sx={{
+                    minWidth: 0,
+                  }}
+                >
+                  <RuleSection>
+                    <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
+                      <TextField
+                        size="small"
+                        label={formatRuleFieldLabel(
+                          t("rulesPage.editor.urlPattern"),
+                          "required",
+                          t,
+                        )}
+                        value={draft.match.urlPattern}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            match: { ...draft.match, urlPattern: e.target.value },
+                          })
+                        }
+                        {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
+                        placeholder={t("rulesPage.editor.urlPatternExample")}
+                        fullWidth
+                      />
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "text.secondary",
+                              fontWeight: 650,
+                            }}
+                          >
+                            {t("rulesPage.editor.matchType")}
+                          </Typography>
+                          <Select
+                            size="small"
+                            value={draft.match.matchType ?? "contains"}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                match: { ...draft.match, matchType: e.target.value } as RuleMatch,
+                              })
+                            }
+                          >
+                            <MenuItem value="contains">
+                              {t("rulesPage.editor.matchTypes.contains")}
+                            </MenuItem>
+                            <MenuItem value="wildcard">
+                              {t("rulesPage.editor.matchTypes.wildcard")}
+                            </MenuItem>
+                            <MenuItem value="exact">
+                              {t("rulesPage.editor.matchTypes.exact")}
+                            </MenuItem>
+                            <MenuItem value="regex">
+                              {t("rulesPage.editor.matchTypes.regex")}
+                            </MenuItem>
+                          </Select>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "text.secondary",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            {t(
+                              `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
+                            )}
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "text.secondary",
+                              fontWeight: 650,
+                            }}
+                          >
+                            {httpMethodsLabel}
+                          </Typography>
+                          <Select
+                            displayEmpty
+                            multiple
+                            size="small"
+                            value={draft.match.methods}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                match: { ...draft.match, methods: e.target.value as string[] },
+                              })
+                            }
+                            renderValue={(s) =>
+                              s.length === 0 ? t("rulesPage.allMethods") : s.join(", ")
+                            }
+                          >
+                            {HTTP_METHODS.map((m) => (
+                              <MenuItem key={m} value={m}>
+                                {m}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </Stack>
+                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "text.secondary",
+                              fontWeight: 650,
+                            }}
+                          >
+                            {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
+                          </Typography>
+                          <Select
+                            size="small"
+                            value={draft.match.stage}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                match: {
+                                  ...draft.match,
+                                  stage: e.target.value as RuleMatch["stage"],
+                                },
+                              })
+                            }
+                          >
+                            <MenuItem value="either">
+                              {t("rulesPage.editor.matchStageEither")}
+                            </MenuItem>
+                            <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
+                            <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
+                          </Select>
+                        </Stack>
+                      </Stack>
+                    </FieldGroup>
+                  </RuleSection>
 
-      <ConfirmDialog
-        open={deleteConfirmOpen}
-        title={t("rulesPage.deleteRuleTitle")}
-        message={t("common.confirmDeleteMessage", {
-          name: draft.name.trim() || draft.match.urlPattern,
-        })}
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteConfirmOpen(false)}
-        isConfirming={deleteMutation.isPending}
-      />
-    </>
-  );
-}
+                  <RuleSection>
+                    <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
+                      <RewriteActionFields
+                        errors={errors}
+                        rule={draft}
+                        onChange={setDraft}
+                        validationAttempted={validationAttempted}
+                      />
+                    </FieldGroup>
+                  </RuleSection>
+                </Stack>
+
+                <RewriteRuleTester
+                  draft={draft}
+                  testInput={testInput}
+                  testResult={testResult}
+                  onChange={setTestInput}
+                />
+              </Box>
+            </Stack>
+          }
+        />
+        <Dialog
+          fullWidth
+          maxWidth="sm"
+          open={templateDialogOpen}
+          onClose={() => setTemplateDialogOpen(false)}
+        >
+          <DialogTitle>{t("rulesPage.rewrite.templatesTitle")}</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1} sx={{ pb: 1 }}>
+              {templates.map((template) => (
+                <Button
+                  key={template.label}
+                  color="inherit"
+                  onClick={() => applyTemplate(template)}
+                  size="small"
+                  startIcon={<TemplateIcon icon={template.icon} />}
+                  sx={{
+                    alignItems: "flex-start",
+                    border: 1,
+                    borderColor: "divider",
+                    justifyContent: "flex-start",
+                    px: 1,
+                    py: 0.85,
+                    textAlign: "left",
+                  }}
+                >
+                  <Stack spacing={0.15}>
+                    <Stack
+                      direction="row"
+                      spacing={0.75}
+                      sx={{
+                        alignItems: "center",
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
+                        {t(template.label)}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={getRewriteTypeLabel(template.type, t)}
+                        sx={{ height: 18, fontSize: 10 }}
+                      />
+                    </Stack>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                      }}
+                    >
+                      {t(template.description)}
+                    </Typography>
+                  </Stack>
+                </Button>
+              ))}
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
+        <ConfirmDialog
+          open={deleteConfirmOpen}
+          title={t("rulesPage.deleteRuleTitle")}
+          message={t("common.confirmDeleteMessage", {
+            name: draft.name.trim() || draft.match.urlPattern,
+          })}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirmOpen(false)}
+          isConfirming={deleteMutation.isPending}
+        />
+      </>
+    );
+  },
+);
 
 function RewriteEditorHeader({
   deletePending,

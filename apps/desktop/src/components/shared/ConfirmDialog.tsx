@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Checkbox,
   Dialog,
@@ -26,6 +27,17 @@ type ConfirmDialogProps = {
   /** Drives the confirm button's pending state (e.g. mutation.isPending). */
   isConfirming?: boolean;
   /**
+   * Failure of the confirmed action, already reduced to display text. Renders
+   * an inline error Alert and keeps the dialog open so the user can retry
+   * (P1-23); callers close the dialog themselves on success.
+   */
+  errorMessage?: string | undefined;
+  /**
+   * MUI color of the confirm button. Defaults to "error" (destructive
+   * deletes); use "warning" for softer discards like unsaved-changes guards.
+   */
+  confirmColor?: "error" | "warning" | "primary" | "info" | "success";
+  /**
    * Optional "don't ask again" opt-out. Only provide for re-capturable data
    * (e.g. Clear All Sessions); irreversible deletes must never offer it.
    * See UI_GUIDELINES §11.4.
@@ -42,9 +54,11 @@ type ConfirmDialogProps = {
  */
 export function ConfirmDialog({
   cancelLabel,
+  confirmColor = "error",
   confirmLabel,
   dontAskAgainChecked = false,
   dontAskAgainLabel,
+  errorMessage,
   isConfirming = false,
   message,
   onCancel,
@@ -62,6 +76,11 @@ export function ConfirmDialog({
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {message}
         </Typography>
+        {errorMessage ? (
+          <Alert severity="error" sx={{ mt: 1.5 }}>
+            {errorMessage}
+          </Alert>
+        ) : null}
         {dontAskAgainLabel ? (
           <FormControlLabel
             control={
@@ -85,7 +104,12 @@ export function ConfirmDialog({
         <Button disabled={isConfirming} onClick={onCancel}>
           {cancelLabel ?? t("common.actions.cancel")}
         </Button>
-        <Button color="error" disabled={isConfirming} onClick={onConfirm} variant="contained">
+        <Button
+          color={confirmColor}
+          disabled={isConfirming}
+          onClick={onConfirm}
+          variant="contained"
+        >
           {confirmLabel ?? t("common.actions.delete")}
         </Button>
       </DialogActions>

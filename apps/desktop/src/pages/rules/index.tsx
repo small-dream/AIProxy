@@ -1,29 +1,84 @@
 import { Box, Paper, Stack, Tab, Tabs } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
-import { MappingRulesPanel } from "@/features/rules/components/MappingRulesPanel";
-import { RewriteRulesPanel } from "@/features/rules/components/RewriteRulesPanel";
+import {
+  MappingRulesPanel,
+  type MappingRulesPanelHandle,
+} from "@/features/rules/components/MappingRulesPanel";
+import {
+  RewriteRulesPanel,
+  type RewriteRulesPanelHandle,
+} from "@/features/rules/components/RewriteRulesPanel";
 import { ScriptRulesPanel } from "@/features/rules/components/ScriptRulesPanel";
 import { RulesImportExportButtons } from "@/features/rules/components/RulesImportExportButtons";
-import type { RulesTabValue } from "@/features/rules/rules.helpers";
+import type { RulesPanelHandle, RulesTabValue } from "@/features/rules/rules.helpers";
 import { useI18n } from "@/i18n";
 
 export function RulesPage() {
   const { t } = useI18n();
   const location = useLocation();
   const [tab, setTab] = useState<RulesTabValue>("rewrite");
+  const breakpointPanelRef = useRef<RulesPanelHandle>(null);
+  const rewritePanelRef = useRef<RewriteRulesPanelHandle>(null);
+  const mappingPanelRef = useRef<MappingRulesPanelHandle>(null);
+  const scriptPanelRef = useRef<RulesPanelHandle>(null);
+  // Consume-once marker for the mapLocalSeed deep link, keyed by the history
+  // entry, so a vetoed switch is not re-prompted on every later re-render.
+  const lastHandledSeedKeyRef = useRef<string | null>(null);
+  const seedHandlingRef = useRef(false);
+
+  function panelForTab(value: RulesTabValue): RulesPanelHandle | null | undefined {
+    switch (value) {
+      case "breakpoint":
+        return breakpointPanelRef.current;
+      case "rewrite":
+        return rewritePanelRef.current;
+      case "mapping":
+        return mappingPanelRef.current;
+      case "script":
+        return scriptPanelRef.current;
+    }
+  }
+
+  // P0-2: switching tabs unmounts the active panel and silently dropped its
+  // draft, so every panel now vetoes through the shared unsaved-changes guard.
+  async function handleTabChange(value: RulesTabValue): Promise<boolean> {
+    if (value === tab) return true;
+    const allowed = (await panelForTab(tab)?.confirmLeave()) ?? true;
+    if (!allowed) return false;
+    setTab(value);
+    return true;
+  }
 
   // The sessions page routes here with a mapLocalSeed for the "Map Local this
   // request" flow; land on the mapping tab so the pre-filled draft is visible.
+  // Routed through handleTabChange so a dirty editor on the CURRENT tab can
+  // still veto the switch. When the mapping tab is already active this call is
+  // a no-op — the mapping panel then guards the seed consumption itself, since
+  // applying the seed replaces its in-flight draft. Either way nothing is
+  // silently lost: the seed stays in history state until the mapping panel
+  // actually consumes it.
+  // Deliberately no dep array: handleTabChange closes over `tab` and gets a
+  // fresh identity every render, so listing deps would be equivalent anyway.
+  // The history-entry key makes the handling run-once per navigation.
   useEffect(() => {
     const state = location.state as { mapLocalSeed?: unknown } | null;
-    if (state?.mapLocalSeed) {
-      setTab("mapping");
-    }
-  }, [location.state]);
+    if (!state?.mapLocalSeed) return;
+    if (lastHandledSeedKeyRef.current === location.key) return;
+    // When mapping is already mounted, the child owns seed consumption and its
+    // own dirty guard. Do not mark the history entry here before that child has
+    // confirmed and consumed it.
+    if (tab === "mapping") return;
+    if (seedHandlingRef.current) return;
+    seedHandlingRef.current = true;
+    void handleTabChange("mapping").then((handled) => {
+      seedHandlingRef.current = false;
+      if (handled) lastHandledSeedKeyRef.current = location.key;
+    });
+  });
 
   return (
     <Stack spacing={0.375} sx={{ height: "100%", minHeight: 0 }}>
@@ -64,7 +119,7 @@ export function RulesPage() {
         >
           <Tabs
             value={tab}
-            onChange={(_, value: RulesTabValue) => setTab(value)}
+            onChange={(_, value: RulesTabValue) => void handleTabChange(value)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{
@@ -117,10 +172,10 @@ export function RulesPage() {
         </Stack>
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}>
-          {tab === "breakpoint" && <BreakpointRulesPanel />}
-          {tab === "rewrite" && <RewriteRulesPanel />}
-          {tab === "mapping" && <MappingRulesPanel />}
-          {tab === "script" && <ScriptRulesPanel />}
+          {tab === "breakpoint" && <BreakpointRulesPanel ref={breakpointPanelRef} />}
+          {tab === "rewrite" && <RewriteRulesPanel ref={rewritePanelRef} />}
+          {tab === "mapping" && <MappingRulesPanel ref={mappingPanelRef} />}
+          {tab === "script" && <ScriptRulesPanel ref={scriptPanelRef} />}
         </Box>
       </Paper>
     </Stack>

@@ -19,6 +19,7 @@ pub struct WsMessageOutput {
     pub payload_text: Option<String>,
     pub payload_size: usize,
     pub fin: bool,
+    pub truncated: bool,
 }
 
 // M15: async + `run_blocking_command` so the DB read (and any mutex wait on
@@ -49,6 +50,7 @@ pub async fn list_ws_messages(
                 payload_text: r.payload_text,
                 payload_size: r.payload_size,
                 fin: r.fin,
+                truncated: r.truncated,
             })
             .collect())
     })
@@ -171,6 +173,7 @@ pub async fn search_ws_messages(
                 payload_text: r.payload_text,
                 payload_size: r.payload_size,
                 fin: r.fin,
+                truncated: r.truncated,
             })
             .collect())
     })

@@ -489,6 +489,7 @@ export function ComposePage() {
       />
       <SaveToCollectionDialog
         open={saveDialogOpen}
+        saving={upsertItemMutation.isPending}
         sessionName={`${method} ${url}`.trim() || t("composePage.untitledRequest")}
         onCancel={() => setSaveDialogOpen(false)}
         onConfirm={handleSaveToCollection}

@@ -393,14 +393,17 @@ pub struct WsMessageRow {
     pub payload_text: Option<String>,
     pub payload_size: usize,
     pub fin: bool,
+    /// True when reassembly hit the capture cap and this row is only a prefix
+    /// of the original message (P2 4.1-7).
+    pub truncated: bool,
 }
 
 /// Insert a single WebSocket message.
 pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO ws_messages
-            (id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             msg.id,
             msg.session_id,
@@ -410,6 +413,7 @@ pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), Db
             msg.payload_text,
             msg.payload_size as i64,
             msg.fin as i32,
+            msg.truncated as i32,
         ],
     )
     .map_err(|e| DbError::query("insert ws message", e))?;
@@ -425,7 +429,7 @@ pub fn load_ws_messages(
 ) -> Result<Vec<WsMessageRow>, DbError> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
+            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated
              FROM ws_messages
              WHERE session_id = ?1
              ORDER BY timestamp ASC
@@ -475,7 +479,7 @@ pub fn search_ws_messages(
     let like_pattern = format!("%{escaped_query}%");
     let mut stmt = conn
         .prepare(
-            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin
+            "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated
              FROM ws_messages
              WHERE session_id = ?1 AND payload_text LIKE ?2 ESCAPE '\\'
              ORDER BY timestamp ASC
@@ -505,6 +509,7 @@ fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> 
         payload_text: row.get("payload_text")?,
         payload_size: row.get::<_, i64>("payload_size")? as usize,
         fin: row.get::<_, i32>("fin")? != 0,
+        truncated: row.get::<_, i32>("truncated")? != 0,
     })
 }
 
@@ -715,13 +720,31 @@ mod tests {
             payload_text: Some("hello".into()),
             payload_size: 5,
             fin: true,
+            truncated: false,
         };
         insert_ws_message(&conn, &msg).unwrap();
 
+        // P2 4.1-7: a capture that hit the reassembly cap must persist and
+        // reload its truncated flag intact.
+        let oversized = WsMessageRow {
+            id: "m2".into(),
+            session_id: "ws1".into(),
+            direction: "serverToClient".into(),
+            timestamp: "2026-04-19T00:00:02Z".into(),
+            opcode: "binary".into(),
+            payload_text: None,
+            payload_size: 20 * 1024 * 1024,
+            fin: true,
+            truncated: true,
+        };
+        insert_ws_message(&conn, &oversized).unwrap();
+
         let loaded = load_ws_messages(&conn, "ws1", 100, 0).unwrap();
-        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].payload_text, Some("hello".into()));
         assert_eq!(loaded[0].direction, "clientToServer");
+        assert!(!loaded[0].truncated);
+        assert!(loaded[1].truncated);
     }
 
     #[test]
@@ -745,6 +768,7 @@ mod tests {
                 payload_text: None,
                 payload_size: 0,
                 fin: true,
+                truncated: false,
             },
         )
         .unwrap();
@@ -778,6 +802,7 @@ mod tests {
                 payload_text: Some("preserved".into()),
                 payload_size: 9,
                 fin: true,
+                truncated: false,
             },
         )
         .unwrap();
@@ -851,6 +876,7 @@ mod tests {
                 payload_text: None,
                 payload_size: 0,
                 fin: true,
+                truncated: false,
             },
         )
         .unwrap();

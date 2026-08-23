@@ -68,13 +68,13 @@ export async function pickAndReadRulesFile(title: string): Promise<RulesFileCont
 /** Output of `pick_attachment_file`: metadata only, never contents (D1). */
 export interface AttachmentFile {
   fileName: string;
-  filePath: string;
+  fileToken: string;
   sizeBytes: number;
 }
 
 /**
- * Backend-owned attachment picker (C3). Returns the picked file's name,
- * canonicalized path, and size; the send path re-reads the file server-side.
+ * Backend-owned attachment picker (C3). Returns the picked file's display
+ * metadata and a one-time token; the send path consumes that token server-side.
  * Returns `null` when the user cancels.
  */
 export async function pickAttachmentFile(title: string): Promise<AttachmentFile | null> {

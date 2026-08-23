@@ -31,7 +31,10 @@ use aiproxy_proxy_core::{
 use serde::Serialize;
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 use tauri::async_runtime::JoinHandle;
 
@@ -114,6 +117,10 @@ pub struct AppState {
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     focused_hosts: Mutex<HashSet<String>>,
+    // Serialize persistence and destructive session operations so an older
+    // in-flight upsert cannot emit after clear/delete has completed.
+    session_lifecycle_lock: tokio::sync::Mutex<()>,
+    session_generation: AtomicU64,
     repository: Repository,
 }
 
@@ -139,6 +146,8 @@ impl AppState {
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
             focused_hosts: Mutex::new(HashSet::new()),
+            session_lifecycle_lock: tokio::sync::Mutex::new(()),
+            session_generation: AtomicU64::new(0),
             repository: Repository::new(db, body_store),
         };
 
@@ -209,6 +218,10 @@ impl AppState {
         self.cache.read_summaries()
     }
 
+    pub(crate) fn session_generation(&self) -> u64 {
+        self.session_generation.load(Ordering::Acquire)
+    }
+
     // ── session detail ──────────────────────────────────────────────
 
     pub fn read_session_detail(
@@ -264,7 +277,9 @@ impl AppState {
 
     // ── session lifecycle ───────────────────────────────────────────
 
-    pub fn clear_sessions(&self) {
+    pub async fn clear_sessions(&self) {
+        self.session_generation.fetch_add(1, Ordering::AcqRel);
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
         let ids_to_clear = self.cache.clear_summaries();
         let ids_set: HashSet<String> = ids_to_clear.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
@@ -274,7 +289,9 @@ impl AppState {
         }
 
         if !ids_to_clear.is_empty() {
-            self.repository.spawn_delete_sessions(ids_to_clear);
+            self.repository
+                .delete_sessions_and_bodies_async(ids_to_clear)
+                .await;
         }
     }
 
@@ -283,6 +300,8 @@ impl AppState {
     // `spawn_blocking` via `delete_sessions_and_bodies_async` so the IPC thread
     // is not blocked on SQLite + file I/O.
     pub async fn delete_sessions_except(&self, keep_session_id: &str) {
+        self.session_generation.fetch_add(1, Ordering::AcqRel);
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
         let ids_to_remove = self.cache.retain_summaries(keep_session_id);
         let ids_set: HashSet<String> = ids_to_remove.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
@@ -303,6 +322,20 @@ impl AppState {
     /// repository's internal `spawn_blocking`.  Cache update and event emission
     /// happen in the async context after persistence completes.
     pub async fn upsert_session_async(&self, detail: ProxySessionDetail) {
+        let generation = self.session_generation.load(Ordering::Acquire);
+        self.upsert_session_async_at_generation(detail, generation)
+            .await;
+    }
+
+    async fn upsert_session_async_at_generation(
+        &self,
+        detail: ProxySessionDetail,
+        generation: u64,
+    ) {
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        if self.session_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
         let active_workspace_id = self
             .read_status()
             .active_workspace_id
@@ -315,9 +348,15 @@ impl AppState {
         self.update_session_cache_and_emit(&detail);
     }
 
-    /// Persist a batch of sessions (async).  Same offload pattern as
-    /// `upsert_session_async`.
-    pub async fn upsert_session_batch_async(&self, sessions: Vec<ProxySessionDetail>) {
+    pub(crate) async fn upsert_session_batch_async_at_generation(
+        &self,
+        sessions: Vec<ProxySessionDetail>,
+        generation: u64,
+    ) {
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        if self.session_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
         let active_workspace_id = self
             .read_status()
             .active_workspace_id

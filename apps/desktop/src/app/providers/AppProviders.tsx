@@ -1,5 +1,5 @@
 import { type PropsWithChildren, useEffect, useMemo, useState } from "react";
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@mui/material/styles";
 
 import { coerceAppError } from "@aiproxy/shared-types";
@@ -102,6 +102,20 @@ export function AppProviders({ children }: PropsWithChildren) {
             if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
 
             const message = coerceAppError(error).message || "Query failed";
+            useNotificationStore.getState().push(message);
+          },
+        }),
+        // P1-19: mirror the QueryCache fallback for mutations. Without this,
+        // any mutation whose caller renders no error of its own failed
+        // silently (certificates / collections / compose / throttling all had
+        // such call sites). Callers that DO render the failure in place opt
+        // out via mutate options meta `suppressGlobalErrorNotification`.
+        mutationCache: new MutationCache({
+          onError: (error, _variables, _context, mutation) => {
+            if (mutation?.meta?.suppressGlobalErrorNotification) return;
+            if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
+
+            const message = coerceAppError(error).message || "Mutation failed";
             useNotificationStore.getState().push(message);
           },
         }),

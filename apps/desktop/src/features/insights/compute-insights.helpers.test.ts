@@ -4,6 +4,8 @@ import type { SessionSummary } from "@aiproxy/shared-types";
 
 import {
   areSessionIdsEqual,
+  buildSessionIdsSignature,
+  parseSessionIdsSignature,
   computeInsightsFromSummaries,
   type InsightsComputationFilters,
 } from "@/features/insights/compute-insights.helpers";
@@ -167,5 +169,27 @@ describe("areSessionIdsEqual", () => {
 
   it("is order-sensitive", () => {
     expect(areSessionIdsEqual(["s1", "s2"], ["s2", "s1"])).toBe(false);
+  });
+});
+
+// P2 4.3-3: the insights debounce must key on id CONTENT, not array identity —
+// the store batches rebuild the ids array every ~100ms, so a reference-keyed
+// debounce never settles under sustained traffic. These helpers carry the
+// content signature; the round-trip must be lossless for UUID-shaped ids.
+describe("session id signature round-trip", () => {
+  it("round-trips a non-empty id list losslessly", () => {
+    const ids = ["0b7f1c9e-1", "imported-har-2a6f", "c-3"];
+    expect(parseSessionIdsSignature(buildSessionIdsSignature(ids))).toEqual(ids);
+  });
+
+  it("treats the empty signature as the empty list", () => {
+    expect(parseSessionIdsSignature(buildSessionIdsSignature([]))).toEqual([]);
+    expect(parseSessionIdsSignature("")).toEqual([]);
+  });
+
+  it("produces equal signatures only for equal content (order included)", () => {
+    expect(buildSessionIdsSignature(["s1", "s2"])).toBe(buildSessionIdsSignature(["s1", "s2"]));
+    expect(buildSessionIdsSignature(["s1", "s2"])).not.toBe(buildSessionIdsSignature(["s2", "s1"]));
+    expect(buildSessionIdsSignature(["s1"])).not.toBe(buildSessionIdsSignature(["s1", "s1"]));
   });
 });

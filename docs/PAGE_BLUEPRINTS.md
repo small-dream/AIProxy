@@ -326,7 +326,7 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 
 ```ts
 interface WsMessagesPaneState {
-  messages: WsMessage[];           // 全部消息
+  messages: WsMessage[];           // 全部消息（truncated=true 表示重组达到捕获上限，负载仅为原始消息前缀）
   directionFilter: "all" | "clientToServer" | "serverToClient";
   opcodeFilter: "all" | "text" | "binary" | "control";
   search: string;                  // 客户端搜索
@@ -373,6 +373,8 @@ UI 布局：
 ```
 
 **虚拟滚动（M1）：** WS Messages 消息列表使用 `@tanstack/react-virtual` 渲染，常量 `MESSAGE_ROW_HEIGHT = 42`，`MESSAGE_ROW_OVERSCAN = 8`。即使消息量达到上千条，滚动仍保持流畅。
+
+**WS 重组截断标记（P2 4.1-7）：** 分片消息重组超过 20 MiB 捕获上限时，捕获负载仅为原始消息的精确前缀，`WsMessage.truncated` 置为 `true`；列表行显示 warning Chip「已截断」，详情视图顶部显示 Alert 提示。该标志经持久化（`ws_messages.truncated` 列）与实时 `ws-message` 事件全链路贯通，旧数据库通过迁移补列。
 
 **Body 截断提示（M1）：** 当请求/响应 Body 在 20MB 处被截断时，Inspector 各面板会显示 MUI Alert 警告，提示用户 Body 已被截断。该提示文案通过 i18n 系统维护（`en.ts` / `zh-CN.ts`）。
 
@@ -485,7 +487,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 -> 顶栏：环境选择器（compact，与 Collections 共享 aiproxy.activeEnvironmentId）、
    cURL 导入（parseCurlCommand -> loadFromSession）、保存到 Collection（复用 SaveToCollectionDialog）
 -> 发送与 cURL 导出共用 encodeComposedRequest：内联替换 {{var}}，编辑器保留模板原文
--> multipart 编辑器下半区附件行；附件只存元数据（D1），发送时 Rust 读取文件并构建字节，
+-> multipart 编辑器下半区附件行；附件只存文件名、大小和后端短生命周期 token（D1），发送时 Rust 重新校验路径并构建字节，
    支持 multipartEntries -> send_direct_request_bytes
 ```
 

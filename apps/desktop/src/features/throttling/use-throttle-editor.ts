@@ -199,6 +199,12 @@ export function useThrottleEditor() {
   const ruleSaveError = saveRuleMutation.error
     ? coerceAppError(saveRuleMutation.error).message
     : undefined;
+  // P1-28: the active-profile switch (15-min enable / global disable) had no
+  // consumer for its failure — expose it so the page can render an inline
+  // Alert next to the status it failed to change.
+  const setActiveError = setActiveMutation.error
+    ? coerceAppError(setActiveMutation.error).message
+    : undefined;
 
   // Effects
   useEffect(() => {
@@ -339,9 +345,9 @@ export function useThrottleEditor() {
     );
   }
 
-  function handleTemporaryEnable() {
+  function handleTemporaryEnable(explicitProfileId?: string) {
     if (isProfilesError) return;
-    const target = selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
+    const target = explicitProfileId ?? selectedProfileId ?? activeProfile?.id ?? profiles[0]?.id;
     if (!target) return;
     // M23: record which profile this temporary-enable targets so the timeout
     // callback can verify the active profile is still this one before
@@ -388,12 +394,15 @@ export function useThrottleEditor() {
     saveRuleMutation.mutate({ ...rule, enabled });
   }
 
-  function handleDeleteRule(ruleId: string) {
+  function handleDeleteRule(ruleId: string, callbacks?: { onSuccess?: () => void }) {
     deleteRuleMutation.mutate(ruleId, {
       onSuccess: () => {
         setSelectedRuleId(undefined);
         lastSyncedRuleIdRef.current = undefined;
         setRuleDraft(null);
+        // P1-23: the confirm dialog closes itself via this hook once the
+        // delete has actually succeeded.
+        callbacks?.onSuccess?.();
       },
     });
   }
@@ -438,8 +447,13 @@ export function useThrottleEditor() {
     setActivePending: setActiveMutation.isPending,
     saveRulePending: saveRuleMutation.isPending,
     deleteRulePending: deleteRuleMutation.isPending,
+    deleteRuleError: deleteRuleMutation.error
+      ? coerceAppError(deleteRuleMutation.error).message
+      : undefined,
     profileSaveError,
     ruleSaveError,
+    setActiveError,
+    clearSetActiveError: () => setActiveMutation.reset(),
 
     // Temporary enable
     temporaryUntil,

@@ -6,7 +6,7 @@ use super::multipart::{build_multipart_body_bytes, MultipartEntry};
 pub struct CollectionFormFile {
     pub name: String,
     pub file_name: String,
-    pub file_path: String,
+    pub file_token: String,
     pub content_type: Option<String>,
 }
 
@@ -132,7 +132,7 @@ fn build_collection_item_request(
             multipart_entries.extend(form_files.into_iter().map(|file| MultipartEntry::File {
                 name: substitute_vars(&file.name, vars),
                 file_name: file.file_name,
-                file_path: file.file_path,
+                file_token: file.file_token,
                 content_type: file.content_type,
             }));
             if multipart_entries.is_empty() {

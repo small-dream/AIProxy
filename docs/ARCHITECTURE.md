@@ -220,7 +220,8 @@ CSP 策略：
 - `ssl_proxying.rs`：逐域名的 SSL 代理（TLS 解密）策略。`server.rs` 在处理 CONNECT 时调用 `should_intercept()` 决定该连接走 MITM 还是盲转发：`exclude` 优先于 `include`，`include` 为空表示「解密所有未被排除的域名」。这是为证书绑定（SSL Pinning）客户端准备的——它们会拒绝我们的证书，而握手失败会直接断开连接，因此拦截这类域名不只是抓不到明文，而是会让 App 不可用；排除后走盲转发即可保持其正常工作。
 - `host_pattern.rs`：域名模式匹配的共用实现（精确域名 / `*.example.com` 后缀 / CIDR / `*`），由上游代理绕行列表与 SSL 代理 include/exclude 列表共同使用。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
-- `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
+- `upstream_pool.rs`：协议感知的上游连接池，按 `(scheme, host, port)` 键复用连接。HTTP/2 连接通过可克隆 sender 多路复用；HTTP/1.1 在每个 key 下维护有界连接集合，每条连接通过独占 lease 保证请求字节不交错；忙连接会扩容拨号，达到上限后通过 `Notify` 排队并受独立等待超时约束。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护；扩容拨号使用取消安全的 RAII 配额 guard，避免 future 取消后永久占用容量。池内建空闲连接驱逐定时器、driver 关闭驱逐和失败驱逐；h1 连接在超时/错误/显式关闭时会同步标记关闭并 abort driver。ALPN 协商结果直接决定 h2 或 h1 连接类型，避免 h1 fallback 后重复拨号。
+- `timeouts.rs`：代理生命周期超时矩阵的唯一定义点。所有客户端读取、上游请求、隧道、断点等待、WebSocket 和响应体空闲超时都通过 `TimeoutKind` 集中声明；测试 override 也收敛到同一模块，避免生产常量散落和字符串化配置漂移。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
 - `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
 
@@ -988,7 +989,7 @@ project-root/
 - `connection.rs`：连接级上下文与 `ConnectionMode`
 - `context.rs`：跨请求共享的 proxy runtime context
 - `http_io.rs`：HTTP header/body I/O、prefixed stream、body limit 工具
-- `upstream_pool.rs`：HTTP/2 上游连接池与空闲连接清理
+- `upstream_pool.rs`：协议感知的 HTTP/1.1 / HTTP/2 上游连接池与空闲连接清理
 - `upstream_proxy.rs`：上游（链式）代理的协议握手、绕行匹配、统一拨号入口与连通性探测
 - `ssl_proxying.rs`：逐域名 TLS 解密策略与内置推荐排除表
 - `host_pattern.rs`：域名模式匹配共用实现（绕行列表与 SSL 代理列表共用）

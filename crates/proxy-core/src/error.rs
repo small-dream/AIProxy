@@ -10,6 +10,15 @@ pub enum ProxyError {
     #[error("upstream connection failed: {0}")]
     UpstreamError(String),
 
+    /// The upstream did not deliver a response HEAD within the configured
+    /// request timeout (P1-5). Distinct from [`ProxyError::UpstreamError`] so
+    /// the proxy layer can answer 504 Gateway Timeout instead of 502. The
+    /// response BODY is deliberately not covered by this deadline — a body
+    /// that keeps producing chunks may take arbitrarily long and is bounded
+    /// per-chunk by the response-body idle timeout instead.
+    #[error("upstream did not respond within {timeout_secs}s")]
+    UpstreamTimeout { timeout_secs: u64 },
+
     #[error("TLS handshake failed: {0}")]
     TlsError(String),
 

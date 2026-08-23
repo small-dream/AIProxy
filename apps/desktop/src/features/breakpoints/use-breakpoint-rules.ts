@@ -19,5 +19,7 @@ export function useSetBreakpointRules() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: BREAKPOINT_RULES_KEY });
     },
+    // Surfaced as the panel's saveError alert.
+    meta: { suppressGlobalErrorNotification: true },
   });
 }

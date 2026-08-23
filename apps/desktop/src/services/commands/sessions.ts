@@ -20,7 +20,6 @@ import { logDevDebug, logDevInfo, logDevWarn } from "@/services/logger/dev-logge
 import {
   clearImportedSessions,
   getImportedSessionDetail,
-  keepOnlyImportedSession,
   listImportedSessionSummaries,
 } from "@/features/sessions/imported-sessions.store";
 
@@ -249,26 +248,6 @@ export async function clearSessions(): Promise<void> {
     logDevInfo("ui.commands", "clear_sessions_succeeded");
   } catch (error) {
     reportCommandFailure("clear_sessions", error);
-    throw coerceAppError(error);
-  }
-}
-
-export async function deleteSessionsExcept(keepSessionId: string): Promise<void> {
-  keepOnlyImportedSession(keepSessionId);
-
-  if (!isTauriRuntime()) {
-    logDevDebug("ui.commands", "delete_sessions_except_bypassed_non_tauri_runtime");
-    return;
-  }
-
-  try {
-    logDevInfo("ui.commands", "delete_sessions_except_requested", { keepSessionId });
-    await invoke("delete_sessions_except", {
-      input: { keepSessionId },
-    });
-    logDevInfo("ui.commands", "delete_sessions_except_succeeded");
-  } catch (error) {
-    reportCommandFailure("delete_sessions_except", error);
     throw coerceAppError(error);
   }
 }

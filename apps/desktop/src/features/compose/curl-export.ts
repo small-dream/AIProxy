@@ -55,7 +55,7 @@ function generatePosixCurl({
       if (entry.kind === "text") {
         parts.push(`-F '${escapeSingleQuotes(entry.name)}=${escapeSingleQuotes(entry.value)}'`);
       } else {
-        parts.push(`-F '${escapeSingleQuotes(entry.name)}=@${escapeSingleQuotes(entry.filePath)}'`);
+        parts.push(`-F '${escapeSingleQuotes(entry.name)}=@${escapeSingleQuotes(entry.fileName)}'`);
       }
     }
   } else if (body) {
@@ -111,7 +111,7 @@ function generateWindowsCurl({
         );
       } else {
         parts.push(
-          `-F "${escapeForDoubleQuotes(entry.name)}=@${escapeForDoubleQuotes(entry.filePath)}"`,
+          `-F "${escapeForDoubleQuotes(entry.name)}=@${escapeForDoubleQuotes(entry.fileName)}"`,
         );
       }
     }

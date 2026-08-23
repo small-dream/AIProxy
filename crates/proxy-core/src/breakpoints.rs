@@ -716,7 +716,12 @@ pub(crate) async fn intercept_request_stage(
     );
     emit_breakpoint_event(event_emitter, &hit);
 
-    match tokio::time::timeout(crate::breakpoint_wait_timeout(), receiver).await {
+    match tokio::time::timeout(
+        crate::timeout_for(crate::TimeoutKind::BreakpointWait),
+        receiver,
+    )
+    .await
+    {
         Ok(Ok(resolution)) => {
             apply_request_resolution(&resolution, request);
             Ok(Some(resolution))
@@ -798,7 +803,12 @@ pub(crate) async fn intercept_response_stage(
     );
     emit_breakpoint_event(event_emitter, &hit);
 
-    match tokio::time::timeout(crate::breakpoint_wait_timeout(), receiver).await {
+    match tokio::time::timeout(
+        crate::timeout_for(crate::TimeoutKind::BreakpointWait),
+        receiver,
+    )
+    .await
+    {
         Ok(Ok(resolution)) => Ok(Some(resolution)),
         Ok(Err(_gone)) => {
             bp.remove_pending(&session_id);
@@ -1182,8 +1192,11 @@ mod tests {
     /// also return None so the request forwards unmodified.
     #[tokio::test]
     async fn request_stage_breakpoint_wait_times_out_and_cleans_pending() {
-        let _guard =
-            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
+        let _guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::BreakpointWait,
+            std::time::Duration::from_millis(50),
+        );
         let manager = Arc::new(BreakpointManager::new());
         manager.set_rules(vec![make_rule("rule-a", true)]);
 
@@ -1208,10 +1221,13 @@ mod tests {
     /// detect the dropped sender and clean the pending entry.
     #[tokio::test]
     async fn request_stage_breakpoint_sender_drop_cleans_pending() {
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         // Use a long timeout so the dropped-sender path (not the timeout path)
         // is what resolves this test.
-        let _guard =
-            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_secs(30));
+        let _guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::BreakpointWait,
+            std::time::Duration::from_secs(30),
+        );
         let manager = Arc::new(BreakpointManager::new());
         manager.set_rules(vec![make_rule("rule-a", true)]);
 
@@ -1254,8 +1270,11 @@ mod tests {
     /// breakpoint-hit followed by breakpoint-released with a timeout reason.
     #[tokio::test]
     async fn emits_breakpoint_released_on_wait_timeout() {
-        let _guard =
-            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_millis(50));
+        let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
+        let _guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::BreakpointWait,
+            std::time::Duration::from_millis(50),
+        );
         let manager = Arc::new(BreakpointManager::new());
         manager.set_rules(vec![make_rule("rule-a", true)]);
 
